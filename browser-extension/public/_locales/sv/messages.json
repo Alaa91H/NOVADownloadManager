@@ -1,0 +1,20 @@
+{
+  "extensionName": {
+    "message": "NOVA Browser Extension-tillägg"
+  },
+  "extensionNameEdge": {
+    "message": "NOVA Browser Extension-tillägg för Edge"
+  },
+  "extensionShortName": {
+    "message": "NOVA Browser Extension-tillägg"
+  },
+  "extensionActionTitle": {
+    "message": "NOVA Browser Extension-tillägg"
+  },
+  "extensionDescription": {
+    "message": "Upptäckter nedladdnings- och mediakandidater och överlämnar godkänt arbete till NOVA Browser Extension via den lokala skrivbordsbryggan."
+  },
+  "commandSendCurrentPageDescription": {
+    "message": "Skicka den aktuella sidans URL till NOVA Browser Extension"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "extensionName": {
+    "message": "NOVA Browser Extension এক্সটেনশন"
+  },
+  "extensionNameEdge": {
+    "message": "Edge-এর জন্য NOVA Browser Extension এক্সটেনশন"
+  },
+  "extensionShortName": {
+    "message": "NOVA Browser Extension এক্সটেনশন"
+  },
+  "extensionActionTitle": {
+    "message": "NOVA Browser Extension এক্সটেনশন"
+  },
+  "extensionDescription": {
+    "message": "ডাউনলোড ও মিডিয়া ক্যান্ডিডেট শনাক্ত করে এবং অনুমোদিত কাজ লোকাল ডেস্কটপ ব্রিজের মাধ্যমে NOVA Browser Extension-এ হস্তান্তর করে।"
+  },
+  "commandSendCurrentPageDescription": {
+    "message": "বর্তমান পৃষ্ঠার URL NOVA Browser Extension-এ পাঠান"
+  }
+}

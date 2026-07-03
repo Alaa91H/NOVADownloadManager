@@ -1,0 +1,20 @@
+{
+  "extensionName": {
+    "message": "افزونه NOVA Browser Extension"
+  },
+  "extensionNameEdge": {
+    "message": "افزونه NOVA Browser Extension برای Edge"
+  },
+  "extensionShortName": {
+    "message": "افزونه NOVA Browser Extension"
+  },
+  "extensionActionTitle": {
+    "message": "افزونه NOVA Browser Extension"
+  },
+  "extensionDescription": {
+    "message": "نامزدهای دانلود و رسانه را شناسایی می‌کند و کارهای تأییدشده را از طریق پل محلی دسکتاپ به NOVA Browser Extension تحویل می‌دهد."
+  },
+  "commandSendCurrentPageDescription": {
+    "message": "ارسال نشانی صفحه فعلی به NOVA Browser Extension"
+  }
+}

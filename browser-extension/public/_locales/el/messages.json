@@ -1,0 +1,20 @@
+{
+  "extensionName": {
+    "message": "Επέκταση NOVA Browser Extension"
+  },
+  "extensionNameEdge": {
+    "message": "Επέκταση NOVA Browser Extension για Edge"
+  },
+  "extensionShortName": {
+    "message": "Επέκταση NOVA Browser Extension"
+  },
+  "extensionActionTitle": {
+    "message": "Επέκταση NOVA Browser Extension"
+  },
+  "extensionDescription": {
+    "message": "Ανιχνεύει υποψήφιες λήψεις και πολυμέσα και παραδίδει εγκεκριμένες εργασίες στο NOVA Browser Extension μέσω της τοπικής γέφυρας επιφάνειας εργασίας."
+  },
+  "commandSendCurrentPageDescription": {
+    "message": "Αποστολή URL της τρέχουσας σελίδας στο NOVA Browser Extension"
+  }
+}

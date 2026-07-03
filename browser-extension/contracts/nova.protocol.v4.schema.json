@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novabrowserextension.app/contracts/nova.protocol.v4.schema.json",
+  "title": "NOVA Browser Extension Protocol v4",
+  "type": "object",
+  "required": ["ok", "protocolVersion"],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "protocolVersion": { "const": 4 },
+    "minimumSupportedProtocolVersion": { "type": "integer", "minimum": 1 },
+    "capabilities": { "type": "object", "additionalProperties": { "type": "boolean" } },
+    "error": { "$ref": "errors.schema.json" }
+  },
+  "additionalProperties": true
+}

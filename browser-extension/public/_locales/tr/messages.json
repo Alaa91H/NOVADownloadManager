@@ -1,0 +1,20 @@
+{
+  "extensionName": {
+    "message": "NOVA Browser Extension Uzantısı"
+  },
+  "extensionNameEdge": {
+    "message": "Edge için NOVA Browser Extension Uzantısı"
+  },
+  "extensionShortName": {
+    "message": "NOVA Browser Extension Uzantısı"
+  },
+  "extensionActionTitle": {
+    "message": "NOVA Browser Extension Uzantısı"
+  },
+  "extensionDescription": {
+    "message": "İndirme ve medya adaylarını algılar ve onaylanan işleri yerel masaüstü köprüsü üzerinden NOVA Browser Extension’a iletir."
+  },
+  "commandSendCurrentPageDescription": {
+    "message": "Geçerli sayfanın URL’sini NOVA Browser Extension’a gönder"
+  }
+}
