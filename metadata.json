@@ -1,0 +1,6 @@
+{
+  "name": "NOVA Download Manager",
+  "description": "A Tauri desktop download manager with a React UI, an in-process Rust daemon, aria2 for file downloads, and yt-dlp for video and media downloads.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

@@ -1,0 +1,176 @@
+name: Build and Release Nova Download Manager
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version tag, for example v1.0.0"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: "24"
+  PNPM_VERSION: "11"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  validate:
+    name: Validate frontend and translations
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Synchronize translation indexes
+        run: npm run i18n:sync
+
+      - name: Validate translations
+        run: npm run i18n:validate
+
+      - name: TypeScript check
+        run: npm run lint
+
+      - name: ESLint
+        run: npm run lint:eslint
+
+      - name: Run tests
+        run: npm test
+
+      - name: Frontend production build
+        run: npm run build
+
+  build-windows-installer:
+    name: Build Windows NSIS installer
+    runs-on: windows-latest
+    needs: validate
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry and target
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+            !src-tauri/target/release/bundle
+          key: cargo-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Resolve build version
+        shell: pwsh
+        run: |
+          $version = "${{ github.event.inputs.version }}"
+          if (-not $version) { $version = "${{ github.ref_name }}" }
+          if (-not $version -or $version -notmatch '^v\d+\.\d+\.\d+') {
+            $version = "v0.1.0-${{ github.run_number }}"
+          }
+          "BUILD_TAG=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "VITE_APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "WXT_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Stamp version into project files
+        run: node scripts/apply-version.mjs
+
+      - name: Synchronize translation indexes
+        run: npm run i18n:sync
+
+      - name: Fetch bundled download engines
+        run: npm run fetch-engines
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Clean stale bundle output
+        shell: pwsh
+        run: |
+          if (Test-Path src-tauri\target\release\bundle) {
+            Remove-Item src-tauri\target\release\bundle -Recurse -Force -Confirm:$false
+          }
+
+      - name: Build Tauri installer
+        run: npm run tauri:build
+
+      - name: Build browser extension packages
+        run: |
+          npm run extension:install
+          npm run extension:package
+
+      - name: Generate SHA256 checksums
+        shell: pwsh
+        run: |
+          $version = $env:BUILD_TAG -replace '^v', ''
+          New-Item -ItemType Directory -Force release | Out-Null
+          $installers = Get-ChildItem "src-tauri\target\release\bundle\nsis\*_${version}_*.exe"
+          if (-not $installers) {
+            Write-Error "No installer found matching version ${version}."
+            exit 1
+          }
+          $installers | ForEach-Object {
+            Copy-Item $_.FullName "release\$($_.Name)" -Force
+          }
+          Get-ChildItem browser-extension\dist\release-assets\* -File | ForEach-Object {
+            Copy-Item $_.FullName "release\$($_.Name)" -Force
+          }
+          Get-ChildItem release\* -Include *.exe, *.zip, *.crx, *.xpi | ForEach-Object {
+            $hash = Get-FileHash $_.FullName -Algorithm SHA256
+            "$($hash.Hash)  $($_.Name)" | Out-File "$($_.FullName).sha256" -Encoding ascii
+          }
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: Nova-Download-Manager-${{ env.BUILD_TAG }}-Release-Files
+          path: release/*
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Nova Download Manager ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
