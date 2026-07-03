@@ -1,0 +1,20 @@
+{
+  "extensionName": {
+    "message": "NOVA Browser Extension 扩展"
+  },
+  "extensionNameEdge": {
+    "message": "适用于 Edge 的 NOVA Browser Extension 扩展"
+  },
+  "extensionShortName": {
+    "message": "NOVA Browser Extension 扩展"
+  },
+  "extensionActionTitle": {
+    "message": "NOVA Browser Extension 扩展"
+  },
+  "extensionDescription": {
+    "message": "检测下载和媒体候选项，并通过本地桌面桥接将已批准的任务交给 NOVA Browser Extension。"
+  },
+  "commandSendCurrentPageDescription": {
+    "message": "将当前页面的网址发送到 NOVA Browser Extension"
+  }
+}

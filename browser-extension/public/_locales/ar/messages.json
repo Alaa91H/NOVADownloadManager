@@ -1,0 +1,20 @@
+{
+  "extensionName": {
+    "message": "إضافة NOVA Browser Extension"
+  },
+  "extensionNameEdge": {
+    "message": "إضافة NOVA Browser Extension لمتصفح Edge"
+  },
+  "extensionShortName": {
+    "message": "إضافة NOVA Browser Extension"
+  },
+  "extensionActionTitle": {
+    "message": "إضافة NOVA Browser Extension"
+  },
+  "extensionDescription": {
+    "message": "تكتشف روابط التحميل ووسائط الفيديو والصوت وتسلم المهام المعتمدة إلى NOVA Browser Extension عبر الجسر المحلي."
+  },
+  "commandSendCurrentPageDescription": {
+    "message": "إرسال رابط الصفحة الحالية إلى NOVA Browser Extension"
+  }
+}

@@ -1,0 +1,35 @@
+node_modules/
+build/
+dist/
+coverage/
+release/
+package/
+.DS_Store
+*.log
+*.tmp
+.nova-runtime/
+.nova-port
+start-daemon.bat
+daemon*.log
+daemon*.err
+bundle/
+.cache/
+.env*
+!.env.example
+
+# Download engines and generated local runtime files
+bin/
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+src-tauri/resources/
+
+# Browser extension build outputs
+browser-extension/node_modules/
+browser-extension/.output/
+browser-extension/.wxt/
+browser-extension/dist/
+browser-extension/coverage/
+browser-extension/test-results/
+browser-extension/.pytest_cache/

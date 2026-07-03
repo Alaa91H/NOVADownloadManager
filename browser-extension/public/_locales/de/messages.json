@@ -1,0 +1,20 @@
+{
+  "extensionName": {
+    "message": "NOVA Browser Extension Erweiterung"
+  },
+  "extensionNameEdge": {
+    "message": "NOVA Browser Extension Erweiterung für Edge"
+  },
+  "extensionShortName": {
+    "message": "NOVA Browser Extension-Erweiterung"
+  },
+  "extensionActionTitle": {
+    "message": "NOVA Browser Extension-Erweiterung"
+  },
+  "extensionDescription": {
+    "message": "Erkennt Download- und Medienkandidaten und übergibt freigegebene Aufgaben über die lokale Desktop-Brücke an NOVA Browser Extension."
+  },
+  "commandSendCurrentPageDescription": {
+    "message": "Die URL der aktuellen Seite an NOVA Browser Extension senden"
+  }
+}

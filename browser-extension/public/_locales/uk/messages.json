@@ -1,0 +1,20 @@
+{
+  "extensionName": {
+    "message": "Розширення NOVA Browser Extension"
+  },
+  "extensionNameEdge": {
+    "message": "Розширення NOVA Browser Extension для Edge"
+  },
+  "extensionShortName": {
+    "message": "Розширення NOVA Browser Extension"
+  },
+  "extensionActionTitle": {
+    "message": "Розширення NOVA Browser Extension"
+  },
+  "extensionDescription": {
+    "message": "Виявляє кандидатів на завантаження та медіа, передає затверджені завдання до NOVA Browser Extension через локальний десктопний міст."
+  },
+  "commandSendCurrentPageDescription": {
+    "message": "Надіслати URL поточної сторінки до NOVA Browser Extension"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "extensionName": {
+    "message": "Extensia NOVA Browser Extension"
+  },
+  "extensionNameEdge": {
+    "message": "Extensia NOVA Browser Extension pentru Edge"
+  },
+  "extensionShortName": {
+    "message": "Extensia NOVA Browser Extension"
+  },
+  "extensionActionTitle": {
+    "message": "Extensia NOVA Browser Extension"
+  },
+  "extensionDescription": {
+    "message": "Detectează candidații de descărcare și media și transmite lucrările aprobate către NOVA Browser Extension prin puntea desktop locală."
+  },
+  "commandSendCurrentPageDescription": {
+    "message": "Trimiteți URL-ul paginii curente către NOVA Browser Extension"
+  }
+}

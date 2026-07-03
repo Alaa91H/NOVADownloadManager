@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novabrowserextension.app/contracts/extension-settings-response.schema.json",
+  "title": "NOVA Browser Extension Settings Response",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "default": true,
+      "type": "boolean"
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "candidate.directUrl",
+              "candidate.torrent",
+              "candidate.magnet",
+              "candidate.hls",
+              "candidate.dash",
+              "task.add",
+              "task.addBatch",
+              "task.pause",
+              "task.resume",
+              "task.cancel",
+              "events.sse",
+              "events.websocket",
+              "settings.snapshot",
+              "page.extract",
+              "refreshAddress.candidate",
+              "refreshAddress.apply"
+            ]
+          }
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "additionalProperties": false
+    },
+    "settings": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "additionalProperties": false
+}

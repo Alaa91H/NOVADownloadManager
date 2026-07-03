@@ -1,0 +1,20 @@
+{
+  "extensionName": {
+    "message": "NOVA Browser Extension एक्सटेंशन"
+  },
+  "extensionNameEdge": {
+    "message": "Edge के लिए NOVA Browser Extension एक्सटेंशन"
+  },
+  "extensionShortName": {
+    "message": "NOVA Browser Extension एक्सटेंशन"
+  },
+  "extensionActionTitle": {
+    "message": "NOVA Browser Extension एक्सटेंशन"
+  },
+  "extensionDescription": {
+    "message": "डाउनलोड और मीडिया उम्मीदवारों का पता लगाता है और स्वीकृत कार्य को स्थानीय डेस्कटॉप ब्रिज के माध्यम से NOVA Browser Extension को सौंपता है।"
+  },
+  "commandSendCurrentPageDescription": {
+    "message": "वर्तमान पृष्ठ का URL NOVA Browser Extension को भेजें"
+  }
+}

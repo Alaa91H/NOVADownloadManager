@@ -1,0 +1,20 @@
+{
+  "extensionName": {
+    "message": "NOVA Browser Extension 확장 프로그램"
+  },
+  "extensionNameEdge": {
+    "message": "Edge용 NOVA Browser Extension 확장 프로그램"
+  },
+  "extensionShortName": {
+    "message": "NOVA Browser Extension 확장 프로그램"
+  },
+  "extensionActionTitle": {
+    "message": "NOVA Browser Extension 확장 프로그램"
+  },
+  "extensionDescription": {
+    "message": "다운로드 및 미디어 후보를 감지하고 승인된 작업을 로컬 데스크톱 브리지를 통해 NOVA Browser Extension에 전달합니다."
+  },
+  "commandSendCurrentPageDescription": {
+    "message": "현재 페이지의 URL을 NOVA Browser Extension로 보내기"
+  }
+}

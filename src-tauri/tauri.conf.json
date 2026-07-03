@@ -1,0 +1,82 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Nova Download Manager",
+  "version": "0.1.0",
+  "identifier": "com.nova.downloadmanager",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://127.0.0.1:3000",
+    "beforeBuildCommand": "npm run tauri:prepare"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "NOVA Download Manager",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "decorations": false,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "publisher": "NOVA",
+    "copyright": "Copyright (c) 2026 NOVA",
+    "category": "Utility",
+    "shortDescription": "Professional download manager for direct and media downloads.",
+    "longDescription": "Nova Download Manager is a professional desktop download manager with direct downloads, media downloads, queues, scheduling, diagnostics, and advanced connection controls.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "resources/**/*"
+    ],
+    "windows": {
+      "allowDowngrades": false,
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "wix": null,
+      "nsis": {
+        "installerHooks": "./windows/hooks.nsi",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "installMode": "perMachine",
+        "languages": [
+          "English",
+          "Arabic",
+          "French",
+          "German",
+          "Spanish",
+          "Portuguese",
+          "Italian",
+          "Japanese",
+          "Korean",
+          "SimpChinese",
+          "TradChinese",
+          "Russian",
+          "Turkish"
+        ],
+        "displayLanguageSelector": true,
+        "compression": "lzma",
+        "startMenuFolder": "Nova Download Manager"
+      }
+    }
+  }
+}

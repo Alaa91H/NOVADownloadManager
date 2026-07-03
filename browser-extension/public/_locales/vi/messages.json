@@ -1,0 +1,20 @@
+{
+  "extensionName": {
+    "message": "Tiện ích mở rộng NOVA Browser Extension"
+  },
+  "extensionNameEdge": {
+    "message": "Tiện ích mở rộng NOVA Browser Extension cho Edge"
+  },
+  "extensionShortName": {
+    "message": "Tiện ích NOVA Browser Extension"
+  },
+  "extensionActionTitle": {
+    "message": "Tiện ích NOVA Browser Extension"
+  },
+  "extensionDescription": {
+    "message": "Phát hiện các ứng viên tải xuống và phương tiện, chuyển công việc đã được phê duyệt đến NOVA Browser Extension qua cầu nối máy tính để bàn cục bộ."
+  },
+  "commandSendCurrentPageDescription": {
+    "message": "Gửi URL trang hiện tại đến NOVA Browser Extension"
+  }
+}
