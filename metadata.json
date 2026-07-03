@@ -1,0 +1,6 @@
+{
+  "name": "NOVA Download Manager",
+  "description": "A React desktop-style download manager UI powered by a local Node daemon, aria2 for file downloads, and yt-dlp for video and media downloads.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

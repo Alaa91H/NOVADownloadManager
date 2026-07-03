@@ -1,0 +1,1 @@
+export function sizeFromHeaders(h?:{contentLength?:string;contentRange?:string}){ const len=Number(h?.contentLength); if(Number.isFinite(len)&&len>=0) return len; const m=/\/(\d+)$/.exec(h?.contentRange ?? ''); return m ? Number(m[1]) : undefined; }
