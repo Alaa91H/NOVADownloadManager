@@ -1,0 +1,20 @@
+{
+  "extensionName": {
+    "message": "הרחבת NOVA Browser Extension"
+  },
+  "extensionNameEdge": {
+    "message": "הרחבת NOVA Browser Extension עבור Edge"
+  },
+  "extensionShortName": {
+    "message": "הרחבת NOVA Browser Extension"
+  },
+  "extensionActionTitle": {
+    "message": "הרחבת NOVA Browser Extension"
+  },
+  "extensionDescription": {
+    "message": "מזהה מועמדי הורדה ומדיה ומעביר עבודה מאושרת ל-NOVA Browser Extension דרך הגשר המקומי לשולחן העבודה."
+  },
+  "commandSendCurrentPageDescription": {
+    "message": "שלח את כתובת ה-URL של הדף הנוכחי ל-NOVA Browser Extension"
+  }
+}

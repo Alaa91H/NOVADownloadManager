@@ -1,0 +1,12 @@
+{
+  "extends": "./.wxt/tsconfig.json",
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
+        "useUnknownInCatchVariables": true,
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "types": ["node", "webextension-polyfill"]
+  }
+}

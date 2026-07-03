@@ -1,0 +1,20 @@
+{
+  "extensionName": {
+    "message": "ส่วนขยาย NOVA Browser Extension"
+  },
+  "extensionNameEdge": {
+    "message": "ส่วนขยาย NOVA Browser Extension สำหรับ Edge"
+  },
+  "extensionShortName": {
+    "message": "ส่วนขยาย NOVA Browser Extension"
+  },
+  "extensionActionTitle": {
+    "message": "ส่วนขยาย NOVA Browser Extension"
+  },
+  "extensionDescription": {
+    "message": "ตรวจจับรายการดาวน์โหลดและสื่อที่อาจเป็นไปได้ และส่งงานที่ได้รับอนุมัติไปยัง NOVA Browser Extension ผ่านบริดจ์เดสก์ท็อปภายในเครื่อง"
+  },
+  "commandSendCurrentPageDescription": {
+    "message": "ส่ง URL ของหน้าปัจจุบันไปยัง NOVA Browser Extension"
+  }
+}

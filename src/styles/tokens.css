@@ -1,0 +1,161 @@
+/* src/styles/tokens.css */
+
+:root, [data-theme="dark"] {
+  /* Default Theme Settings (Dark-first by default) */
+  --font-sans: 'Cairo', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  
+  --radius-xs: 12px;
+  --radius-sm: 14px;
+  --radius-md: 18px;
+  --radius-lg: 24px;
+  --radius-full: 9999px;
+
+  /* Accent Colors Variables */
+  --accent-primary: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-light: rgba(59, 130, 246, 0.15);
+  --accent-border: rgba(59, 130, 246, 0.3);
+  --accent-glow: rgba(59, 130, 246, 0.2);
+
+  /* Default Transition Duration */
+  --transition-speed: 200ms;
+  --transition-bezier: cubic-bezier(0.4, 0, 0.2, 1);
+  --blur-amount: 12px;
+
+  --bg-app: #050507;
+  --bg-sidebar: rgba(10, 10, 12, 0.9);
+  --bg-surface: rgba(18, 18, 22, 0.8);
+  --bg-surface-elevated: rgba(28, 28, 33, 0.95);
+  --bg-input: #0a0a0c;
+  
+  --border-color: rgba(255, 255, 255, 0.06);
+  --border-color-hover: rgba(255, 255, 255, 0.12);
+  
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-muted: #52525b;
+  --bg-hover: rgba(255, 255, 255, 0.04);
+  --bg-selected: rgba(59, 130, 246, 0.12);
+  
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.7);
+  --shadow-md: 0 4px 16px 0 rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 16px 32px -4px rgba(0, 0, 0, 0.85);
+  
+  --glass-bg: rgba(10, 10, 12, 0.85);
+  --glass-border: rgba(255, 255, 255, 0.05);
+  --panel-glow: rgba(255, 255, 255, 0.01);
+}
+
+/* Accent Color Variations */
+[data-accent="blue"] {
+  --accent-primary: #3b82f6;
+  --accent-hover: #1d4ed8;
+  --accent-light: rgba(59, 130, 246, 0.12);
+  --accent-border: rgba(59, 130, 246, 0.25);
+  --accent-glow: rgba(59, 130, 246, 0.15);
+}
+[data-accent="emerald"] {
+  --accent-primary: #10b981;
+  --accent-hover: #047857;
+  --accent-light: rgba(16, 185, 129, 0.12);
+  --accent-border: rgba(16, 185, 129, 0.25);
+  --accent-glow: rgba(16, 185, 129, 0.15);
+}
+[data-accent="amber"] {
+  --accent-primary: #f59e0b;
+  --accent-hover: #b45309;
+  --accent-light: rgba(245, 158, 11, 0.12);
+  --accent-border: rgba(245, 158, 11, 0.25);
+  --accent-glow: rgba(245, 158, 11, 0.15);
+}
+[data-accent="crimson"] {
+  --accent-primary: #ef4444;
+  --accent-hover: #b91c1c;
+  --accent-light: rgba(239, 68, 68, 0.12);
+  --accent-border: rgba(239, 68, 68, 0.25);
+  --accent-glow: rgba(239, 68, 68, 0.15);
+}
+[data-accent="violet"] {
+  --accent-primary: #8b5cf6;
+  --accent-hover: #6d28d9;
+  --accent-light: rgba(139, 92, 246, 0.12);
+  --accent-border: rgba(139, 92, 246, 0.25);
+  --accent-glow: rgba(139, 92, 246, 0.15);
+}
+
+/* Theme: Light */
+[data-theme="light"] {
+  --bg-app: #f1f5f9;
+  --bg-sidebar: rgba(255, 255, 255, 0.9);
+  --bg-surface: rgba(255, 255, 255, 0.8);
+  --bg-surface-elevated: #ffffff;
+  --bg-input: #f8fafc;
+  
+  --border-color: rgba(0, 0, 0, 0.08);
+  --border-color-hover: rgba(0, 0, 0, 0.15);
+  
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --bg-hover: rgba(0, 0, 0, 0.03);
+  --bg-selected: rgba(59, 130, 246, 0.1);
+  
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -1px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  
+  --glass-bg: rgba(255, 255, 255, 0.75);
+  --glass-border: rgba(0, 0, 0, 0.06);
+  --panel-glow: rgba(0, 0, 0, 0.01);
+}
+
+/* Contrast: High */
+[data-contrast="high"] {
+  --border-color: rgba(255, 255, 255, 0.3) !important;
+  --border-color-hover: rgba(255, 255, 255, 0.5) !important;
+  --text-secondary: #cbd5e1 !important;
+  --text-muted: #cbd5e1 !important;
+}
+
+[data-theme="light"][data-contrast="high"] {
+  --border-color: rgba(0, 0, 0, 0.3) !important;
+  --border-color-hover: rgba(0, 0, 0, 0.5) !important;
+  --text-secondary: #1e293b !important;
+  --text-muted: #334155 !important;
+}
+
+/* Density settings */
+[data-density="compact"] {
+  --spacing-row: 2px;
+  --spacing-container: 4px;
+  --font-size-ui: 10px;
+  --font-size-title: 11px;
+  --row-height: 20px;
+}
+
+[data-density="dense"] {
+  --spacing-row: 3px;
+  --spacing-container: 6px;
+  --font-size-ui: 11px;
+  --font-size-title: 12px;
+  --row-height: 24px;
+}
+
+[data-density="normal"] {
+  --spacing-row: 5px;
+  --spacing-container: 8px;
+  --font-size-ui: 12px;
+  --font-size-title: 13px;
+  --row-height: 28px;
+}
+
+/* Reduced Motion */
+[data-motion="reduced"] {
+  --transition-speed: 0ms !important;
+}
+
+/* Blur Configuration */
+[data-blur="disabled"] {
+  --blur-amount: 0px !important;
+}

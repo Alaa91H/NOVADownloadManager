@@ -1,0 +1,20 @@
+{
+  "extensionName": {
+    "message": "NOVA Browser Extension 拡張機能"
+  },
+  "extensionNameEdge": {
+    "message": "Edge 用 NOVA Browser Extension 拡張機能"
+  },
+  "extensionShortName": {
+    "message": "NOVA Browser Extension 拡張機能"
+  },
+  "extensionActionTitle": {
+    "message": "NOVA Browser Extension 拡張機能"
+  },
+  "extensionDescription": {
+    "message": "ダウンロードやメディアの候補を検出し、承認された処理をローカルのデスクトップブリッジ経由で NOVA Browser Extension に引き渡します。"
+  },
+  "commandSendCurrentPageDescription": {
+    "message": "現在のページの URL を NOVA Browser Extension に送信"
+  }
+}
