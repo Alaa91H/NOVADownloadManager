@@ -1,0 +1,72 @@
+import React from 'react';
+import { CheckCircle2 } from 'lucide-react';
+
+interface SchedulerRetriesTabProps {
+  retryCount: number;
+  onRetryCountChange: (v: number) => void;
+  retryDelay: number;
+  onRetryDelayChange: (v: number) => void;
+}
+
+export const SchedulerRetriesTab: React.FC<SchedulerRetriesTabProps> = ({
+  retryCount, onRetryCountChange,
+  retryDelay, onRetryDelayChange,
+}) => {
+  return (
+    <div className="space-y-4">
+      <h3 className="text-xs font-bold text-[var(--text-muted)] border-b border-[var(--border-color)] pb-1.5">
+        {'Retries & error correction:'}
+      </h3>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-1">
+          <span className="text-[11px] font-bold text-[var(--text-secondary)]">
+            {'Max retry attempts per file:'}
+          </span>
+          <select
+            value={retryCount}
+            onChange={(e) => onRetryCountChange(Number(e.target.value))}
+            className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg pl-8 pr-3 py-2.5 text-xs focus:outline-none text-[var(--text-primary)] font-bold cursor-pointer shadow-sm"
+          >
+            <option value={1}>{'1 attempt'}</option>
+            <option value={3}>{'3 attempts'}</option>
+            <option value={5}>{'5 attempts (Default)'}</option>
+            <option value={10}>{'10 attempts (Weak networks)'}</option>
+            <option value={20}>{'20 attempts'}</option>
+            <option value={50}>{'50 attempts'}</option>
+            <option value={9999}>{'Infinite attempts (Keep reconnecting)'}</option>
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <span className="text-[11px] font-bold text-[var(--text-secondary)]">
+            {'Wait time before retrying (seconds):'}
+          </span>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={1}
+              max={120}
+              value={retryDelay}
+              onChange={(e) => onRetryDelayChange(Number(e.target.value))}
+              className="w-24 bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg p-2 text-center text-xs font-mono font-bold text-[var(--text-primary)] shadow-sm"
+            />
+            <span className="text-xs text-[var(--text-muted)] font-bold">
+              {'seconds between attempts'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="p-3 bg-blue-500/5 border border-blue-500/10 text-[11px] text-[var(--text-secondary)] rounded-xl flex items-start gap-2.5 leading-relaxed shadow-sm">
+        <CheckCircle2 className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
+        <div>
+          <span className="font-bold text-[var(--text-primary)] block">
+            {'Smart Link Verification:'}
+          </span>
+          {'The program intercepts HTTP error codes, updates tokens, and verifies link availability prior to restart to prevent files from being corrupted.'}
+        </div>
+      </div>
+    </div>
+  );
+};
