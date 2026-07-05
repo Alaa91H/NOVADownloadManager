@@ -1,0 +1,62 @@
+# ── Dependencies ──────────────────────────────────────────────
+node_modules/
+.pnpm-store/
+.pnpm-debug.log*
+.npm/
+.yarn/
+
+# ── Build outputs ────────────────────────────────────────────
+dist/
+.output/
+.wxt/
+*.tsbuildinfo
+*.crx
+*.crx.pem
+*.nex
+*.zip
+
+# ── Test output ───────────────────────────────────────────────
+coverage/
+test-results/
+playwright-report/
+
+# ── Python ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# ── Local env / secrets ───────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Signing keys ──────────────────────────────────────────────
+*.pem
+*.key
+*.p12
+*.pkcs8
+
+# ── OS files ──────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# ── IDE ───────────────────────────────────────────────────────
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.sublime-*
+
+# ── Logs / temp / cache ───────────────────────────────────────
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.cache/
+tmp/
+temp/

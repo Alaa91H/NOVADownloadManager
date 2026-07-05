@@ -1,0 +1,3 @@
+﻿# Desktop Runtime Requirements
+
+NOVA Browser Extension Desktop runs as a single-instance application with process lock and system tray integration. The Browser Extension communicates with NOVA Browser Extension Desktop via Native Messaging on the local bridge at `127.0.0.1:3199` using `POST /v1/pair/auto` for automatic pairing and bearer token authentication. Default: ON for auto-connect. The package identifier is `com.nova.browserextension`. Minimize to system tray is supported. Link with NOVA Browser Extension from the extension popup or settings panel. Shutdown is handled via the desktop application lifecycle.
