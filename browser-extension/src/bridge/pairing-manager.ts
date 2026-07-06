@@ -1,0 +1,3 @@
+import { ADM_PROTOCOL_VERSION, PairRequestSchema, PairResponseSchema } from '../contracts/adm.protocol.v4';
+import { TransportManager } from '../transport/transport-manager';
+export class PairingManager { constructor(private tm:TransportManager){} async pair(extensionOrigin:string){ const req=PairRequestSchema.parse({ clientId: crypto.randomUUID(), protocolVersion: ADM_PROTOCOL_VERSION, extensionOrigin, trustedLocalOnly:true, mode:'trusted-local-native-host', requireLocalhost:true, allowUserPrompt:false, silent:true, zeroClick:true }); return this.tm.requestHttp('/v1/pair/auto', req, PairResponseSchema); } }

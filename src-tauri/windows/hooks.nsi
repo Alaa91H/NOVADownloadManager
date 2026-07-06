@@ -1,0 +1,192 @@
+; NOVA NSIS installer lifecycle hooks.
+;
+; Product goals:
+; - clean install, safe upgrade, repair-by-rerun, and uninstall lifecycle support
+; - stop only NOVA-owned processes before replacing files
+; - preserve user data unless the uninstaller app-data option is explicitly used
+; - generate and register Native Messaging manifests for bundled browser extension integration
+; - remove stale legacy engines/manifests without touching unrelated system tools
+; - leave Windows Apps & Features in a clean state after install/uninstall
+;
+; NSIS/Tauri supplies the standard wizard pages and file extraction. These hooks
+; add NOVA-specific maintenance behavior around those phases.
+
+!define NOVA_PRODUCT_NAME "Nova Download Manager"
+!define NOVA_VENDOR_KEY "Software\NOVA"
+!define NOVA_APP_KEY "Software\NOVA\Nova Download Manager"
+!define NOVA_UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Nova Download Manager"
+!define NOVA_DAEMON_PORT "3199"
+!define NOVA_NATIVE_HOST "com.nova.downloadmanager"
+!define NOVA_NATIVE_MANIFEST "$INSTDIR\resources\native-messaging\${NOVA_NATIVE_HOST}.json"
+!define NOVA_MAINTENANCE_INSTALLER "$INSTDIR\nova-maintenance-installer.exe"
+!define NOVA_APP_EXE "$INSTDIR\nova.exe"
+
+!macro NovaWriteMarker NAME VALUE
+  CreateDirectory "$INSTDIR"
+  FileOpen $0 "$INSTDIR\${NAME}" w
+  FileWrite $0 "${VALUE}"
+  FileClose $0
+!macroend
+
+!macro NovaResolveInstallMode
+  ; clean       : no prior NOVA installation found
+  ; maintenance : prior executable or receipt exists; covers repair and upgrade
+  IfFileExists "${NOVA_APP_EXE}" nova_maintenance 0
+  IfFileExists "$INSTDIR\nova-install-receipt.ini" nova_maintenance nova_clean
+  nova_maintenance:
+    StrCpy $1 "maintenance"
+    Goto nova_mode_done
+  nova_clean:
+    StrCpy $1 "clean"
+  nova_mode_done:
+    CreateDirectory "$INSTDIR"
+    !insertmacro NovaWriteMarker ".nova-install-mode" "$1"
+    WriteRegStr SHCTX "${NOVA_APP_KEY}" "LastInstallMode" "$1"
+    WriteRegStr SHCTX "${NOVA_APP_KEY}" "InstallLocation" "$INSTDIR"
+!macroend
+
+!macro NovaStopOwnedProcesses
+  ; Stop only processes whose executable lives under this install directory.
+  ; This prevents killing unrelated system curl, yt-dlp, ffmpeg, browser, or user tools.
+  nsExec::Exec `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$install = [System.IO.Path]::GetFullPath('$INSTDIR'); $$names = @('nova','nova-native-host','yt-dlp','ffmpeg','curl'); Get-Process -Name $$names -ErrorAction SilentlyContinue | Where-Object { $$_.Path -and ([System.IO.Path]::GetFullPath($$_.Path)).StartsWith($$install, [System.StringComparison]::OrdinalIgnoreCase) } | Stop-Process -Force -ErrorAction SilentlyContinue"`
+  Pop $0
+  ; Fallback: stop the process listening on the NOVA loopback daemon port, but
+  ; only if its executable path is inside $INSTDIR.
+  nsExec::Exec `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$install = [System.IO.Path]::GetFullPath('$INSTDIR'); Get-NetTCPConnection -LocalPort ${NOVA_DAEMON_PORT} -State Listen -ErrorAction SilentlyContinue | ForEach-Object { $$p = Get-Process -Id $$_.OwningProcess -ErrorAction SilentlyContinue; if ($$p -and $$p.Path -and ([System.IO.Path]::GetFullPath($$p.Path)).StartsWith($$install, [System.StringComparison]::OrdinalIgnoreCase)) { Stop-Process -Id $$p.Id -Force -ErrorAction SilentlyContinue } }"`
+  Pop $0
+  Sleep 900
+!macroend
+
+!macro NovaRemoveLegacyInstallArtifacts
+  ; Remove obsolete engines/manifests that can conflict with the current
+  ; in-process libcurl multi + yt-dlp + ffmpeg runtime model. Keep user data,
+  ; downloads, and settings intact.
+  Delete "$INSTDIR\aria2c.exe"
+  Delete "$INSTDIR\aria2.conf"
+  Delete "$INSTDIR\resources\bin\aria2c.exe"
+  Delete "$INSTDIR\resources\aria2c.exe"
+  Delete "$INSTDIR\resources\native-messaging\com.nova.browserextension.json"
+  Delete "$INSTDIR\resources\native-messaging\com.apex.downloadmanager.json"
+  RMDir /r "$INSTDIR\.wxt"
+  RMDir /r "$INSTDIR\.output"
+  RMDir /r "$INSTDIR\dist"
+!macroend
+
+!macro NovaPatchNativeMessagingManifest
+  ; The manifest is generated at build time with a placeholder executable path.
+  ; Patch it to the final install location after files are extracted.
+  IfFileExists "${NOVA_NATIVE_MANIFEST}" 0 nova_skip_native_patch
+    nsExec::Exec `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$manifest='${NOVA_NATIVE_MANIFEST}'; $$exe='${NOVA_APP_EXE}'; $$json = Get-Content -Raw -Path $$manifest | ConvertFrom-Json; $$json.path = $$exe; $$json | ConvertTo-Json -Depth 8 | Set-Content -Path $$manifest -Encoding ASCII"`
+    Pop $0
+  nova_skip_native_patch:
+!macroend
+
+!macro NovaRegisterNativeMessagingIfBundled
+  ; Register Chrome/Edge/Firefox native hosts when the manifest is bundled.
+  ; Chrome/Edge require allowed_origins to contain the final store/development
+  ; extension IDs. Firefox uses allowed_extensions, which is stable in the
+  ; extension manifest. Loopback transport remains available as fallback.
+  IfFileExists "${NOVA_NATIVE_MANIFEST}" 0 nova_skip_native_manifest
+    WriteRegStr SHCTX "Software\Mozilla\NativeMessagingHosts\${NOVA_NATIVE_HOST}" "" "${NOVA_NATIVE_MANIFEST}"
+    WriteRegStr SHCTX "Software\Google\Chrome\NativeMessagingHosts\${NOVA_NATIVE_HOST}" "" "${NOVA_NATIVE_MANIFEST}"
+    WriteRegStr SHCTX "Software\Microsoft\Edge\NativeMessagingHosts\${NOVA_NATIVE_HOST}" "" "${NOVA_NATIVE_MANIFEST}"
+    WriteRegStr SHCTX "${NOVA_APP_KEY}" "NativeMessagingManifest" "${NOVA_NATIVE_MANIFEST}"
+  nova_skip_native_manifest:
+!macroend
+
+!macro NovaCacheMaintenanceInstaller
+  ; Keep a copy of the installer so Apps & Features / Start Menu can perform a
+  ; repair by rerunning the same signed installer over the existing location.
+  IfFileExists "$EXEPATH" 0 nova_skip_cache_installer
+    CopyFiles /SILENT "$EXEPATH" "${NOVA_MAINTENANCE_INSTALLER}"
+  nova_skip_cache_installer:
+!macroend
+
+!macro NovaCreateMaintenanceShortcuts
+  CreateDirectory "$SMPROGRAMS\Nova Download Manager"
+  IfFileExists "${NOVA_MAINTENANCE_INSTALLER}" 0 nova_skip_repair_shortcut
+    CreateShortCut "$SMPROGRAMS\Nova Download Manager\Repair NOVA.lnk" "${NOVA_MAINTENANCE_INSTALLER}" "/NOVA_REPAIR" "${NOVA_APP_EXE}" 0
+  nova_skip_repair_shortcut:
+  IfFileExists "$INSTDIR\uninstall.exe" 0 nova_skip_uninstall_shortcut
+    CreateShortCut "$SMPROGRAMS\Nova Download Manager\Uninstall NOVA.lnk" "$INSTDIR\uninstall.exe" "" "$INSTDIR\uninstall.exe" 0
+  nova_skip_uninstall_shortcut:
+!macroend
+
+!macro NovaWriteInstallReceipt
+  ; Small install receipt used for diagnostics and repair detection. It is not
+  ; user app data and may be replaced by repair/upgrade installs.
+  CreateDirectory "$INSTDIR"
+  FileOpen $0 "$INSTDIR\nova-install-receipt.ini" w
+  FileWrite $0 "[NOVA]$\r$\n"
+  FileWrite $0 "Product=${NOVA_PRODUCT_NAME}$\r$\n"
+  FileWrite $0 "InstallDir=$INSTDIR$\r$\n"
+  FileWrite $0 "Mode=$1$\r$\n"
+  FileWrite $0 "DaemonPort=${NOVA_DAEMON_PORT}$\r$\n"
+  FileWrite $0 "NativeHost=${NOVA_NATIVE_HOST}$\r$\n"
+  FileWrite $0 "NativeManifest=${NOVA_NATIVE_MANIFEST}$\r$\n"
+  FileClose $0
+!macroend
+
+!macro NovaWriteWindowsIntegrationRegistry
+  WriteRegStr SHCTX "${NOVA_APP_KEY}" "InstallLocation" "$INSTDIR"
+  WriteRegStr SHCTX "${NOVA_APP_KEY}" "DaemonUrl" "http://127.0.0.1:${NOVA_DAEMON_PORT}"
+  WriteRegStr SHCTX "${NOVA_APP_KEY}" "NativeHost" "${NOVA_NATIVE_HOST}"
+  WriteRegStr SHCTX "${NOVA_APP_KEY}" "RepairMode" "Rerun the same installer or Start Menu Repair NOVA shortcut to repair missing/corrupted application files while preserving app data."
+  WriteRegStr SHCTX "${NOVA_UNINSTALL_KEY}" "DisplayName" "${NOVA_PRODUCT_NAME}"
+  WriteRegStr SHCTX "${NOVA_UNINSTALL_KEY}" "Publisher" "NOVA"
+  WriteRegStr SHCTX "${NOVA_UNINSTALL_KEY}" "DisplayIcon" "${NOVA_APP_EXE}"
+  WriteRegStr SHCTX "${NOVA_UNINSTALL_KEY}" "InstallLocation" "$INSTDIR"
+  WriteRegStr SHCTX "${NOVA_UNINSTALL_KEY}" "UninstallString" '"$INSTDIR\uninstall.exe"'
+  WriteRegStr SHCTX "${NOVA_UNINSTALL_KEY}" "QuietUninstallString" '"$INSTDIR\uninstall.exe" /S'
+  IfFileExists "${NOVA_MAINTENANCE_INSTALLER}" 0 nova_skip_modify_path
+    WriteRegStr SHCTX "${NOVA_UNINSTALL_KEY}" "ModifyPath" '"${NOVA_MAINTENANCE_INSTALLER}" /NOVA_REPAIR'
+    WriteRegStr SHCTX "${NOVA_UNINSTALL_KEY}" "RepairPath" '"${NOVA_MAINTENANCE_INSTALLER}" /NOVA_REPAIR'
+  nova_skip_modify_path:
+  WriteRegDWORD SHCTX "${NOVA_UNINSTALL_KEY}" "NoModify" 0
+  WriteRegDWORD SHCTX "${NOVA_UNINSTALL_KEY}" "NoRepair" 0
+!macroend
+
+!macro NovaUnregisterNativeMessaging
+  DeleteRegKey SHCTX "Software\Google\Chrome\NativeMessagingHosts\${NOVA_NATIVE_HOST}"
+  DeleteRegKey SHCTX "Software\Microsoft\Edge\NativeMessagingHosts\${NOVA_NATIVE_HOST}"
+  DeleteRegKey SHCTX "Software\Mozilla\NativeMessagingHosts\${NOVA_NATIVE_HOST}"
+!macroend
+
+!macro NovaRemoveInstallDirLeftovers
+  ; After NSIS removes files, clean the remaining installation directory. User
+  ; app data is intentionally not removed here; Tauri exposes a separate
+  ; uninstall app-data checkbox for that.
+  Delete "$SMPROGRAMS\Nova Download Manager\Repair NOVA.lnk"
+  Delete "$SMPROGRAMS\Nova Download Manager\Uninstall NOVA.lnk"
+  RMDir /r "$INSTDIR"
+  RMDir /r "$SMPROGRAMS\Nova Download Manager"
+!macroend
+
+!macro NSIS_HOOK_PREINSTALL
+  !insertmacro NovaResolveInstallMode
+  !insertmacro NovaStopOwnedProcesses
+  !insertmacro NovaRemoveLegacyInstallArtifacts
+!macroend
+
+!macro NSIS_HOOK_POSTINSTALL
+  Delete "$INSTDIR\.nova-install-mode"
+  !insertmacro NovaPatchNativeMessagingManifest
+  !insertmacro NovaCacheMaintenanceInstaller
+  !insertmacro NovaWriteInstallReceipt
+  !insertmacro NovaRegisterNativeMessagingIfBundled
+  !insertmacro NovaCreateMaintenanceShortcuts
+  !insertmacro NovaWriteWindowsIntegrationRegistry
+!macroend
+
+!macro NSIS_HOOK_PREUNINSTALL
+  !insertmacro NovaStopOwnedProcesses
+  !insertmacro NovaUnregisterNativeMessaging
+!macroend
+
+!macro NSIS_HOOK_POSTUNINSTALL
+  !insertmacro NovaRemoveInstallDirLeftovers
+  DeleteRegKey SHCTX "${NOVA_UNINSTALL_KEY}"
+  DeleteRegKey SHCTX "${NOVA_APP_KEY}"
+  DeleteRegKey /ifempty SHCTX "${NOVA_VENDOR_KEY}"
+  DeleteRegKey HKCU "Software\com.nova.downloadmanager"
+!macroend
