@@ -144,3 +144,9 @@ Desktop.ini
 
 # Keep committed source archives only if explicitly placed under docs/release fixtures later.
 !docs/**/*.zip
+
+# Agent files — server-only, not tracked in repo
+nova-dev-agent.sh
+nova-bot.py
+CONSTITUTION.md
+scripts/agent/
