@@ -15,6 +15,8 @@ from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
+    MessageHandler,
+    filters,
     ContextTypes,
 )
 from telegram.constants import ParseMode
@@ -599,7 +601,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         f"🤖 مرحباً {user.first_name}!\n"
         f"**NOVA Download Manager** — بوت التحكم الشامل\n\n"
-        f"⚠️ يجب أولاً إرسال /register لتسجيل الاشتراك.\n"
+        f"⚠️ يجب أولاً إرسال /register لتسجيل الاشتراك.\n\n"
+        f"💬 **الوضع المباشر**: أي رسالة ترسلها (بدون /) تذهب مباشرةً للوكيل!\n"
+        f"كأنك تتحدث معه عبر الطرفية — يأخذ أوامرك وينفذها.\n\n"
         f"استخدم الأزرار أدناه للتحكم السهل."
     )
     await update.message.reply_text(text, reply_markup=main_menu_keyboard(), parse_mode=ParseMode.MARKDOWN)
@@ -811,6 +815,134 @@ async def cmd_opencode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await msg.edit_text(f"❌ خطأ: {e}")
 
+# ── Direct Chat with Agent ────────────────────────────
+# Any non-command message is sent directly to opencode agent
+CHAT_CONTEXT: dict[int, list[dict]] = {}  # chat_id -> [{"role","content"}]
+
+@restricted
+async def cmd_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "💬 **الوضع المباشر** — أي رسالة ترسلها (بدون /) تذهب مباشرةً للوكيل.\n"
+        "الوكيل سيفهم السياق ويتجاوب معك كأنك تتحدث معه عبر الطرفية.\n\n"
+        "أرسل `/menu` للقائمة الرئيسية.\n"
+        "أرسل `/reset` لمسح سياق المحادثة."
+    )
+
+@restricted
+async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    CHAT_CONTEXT.pop(chat_id, None)
+    await update.message.reply_text("🧹 تم مسح سياق المحادثة. يمكنك البدء من جديد.")
+
+async def run_opencode_prompt(prompt: str, chat_history: list[dict] | None = None) -> str:
+    """Run opencode with a prompt and return the output."""
+    context_prompt = prompt
+    if chat_history:
+        # Build context summary from last few exchanges
+        recent = chat_history[-6:]
+        context_lines = ["Here is our conversation so far (recent history):"]
+        for msg in recent:
+            role = "User" if msg["role"] == "user" else "Assistant"
+            content = msg["content"][:200]
+            context_lines.append(f"{role}: {content}")
+        context_lines.append("")
+        context_lines.append(f"Current user message: {prompt}")
+        context_prompt = "\n".join(context_lines)
+
+    full_prompt = (
+        "You are the NOVA autonomous development agent for the NOVA Download Manager project.\n"
+        "You are talking directly with the user via Telegram. Respond helpfully and concisely.\n"
+        "You can read/write files, run allowed commands (lint, test, git, gh), and make changes.\n"
+        f"Project directory: {PROJECT_DIR}\n"
+        "Allowed commands: pnpm lint, pnpm lint:eslint, pnpm format:check, pnpm test (unit only), "
+        "pnpm audit:final, git, gh CLI\n"
+        "FORBIDDEN: pnpm build, pnpm tauri:anything, pnpm test:coverage, pnpm release, pnpm bundle\n\n"
+        "IMPORTANT: Keep responses under 3000 characters. "
+        "When you make code changes, commit and push them. "
+        "Update Plan.md status as needed.\n\n"
+        f"User message: {context_prompt}"
+    )
+
+    cmd = (
+        f"cd {PROJECT_DIR} && "
+        f"PATH=\"/home/ubuntu/.opencode/bin:$PATH\" "
+        f"{OPENCODE_BIN} run --model \"opencode/big-pickle\" --auto {shlex_quote(full_prompt)}"
+    )
+
+    try:
+        code, out, err = await run_cmd(cmd, timeout=300)
+        output = out.strip()[:3000] or "✅ Done (no output)"
+        if err:
+            output += f"\n⚠️ {err.strip()[:500]}"
+        return output
+    except asyncio.TimeoutError:
+        return "⏱️ تجاوزت المهلة (300s). حاول تبسيط الطلب."
+    except Exception as e:
+        return f"❌ خطأ: {e}"
+
+async def handle_direct_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle any non-command text message as a direct prompt to the agent."""
+    if not update.message or not update.message.text:
+        return
+
+    chat_id = update.effective_chat.id
+    user_text = update.message.text.strip()
+
+    if not user_text:
+        return
+
+    # Initialize chat history if needed
+    if chat_id not in CHAT_CONTEXT:
+        CHAT_CONTEXT[chat_id] = []
+
+    # Add user message to history
+    CHAT_CONTEXT[chat_id].append({"role": "user", "content": user_text})
+
+    msg = await update.message.reply_text(
+        f"🧠 **NOVA Agent** يعمل على:\n`{user_text[:200]}{'...' if len(user_text) > 200 else ''}`\n\n⏳ انتظر..."
+    )
+
+    # Show typing indicator
+    try:
+        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+    except Exception:
+        pass
+
+    output = await run_opencode_prompt(user_text, CHAT_CONTEXT[chat_id])
+
+    # Add assistant response to history
+    CHAT_CONTEXT[chat_id].append({"role": "assistant", "content": output})
+
+    # Keep history manageable (last 20 messages)
+    if len(CHAT_CONTEXT[chat_id]) > 20:
+        CHAT_CONTEXT[chat_id] = CHAT_CONTEXT[chat_id][-20:]
+
+    # Determine if it looks like a conversation or a command result
+    is_code_output = any(marker in output for marker in ["```", "exit:", "❌", "✅", "⚠️"])
+
+    if is_code_output:
+        full = f"**✅ Agent response:**\n```\n{output}\n```"
+    else:
+        full = f"**🤖 NOVA:**\n{output}"
+
+    try:
+        await msg.edit_text(full)
+    except Exception:
+        # Message too long or can't edit, send new
+        await update.message.reply_text(full)
+
+    # Add menu button
+    await update.message.reply_text("💡 استخدم /menu للقائمة الرئيسية.")
+
+@restricted
+async def cmd_opencode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        return await update.message.reply_text("📝 استعمال: /opencode <prompt>")
+    prompt = " ".join(context.args)
+    msg = await update.message.reply_text(f"🤖 جاري تشغيل opencode...\n\n`{prompt[:200]}{'...' if len(prompt)>200 else ''}`")
+    output = await run_opencode_prompt(prompt)
+    await msg.edit_text(f"**✅ opencode**\n```\n{output}\n```")
+
 # ── Error Handler ──────────────────────────────────────
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"Error: {context.error}", file=sys.stderr)
@@ -837,10 +969,15 @@ def main():
     app.add_handler(CommandHandler("plan_delete", cmd_plan_delete))
     app.add_handler(CommandHandler("git", cmd_git))
     app.add_handler(CommandHandler("opencode", cmd_opencode))
+    app.add_handler(CommandHandler("chat", cmd_chat))
+    app.add_handler(CommandHandler("reset", cmd_reset))
+
+    # Catch all non-command text messages — direct chat with agent
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_direct_message))
 
     app.add_error_handler(error_handler)
 
-    print("NOVA Bot v3.0 started with inline menus + notification control...", flush=True)
+    print("NOVA Bot v3.1 started — direct chat mode active. Send any message to talk to agent.", flush=True)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
