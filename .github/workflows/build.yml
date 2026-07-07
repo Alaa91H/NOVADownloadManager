@@ -1,10 +1,10 @@
-name: Build and Release Nova Download Manager
+name: Validate, Build and Release
 
 on:
   pull_request:
-    branches: [main, master]
+    branches: [main, master, Dev]
   push:
-    branches: [main, master]
+    branches: [main, master, Dev]
     tags:
       - 'v*.*.*'
   workflow_dispatch:
@@ -164,6 +164,7 @@ jobs:
 
   build-windows-installer:
     name: Build Windows NSIS installer
+    if: github.ref_name == 'main' || github.ref_name == 'master' || startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'master'))
     runs-on: windows-latest
     needs: validate
 
