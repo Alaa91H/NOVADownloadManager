@@ -1,7 +1,9 @@
 [Unit]
-Description=NOVA Telegram Interface
+Description=NOVA Continuous Development Controller
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=900
+StartLimitBurst=6
 
 [Service]
 Type=simple
@@ -11,11 +13,16 @@ WorkingDirectory=/home/ubuntu/NOVA
 EnvironmentFile=-/etc/nova/nova.env
 Environment=HOME=/home/ubuntu
 Environment=PATH=/home/ubuntu/.opencode/bin:/usr/local/lib/nova/blocked-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=/usr/bin/python3 /home/ubuntu/NOVA/nova-bot.py
+Environment=NODE_OPTIONS=--max-old-space-size=384
+ExecStart=/usr/local/lib/nova/agent.sh
 Restart=always
-RestartSec=10
-TimeoutStopSec=30
+RestartSec=30
+TimeoutStopSec=45
 KillMode=mixed
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+CPUQuota=80%
 MemoryAccounting=true
 MemoryMax=900M
 StandardOutput=journal
