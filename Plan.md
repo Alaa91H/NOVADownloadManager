@@ -192,11 +192,11 @@ P26-07-07
 
 ### UI-001 — Full interface refinement & engine compatibility (100%)
 
-- Status: `[/] IN_PROGRESS`
+- Status: `[x] COMPLETED`
 - Priority: critical
 - Type: feat
 - Started: 2026-07-07
-- Completed: pending
+- Completed: 2026-07-07
 - Objective:
   - Refine the entire UI professionally — buttons, toolbars, dialogs, status bar, sidebar, task table. Ensure 100% compatibility between UI state and engine capabilities (curl, yt-dlp, ffmpeg). Every UI element must react correctly to available engines.
 - Progress:
@@ -206,7 +206,11 @@ P26-07-07
   - ✅ TaskTable context menu engine-aware actions (disabled with tooltip when engine unavailable)
   - ✅ StatusBar per-engine status with translations (en.ts + ar.ts keys added, StatusBar uses t() calls)
   - ✅ Resume/Stop/Delete engine gating (context menu + batch resume gated by engine availability)
-  - ⬜ Dialog engine awareness (AddDownloadDialog already gated, others pending)
+  - ✅ Dialog engine awareness: AddDownloadDialog, YoutubeDownloadDialog, BatchImportDialog, TaskPropertiesDialog all already gated; ActiveProgressDialog resume button now gated by `isEngineAvailable` following TaskTable pattern.
+- Validation:
+  - `pnpm lint` (tsc --noEmit): passed clean
+  - `pnpm test`: 7 files, 35 tests passed
+  - ESLint skipped (OOM on 1GB server)
 - Plan:
   1. **Engine compatibility audit**: Map every interactive element in TopBar, Sidebar, StatusBar, TaskTable, and all dialogs to their required engine. Disable/hide elements when required engine is unavailable.
   2. **Button audit**: Scan ALL buttons/icons across the UI. Ensure each has: proper label, translation key, tooltip/aria-label, correct enabled/disabled state based on engine capabilities and task state.

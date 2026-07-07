@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../../state/appStore';
 import { DownloadItem } from '../../types/desktop-ui.types';
+import { useEngineCapabilities } from '../../capabilities/EngineCapabilityContext';
 import { formatBytes } from '../../initialData';
 
 export const ActiveProgressDialog: React.FC = () => {
@@ -19,6 +20,14 @@ export const ActiveProgressDialog: React.FC = () => {
   const [shutdownOnComplete, setShutdownOnComplete] = useState(false);
   const [shutdownAction, setShutdownAction] = useState('Shutdown computer');
   const [forceCloseProcesses, setForceCloseProcesses] = useState(false);
+
+  const caps = useEngineCapabilities();
+
+  const isEngineAvailable = (item: DownloadItem): boolean => {
+    if (!item.engine) return true;
+    if (item.engine === 'yt-dlp') return caps.mediaReady;
+    return caps.directReady;
+  };
 
   const formatSpeed = (bytesPerSec: number) => `${formatBytes(bytesPerSec)}/s`;
 
@@ -325,7 +334,9 @@ export const ActiveProgressDialog: React.FC = () => {
               onClick={() => {
                 resumeTask(task.id);
               }}
-              className="px-6 py-1.5 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] active:scale-95 text-white text-[11px] font-bold rounded-lg shadow-sm transition-all cursor-pointer min-w-[80px]"
+              disabled={!isEngineAvailable(task)}
+              title={!isEngineAvailable(task) ? 'The engine required for this download is not available.' : 'Resume download'}
+              className="px-6 py-1.5 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] active:scale-95 text-white text-[11px] font-bold rounded-lg shadow-sm transition-all cursor-pointer min-w-[80px] disabled:cursor-not-allowed disabled:opacity-50"
             >
               Resume
             </button>
