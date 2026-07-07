@@ -227,6 +227,19 @@
 
 ## Completed Tasks
 
+### BOT-001 — Telegram bot for agent control & notifications
+
+- Status: `[x] COMPLETED`
+- Priority: high
+- Type: infra
+- Started: 2026-07-07
+- Completed: 2026-07-07
+- Notes:
+  - Full Telegram bot with /start, /status, /log, /exec, /quality, /plan management, /git, /opencode, /build
+  - Agent sends automatic notifications at each cycle phase
+  - Systemd service nova-bot.service running in parallel with nova-dev-agent.service
+  - Commands: /register, /plan_add, /plan_start, /plan_done, /plan_block for task management
+
 ### INFRA-001 — Set up continuous development infrastructure
 
 - Status: `[x] COMPLETED`
