@@ -1,0 +1,12 @@
+[Unit]
+Description=NOVA Watchdog Service
+ConditionPathExists=/home/ubuntu/NOVA/scripts/agent/watchdog.sh
+
+[Service]
+Type=oneshot
+ExecStart=/home/ubuntu/NOVA/scripts/agent/watchdog.sh
+User=ubuntu
+Group=ubuntu
+Environment=NOVA_BOT_TOKEN=8996219734:AAF23wUwd-cdkeCO1kuLIym99G3fYEyZegY
+StandardOutput=append:/var/log/nova-watchdog.log
+StandardError=append:/var/log/nova-watchdog.log

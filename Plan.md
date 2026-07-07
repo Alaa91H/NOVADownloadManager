@@ -173,6 +173,34 @@
 - Notes:
   - Server: Ubuntu 24.04 (1GB RAM + 8GB swap)
   - Model: opencode/big-pickle (free via Zen)
+- **MAX-DEV-001 — Web search & research capability** `[x] COMPLETED` (2026-07-07)
+  - `scripts/agent/research.sh`: npm search, crate info, changelog fetch, package comparison
+  - Agent uses these tools before any library/architecture decision
+  - Bot command `/research <topic>` for on-demand deep research
+- **MAX-DEV-002 — Code analysis helper scripts** `[x] COMPLETED` (2026-07-07)
+  - `scripts/agent/analyze.sh`: TS errors, ESLint, test status, audit, dead code, any usage, FIXME count, bundle size, deps count
+  - Agent runs analysis after each cycle
+  - Bot command `/analyze` for on-demand full codebase analysis
+- **MAX-DEV-003 — Self-maintenance (systemd timer)** `[x] COMPLETED` (2026-07-07)
+  - `scripts/agent/maintenance.sh`: disk cleanup, log rotation, health check, git fsck, backup Plan.md+state
+  - `nova-maintenance.service` + `nova-maintenance.timer` (daily at 04:00)
+  - Telegram notification after each maintenance run
+- **MAX-DEV-004 — Emergency watchdog** `[x] COMPLETED` (2026-07-07)
+  - `scripts/agent/watchdog.sh`: checks agent/bot service, stuck detection (30min), memory >90%, disk >90%
+  - `nova-watchdog.service` + `nova-watchdog.timer` (every 5 min)
+  - Auto-restart + Telegram alert on any issue
+- **MAX-DEV-005 — Self-update mechanism** `[x] COMPLETED` (2026-07-07)
+  - `scripts/agent/self-update.sh`: git pull → check if agent/bot scripts changed → restart affected services
+  - Agent calls self-update at start of each cycle
+- **MAX-DEV-006 — Metrics & trends tracking** `[x] COMPLETED` (2026-07-07)
+  - `scripts/agent/metrics.sh`: coverage %, TS errors, ESLint count, test results, build time, deps, file count
+  - Appends to `.metrics.json` with timestamps
+  - Bot command `/metrics` for trend visualization
+- **MAX-DEV-007 — PR review automation** `[x] COMPLETED` (2026-07-07)
+  - Agent reviews open PRs via `gh pr list` + `gh pr diff` + `gh pr review --approve/--request-changes`
+  - Bot commands `/prs`, `/pr_review <number>`
+- **MAX-DEV-008 — Bot evolution (v2.0)** `[x] COMPLETED` (2026-07-07)
+  - All new commands: /research, /analyze, /report, /ci_history, /ci_logs, /coverage, /audit, /clean, /rollback, /diff, /branches, /prs, /pr_review, /metrics, /plan_delete, /plan_info
 
 ---
 

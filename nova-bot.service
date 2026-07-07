@@ -11,7 +11,8 @@ ExecStart=/usr/bin/python3 /home/ubuntu/NOVA/nova-bot.py
 Restart=always
 RestartSec=10
 Environment="NOVA_BOT_TOKEN=8996219734:AAF23wUwd-cdkeCO1kuLIym99G3fYEyZegY"
-Environment="NOVA_ALLOWED_USERS="
+Environment="NOVA_API_ID=38089413"
+Environment="NOVA_API_HASH=4a45cef09ce00b27c7487830ffaa5f44"
 StandardOutput=append:/var/log/nova-bot.log
 StandardError=append:/var/log/nova-bot.log
 

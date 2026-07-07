@@ -1,0 +1,12 @@
+[Unit]
+Description=NOVA Maintenance Service
+ConditionPathExists=/home/ubuntu/NOVA/scripts/agent/maintenance.sh
+
+[Service]
+Type=oneshot
+ExecStart=/home/ubuntu/NOVA/scripts/agent/maintenance.sh
+User=ubuntu
+Group=ubuntu
+Environment=NOVA_BOT_TOKEN=8996219734:AAF23wUwd-cdkeCO1kuLIym99G3fYEyZegY
+StandardOutput=append:/var/log/nova-maintenance.log
+StandardError=append:/var/log/nova-maintenance.log
