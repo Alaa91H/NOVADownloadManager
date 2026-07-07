@@ -164,11 +164,19 @@ def main_menu_keyboard():
 
 def system_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 الحالة", callback_data="status"),
-         InlineKeyboardButton("📋 السجل", callback_data="log_30")],
-        [InlineKeyboardButton("🔐 التدقيق", callback_data="audit"),
+        [InlineKeyboardButton("🖥️ حالة السيرفر", callback_data="server"),
+         InlineKeyboardButton("📊 حالة الوكيل", callback_data="status")],
+        [InlineKeyboardButton("📋 آخر سجل", callback_data="log_30"),
          InlineKeyboardButton("🧹 تنظيف", callback_data="clean")],
         [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="menu_main")],
+    ])
+
+def server_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 تحديث", callback_data="server"),
+         InlineKeyboardButton("📊 حالة الوكيل", callback_data="status")],
+        [InlineKeyboardButton("📋 آخر سجل", callback_data="log_30")],
+        [InlineKeyboardButton("🔙 النظام", callback_data="menu_system")],
     ])
 
 def agent_keyboard():
@@ -336,7 +344,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await query.edit_message_text(text, reply_markup=research_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
-    # ── Status / Log ──
+    # ── Status / Log / Server ──
+    elif data == "server":
+        await query.edit_message_text("🖥️ جاري جمع معلومات السيرفر...")
+        text = await build_server_status()
+        await query.edit_message_text(text, reply_markup=server_keyboard(), parse_mode=ParseMode.MARKDOWN)
+
     elif data == "status":
         cpu = await run_cmd(r"top -bn1 | grep 'Cpu(s)' | awk '{print $2+$4}'")
         mem = await run_cmd("free -m | awk 'NR==2{printf \"%s/%sMB (%.1f%%)\",$3,$2,$3*100/$2}'")
@@ -602,6 +615,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🤖 مرحباً {user.first_name}!\n"
         f"**NOVA Download Manager** — بوت التحكم الشامل\n\n"
         f"⚠️ يجب أولاً إرسال /register لتسجيل الاشتراك.\n\n"
+        f"🖥️ أرسل /server لحالة السيرفر الكاملة.\n"
         f"💬 **الوضع المباشر**: أي رسالة ترسلها (بدون /) تذهب مباشرةً للوكيل!\n"
         f"كأنك تتحدث معه عبر الطرفية — يأخذ أوامرك وينفذها.\n\n"
         f"استخدم الأزرار أدناه للتحكم السهل."
@@ -815,6 +829,121 @@ async def cmd_opencode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await msg.edit_text(f"❌ خطأ: {e}")
 
+# ── Server Status ─────────────────────────────────────
+async def build_server_status() -> str:
+    """Build comprehensive server status report."""
+    # CPU
+    cpu_user = await run_cmd(r"top -bn1 | grep 'Cpu(s)' | awk '{print $2}'")
+    cpu_sys = await run_cmd(r"top -bn1 | grep 'Cpu(s)' | awk '{print $4}'")
+    cpu_idle = await run_cmd(r"top -bn1 | grep 'Cpu(s)' | awk '{print $8}'")
+    load = await run_cmd("cat /proc/loadavg | awk '{print \"1min=\"$1\" 5min=\"$2\" 15min=\"$3}'")
+    procs = await run_cmd("cat /proc/loadavg | awk '{print $4}'")
+    cpu_temp = await run_cmd("cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null | awk '{print $1/1000\"°C\"}' || echo 'N/A'")
+
+    # Memory
+    mem_total = await run_cmd("free -m | awk 'NR==2{print $2}'")
+    mem_used = await run_cmd("free -m | awk 'NR==2{print $3}'")
+    mem_avail = await run_cmd("free -m | awk 'NR==2{print $7}'")
+    mem_pct = await run_cmd("free -m | awk 'NR==2{printf \"%.1f%%\", $3*100/$2}'")
+    swap_total = await run_cmd("free -m | awk 'NR==3{print $2}'")
+    swap_used = await run_cmd("free -m | awk 'NR==3{print $3}'")
+    swap_pct = await run_cmd("free -m | awk 'NR==3{ if($2>0) printf \"%.1f%%\", $3*100/$2; else print \"0%\" }'")
+
+    # Disk
+    disk_total = await run_cmd("df -h / | awk 'NR==2{print $2}'")
+    disk_used = await run_cmd("df -h / | awk 'NR==2{print $3}'")
+    disk_avail = await run_cmd("df -h / | awk 'NR==2{print $4}'")
+    disk_pct = await run_cmd("df -h / | awk 'NR==2{print $5}'")
+
+    # Uptime
+    uptime = await run_cmd("uptime -p | sed 's/up //'")
+    uptime_since = await run_cmd("uptime -s | cut -d. -f1")
+
+    # Network
+    net_rx = await run_cmd("cat /proc/net/dev | grep eth0 | awk '{print $2}' || cat /proc/net/dev | grep ens | awk '{print $2}' | head -1")
+    net_tx = await run_cmd("cat /proc/net/dev | grep eth0 | awk '{print $10}' || cat /proc/net/dev | grep ens | awk '{print $10}' | head -1")
+
+    # All NOVA services
+    services_data = {}
+    for svc_name in ["nova-dev-agent", "nova-bot", "nova-maintenance.timer", "nova-watchdog.timer"]:
+        r = await run_cmd(f"systemctl is-active {svc_name}")
+        services_data[svc_name] = r[1].strip()
+
+    # Top processes by CPU
+    top_cpu = await run_cmd(r"ps aux --sort=-%cpu | head -6 | awk 'NR>1{printf \"%s %s %s%%\n\", $2, $11, $3}'")
+
+    # Top processes by memory
+    top_mem = await run_cmd(r"ps aux --sort=-%mem | head -6 | awk 'NR>1{printf \"%s %s %s%%\n\", $2, $11, $4}'")
+
+    # Node version
+    node_v = await run_cmd("node --version")
+    pnpm_v = await run_cmd("pnpm --version")
+
+    # Git
+    branch = await run_cmd("git rev-parse --abbrev-ref HEAD")
+    last_commit = await run_cmd("git log --oneline -1")
+    ahead = await run_cmd("git rev-list --count HEAD..origin/Dev 2>/dev/null || echo 0")
+    behind = await run_cmd("git rev-list --count origin/Dev..HEAD 2>/dev/null || echo 0")
+
+    # Last cycle
+    last_cycle = "N/A"
+    cycle_duration = ""
+    if STATE_FILE.exists():
+        try:
+            s = json.loads(STATE_FILE.read_text())
+            last_cycle = s.get("last_cycle", "N/A")
+            dur = s.get("duration_sec", 0)
+            cycle_duration = f" ({dur // 60}m {dur % 60}s)"
+        except: pass
+
+    # Helper to format bytes
+    def format_bytes(b: str) -> str:
+        try:
+            n = int(b)
+            if n > 1_000_000_000: return f"{n/1_000_000_000:.1f}GB"
+            if n > 1_000_000: return f"{n/1_000_000:.1f}MB"
+            if n > 1_000: return f"{n/1_000:.1f}KB"
+            return f"{n}B"
+        except: return b
+
+    text = (
+        f"**🖥️ Server Status**\n\n"
+        f"**⚡ CPU**\n"
+        f"• Usage: `{cpu_user[1].strip() or '?'}%` user / `{cpu_sys[1].strip() or '?'}%` sys / `{cpu_idle[1].strip() or '?'}%` idle\n"
+        f"• Load: `{load[1].strip() or '?'}`  |  Procs: `{procs[1].strip() or '?'}`\n"
+        f"• Temp: `{cpu_temp[1].strip() or 'N/A'}`\n\n"
+        f"**💾 Memory**\n"
+        f"• RAM: `{mem_used[1].strip() or '?'}` / `{mem_total[1].strip() or '?'}MB` ({mem_pct[1].strip() or '?'})\n"
+        f"• Avail: `{mem_avail[1].strip() or '?'}MB`  |  Swap: `{swap_used[1].strip() or '?'}` / `{swap_total[1].strip() or '?'}MB` ({swap_pct[1].strip() or '?'})\n\n"
+        f"**💿 Disk**\n"
+        f"• `/`: `{disk_used[1].strip() or '?'}` / `{disk_total[1].strip() or '?'}` ({disk_pct[1].strip() or '?'}) — Free: `{disk_avail[1].strip() or '?'}`\n\n"
+        f"**⏱️ System**\n"
+        f"• Uptime: `{uptime[1].strip() or '?'}`\n"
+        f"• Since: `{uptime_since[1].strip() or '?'}`\n"
+        f"• Net RX: `{format_bytes(net_rx[1].strip())}` | TX: `{format_bytes(net_tx[1].strip())}`\n"
+        f"• Node: `{node_v[1].strip() or '?'}`  |  pnpm: `{pnpm_v[1].strip() or '?'}`\n\n"
+        f"**🤖 NOVA Services**\n"
+        f"• Agent: {format_status(services_data.get('nova-dev-agent', 'inactive'))}\n"
+        f"• Bot: {format_status(services_data.get('nova-bot', 'inactive'))}\n"
+        f"• Maintenance: {format_status(services_data.get('nova-maintenance.timer', 'inactive'))}\n"
+        f"• Watchdog: {format_status(services_data.get('nova-watchdog.timer', 'inactive'))}\n\n"
+        f"**🔁 Agent Cycle**\n"
+        f"• Last: `{last_cycle}`{cycle_duration}\n\n"
+        f"**📦 Git**\n"
+        f"• Branch: `{branch[1].strip() or '?'}`\n"
+        f"• HEAD: `{last_commit[1].strip() or '?'}`\n"
+        f"• Ahead: `{ahead[1].strip() or '0'}` | Behind: `{behind[1].strip() or '0'}`\n\n"
+        f"**🔥 Top CPU**\n```\n{top_cpu[1].strip()[:400] or 'N/A'}\n```\n"
+        f"**📊 Top MEM**\n```\n{top_mem[1].strip()[:400] or 'N/A'}\n```"
+    )
+    return text
+
+@restricted
+async def cmd_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = await update.message.reply_text("🖥️ جاري جمع معلومات السيرفر...")
+    text = await build_server_status()
+    await msg.edit_text(text, reply_markup=server_keyboard(), parse_mode=ParseMode.MARKDOWN)
+
 # ── Direct Chat with Agent ────────────────────────────
 # Any non-command message is sent directly to opencode agent
 CHAT_CONTEXT: dict[int, list[dict]] = {}  # chat_id -> [{"role","content"}]
@@ -971,6 +1100,7 @@ def main():
     app.add_handler(CommandHandler("opencode", cmd_opencode))
     app.add_handler(CommandHandler("chat", cmd_chat))
     app.add_handler(CommandHandler("reset", cmd_reset))
+    app.add_handler(CommandHandler("server", cmd_server))
 
     # Catch all non-command text messages — direct chat with agent
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_direct_message))
