@@ -120,7 +120,38 @@
 - **Plan.md**: تحديث الـ status تلقائياً
 - **State file**: `.agent-state.json` يُحدّث بكل التفاصيل
 
-### 12. 🔐 الأمان والسرية
+### 12. 🚫 لا ملفات ذكاء اصطناعي على `main`
+- **ممنوع منعاً باتاً** وجود أي من هذه الملفات على فرع `main`:
+  - `Plan.md` — خطة العمل (تطوير فقط)
+  - `AGENTS.md` — مرجع الوكيل
+  - `.agent-state.json` — حالة الوكيل
+  - `.bot-chats.json` — اشتراكات البوت
+  - `.last-ci-failure` — سجل فشل CI
+  - أي ملف خاص بالوكيل أو التشغيل (`nova-dev-agent.sh`, `nova-bot.py`, `nova-bot.service`)
+- فرع `main` يحتوي فقط على: **كود نظيف، مستقر، جاهز للإنتاج**
+- الفرع المخصص للتطوير هو `Dev` — كل ملفات الإدارة والتخطيط تبقى هناك
+- أي PR إلى `main` يجب أن يستثني هذه الملفات (استخدم `.gitattributes` أو مراجعة PR)
+- القاعدة: **`Dev` = تطوير وإدارة | `main` = إنتاج نظيف**
+
+### 13. 📦 الإصدارات التلقائية (Release Automation)
+الوكيل يدير دورة حياة الإصدارات بالكامل:
+- **Dev channel**: كل push إلى `Dev` → CI يبني ويختبر
+- **Nightly**: كل ليلة → build + E2E + تقرير
+- **Alpha**: إصدار تجريبي غير مستقر → اختبار الميزات الجديدة
+- **Beta**: إصدار شبه مستقر → اختبار المجتمع
+- **RC (Release Candidate)**: إصدار نهائي قبل الإطلاق
+- **Stable**: إصدار إنتاجي → `main` branch
+- **Hotfix**: إصلاح عاجل لـ `main` → merge إلى `Dev` أيضاً
+
+كل إصدار يتضمن:
+1. رفع الإصدار (semantic versioning)
+2. Changelog تلقائي من conventional commits
+3. Build لكل المنصات
+4. Signing (حيثما أمكن)
+5. GitHub Release مع assets
+6. إشعار تلغرام
+
+### 14. 🔐 الأمان والسرية
 - لا تكتب أبداً tokens, keys, كلمات مرور في الكود
 - استخدم environment variables لكل الأسرار
 - لا تكتب path محلية أو user-specific data
@@ -318,6 +349,74 @@
 - Completed: pending
 - Objective:
   - Agent runs periodic audits: dependencies, security, performance, code smells, deprecations.
+
+### AGENT-011 — Release channels management (nightly, alpha, beta, rc, stable)
+
+- Status: `[ ] PLANNED`
+- Priority: high
+- Type: infra
+- Started: pending
+- Completed: pending
+- Objective:
+  - Agent manages full release lifecycle: dev, nightly, alpha, beta, rc, stable, hotfix. Each with proper versioning, builds, changelog, and GitHub release.
+- Plan:
+  1. Create release channels in CI (CI-004 extended)
+  2. Agent determines channel based on: time (nightly), task completion (alpha/beta), stability (rc/stable)
+  3. Semantic versioning: `0.2.0-nightly.20260707`, `0.2.0-alpha.1`, `0.2.0-beta.1`, `0.2.0-rc.1`, `0.2.0`
+  4. Each release: bump version → tag → build matrix → changelog → GitHub release → notify
+  5. Stable releases merge to `main` branch (without AI files)
+  6. Hotfix: branch from `main`, fix, PR to `main` + `Dev`
+  7. All via gh CLI + workflow_dispatch
+- Notes:
+  - Constitution rule #13: Release Automation
+
+### AGENT-012 — CI error ingestion via bot + professional fix
+
+- Status: `[ ] PLANNED`
+- Priority: high
+- Type: infra
+- Started: pending
+- Completed: pending
+- Objective:
+  - Bot receives CI build errors/logs, performs deep research, and applies professional fixes automatically.
+- How it works:
+  1. CI workflow fails → sends error logs to bot (or agent fetches via gh)
+  2. Bot notifies user: "❌ Build failed — analyzing..."
+  3. Deep research phase:
+     a. Read full CI log
+     b. Identify root cause (compilation error, test failure, lint, dependency issue)
+     c. Search for solution: GitHub issues, Stack Overflow, docs, changelogs
+     d. Compare multiple solution approaches
+  4. Professional fix phase:
+     a. Write detailed analysis in Plan.md task
+     b. Implement fix with proper testing
+     c. Run local quality gates
+     d. Push fix → triggers new CI run
+  5. Monitor CI until green
+  6. Notify user: "✅ Build fixed — root cause: ..."
+- Bot commands:
+  - /ci_last — عرض آخر CI run مع الأخطاء
+  - /ci_fix — تحليل آخر فشل واقتراح حل
+  - /ci_logs `run_id` — عرض logs كاملة لـ run معين
+
+### AGENT-013 — Enforce no AI files on main
+
+- Status: `[ ] PLANNED`
+- Priority: high
+- Type: infra
+- Started: pending
+- Completed: pending
+- Objective:
+  - Ensure no agent/management files ever end up on `main` branch. Set up automated enforcement.
+- Plan:
+  1. Add `.gitattributes` with `main` branch filter for agent files
+  2. Create CI check: if PR to `main` contains forbidden files, fail with message
+  3. Agent never includes these files when merging to `main`
+  4. Document in AGENTS.md
+- Forbidden files on main:
+  - `Plan.md`, `AGENTS.md`, `.agent-state.json`, `.bot-chats.json`, `.last-ci-failure`
+  - `nova-dev-agent.sh`, `nova-bot.py`, `nova-bot.service`
+  - أي ملف بادئ بـ `.agent-` أو `.bot-`
 - Plan:
   1. npm audit + pnpm outdated weekly
   2. Bundle size analysis (vite build --report)
