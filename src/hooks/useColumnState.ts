@@ -57,7 +57,7 @@ const defaultOrder = [
   'smartCategory',
 ];
 
-function loadFromStorage<T>(key: string, fallback: T): T {
+export function loadFromStorage<T>(key: string, fallback: T): T {
   try {
     const cached = localStorage.getItem(key);
     if (cached) {
@@ -70,7 +70,7 @@ function loadFromStorage<T>(key: string, fallback: T): T {
   return fallback;
 }
 
-function loadColOrder(): string[] {
+export function loadColOrder(): string[] {
   try {
     const cached = localStorage.getItem(STORAGE_KEYS.colOrder);
     if (cached) {

@@ -93,13 +93,13 @@ interface AppStoreContextType {
 
 const AppStoreContext = createContext<AppStoreContextType | undefined>(undefined);
 
-const generateBrowserPairingToken = () => {
+export const generateBrowserPairingToken = () => {
   const bytes = new Uint8Array(24);
   crypto.getRandomValues(bytes);
   return `nova_token_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
 };
 
-const ensureBrowserPairingToken = (settings: AppSettings): AppSettings => {
+export const ensureBrowserPairingToken = (settings: AppSettings): AppSettings => {
   if (settings.extra.browserPairingToken) return settings;
   return {
     ...settings,
@@ -110,7 +110,7 @@ const ensureBrowserPairingToken = (settings: AppSettings): AppSettings => {
   };
 };
 
-const mergeStoredSettings = (parsed: Partial<AppSettings>): AppSettings => {
+export const mergeStoredSettings = (parsed: Partial<AppSettings>): AppSettings => {
   const parsedSave = parsed.saveAndCategories;
   const safeSaveAndCategories: Partial<AppSettings['saveAndCategories']> =
     parsedSave && parsedSave.defaultFolder && parsedSave.defaultFolder.includes('NOVA') ? parsedSave : {};
@@ -171,13 +171,13 @@ const mergeStoredSettings = (parsed: Partial<AppSettings>): AppSettings => {
   });
 };
 
-const containingFolder = (filePath: string): string => {
+export const containingFolder = (filePath: string): string => {
   const trimmed = filePath.replace(/[\\/]+$/, '');
   const lastSlash = Math.max(trimmed.lastIndexOf('\\'), trimmed.lastIndexOf('/'));
   return lastSlash > 0 ? trimmed.slice(0, lastSlash) : trimmed;
 };
 
-const toMinutes = (value: string): number | null => {
+export const toMinutes = (value: string): number | null => {
   const match = /^(\d{1,2}):(\d{2})$/.exec(value);
   if (!match) return null;
   const hours = Number(match[1]);
@@ -186,12 +186,12 @@ const toMinutes = (value: string): number | null => {
   return hours * 60 + minutes;
 };
 
-const isQueueScheduledForDay = (queue: Queue, day: number): boolean => {
+export const isQueueScheduledForDay = (queue: Queue, day: number): boolean => {
   if (queue.scheduleType === 'daily') return true;
   return queue.days.includes(day);
 };
 
-const isQueueInScheduleWindow = (queue: Queue, now: Date): boolean => {
+export const isQueueInScheduleWindow = (queue: Queue, now: Date): boolean => {
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const today = now.getDay();
   const yesterday = (today + 6) % 7;
