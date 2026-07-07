@@ -31,78 +31,116 @@
 - Started: 2026-07-07
 - Completed: pending
 - Validation:
-  - xvfb: pending
-  - playwright: pending
-  - rust-targets: pending
   - gh-cli: pending
-  - e2e: pending
-  - release: pending
+  - workflows: pending
+  - release-automation: pending
 - Objective:
-  - Make the agent fully autonomous: write code, run all tests (including E2E with browser), build for all platforms, create releases, and self-maintain — all without human intervention.
+  - Make the agent fully autonomous: write code, push to Dev, trigger GitHub Actions workflows for build/test/release, and self-maintain. Server does development only; GitHub Actions does heavy lifting.
 - Architecture:
-  1. **Infrastructure**: xvfb (headless browser) + Rust cross-compilation targets + gh CLI
-  2. **Testing**: Playwright E2E via xvfb, coverage 10%+
-  3. **CI/CD**: GitHub Actions workflows triggered by agent, cross-platform build matrix
-  4. **Agent Enhancement**: Trigger workflows via gh, auto-release, self-healing
-  5. **Self-Maintenance**: Auto-update deps, disk cleanup, log rotation, health monitoring
+  - **Server (1GB RAM)**: opencode agent writes code, runs unit tests, pushes to Dev
+  - **GitHub Actions**: builds, E2E tests (Playwright), cross-platform compilation, releases
+  - **Bridge**: gh CLI + workflow_dispatch events trigger CI/CD from agent
 - Notes:
   - Server: Ubuntu 24.04 (1GB RAM + 8GB swap)
   - Model: opencode/big-pickle (free via Zen)
-  - All builds pushed to GitHub; releases use GitHub Releases API
 
 ---
 
 ## Planned Tasks
 
-### INFRA-003 — Install headless browser (xvfb) + Playwright
+### CI-001 — GitHub Actions quality gates workflow
 
 - Status: `[ ] PLANNED`
 - Priority: critical
-- Type: infra
+- Type: ci
 - Source branch: `Dev`
-- Work branch: `ai/infra-xvfb`
+- Work branch: `ai/quality-workflow`
 - Target branch: `Dev`
 - Started: pending
 - Completed: pending
 - PR: pending
 - Validation:
-  - xvfb-run: pending
-  - playwright chromium: pending
-  - pnpm exec playwright test: pending
+  - workflow runs: pending
+  - all gates pass: pending
 - Objective:
-  - Install xvfb (X Virtual Framebuffer) and Playwright with Chromium browser so the agent can run E2E tests headlessly.
+  - Create GitHub Actions workflow that runs all quality gates on every push to Dev: install, lint, typecheck, test, build, audit.
 - Plan:
-  1. Install xvfb via apt
-  2. Install Playwright system deps
-  3. npx playwright install chromium
-  4. Verify tests pass with xvfb-run
-  5. Update agent script to run E2E through xvfb
+  1. Create .github/workflows/quality.yml
+  2. Triggers: push to Dev, workflow_dispatch
+  3. Steps: checkout → install → lint → typecheck → test → build → audit
+  4. Add badge to README
+  5. Test it works end-to-end
 
-### INFRA-004 — Install Rust cross-compilation targets
+### CI-002 — GitHub Actions E2E workflow (Playwright + xvfb)
 
 - Status: `[ ] PLANNED`
 - Priority: high
-- Type: infra
+- Type: ci
 - Source branch: `Dev`
-- Work branch: `ai/infra-rust-targets`
+- Work branch: `ai/e2e-workflow`
 - Target branch: `Dev`
 - Started: pending
 - Completed: pending
 - PR: pending
 - Validation:
-  - rustup target list --installed: pending
-  - cross build test: pending
+  - E2E passes: pending
+  - coverage 10%+: pending
 - Objective:
-  - Install all necessary Rust targets and system libraries for cross-compiling Tauri apps to Windows (x64, x86, ARM64), Linux ARM64, and (where possible) macOS.
+  - Create GitHub Actions workflow that runs Playwright E2E tests headlessly (xvfb) and reports coverage.
 - Plan:
-  1. rustup target add x86_64-pc-windows-msvc
-  2. rustup target add i686-pc-windows-msvc
-  3. rustup target add aarch64-pc-windows-msvc
-  4. rustup target add aarch64-unknown-linux-gnu
-  5. Install mingw-w64 for Windows cross-compilation
-  6. Install gcc-aarch64-linux-gnu for ARM64
-  7. Test a cross-compile build
-  8. Note: macOS targets need macOS SDK (license-restricted); use GitHub Actions for macOS
+  1. Create .github/workflows/e2e.yml
+  2. Install Playwright with Chromium and system deps
+  3. Run tests via xvfb-run
+  4. Upload coverage report as artifact
+  5. Fail if coverage below 10%
+  6. Test it works
+
+### CI-003 — GitHub Actions cross-platform build matrix
+
+- Status: `[ ] PLANNED`
+- Priority: high
+- Type: ci
+- Source branch: `Dev`
+- Work branch: `ai/build-workflow`
+- Target branch: `Dev`
+- Started: pending
+- Completed: pending
+- PR: pending
+- Validation:
+  - builds pass all targets: pending
+  - artifacts uploaded: pending
+- Objective:
+  - Create GitHub Actions workflow that builds Tauri apps for all platforms: Windows (x64, x86, ARM64), Linux (x64, ARM64), macOS (x64, ARM64).
+- Plan:
+  1. Create .github/workflows/build.yml
+  2. Matrix strategy with os + arch + target triple
+  3. Use tauri-actions for cross-compilation
+  4. Upload build artifacts
+  5. Test with dev channel
+
+### CI-004 — GitHub Actions release automation
+
+- Status: `[ ] PLANNED`
+- Priority: medium
+- Type: ci
+- Source branch: `Dev`
+- Work branch: `ai/release-workflow`
+- Target branch: `Dev`
+- Started: pending
+- Completed: pending
+- PR: pending
+- Validation:
+  - release created: pending
+  - assets uploaded: pending
+- Objective:
+  - Create workflow that creates GitHub releases with versioning, changelog, and multi-platform binaries.
+- Plan:
+  1. Create .github/workflows/release.yml
+  2. Trigger: tag push or workflow_dispatch with version
+  3. Run full build matrix
+  4. Generate changelog
+  5. Create GitHub release with assets
+  6. Publish to channels (dev/nightly/beta/stable)
 
 ### INFRA-005 — Install GitHub CLI (gh) and authenticate
 
@@ -119,14 +157,13 @@
   - gh --version: pending
   - gh auth status: pending
 - Objective:
-  - Install GitHub CLI so the agent can trigger workflows, create releases, and manage the repo programmatically.
+  - Install GitHub CLI so the agent can trigger workflows and monitor results.
 - Plan:
   1. Install gh via apt
-  2. Authenticate with GitHub PAT (already stored)
-  3. Test: gh workflow list, gh release list
-  4. Update agent script to use gh for release management
+  2. Authenticate with existing GitHub PAT
+  3. Test: gh workflow list, gh run list
 
-### TEST-002 — E2E tests with Playwright + xvfb
+### TEST-001 — Write E2E test suites (10 files)
 
 - Status: `[ ] PLANNED`
 - Priority: high
@@ -138,45 +175,18 @@
 - Completed: pending
 - PR: pending
 - Validation:
-  - playwright install: pending
-  - e2e tests pass: pending
-  - coverage 10%+: pending
+  - 10 test files: pending
+  - local tests pass: pending
 - Objective:
-  - Write comprehensive E2E tests using Playwright with Chromium, run headlessly via xvfb. Target 10%+ coverage.
+  - Write 10 E2E test files under src/e2e/ to be run by GitHub Actions. Tests target: downloads, settings, scheduler, sidebar, i18n, tasks, queue, API, UI components, navigation.
 - Plan:
-  1. Configure Playwright (chromium only, headless, CI reporter)
-  2. Write tests: downloads, settings, scheduler, sidebar, i18n, tasks, queue, API, UI components, navigation
-  3. Run E2E via xvfb-run
-  4. Add to quality gates and agent pre-commit checks
-  5. Validate coverage meets 10% threshold
-- Notes:
-  - Requires INFRA-003 (xvfb + playwright install)
+  1. Write each test file with proper describe/it blocks
+  2. Cover loading/empty/error/success states
+  3. Mock external dependencies where needed
+  4. Ensure tests pass locally with vitest
+  5. Push to Dev (workflow runs them in CI)
 
-### CI-001 — GitHub Actions CI/CD matrix
-
-- Status: `[ ] PLANNED`
-- Priority: high
-- Type: ci
-- Source branch: `Dev`
-- Work branch: `ai/ci-matrix`
-- Target branch: `Dev`
-- Started: pending
-- Completed: pending
-- PR: pending
-- Validation:
-  - CI triggers: pending
-  - builds pass: pending
-  - tests pass: pending
-- Objective:
-  - Create full CI/CD pipeline with GitHub Actions: quality gates, multi-platform build matrix, E2E tests, and release automation.
-- Plan:
-  1. Create .github/workflows/quality.yml (lint, test, build, audit)
-  2. Create .github/workflows/e2e.yml (Playwright with xvfb)
-  3. Create .github/workflows/build.yml (Windows/Linux/macOS x64+ARM)
-  4. Create .github/workflows/release.yml (tag → draft release → upload assets)
-  5. All workflows triggerable via workflow_dispatch (agent-controlled)
-
-### AGENT-003 — Agent release automation
+### AGENT-003 — Agent release automation (trigger via gh)
 
 - Status: `[ ] PLANNED`
 - Priority: medium
@@ -188,19 +198,18 @@
 - Completed: pending
 - PR: pending
 - Validation:
-  - gh release create: pending
-  - auto-version: pending
+  - gh workflow trigger: pending
+  - release created: pending
 - Objective:
-  - Program the agent to create GitHub releases automatically: determine next version, tag, build, upload, publish.
+  - Program the agent to trigger releases automatically via gh CLI: determine version, dispatch workflow, monitor result.
 - Plan:
-  1. Add release logic to nova-dev-agent.sh
-  2. Determine version from Plan.md or git tags
-  3. Build via pnpm build, pnpm bundle
-  4. Create GitHub release via gh CLI
-  5. Upload artifacts
-  6. Notify via Telegram
+  1. Add release trigger to nova-dev-agent.sh
+  2. Read version from package.json
+  3. Dispatch release workflow via gh
+  4. Wait for workflow to complete
+  5. Notify via Telegram
 
-### AGENT-004 — Agent self-maintenance & healing
+### AGENT-004 — Agent self-maintenance
 
 - Status: `[ ] PLANNED`
 - Priority: medium
@@ -213,17 +222,15 @@
 - PR: pending
 - Validation:
   - auto-cleanup: pending
-  - health check: pending
   - log rotation: pending
 - Objective:
-  - Add self-healing, resource monitoring, log rotation, and dependency auto-update to the agent. Make it truly "set and forget."
+  - Add self-maintenance to the agent: log rotation, disk cleanup, health monitoring, auto-restart if stuck.
 - Plan:
-  1. Add health check endpoint (systemd service health, disk space, memory)
-  2. Auto-cleanup: prune old builds, node_modules, docker cache
-  3. Log rotation: archive logs older than 7 days
-  4. Dependency auto-update: pnpm update --latest with validation
-  5. Auto-restart if stuck (no output for 30 min)
-  6. Telegram notifications for all maintenance actions
+  1. Log rotation: archive logs older than 7 days
+  2. Disk cleanup: prune old node_modules, temp files
+  3. Health check: monitor disk space, memory, agent responsiveness
+  4. Auto-restart if stuck (no output for 30 min)
+  5. Telegram notifications for maintenance actions
 
 ### AGENT-005 — Full quality hardening
 
