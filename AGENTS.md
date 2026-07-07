@@ -12,7 +12,9 @@ charter wins on any conflict.
 ## 1. Command policy for this node
 **Allowed (lightweight, one at a time):**
 - `git`, `gh`, `rg`/`grep`/`sed`/`awk`, `node` for tiny parsing, and file edits.
-- `tsc --noEmit` (memory-capped) — first-line typecheck. **Required clean before every push.**
+- `tsc --noEmit` — first-line typecheck; **required clean before every push.** Give the
+  one-shot typecheck an adequate heap so the model's smaller cap does not starve it:
+  `NODE_OPTIONS=--max-old-space-size=896 npx tsc --noEmit`.
 - `eslint` on the specific files you changed.
 - `vitest run <single-file>` (memory-capped) — verify a test you just touched, one file at a time.
 
