@@ -597,7 +597,9 @@ P26-07-07
   - Cycle 2026-07-07: +25 unit tests (idUtils, timeUtils, expanded initialData). 9 test files, 60 tests total.
   - Cycle 2026-07-07 (cycle 2): +42 unit tests (useQueueStore helpers, mergeDaemonTasks, useTaskSortFilter, useMultiSelection). 13 test files, 102 tests total. Fix pre-existing TS errors in initialData.test.ts. Exported pure helper functions from useQueueStore.ts.
   - Cycle 2026-07-07 (cycle 3): +134 unit tests across 6 new test files: ColumnConfigPanel (15), TaskCardList (20), ContextMenu (12), TimePicker (14), TaskCheckboxAndIcon (6), primitives (67). 19 test files, 236 tests total.
-  - Next: Cover scheduler components (SchedulerBasicTab, SchedulerSidebar, SchedulerPanel, etc.), remaining primitives/dialogs.
+  - Cycle 2026-07-07 (cycle 4): +7 test files, 2093 lines (tauriClient, ErrorBoundary, Logo, SpeedLimitInput, StatusBar, TaskTable, TopBar). 26 test files.
+  - Cycle 2026-07-07 (cycle 5): +5 dialog test files: DialogRoot (22 tests, dialog routing + modal interactions), DiagnosticsDialog (11 tests, loading/data/error/refresh states), WebpageGrabberDialog (27 tests, form inputs/filters/validation), BrowserIntegrationDialog (24 tests, health check/configure/button actions), YoutubeDownloadDialog (17 tests, basic render/input/mode switching/error states). 31 test files total.
+  - Next: Cover settings dialogs (SettingsDialog + all 8 sections), remaining system dialogs.
 
 ---
 
