@@ -7,10 +7,12 @@ import json
 import os
 import re
 import sys
+import signal
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -36,7 +38,13 @@ NOTIF_FILE = PROJECT_DIR / ".notif-prefs.json"
 SCRIPTS_DIR = PROJECT_DIR / "scripts" / "agent"
 MAX_OUTPUT_LENGTH = 3800
 
+SELF_PATH = Path("/home/ubuntu/NOVA/nova-bot.py")
+BOT_LOG = Path("/var/log/nova-bot.log")
+BOT_PID = os.getpid()
+BOT_VERSION = "4.0"
+
 running_execs: dict[int, asyncio.subprocess.Process] = {}
+pending_confirm: dict[int, tuple[str, str, dict]] = {}  # chat_id -> (action, prompt, context)
 
 # ── Notification types ─────────────────────────────────
 NOTIF_TYPES = [
@@ -199,6 +207,8 @@ def system_keyboard():
          InlineKeyboardButton("📊 حالة الوكيل", callback_data="status")],
         [InlineKeyboardButton("📋 آخر سجل", callback_data="log_30"),
          InlineKeyboardButton("🧹 تنظيف", callback_data="clean")],
+        [InlineKeyboardButton("💿 المساحة", callback_data="disk_info"),
+         InlineKeyboardButton("🔥 العمليات", callback_data="proc_info")],
         [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="menu_main")],
     ])
 
@@ -277,11 +287,44 @@ def notif_menu_keyboard(chat_id: int):
     buttons.append([InlineKeyboardButton("🔙 الإعدادات", callback_data="menu_settings")])
     return InlineKeyboardMarkup(buttons)
 
+# ── Persistent Reply Keyboard (below text input) ────────
+def main_reply_keyboard():
+    return ReplyKeyboardMarkup([
+        ["🖥️ النظام", "🤖 الوكيل"],
+        ["📋 الخطة", "🔍 البحث"],
+        ["📊 التقارير", "⚙️ الإعدادات"],
+        ["🔔 الإشعارات", "📋 السجلات"],
+        ["💿 المساحة", "🔥 العمليات"],
+    ], resize_keyboard=True, is_persistent=True)
+
+# Map keyboard button texts to callback data actions
+REPLY_ACTIONS = {
+    "🖥️ النظام": "menu_system",
+    "🤖 الوكيل": "menu_agent",
+    "📋 الخطة": "menu_plan",
+    "🔍 البحث": "menu_research",
+    "📊 التقارير": "menu_reports",
+    "⚙️ الإعدادات": "menu_settings",
+    "🔔 الإشعارات": "notif_menu",
+}
+
+REPLY_DIRECT = {
+    "📋 السجلات": ("📋 آخر 30 سطر من سجل الوكيل:", "log_30"),
+    "💿 المساحة": ("💿 جاري جلب معلومات المساحة...", "disk_info"),
+    "🔥 العمليات": ("🔥 جاري جلب العمليات...", "proc_info"),
+}
+
 async def send_menu(update: Update, text: str = "🤖 **NOVA Control Panel**"):
+    inline_kb = main_menu_keyboard()
     if update.callback_query:
-        await update.callback_query.edit_message_text(text, reply_markup=main_menu_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        await update.callback_query.edit_message_text(text, reply_markup=inline_kb, parse_mode=ParseMode.MARKDOWN)
     else:
-        await update.message.reply_text(text, reply_markup=main_menu_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(text, reply_markup=inline_kb, parse_mode=ParseMode.MARKDOWN)
+    # Ensure reply keyboard is always visible
+    try:
+        await update.effective_chat.send_action(action="typing")
+    except:
+        pass
 
 # ── Callback Handler ───────────────────────────────────
 @restricted
@@ -329,16 +372,36 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         label = FREQ_LABELS.get(freq, freq)
         return await query.edit_message_text(f"✅ تم تعيين التكرار: {label}", reply_markup=notif_menu_keyboard(chat_id), parse_mode=ParseMode.MARKDOWN)
 
-    # ── Agent control ──
+    # ── Agent control (with confirmation) ──
     if data == "agent_start":
         r = await run_cmd(f"sudo systemctl start {AGENT_SERVICE}")
         return await query.edit_message_text(f"🟢 تشغيل العامل:\n`{(r[1]+r[2]).strip() or 'OK'}`", reply_markup=agent_keyboard(), parse_mode=ParseMode.MARKDOWN)
     elif data == "agent_stop":
+        # Inline confirmation
+        return await query.edit_message_text(
+            "⚠️ هل أنت متأكد من إيقاف الوكيل؟\n\n"
+            "🔴 إيقاف الوكيل سيوقف دورة التطوير المستمر.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔴 نعم، أوقف", callback_data="agent_stop_confirm"),
+                 InlineKeyboardButton("✅ لا، إلغاء", callback_data="menu_agent")],
+            ]),
+            parse_mode=ParseMode.MARKDOWN,
+        )
+    elif data == "agent_stop_confirm":
         r = await run_cmd(f"sudo systemctl stop {AGENT_SERVICE}")
-        return await query.edit_message_text(f"🔴 إيقاف العامل:\n`{(r[1]+r[2]).strip() or 'OK'}`", reply_markup=agent_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        return await query.edit_message_text(f"🔴 تم إيقاف العامل:\n`{(r[1]+r[2]).strip() or 'OK'}`", reply_markup=agent_keyboard(), parse_mode=ParseMode.MARKDOWN)
     elif data == "agent_restart":
+        return await query.edit_message_text(
+            "⚠️ إعادة تشغيل الوكيل؟",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 نعم، أعد التشغيل", callback_data="agent_restart_confirm"),
+                 InlineKeyboardButton("✅ لا", callback_data="menu_agent")],
+            ]),
+            parse_mode=ParseMode.MARKDOWN,
+        )
+    elif data == "agent_restart_confirm":
         r = await run_cmd(f"sudo systemctl restart {AGENT_SERVICE}")
-        return await query.edit_message_text(f"🔄 إعادة تشغيل العامل:\n`{(r[1]+r[2]).strip() or 'OK'}`", reply_markup=agent_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        return await query.edit_message_text(f"🔄 تمت إعادة التشغيل:\n`{(r[1]+r[2]).strip() or 'OK'}`", reply_markup=agent_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
     # ── Quality / Analyze ──
     elif data == "quality":
@@ -430,6 +493,18 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         r = await run_cmd(f"tail -30 {LOG_FILE}")
         output = trim_output(r[1] or "⚠️ سجل فارغ")
         await query.edit_message_text(f"**📋 آخر 30 سطر:**\n```\n{output}\n```", reply_markup=system_keyboard(), parse_mode=ParseMode.MARKDOWN)
+
+    elif data == "disk_info":
+        r1 = await run_cmd("df -h | grep -v tmpfs | grep -v loop")
+        r2 = await run_cmd("du -sh /home/ubuntu/NOVA/node_modules 2>/dev/null || echo 'N/A'")
+        r3 = await run_cmd("du -sh /home/ubuntu/NOVA/src-tauri/target 2>/dev/null || echo 'N/A'")
+        text = f"**💿 Disk**\n```\n{r1[1].strip()[:2000]}\n```\n**📦 node_modules:** `{r2[1].strip()}`\n**🦀 target:** `{r3[1].strip()}`"
+        return await query.edit_message_text(text, reply_markup=system_keyboard(), parse_mode=ParseMode.MARKDOWN)
+
+    elif data == "proc_info":
+        r = await run_cmd("ps aux --sort=-%cpu | head -12")
+        text = trim_output(r[1].strip()[:3500] or "N/A", 3500)
+        return await query.edit_message_text(f"**🔥 Processes (by CPU)**\n```\n{text}\n```", reply_markup=system_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
     elif data == "clean":
         script = SCRIPTS_DIR / "maintenance.sh"
@@ -667,7 +742,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"كأنك تتحدث معه عبر الطرفية — يأخذ أوامرك وينفذها.\n\n"
         f"استخدم الأزرار أدناه للتحكم السهل."
     )
-    await update.message.reply_text(text, reply_markup=main_menu_keyboard(), parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(text, reply_markup=main_reply_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
 @restricted
 async def cmd_register(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -676,7 +751,7 @@ async def cmd_register(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat_id not in chats:
         chats.append(chat_id)
         save_chats(chats)
-    await update.message.reply_text("✅ تم التسجيل! استخدم الأزرار أدناه:", reply_markup=main_menu_keyboard(), parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text("✅ تم التسجيل! استخدم الأزرار أدناه:", reply_markup=main_reply_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
 @restricted
 async def cmd_unregister(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -877,6 +952,101 @@ async def cmd_opencode(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"❌ خطأ: {e}")
 
 # ── Server Status ─────────────────────────────────────
+# ── Logs viewer ───────────────────────────────────────
+@restricted
+async def cmd_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    n = 30
+    if context.args and context.args[0].isdigit():
+        n = min(int(context.args[0]), 200)
+    sources = {
+        "agent": "/var/log/nova-dev-agent.log",
+        "bot": "/var/log/nova-bot.log",
+        "watchdog": "/var/log/nova-watchdog.log",
+        "maintenance": "/var/log/nova-maintenance.log",
+    }
+    source = "agent"
+    if context.args and context.args[-1] in sources:
+        source = context.args[-1]
+        if context.args[0].isdigit() and len(context.args) > 1:
+            n = min(int(context.args[0]), 200)
+    log_path = sources[source]
+    r = await run_cmd(f"tail -{n} {log_path} 2>/dev/null || echo 'File not found'")
+    text = trim_output(r[1] or f"⚠️ {log_path} غير موجود", 3500)
+    await update.message.reply_text(f"**📋 {source} log (last {n})**\n```\n{text}\n```")
+
+# ── Service manager ──────────────────────────────────
+@restricted
+async def cmd_svc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manage system services: /svc [name] [status|start|stop|restart]"""
+    if not context.args:
+        r = await run_cmd("systemctl list-units --type=service --state=running --no-pager | grep nova")
+        text = r[1].strip()[:3500] or "⚠️ لا توجد خدمات NOVA نشطة"
+        return await update.message.reply_text(f"**🤖 خدمات NOVA**\n```\n{text}\n```")
+    name = context.args[0]
+    action = context.args[1] if len(context.args) > 1 else "status"
+    if action not in ("status", "start", "stop", "restart", "enable", "disable"):
+        return await update.message.reply_text(f"⚠️ إجراء غير معروف: {action}")
+    if action == "status":
+        r = await run_cmd(f"systemctl status {name} --no-pager -l 2>/dev/null | head -30")
+    else:
+        r = await run_cmd(f"sudo systemctl {action} {name} 2>&1")
+    text = trim_output(r[1].strip()[:3500] or r[2].strip()[:500] or "✅", 3500)
+    await update.message.reply_text(f"**{action} {name}**\n```\n{text}\n```")
+
+# ── Disk usage ───────────────────────────────────────
+@restricted
+async def cmd_disk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    r1 = await run_cmd("df -h | grep -v tmpfs | grep -v loop")
+    r2 = await run_cmd("du -sh /home/ubuntu/NOVA/node_modules 2>/dev/null || echo 'N/A'")
+    r3 = await run_cmd("du -sh /home/ubuntu/NOVA/src-tauri/target 2>/dev/null || echo 'N/A'")
+    text = f"**💿 Disk Usage**\n```\n{r1[1].strip()[:2000]}\n```\n**📦 node_modules:** `{r2[1].strip()}`\n**🦀 target:** `{r3[1].strip()}`"
+    await update.message.reply_text(text)
+
+# ── Process list ─────────────────────────────────────
+@restricted
+async def cmd_proc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    sort = context.args[0] if context.args and context.args[0] in ("cpu", "mem", "pid") else "cpu"
+    r = await run_cmd(f"ps aux --sort=-%{sort} | head -15")
+    text = trim_output(r[1].strip()[:3500] or "N/A", 3500)
+    await update.message.reply_text(f"**🔥 Processes (by {sort})**\n```\n{text}\n```")
+
+# ── Zero-downtime reload ──────────────────────────────
+@restricted
+async def cmd_reload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Pull latest code and hot-reload the bot."""
+    msg = await update.message.reply_text("🔄 جاري التحديث الذاتي...")
+    # Start a detached process that waits then restarts the bot
+    script = r"""#!/usr/bin/env python3
+import time, os, subprocess, sys, signal
+time.sleep(1)
+proj = "/home/ubuntu/NOVA"
+# Pull latest
+subprocess.run(["git", "-C", proj, "pull", "origin", "Dev"], capture_output=True)
+# Copy scripts
+for src, dst in [
+    (proj + "/nova-dev-agent.sh", "/usr/local/bin/nova-dev-agent.sh"),
+    (proj + "/scripts/agent/watchdog.sh", "/usr/local/bin/nova-watchdog.sh"),
+    (proj + "/scripts/agent/maintenance.sh", "/usr/local/bin/nova-maintenance.sh"),
+]:
+    subprocess.run(["sudo", "cp", src, dst], capture_output=True)
+# Signal old bot to stop gracefully
+pid = %d
+try:
+    os.kill(pid, signal.SIGTERM)
+except:
+    pass
+# Wait for old process to die
+time.sleep(2)
+# Start new bot
+os.execv("/usr/bin/python3", ["python3", proj + "/nova-bot.py"])
+""" % BOT_PID
+    import tempfile
+    updater = tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False)
+    updater.write(script)
+    updater.close()
+    subprocess.Popen([sys.executable, updater.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    await msg.edit_text("🔄 **تم!** البوت سيعاد تشغيله خلال ثوانٍ بالنسخة الجديدة.")
+
 async def build_server_status() -> str:
     """Build comprehensive server status report."""
     # CPU
@@ -1057,28 +1227,81 @@ async def run_opencode_prompt(prompt: str, chat_history: list[dict] | None = Non
         return f"❌ خطأ: {e}"
 
 async def handle_direct_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle any non-command text message as a direct prompt to the agent."""
+    """Handle non-command text — reply keyboard nav or agent chat."""
     if not update.message or not update.message.text:
         return
 
     chat_id = update.effective_chat.id
     user_text = update.message.text.strip()
 
+    # Auth check
+    allowed = load_chats()
+    if allowed and chat_id not in allowed:
+        await update.message.reply_text("⛔ هذا البوت خاص. أرسل /register للتسجيل.")
+        return
+
     if not user_text:
         return
 
-    # Initialize chat history if needed
+    # ── Check: pending confirmation? ──
+    if chat_id in pending_confirm:
+        action, prompt, ctx = pending_confirm.pop(chat_id)
+        if user_text.lower() in ["نعم", "yes", "y", "✅", "ok"]:
+            await handle_confirmed_action(update, context, action, ctx)
+        else:
+            await update.message.reply_text("❌ تم الإلغاء.", reply_markup=main_reply_keyboard())
+        return
+
+    # ── Check: reply keyboard navigation ──
+    if user_text in REPLY_ACTIONS:
+        data = REPLY_ACTIONS[user_text]
+        menu_texts = {
+            "menu_system": ("🖥️ **النظام** — اختر أمراً:", system_keyboard()),
+            "menu_agent": ("🤖 **الوكيل** — التحكم بالعامل:", agent_keyboard()),
+            "menu_plan": ("📋 **الخطة** — إدارة المهام:", plan_keyboard()),
+            "menu_research": ("🔍 **البحث والتحليل**:", research_keyboard()),
+            "menu_reports": ("📊 **التقارير**:", reports_keyboard()),
+            "menu_settings": ("⚙️ **الإعدادات**:", settings_keyboard()),
+            "notif_menu": ("🔔 **الإشعارات** — اختر الأنواع التي تريد استقبالها:", notif_menu_keyboard(chat_id)),
+        }
+        if data == "menu_main":
+            await send_menu(update)
+        elif data in menu_texts:
+            text, kb = menu_texts[data]
+            await update.message.reply_text(text, reply_markup=kb, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    # ── Check: direct action buttons ──
+    if user_text in REPLY_DIRECT:
+        label, action = REPLY_DIRECT[user_text]
+        if action == "log_30":
+            if not LOG_FILE.exists():
+                return await update.message.reply_text("❌ ملف السجل غير موجود.")
+            r = await run_cmd(f"tail -30 {LOG_FILE}")
+            text = trim_output(r[1] or "⚠️ سجل فارغ", 3500)
+            await update.message.reply_text(f"**📋 آخر 30 سطر**\n```\n{text}\n```")
+        elif action == "disk_info":
+            r1 = await run_cmd("df -h | grep -v tmpfs | grep -v loop")
+            r2 = await run_cmd("du -sh /home/ubuntu/NOVA/node_modules 2>/dev/null || echo 'N/A'")
+            r3 = await run_cmd("du -sh /home/ubuntu/NOVA/src-tauri/target 2>/dev/null || echo 'N/A'")
+            text = f"**💿 Disk**\n```\n{r1[1].strip()[:2000]}\n```\n**📦 node_modules:** `{r2[1].strip()}`\n**🦀 target:** `{r3[1].strip()}`"
+            await update.message.reply_text(text)
+        elif action == "proc_info":
+            r = await run_cmd("ps aux --sort=-%cpu | head -12")
+            text = trim_output(r[1].strip()[:3500] or "N/A", 3500)
+            await update.message.reply_text(f"**🔥 Processes (by CPU)**\n```\n{text}\n```")
+        return
+
+    # ── Otherwise: send to agent ──
     if chat_id not in CHAT_CONTEXT:
         CHAT_CONTEXT[chat_id] = []
 
-    # Add user message to history
     CHAT_CONTEXT[chat_id].append({"role": "user", "content": user_text})
 
     msg = await update.message.reply_text(
         f"🧠 **NOVA Agent** يعمل على:\n`{user_text[:200]}{'...' if len(user_text) > 200 else ''}`\n\n⏳ انتظر..."
     )
 
-    # Show typing indicator
     try:
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
     except Exception:
@@ -1086,29 +1309,56 @@ async def handle_direct_message(update: Update, context: ContextTypes.DEFAULT_TY
 
     output = await run_opencode_prompt(user_text, CHAT_CONTEXT[chat_id])
 
-    # Add assistant response to history
     CHAT_CONTEXT[chat_id].append({"role": "assistant", "content": output})
-
-    # Keep history manageable (last 20 messages)
     if len(CHAT_CONTEXT[chat_id]) > 20:
         CHAT_CONTEXT[chat_id] = CHAT_CONTEXT[chat_id][-20:]
 
-    # Determine if it looks like a conversation or a command result
-    is_code_output = any(marker in output for marker in ["```", "exit:", "❌", "✅", "⚠️"])
-
-    if is_code_output:
-        full = f"**✅ Agent response:**\n```\n{output}\n```"
-    else:
-        full = f"**🤖 NOVA:**\n{output}"
+    is_code = any(m in output for m in ["```", "exit:", "❌", "✅", "⚠️"])
+    full = f"**✅ Agent:**\n```\n{output}\n```" if is_code else f"**🤖 NOVA:**\n{output}"
 
     try:
         await msg.edit_text(full)
     except Exception:
-        # Message too long or can't edit, send new
         await update.message.reply_text(full)
 
-    # Add menu button
-    await update.message.reply_text("💡 استخدم /menu للقائمة الرئيسية.")
+# ── Confirmation system ─────────────────────────────────
+async def confirm_action(update: Update, action: str, prompt: str, ctx: dict):
+    """Ask user to confirm a destructive action."""
+    chat_id = update.effective_chat.id
+    pending_confirm[chat_id] = (action, prompt, ctx)
+    await update.message.reply_text(
+        f"⚠️ **تأكيد**: {prompt}\n\nأرسل `نعم` للتأكيد، أو أي شيء للإلغاء.",
+        reply_markup=main_reply_keyboard(),
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+async def handle_confirmed_action(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str, ctx: dict):
+    """Execute a confirmed action."""
+    msg = await update.message.reply_text(f"⚡ جاري التنفيذ...")
+    if action == "agent_stop":
+        r = await run_cmd(f"sudo systemctl stop {AGENT_SERVICE}")
+        await msg.edit_text(f"🔴 Agent: `{r[1].strip() or 'OK'}`", reply_markup=agent_keyboard())
+    elif action == "agent_restart":
+        r = await run_cmd(f"sudo systemctl restart {AGENT_SERVICE}")
+        await msg.edit_text(f"🔄 Agent: `{r[1].strip() or 'OK'}`", reply_markup=agent_keyboard())
+    elif action == "plan_delete":
+        keyword = ctx.get("keyword", "")
+        content = _plan_read()
+        found = _plan_find_task(content, keyword)
+        if found:
+            start, end, block = found
+            lines = content.split("\n")
+            new = lines[:start] + lines[end:]
+            _plan_write("\n".join(new))
+            title = block.split("\n")[0].strip()
+            await msg.edit_text(f"🗑️ تم حذف: `{title}`", reply_markup=plan_keyboard())
+        else:
+            await msg.edit_text("❌ المهمة غير موجودة.", reply_markup=plan_keyboard())
+    elif action == "git_reset":
+        r = await run_cmd("git reset --hard origin/Dev")
+        await msg.edit_text(f"🔄 Git reset: `{r[1].strip()[:200] or 'OK'}`", reply_markup=system_keyboard())
+    else:
+        await msg.edit_text(f"✅ تم.", reply_markup=main_menu_keyboard())
 
 @restricted
 # ── /set_freq command ─────────────────────────────────
@@ -1176,16 +1426,19 @@ def main():
     app.add_handler(CommandHandler("server", cmd_server))
     app.add_handler(CommandHandler("broadcast", cmd_broadcast))
     app.add_handler(CommandHandler("notif_freq", set_freq_command))
+    app.add_handler(CommandHandler("reload", cmd_reload))
+    app.add_handler(CommandHandler("restart", cmd_reload))
+    app.add_handler(CommandHandler("logs", cmd_logs))
+    app.add_handler(CommandHandler("svc", cmd_svc))
+    app.add_handler(CommandHandler("disk", cmd_disk))
+    app.add_handler(CommandHandler("proc", cmd_proc))
 
-    # Catch all non-command text messages — direct chat with agent
+    # Catch all non-command text messages — reply keyboard nav or agent chat
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_direct_message))
 
     app.add_error_handler(error_handler)
 
-    async def on_start(app):
-        await broadcast_message("🟢 **NOVA Bot** — التشغيل", "system")
-
-    print("NOVA Bot v3.2 started — notification frequency control + broadcast command.", flush=True)
+    print(f"NOVA Bot v{BOT_VERSION} — full server control + reply keyboard + confirmation dialogs.", flush=True)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
