@@ -55,6 +55,22 @@ NOTIF_LABELS = {
     "system": "🖥️ نظام",
 }
 
+# ── Notification frequency levels ─────────────────────
+FREQ_LEVELS = ["normal", "important", "minimal", "off"]
+FREQ_LABELS = {
+    "normal": "🔔 عادي (الكل)",
+    "important": "⭐ مهم فقط",
+    "minimal": "🔕 أخطاء فقط",
+    "off": "🔇 إيقاف",
+}
+# Which types are allowed per frequency level
+FREQ_FILTER = {
+    "normal": set(NOTIF_TYPES),
+    "important": {"cycle_start", "cycle_done", "error", "ci_fail"},
+    "minimal": {"error", "ci_fail"},
+    "off": set(),
+}
+
 # ── Auth ────────────────────────────────────────────────
 def load_chats() -> list[int]:
     if CHATS_FILE.exists():
@@ -76,14 +92,29 @@ def save_notif_prefs(prefs: dict):
 
 def get_chat_prefs(chat_id: int) -> dict:
     prefs = load_notif_prefs()
-    return prefs.get(str(chat_id), {t: True for t in NOTIF_TYPES})
+    defaults = {"freq": "normal"} | {t: True for t in NOTIF_TYPES}
+    return defaults | prefs.get(str(chat_id), {})
 
 def set_chat_pref(chat_id: int, notif_type: str, enabled: bool):
     prefs = load_notif_prefs()
     cid = str(chat_id)
     if cid not in prefs:
-        prefs[cid] = {t: True for t in NOTIF_TYPES}
+        prefs[cid] = {"freq": "normal"} | {t: True for t in NOTIF_TYPES}
     prefs[cid][notif_type] = enabled
+    save_notif_prefs(prefs)
+
+def set_chat_freq(chat_id: int, freq: str):
+    """Set frequency level and toggle individual types accordingly."""
+    if freq not in FREQ_LEVELS:
+        return
+    prefs = load_notif_prefs()
+    cid = str(chat_id)
+    entry = prefs.get(cid, {})
+    entry["freq"] = freq
+    allowed = FREQ_FILTER[freq]
+    for t in NOTIF_TYPES:
+        entry[t] = t in allowed
+    prefs[cid] = entry
     save_notif_prefs(prefs)
 
 def restricted(func):
@@ -225,7 +256,18 @@ def settings_keyboard():
 
 def notif_menu_keyboard(chat_id: int):
     prefs = get_chat_prefs(chat_id)
+    current_freq = prefs.get("freq", "normal")
     buttons = []
+
+    # Frequency level row
+    freq_row = []
+    for f in FREQ_LEVELS:
+        marker = "•" if f == current_freq else " "
+        label = FREQ_LABELS.get(f, f)
+        freq_row.append(InlineKeyboardButton(f"{marker} {label}", callback_data=f"notif_freq_{f}"))
+    buttons.append(freq_row)
+
+    # Individual toggles
     for nt in NOTIF_TYPES:
         status = "✅" if prefs.get(nt, True) else "⬜"
         label = NOTIF_LABELS.get(nt, nt)
@@ -281,6 +323,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for nt in NOTIF_TYPES:
             set_chat_pref(chat_id, nt, False)
         return await query.edit_message_text("⬜ تم إيقاف كل الإشعارات", reply_markup=notif_menu_keyboard(chat_id), parse_mode=ParseMode.MARKDOWN)
+    elif data.startswith("notif_freq_"):
+        freq = data.replace("notif_freq_", "")
+        set_chat_freq(chat_id, freq)
+        label = FREQ_LABELS.get(freq, freq)
+        return await query.edit_message_text(f"✅ تم تعيين التكرار: {label}", reply_markup=notif_menu_keyboard(chat_id), parse_mode=ParseMode.MARKDOWN)
 
     # ── Agent control ──
     if data == "agent_start":
@@ -1064,13 +1111,36 @@ async def handle_direct_message(update: Update, context: ContextTypes.DEFAULT_TY
     await update.message.reply_text("💡 استخدم /menu للقائمة الرئيسية.")
 
 @restricted
-async def cmd_opencode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ── /set_freq command ─────────────────────────────────
+@restricted
+async def set_freq_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
     if not context.args:
-        return await update.message.reply_text("📝 استعمال: /opencode <prompt>")
-    prompt = " ".join(context.args)
-    msg = await update.message.reply_text(f"🤖 جاري تشغيل opencode...\n\n`{prompt[:200]}{'...' if len(prompt)>200 else ''}`")
-    output = await run_opencode_prompt(prompt)
-    await msg.edit_text(f"**✅ opencode**\n```\n{output}\n```")
+        opts = " | ".join(f"{f}={FREQ_LABELS[f]}" for f in FREQ_LEVELS)
+        return await update.message.reply_text(f"🔔 **تكرار الإشعارات**\nاختر:\n{opts}\n\nمثال: `/set_freq important`")
+    freq = context.args[0].lower()
+    if freq not in FREQ_LEVELS:
+        return await update.message.reply_text(f"⚠️ غير معروف. الخيارات: {', '.join(FREQ_LEVELS)}")
+    set_chat_freq(chat_id, freq)
+    await update.message.reply_text(f"✅ تم تعيين التكرار: {FREQ_LABELS[freq]}")
+
+# ── Broadcast command (admin only) ──────────────────────
+@restricted
+async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in load_chats():
+        return await update.message.reply_text("⛔ غير مصرح")
+    if not context.args:
+        return await update.message.reply_text("📝 استعمال: /broadcast <رسالة>\nأو /broadcast <type> <رسالة>")
+    notif_type = "system"
+    msg_parts = " ".join(context.args)
+    if context.args[0] in NOTIF_TYPES:
+        notif_type = context.args[0]
+        msg_parts = " ".join(context.args[1:]) if len(context.args) > 1 else ""
+    if not msg_parts:
+        return await update.message.reply_text("⚠️ الرسالة فارغة")
+    await broadcast_message(f"📢 **بث**: {msg_parts}", notif_type)
+    await update.message.reply_text(f"✅ تم البث (type: {notif_type})")
 
 # ── Error Handler ──────────────────────────────────────
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1078,7 +1148,10 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Main ────────────────────────────────────────────────
 def main():
-    app = Application.builder().token(BOT_TOKEN).build()
+    async def on_start(app):
+        await broadcast_message("🟢 **NOVA Bot** — التشغيل", "system")
+
+    app = Application.builder().token(BOT_TOKEN).post_init(on_start).build()
 
     # Callback query handler — must be first to catch all
     app.add_handler(CallbackQueryHandler(callback_handler))
@@ -1101,13 +1174,18 @@ def main():
     app.add_handler(CommandHandler("chat", cmd_chat))
     app.add_handler(CommandHandler("reset", cmd_reset))
     app.add_handler(CommandHandler("server", cmd_server))
+    app.add_handler(CommandHandler("broadcast", cmd_broadcast))
+    app.add_handler(CommandHandler("notif_freq", set_freq_command))
 
     # Catch all non-command text messages — direct chat with agent
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_direct_message))
 
     app.add_error_handler(error_handler)
 
-    print("NOVA Bot v3.1 started — direct chat mode active. Send any message to talk to agent.", flush=True)
+    async def on_start(app):
+        await broadcast_message("🟢 **NOVA Bot** — التشغيل", "system")
+
+    print("NOVA Bot v3.2 started — notification frequency control + broadcast command.", flush=True)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
