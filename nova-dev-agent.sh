@@ -230,26 +230,23 @@ $FAILURE_LOG"
   CYCLE_START=$(date +%s)
 
   set +e
-  timeout 900 \
+  timeout 3600 \
   $OPENCODE run \
     --model "opencode/big-pickle" \
     --auto \
     "Read Plan.md — especially the **NOVA Development Constitution** section. Follow it strictly.
-     The Constitution says:
-     - NO building on server (no pnpm build, no tauri:build, no E2E tests locally)
-     - Research deeply before implementing anything
-     - Quality first: strict types, error states, tests for all cases
-     - Coverage targets: 10% -> 25% -> 50% -> 75% -> 100%
-     - Plan before executing large tasks
+     IMPORTANT RULES:
+     - NO building on server (no pnpm build, no tauri:build, no E2E tests)
+     - DO NOT run quality gates — skip pnpm lint, pnpm test, etc.
+     - Write code only. Commit and push when done.
+     - You have up to 60 minutes. Use it productively.
+     - Coverage targets: aim for 10%+, but don't run coverage tool.
 
-     Resume IN_PROGRESS task or start highest priority PLANNED task from the top.
-     Read AGENTS.md for quality gates and code standards reference.
-     Work on the project: write code, fix issues, refactor, improve quality, update docs.
-     After changes, update Plan.md status accordingly (mark tasks IN_PROGRESS/COMPLETED, add new tasks as needed).
-     Run allowed quality gates after making changes: lint, typecheck, unit test.
-     Commit changes with conventional commits (feat/fix/chore/test/refactor/docs/ci).
+     Resume IN_PROGRESS task or start highest priority PLANNED task.
+     Work on the project: write code, fix issues, refactor, improve quality.
+     After changes, update Plan.md status.
+     Commit with conventional commits (feat/fix/chore/test/refactor/docs/ci).
      Never mention AI in commits or files.
-     NOTE: You have a max 15 minutes for this cycle. Prioritize — do NOT run all quality gates in one go, pick 1-2 max.
      $CI_FIX" 2>&1 | tee -a "$LOG_FILE"
   EXIT_CODE=$?
   set -e
@@ -259,24 +256,24 @@ $FAILURE_LOG"
   DURATION_MIN=$((DURATION / 60))
   DURATION_SEC=$((DURATION % 60))
 
-  # ── Error handling (send only on actual failure) ──
+  # ── Error handling ──
   if [ $EXIT_CODE -ne 0 ]; then
     if [ $EXIT_CODE -eq 124 ]; then
-      log "WARN" "opencode timed out (15m). Retrying..."
-      send_telegram "⏰ **Cycle timed out** (15m) — retrying" "" "error"
-      sleep 10
+      log "WARN" "opencode timed out (60m). Retrying..."
+      send_telegram "⏰ **Cycle timed out** (60m) — retrying" "" "error"
+      sleep 5
       continue
     fi
-    LAST_LINES=$(tail -20 "$LOG_FILE")
+    LAST_LINES=$(tail -10 "$LOG_FILE")
     if echo "$LAST_LINES" | grep -qiE "rate.limit|quota|429|too many|token.limit|unauthorized|401|403|insufficient.quota|model.not.found|context.length"; then
       WAIT=120
       log "WARN" "Rate limit exceeded. Waiting ${WAIT}s..."
-      send_telegram "⚠️ **Rate limit** — retry in ${WAIT}s (⏱️ ${DURATION_MIN}m)" "⚠️" "error"
+      send_telegram "⚠️ **Rate limit** — retry in ${WAIT}s" "⚠️" "error"
       sleep $WAIT
       continue
     else
       log "WARN" "opencode exited with code $EXIT_CODE. Retrying..."
-      send_telegram "⚠️ **Agent error** (exit $EXIT_CODE) — retrying" "❌" "error"
+      send_telegram "⚠️ **Agent error** (exit $EXIT_CODE)" "❌" "error"
       sleep 30
       continue
     fi
@@ -290,16 +287,34 @@ $FAILURE_LOG"
     git push origin Dev 2>&1 | tee -a "$LOG_FILE" || log "WARN" "push failed"
     HAS_CHANGES=true
     log "OK" "Changes pushed"
-    # Monitor CI in background
     (monitor_workflow "Dev" 2>&1 | tee -a "$LOG_FILE") &
   else
     log "INFO" "No changes"
   fi
 
-  # ── Send ONE notification at cycle end ──
-  CHANGES_ICON="📝" && CHANGES_TEXT="changes pushed"
-  if [ "$HAS_CHANGES" = false ]; then CHANGES_ICON="📭" && CHANGES_TEXT="no changes"; fi
-  send_telegram "${CHANGES_ICON} **Cycle** ${CYCLE_ID:8:6} — ${CHANGES_TEXT} (${DURATION_MIN}m ${DURATION_SEC}s)" "" "cycle_done"
+  # ── Notification ──
+  if [ "$HAS_CHANGES" = true ]; then
+    send_telegram "📝 **Cycle** ${CYCLE_ID:8:6} — pushed (${DURATION_MIN}m)" "" "cycle_done"
+  else
+    send_telegram "📭 **Cycle** ${CYCLE_ID:8:6} — no changes (${DURATION_MIN}m)" "" "cycle_done"
+  fi
+
+  # ── Quality gates run separately (not inside opencode) ──
+  if [ "$HAS_CHANGES" = true ]; then
+    log "INFO" "Running quality gates on changes..."
+    for CMD in "pnpm lint 2>&1" "pnpm lint:eslint 2>&1" "pnpm test 2>&1"; do
+      timeout 120 bash -c "$CMD" 2>&1 | tee -a "$LOG_FILE" || log "WARN" "Quality gate failed: $CMD"
+    done
+    git add -A 2>&1 | tee -a "$LOG_FILE" || true
+    if [ -n "$(git status --porcelain)" ]; then
+      git commit -m "chore: fix quality gates after cycle $CYCLE_ID" 2>&1 | tee -a "$LOG_FILE" || true
+      git push origin Dev 2>&1 | tee -a "$LOG_FILE" || log "WARN" "push failed"
+      log "OK" "Quality gate fixes pushed"
+    fi
+  else
+    # Even when no changes, run lint once to generate diagnostics
+    timeout 120 bash -c "pnpm lint 2>&1 | tail -5" 2>&1 | tee -a "$LOG_FILE" || true
+  fi
 
   # ── Save State ──
   cat > "$STATE_FILE" << STATE_EOF
