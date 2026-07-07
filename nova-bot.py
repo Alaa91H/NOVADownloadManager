@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 """
-NOVA Telegram Bot — Direct control & monitoring for NOVA Dev Agent.
-Commands: /start, /status, /log, /start_agent, /stop_agent, /restart_agent,
-          /exec, /quality, /plan, /git, /opencode, /build
+NOVA Telegram Bot v3.0 — Inline menus + notification control.
 """
 import asyncio
 import json
 import os
 import re
-import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,14 +14,12 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
+    CallbackQueryHandler,
     ContextTypes,
-    MessageHandler,
-    filters,
 )
+from telegram.constants import ParseMode
 
-# ──────────────────────────────────────────────────────
-# Configuration
-# ──────────────────────────────────────────────────────
+# ── Config ──────────────────────────────────────────────
 BOT_TOKEN = os.environ.get("NOVA_BOT_TOKEN", "8996219734:AAF23wUwd-cdkeCO1kuLIym99G3fYEyZegY")
 TELEGRAM_API_ID = os.environ.get("NOVA_API_ID", "38089413")
 TELEGRAM_API_HASH = os.environ.get("NOVA_API_HASH", "4a45cef09ce00b27c7487830ffaa5f44")
@@ -35,22 +30,59 @@ AGENT_SERVICE = "nova-dev-agent.service"
 STATE_FILE = PROJECT_DIR / ".agent-state.json"
 OPENCODE_BIN = "/home/ubuntu/.opencode/bin/opencode"
 CHATS_FILE = PROJECT_DIR / ".bot-chats.json"
+NOTIF_FILE = PROJECT_DIR / ".notif-prefs.json"
+SCRIPTS_DIR = PROJECT_DIR / "scripts" / "agent"
+MAX_OUTPUT_LENGTH = 3800
 
-MAX_OUTPUT_LENGTH = 3800  # Telegram message limit is 4096, leave room for formatting
-
-# Track running exec processes to allow cancellation
 running_execs: dict[int, asyncio.subprocess.Process] = {}
 
-# ──────────────────────────────────────────────────────
-# Auth — only registered users
-# ──────────────────────────────────────────────────────
+# ── Notification types ─────────────────────────────────
+NOTIF_TYPES = [
+    "cycle_start", "cycle_done", "ci_result", "ci_fail",
+    "error", "maintenance", "analysis", "system",
+]
+
+NOTIF_LABELS = {
+    "cycle_start": "🔄 بدء دورة",
+    "cycle_done": "✅ انتهاء دورة",
+    "ci_result": "📊 نتيجة CI",
+    "ci_fail": "❌ فشل CI",
+    "error": "🚨 أخطاء",
+    "maintenance": "🛠️ صيانة",
+    "analysis": "📈 تحليل",
+    "system": "🖥️ نظام",
+}
+
+# ── Auth ────────────────────────────────────────────────
 def load_chats() -> list[int]:
     if CHATS_FILE.exists():
-        try:
-            return json.loads(CHATS_FILE.read_text())
-        except Exception:
-            return []
+        try: return json.loads(CHATS_FILE.read_text())
+        except Exception: return []
     return []
+
+def save_chats(chats: list[int]):
+    CHATS_FILE.write_text(json.dumps(chats, indent=2))
+
+def load_notif_prefs() -> dict:
+    if NOTIF_FILE.exists():
+        try: return json.loads(NOTIF_FILE.read_text())
+        except Exception: return {}
+    return {}
+
+def save_notif_prefs(prefs: dict):
+    NOTIF_FILE.write_text(json.dumps(prefs, indent=2))
+
+def get_chat_prefs(chat_id: int) -> dict:
+    prefs = load_notif_prefs()
+    return prefs.get(str(chat_id), {t: True for t in NOTIF_TYPES})
+
+def set_chat_pref(chat_id: int, notif_type: str, enabled: bool):
+    prefs = load_notif_prefs()
+    cid = str(chat_id)
+    if cid not in prefs:
+        prefs[cid] = {t: True for t in NOTIF_TYPES}
+    prefs[cid][notif_type] = enabled
+    save_notif_prefs(prefs)
 
 def restricted(func):
     async def wrapper(self_or_update, context, *args, **kwargs):
@@ -58,339 +90,468 @@ def restricted(func):
             update = self_or_update
         else:
             update = args[0] if args else None
-
         if not update or not update.effective_user:
             return
-
         user_id = update.effective_user.id
         allowed = load_chats()
-
-        # Allow /start and /register always
-        cmd = update.message.text.split()[0] if update.message and update.message.text else ""
-        if cmd in ("/start", "/register", "/myid") or not allowed:
+        # Determine if it's a message or callback
+        if update.callback_query:
+            text = update.callback_query.data or ""
+        else:
+            text = update.message.text.split()[0] if update.message and update.message.text else ""
+        if text in ("/start", "/register", "/myid", "menu_main") or not allowed:
             return await func(self_or_update, context, *args, **kwargs)
-
         if user_id not in allowed:
-            await update.message.reply_text("⛔ هذا البوت خاص. أرسل /register للتسجيل.")
+            if update.callback_query:
+                await update.callback_query.answer("⛔ غير مصرح", show_alert=True)
+            else:
+                await update.message.reply_text("⛔ هذا البوت خاص. أرسل /register للتسجيل.")
             return
-
         return await func(self_or_update, context, *args, **kwargs)
     return wrapper
 
-# ──────────────────────────────────────────────────────
-# Helpers
-# ──────────────────────────────────────────────────────
+# ── Helpers ─────────────────────────────────────────────
 async def run_cmd(cmd: str, timeout: int = 30, cwd: str | None = None) -> tuple[int, str, str]:
-    """Run a shell command and return (exit_code, stdout, stderr)."""
     proc = await asyncio.create_subprocess_shell(
-        cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         cwd=cwd or str(PROJECT_DIR),
     )
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         return proc.returncode or 0, stdout.decode(errors="replace"), stderr.decode(errors="replace")
     except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
+        proc.kill(); await proc.wait()
         return -1, "", f"⏱️ تجاوز المهلة ({timeout}s)"
 
 def trim_output(text: str, max_len: int = MAX_OUTPUT_LENGTH) -> str:
-    if len(text) <= max_len:
-        return text
+    if len(text) <= max_len: return text
     return text[:max_len] + f"\n\n... (مقتطع، إجمالي {len(text)} حرف)"
 
 def format_status(status: str) -> str:
     icons = {"active": "🟢", "inactive": "🔴", "failed": "🔴", "activating": "🟡", "deactivating": "🟡"}
     return f"{icons.get(status, '⚪')} {status}"
 
-def escape_md(text: str) -> str:
-    """Escape Telegram MarkdownV2 special chars."""
-    special = r"_*[]()~`>#+-=|{}.!"
-    for ch in special:
-        text = text.replace(ch, f"\\{ch}")
-    return text
+def shlex_quote(s: str) -> str:
+    return "'" + s.replace("'", "'\\''") + "'"
 
-# ──────────────────────────────────────────────────────
-# Command Handlers
-# ──────────────────────────────────────────────────────
-def save_chats(chats: list[int]):
-    CHATS_FILE.write_text(json.dumps(chats, indent=2))
-
-async def broadcast_message(text: str):
-    """Send a message to all registered chats."""
+async def broadcast_message(text: str, notif_type: str = "system"):
+    """Send to all chats that have this notification type enabled."""
     chats = load_chats()
-    if not chats:
-        return
+    if not chats: return
     from telegram import Bot
     bot = Bot(token=BOT_TOKEN)
     for chat_id in chats:
+        prefs = get_chat_prefs(chat_id)
+        if not prefs.get(notif_type, True):
+            continue
         try:
-            await bot.send_message(chat_id=chat_id, text=text)
+            await bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
         except Exception:
             pass
 
-@restricted
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    await update.message.reply_text(
-        f"🤖 مرحباً {user.first_name}!\n"
-        f"بوت التحكم بـ **NOVA Download Manager**\n\n"
-        f"⚠️ يجب أولاً تسجيل الاشتراك بإرسال /register\n"
-        f"لاستقبال إشعارات العامل التلقائي.\n\n"
-        f"**الأوامر:**\n"
-        f"• /register — تسجيل الاشتراك في الإشعارات\n"
-        f"• /unregister — إلغاء الاشتراك\n"
-        f"• /myid — عرض معرف تلغرام الخاص بك\n"
-        f"• /status — حالة النظام والعامل\n"
-        f"• /log — آخر 30 سطر من السجل\n"
-        f"• /log 100 — عدد محدد من الأسطر\n"
-        f"• /start_agent — تشغيل العامل\n"
-        f"• /stop_agent — إيقاف العامل\n"
-        f"• /restart_agent — إعادة تشغيل العامل\n"
-        f"• /exec `command` — تشغيل أمر مباشر\n"
-        f"• /quality — تشغيل فحوصات الجودة\n"
-        f"• /plan — عرض خطة العمل\n"
-        f"• /plan_add عنوان | وصف | اولوية — إضافة مهمة\n"
-        f"• /plan_start كلمة — نقل مهمة للنشطة\n"
-        f"• /plan_done — إكمال المهمة النشطة\n"
-        f"• /plan_block كلمة | سبب — تعطيل مهمة\n"
-        f"• /git `args` — أوامر git\n"
-        f"• /opencode `prompt` — تشغيل opencode\n"
-        f"• /build — بناء المشروع\n"
-        f"• /research `type args` — بحث متقدم\n"
-        f"• /analyze — تحليل الكود\n"
-        f"• /report — تقرير شامل\n"
-        f"• /ci_history — آخر 10 CI runs\n"
-        f"• /ci_logs `run_id` — CI logs\n"
-        f"• /coverage — التغطية والاتجاهات\n"
-        f"• /audit — تدقيق أمني\n"
-        f"• /clean — تنظيف السيرفر\n"
-        f"• /metrics — اتجاهات المقاييس\n"
-        f"• /rollback `n` — العودة n commits\n"
-        f"• /diff `file` — الفرق مع آخر commit\n"
-        f"• /branches — قائمة الفروع\n"
-        f"• /prs — PRs المفتوحة\n"
-        f"• /pr_review `num` `action` — مراجعة PR\n"
-        f"• /plan_delete `keyword` — حذف مهمة\n"
-        f"• /plan_info `keyword` — تفاصيل مهمة"
-    )
+# ── Inline Menu System ─────────────────────────────────
+def main_menu_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🖥️ النظام", callback_data="menu_system"),
+         InlineKeyboardButton("🤖 الوكيل", callback_data="menu_agent")],
+        [InlineKeyboardButton("📋 الخطة", callback_data="menu_plan"),
+         InlineKeyboardButton("🔍 البحث", callback_data="menu_research")],
+        [InlineKeyboardButton("📊 التقارير", callback_data="menu_reports"),
+         InlineKeyboardButton("⚙️ الإعدادات", callback_data="menu_settings")],
+    ])
 
+def system_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📊 الحالة", callback_data="status"),
+         InlineKeyboardButton("📋 السجل", callback_data="log_30")],
+        [InlineKeyboardButton("🔐 التدقيق", callback_data="audit"),
+         InlineKeyboardButton("🧹 تنظيف", callback_data="clean")],
+        [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="menu_main")],
+    ])
+
+def agent_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🟢 تشغيل", callback_data="agent_start"),
+         InlineKeyboardButton("🔴 إيقاف", callback_data="agent_stop"),
+         InlineKeyboardButton("🔄 إعادة", callback_data="agent_restart")],
+        [InlineKeyboardButton("✅ فحص الجودة", callback_data="quality"),
+         InlineKeyboardButton("📊 تحليل", callback_data="analyze")],
+        [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="menu_main")],
+    ])
+
+def plan_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📋 عرض الخطة", callback_data="plan"),
+         InlineKeyboardButton("✅ إكمال نشطة", callback_data="plan_done")],
+        [InlineKeyboardButton("▶️ بدء أول مهمة", callback_data="plan_start_first"),
+         InlineKeyboardButton("ℹ️ تفاصيل نشطة", callback_data="plan_info_active")],
+        [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="menu_main")],
+    ])
+
+def research_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔍 تحليل الكود", callback_data="analyze"),
+         InlineKeyboardButton("🔐 تدقيق أمني", callback_data="audit")],
+        [InlineKeyboardButton("📦 التبعيات", callback_data="deps"),
+         InlineKeyboardButton("📈 التغطية", callback_data="coverage")],
+        [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="menu_main")],
+    ])
+
+def reports_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📊 تقرير شامل", callback_data="report"),
+         InlineKeyboardButton("📋 تاريخ CI", callback_data="ci_history")],
+        [InlineKeyboardButton("📈 المقاييس", callback_data="metrics"),
+         InlineKeyboardButton("📊 التغطية", callback_data="coverage")],
+        [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="menu_main")],
+    ])
+
+def settings_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔔 الإشعارات", callback_data="notif_menu")],
+        [InlineKeyboardButton("🔄 حالة الوكيل", callback_data="status")],
+        [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="menu_main")],
+    ])
+
+def notif_menu_keyboard(chat_id: int):
+    prefs = get_chat_prefs(chat_id)
+    buttons = []
+    for nt in NOTIF_TYPES:
+        status = "✅" if prefs.get(nt, True) else "⬜"
+        label = NOTIF_LABELS.get(nt, nt)
+        buttons.append([InlineKeyboardButton(f"{status} {label}", callback_data=f"notif_toggle_{nt}")])
+    buttons.append([InlineKeyboardButton("✅ تشغيل الكل", callback_data="notif_all_on"),
+                    InlineKeyboardButton("⬜ إيقاف الكل", callback_data="notif_all_off")])
+    buttons.append([InlineKeyboardButton("🔙 الإعدادات", callback_data="menu_settings")])
+    return InlineKeyboardMarkup(buttons)
+
+async def send_menu(update: Update, text: str = "🤖 **NOVA Control Panel**"):
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=main_menu_keyboard(), parse_mode=ParseMode.MARKDOWN)
+    else:
+        await update.message.reply_text(text, reply_markup=main_menu_keyboard(), parse_mode=ParseMode.MARKDOWN)
+
+# ── Callback Handler ───────────────────────────────────
 @restricted
-async def cmd_register(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
     chat_id = update.effective_chat.id
-    chats = load_chats()
-    if chat_id not in chats:
-        chats.append(chat_id)
-        save_chats(chats)
-    await update.message.reply_text("✅ تم تسجيل الاشتراك! ستصللك إشعارات العامل تلقائياً.")
+    await query.answer()
 
-@restricted
-async def cmd_unregister(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    chats = load_chats()
-    if chat_id in chats:
-        chats.remove(chat_id)
-        save_chats(chats)
-    await update.message.reply_text("✅ تم إلغاء الاشتراك.")
+    # ── Menu navigation ──
+    if data == "menu_main":
+        return await send_menu(update)
+    elif data == "menu_system":
+        return await query.edit_message_text("🖥️ **النظام** — اختر أمراً:", reply_markup=system_keyboard(), parse_mode=ParseMode.MARKDOWN)
+    elif data == "menu_agent":
+        return await query.edit_message_text("🤖 **الوكيل** — التحكم بالعامل:", reply_markup=agent_keyboard(), parse_mode=ParseMode.MARKDOWN)
+    elif data == "menu_plan":
+        return await query.edit_message_text("📋 **الخطة** — إدارة المهام:", reply_markup=plan_keyboard(), parse_mode=ParseMode.MARKDOWN)
+    elif data == "menu_research":
+        return await query.edit_message_text("🔍 **البحث والتحليل**:", reply_markup=research_keyboard(), parse_mode=ParseMode.MARKDOWN)
+    elif data == "menu_reports":
+        return await query.edit_message_text("📊 **التقارير**:", reply_markup=reports_keyboard(), parse_mode=ParseMode.MARKDOWN)
+    elif data == "menu_settings":
+        return await query.edit_message_text("⚙️ **الإعدادات**:", reply_markup=settings_keyboard(), parse_mode=ParseMode.MARKDOWN)
+    elif data == "notif_menu":
+        return await query.edit_message_text("🔔 **الإشعارات** — اختر الأنواع التي تريد استقبالها:", reply_markup=notif_menu_keyboard(chat_id), parse_mode=ParseMode.MARKDOWN)
+    elif data.startswith("notif_toggle_"):
+        nt = data.replace("notif_toggle_", "")
+        if nt in NOTIF_TYPES:
+            prefs = get_chat_prefs(chat_id)
+            new_val = not prefs.get(nt, True)
+            set_chat_pref(chat_id, nt, new_val)
+            return await query.edit_message_text(f"✅ تم {'تشغيل' if new_val else 'إيقاف'} إشعار: {NOTIF_LABELS.get(nt, nt)}", reply_markup=notif_menu_keyboard(chat_id), parse_mode=ParseMode.MARKDOWN)
+    elif data == "notif_all_on":
+        for nt in NOTIF_TYPES:
+            set_chat_pref(chat_id, nt, True)
+        return await query.edit_message_text("✅ تم تشغيل كل الإشعارات", reply_markup=notif_menu_keyboard(chat_id), parse_mode=ParseMode.MARKDOWN)
+    elif data == "notif_all_off":
+        for nt in NOTIF_TYPES:
+            set_chat_pref(chat_id, nt, False)
+        return await query.edit_message_text("⬜ تم إيقاف كل الإشعارات", reply_markup=notif_menu_keyboard(chat_id), parse_mode=ParseMode.MARKDOWN)
 
-@restricted
-async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    await update.message.reply_text(
-        f"📋 **معلومات حسابك**\n"
-        f"• الاسم: `{user.first_name}`\n"
-        f"• المعرف: `{user.id}`\n"
-        f"• اليوزر: @{user.username or '—'}\n\n"
-        f"للتقييد, أضف `{user.id}` إلى متغير NOVA_ALLOWED_USERS."
-    )
+    # ── Agent control ──
+    if data == "agent_start":
+        r = await run_cmd(f"sudo systemctl start {AGENT_SERVICE}")
+        return await query.edit_message_text(f"🟢 تشغيل العامل:\n`{(r[1]+r[2]).strip() or 'OK'}`", reply_markup=agent_keyboard(), parse_mode=ParseMode.MARKDOWN)
+    elif data == "agent_stop":
+        r = await run_cmd(f"sudo systemctl stop {AGENT_SERVICE}")
+        return await query.edit_message_text(f"🔴 إيقاف العامل:\n`{(r[1]+r[2]).strip() or 'OK'}`", reply_markup=agent_keyboard(), parse_mode=ParseMode.MARKDOWN)
+    elif data == "agent_restart":
+        r = await run_cmd(f"sudo systemctl restart {AGENT_SERVICE}")
+        return await query.edit_message_text(f"🔄 إعادة تشغيل العامل:\n`{(r[1]+r[2]).strip() or 'OK'}`", reply_markup=agent_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
-@restricted
-async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = await update.message.reply_text("🔍 جاري جمع المعلومات...")
+    # ── Quality / Analyze ──
+    elif data == "quality":
+        await query.edit_message_text("🔍 جاري فحوصات الجودة...", parse_mode=ParseMode.MARKDOWN)
+        gates = [
+            ("tsc --noEmit", "pnpm lint"),
+            ("ESLint", "pnpm lint:eslint"),
+            ("Format", "pnpm format:check"),
+            ("Tests", "pnpm test"),
+            ("Coverage", "pnpm test:coverage"),
+            ("Build", "pnpm build"),
+            ("Audit", "pnpm audit:final"),
+        ]
+        results = []
+        all_pass = True
+        for name, cmd in gates:
+            code, out, err = await run_cmd(cmd, timeout=120)
+            ok = code == 0
+            all_pass = all_pass and ok
+            results.append(f"{'✅' if ok else '❌'} **{name}** (exit: {code})")
+        summary = "✅ **كل الفحوصات ناجحة!**" if all_pass else "⚠️ **بعض الفحوصات فشلت**"
+        await query.edit_message_text(f"{summary}\n\n" + "\n".join(results), reply_markup=agent_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
-    # System info
-    cpu = await run_cmd(r"top -bn1 | grep 'Cpu(s)' | awk '{print $2+$4}'")
-    mem = await run_cmd("free -m | awk 'NR==2{printf \"%s/%sMB (%.1f%%)\", $3,$2,$3*100/$2}'")
-    disk = await run_cmd("df -h / | awk 'NR==2{print $3\"/\"$2\" (\"$5\")\"}'")
-    uptime = await run_cmd("uptime -p | sed 's/up //'")
-    load = await run_cmd("cat /proc/loadavg | awk '{print $1, $2, $3}'")
+    elif data == "analyze":
+        script = SCRIPTS_DIR / "analyze.sh"
+        if not script.exists():
+            return await query.edit_message_text("❌ analyze.sh غير موجود.", reply_markup=research_keyboard())
+        await query.edit_message_text("🔍 جاري تحليل الكود...", parse_mode=ParseMode.MARKDOWN)
+        code, out, err = await run_cmd(f"bash {script}", timeout=120)
+        output = out.strip()[:3500] or "⚠️ لا توجد نتائج"
+        await query.edit_message_text(f"**📊 Code Analysis**\n```\n{output}\n```", reply_markup=research_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
-    # Agent service status
-    svc = await run_cmd(f"systemctl is-active {AGENT_SERVICE}")
-    svc_enabled = await run_cmd(f"systemctl is-enabled {AGENT_SERVICE}")
+    elif data == "audit":
+        await query.edit_message_text("🔍 جاري التدقيق الأمني...", parse_mode=ParseMode.MARKDOWN)
+        audit = await run_cmd("pnpm audit:final", timeout=60)
+        outdated = await run_cmd("pnpm outdated --no-table 2>/dev/null || echo 'All up to date'", timeout=30)
+        text = (
+            f"**🔐 Security Audit**\n```\n{audit[1].strip()[:1500] or '✅ Clean'}\n```\n"
+            f"**📦 Outdated Dependencies**\n```\n{outdated[1].strip()[:1500] or 'All up to date'}\n```"
+        )
+        await query.edit_message_text(text, reply_markup=research_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
-    # Last cycle from state file
-    last_cycle = "N/A"
-    last_time = "N/A"
-    if STATE_FILE.exists():
+    elif data == "deps":
+        await query.edit_message_text("🔍 جاري فحص التبعيات...", parse_mode=ParseMode.MARKDOWN)
+        outdated = await run_cmd("pnpm outdated --no-table 2>/dev/null || echo 'All up to date'", timeout=30)
+        audit = await run_cmd("pnpm audit:final", timeout=60)
+        text = (
+            f"**📦 Dependency Status**\n```\n{outdated[1].strip()[:1800] or 'All up to date'}\n```\n"
+            f"**🔐 Audit**\n```\n{audit[1].strip()[:1500] or '✅ Clean'}\n```"
+        )
+        await query.edit_message_text(text, reply_markup=research_keyboard(), parse_mode=ParseMode.MARKDOWN)
+
+    # ── Status / Log ──
+    elif data == "status":
+        cpu = await run_cmd(r"top -bn1 | grep 'Cpu(s)' | awk '{print $2+$4}'")
+        mem = await run_cmd("free -m | awk 'NR==2{printf \"%s/%sMB (%.1f%%)\",$3,$2,$3*100/$2}'")
+        disk = await run_cmd("df -h / | awk 'NR==2{print $3\"/\"$2\" (\"$5\")\"}'")
+        svc = await run_cmd(f"systemctl is-active {AGENT_SERVICE}")
+        bot_svc = await run_cmd("systemctl is-active nova-bot.service")
+        branch = await run_cmd("git rev-parse --abbrev-ref HEAD")
+        last_cycle = "N/A"
+        if STATE_FILE.exists():
+            try:
+                s = json.loads(STATE_FILE.read_text())
+                last_cycle = f"#{s.get('last_cycle','N/A')} ({s.get('duration_sec','?')}s)"
+            except: pass
+        text = (
+            f"**🖥️ النظام**\n"
+            f"• CPU: `{cpu[1].strip() or 'N/A'}%`\n"
+            f"• RAM: `{mem[1].strip() or 'N/A'}`\n"
+            f"• Disk: `{disk[1].strip() or 'N/A'}`\n\n"
+            f"**🤖 الخدمات**\n"
+            f"• Agent: {format_status(svc[1].strip())}\n"
+            f"• Bot: {format_status(bot_svc[1].strip())}\n"
+            f"• آخر دورة: `{last_cycle}`\n\n"
+            f"**📦 Git**\n"
+            f"• Branch: `{branch[1].strip()}`"
+        )
+        await query.edit_message_text(text, reply_markup=system_keyboard(), parse_mode=ParseMode.MARKDOWN)
+
+    elif data == "log_30":
+        if not LOG_FILE.exists():
+            return await query.edit_message_text("❌ ملف السجل غير موجود.", reply_markup=system_keyboard())
+        r = await run_cmd(f"tail -30 {LOG_FILE}")
+        output = trim_output(r[1] or "⚠️ سجل فارغ")
+        await query.edit_message_text(f"**📋 آخر 30 سطر:**\n```\n{output}\n```", reply_markup=system_keyboard(), parse_mode=ParseMode.MARKDOWN)
+
+    elif data == "clean":
+        script = SCRIPTS_DIR / "maintenance.sh"
+        if not script.exists():
+            return await query.edit_message_text("❌ maintenance.sh غير موجود.", reply_markup=system_keyboard())
+        await query.edit_message_text("🧹 جاري التنظيف...", parse_mode=ParseMode.MARKDOWN)
+        code, out, err = await run_cmd(f"bash {script}", timeout=120)
+        output = out.strip()[:3500] or "✅ انتهى"
+        await query.edit_message_text(f"**🧹 Maintenance Complete**\n```\n{output}\n```", reply_markup=system_keyboard(), parse_mode=ParseMode.MARKDOWN)
+
+    # ── Plan ──
+    elif data == "plan":
+        plan_file = PROJECT_DIR / "Plan.md"
+        if not plan_file.exists():
+            return await query.edit_message_text("❌ Plan.md غير موجود.", reply_markup=plan_keyboard())
+        content = plan_file.read_text()
+        lines = content.split("\n")
+        active_section, planned_section = [], []
+        cur = None
+        for line in lines:
+            if "## Active Task" in line: cur = "active"; continue
+            elif "## Planned Tasks" in line: cur = "planned"; continue
+            elif line.startswith("## ") and cur: cur = None; continue
+            if cur == "active": active_section.append(line)
+            elif cur == "planned": planned_section.append(line)
+        active_text = "\n".join(active_section).strip()[:1500] or "لا توجد مهمة نشطة"
+        planned_text = "\n".join(planned_section).strip()[:1500] or "لا توجد مهام مخططة"
+        text = f"**📋 خطة العمل**\n\n**👉 النشطة:**\n```\n{active_text}\n```\n\n**📅 المخططة:**\n```\n{planned_text}\n```"
+        await query.edit_message_text(text, reply_markup=plan_keyboard(), parse_mode=ParseMode.MARKDOWN)
+
+    elif data == "plan_done":
+        content = _plan_read()
+        if not content:
+            return await query.edit_message_text("❌ Plan.md غير موجود.", reply_markup=plan_keyboard())
+        match = re.search(r"### (.+?)\n.*?Status:\s*`\[/\] IN_PROGRESS`", content, re.DOTALL)
+        if not match:
+            return await query.edit_message_text("❌ لا توجد مهمة نشطة.", reply_markup=plan_keyboard())
+        title = match.group(1).strip()
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        content = re.sub(r"(Status:\s*`)\[/\] IN_PROGRESS(`)", r"\1[x] COMPLETED\2", content, count=1)
+        content = re.sub(r"(- Completed: )pending", rf"\1{today}", content, count=1)
+        _plan_write(content)
+        await query.edit_message_text(f"✅ تم إكمال: **{title}**", reply_markup=plan_keyboard(), parse_mode=ParseMode.MARKDOWN)
+
+    elif data == "plan_start_first":
+        content = _plan_read()
+        if not content:
+            return await query.edit_message_text("❌ Plan.md غير موجود.", reply_markup=plan_keyboard())
+        found = _plan_find_first_planned(content)
+        if not found:
+            return await query.edit_message_text("❌ لا توجد مهام مخططة.", reply_markup=plan_keyboard())
+        start, end, block = found
+        if "[ ] PLANNED" not in block:
+            return await query.edit_message_text("❌ المهمة الأولى ليست PLANNED.", reply_markup=plan_keyboard())
+        new_block = block.replace("- Status: `[ ] PLANNED`", "- Status: `[/] IN_PROGRESS`")
+        new_block = new_block.replace("- Started: pending", f"- Started: {datetime.now(timezone.utc).strftime('%Y-%m-%d')}")
+        lines = content.split("\n")
+        lines = lines[:start] + new_block.split("\n") + lines[end:]
+        _plan_write("\n".join(lines))
+        title = block.split("\n")[0].strip()
+        await query.edit_message_text(f"✅ بدء المهمة: **{title}**", reply_markup=plan_keyboard(), parse_mode=ParseMode.MARKDOWN)
+
+    elif data == "plan_info_active":
+        content = _plan_read()
+        if not content:
+            return await query.edit_message_text("❌ Plan.md غير موجود.", reply_markup=plan_keyboard())
+        match = re.search(r"### (.+?)\n.*?Status:\s*`\[/\] IN_PROGRESS`", content, re.DOTALL)
+        if not match:
+            return await query.edit_message_text("❌ لا توجد مهمة نشطة.", reply_markup=plan_keyboard())
+        # Find full block of active task
+        lines = content.split("\n")
+        task_start = None
+        for i, line in enumerate(lines):
+            if line.strip().startswith("### ") and "Status:" in content[i:].split("\n")[1] if i+1 < len(lines) else "":
+                if task_start is None and f"Status:" in lines[i]:
+                    # Check next few lines for IN_PROGRESS
+                    for j in range(i, min(i+10, len(lines))):
+                        if "IN_PROGRESS" in lines[j]:
+                            task_start = i
+                            break
+                if task_start is None:
+                    continue
+        if task_start is None:
+            return await query.edit_message_text("❌ لم يتم العثور على تفاصيل المهمة.", reply_markup=plan_keyboard())
+        # Find end of block
+        task_starts = [i for i, line in enumerate(lines) if line.strip().startswith("### ") and not line.strip().startswith("####")]
+        current_idx = task_starts.index(task_start)
+        end = task_starts[current_idx + 1] if current_idx + 1 < len(task_starts) else len(lines)
+        block = "\n".join(lines[task_start:end])
+        await query.edit_message_text(f"**📋 تفاصيل المهمة النشطة**\n```\n{block.strip()[:3000]}\n```", reply_markup=plan_keyboard(), parse_mode=ParseMode.MARKDOWN)
+
+    # ── Reports ──
+    elif data == "report":
+        await query.edit_message_text("📊 جاري إعداد التقرير...", parse_mode=ParseMode.MARKDOWN)
+        cpu = await run_cmd(r"top -bn1 | grep 'Cpu(s)' | awk '{print $2+$4}'")
+        mem = await run_cmd("free -m | awk 'NR==2{printf \"%s/%sMB (%.1f%%)\",$3,$2,$3*100/$2}'")
+        disk = await run_cmd("df -h / | awk 'NR==2{print $3\"/\"$2\" (\"$5\")\"}'")
+        agent_svc = await run_cmd("systemctl is-active nova-dev-agent.service")
+        branch = await run_cmd("git rev-parse --abbrev-ref HEAD")
+        commits = await run_cmd("git log --oneline -3")
+        last_cycle = "N/A"
+        if STATE_FILE.exists():
+            try:
+                s = json.loads(STATE_FILE.read_text())
+                last_cycle = f"#{s.get('last_cycle','N/A')} ({s.get('duration_sec','?')}s)"
+            except: pass
+        task = "N/A"
+        plan_file = PROJECT_DIR / "Plan.md"
+        if plan_file.exists():
+            m = re.search(r"### (.+?)\n.*?Status:.*?IN_PROGRESS", plan_file.read_text(), re.DOTALL)
+            if m: task = m.group(1).strip()
+        text = (
+            f"**📊 NOVA Report**\n\n"
+            f"**🖥️ System**\n• CPU: `{cpu[1].strip() or '?'}%`\n• RAM: `{mem[1].strip() or '?'}`\n• Disk: `{disk[1].strip() or '?'}`\n\n"
+            f"**🤖 Services**\n• Agent: {format_status(agent_svc[1].strip())}\n• آخر دورة: `{last_cycle}`\n\n"
+            f"**📋 Active Task**\n`{task}`\n\n"
+            f"**📦 Git**\n• Branch: `{branch[1].strip()}`\n• Recent:\n```\n{commits[1].strip()[:300]}\n```"
+        )
+        await query.edit_message_text(text, reply_markup=reports_keyboard(), parse_mode=ParseMode.MARKDOWN)
+
+    elif data == "ci_history":
+        await query.edit_message_text("🔍 جاري جلب تاريخ CI...", parse_mode=ParseMode.MARKDOWN)
+        code, out, err = await run_cmd(
+            "gh run list --repo Alaa91H/NOVADownloadManager --limit 10 --json databaseId,conclusion,status,displayTitle,createdAt,headBranch --jq '.[] | \"\\(.createdAt[:19]) | \\(.status) | \\(.conclusion) | \\(.headBranch) | \\(.displayTitle[:50])\"'",
+            timeout=15,
+        )
+        output = out.strip()[:3500] or "⚠️ لا توجد نتائج"
+        await query.edit_message_text(f"**📋 CI History (last 10)**\n```\n{output}\n```", reply_markup=reports_keyboard(), parse_mode=ParseMode.MARKDOWN)
+
+    elif data == "metrics":
+        metrics_file = PROJECT_DIR / ".metrics.json"
+        if not metrics_file.exists():
+            return await query.edit_message_text("❌ لا توجد بيانات metrics بعد.", reply_markup=reports_keyboard())
         try:
-            state = json.loads(STATE_FILE.read_text())
-            last_cycle = state.get("last_cycle", "N/A")
-            last_time = state.get("timestamp", "N/A")
-        except Exception:
-            pass
+            data = json.loads(metrics_file.read_text())
+            snaps = data.get("snapshots", [])
+            if len(snaps) < 2:
+                return await query.edit_message_text(f"❌ تحتاج 2 snapshots. حالياً: {len(snaps)}", reply_markup=reports_keyboard())
+            recent = snaps[-10:]
+            lines = [f"📈 **Metrics Trends (last {len(recent)} snapshots)**\n"]
+            lines.append(f"{'Time':<20} {'Cov%':<8} {'TS':<6} {'Tests':<8} {'Files':<6}")
+            lines.append("-" * 50)
+            for s in recent:
+                t = s.get("timestamp", "?")[11:19]
+                cov = s.get("coverage", "?")
+                ts = s.get("ts_errors", "?")
+                tests = f"{s.get('tests_pass',0)}/{s.get('test_count','?')}"
+                files = s.get("file_count", "?")
+                cov_s = f"{cov:.1f}" if isinstance(cov, float) else str(cov)
+                lines.append(f"{t:<20} {cov_s:<8} {str(ts):<6} {tests:<8} {str(files):<6}")
+            text = "```\n" + "\n".join(lines) + "\n```"
+            await query.edit_message_text(text, reply_markup=reports_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        except Exception as e:
+            await query.edit_message_text(f"❌ خطأ: {e}", reply_markup=reports_keyboard())
 
-    # Git info
-    git_branch = await run_cmd("git rev-parse --abbrev-ref HEAD")
-    git_commit = await run_cmd("git log --oneline -1")
+    elif data == "coverage":
+        metrics_file = PROJECT_DIR / ".metrics.json"
+        if not metrics_file.exists():
+            return await query.edit_message_text("❌ لا توجد بيانات metrics بعد.", reply_markup=reports_keyboard())
+        try:
+            data = json.loads(metrics_file.read_text())
+            snaps = data.get("snapshots", [])
+            if not snaps:
+                return await query.edit_message_text("❌ لا توجد snapshots بعد.", reply_markup=reports_keyboard())
+            last = snaps[-1]
+            text = (
+                f"**📈 Coverage & Metrics**\n\n"
+                f"• Coverage: `{last.get('coverage','N/A')}%`\n"
+                f"• TS Errors: `{last.get('ts_errors','?')}`\n"
+                f"• ESLint: `{last.get('eslint_count','?')}`\n"
+                f"• Tests: `{last.get('test_count','?')}` ({last.get('tests_pass',0)} ✅/{last.get('tests_fail',0)} ❌)\n"
+                f"• Files: `{last.get('file_count','?')}`\n"
+                f"• Dependencies: `{last.get('dependency_count','?')}`\n"
+                f"• Snapshots: `{len(snaps)}`\n"
+            )
+            if len(snaps) >= 2:
+                first = snaps[0]
+                cov_diff = (last.get("coverage") or 0) - (first.get("coverage") or 0)
+                text += f"• Trend: `{first.get('coverage','N/A')}%` → `{last.get('coverage','N/A')}%` ({'+' if cov_diff>=0 else ''}{cov_diff:.1f}%)\n"
+            await query.edit_message_text(text, reply_markup=reports_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        except Exception as e:
+            await query.edit_message_text(f"❌ خطأ: {e}", reply_markup=reports_keyboard())
 
-    text = (
-        f"**🖥️ النظام**\n"
-        f"• CPU: `{cpu[1].strip() or 'N/A'}%`\n"
-        f"• RAM: `{mem[1].strip() or 'N/A'}`\n"
-        f"• Disk: `{disk[1].strip() or 'N/A'}`\n"
-        f"• Uptime: `{uptime[1].strip() or 'N/A'}`\n"
-        f"• Load: `{load[1].strip() or 'N/A'}`\n\n"
-        f"**🤖 العامل**\n"
-        f"• Service: {format_status(svc[1].strip())}\n"
-        f"• Enabled: `{svc_enabled[1].strip()}`\n"
-        f"• Last cycle: `{last_cycle}`\n"
-        f"• Last run: `{last_time}`\n\n"
-        f"**📦 Git**\n"
-        f"• Branch: `{git_branch[1].strip()}`\n"
-        f"• HEAD: `{git_commit[1].strip()}`"
-    )
-    await msg.edit_text(text)
-
-@restricted
-async def cmd_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    lines = 30
-    if context.args and context.args[0].isdigit():
-        lines = int(context.args[0])
-        lines = min(lines, 500)  # cap at 500
-
-    if not LOG_FILE.exists():
-        await update.message.reply_text("❌ ملف السجل غير موجود.")
-        return
-
-    result = await run_cmd(f"tail -{lines} {LOG_FILE}")
-    output = result[1] or "⚠️ سجل فارغ"
-    output = trim_output(output)
-    await update.message.reply_text(f"**📋 آخر {lines} سطر:**\n```\n{output}\n```")
-
-@restricted
-async def cmd_start_agent(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    result = await run_cmd(f"sudo systemctl start {AGENT_SERVICE}")
-    out = result[1] + result[2]
-    await update.message.reply_text(f"🟢 تشغيل العامل:\n`{out.strip() or 'OK'}`")
-
-@restricted
-async def cmd_stop_agent(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    result = await run_cmd(f"sudo systemctl stop {AGENT_SERVICE}")
-    out = result[1] + result[2]
-    await update.message.reply_text(f"🔴 إيقاف العامل:\n`{out.strip() or 'OK'}`")
-
-@restricted
-async def cmd_restart_agent(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    result = await run_cmd(f"sudo systemctl restart {AGENT_SERVICE}")
-    out = result[1] + result[2]
-    await update.message.reply_text(f"🔄 إعادة تشغيل العامل:\n`{out.strip() or 'OK'}`")
-
-@restricted
-async def cmd_exec(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("📝 استعمال: /exec <command>\nمثال: /exec ls -la")
-        return
-
-    command = " ".join(context.args)
-    msg = await update.message.reply_text(f"⚡ تشغيل:\n`{command}`")
-
-    proc = await asyncio.create_subprocess_shell(
-        command,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=str(PROJECT_DIR),
-    )
-
-    chat_id = update.effective_chat.id
-    running_execs[chat_id] = proc
-
-    try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
-        out = stdout.decode(errors="replace")
-        err = stderr.decode(errors="replace")
-        output = out + ("\n⚠️ " + err if err else "")
-        output = trim_output(output.strip() or "✅ انتهى بنجاح (بدون مخرجات)")
-        await msg.edit_text(f"**✅ exit code:** {proc.returncode}\n```\n{output}\n```")
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
-        await msg.edit_text("⏱️ تجاوز المهلة (120s)")
-    finally:
-        running_execs.pop(chat_id, None)
-
-@restricted
-async def cmd_quality(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = await update.message.reply_text("🔍 جاري فحوصات الجودة...")
-
-    gates = [
-        ("tsc --noEmit", "pnpm lint"),
-        ("ESLint", "pnpm lint:eslint"),
-        ("Format", "pnpm format:check"),
-        ("Tests", "pnpm test"),
-        ("Coverage", "pnpm test:coverage"),
-        ("Build", "pnpm build"),
-        ("Audit", "pnpm audit:final"),
-    ]
-
-    results = []
-    all_pass = True
-    for name, cmd in gates:
-        await msg.edit_text(f"🔍 {name}...")
-        code, out, err = await run_cmd(cmd, timeout=120)
-        status_icon = "✅" if code == 0 else "❌"
-        all_pass = all_pass and (code == 0)
-        results.append(f"{status_icon} **{name}** (exit: {code})")
-
-    summary = "✅ **كل الفحوصات ناجحة!**" if all_pass else "⚠️ **بعض الفحوصات فشلت**"
-    text = f"{summary}\n\n" + "\n".join(results)
-    await msg.edit_text(text)
-
-@restricted
-async def cmd_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    plan_file = PROJECT_DIR / "Plan.md"
-    if not plan_file.exists():
-        await update.message.reply_text("❌ Plan.md غير موجود.")
-        return
-
-    content = plan_file.read_text()
-
-    # Extract key sections for a summary view
-    lines = content.split("\n")
-    active_section = []
-    planned_section = []
-    current_section = None
-    for line in lines:
-        if "## Active Task" in line:
-            current_section = "active"
-            continue
-        elif "## Planned Tasks" in line:
-            current_section = "planned"
-            continue
-        elif line.startswith("## ") and current_section:
-            current_section = None
-            continue
-
-        if current_section == "active":
-            active_section.append(line)
-        elif current_section == "planned":
-            planned_section.append(line)
-
-    active_text = "\n".join(active_section).strip()[:1500] or "لا توجد مهمة نشطة"
-    planned_text = "\n".join(planned_section).strip()[:1500] or "لا توجد مهام مخططة"
-
-    text = (
-        f"**📋 خطة العمل**\n\n"
-        f"**👉 المهمة النشطة:**\n```\n{active_text}\n```\n\n"
-        f"**📅 المهام المخططة:**\n```\n{planned_text}\n```"
-    )
-    await update.message.reply_text(text)
-
-# ──────────────────────────────────────────────────────
-# Plan Editing
-# ──────────────────────────────────────────────────────
+# ── Plan helpers ───────────────────────────────────────
 PLAN_FILE = PROJECT_DIR / "Plan.md"
 
 def _plan_read() -> str:
@@ -400,35 +561,18 @@ def _plan_write(content: str):
     PLAN_FILE.write_text(content)
 
 def _plan_find_task(content: str, title_keyword: str) -> tuple[int, int, str] | None:
-    """Find a task block by keyword in its title. Returns (start_line, end_line, block_text)."""
     lines = content.split("\n")
-    task_starts = []
-    for i, line in enumerate(lines):
-        if line.strip().startswith("### ") and not line.strip().startswith("####"):
-            task_starts.append(i)
-
+    task_starts = [i for i, line in enumerate(lines) if line.strip().startswith("### ") and not line.strip().startswith("####")]
     for idx, start in enumerate(task_starts):
         title = lines[start].strip()
         if title_keyword.lower() in title.lower():
             end = task_starts[idx + 1] if idx + 1 < len(task_starts) else len(lines)
-            # trim trailing blank lines
-            while end > start and not lines[end - 1].strip():
-                end -= 1
+            while end > start and not lines[end - 1].strip(): end -= 1
             block = "\n".join(lines[start:end])
             return start, end, block
     return None
 
-def _plan_set_status(content: str, status_icon: str) -> str:
-    """Change the status line of the active (first IN_PROGRESS) task."""
-    return re.sub(
-        r"(Status:\s*`)\[\/\] IN_PROGRESS(`)",
-        rf"\1{status_icon}\2",
-        content,
-        count=1,
-    )
-
 def _plan_find_first_planned(content: str) -> tuple[int, int, str] | None:
-    """Find the first task in the Planned Tasks section."""
     lines = content.split("\n")
     in_planned = False
     task_start = None
@@ -444,31 +588,100 @@ def _plan_find_first_planned(content: str) -> tuple[int, int, str] | None:
     task_starts = [i for i, line in enumerate(lines) if line.strip().startswith("### ")]
     current_idx = task_starts.index(task_start)
     end = task_starts[current_idx + 1] if current_idx + 1 < len(task_starts) else len(lines)
-    while end > task_start and not lines[end - 1].strip():
-        end -= 1
+    while end > task_start and not lines[end - 1].strip(): end -= 1
     block = "\n".join(lines[task_start:end])
     return task_start, end, block
 
+# ── Command Handlers ───────────────────────────────────
+@restricted
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    text = (
+        f"🤖 مرحباً {user.first_name}!\n"
+        f"**NOVA Download Manager** — بوت التحكم الشامل\n\n"
+        f"⚠️ يجب أولاً إرسال /register لتسجيل الاشتراك.\n"
+        f"استخدم الأزرار أدناه للتحكم السهل."
+    )
+    await update.message.reply_text(text, reply_markup=main_menu_keyboard(), parse_mode=ParseMode.MARKDOWN)
+
+@restricted
+async def cmd_register(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    chats = load_chats()
+    if chat_id not in chats:
+        chats.append(chat_id)
+        save_chats(chats)
+    await update.message.reply_text("✅ تم التسجيل! استخدم الأزرار أدناه:", reply_markup=main_menu_keyboard(), parse_mode=ParseMode.MARKDOWN)
+
+@restricted
+async def cmd_unregister(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    chats = load_chats()
+    if chat_id in chats:
+        chats.remove(chat_id)
+        save_chats(chats)
+    await update.message.reply_text("✅ تم إلغاء الاشتراك.")
+
+@restricted
+async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_menu(update)
+
+@restricted
+async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    await update.message.reply_text(
+        f"📋 **معلوماتك**\n• الاسم: `{user.first_name}`\n• المعرف: `{user.id}`\n• اليوزر: @{user.username or '—'}"
+    )
+
+@restricted
+async def cmd_notif(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show notification settings."""
+    chat_id = update.effective_chat.id
+    await update.message.reply_text("🔔 **الإشعارات** — اختر الأنواع:", reply_markup=notif_menu_keyboard(chat_id), parse_mode=ParseMode.MARKDOWN)
+
+@restricted
+async def cmd_exec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("📝 استعمال: /exec <command>")
+        return
+    command = " ".join(context.args)
+    msg = await update.message.reply_text(f"⚡ تشغيل:\n`{command}`")
+    proc = await asyncio.create_subprocess_shell(command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=str(PROJECT_DIR))
+    chat_id = update.effective_chat.id
+    running_execs[chat_id] = proc
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        out = stdout.decode(errors="replace")
+        err = stderr.decode(errors="replace")
+        output = out + ("\n⚠️ " + err if err else "")
+        output = trim_output(output.strip() or "✅ انتهى (بدون مخرجات)")
+        await msg.edit_text(f"**✅ exit code:** {proc.returncode}\n```\n{output}\n```")
+    except asyncio.TimeoutError:
+        proc.kill(); await proc.wait()
+        await msg.edit_text("⏱️ تجاوز المهلة (120s)")
+    finally:
+        running_execs.pop(chat_id, None)
+
+@restricted
+async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if chat_id in running_execs:
+        running_execs[chat_id].kill()
+        await update.message.reply_text("🛑 تم الإلغاء.")
+    else:
+        await update.message.reply_text("لا يوجد أمر قيد التشغيل.")
+
 @restricted
 async def cmd_plan_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Add a new task to Planned Tasks. Usage: /plan_add TITLE | DESCRIPTION | PRIORITY"""
     text = " ".join(context.args) if context.args else ""
     if not text or "|" not in text:
-        await update.message.reply_text(
-            "📝 استعمال: `/plan_add Task Title | Description here | high`\n"
-            "الأقسام مفصولة بـ `|`\n"
-            "الاولوية: critical, high, medium, low"
-        )
-        return
-
+        return await update.message.reply_text("📝 استعمال: `/plan_add Title | Description | priority`")
     parts = [p.strip() for p in text.split("|")]
     title = parts[0]
-    desc = parts[1] if len(parts) > 1 else "وصف المهمة"
+    desc = parts[1] if len(parts) > 1 else "وصف"
     priority = parts[2] if len(parts) > 2 else "medium"
-
     task_id = title.lower().replace(" ", "-")[:30]
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
     new_task = f"""
 ### {title}
 
@@ -495,143 +708,89 @@ async def cmd_plan_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
 - Notes:
   - Added via Telegram bot on {today}
 """
-
     content = _plan_read()
     if not content:
-        await update.message.reply_text("❌ Plan.md غير موجود.")
-        return
-
-    # Insert before "## Completed Tasks" or "## Blocked Tasks" section
+        return await update.message.reply_text("❌ Plan.md غير موجود.")
     insert_before = "## Completed Tasks"
     replace_with = f"## Planned Tasks\n\n{new_task.strip()}\n\n## Completed Tasks"
     if insert_before in content:
         content = content.replace(insert_before, replace_with, 1)
     else:
-        # Append to Planned Tasks section
         planned_marker = "## Planned Tasks"
         if planned_marker in content:
             content = content.replace(planned_marker, f"{planned_marker}\n\n{new_task.strip()}", 1)
         else:
-            # Add section before Completed
             content += f"\n\n## Planned Tasks\n\n{new_task.strip()}\n"
-
     _plan_write(content)
-    await update.message.reply_text(f"✅ تمت إضافة المهمة: **{title}** (Priority: {priority})")
+    await update.message.reply_text(f"✅ تمت إضافة: **{title}**", reply_markup=main_menu_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
 @restricted
 async def cmd_plan_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Move a planned task to active. Usage: /plan_start keyword"""
     if not context.args:
-        await update.message.reply_text("📝 استعمال: `/plan_start keyword`\nمثال: /plan_start quality")
-        return
-
+        return await update.message.reply_text("📝 استعمال: `/plan_start keyword`")
     keyword = " ".join(context.args)
     content = _plan_read()
     if not content:
-        await update.message.reply_text("❌ Plan.md غير موجود.")
-        return
-
-    # Find the task in Planned Tasks section
+        return await update.message.reply_text("❌ Plan.md غير موجود.")
     found = _plan_find_task(content, keyword)
     if not found:
-        await update.message.reply_text(f"❌ لم يتم العثور على مهمة بـ: `{keyword}`\nاستخدم /plan لعرض المهام.")
-        return
-
+        return await update.message.reply_text(f"❌ لم يتم العثور على `{keyword}`")
     start, end, block = found
-
-    # Check it's in PLANNED status
     if "[ ] PLANNED" not in block:
-        await update.message.reply_text("❌ المهمة ليست في حالة PLANNED. الحالة الحالية:\n" + block[:500])
-        return
-
-    # Update status to IN_PROGRESS
+        return await update.message.reply_text("❌ المهمة ليست PLANNED.")
     new_block = block.replace("- Status: `[ ] PLANNED`", "- Status: `[/] IN_PROGRESS`")
     new_block = new_block.replace("- Started: pending", f"- Started: {datetime.now(timezone.utc).strftime('%Y-%m-%d')}")
-
     lines = content.split("\n")
     lines = lines[:start] + new_block.split("\n") + lines[end:]
-    new_content = "\n".join(lines)
-
-    _plan_write(new_content)
-    await update.message.reply_text(f"✅ تم نقل المهمة إلى **نشطة**:\n`{block.split(chr(10))[0].strip()}`")
-
-@restricted
-async def cmd_plan_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mark current active (IN_PROGRESS) task as completed."""
-    content = _plan_read()
-    if not content:
-        await update.message.reply_text("❌ Plan.md غير موجود.")
-        return
-
-    # Find current IN_PROGRESS task
-    match = re.search(r"### (.+?)\n.*?Status:\s*`\[/\] IN_PROGRESS`", content, re.DOTALL)
-    if not match:
-        await update.message.reply_text("❌ لا توجد مهمة نشطة (IN_PROGRESS).")
-        return
-
-    title = match.group(1).strip()
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-    # Update status
-    content = re.sub(
-        r"(Status:\s*`)\[/\] IN_PROGRESS(`)",
-        r"\1[x] COMPLETED\2",
-        content,
-        count=1,
-    )
-    content = re.sub(
-        r"(- Completed: )pending",
-        rf"\1{today}",
-        content,
-        count=1,
-    )
-
-    _plan_write(content)
-    await update.message.reply_text(f"✅ تم إكمال المهمة: **{title}**")
+    _plan_write("\n".join(lines))
+    await update.message.reply_text(f"✅ تم بدء المهمة:\n`{block.split(chr(10))[0].strip()}`")
 
 @restricted
 async def cmd_plan_block(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mark a task as blocked. Usage: /plan_block keyword | reason"""
     text = " ".join(context.args) if context.args else ""
     if not text:
-        await update.message.reply_text("📝 استعمال: `/plan_block keyword | reason`\nمثال: /plan_block build | missing CI token")
-        return
-
+        return await update.message.reply_text("📝 استعمال: `/plan_block keyword | reason`")
     parts = [p.strip() for p in text.split("|", 1)]
     keyword = parts[0]
     reason = parts[1] if len(parts) > 1 else "blocked"
-
     content = _plan_read()
     if not content:
-        await update.message.reply_text("❌ Plan.md غير موجود.")
-        return
-
+        return await update.message.reply_text("❌ Plan.md غير موجود.")
     found = _plan_find_task(content, keyword)
     if not found:
-        await update.message.reply_text(f"❌ لم يتم العثور على مهمة بـ: `{keyword}`")
-        return
-
+        return await update.message.reply_text(f"❌ لم يتم العثور على `{keyword}`")
     start, end, block = found
-
-    new_block = block
-    new_block = re.sub(r"Status:\s*`\[/?\]\s*\w+`", "- Status: `[!] BLOCKED`", new_block)
+    new_block = re.sub(r"Status:\s*`\[/?\]\s*\w+`", "- Status: `[!] BLOCKED`", block)
     if "Notes:" in new_block:
         new_block = new_block.replace("Notes:", f"Notes:\n  - Blocked: {reason}")
     else:
         new_block += f"\n- Notes:\n  - Blocked: {reason}"
-
     lines = content.split("\n")
     lines = lines[:start] + new_block.split("\n") + lines[end:]
     _plan_write("\n".join(lines))
+    await update.message.reply_text(f"⛔ تم تعطيل: **{keyword.strip('#')}**\nالسبب: {reason}")
 
-    await update.message.reply_text(f"⛔ تم تعطيل المهمة: **{keyword.strip('#')}**\nالسبب: {reason}")
+@restricted
+async def cmd_plan_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        return await update.message.reply_text("📝 استعمال: /plan_delete <keyword>")
+    keyword = " ".join(context.args)
+    content = _plan_read()
+    if not content:
+        return await update.message.reply_text("❌ Plan.md غير موجود.")
+    found = _plan_find_task(content, keyword)
+    if not found:
+        return await update.message.reply_text(f"❌ لم يتم العثور على `{keyword}`")
+    start, end, block = found
+    lines = content.split("\n")
+    new_lines = lines[:start] + lines[end:]
+    _plan_write("\n".join(new_lines))
+    await update.message.reply_text(f"🗑️ تم حذف:\n`{block.split(chr(10))[0].strip()}`")
 
 @restricted
 async def cmd_git(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("📝 استعمال: /git <args>\nمثال: /git status\nمثال: /git log --oneline -5")
-        return
-
+        return await update.message.reply_text("📝 استعمال: /git <args>")
     command = "git " + " ".join(context.args)
     result = await run_cmd(command)
     output = result[1] + ("\n⚠️ " + result[2] if result[2] else "")
@@ -641,432 +800,47 @@ async def cmd_git(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @restricted
 async def cmd_opencode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text(
-            "📝 استعمال: /opencode <prompt>\n"
-            "مثال: /opencode Check for any lint errors and fix them"
-        )
-        return
-
+        return await update.message.reply_text("📝 استعمال: /opencode <prompt>")
     prompt = " ".join(context.args)
     msg = await update.message.reply_text(f"🤖 جاري تشغيل opencode...\n\n`{prompt[:200]}{'...' if len(prompt)>200 else ''}`")
-
-    cmd = (
-        f"cd {PROJECT_DIR} && "
-        f"PATH=\"/home/ubuntu/.opencode/bin:$PATH\" "
-        f"{OPENCODE_BIN} run --model \"opencode/big-pickle\" --auto {shlex_quote(prompt)}"
-    )
-
+    cmd = f"cd {PROJECT_DIR} && PATH=\"/home/ubuntu/.opencode/bin:$PATH\" {OPENCODE_BIN} run --model \"opencode/big-pickle\" --auto {shlex_quote(prompt)}"
     try:
         code, out, err = await run_cmd(cmd, timeout=600)
-        output = out.strip()[:3000] or "✅ انتهى (بدون مخرجات)"
+        output = out.strip()[:3000] or "✅ انتهى"
         await msg.edit_text(f"**✅ opencode** (exit: {code})\n```\n{output}\n```")
     except Exception as e:
         await msg.edit_text(f"❌ خطأ: {e}")
 
-def shlex_quote(s):
-    """Simple shell quoting."""
-    return "'" + s.replace("'", "'\\''") + "'"
-
-@restricted
-async def cmd_build(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = await update.message.reply_text("🔨 جاري البناء...")
-    code, out, err = await run_cmd("pnpm build", timeout=300)
-    output = out.strip()[:3000] or ""
-    if err:
-        output += "\n⚠️ " + err[:500]
-    status = "✅" if code == 0 else "❌"
-    await msg.edit_text(f"{status} **Build** (exit: {code})\n```\n{output}\n```")
-
-@restricted
-async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    if chat_id in running_execs:
-        running_execs[chat_id].kill()
-        await update.message.reply_text("🛑 تم إلغاء الأمر.")
-    else:
-        await update.message.reply_text("لا يوجد أمر قيد التشغيل.")
-
-# ──────────────────────────────────────────────────────
-# Additional Plan management
-# ──────────────────────────────────────────────────────
-@restricted
-async def cmd_plan_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Delete a task from Plan.md. Usage: /plan_delete keyword"""
-    if not context.args:
-        await update.message.reply_text("📝 استعمال: /plan_delete <keyword>")
-        return
-    keyword = " ".join(context.args)
-    content = _plan_read()
-    if not content:
-        await update.message.reply_text("❌ Plan.md غير موجود.")
-        return
-    found = _plan_find_task(content, keyword)
-    if not found:
-        await update.message.reply_text(f"❌ لم يتم العثور على مهمة بـ: `{keyword}`")
-        return
-    start, end, block = found
-    lines = content.split("\n")
-    new_lines = lines[:start] + lines[end:]
-    _plan_write("\n".join(new_lines))
-    await update.message.reply_text(f"🗑️ تم حذف المهمة: `{block.split(chr(10))[0].strip()}`")
-
-@restricted
-async def cmd_plan_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show detailed info about a task. Usage: /plan_info keyword"""
-    if not context.args:
-        await update.message.reply_text("📝 استعمال: /plan_info <keyword>")
-        return
-    keyword = " ".join(context.args)
-    content = _plan_read()
-    if not content:
-        await update.message.reply_text("❌ Plan.md غير موجود.")
-        return
-    found = _plan_find_task(content, keyword)
-    if not found:
-        await update.message.reply_text(f"❌ لم يتم العثور على مهمة بـ: `{keyword}`")
-        return
-    start, end, block = found
-    await update.message.reply_text(f"**📋 Task Details**\n```\n{block.strip()[:3500]}\n```")
-
-# ──────────────────────────────────────────────────────
-# Advanced Commands
-# ──────────────────────────────────────────────────────
-@restricted
-async def cmd_ci_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Fetch CI logs for a specific run. Usage: /ci_logs <run_id>"""
-    run_id = context.args[0] if context.args else ""
-    if not run_id:
-        # Use last run
-        result = await run_cmd("gh run list --repo Alaa91H/NOVADownloadManager --limit 1 --json databaseId --jq '.[0].databaseId'", timeout=10)
-        run_id = result[1].strip()
-    if not run_id:
-        await update.message.reply_text("❌ لم يتم العثور على CI run.")
-        return
-    msg = await update.message.reply_text(f"🔍 جاري جلب logs لـ run #{run_id}...")
-    code, out, err = await run_cmd(f"gh run view {run_id} --repo Alaa91H/NOVADownloadManager --log --jq '.[].text' 2>/dev/null | head -200", timeout=30)
-    output = out.strip()[:3500] or err.strip()[:500] or "⚠️ لا توجد logs"
-    await msg.edit_text(f"**📋 CI Logs #{run_id}**\n```\n{output}\n```")
-
-SCRIPTS_DIR = PROJECT_DIR / "scripts" / "agent"
-
-@restricted
-async def cmd_research(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Research a topic. Usage: /research npm <pkg> | /research crate <name> | /research changelog <url>"""
-    if not context.args:
-        await update.message.reply_text(
-            "📝 استعمال:\n"
-            "• /research npm <package>\n"
-            "• /research npm-vers <package>\n"
-            "• /research crate <name>\n"
-            "• /research changelog <url>\n"
-            "• /research compare <pkg1> <pkg2>"
-        )
-        return
-    script = SCRIPTS_DIR / "research.sh"
-    if not script.exists():
-        await update.message.reply_text("❌ research.sh غير موجود.")
-        return
-    cmd = f"bash {script} {' '.join(context.args)}"
-    msg = await update.message.reply_text(f"🔍 جاري البحث...")
-    code, out, err = await run_cmd(cmd, timeout=30)
-    output = out.strip()[:3500] or "⚠️ لا توجد نتائج"
-    await msg.edit_text(f"**🔍 Research Results**\n```\n{output}\n```")
-
-@restricted
-async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Run full code analysis."""
-    script = SCRIPTS_DIR / "analyze.sh"
-    if not script.exists():
-        await update.message.reply_text("❌ analyze.sh غير موجود.")
-        return
-    msg = await update.message.reply_text("🔍 جاري تحليل الكود...")
-    code, out, err = await run_cmd(f"bash {script}", timeout=120)
-    output = out.strip()[:3500] or "⚠️ لا توجد نتائج"
-    await msg.edit_text(f"**📊 Code Analysis**\n```\n{output}\n```")
-
-@restricted
-async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comprehensive status report."""
-    msg = await update.message.reply_text("📊 جاري إعداد التقرير...")
-
-    # System info
-    cpu = await run_cmd(r"top -bn1 | grep 'Cpu(s)' | awk '{print $2+$4}'")
-    mem = await run_cmd("free -m | awk 'NR==2{printf \"%s/%sMB (%.1f%%)\", $3,$2,$3*100/$2}'")
-    disk = await run_cmd("df -h / | awk 'NR==2{print $3\"/\"$2\" (\"$5\")\"}'")
-
-    # Services
-    agent_svc = await run_cmd("systemctl is-active nova-dev-agent.service")
-    bot_svc = await run_cmd("systemctl is-active nova-bot.service")
-
-    # Git
-    branch = await run_cmd("git rev-parse --abbrev-ref HEAD")
-    commits = await run_cmd("git log --oneline -3")
-
-    # Last cycle
-    last_cycle = "N/A"
-    if STATE_FILE.exists():
-        try:
-            state = json.loads(STATE_FILE.read_text())
-            last_cycle = f"#{state.get('last_cycle', 'N/A')} ({state.get('duration_sec', '?')}s)"
-        except:
-            pass
-
-    # Active task
-    task = "N/A"
-    plan = PROJECT_DIR / "Plan.md"
-    if plan.exists():
-        m = re.search(r"### (.+?)\n.*?Status:.*?IN_PROGRESS", plan.read_text(), re.DOTALL)
-        if m:
-            task = m.group(1).strip()
-
-    # Open PRs
-    prs = await run_cmd("gh pr list --repo Alaa91H/NOVADownloadManager --base Dev --limit 5 --json number,title --jq '.[] | \"#\\(.number): \\(.title)\"'", timeout=10)
-    pr_count = len(prs[1].strip().split("\n")) if prs[1].strip() else 0
-
-    text = (
-        f"**📊 NOVA Report**\n\n"
-        f"**🖥️ System**\n"
-        f"• CPU: `{cpu[1].strip() or '?'}%`\n"
-        f"• RAM: `{mem[1].strip() or '?'}`\n"
-        f"• Disk: `{disk[1].strip() or '?'}`\n\n"
-        f"**🤖 Services**\n"
-        f"• Agent: {format_status(agent_svc[1].strip())}\n"
-        f"• Bot: {format_status(bot_svc[1].strip())}\n"
-        f"• Last cycle: `{last_cycle}`\n\n"
-        f"**📋 Active Task**\n"
-        f"`{task}`\n\n"
-        f"**📦 Git**\n"
-        f"• Branch: `{branch[1].strip()}`\n"
-        f"• Recent:\n```\n{commits[1].strip()[:300]}\n```\n"
-        f"• Open PRs: `{pr_count}`"
-    )
-    await msg.edit_text(text)
-
-@restricted
-async def cmd_ci_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show last 10 CI runs."""
-    msg = await update.message.reply_text("🔍 جاري جلب تاريخ CI...")
-    code, out, err = await run_cmd(
-        "gh run list --repo Alaa91H/NOVADownloadManager --limit 10 --json databaseId,conclusion,status,displayTitle,createdAt,headBranch --jq '.[] | \"\(.createdAt[:19]) | \(.status) | \(.conclusion) | \(.headBranch) | \(.displayTitle[:50])\"'",
-        timeout=15,
-    )
-    output = out.strip()[:3500] or "⚠️ لا توجد نتائج"
-    await msg.edit_text(f"**📋 CI History (last 10)**\n```\n{output}\n```")
-
-@restricted
-async def cmd_coverage(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show coverage metrics and trends."""
-    metrics_file = PROJECT_DIR / ".metrics.json"
-    if not metrics_file.exists():
-        await update.message.reply_text("❌ لا توجد بيانات metrics بعد. يتم جمعها تلقائياً مع كل دورة.")
-        return
-    try:
-        data = json.loads(metrics_file.read_text())
-        snaps = data.get("snapshots", [])
-        if not snaps:
-            await update.message.reply_text("❌ لا توجد snapshots بعد.")
-            return
-        last = snaps[-1]
-        text = (
-            f"**📈 Coverage & Metrics**\n\n"
-            f"• Coverage: `{last.get('coverage', 'N/A')}%`\n"
-            f"• TS Errors: `{last.get('ts_errors', '?')}`\n"
-            f"• ESLint: `{last.get('eslint_count', '?')}`\n"
-            f"• Tests: `{last.get('test_count', '?')}` ({last.get('tests_pass', 0)} ✅ / {last.get('tests_fail', 0)} ❌)\n"
-            f"• Files: `{last.get('file_count', '?')}`\n"
-            f"• Dependencies: `{last.get('dependency_count', '?')}`\n"
-            f"• Snapshots collected: `{len(snaps)}`\n"
-        )
-        if len(snaps) >= 2:
-            first = snaps[0]
-            cov_diff = (last.get("coverage") or 0) - (first.get("coverage") or 0)
-            text += f"• Coverage trend: `{first.get('coverage', 'N/A')}%` → `{last.get('coverage', 'N/A')}%` ({'+' if cov_diff >= 0 else ''}{cov_diff:.1f}%)\n"
-        await update.message.reply_text(text)
-    except Exception as e:
-        await update.message.reply_text(f"❌ خطأ في قراءة metrics: {e}")
-
-@restricted
-async def cmd_audit(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Run security audit + dependency check."""
-    msg = await update.message.reply_text("🔍 جاري التدقيق الأمني...")
-    # npm audit
-    audit = await run_cmd("pnpm audit:final", timeout=60)
-    # outdated
-    outdated = await run_cmd("pnpm outdated --no-table 2>/dev/null || echo 'All up to date'", timeout=30)
-    text = (
-        f"**🔐 Security Audit**\n```\n{audit[1].strip()[:1500] or '✅ Clean'}\n```\n"
-        f"**📦 Outdated Dependencies**\n```\n{outdated[1].strip()[:1500] or 'All up to date'}\n```"
-    )
-    await msg.edit_text(text)
-
-@restricted
-async def cmd_clean(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Run maintenance (cleanup, log rotation, health check)."""
-    script = SCRIPTS_DIR / "maintenance.sh"
-    if not script.exists():
-        await update.message.reply_text("❌ maintenance.sh غير موجود.")
-        return
-    msg = await update.message.reply_text("🧹 جاري التنظيف والصيانة...")
-    code, out, err = await run_cmd(f"bash {script}", timeout=120)
-    output = out.strip()[:3500] or "✅ انتهى"
-    await msg.edit_text(f"**🧹 Maintenance Complete**\n```\n{output}\n```")
-
-@restricted
-async def cmd_rollback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Rollback to last good commit. Usage: /rollback [num_commits]"""
-    num = 1
-    if context.args and context.args[0].isdigit():
-        num = int(context.args[0])
-    msg = await update.message.reply_text(f"🔄 جاري العودة {num} commit(s) للخلف...")
-    result = await run_cmd(f"git reset --hard HEAD~{num}", timeout=10)
-    push = await run_cmd("git push origin Dev --force", timeout=30)
-    await msg.edit_text(
-        f"**🔄 Rollback {num} commit(s)**\n"
-        f"`{result[1].strip() or result[2].strip() or 'OK'}`\n"
-        f"Push: `{push[1].strip()[:200] or push[2].strip()[:200] or 'OK'}`"
-    )
-
-@restricted
-async def cmd_diff(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show git diff. Usage: /diff [filename]"""
-    cmd = "git diff"
-    if context.args:
-        cmd += " -- " + " ".join(context.args)
-    result = await run_cmd(cmd, timeout=10)
-    output = result[1].strip()[:3500] or "⚠️ لا توجد تغييرات"
-    await update.message.reply_text(f"**📝 Git Diff**\n```\n{output}\n```")
-
-@restricted
-async def cmd_branches(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """List all branches."""
-    result = await run_cmd("git branch -a", timeout=10)
-    output = result[1].strip()[:3500] or "⚠️ لا توجد فروع"
-    await update.message.reply_text(f"**🌿 Branches**\n```\n{output}\n```")
-
-@restricted
-async def cmd_prs(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """List open PRs."""
-    result = await run_cmd(
-        "gh pr list --repo Alaa91H/NOVADownloadManager --limit 10 --json number,title,author,headRefName,baseRefName,state,createdAt,mergeable --jq '.[] | \"#\(.number) [\(.state)] \(.title) (\(.author.login)) \(.headRefName)→\(.baseRefName)\"'",
-        timeout=15,
-    )
-    output = result[1].strip()[:3500] or "⚠️ لا توجد PRs مفتوحة"
-    await update.message.reply_text(f"**📌 Open PRs**\n```\n{output}\n```")
-
-@restricted
-async def cmd_pr_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Review a PR. Usage: /pr_review <number> [approve|request-changes|comment]"""
-    if not context.args:
-        await update.message.reply_text("📝 استعمال: /pr_review <number> [approve|changes|comment]\nمثال: /pr_review 5 approve")
-        return
-    pr_num = context.args[0]
-    action = context.args[1] if len(context.args) > 1 else "comment"
-    action_map = {"approve": "--approve", "changes": "--request-changes", "comment": "--comment"}
-    gh_action = action_map.get(action, "--comment")
-    msg = await update.message.reply_text(f"🔍 جاري مراجعة PR #{pr_num}...")
-    # Get diff first
-    diff = await run_cmd(f"gh pr diff {pr_num} --repo Alaa91H/NOVADownloadManager", timeout=30)
-    diff_text = diff[1].strip()[:2000] or "⚠️ لا يوجد diff"
-    # Submit review
-    comment = f"🤖 NOVA Dev Agent — Automated PR Review:\n\nChanges look good overall. Ensuring all quality gates pass before merge."
-    review = await run_cmd(
-        f"gh pr review {pr_num} --repo Alaa91H/NOVADownloadManager {gh_action} --body {shlex_quote(comment)}",
-        timeout=15,
-    )
-    await msg.edit_text(
-        f"**📌 PR #{pr_num} Review**\n"
-        f"Action: `{action}`\n"
-        f"Result: `{review[1].strip()[:200] or review[2].strip()[:200] or 'OK'}`\n\n"
-        f"**📝 Diff Summary:**\n```\n{diff_text[:1500]}\n```"
-    )
-
-@restricted
-async def cmd_metrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show metrics trends visualization."""
-    metrics_file = PROJECT_DIR / ".metrics.json"
-    if not metrics_file.exists():
-        await update.message.reply_text("❌ لا توجد بيانات metrics بعد.")
-        return
-    try:
-        data = json.loads(metrics_file.read_text())
-        snaps = data.get("snapshots", [])
-        if len(snaps) < 2:
-            await update.message.reply_text("❌ تحتاج 2 snapshots على الأقل لعرض الاتجاه. حالياً: " + str(len(snaps)))
-            return
-        # Show last 10 snapshots as text table
-        recent = snaps[-10:]
-        lines = ["📈 **Metrics Trends (last {} snapshots)**\n".format(len(recent))]
-        lines.append(f"{'Time':<20} {'Cov%':<8} {'TS':<6} {'Tests':<8} {'Files':<6}")
-        lines.append("-" * 50)
-        for s in recent:
-            t = s.get("timestamp", "?")[11:19]
-            cov = s.get("coverage", "?")
-            ts = s.get("ts_errors", "?")
-            tests = f"{s.get('tests_pass', 0)}/{s.get('test_count', '?')}"
-            files = s.get("file_count", "?")
-            if isinstance(cov, float):
-                cov_s = f"{cov:.1f}"
-            else:
-                cov_s = str(cov)
-            lines.append(f"{t:<20} {cov_s:<8} {str(ts):<6} {tests:<8} {str(files):<6}")
-        text = "```\n" + "\n".join(lines) + "\n```"
-        await update.message.reply_text(text)
-    except Exception as e:
-        await update.message.reply_text(f"❌ خطأ: {e}")
-
-# ──────────────────────────────────────────────────────
-# Error handler
-# ──────────────────────────────────────────────────────
+# ── Error Handler ──────────────────────────────────────
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"Error: {context.error}", file=sys.stderr)
 
-# ──────────────────────────────────────────────────────
-# Main
-# ──────────────────────────────────────────────────────
+# ── Main ────────────────────────────────────────────────
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
+    # Callback query handler — must be first to catch all
+    app.add_handler(CallbackQueryHandler(callback_handler))
+
+    # Command handlers
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("register", cmd_register))
     app.add_handler(CommandHandler("unregister", cmd_unregister))
+    app.add_handler(CommandHandler("menu", cmd_menu))
     app.add_handler(CommandHandler("myid", cmd_myid))
-    app.add_handler(CommandHandler("status", cmd_status))
-    app.add_handler(CommandHandler("log", cmd_log))
-    app.add_handler(CommandHandler("start_agent", cmd_start_agent))
-    app.add_handler(CommandHandler("stop_agent", cmd_stop_agent))
-    app.add_handler(CommandHandler("restart_agent", cmd_restart_agent))
+    app.add_handler(CommandHandler("notif", cmd_notif))
     app.add_handler(CommandHandler("exec", cmd_exec))
-    app.add_handler(CommandHandler("quality", cmd_quality))
-    app.add_handler(CommandHandler("plan", cmd_plan))
+    app.add_handler(CommandHandler("cancel", cmd_cancel))
     app.add_handler(CommandHandler("plan_add", cmd_plan_add))
     app.add_handler(CommandHandler("plan_start", cmd_plan_start))
-    app.add_handler(CommandHandler("plan_done", cmd_plan_done))
     app.add_handler(CommandHandler("plan_block", cmd_plan_block))
+    app.add_handler(CommandHandler("plan_delete", cmd_plan_delete))
     app.add_handler(CommandHandler("git", cmd_git))
     app.add_handler(CommandHandler("opencode", cmd_opencode))
-    app.add_handler(CommandHandler("build", cmd_build))
-    app.add_handler(CommandHandler("cancel", cmd_cancel))
-    # Advanced commands
-    app.add_handler(CommandHandler("research", cmd_research))
-    app.add_handler(CommandHandler("analyze", cmd_analyze))
-    app.add_handler(CommandHandler("report", cmd_report))
-    app.add_handler(CommandHandler("ci_history", cmd_ci_history))
-    app.add_handler(CommandHandler("coverage", cmd_coverage))
-    app.add_handler(CommandHandler("audit", cmd_audit))
-    app.add_handler(CommandHandler("clean", cmd_clean))
-    app.add_handler(CommandHandler("rollback", cmd_rollback))
-    app.add_handler(CommandHandler("diff", cmd_diff))
-    app.add_handler(CommandHandler("branches", cmd_branches))
-    app.add_handler(CommandHandler("prs", cmd_prs))
-    app.add_handler(CommandHandler("pr_review", cmd_pr_review))
-    app.add_handler(CommandHandler("ci_logs", cmd_ci_logs))
-    app.add_handler(CommandHandler("metrics", cmd_metrics))
-    # New plan management
-    app.add_handler(CommandHandler("plan_delete", cmd_plan_delete))
-    app.add_handler(CommandHandler("plan_info", cmd_plan_info))
+
     app.add_error_handler(error_handler)
 
-    print("NOVA Bot started...", flush=True)
+    print("NOVA Bot v3.0 started with inline menus + notification control...", flush=True)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":

@@ -25,28 +25,52 @@ log() {
 send_telegram() {
   local message="$1"
   local icon="${2:-🤖}"
+  local notif_type="${3:-system}"
   local full_msg="$icon NOVA Agent [$(hostname)]: $message"
 
   if [ ! -f "$CHATS_FILE" ]; then
     return
   fi
 
-  local chat_ids
-  chat_ids=$(python3 -c "
-import json
+  # Use Python to filter by notification preferences
+  python3 -c "
+import json, urllib.request, urllib.parse
+
+BOT_TOKEN = '$BOT_TOKEN'
+CHATS_FILE = '$CHATS_FILE'
+NOTIF_FILE = '$PROJECT_DIR/.notif-prefs.json'
+NOTIF_TYPE = '$notif_type'
+MESSAGE = '''$full_msg'''
+
+# Load chat list
 try:
-    chats = json.load(open('$CHATS_FILE'))
-    print(' '.join(str(c) for c in chats))
+    chats = json.load(open(CHATS_FILE))
+except:
+    exit(0)
+
+# Load notification preferences
+prefs = {}
+try:
+    prefs = json.load(open(NOTIF_FILE))
 except:
     pass
-" 2>/dev/null) || true
 
-  for cid in $chat_ids; do
-    curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
-      -d "chat_id=$cid" \
-      -d "text=$full_msg" \
-      -d "parse_mode=Markdown" > /dev/null 2>&1 || true
-  done
+for chat_id in chats:
+    cid = str(chat_id)
+    chat_prefs = prefs.get(cid, {})
+    if not chat_prefs.get(NOTIF_TYPE, True):
+        continue
+    url = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
+    data = urllib.parse.urlencode({
+        'chat_id': chat_id,
+        'text': MESSAGE,
+        'parse_mode': 'Markdown',
+    }).encode()
+    try:
+        urllib.request.urlopen(url, data=data, timeout=5)
+    except:
+        pass
+" 2>/dev/null || true
 }
 
 get_active_task() {
@@ -73,7 +97,7 @@ cd "$PROJECT_DIR"
 export PATH="/home/ubuntu/.opencode/bin:$PATH"
 export GH_REPO="Alaa91H/NOVADownloadManager"
 
-send_telegram "🟢 **Agent started** — entering continuous loop" "🚀"
+send_telegram "🟢 **Agent started** — entering continuous loop" "🚀" "system"
 LAST_NOTIFY=""
 
 monitor_workflow() {
@@ -106,10 +130,10 @@ monitor_workflow() {
     if [ "$status" = "completed" ]; then
       if [ "$conclusion" = "success" ]; then
         log "OK" "CI workflow #$run_id: ✅ SUCCESS"
-        send_telegram "✅ **CI workflow passed** #$run_id" ""
+        send_telegram "✅ **CI workflow passed** #$run_id" "" "ci_result"
       else
         log "WARN" "CI workflow #$run_id: ❌ $conclusion"
-        send_telegram "❌ **CI workflow failed** #$run_id\nconclusion: $conclusion\nBranch: $branch\n\nالوكيل سيصلح الأخطاء في الدورة القادمة." ""
+        send_telegram "❌ **CI workflow failed** #$run_id\nconclusion: $conclusion\nBranch: $branch\n\nالوكيل سيصلح الأخطاء في الدورة القادمة." "" "ci_fail"
         # Save failure to state for next opencode cycle
         echo "$run_id" > "$PROJECT_DIR/.last-ci-failure"
       fi
@@ -131,11 +155,11 @@ while true; do
   # ---------- Read current task from Plan.md ----------
   ACTIVE_TASK=$(get_active_task)
   log "INFO" "Active task: $ACTIVE_TASK"
-  send_telegram "🔄 **Cycle $CYCLE_ID**\n📋 Task: $ACTIVE_TASK" ""
+  send_telegram "🔄 **Cycle $CYCLE_ID**\n📋 Task: $ACTIVE_TASK" "" "cycle_start"
 
   # ---------- Git Sync ----------
   log "INFO" "Syncing with origin Dev..."
-  send_telegram "📡 Syncing git..." ""
+  send_telegram "📡 Syncing git..." "" "system"
   git fetch origin Dev 2>&1 | tee -a "$LOG_FILE" || log "WARN" "fetch failed"
   git checkout Dev 2>&1 | tee -a "$LOG_FILE" || { log "ERROR" "Cannot checkout Dev"; sleep 60; continue; }
   git pull origin Dev 2>&1 | tee -a "$LOG_FILE" || log "WARN" "pull failed"
@@ -143,7 +167,7 @@ while true; do
 
   # ---------- Run opencode ----------
   log "INFO" "Running opencode big-pickle agent"
-  send_telegram "🧠 Running opencode on task: **$ACTIVE_TASK**" ""
+  send_telegram "🧠 Running opencode on task: **$ACTIVE_TASK**" "" "cycle_start"
 
   CYCLE_START=$(date +%s)
 
@@ -201,12 +225,12 @@ while true; do
     if echo "$LAST_LINES" | grep -qiE "rate.limit|quota|429|too many|token.limit|unauthorized|401|403|insufficient.quota|model.not.found|context.length"; then
       WAIT=120
       log "WARN" "Rate limit or quota exceeded. Waiting ${WAIT}s before retry..."
-      send_telegram "⏳ **Rate limit / Quota exceeded!**\nWaiting ${WAIT}s before retry...\n⏱️ Duration: ${DURATION_MIN}m ${DURATION_SEC}s" "⚠️"
+      send_telegram "⏳ **Rate limit / Quota exceeded!**\nWaiting ${WAIT}s before retry...\n⏱️ Duration: ${DURATION_MIN}m ${DURATION_SEC}s" "⚠️" "error"
       sleep $WAIT
       continue
     else
       log "WARN" "opencode exited with code $EXIT_CODE. Retrying in 30s..."
-      send_telegram "⚠️ opencode exited with code \`$EXIT_CODE\`\nRetrying in 30s...\n⏱️ Duration: ${DURATION_MIN}m ${DURATION_SEC}s" "❌"
+      send_telegram "⚠️ opencode exited with code \`$EXIT_CODE\`\nRetrying in 30s...\n⏱️ Duration: ${DURATION_MIN}m ${DURATION_SEC}s" "❌" "error"
       sleep 30
       continue
     fi
@@ -219,12 +243,12 @@ while true; do
     git commit -m "chore: continuous dev cycle $CYCLE_ID" 2>&1 | tee -a "$LOG_FILE" || true
     git push origin Dev 2>&1 | tee -a "$LOG_FILE" || log "WARN" "push failed"
     log "OK" "Changes pushed to Dev"
-    send_telegram "✅ **Cycle complete** — changes pushed to \`Dev\`\n⏱️ Duration: ${DURATION_MIN}m ${DURATION_SEC}s\n📋 Task: $ACTIVE_TASK" ""
+    send_telegram "✅ **Cycle complete** — changes pushed to \`Dev\`\n⏱️ Duration: ${DURATION_MIN}m ${DURATION_SEC}s\n📋 Task: $ACTIVE_TASK" "" "cycle_done"
     # Monitor CI after push
     monitor_workflow "Dev" &
   else
     log "INFO" "No changes to commit"
-    send_telegram "✅ **Cycle complete** — no changes\n⏱️ Duration: ${DURATION_MIN}m ${DURATION_SEC}s\n📋 Task: $ACTIVE_TASK" ""
+    send_telegram "✅ **Cycle complete** — no changes\n⏱️ Duration: ${DURATION_MIN}m ${DURATION_SEC}s\n📋 Task: $ACTIVE_TASK" "" "cycle_done"
   fi
 
   # ---------- Save State ----------
