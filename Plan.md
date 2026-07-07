@@ -220,6 +220,140 @@
   2. Create quality.yml: lint → typecheck → test → build → audit
   3. quality.yml fails fast (no continue-on-error)
 
+### UI-001 — Full interface refinement & engine compatibility (100%)
+
+- Status: `[ ] PLANNED`
+- Priority: critical
+- Type: feat
+- Started: pending
+- Completed: pending
+- Objective:
+  - Refine the entire UI professionally — buttons, toolbars, dialogs, status bar, sidebar, task table. Ensure 100% compatibility between UI state and engine capabilities (curl, yt-dlp, ffmpeg). Every UI element must react correctly to available engines.
+- Plan:
+  1. **Engine compatibility audit**: Map every interactive element in TopBar, Sidebar, StatusBar, TaskTable, and all dialogs to their required engine. Disable/hide elements when required engine is unavailable.
+  2. **Button audit**: Scan ALL buttons/icons across the UI. Ensure each has: proper label, translation key, tooltip/aria-label, correct enabled/disabled state based on engine capabilities and task state.
+  3. **Mode-based visibility**: Some features depend on download engine (direct vs media). Ensure UI correctly shows/hides options based on `EngineCapabilityContext`.
+  4. **State consistency**: Every button must reflect real state — e.g., "Pause" only shown when task is downloading, "Resume" when paused, etc.
+  5. **Error states**: Every action must handle daemon offline, engine missing, download failure gracefully with user feedback.
+  6. **Performance**: Ensure no unnecessary re-renders when updating task states from SSE events.
+- Research:
+  - Read `EngineCapabilityContext.tsx` fully to understand capability flags
+  - Read `TopBar.tsx`, `StatusBar.tsx`, `Sidebar.tsx` button mappings
+  - Check `novaClient.ts` for all available API endpoints
+  - Read `desktop-ui.types.ts` for DownloadStatus enum states
+- Files affected:
+  - `src/components/TopBar.tsx`, `StatusBar.tsx`, `Sidebar.tsx`, `TaskTable.tsx`, `AppShell.tsx`
+  - `src/capabilities/EngineCapabilityContext.tsx`
+  - `src/state/appStore.tsx`, `src/state/useTaskStore.ts`
+  - All dialog files in `src/dialogs/`
+
+### UI-002 — Comprehensive button translation & tooltip audit
+
+- Status: `[ ] PLANNED`
+- Priority: high
+- Type: refactor
+- Started: pending
+- Completed: pending
+- Objective:
+  - Find EVERY button, icon, clickable element, menu item, and label across ALL components. Ensure all have: proper i18n translation key, tooltip describing the action, and aria-label for accessibility.
+- Plan:
+  1. **Button inventory**: Create a complete inventory of all interactive elements:
+     - TopBar: new download, resume all, stop all, delete dropdown, search, scheduler, settings, notifications, window controls
+     - Sidebar: navigation items, category items, theme toggle, browser/telegram/scheduler links
+     - StatusBar: speed indicator, daemon status, browser/telegram/clipboard status, speed limiter, mute
+     - TaskTable: column headers, sort controls, context menu items, row actions
+     - Dialogs: all buttons in AddDownloadDialog, BatchImportDialog, TaskPropertiesDialog, etc.
+  2. **Translation audit**: Check every button label against translation keys in `src/lib/i18n/`. Add missing keys to English locale (`en.ts`) and Arabic (`ar.ts`). Ensure every UI string uses `getTranslation()` or a translation-aware mechanism.
+  3. **Tooltip addition**: Add `title` attribute or custom Tooltip component to every icon-only button. Tooltip text should come from translations.
+  4. **Aria-labels**: Add meaningful `aria-label` to all icon buttons, progress bars, and interactive elements for accessibility.
+  5. **Description**: For complex buttons (e.g., speed limiter, queue selector), add short helper text below or on hover.
+- Files affected:
+  - `src/components/TopBar.tsx`, `StatusBar.tsx`, `Sidebar.tsx`, `TaskTable.tsx`
+  - `src/lib/i18n/en.ts`, `src/lib/i18n/ar.ts`
+  - `src/lib/i18n/translations.ts`
+  - All dialog files
+  - `src/components/primitives/` (for shared Tooltip component if needed)
+
+### UI-003 — Drag & drop for task reordering & queue management
+
+- Status: `[ ] PLANNED`
+- Priority: high
+- Type: feat
+- Started: pending
+- Completed: pending
+- Objective:
+  - Implement drag & drop functionality: reorder tasks in queue, move tasks between queues, reorder queues in scheduler sidebar, rearrange columns in task table.
+- Plan:
+  1. **Task reordering**: Add drag & drop to TaskTable rows. Users can drag tasks up/down to reorder within the same queue. Persist order to daemon via API.
+  2. **Cross-queue moves**: Allow dragging tasks between different queues (displayed in scheduler/queue panel). Drop zone highlights valid targets.
+  3. **Queue reordering**: In SchedulerSidebar, allow dragging queues to reorder them. Persist to `useQueueStore`.
+  4. **Column reordering**: Enhance ColumnConfigPanel with drag & drop column rearrangement (replaces current toggle-only panel).
+  5. **Drag feedback**: Visual feedback during drag: ghost element, drop zone highlight, forbidden cursor when invalid target.
+  6. **Undo support**: After a drag operation, show "Undo" toast for 5 seconds.
+- Implementation options:
+  - Option A: `@dnd-kit/core` + `@dnd-kit/sortable` — Modern, lightweight, accessible
+  - Option B: Native HTML5 Drag & Drop API — No dependencies, more manual work
+  - Option C: `react-beautiful-dnd` — Mature but unmaintained
+- Recommendation: Option A (`@dnd-kit`) — best DX, accessibility, and maintenance
+- Research:
+  - Check `package.json` for existing DnD dependencies
+  - Read `useQueueStore.ts` for queue management API
+  - Read `novaClient.ts` for task reorder API endpoint
+- Files affected:
+  - `src/components/TaskTable.tsx`
+  - `src/components/SchedulerSidebar.tsx`, `src/components/SchedulerPanel.tsx`
+  - `src/components/ColumnConfigPanel.tsx`
+  - `src/state/useQueueStore.ts`, `src/state/useTaskStore.ts`
+  - `src/api/novaClient.ts` (may need new endpoint)
+  - `src/components/primitives/` (new DnD wrappers)
+  - `package.json` (new dependency)
+
+### UI-004 — Consistent component states (loading, empty, error, offline)
+
+- Status: `[ ] PLANNED`
+- Priority: high
+- Type: refactor
+- Started: pending
+- Completed: pending
+- Objective:
+  - Ensure EVERY component/view handles all 4 states: loading, empty, error, success. Add proper skeletons, empty states, error boundaries, and offline indicators.
+- Plan:
+  1. **Loading skeletons**: Replace spinners with skeleton screens matching component layout for TaskTable, Sidebar counts, Settings page, Scheduler page.
+  2. **Empty states**: Design and add empty state illustrations/messages for: no downloads yet, no search results, no scheduled queues, no browser integration, no completed downloads, etc.
+  3. **Error boundaries**: Ensure ErrorBoundary wraps each major section (downloads, settings, scheduler, dialogs). Add retry button on error.
+  4. **Offline/daemon-down mode**: Enhance degraded mode UI — show clear message when daemon is unreachable, disable download actions, show reconnection indicator.
+  5. **Toast consistency**: Ensure all async operations show toast feedback (success, error, info). Use existing `addToast` from appStore.
+- Research:
+  - Read `ErrorBoundary.tsx` to understand current error handling
+  - Read `appStore.tsx` degraded mode logic
+- Files affected:
+  - `src/components/AppShell.tsx`, `TaskTable.tsx`, `Sidebar.tsx`, `StatusBar.tsx`
+  - `src/components/ErrorBoundary.tsx`
+  - `src/state/appStore.tsx`
+  - `src/pages/SettingsPage.tsx`, `src/pages/SchedulerPage.tsx`
+  - `src/dialogs/*` (all dialogs)
+
+### UI-005 — Button & interaction polish pass
+
+- Status: `[ ] PLANNED`
+- Priority: medium
+- Type: refactor
+- Started: pending
+- Completed: pending
+- Objective:
+  - Final polish pass: hover effects, focus states, transition animations, keyboard shortcuts, click feedback, consistent spacing.
+- Plan:
+  1. **Hover & focus states**: Ensure all interactive elements have visible hover and focus styles (outline, color shift, scale). Consistent with dark/light themes.
+  2. **Keyboard shortcuts**: Document all existing shortcuts (from TopBar). Add new ones: Escape closes dialogs, Ctrl+F focuses search, arrows navigate task list, Enter opens task properties.
+  3. **Click feedback**: Buttons show brief visual feedback on click (ripple, scale, or color flash). Disabled buttons show explanation tooltip.
+  4. **Consistent spacing & alignment**: Audit all components for consistent padding, margin, font sizes, icon sizes. Use Tailwind utility classes consistently.
+  5. **Animation**: Smooth transitions for: sidebar collapse, dialog open/close, task status changes, drag & drop, notifications appear/dismiss.
+  6. **Mobile/responsive**: Ensure layout works at various sidebar widths, small windows, and when devtools are open.
+- Files affected:
+  - All components in `src/components/`, `src/dialogs/`, `src/pages/`
+  - `src/index.css` or Tailwind config
+  - `src/components/primitives/`
+
 ### CI-002 — GitHub Actions E2E workflow
 
 - Status: `[ ] PLANNED`
