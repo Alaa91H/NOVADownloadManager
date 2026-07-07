@@ -1,133 +1,81 @@
-# NOVA Download Manager — Agent Reference
+# NOVA — Maintenance & Release Runbook
 
-## Quality Gates
+Operational law. Read top to bottom every cycle. Governed by `CONSTITUTION.md`; the
+charter wins on any conflict.
 
-```bash
-pnpm install --frozen-lockfile
-pnpm lint                          # tsc --noEmit
-pnpm lint:eslint
-pnpm format:check
-pnpm test                           # vitest run
-pnpm test:coverage                  # with coverage
-pnpm build                          # vite build
-pnpm audit:final
-pnpm i18n:validate
-pnpm i18n:validate-primary
-pnpm extension:install
-pnpm extension:build
-pnpm native-curl:build
-pnpm native-curl:verify
-pnpm bundle
-```
+## 0. Voice (applies to everything you produce)
+- Neutral, professional, project-maintenance language everywhere: commits, PRs, issues,
+  comments, branch names, release notes, code comments, docs, logs, generated files.
+- Never identify as AI / agent / bot / model; no tool names; no AI attribution or
+  co-author trailers. Never impersonate a real person.
 
-## E2E Tests (target 10%+ coverage)
+## 1. Command policy for this node
+**Allowed (lightweight, one at a time):**
+- `git`, `gh`, `rg`/`grep`/`sed`/`awk`, `node` for tiny parsing, and file edits.
+- `tsc --noEmit` (memory-capped) — first-line typecheck. **Required clean before every push.**
+- `eslint` on the specific files you changed.
+- `vitest run <single-file>` (memory-capped) — verify a test you just touched, one file at a time.
 
-### Install Playwright
-```bash
-npm install -D @playwright/test
-npx playwright install chromium
-```
+**Forbidden on this node (delegate to GitHub Actions):**
+- `pnpm install` / lockfile regeneration, `vite build` / `pnpm build`, the full
+  `pnpm test` suite, coverage, bundle / package, Tauri or Rust build/check,
+  Playwright / E2E, native-curl build, installers.
 
-### Test Structure
-```
-src/e2e/
-  downloads.spec.ts
-  settings.spec.ts
-  scheduler.spec.ts
-  sidebar.spec.ts
-  i18n.spec.ts
-  tasks.spec.ts
-  queue.spec.ts
-  api.spec.ts
-  ui-components.spec.ts
-  navigation.spec.ts
-```
+## 2. Per-cycle procedure
+1. **Sync** Dev fast-forward only. Never pull over local changes — commit or stash first.
+2. **Inspect** the previous push's CI result with a single non-blocking `gh run list`/`view`.
+   Never `sleep`, never `gh run watch`, never poll to completion.
+3. **Decide state:**
+   - Dev CI **red** → the only task is *restore green*: read the failing gate's log and
+     fix the root cause. Start nothing else.
+   - Dev **green** → take the `IN_PROGRESS` task in `Plan.md`; otherwise promote the top
+     `PLANNED` task and note why.
+4. **Change** — small, scoped, typed, i18n-aware.
+5. **Preflight (mandatory before commit):**
+   - `tsc --noEmit` is clean.
+   - If you touched a test, run that test file; it must pass.
+   - ESLint is clean on changed files.
+6. **Commit** (conventional, neutral) and **push** to Dev.
+7. **End the cycle. Do not wait for CI.**
+8. **Update `Plan.md`:** status, what changed, and the CI run URL to check next cycle.
 
-### Commands
-```bash
-pnpm exec playwright test
-pnpm exec playwright test --ui
-pnpm exec playwright show-report
-pnpm exec playwright test --project=chromium
-```
+## 3. Test discipline (this is why the suite broke before)
+- **Never commit a test you have not executed green.** No blind, mass-generated tests.
+- Add tests in small batches; verify each file locally before committing it.
+- Components that render responsive/dual markup (desktop table **and** mobile cards)
+  emit both in jsdom — scope queries with `within(container)` or `getAllBy*`, never a
+  bare `getByText` that will match twice.
+- Mock the i18n `t` consistently with how the component consumes it; assert on rendered
+  text, not raw keys (unless the mock deliberately returns keys).
+- Do not chase a coverage number. Coverage is a by-product of meaningful, passing tests.
 
-## Build & Cross-Platform
+## 4. First directive — restore Dev to green
+Dev is currently red. Work in this order and start nothing new until CI on Dev is green:
+1. **Typecheck** — `tsc --noEmit`, fix every type error.
+2. **Unit tests** — fix broken tests one file at a time, largest failing files first
+   (`TaskTable`, `StatusBar`, `TopBar` — these fail on dual-render duplicate matches;
+   scope the queries). Verify each file locally before committing.
+3. **ESLint** — fix every error/warning.
+4. **Translations** — run `scripts/fix-i18n.mjs` then `scripts/sync-i18n-index.mjs`;
+   every locale must match `en.ts` (keys + placeholders, no internal tokens).
+5. **Build errors** surfaced by CI — fix at the root.
 
-### Tauri Build
-```bash
-pnpm tauri:build --target x86_64-pc-windows-msvc
-pnpm tauri:build --target i686-pc-windows-msvc
-pnpm tauri:build --target aarch64-pc-windows-msvc
-pnpm tauri:build --target x86_64-unknown-linux-gnu
-pnpm tauri:build --target aarch64-unknown-linux-gnu
-pnpm tauri:build --target x86_64-apple-darwin
-pnpm tauri:build --target aarch64-apple-darwin
-```
+## 5. Release procedure (only from green)
+- Ensure Dev is green, then merged to `main`.
+- Bump version (SemVer): patch = fix, minor = feature, major = breaking.
+- Tag `vX.Y.Z`; GitHub Actions builds and publishes. Never build installers here.
+  Never overwrite a published release.
 
-### Native Curl
-```bash
-pnpm native-curl:build
-pnpm native-curl:verify
-pnpm native-curl:env
-```
+## 6. Conventional commits
+`feat` · `fix` · `chore` · `refactor` · `test` · `docs` · `ci` · `perf` · `build` —
+imperative, neutral, no AI references.
 
-### Release
-```bash
-pnpm version:apply --version=X.Y.Z
-pnpm release
-pnpm bundle
-pnpm audit:final
-```
+## 7. Escalation
+- Same CI failure 3 cycles in a row, or a fix that can only be verified by a heavy local
+  build → record the blocker in `Plan.md`, send one concise maintenance alert, keep the
+  node healthy, and do not thrash.
 
-### Browser Extension
-```bash
-pnpm extension:install
-pnpm extension:build
-pnpm extension:package
-```
-
-## Code Quality Standards
-
-- `strict: true` in tsconfig
-- No `any` types (use `unknown`)
-- Explicit return types
-- Functional components only
-- Explicit props interfaces
-- Error boundaries
-- Loading/empty/error states
-- Zustand stores with explicit types
-- Selectors optimized
-- Conventional commits: `feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`, `ci:`
-
-## Deployment Targets
-
-| Platform | Arch | Status |
-|----------|------|--------|
-| Windows  | x64  | ✅     |
-| Windows  | x86  | ⬜     |
-| Windows  | ARM64| ⬜     |
-| Linux    | x64  | ✅     |
-| Linux    | ARM64| ⬜     |
-| macOS    | x64  | ⬜     |
-| macOS    | ARM64| ⬜     |
-| Android  | ARM64| 🔍     |
-| iOS      | ARM64| 🔍     |
-
-## Coverage Targets
-- Current: ~3%
-- Target 1: **10%** (E2E + unit)
-- Target 2: 25%
-- Target 3: 50%
-- Target 4: 75%+
-
-## Continuous Improvement Checklist
-- [ ] Fix all errors and warnings
-- [ ] Write E2E tests
-- [ ] Reach 10%+ coverage
-- [ ] Build for all platforms
-- [ ] Complete CI/CD
-- [ ] All quality gates pass
-- [ ] Clean audit
-- [ ] Full i18n validation
-- [ ] Updated documentation
-- [ ] Optimized bundle
+## Code quality standards
+- `strict: true`; no `any` (use `unknown`); explicit return types; functional components
+  with explicit props interfaces; error boundaries; loading / empty / error states for
+  every data component; typed Zustand stores with optimized selectors.
