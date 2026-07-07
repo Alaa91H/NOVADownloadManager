@@ -44,9 +44,7 @@ export const SchedulerRetriesTab: React.FC<SchedulerRetriesTabProps> = ({
         </div>
 
         <div className="space-y-1">
-          <span className="text-[11px] font-bold text-[var(--text-secondary)]">
-            {t('sched_retry_wait')}
-          </span>
+          <span className="text-[11px] font-bold text-[var(--text-secondary)]">{t('sched_retry_wait')}</span>
           <div className="flex items-center gap-2">
             <input
               type="number"

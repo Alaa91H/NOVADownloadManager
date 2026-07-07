@@ -97,7 +97,8 @@ export const BatchImportDialog: React.FC = () => {
       <div className="flex items-center gap-2 p-3 bg-blue-500/10 border border-blue-500/20 text-[var(--text-secondary)] rounded-lg text-xs">
         <AlertCircle className="w-5 h-5 text-[var(--accent-primary)] shrink-0" />
         <p className="leading-relaxed">
-          Enter one download link per line. NOVA will queue only links whose protocols are enabled by the linked libcurl build.
+          Enter one download link per line. NOVA will queue only links whose protocols are enabled by the linked libcurl
+          build.
         </p>
       </div>
       {!engineCapabilities.directReady && (

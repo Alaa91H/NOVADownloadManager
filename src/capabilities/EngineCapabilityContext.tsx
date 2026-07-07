@@ -127,7 +127,12 @@ function filterOptions<T extends object>(options: T, supported: Set<string>): T 
   return next as T;
 }
 
-function buildSnapshot(raw: unknown, loading: boolean, error: string | null, refresh: () => Promise<void>): EngineCapabilitySnapshot {
+function buildSnapshot(
+  raw: unknown,
+  loading: boolean,
+  error: string | null,
+  refresh: () => Promise<void>,
+): EngineCapabilitySnapshot {
   const root = asRecord(raw);
   const curl = readEngineRecord(root, 'libcurlMulti') || readEngineRecord(root, 'curl');
   const ytdlp = readEngineRecord(root, 'ytdlp');
@@ -143,15 +148,23 @@ function buildSnapshot(raw: unknown, loading: boolean, error: string | null, ref
     ? asStringArray(root?.directProtocols)
     : asStringArray(curl?.protocols);
   const directOptionKeys = new Set(
-    asStringArray(curl?.supportedDirectOptionKeys).length ? asStringArray(curl?.supportedDirectOptionKeys) : Array.from(DIRECT_FALLBACK_KEYS),
+    asStringArray(curl?.supportedDirectOptionKeys).length
+      ? asStringArray(curl?.supportedDirectOptionKeys)
+      : Array.from(DIRECT_FALLBACK_KEYS),
   );
   const mediaOptionKeys = new Set(
-    asStringArray(ytdlp?.supportedMediaOptionKeys).length ? asStringArray(ytdlp?.supportedMediaOptionKeys) : Array.from(MEDIA_FALLBACK_KEYS),
+    asStringArray(ytdlp?.supportedMediaOptionKeys).length
+      ? asStringArray(ytdlp?.supportedMediaOptionKeys)
+      : Array.from(MEDIA_FALLBACK_KEYS),
   );
   const unsupportedDirectOptionKeys = new Set(asStringArray(curl?.unsupportedDirectOptionKeys));
   const unsupportedMediaOptionKeys = new Set(asStringArray(ytdlp?.unsupportedMediaOptionKeys));
-  const enabledDirectOptionKeys = new Set(Array.from(directOptionKeys).filter((key) => !unsupportedDirectOptionKeys.has(key)));
-  const enabledMediaOptionKeys = new Set(Array.from(mediaOptionKeys).filter((key) => !unsupportedMediaOptionKeys.has(key)));
+  const enabledDirectOptionKeys = new Set(
+    Array.from(directOptionKeys).filter((key) => !unsupportedDirectOptionKeys.has(key)),
+  );
+  const enabledMediaOptionKeys = new Set(
+    Array.from(mediaOptionKeys).filter((key) => !unsupportedMediaOptionKeys.has(key)),
+  );
   const directProtocolSet = lowerSet(directProtocols);
   const supportedExternalDownloaders = new Set(asStringArray(ytdlp?.supportedExternalDownloaders));
 
@@ -164,9 +177,24 @@ function buildSnapshot(raw: unknown, loading: boolean, error: string | null, ref
     ffmpegReady,
     postProcessingReady,
     streamResolverReady: mediaReady && postProcessingReady,
-    directEngineId: typeof routing?.directHttpHttpsFtp === 'string' ? routing.directHttpHttpsFtp : directReady ? 'libcurl-multi' : 'unavailable',
-    mediaEngineId: typeof routing?.webMediaAndPlaylists === 'string' ? routing.webMediaAndPlaylists : mediaReady ? 'yt-dlp' : 'unavailable',
-    postProcessorId: typeof routing?.mergeRemuxExtractSubtitles === 'string' ? routing.mergeRemuxExtractSubtitles : postProcessingReady ? 'ffmpeg' : 'unavailable',
+    directEngineId:
+      typeof routing?.directHttpHttpsFtp === 'string'
+        ? routing.directHttpHttpsFtp
+        : directReady
+          ? 'libcurl-multi'
+          : 'unavailable',
+    mediaEngineId:
+      typeof routing?.webMediaAndPlaylists === 'string'
+        ? routing.webMediaAndPlaylists
+        : mediaReady
+          ? 'yt-dlp'
+          : 'unavailable',
+    postProcessorId:
+      typeof routing?.mergeRemuxExtractSubtitles === 'string'
+        ? routing.mergeRemuxExtractSubtitles
+        : postProcessingReady
+          ? 'ffmpeg'
+          : 'unavailable',
     directProtocols,
     directOptionKeys,
     unsupportedDirectOptionKeys,
@@ -184,7 +212,13 @@ function buildSnapshot(raw: unknown, loading: boolean, error: string | null, ref
     supportsStreamCandidate: (mediaType?: string, source?: string, candidateUrl?: string) => {
       if (!mediaReady || !postProcessingReady) return false;
       const marker = `${mediaType || ''} ${source || ''} ${candidateUrl || ''}`.toLowerCase();
-      return marker.includes('hls') || marker.includes('dash') || marker.includes('m3u8') || marker.includes('mpd') || marker.includes('manifest');
+      return (
+        marker.includes('hls') ||
+        marker.includes('dash') ||
+        marker.includes('m3u8') ||
+        marker.includes('mpd') ||
+        marker.includes('manifest')
+      );
     },
     sanitizeDirectOptions: (options: DirectDownloadOptions) => filterOptions(options, enabledDirectOptionKeys),
     sanitizeMediaOptions: (options: MediaDownloadOptions) => filterOptions(options, enabledMediaOptionKeys),

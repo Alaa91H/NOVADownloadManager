@@ -315,7 +315,11 @@ export const YoutubeDownloadDialog: React.FC = () => {
     }
 
     if (requiresFfmpeg && !engineCapabilities.postProcessingReady) {
-      addToast('error', 'FFmpeg unavailable', 'The selected media operation requires FFmpeg, but the post-processing engine is not ready.');
+      addToast(
+        'error',
+        'FFmpeg unavailable',
+        'The selected media operation requires FFmpeg, but the post-processing engine is not ready.',
+      );
       return;
     }
 
@@ -534,7 +538,8 @@ export const YoutubeDownloadDialog: React.FC = () => {
       )}
       {engineCapabilities.mediaReady && !engineCapabilities.postProcessingReady && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-[11px] text-amber-200">
-          FFmpeg is not ready. Merging, remuxing, audio extraction, thumbnails, subtitles, and chapter processing are disabled.
+          FFmpeg is not ready. Merging, remuxing, audio extraction, thumbnails, subtitles, and chapter processing are
+          disabled.
         </div>
       )}
       {/* Header */}

@@ -249,7 +249,10 @@ export const tauriClient = {
       const detected = (await invoke('detect_vpn_interface')) as boolean;
       return detected
         ? { ok: true, message: 'An active VPN-like interface was detected.' }
-        : { ok: false, message: 'No active VPN interface was detected. Use proxy or bind mode if this is a false negative.' };
+        : {
+            ok: false,
+            message: 'No active VPN interface was detected. Use proxy or bind mode if this is a false negative.',
+          };
     } catch (error) {
       return { ok: false, message: errorMessage(error, 'Could not inspect VPN interfaces.') };
     }

@@ -43,12 +43,24 @@ export const GeneralAndDownloads: React.FC<Props> = ({
       const result = await tauriClient.checkUnsignedUpdate();
       setUpdateResult(result);
       if (result.hasUpdate) {
-        addToast('info', t('settings_update_available'), t('settings_update_available_msg', { version: result.latestVersion }));
+        addToast(
+          'info',
+          t('settings_update_available'),
+          t('settings_update_available_msg', { version: result.latestVersion }),
+        );
       } else {
-        addToast('success', t('settings_update_current'), t('settings_update_current_msg', { version: result.currentVersion }));
+        addToast(
+          'success',
+          t('settings_update_current'),
+          t('settings_update_current_msg', { version: result.currentVersion }),
+        );
       }
     } catch (error) {
-      addToast('error', t('settings_update_failed'), error instanceof Error ? error.message : t('settings_update_failed_msg'));
+      addToast(
+        'error',
+        t('settings_update_failed'),
+        error instanceof Error ? error.message : t('settings_update_failed_msg'),
+      );
     } finally {
       setUpdateChecking(false);
     }
@@ -115,8 +127,12 @@ export const GeneralAndDownloads: React.FC<Props> = ({
         <div className="bg-[var(--bg-hover)]/30 p-3.5 rounded-lg border border-[var(--border-color)] space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="space-y-1">
-              <span className="text-xs font-extrabold text-[var(--text-primary)]">{t('settings_unsigned_updates')}</span>
-              <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">{t('settings_unsigned_updates_desc')}</p>
+              <span className="text-xs font-extrabold text-[var(--text-primary)]">
+                {t('settings_unsigned_updates')}
+              </span>
+              <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
+                {t('settings_unsigned_updates_desc')}
+              </p>
             </div>
             <div className="flex gap-2 shrink-0">
               <Button

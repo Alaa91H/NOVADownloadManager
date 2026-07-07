@@ -154,9 +154,7 @@ export const IntegrationsAndAutomation: React.FC<Props> = ({
               max={2000}
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
-            <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
-              {t('settings_tg_upload_limit_note')}
-            </p>
+            <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">{t('settings_tg_upload_limit_note')}</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <Checkbox
                 label={t('settings_tg_started')}

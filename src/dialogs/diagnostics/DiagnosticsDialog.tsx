@@ -120,7 +120,11 @@ export const DiagnosticsDialog: React.FC = () => {
                 // structured object form as well.
                 const iface =
                   typeof net === 'string'
-                    ? { name: net.split('=')[0] || net, ip: net.split('=').slice(1).join('=') || '—', speedMbps: undefined }
+                    ? {
+                        name: net.split('=')[0] || net,
+                        ip: net.split('=').slice(1).join('=') || '—',
+                        speedMbps: undefined,
+                      }
                     : net;
                 return (
                   <div
@@ -143,14 +147,14 @@ export const DiagnosticsDialog: React.FC = () => {
             </div>
           </div>
 
-
           {data.engineCapabilities ? (
             <div className="bg-[var(--bg-hover)] border border-[var(--border-color)] rounded-lg p-3 space-y-2">
               <h4 className="text-xs font-semibold text-[var(--text-primary)] border-b border-[var(--border-color)] pb-1 mb-2">
                 Runtime Engine Capabilities
               </h4>
               <p className="text-[10px] text-[var(--text-muted)]">
-                Live data reported by curl, yt-dlp, and FFmpeg at runtime. Unsupported options are excluded from execution.
+                Live data reported by curl, yt-dlp, and FFmpeg at runtime. Unsupported options are excluded from
+                execution.
               </p>
               <pre className="max-h-80 overflow-auto rounded-md bg-black/20 p-3 text-[10px] leading-4 text-[var(--text-secondary)] whitespace-pre-wrap">
                 {JSON.stringify(data.engineCapabilities, null, 2)}

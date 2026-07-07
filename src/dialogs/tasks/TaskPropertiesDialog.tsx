@@ -46,7 +46,11 @@ export const TaskPropertiesDialog: React.FC = () => {
 
   const handleSave = () => {
     if (connections > 1 && !supportsSegmentedDownloads) {
-      addToast('warning', 'Engine capabilities', 'The linked libcurl engine does not expose range/segmented downloads. Connections were reduced to 1.');
+      addToast(
+        'warning',
+        'Engine capabilities',
+        'The linked libcurl engine does not expose range/segmented downloads. Connections were reduced to 1.',
+      );
       setConnections(1);
     }
     updateTaskProperties(task.id, {
@@ -105,7 +109,8 @@ export const TaskPropertiesDialog: React.FC = () => {
       </div>
 
       <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-hover)]/30 p-2 text-[11px] text-[var(--text-secondary)]">
-        Task editing is capability-aware. Direct-engine thread and resume controls are disabled unless linked libcurl reports range/segmented support.
+        Task editing is capability-aware. Direct-engine thread and resume controls are disabled unless linked libcurl
+        reports range/segmented support.
       </div>
 
       <div className="space-y-3">
@@ -184,7 +189,12 @@ export const TaskPropertiesDialog: React.FC = () => {
         />
 
         <div className="pt-1 flex items-center gap-2">
-          <Checkbox label="Treat this download as resumable" checked={resumable} onChange={setResumable} disabled={!supportsRange} />
+          <Checkbox
+            label="Treat this download as resumable"
+            checked={resumable}
+            onChange={setResumable}
+            disabled={!supportsRange}
+          />
         </div>
       </div>
 

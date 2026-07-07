@@ -3,7 +3,8 @@ import React from 'react';
 import { DownloadItem, AppSettings } from '../types/desktop-ui.types';
 import { novaClient } from '../api/novaClient';
 
-const isNativeEngineTask = (task: DownloadItem) => task.engine === 'curl' || task.engine === 'libcurl-multi' || task.engine === 'yt-dlp';
+const isNativeEngineTask = (task: DownloadItem) =>
+  task.engine === 'curl' || task.engine === 'libcurl-multi' || task.engine === 'yt-dlp';
 
 const hydrateTask = (task: DownloadItem): DownloadItem => ({ ...task });
 
@@ -123,11 +124,7 @@ export function useTaskStore(
       }
       setTasks((prev) => prev.filter((t) => t.id !== id));
       if (selectedTaskId === id) setSelectedTaskId(null);
-      addToast(
-        'warning',
-        'Download removed',
-        `"${targetItem.name}" was removed from the daemon.${diskMessage}`,
-      );
+      addToast('warning', 'Download removed', `"${targetItem.name}" was removed from the daemon.${diskMessage}`);
     } catch (error) {
       addToast(
         'error',

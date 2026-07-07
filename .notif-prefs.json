@@ -1,0 +1,13 @@
+{
+  "7502561234": {
+    "cycle_start": true,
+    "cycle_done": true,
+    "ci_result": false,
+    "ci_fail": true,
+    "error": true,
+    "maintenance": false,
+    "analysis": false,
+    "system": false,
+    "freq": "important"
+  }
+}

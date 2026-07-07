@@ -15,7 +15,11 @@ type ScheduleType = 'once' | 'daily' | 'custom';
 
 const allScheduleDays = [0, 1, 2, 3, 4, 5, 6];
 
-const inferScheduleType = (queue: { scheduleType?: ScheduleType; days?: number[]; scheduled?: boolean }): ScheduleType => {
+const inferScheduleType = (queue: {
+  scheduleType?: ScheduleType;
+  days?: number[];
+  scheduled?: boolean;
+}): ScheduleType => {
   if (queue.scheduleType === 'once' || queue.scheduleType === 'daily' || queue.scheduleType === 'custom') {
     return queue.scheduleType;
   }
@@ -25,18 +29,8 @@ const inferScheduleType = (queue: { scheduleType?: ScheduleType; days?: number[]
 };
 
 export const SchedulerPanel: React.FC = () => {
-  const {
-    tasks,
-    queues,
-    updateQueue,
-    resumeTask,
-    pauseTask,
-    addToast,
-    addQueue,
-    deleteQueue,
-    removeTaskFromQueue,
-    t,
-  } = useAppStore();
+  const { tasks, queues, updateQueue, resumeTask, pauseTask, addToast, addQueue, deleteQueue, removeTaskFromQueue, t } =
+    useAppStore();
 
   const [selectedQueueId, setSelectedQueueId] = useState<string>('main');
   const [prevQueuesCount, setPrevQueuesCount] = useState(queues.length);

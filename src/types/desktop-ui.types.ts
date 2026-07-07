@@ -31,17 +31,7 @@ export type CustomButtonAction =
   | 'toggleSpeedLimiter'
   | 'sendSelectedToTelegram';
 export type CustomButtonIcon =
-  | 'plus'
-  | 'layers'
-  | 'play'
-  | 'stop'
-  | 'trash'
-  | 'settings'
-  | 'telegram'
-  | 'bell'
-  | 'clock'
-  | 'globe'
-  | 'video';
+  'plus' | 'layers' | 'play' | 'stop' | 'trash' | 'settings' | 'telegram' | 'bell' | 'clock' | 'globe' | 'video';
 
 export interface ToolbarButtonSettings {
   display: ToolbarButtonDisplayMode;

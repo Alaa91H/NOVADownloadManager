@@ -358,8 +358,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
 
       queues.forEach((queue) => {
         const wasActive = activeScheduleWindowsRef.current[queue.id] || false;
-        const isActive =
-          queue.scheduled && !queue.scheduleCompleted && isQueueInScheduleWindow(queue, now);
+        const isActive = queue.scheduled && !queue.scheduleCompleted && isQueueInScheduleWindow(queue, now);
 
         if (isActive && !wasActive) {
           activeScheduleWindowsRef.current[queue.id] = true;
@@ -699,11 +698,14 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
 
     const canStreamDownloads = settings.extra.enableSse && typeof window.EventSource !== 'undefined';
     if (canStreamDownloads) {
-      stopEvents = novaClient.streamDownloads((daemonTasks) => {
-        applyDownloads(daemonTasks, true);
-      }, () => {
-        sseFailed = true;
-      });
+      stopEvents = novaClient.streamDownloads(
+        (daemonTasks) => {
+          applyDownloads(daemonTasks, true);
+        },
+        () => {
+          sseFailed = true;
+        },
+      );
     }
 
     const initialTimer = setTimeout(() => {
@@ -766,7 +768,11 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       .checkUnsignedUpdate()
       .then((result) => {
         if (result.hasUpdate) {
-          addToast('info', t('settings_update_available'), t('settings_update_available_msg', { version: result.latestVersion }));
+          addToast(
+            'info',
+            t('settings_update_available'),
+            t('settings_update_available_msg', { version: result.latestVersion }),
+          );
         }
       })
       .catch((error: unknown) => {

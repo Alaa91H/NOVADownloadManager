@@ -1,15 +1,5 @@
 import React, { useState } from 'react';
-import {
-  Bell,
-  Keyboard,
-  ListChecks,
-  Paintbrush,
-  Plus,
-  SlidersHorizontal,
-  Trash2,
-  Volume2,
-  Wand2,
-} from 'lucide-react';
+import { Bell, Keyboard, ListChecks, Paintbrush, Plus, SlidersHorizontal, Trash2, Volume2, Wand2 } from 'lucide-react';
 import {
   AppSettings,
   CustomButtonAction,
@@ -166,7 +156,8 @@ export const InterfaceCustomization: React.FC<Props> = ({ settings, updateSettin
   };
 
   const addCustomButton = () => {
-    const label = customLabel.trim() || t(customButtonActions.find((item) => item.value === customAction)?.labelKey || '');
+    const label =
+      customLabel.trim() || t(customButtonActions.find((item) => item.value === customAction)?.labelKey || '');
     const nextButton: CustomToolbarButton = {
       id: `custom_${Date.now().toString(36)}`,
       label,
@@ -181,11 +172,7 @@ export const InterfaceCustomization: React.FC<Props> = ({ settings, updateSettin
 
   const readCustomSound = (
     file: File | undefined,
-    key:
-      | 'customCompleteDataUrl'
-      | 'customErrorDataUrl'
-      | 'customQueueFinishedDataUrl'
-      | 'customNotificationDataUrl',
+    key: 'customCompleteDataUrl' | 'customErrorDataUrl' | 'customQueueFinishedDataUrl' | 'customNotificationDataUrl',
   ) => {
     if (!file) return;
     if (!file.type.startsWith('audio/')) {

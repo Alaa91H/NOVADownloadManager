@@ -21,16 +21,23 @@ export const MediaAndTorrent: React.FC<Props> = ({ settings, updateSetting, onAd
 
   const handleDetectFFmpeg = () => {
     setFfmpegStatus('detecting');
-    void novaClient.checkFfmpeg()
+    void novaClient
+      .checkFfmpeg()
       .then((status) => {
         if (status.available) {
           setFfmpegStatus('found');
-          setFfmpegVersion(status.versionText || status.version || `FFmpeg available at ${status.binary || 'runtime path'}`);
+          setFfmpegVersion(
+            status.versionText || status.version || `FFmpeg available at ${status.binary || 'runtime path'}`,
+          );
           onAddToast('success', t('settings_toast_ffmpeg_detect'), t('settings_toast_ffmpeg_found'));
         } else {
           setFfmpegStatus('not_found');
           setFfmpegVersion('');
-          onAddToast('warning', t('settings_toast_ffmpeg_detect'), 'FFmpeg was not found in the bundled resources or PATH.');
+          onAddToast(
+            'warning',
+            t('settings_toast_ffmpeg_detect'),
+            'FFmpeg was not found in the bundled resources or PATH.',
+          );
         }
       })
       .catch(() => {
@@ -42,7 +49,11 @@ export const MediaAndTorrent: React.FC<Props> = ({ settings, updateSetting, onAd
 
   const handleTestPort = () => {
     setPortStatus('closed');
-    onAddToast('info', t('settings_toast_torrent_port'), 'Torrent/magnet support is disabled until a dedicated torrent engine is added.');
+    onAddToast(
+      'info',
+      t('settings_toast_torrent_port'),
+      'Torrent/magnet support is disabled until a dedicated torrent engine is added.',
+    );
   };
 
   const updateTorrentSetting = (key: keyof AppSettings['extra'], _value: string | boolean) => {
@@ -196,7 +207,8 @@ export const MediaAndTorrent: React.FC<Props> = ({ settings, updateSetting, onAd
             {t('settings_torrent_engine')}
           </span>
           <div className="rounded-md border border-amber-500/25 bg-amber-500/10 p-2 text-[11px] text-amber-200">
-            Torrent and magnet downloads are disabled in this libcurl-based build. libcurl is used for direct HTTP/HTTPS/FTP downloads only; add a dedicated torrent engine before enabling these controls.
+            Torrent and magnet downloads are disabled in this libcurl-based build. libcurl is used for direct
+            HTTP/HTTPS/FTP downloads only; add a dedicated torrent engine before enabling these controls.
           </div>
           <div className="grid grid-cols-1 gap-3 opacity-50 pointer-events-none">
             <Checkbox

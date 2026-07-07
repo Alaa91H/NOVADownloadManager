@@ -178,13 +178,19 @@ export const SettingsDialog: React.FC = () => {
   // State for sub-tabs and accordion expand
   const [automationSubTab, setAutomationSubTab] = useState<AutomationSubTab>(
     payload.tab === 'integrations_automation' &&
-      (payload.subTab === 'telegram' || payload.subTab === 'webhooks' || payload.subTab === 'smtp' || payload.subTab === 'rules')
+      (payload.subTab === 'telegram' ||
+        payload.subTab === 'webhooks' ||
+        payload.subTab === 'smtp' ||
+        payload.subTab === 'rules')
       ? payload.subTab
       : 'telegram',
   );
   const [diagnosticsSubTab, setDiagnosticsSubTab] = useState<DiagnosticsSubTab>(
     payload.tab === 'diagnostics_system' &&
-      (payload.subTab === 'bridge' || payload.subTab === 'diagnostics' || payload.subTab === 'backup' || payload.subTab === 'advanced')
+      (payload.subTab === 'bridge' ||
+        payload.subTab === 'diagnostics' ||
+        payload.subTab === 'backup' ||
+        payload.subTab === 'advanced')
       ? payload.subTab
       : 'bridge',
   );
