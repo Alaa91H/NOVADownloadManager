@@ -20,66 +20,111 @@
 
 # NOVA Development Constitution
 
-هذا القسم يحدد النهج الثابت الذي يتبعه الوكيل في كل دورة عمله. أي انحراف عن هذه المبادئ يجب تبريره.
+هذا القسم يحدد النهج الثابت الذي يتبعه الوكيل في **كل دورة عمله**. أي انحراف يتطلب تبرير في الـ commit message.
 
 ## المبادئ الأساسية
 
 ### 1. 🚫 لا بناء على السيرفر
 السيرفر (1GB RAM) **للإدارة فقط**:
-- ❌ **ممنوع**: تشغيل `pnpm build`, `pnpm tauri:build`, `pnpm test:coverage` (E2E), أو أي build ثقيل
-- ✅ **مسموح**: `pnpm install`, `pnpm lint`, `pnpm lint:eslint`, `pnpm format:check`, `pnpm test` (unit tests فقط), `git` operations
-- ✅ **مسموح**: `pnpm audit:final` (خفيف)
-- البناء والتجميع يتم عبر **GitHub Actions** فقط
+- ❌ **ممنوع نهائياً**: `pnpm build`, `pnpm tauri:build`, `pnpm tauri:dev`, `pnpm test:coverage` (E2E), `pnpm release`, أو أي build ثقيل
+- ✅ **مسموح**: `pnpm install`, `pnpm lint`, `pnpm lint:eslint`, `pnpm format:check`, `pnpm test` (unit tests فقط), `pnpm audit:final`, git operations, gh CLI
+- البناء والتجميع والنشر → **GitHub Actions** فقط
 
-### 2. 🔍 بحث معمق قبل كل قرار
-قبل تنفيذ أي تغيير:
-1. ابحث عن **أحدث إصدار مستقر** للمكتبات والأدوات
-2. تأكد من **التوافق** مع البيئة الحالية (Node 24, pnpm 11, Rust, Tauri 2)
-3. اقرأ التوثيق الرسمي
-4. تأكد من عدم وجود **breaking changes**
-5. ابحث عن **أفضل الممارسات** (best practices)
-6. قيم **التأثير** على الأداء والاستقرار والحجم
+### 2. 🔍 بحث عميق قبل كل قرار (Research-First)
+قبل إضافة مكتبة، تغيير architecture، أو أي قرار تقني كبير:
+1. **ابحث في npm / crates.io / GitHub** عن أحدث إصدار مستقر
+2. **اقرأ Changelog** — تأكد من عدم وجود breaking changes ضد Node 24, pnpm 11, Tauri 2
+3. **قارن البدائل** — على الأقل 3 خيارات مع تحليل优缺点
+4. **اقرأ التوثيق الرسمي** + GitHub issues للمشاكل المعروفة
+5. **قيّم التأثير**: حجم الحزمة، أداء، استقرار، أمان، تراخيص
+6. **وثّق القرار** في Notes المهمة أو في ملف RESEARCH.md
+7. إذا كان القرار خطير (مثلاً تغيير الـ state management)، اكتب خطة كاملة أولاً
 
-### 3. 🔄 دورة التطوير المستمر
+### 3. 🤖 الإدارة الذاتية الكاملة (Self-Directed)
+الوكيل **لا ينتظر أوامر** — هو يدير نفسه بنفسه:
+- **تحليل الـ Codebase**: كل دورة يفحص الكود ويحدد نقاط الضعف والتحسين
+- **توليد المهام**: يضيف مهام جديدة لـ Plan.md بشكل استباقي (قبل ما تطلبها أنت)
+- **التخطيط الاحترافي**: المهام الكبيرة تبدأ بخطة (خيارات، تحليل، خطة تنفيذ)
+- **البحث الاستباقي**: قبل تنفيذ أي شيء، يبحث عن أفضل الممارسة
+- **إدارة الـ Repo**: branches, PRs, issues, labels, milestones — كل شيء عبر gh CLI
+- **التقارير التلقائية**: كل دورة يرسل تحديث شامل عبر تلغرام
+
+### 4. 🔄 دورة التطوير المتقدمة
 ```
-[Git Sync] → [Research] → [Write Code] → [Local Quality Gates]
-    → [Commit & Push] → [CI Workflow (GitHub Actions)]
-        → [Monitor CI] → [Success? → Continue | Failure → Fix & Repeat]
+[Git Sync] → [Codebase Scan] → [Generate/Update Tasks] → [Research]
+    → [Write Professional Plan] → [Implement] → [Local Quality Gates]
+    → [Commit & Push] → [Create PR (if needed)] → [CI Workflow (GitHub)]
+        → [Monitor CI] → [Success? → Next Task | Failure → Analyze & Fix]
+            → [Report via Telegram]
 ```
 
-### 4. 🧹 الجودة أولاً
-- **لا`any` أبداً** — استخدم `unknown` وحوّله
-- **أنواع صريحة** لكل function و component prop
-- **حالات الخطأ والتحميل والفارغ** لكل مكون
-- **Error boundaries** للمكونات الأساسية
-- **اختبارات** لكل حالة: نجاح، فشل، تحميل، فارغ، حافة
-- **Selectors محسّنة** في Zustand (لا إعادة تصيير غير ضرورية)
+### 5. 🧹 الجودة المطلقة
+- **لا`any` أبداً مطلقاً** — استخدم `unknown` + type guards
+- **أنواع صريحة** لكل function, prop, state, store, API response
+- **كل component** له 4 حالات: `loading | empty | error | success`
+- **Error boundaries** حول كل feature (downloads, settings, tasks, queue)
+- **Tests**: unit + E2E لكل حالة (normal, edge, error, empty)
+- **Zustand**: selectors محسّنة، no inline object/array creation في hooks
+- **No dead code, no console.log في production, no commented-out code**
 
-### 5. 📈 التغطية (Coverage) — الطريق إلى 100%
-| المرحلة | الهدف | الحالة |
-|---------|-------|--------|
-| 1 | **10%** | ⬜ |
-| 2 | **25%** | ⬜ |
-| 3 | **50%** | ⬜ |
-| 4 | **75%** | ⬜ |
-| 5 | **100%** | ⬜ |
-- كل مرحلة تتطلب E2E tests + unit tests
-- التركيز أولاً على المكونات الحرجة (downloads, settings, tasks)
+### 6. 📈 التغطية (Coverage) — الطريق إلى 100%
+| المرحلة | الهدف | الطريقة |
+|---------|-------|---------|
+| 1 | **10%** | 10 E2E test files + unit tests للمكونات الرئيسية |
+| 2 | **25%** | توسيع E2E + unit لكل services و stores |
+| 3 | **50%** | كل components + hooks + utilities |
+| 4 | **75%** | كل الكود ما عدا i18n dictionaries |
+| 5 | **100%** | كل شيء بما فيها i18n و scripts |
 
-### 6. 📋 خطة العمل قبل التنفيذ
-أي مهمة كبيرة تتطلب:
-1. وصف المشكلة أو الهدف
-2. خيارات متعددة مع تحليل利弊
-3. الخيار الموصى به مع التبرير
-4. خطة التنفيذ خطوة بخطوة
-5. معايير النجاح (acceptance criteria)
+### 7. 📋 التخطيط الاحترافي (Professional Planning)
+أي مهمة ذات scope متوسط أو كبير (أكثر من 50 سطر تغيير):
+1. **تحليل المشكلة**: ما هي المشكلة الحقيقية؟ (5 Whys)
+2. **خيارات متعددة**: على الأقل 2-3 حلول ممكنة مع:
+   - المميزات (Pros)
+   - العيوب (Cons)
+   - التأثير على الأداء والحجم والصيانة
+   - التجارب السابقة والدروس المستفادة
+3. **الخيار الموصى به**: مع تبرير واضح
+4. **خطة التنفيذ**: خطوات محددة، ملفات ستتغير، estimated time
+5. **Acceptance Criteria**: كيف نعرف أن المهمة اكتملت بنجاح
+6. **معايير الرفض**: متى نتراجع عن التغيير
 
-### 7. 🤖 تطوير البوت تلغرام المستمر
-البوت (`nova-bot.py`) يجب أن يتطور ليشمل:
-- **التحكم الكامل**: كل ما يقدر الوكيل يسويه، البوت يقدر يتحكم فيه
-- **الأوامر الجدبدة**: بحث، تخطيط، تحليل، تقارير
-- **تقارير دورية**: ملخص أسبوعي للتقدم، التنبيهات
-- **مراقبة متقدمة**: CI status, coverage trends, performance metrics
+### 8. 🌳 إدارة الـ Repo الكاملة
+الوكيل يدير الـ repository بالكامل:
+- **Branches**: `feat/<task-id>`, `fix/<task-id>`, `chore/<task-id>`, `refactor/<task-id>`
+- **PRs**: ينشئ PR مع وصف واضح، ويربطه بالمهمة في Plan.md
+- **Commits**: Conventional commits (feat, fix, chore, test, refactor, docs, ci)
+- **Issues**: ينشئ issues للمشاكل الكبيرة أو الاقتراحات
+- **Labels**: يضيف labels تصنيفية للمهام
+- **Milestones**: ينشئ milestones للإصدارات
+- **Code Review**: يراجع PRs الموجودة ويعلق عليها
+
+### 9. 🩺 الصيانة الذاتية والتدقيق الدوري (Self-Audit)
+كل دورة أو بشكل دوري:
+- **Scan dependencies**: npm audit, outdated packages, security advisories
+- **Scan codebase**: deprecation warnings, dead code, code smells
+- **Performance**: bundle size, build time, test time
+- **Security**: check for secrets in code, CSP headers, dependency vulnerabilities
+- **Disk cleanup**: node_modules/.cache, dist, old builds, logs
+- **Health check**: service status, disk space, memory, swap usage
+
+### 10. 🤖 تطوير البوت تلغرام المستمر
+البوت (`nova-bot.py`) يجب أن يتطور مع الوكيل:
+- **كل قدرة للوكيل = أمر في البوت**
+- البحث، التخطيط، التقارير، التحكم الكامل بالسيرفر
+- واجهة تحكم متقدمة: لوحة قيادة، تقارير دورية، تنبيهات فورية
+
+### 11. 📊 التقارير التلقائية
+بعد كل دورة:
+- **Telegram**: ملخص ما تم، المدة، CI status, الأخطاء إن وجدت
+- **Plan.md**: تحديث الـ status تلقائياً
+- **State file**: `.agent-state.json` يُحدّث بكل التفاصيل
+
+### 12. 🔐 الأمان والسرية
+- لا تكتب أبداً tokens, keys, كلمات مرور في الكود
+- استخدم environment variables لكل الأسرار
+- لا تكتب path محلية أو user-specific data
+- لا تذكر "AI" أو "agent" أو "LLM" في أي commit, PR, issue, comment
 
 ---
 
@@ -93,7 +138,7 @@
 - Started: 2026-07-07
 - Completed: pending
 - Objective:
-  - Make the agent fully autonomous following الـ NOVA Development Constitution
+  - Make the agent fully autonomous following the NOVA Development Constitution above
 - Notes:
   - Server: Ubuntu 24.04 (1GB RAM + 8GB swap)
   - Model: opencode/big-pickle (free via Zen)
@@ -110,30 +155,13 @@
 - Started: pending
 - Completed: pending
 - Objective:
-  - Modify `.github/workflows/build.yml` to trigger on `Dev` branch pushes (not just main/master). Create dedicated `.github/workflows/quality.yml` for fast feedback on every push.
+  - Modify `.github/workflows/build.yml` to trigger on `Dev` pushes. Create dedicated `quality.yml` for fast feedback.
 - Plan:
   1. Add `Dev` to build.yml triggers (push + PR)
-  2. Create quality.yml: lint → typecheck → test → build → audit (runs on every Dev push)
-  3. quality.yml fails fast (no continue-on-error) — الوكيل يصلح الخطأ فوراً
-  4. Remove continue-on-error from build.yml validate job or keep it for summary
+  2. Create quality.yml: lint → typecheck → test → build → audit
+  3. quality.yml fails fast (no continue-on-error)
 
-### CI-002 — GitHub Actions E2E workflow (Playwright + xvfb)
-
-- Status: `[ ] PLANNED`
-- Priority: high
-- Type: ci
-- Started: pending
-- Completed: pending
-- Objective:
-  - Create `.github/workflows/e2e.yml` that runs Playwright E2E tests headlessly and reports coverage.
-- Plan:
-  1. Install Playwright with Chromium and system deps
-  2. Run tests via xvfb-run
-  3. Upload coverage report as artifact
-  4. Fail if coverage below current target
-  5. Trigger: push to Dev + workflow_dispatch
-
-### CI-003 — GitHub Actions cross-platform build matrix
+### CI-002 — GitHub Actions E2E workflow
 
 - Status: `[ ] PLANNED`
 - Priority: high
@@ -141,14 +169,19 @@
 - Started: pending
 - Completed: pending
 - Objective:
-  - Expand build.yml to multi-platform matrix: Windows x64, Linux x64, macOS x64 + ARM64.
-- Plan:
-  1. Matrix strategy with os + arch + target triple
-  2. Use tauri-actions for cross-compilation
-  3. Upload build artifacts per platform
-  4. Trigger: tag push + workflow_dispatch
+  - Create `.github/workflows/e2e.yml` with Playwright + xvfb, coverage reports.
 
-### CI-004 — GitHub Actions release automation
+### CI-003 — Cross-platform build matrix
+
+- Status: `[ ] PLANNED`
+- Priority: high
+- Type: ci
+- Started: pending
+- Completed: pending
+- Objective:
+  - Multi-platform matrix: Windows x64, Linux x64, macOS x64 + ARM64.
+
+### CI-004 — Release automation
 
 - Status: `[ ] PLANNED`
 - Priority: medium
@@ -157,11 +190,6 @@
 - Completed: pending
 - Objective:
   - Create release workflow: versioning, changelog, multi-platform binaries, GitHub release.
-- Plan:
-  1. Trigger: tag push or workflow_dispatch with version
-  2. Run full build matrix
-  3. Generate changelog from conventional commits
-  4. Create GitHub release with all assets
 
 ### TEST-001 — Write E2E test suites (10 files, 10% coverage)
 
@@ -171,24 +199,10 @@
 - Started: pending
 - Completed: pending
 - Objective:
-  - Write 10 E2E test files under `src/e2e/` covering all major features. Reach 10% coverage.
+  - Write 10 E2E test files under `src/e2e/` covering all features. Reach 10% coverage.
 - Files:
-  - `src/e2e/downloads.spec.ts` — إنشاء, إيقاف, حذف تحميل
-  - `src/e2e/settings.spec.ts` — تغيير الإعدادات وحفظها
-  - `src/e2e/scheduler.spec.ts` — جدولة التحميلات
-  - `src/e2e/sidebar.spec.ts` — التنقل بين الأقسام
-  - `src/e2e/i18n.spec.ts` — تغيير اللغة
-  - `src/e2e/tasks.spec.ts` — إدارة المهام
-  - `src/e2e/queue.spec.ts` — طابور التحميل
-  - `src/e2e/api.spec.ts` — اختبار API calls
-  - `src/e2e/ui-components.spec.ts` — المكونات الأساسية
-  - `src/e2e/navigation.spec.ts` — نظام التنقل
-- Plan:
-  1. Install @playwright/test
-  2. Configure playwright.config.ts (chromium only, headless)
-  3. Write all 10 test files
-  4. Ensure tests pass locally
-  5. Push — CI runs them in GitHub Actions
+  - `src/e2e/downloads.spec.ts`, `settings.spec.ts`, `scheduler.spec.ts`, `sidebar.spec.ts`, `i18n.spec.ts`
+  - `src/e2e/tasks.spec.ts`, `queue.spec.ts`, `api.spec.ts`, `ui-components.spec.ts`, `navigation.spec.ts`
 
 ### AGENT-002 — CI monitoring & auto-fix
 
@@ -198,16 +212,8 @@
 - Started: pending
 - Completed: pending
 - Objective:
-  - Agent monitors GitHub Actions after each push. On failure: fetch logs, analyze, fix in next cycle.
-- Plan:
-  1. Use gh CLI to get latest workflow run
-  2. Wait for completion (timeout 5 min)
-  3. On failure: save run ID + logs to `.last-ci-failure`
-  4. Next cycle: read failure, analyze, fix code
-  5. Notify via Telegram
-  6. Re-push after fix → new CI run
-- Notes:
-  - Implemented in nova-dev-agent.sh: `monitor_workflow()` function
+  - Agent monitors CI after each push. On failure: fetch logs → analyze → fix in next cycle.
+- Notes: Implemented in nova-dev-agent.sh (`monitor_workflow()`)
 
 ### AGENT-003 — Agent release automation
 
@@ -217,14 +223,7 @@
 - Started: pending
 - Completed: pending
 - Objective:
-  - Agent triggers releases via gh CLI: determine version, dispatch workflow, monitor, notify.
-- Plan:
-  1. Read version from package.json
-  2. Determine next version (semver)
-  3. Create tag + push
-  4. Dispatch release workflow via gh
-  5. Monitor until complete
-  6. Notify via Telegram with download links
+  - Agent triggers releases via gh CLI: version → tag → dispatch → monitor → notify.
 
 ### AGENT-004 — Agent self-maintenance
 
@@ -235,12 +234,6 @@
 - Completed: pending
 - Objective:
   - Self-healing: log rotation, disk cleanup, health monitoring, auto-restart if stuck.
-- Plan:
-  1. Log rotation: archive logs > 7 days
-  2. Disk cleanup: prune old builds, temp files
-  3. Health check: disk space, memory, responsiveness
-  4. Auto-restart if no output for 30 min
-  5. Telegram notifications for all maintenance
 
 ### AGENT-005 — Full quality hardening
 
@@ -250,15 +243,89 @@
 - Started: pending
 - Completed: pending
 - Objective:
-  - Refactor entire codebase: strict types, error handling, performance, no dead code.
+  - Refactor codebase: strict types, error handling, performance, no dead code.
+
+### AGENT-006 — Self-directed task generation
+
+- Status: `[ ] PLANNED`
+- Priority: medium
+- Type: infra
+- Started: pending
+- Completed: pending
+- Objective:
+  - Agent analyzes codebase each cycle, identifies issues proactively, generates tasks in Plan.md.
 - Plan:
-  1. Fix all TypeScript strict errors
-  2. Replace any with unknown everywhere
-  3. Error boundaries on all components
-  4. Loading/empty/error states everywhere
-  5. Optimize Zustand selectors
-  6. Remove dead code
-  7. Proper return types
+  1. Each cycle: scan for lint/TS errors, deprecation warnings, missing tests, code smells
+  2. Add new tasks to Plan.md automatically with priority
+  3. Re-prioritize existing tasks based on impact
+  4. Report new findings via Telegram
+
+### AGENT-007 — Professional planning workflow
+
+- Status: `[ ] PLANNED`
+- Priority: medium
+- Type: infra
+- Started: pending
+- Completed: pending
+- Objective:
+  - Before any medium/large task, agent writes professional plan: research, options, recommendation, execution plan.
+- Plan:
+  1. Detect scope of task (>50 lines or architectural change)
+  2. Research phase: read docs, check alternatives, compare versions
+  3. Write plan in Plan.md under the task
+  4. Optionally request approval via Telegram (if high risk)
+  5. Execute plan step by step with validation after each step
+
+### AGENT-008 — Deep research capability
+
+- Status: `[ ] PLANNED`
+- Priority: medium
+- Type: infra
+- Started: pending
+- Completed: pending
+- Objective:
+  - Agent researches npm, crates.io, GitHub, and web for best choices before decisions.
+- Commands/tools:
+  1. npm view <package> versions, dependencies, downloads
+  2. curl crates.io/api/v1/crates/<name> for Rust crate info
+  3. gh search issues for known problems
+  4. curl GitHub API for release info
+  5. Document findings in Notes
+
+### AGENT-009 — Full repo management (branches, PRs, issues)
+
+- Status: `[ ] PLANNED`
+- Priority: medium
+- Type: infra
+- Started: pending
+- Completed: pending
+- Objective:
+  - Agent manages repo autonomously: create branches, PRs, issues, milestones, labels.
+- Plan:
+  1. Each task gets its own branch: `feat/`, `fix/`, `chore/`, `refactor/`, `test/`
+  2. After local quality gates, push branch and create PR to Dev
+  3. PR includes: summary, changes, validation results, risks
+  4. If CI fails on PR branch, fix and push again
+  5. Merge PR when CI passes
+  6. Create issues for bugs found in codebase scan
+
+### AGENT-010 — Self-audit & proactive improvement
+
+- Status: `[ ] PLANNED`
+- Priority: low
+- Type: infra
+- Started: pending
+- Completed: pending
+- Objective:
+  - Agent runs periodic audits: dependencies, security, performance, code smells, deprecations.
+- Plan:
+  1. npm audit + pnpm outdated weekly
+  2. Bundle size analysis (vite build --report)
+  3. Security scan (secrets, CSP, deps)
+  4. Deprecation scan (TypeScript, ESLint warnings)
+  5. Performance audit (build time, test time, bundle)
+  6. Disk usage (node_modules, dist, cache)
+  7. Fix found issues proactively (add tasks, fix directly if small)
 
 ### BOT-002 — Evolve Telegram bot for full control
 
@@ -268,60 +335,27 @@
 - Started: pending
 - Completed: pending
 - Objective:
-  - Evolve nova-bot.py to match all agent capabilities for complete server/agent control.
+  - Evolve nova-bot.py to match all agent capabilities for complete control.
 - New commands:
-  - /research `topic` — يقوم الوكيل ببحث متعمق ويعيد تقرير
-  - /plan_new `objective` — الوكيل يكتب خطة كاملة في Plan.md
-  - /report — تقرير أسبوعي شامل (التقدم، CI, coverage, errors)
-  - /ci_history — آخر 10 CI runs مع النتائج
-  - /coverage — التغطية الحالية + الاتجاه
-  - /audit — تشغيل التدقيق الأمني
-  - /clean — تنظيف السيرفر (مسح مؤقت)
-  - /research_before `task` — بحث قبل تنفيذ مهمة
+  - /research `topic` — بحث متعمق + تقرير
+  - /plan_new `objective` — كتابة خطة احترافية في Plan.md
+  - /report — تقرير شامل (التقدم، CI, coverage, errors, disk)
+  - /ci_history — آخر 10 CI runs
+  - /coverage — التغطية + الاتجاه
+  - /audit — تدقيق أمني + تبعيات
+  - /clean — تنظيف السيرفر
+  - /research_before `task` — بحث قبل التنفيذ
   - /rollback — العودة لآخر commit ناجح
-  - /diff — عرض الفرق مع آخر commit
+  - /diff — الفرق مع آخر commit
+  - /branches — قائمة الفروع
+  - /prs — PRs المفتوحة
+  - /issues — المشاكل المفتوحة
+  - /schedule `interval` — تغيير دورة الوكيل
 
-### COVERAGE-001 — Reach 10% coverage
+### COVERAGE-001 → 005 — Coverage targets 10% → 100%
 
-- Status: `[ ] PLANNED`
-- Priority: high
-- Type: testing
-- Started: pending
-- Completed: pending
-- Objective:
-  - Achieve 10%+ code coverage through unit + E2E tests.
-- Prerequisites: TEST-001 (E2E tests written), CI-002 (E2E workflow)
-
-### COVERAGE-002 — Reach 25% coverage
-
-- Status: `[ ] PLANNED`
-- Priority: medium
-- Type: testing
-- Started: pending
-- Completed: pending
-- Objective:
-  - Expand test coverage to 25%+.
-
-### COVERAGE-003 — Reach 50% coverage
-
-- Status: `[ ] PLANNED`
-- Priority: medium
-- Type: testing
-- Started: pending
-- Completed: pending
-
-### COVERAGE-004 — Reach 75% coverage
-
-- Status: `[ ] PLANNED`
-- Priority: medium
-- Type: testing
-- Started: pending
-- Completed: pending
-
-### COVERAGE-005 — Reach 100% coverage
-
-- Status: `[ ] PLANNED`
-- Priority: low
+- Status: `[ ] PLANNED` (×5)
+- Priority: high → low
 - Type: testing
 - Started: pending
 - Completed: pending
@@ -338,10 +372,9 @@
 - Started: 2026-07-07
 - Completed: 2026-07-07
 - Notes:
-  - Full Telegram bot: /start, /status, /log, /exec, /quality, /plan management, /git, /opencode, /build
-  - Agent sends automatic notifications at each cycle phase
-  - Systemd service nova-bot.service running in parallel with nova-dev-agent.service
-  - Commands: /register, /plan_add, /plan_start, /plan_done, /plan_block for task management
+  - Telegram bot with /start, /status, /log, /exec, /quality, /plan management, /git, /opencode, /build, /register, /myid
+  - Agent sends automated notifications at each cycle phase
+  - Systemd nova-bot.service + nova-dev-agent.service running
 
 ### INFRA-001 — Set up continuous development infrastructure
 
@@ -351,10 +384,9 @@
 - Started: 2026-07-07
 - Completed: 2026-07-07
 - Notes:
-  - Plan.md, Dev branch, opencode 1.17.14 installed
-  - systemd service 24/7, Zen Big Pickle, 8GB swap
+  - Plan.md, Dev branch, opencode 1.17.14, systemd service 24/7, Zen Big Pickle, 8GB swap
 
-### INFRA-002 — Agent script with Telegram notifications
+### INFRA-002 — Agent script with Telegram notifications + CI monitoring
 
 - Status: `[x] COMPLETED`
 - Priority: high
@@ -362,8 +394,7 @@
 - Started: 2026-07-07
 - Completed: 2026-07-07
 - Notes:
-  - Agent reads Plan.md, reports active task, notifies via Telegram
-  - Tracks cycle duration, rate-limit handling, CI monitoring
+  - Agent reads Plan.md, reports active task, CI monitoring via gh, auto-fix on failure
 
 ---
 
