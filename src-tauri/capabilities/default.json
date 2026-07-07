@@ -1,0 +1,49 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capabilities for NOVA",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:app:allow-version",
+    "core:app:allow-name",
+    "core:app:allow-tauri-version",
+    "core:window:allow-close",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-minimize",
+    "core:window:allow-unminimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-title",
+    "core:window:allow-set-size",
+    "core:window:allow-set-position",
+    "core:window:allow-request-user-attention",
+    "core:tray:default",
+    "clipboard-manager:allow-clear",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [{ "name": "curl", "cmd": "curl", "args": true }]
+    },
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [{ "name": "curl", "cmd": "curl", "args": true }]
+    },
+    "shell:allow-open",
+    {
+      "identifier": "shell:allow-kill",
+      "allow": [{ "name": "curl", "cmd": "curl", "args": true }]
+    },
+    {
+      "identifier": "shell:allow-stdin-write",
+      "allow": [{ "name": "curl", "cmd": "curl", "args": true }]
+    },
+    "dialog:default",
+    "dialog:allow-open"
+  ]
+}
