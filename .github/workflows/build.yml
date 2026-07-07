@@ -54,6 +54,28 @@ jobs:
       # continue-on-error so a single failure does not hide the others; the final
       # "Summarize validation gates" step aggregates every outcome and fails once
       # at the end, surfacing all errors and warnings in a single run.
+      - name: Check no agent files on main PR
+        id: check_agent_files
+        if: github.base_ref == 'main' || github.base_ref == 'master'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $forbidden = @(
+            'Plan.md', 'AGENTS.md', '.agent-state.json', '.bot-chats.json', '.last-ci-failure',
+            'nova-dev-agent.sh', 'nova-bot.py', 'nova-bot.service'
+          )
+          $found = @()
+          foreach ($file in $forbidden) {
+            if (Test-Path -LiteralPath $file -PathType Leaf) {
+              $found += $file
+            }
+          }
+          if ($found.Count -gt 0) {
+            Write-Error "Forbidden agent files found in PR to main: $($found -join ', ')"
+            exit 1
+          }
+          Write-Host "No forbidden agent files detected."
+
       - name: Final source audit
         id: audit_final
         continue-on-error: true

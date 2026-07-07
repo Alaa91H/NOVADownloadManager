@@ -24,6 +24,16 @@
 *.cmd text eol=crlf
 *.nsi text eol=crlf
 
+# Agent / planning files — excluded from release archives.
+.agent-state.json  export-ignore
+.bot-chats.json    export-ignore
+.last-ci-failure   export-ignore
+AGENTS.md          export-ignore
+Plan.md            export-ignore
+nova-dev-agent.sh  export-ignore
+nova-bot.py        export-ignore
+nova-bot.service   export-ignore
+
 # Binary assets.
 *.png binary
 *.jpg binary

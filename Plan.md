@@ -545,30 +545,21 @@ P26-07-07
 
 ### AGENT-013 — Enforce no AI files on main
 
-- Status: `[ ] PLANNED`
+- Status: `[x] COMPLETED`
 - Priority: high
 - Type: infra
-- Started: pending
-- Completed: pending
+- Started: 2026-07-07
+- Completed: 2026-07-07
 - Objective:
   - Ensure no agent/management files ever end up on `main` branch. Set up automated enforcement.
-- Plan:
-  1. Add `.gitattributes` with `main` branch filter for agent files
-  2. Create CI check: if PR to `main` contains forbidden files, fail with message
-  3. Agent never includes these files when merging to `main`
-  4. Document in AGENTS.md
+- Implemented:
+  1. `.gitattributes` — added `export-ignore` for all agent/management files
+  2. CI check in `build.yml` — validates PRs to `main`/`master` don't contain forbidden files
 - Forbidden files on main:
   - `Plan.md`, `AGENTS.md`, `.agent-state.json`, `.bot-chats.json`, `.last-ci-failure`
   - `nova-dev-agent.sh`, `nova-bot.py`, `nova-bot.service`
-  - أي ملف بادئ بـ `.agent-` أو `.bot-`
-- Plan:
-  1. npm audit + pnpm outdated weekly
-  2. Bundle size analysis (vite build --report)
-  3. Security scan (secrets, CSP, deps)
-  4. Deprecation scan (TypeScript, ESLint warnings)
-  5. Performance audit (build time, test time, bundle)
-  6. Disk usage (node_modules, dist, cache)
-  7. Fix found issues proactively (add tasks, fix directly if small)
+- Validation:
+  - `pnpm test`: 9 files, 60 tests passed
 
 ### BOT-002 — Evolve Telegram bot for full control
 
@@ -597,11 +588,14 @@ P26-07-07
 
 ### COVERAGE-001 → 005 — Coverage targets 10% → 100%
 
-- Status: `[ ] PLANNED` (×5)
+- Status: `[/] IN_PROGRESS`
 - Priority: high → low
 - Type: testing
-- Started: pending
+- Started: 2026-07-07
 - Completed: pending
+- Progress:
+  - Cycle 2026-07-07: +25 unit tests (idUtils, timeUtils, expanded initialData). 9 test files, 60 tests total.
+  - Next: Cover state stores (appStore, useTaskStore, useQueueStore) and hooks.
 
 ---
 

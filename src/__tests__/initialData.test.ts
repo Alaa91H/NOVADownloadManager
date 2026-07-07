@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatBytes, formatSpeed, formatTimeLeft, initialSettings } from '../initialData';
+import { formatBytes, formatSpeed, formatTimeLeft, initialSettings, fileTypeMetadata, statusMetadata } from '../initialData';
 
 describe('formatBytes', () => {
   it('returns "0 B" for zero', () => {
@@ -58,5 +58,59 @@ describe('initialSettings', () => {
     expect(initialSettings.general.integrateWithBrowsers).toBeDefined();
     expect(initialSettings.connection.speedLimiter).toBeDefined();
     expect(initialSettings.fileTypes.extensions.video).toContain('mp4');
+  });
+
+  it('has all required sections', () => {
+    expect(initialSettings).toHaveProperty('general');
+    expect(initialSettings).toHaveProperty('fileTypes');
+    expect(initialSettings).toHaveProperty('connection');
+    expect(initialSettings).toHaveProperty('saveAndCategories');
+    expect(initialSettings).toHaveProperty('sounds');
+    expect(initialSettings).toHaveProperty('ui');
+    expect(initialSettings).toHaveProperty('keyboardShortcuts');
+    expect(initialSettings).toHaveProperty('advanced');
+    expect(initialSettings).toHaveProperty('extra');
+  });
+
+  it('defaults to English language', () => {
+    expect(initialSettings.extra.language).toBe('en');
+  });
+
+  it('sounds are disabled by default', () => {
+    expect(initialSettings.sounds.enabled).toBe(false);
+  });
+});
+
+describe('fileTypeMetadata', () => {
+  it('has entries for all file types', () => {
+    const types = ['document', 'program', 'compressed', 'video', 'audio', 'other'];
+    for (const type of types) {
+      expect(fileTypeMetadata[type]).toBeDefined();
+      expect(fileTypeMetadata[type].label).toBeDefined();
+      expect(fileTypeMetadata[type].color).toBeDefined();
+    }
+  });
+
+  it('has non-empty labels', () => {
+    for (const entry of Object.values(fileTypeMetadata)) {
+      expect(entry.label).toBeTruthy();
+    }
+  });
+});
+
+describe('statusMetadata', () => {
+  it('has entries for all download statuses', () => {
+    const statuses = ['downloading', 'completed', 'paused', 'queued', 'error'];
+    for (const status of statuses) {
+      expect(statusMetadata[status]).toBeDefined();
+      expect(statusMetadata[status].label).toBeDefined();
+      expect(statusMetadata[status].color).toBeDefined();
+    }
+  });
+
+  it('has non-empty labels', () => {
+    for (const entry of Object.values(statusMetadata)) {
+      expect(entry.label).toBeTruthy();
+    }
   });
 });
