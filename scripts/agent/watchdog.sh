@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
-# =============================================================
-#  NOVA Watchdog — Emergency monitoring & recovery
-#  Run every 5 minutes via systemd timer
-#  Detects stuck agent, high memory, disk full
-#  Sends alerts only when something changes (no spam)
-# =============================================================
+# NOVA Watchdog — Emergency monitoring & recovery
+# Run every 5 minutes via systemd timer
 set -euo pipefail
 
 PROJECT_DIR="/home/ubuntu/NOVA"
@@ -25,18 +21,26 @@ send_alert() {
 
   if [ ! -f "$CHATS_FILE" ]; then return; fi
 
-  # Dedup + cooldown (300s): don't repeat identical alerts
+  # Dedup + cooldown via temp file
+  local tmp
+  tmp=$(mktemp 2>/dev/null || echo "/tmp/nova-wd-$$")
+  printf '%s' "$message" > "$tmp"
+
   if [ -f "$NOTIF_LAST" ]; then
-    local skip
-    skip=$(python3 -c "
+    if python3 -c "
 import json, sys
-try:
-    last = json.load(open('$NOTIF_LAST'))
-    if last.get('text') == '''$message''' and $now - last.get('ts', 0) < 300:
-        sys.exit(0)
+last = json.load(open('$NOTIF_LAST'))
+msg = open('$tmp', 'r').read()
+if last.get('text') == msg and $now - last.get('ts', 0) < 300:
     sys.exit(1)
-except: sys.exit(1)
-" 2>/dev/null || echo "send") && { log "Alert suppressed (dedup/cooldown)"; return; } || true
+sys.exit(0)
+" 2>/dev/null; then
+      :  # send
+    else
+      log "Alert suppressed (dedup/cooldown)"
+      rm -f "$tmp"
+      return
+    fi
   fi
 
   local chat_ids
@@ -53,22 +57,27 @@ except: pass
 
   for cid in $chat_ids; do
     curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
-      -d "chat_id=$cid" -d "text=🔍 NOVA Watchdog: $message" -d "disable_notification=true" > /dev/null 2>&1 || true
+      -d "chat_id=$cid" -d "text=🔍 NOVA Watchdog: $(cat "$tmp")" -d "disable_notification=true" > /dev/null 2>&1 || true
   done
 
-  echo "{\"ts\":$now,\"text\":\"$message\"}" > "$NOTIF_LAST"
+  python3 -c "
+import json
+msg = open('$tmp', 'r').read()
+json.dump({'ts': $now, 'text': msg}, open('$NOTIF_LAST', 'w'))
+" 2>/dev/null || true
+  rm -f "$tmp"
 }
 
 ALERTS=""
 
-# 1. Agent service
+# 1. Agent service — restart if not active
 AGENT_STATUS=$(systemctl is-active nova-dev-agent.service 2>/dev/null || echo "inactive")
 if [ "$AGENT_STATUS" != "active" ]; then
   systemctl restart nova-dev-agent.service 2>/dev/null
   ALERTS="$ALERTS Agent $AGENT_STATUS"
 fi
 
-# 2. Bot service
+# 2. Bot service — restart if not active
 BOT_STATUS=$(systemctl is-active nova-bot.service 2>/dev/null || echo "inactive")
 if [ "$BOT_STATUS" != "active" ]; then
   systemctl restart nova-bot.service 2>/dev/null
@@ -89,17 +98,38 @@ if [ -f "$PROJECT_DIR/.agent-state.json" ]; then
   fi
 fi
 
-# 4. Memory
+# 4. High restart rate — if agent restarted >10 times in 5 min
+RESTART_COUNT=$(systemctl show nova-dev-agent.service -p NRestarts --value 2>/dev/null || echo 0)
+if [ "$RESTART_COUNT" -gt 10 ]; then
+  ALERTS="$ALERTS Agent ${RESTART_COUNT}restarts"
+fi
+
+# 5. Memory
 MEM_PCT=$(free | awk 'NR==2{printf "%.0f", $3*100/$2}')
 if [ "$MEM_PCT" -gt 90 ]; then
   ALERTS="$ALERTS Mem ${MEM_PCT}%"
   sync && echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
 fi
 
-# 5. Disk
+# 6. Disk — auto-cleanup if full
 DISK_PCT=$(df / | awk 'NR==2{print+$5}')
 if [ "$DISK_PCT" -gt 90 ]; then
   ALERTS="$ALERTS Disk ${DISK_PCT}%"
+  # Auto-cleanup: remove old logs and tmp
+  find /var/log -name "nova-*.log" -mtime +7 -delete 2>/dev/null || true
+  find /tmp -name "nova-*" -mtime +1 -delete 2>/dev/null || true
+  journalctl --vacuum-time=3d 2>/dev/null || true
+  docker system prune -f 2>/dev/null || true
+elif [ "$DISK_PCT" -gt 80 ]; then
+  log "WARN Disk ${DISK_PCT}%"
+fi
+
+# 7. Load average
+LOAD=$(uptime | sed 's/.*load average: //' | cut -d, -f1 | tr -d ' ')
+CPU_CORES=$(nproc)
+LOAD_INT=${LOAD%.*}
+if [ "$LOAD_INT" -gt $((CPU_CORES * 2)) ]; then
+  ALERTS="$ALERTS Load ${LOAD}"
 fi
 
 # Send ONE alert if anything changed
@@ -107,5 +137,5 @@ if [ -n "$ALERTS" ]; then
   send_alert "⚠️${ALERTS}"
   log "Alert:${ALERTS}"
 else
-  log "OK — agent=$AGENT_STATUS bot=$BOT_STATUS mem=${MEM_PCT}% disk=${DISK_PCT}%"
+  log "OK agent=$AGENT_STATUS bot=$BOT_STATUS mem=${MEM_PCT}% disk=${DISK_PCT}% restarts=${RESTART_COUNT}"
 fi

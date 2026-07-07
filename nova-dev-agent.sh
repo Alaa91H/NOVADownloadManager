@@ -47,6 +47,7 @@ send_telegram() {
   printf '%s' "$full_msg" > "$tmp"
 
   # Check cooldown & dedup
+  # Python exit 0 → send, exit 1 → skip
   if [ -f "$NOTIF_LAST" ]; then
     if python3 -c "
 import json, sys
@@ -58,13 +59,11 @@ msg = open('$tmp', 'r').read()
 prev = last.get(nt, {})
 elapsed = now - prev.get('ts', 0)
 if elapsed < cooldown:
-    sys.exit(0)
+    sys.exit(1)
 if prev.get('text', '') == msg:
-    sys.exit(0)
-sys.exit(1)
+    sys.exit(1)
+sys.exit(0)
 " 2>/dev/null; then
-      :  # should send
-    else
       log "DEBUG" "Notif $notif_type skipped"
       rm -f "$tmp"
       return
@@ -154,7 +153,7 @@ export PATH="/home/ubuntu/.opencode/bin:$PATH"
 export GH_REPO="Alaa91H/NOVADownloadManager"
 
 # Initial startup notification (only once, not per cycle)
-send_telegram "🟢 **Agent online** — autonomous pipeline engaged" "" "system"
+send_telegram "🟢 **Agent online** — autonomous pipeline engaged" "" "system" || true
 
 monitor_workflow() {
   local branch="${1:-Dev}"
@@ -231,6 +230,7 @@ $FAILURE_LOG"
   CYCLE_START=$(date +%s)
 
   set +e
+  timeout 900 \
   $OPENCODE run \
     --model "opencode/big-pickle" \
     --auto \
@@ -249,12 +249,7 @@ $FAILURE_LOG"
      Run allowed quality gates after making changes: lint, typecheck, unit test.
      Commit changes with conventional commits (feat/fix/chore/test/refactor/docs/ci).
      Never mention AI in commits or files.
-     Quality gates allowed on server:
-     1. pnpm lint (tsc --noEmit)
-     2. pnpm lint:eslint
-     3. pnpm format:check
-     4. pnpm test (unit tests only — NO E2E)
-     5. pnpm audit:final
+     NOTE: You have a max 15 minutes for this cycle. Prioritize — do NOT run all quality gates in one go, pick 1-2 max.
      $CI_FIX" 2>&1 | tee -a "$LOG_FILE"
   EXIT_CODE=$?
   set -e
@@ -266,6 +261,12 @@ $FAILURE_LOG"
 
   # ── Error handling (send only on actual failure) ──
   if [ $EXIT_CODE -ne 0 ]; then
+    if [ $EXIT_CODE -eq 124 ]; then
+      log "WARN" "opencode timed out (15m). Retrying..."
+      send_telegram "⏰ **Cycle timed out** (15m) — retrying" "" "error"
+      sleep 10
+      continue
+    fi
     LAST_LINES=$(tail -20 "$LOG_FILE")
     if echo "$LAST_LINES" | grep -qiE "rate.limit|quota|429|too many|token.limit|unauthorized|401|403|insufficient.quota|model.not.found|context.length"; then
       WAIT=120
@@ -290,7 +291,7 @@ $FAILURE_LOG"
     HAS_CHANGES=true
     log "OK" "Changes pushed"
     # Monitor CI in background
-    monitor_workflow "Dev" &
+    (monitor_workflow "Dev" 2>&1 | tee -a "$LOG_FILE") &
   else
     log "INFO" "No changes"
   fi
