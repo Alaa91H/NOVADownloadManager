@@ -1,6 +1,12 @@
-# NOVA Download Manager — Agent Reference
+# NOVA Download Manager — Maintainer Reference
+
+## Server Runtime Policy
+
+The remote server is a repository orchestration node only. Do not run local build, test, lint, coverage, audit, packaging, dependency-install, or release commands from service-controlled processes on that server. Use GitHub Actions for validation and release gates.
 
 ## Quality Gates
+
+Run these in GitHub Actions or on a capable development workstation, not from the server runtime.
 
 ```bash
 pnpm install --frozen-lockfile
