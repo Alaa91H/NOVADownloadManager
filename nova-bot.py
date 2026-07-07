@@ -26,8 +26,8 @@ from telegram.ext import (
 # Configuration
 # ──────────────────────────────────────────────────────
 BOT_TOKEN = os.environ.get("NOVA_BOT_TOKEN", "8996219734:AAF23wUwd-cdkeCO1kuLIym99G3fYEyZegY")
-ALLOWED_USER_IDS = os.environ.get("NOVA_ALLOWED_USERS", "").split(",")
-ALLOWED_USER_IDS = [int(uid.strip()) for uid in ALLOWED_USER_IDS if uid.strip().isdigit()]
+TELEGRAM_API_ID = os.environ.get("NOVA_API_ID", "38089413")
+TELEGRAM_API_HASH = os.environ.get("NOVA_API_HASH", "4a45cef09ce00b27c7487830ffaa5f44")
 
 PROJECT_DIR = Path("/home/ubuntu/NOVA")
 LOG_FILE = Path("/var/log/nova-dev-agent.log")
@@ -42,8 +42,16 @@ MAX_OUTPUT_LENGTH = 3800  # Telegram message limit is 4096, leave room for forma
 running_execs: dict[int, asyncio.subprocess.Process] = {}
 
 # ──────────────────────────────────────────────────────
-# Auth decorator
+# Auth — only registered users
 # ──────────────────────────────────────────────────────
+def load_chats() -> list[int]:
+    if CHATS_FILE.exists():
+        try:
+            return json.loads(CHATS_FILE.read_text())
+        except Exception:
+            return []
+    return []
+
 def restricted(func):
     async def wrapper(self_or_update, context, *args, **kwargs):
         if isinstance(self_or_update, Update):
@@ -55,8 +63,15 @@ def restricted(func):
             return
 
         user_id = update.effective_user.id
-        if ALLOWED_USER_IDS and user_id not in ALLOWED_USER_IDS:
-            await update.message.reply_text("⛔ غير مصرح لك باستخدام هذا البوت.")
+        allowed = load_chats()
+
+        # Allow /start and /register always
+        cmd = update.message.text.split()[0] if update.message and update.message.text else ""
+        if cmd in ("/start", "/register", "/myid") or not allowed:
+            return await func(self_or_update, context, *args, **kwargs)
+
+        if user_id not in allowed:
+            await update.message.reply_text("⛔ هذا البوت خاص. أرسل /register للتسجيل.")
             return
 
         return await func(self_or_update, context, *args, **kwargs)
@@ -100,15 +115,6 @@ def escape_md(text: str) -> str:
 # ──────────────────────────────────────────────────────
 # Command Handlers
 # ──────────────────────────────────────────────────────
-@restricted
-def load_chats() -> list[int]:
-    if CHATS_FILE.exists():
-        try:
-            return json.loads(CHATS_FILE.read_text())
-        except Exception:
-            return []
-    return []
-
 def save_chats(chats: list[int]):
     CHATS_FILE.write_text(json.dumps(chats, indent=2))
 
@@ -136,6 +142,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"**الأوامر:**\n"
         f"• /register — تسجيل الاشتراك في الإشعارات\n"
         f"• /unregister — إلغاء الاشتراك\n"
+        f"• /myid — عرض معرف تلغرام الخاص بك\n"
         f"• /status — حالة النظام والعامل\n"
         f"• /log — آخر 30 سطر من السجل\n"
         f"• /log 100 — عدد محدد من الأسطر\n"
@@ -171,6 +178,17 @@ async def cmd_unregister(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chats.remove(chat_id)
         save_chats(chats)
     await update.message.reply_text("✅ تم إلغاء الاشتراك.")
+
+@restricted
+async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    await update.message.reply_text(
+        f"📋 **معلومات حسابك**\n"
+        f"• الاسم: `{user.first_name}`\n"
+        f"• المعرف: `{user.id}`\n"
+        f"• اليوزر: @{user.username or '—'}\n\n"
+        f"للتقييد, أضف `{user.id}` إلى متغير NOVA_ALLOWED_USERS."
+    )
 
 @restricted
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -667,6 +685,7 @@ def main():
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("register", cmd_register))
     app.add_handler(CommandHandler("unregister", cmd_unregister))
+    app.add_handler(CommandHandler("myid", cmd_myid))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("log", cmd_log))
     app.add_handler(CommandHandler("start_agent", cmd_start_agent))
