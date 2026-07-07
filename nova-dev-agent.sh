@@ -129,9 +129,17 @@ get_active_task() {
 import re
 try:
     text = open('$PROJECT_DIR/Plan.md').read()
-    m = re.search(r'### (.+?)\n\n.*?Status:.*?IN_PROGRESS', text, re.DOTALL)
-    if m: print(m.group(1).strip())
-    else: print('(no active task)')
+    # Find first h3 header followed by IN_PROGRESS within the same section
+    sections = re.split(r'\n### ', text)
+    for s in sections:
+        if 'IN_PROGRESS' in s and not s.startswith('Status'):
+            lines = s.strip().split('\n')
+            title = lines[0].strip().rstrip('#').strip()
+            if title and not title.startswith('Status'):
+                print(title[:80])
+                break
+    else:
+        print('(no active task)')
 except: print('(error reading Plan.md)')
 " 2>/dev/null || echo "(unknown)"
 }

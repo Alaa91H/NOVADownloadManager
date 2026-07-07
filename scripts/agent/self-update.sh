@@ -7,10 +7,9 @@ set -euo pipefail
 
 PROJECT_DIR="/home/ubuntu/NOVA"
 AGENT_SCRIPT="/usr/local/bin/nova-dev-agent.sh"
-LOG_FILE="/var/log/nova-self-update.log"
 
 log() {
-  echo "[$(date +%Y-%m-%dT%H:%M:%S)] $*" | tee -a "$LOG_FILE"
+  echo "[$(date +%Y-%m-%dT%H:%M:%S)] $*"
 }
 
 cd "$PROJECT_DIR"
