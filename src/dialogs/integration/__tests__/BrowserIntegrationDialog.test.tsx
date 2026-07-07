@@ -2,23 +2,52 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+import { BrowserIntegrationDialog } from '../BrowserIntegrationDialog';
+
+const {
+  mockConfigureBrowserExtension,
+  mockGetBrowserExtensionPaths,
+  mockOpenInExplorer,
+  mockOpenExternalUrl,
+  mockOpenBrowserExtensions,
+  storeRef,
+  mockCloseDialog,
+  mockUpdateSettings,
+  mockAddToast,
+} = vi.hoisted(() => {
+  const mockCloseDialog = vi.fn();
+  const mockUpdateSettings = vi.fn();
+  const mockAddToast = vi.fn();
+  const storeRef: { current: Record<string, unknown> } = { current: {} };
+  const mockConfigureBrowserExtension = vi.fn().mockResolvedValue({
+    enabled: true,
+    paired: true,
+    lastChecked: '2024-01-01T00:00:00Z',
+    token: 'test-token',
+  });
+  const mockGetBrowserExtensionPaths = vi.fn().mockResolvedValue({
+    devPath: '/home/user/nova/extension',
+    resourcePath: '/usr/share/nova/extension',
+  });
+  const mockOpenInExplorer = vi.fn().mockResolvedValue(true);
+  const mockOpenExternalUrl = vi.fn().mockResolvedValue(undefined);
+  const mockOpenBrowserExtensions = vi.fn().mockResolvedValue(undefined);
+  return {
+    mockConfigureBrowserExtension,
+    mockGetBrowserExtensionPaths,
+    mockOpenInExplorer,
+    mockOpenExternalUrl,
+    mockOpenBrowserExtensions,
+    storeRef,
+    mockCloseDialog,
+    mockUpdateSettings,
+    mockAddToast,
+  };
+});
+
 vi.mock('../../../state/appStore', () => ({
   useAppStore: () => storeRef.current,
 }));
-
-const mockConfigureBrowserExtension = vi.fn().mockResolvedValue({
-  enabled: true,
-  paired: true,
-  lastChecked: '2024-01-01T00:00:00Z',
-  token: 'test-token',
-});
-const mockGetBrowserExtensionPaths = vi.fn().mockResolvedValue({
-  devPath: '/home/user/nova/extension',
-  resourcePath: '/usr/share/nova/extension',
-});
-const mockOpenInExplorer = vi.fn().mockResolvedValue(true);
-const mockOpenExternalUrl = vi.fn().mockResolvedValue(undefined);
-const mockOpenBrowserExtensions = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('../../../api/tauriClient', () => ({
   tauriClient: {
@@ -34,16 +63,6 @@ vi.mock('../../../api/novaClient', () => ({
     configureBrowserExtension: mockConfigureBrowserExtension,
   },
 }));
-
-import { BrowserIntegrationDialog } from '../BrowserIntegrationDialog';
-
-const { storeRef, mockCloseDialog, mockUpdateSettings, mockAddToast } = vi.hoisted(() => {
-  const mockCloseDialog = vi.fn();
-  const mockUpdateSettings = vi.fn();
-  const mockAddToast = vi.fn();
-  const storeRef: { current: Record<string, unknown> } = { current: {} };
-  return { storeRef, mockCloseDialog, mockUpdateSettings, mockAddToast };
-});
 
 describe('BrowserIntegrationDialog', () => {
   beforeEach(() => {

@@ -2,42 +2,37 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+import { DiagnosticsDialog } from '../DiagnosticsDialog';
+
+const { mockGetDiagnostics, storeRef, mockCloseDialog } = vi.hoisted(() => {
+  const mockCloseDialog = vi.fn();
+  const storeRef: { current: Record<string, unknown> } = { current: {} };
+  const mockGetDiagnostics = vi.fn().mockResolvedValue({
+    cpuUsage: 23,
+    memoryUsageMb: 512,
+    diskFreeGb: 128,
+    osName: 'Linux 6.8',
+    daemonVersion: '0.2.0',
+    rustTarget: 'x86_64-unknown-linux-gnu',
+    sqliteVersion: '3.43.0',
+    activeThreads: 8,
+    networkInterfaces: ['eth0=192.168.1.100'],
+    engineCapabilities: { curl: true, ytDlp: false },
+  });
+  return { mockGetDiagnostics, storeRef, mockCloseDialog };
+});
+
+const mockGetDiagnosticsFail = vi.fn().mockRejectedValue(new Error('Daemon unreachable'));
+
 vi.mock('../../../state/appStore', () => ({
   useAppStore: () => storeRef.current,
 }));
-
-const mockDiagnosticData = {
-  cpuUsage: 23,
-  memoryUsageMb: 512,
-  diskFreeGb: 128,
-  osName: 'Linux 6.8',
-  daemonVersion: '0.2.0',
-  rustTarget: 'x86_64-unknown-linux-gnu',
-  sqliteVersion: '3.43.0',
-  activeThreads: 8,
-  networkInterfaces: [
-    'eth0=192.168.1.100',
-    { name: 'wlan0', ip: '10.0.0.5', speedMbps: 300 },
-  ],
-  engineCapabilities: { curl: true, ytDlp: false },
-};
-
-const mockGetDiagnostics = vi.fn().mockResolvedValue(mockDiagnosticData);
-const mockGetDiagnosticsFail = vi.fn().mockRejectedValue(new Error('Daemon unreachable'));
 
 vi.mock('../../../api/tauriClient', () => ({
   tauriClient: {
     getDiagnostics: mockGetDiagnostics,
   },
 }));
-
-import { DiagnosticsDialog } from '../DiagnosticsDialog';
-
-const { storeRef, mockCloseDialog } = vi.hoisted(() => {
-  const mockCloseDialog = vi.fn();
-  const storeRef: { current: Record<string, unknown> } = { current: {} };
-  return { storeRef, mockCloseDialog };
-});
 
 describe('DiagnosticsDialog', () => {
   beforeEach(() => {

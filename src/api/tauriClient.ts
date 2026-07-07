@@ -62,11 +62,11 @@ async function invoke(cmd: string, args?: Record<string, unknown>): Promise<unkn
   throw new Error('Not running in Tauri');
 }
 
-function errorMessage(error: unknown, fallback: string): string {
+export function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
-async function getBuildVersion(): Promise<string> {
+export async function getBuildVersion(): Promise<string> {
   try {
     return (await invoke('get_version')) as string;
   } catch {
@@ -74,7 +74,7 @@ async function getBuildVersion(): Promise<string> {
   }
 }
 
-function normalizeVersion(version: string): number[] {
+export function normalizeVersion(version: string): number[] {
   return version
     .replace(/^v/i, '')
     .split(/[+-]/, 1)[0]
@@ -83,7 +83,7 @@ function normalizeVersion(version: string): number[] {
     .map((part) => (Number.isFinite(part) ? part : 0));
 }
 
-function isVersionGreater(latest: string, current: string): boolean {
+export function isVersionGreater(latest: string, current: string): boolean {
   const latestParts = normalizeVersion(latest);
   const currentParts = normalizeVersion(current);
   const length = Math.max(latestParts.length, currentParts.length, 3);
@@ -96,7 +96,7 @@ function isVersionGreater(latest: string, current: string): boolean {
   return false;
 }
 
-function installerAssetUrl(assets: unknown[], fallbackUrl: string): string {
+export function installerAssetUrl(assets: unknown[], fallbackUrl: string): string {
   const candidates = assets
     .map((asset) => (asset && typeof asset === 'object' ? (asset as Record<string, unknown>) : null))
     .filter((asset): asset is Record<string, unknown> => Boolean(asset))
@@ -114,7 +114,7 @@ function installerAssetUrl(assets: unknown[], fallbackUrl: string): string {
   );
 }
 
-function parseProxyEndpoint(proxyUrl: string): { host: string; port: number } | null {
+export function parseProxyEndpoint(proxyUrl: string): { host: string; port: number } | null {
   try {
     const parsed = new URL(proxyUrl);
     const protocol = parsed.protocol.toLowerCase();

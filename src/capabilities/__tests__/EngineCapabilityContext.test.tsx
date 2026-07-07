@@ -29,9 +29,9 @@ const TestConsumer: React.FC = () => {
   );
 };
 
-const mockNovaClient = {
+const mockNovaClient = vi.hoisted(() => ({
   engineCapabilities: vi.fn(),
-};
+}));
 
 vi.mock('../../api/novaClient', () => ({
   novaClient: mockNovaClient,
