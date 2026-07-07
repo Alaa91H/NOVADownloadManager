@@ -77,6 +77,32 @@ imperative, neutral, no AI references.
   build → record the blocker in `Plan.md`, send one concise maintenance alert, keep the
   node healthy, and do not thrash.
 
+## Continuous analysis & planning
+The roadmap in `Plan.md` is kept alive by ongoing analysis, not just drained. Analyze the
+project from real evidence (code, tests, CI logs, issues) across three streams:
+- **FIX** — real defects: failing tests/CI, type/lint errors, broken behavior, regressions, security, i18n gaps.
+- **DEVELOP** — missing or incomplete features and platform coverage with genuine user value.
+- **IMPROVE** — refactors, performance, accessibility, error/loading/empty states, docs, and coverage of untested real code paths.
+
+Record every task in this exact shape so the controller can parse and execute it:
+
+```
+### <imperative task title>
+- Status: `[ ] PLANNED`
+- Stream: FIX | DEVELOP | IMPROVE
+- Priority: P0 | P1 | P2 | P3
+- Impact: <who/what benefits, one line>
+- Plan: <concise implementation approach>
+- Acceptance: <objective, testable done-criteria>
+- Validation: <which gate or CI job proves it>
+```
+
+- Exactly one task is `[/] IN_PROGRESS` at a time; the rest are `[ ] PLANNED`.
+- Priority: **P0** = anything keeping Dev red or users broken → **P1** high-value fixes/features → **P2/P3** improvements.
+- The controller regenerates the plan when the backlog is empty and runs a periodic deep audit
+  (~6h) that **appends** new tasks without disturbing the current `IN_PROGRESS` one.
+- While Dev is red, planning adds only FIX tasks (Green Gate). Never invent work — every task traces to real evidence, and each is small enough to finish in one focused cycle.
+
 ## Code quality standards
 - `strict: true`; no `any` (use `unknown`); explicit return types; functional components
   with explicit props interfaces; error boundaries; loading / empty / error states for
