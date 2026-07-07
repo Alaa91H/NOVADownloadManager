@@ -195,35 +195,38 @@ while true; do
   CYCLE_TIME=$(date "+%Y-%m-%d %H:%M:%S")
   log "INFO" "=== Starting cycle $CYCLE_ID ==="
 
+  # ── Memory: prevent OOM from Node/tsc ──
+  export NODE_OPTIONS="--max-old-space-size=384"
+  sync && echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+
   # ── Self-update ──
   if [ -f "$SCRIPTS_DIR/self-update.sh" ]; then
     bash "$SCRIPTS_DIR/self-update.sh" 2>&1 | tee -a "$LOG_FILE" || true
   fi
 
-  # ── Read task ──
+  # ── Read task + last cycle context ──
   ACTIVE_TASK=$(get_active_task)
   log "INFO" "Active task: $ACTIVE_TASK"
+  LAST_RESULT=""
+  if [ -f "$STATE_FILE" ]; then
+    LAST_RESULT=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(f\"Previous: {d.get('status','?')} / {d.get('duration_sec',0)//60}m / exit={d.get('exit_code',0)}\")" 2>/dev/null || echo "")
+    log "INFO" "$LAST_RESULT"
+  fi
 
-  # ── Git Sync (no notification — too frequent) ──
+  # ── Git Sync ──
   git fetch origin Dev 2>&1 | tee -a "$LOG_FILE" || log "WARN" "fetch failed"
-  git checkout Dev 2>&1 | tee -a "$LOG_FILE" || { log "ERROR" "Cannot checkout Dev"; sleep 60; continue; }
+  git checkout Dev 2>&1 | tee -a "$LOG_FILE" || { log "ERROR" "Cannot checkout Dev"; sleep 5; continue; }
   git pull origin Dev 2>&1 | tee -a "$LOG_FILE" || log "WARN" "pull failed"
   log "INFO" "Git sync complete"
 
-  # ── Check for CI failures from last cycle ──
+  # ── CI failure context ──
   CI_FIX=""
   if [ -f "$PROJECT_DIR/.last-ci-failure" ]; then
     FAILED_RUN=$(cat "$PROJECT_DIR/.last-ci-failure")
-    FAILURE_LOG=$(gh run view "$FAILED_RUN" --repo "$GH_REPO" --log --jq '.[].text' 2>/dev/null | tail -100 || echo "unable to fetch logs")
-    CI_FIX="⚠️ Previous CI run #$FAILED_RUN FAILED. Fix the issues.
-CI Logs (tail):
-$FAILURE_LOG"
+    FAILURE_LOG=$(timeout 10 gh run view "$FAILED_RUN" --repo "$GH_REPO" --log --jq '.[].text' 2>/dev/null | tail -30 || echo "unable to fetch logs")
+    CI_FIX="Previous CI run #$FAILED_RUN FAILED. Fix the issues. Logs: $FAILURE_LOG"
     rm -f "$PROJECT_DIR/.last-ci-failure"
   fi
-
-  # ── Send ONE notification at cycle start ──
-  SEND_TASK="${ACTIVE_TASK:0:60}"
-  send_telegram "🔄 **${CYCLE_ID:8:6}** — ${SEND_TASK}" "" "cycle_start"
 
   # ── Run opencode ──
   log "INFO" "Running opencode..."
@@ -234,86 +237,65 @@ $FAILURE_LOG"
   $OPENCODE run \
     --model "opencode/big-pickle" \
     --auto \
-    "Read Plan.md — especially the **NOVA Development Constitution** section. Follow it strictly.
-     IMPORTANT RULES:
-     - NO building on server (no pnpm build, no tauri:build, no E2E tests)
-     - DO NOT run quality gates — skip pnpm lint, pnpm test, etc.
-     - Write code only. Commit and push when done.
-     - You have up to 60 minutes. Use it productively.
-     - Coverage targets: aim for 10%+, but don't run coverage tool.
+    "Read Plan.md and continue the IN_PROGRESS task.
 
-     Resume IN_PROGRESS task or start highest priority PLANNED task.
-     Work on the project: write code, fix issues, refactor, improve quality.
-     After changes, update Plan.md status.
-     Commit with conventional commits (feat/fix/chore/test/refactor/docs/ci).
-     Never mention AI in commits or files.
-     $CI_FIX" 2>&1 | tee -a "$LOG_FILE"
+RULES:
+- NO pnpm build, tauri:build, E2E tests, quality gates, or coverage
+- Write code only. Commit and push when done.
+- If stuck or blocked, commit partial work and move on
+- Use conventional commits
+- You have 60 minutes — use them fully
+$CI_FIX" 2>&1 | tee -a "$LOG_FILE"
   EXIT_CODE=$?
   set -e
+  unset NODE_OPTIONS
 
   CYCLE_END=$(date +%s)
   DURATION=$((CYCLE_END - CYCLE_START))
   DURATION_MIN=$((DURATION / 60))
-  DURATION_SEC=$((DURATION % 60))
 
   # ── Error handling ──
   if [ $EXIT_CODE -ne 0 ]; then
     if [ $EXIT_CODE -eq 124 ]; then
       log "WARN" "opencode timed out (60m). Retrying..."
-      send_telegram "⏰ **Cycle timed out** (60m) — retrying" "" "error"
-      sleep 5
+      send_telegram "⏰ **Cycle timed out** (60m)" "" "error"
+      sleep 2
       continue
     fi
     LAST_LINES=$(tail -10 "$LOG_FILE")
     if echo "$LAST_LINES" | grep -qiE "rate.limit|quota|429|too many|token.limit|unauthorized|401|403|insufficient.quota|model.not.found|context.length"; then
-      WAIT=120
-      log "WARN" "Rate limit exceeded. Waiting ${WAIT}s..."
-      send_telegram "⚠️ **Rate limit** — retry in ${WAIT}s" "⚠️" "error"
-      sleep $WAIT
-      continue
-    else
-      log "WARN" "opencode exited with code $EXIT_CODE. Retrying..."
-      send_telegram "⚠️ **Agent error** (exit $EXIT_CODE)" "❌" "error"
-      sleep 30
+      log "WARN" "Rate limit. Waiting 120s..."
+      send_telegram "⚠️ **Rate limit** — 120s wait" "⚠️" "error"
+      sleep 120
       continue
     fi
+    log "WARN" "opencode exited with code $EXIT_CODE. Retrying..."
+    send_telegram "⚠️ **Agent error** (exit $EXIT_CODE)" "❌" "error"
+    sleep 10
+    continue
   fi
 
   # ── Commit & Push ──
   HAS_CHANGES=false
   git add -A 2>&1 | tee -a "$LOG_FILE" || true
   if [ -n "$(git status --porcelain)" ]; then
-    git commit -m "chore: dev cycle $CYCLE_ID" 2>&1 | tee -a "$LOG_FILE" || true
+    git commit -m "chore: dev $CYCLE_ID" 2>&1 | tee -a "$LOG_FILE" || true
     git push origin Dev 2>&1 | tee -a "$LOG_FILE" || log "WARN" "push failed"
     HAS_CHANGES=true
     log "OK" "Changes pushed"
+    # Background: quality gates + CI monitor
+    (NODE_OPTIONS="--max-old-space-size=384" timeout 120 bash -c "pnpm lint 2>&1 | tee -a '$LOG_FILE'" 2>/dev/null || true) &
+    (timeout 120 bash -c "pnpm lint:eslint 2>&1 | tee -a '$LOG_FILE'" 2>/dev/null || true) &
     (monitor_workflow "Dev" 2>&1 | tee -a "$LOG_FILE") &
   else
     log "INFO" "No changes"
+    # Background: quick lint for diagnostics
+    (NODE_OPTIONS="--max-old-space-size=384" timeout 60 bash -c "pnpm lint 2>&1 | tail -5 >> '$LOG_FILE'" 2>/dev/null) &
   fi
 
   # ── Notification ──
   if [ "$HAS_CHANGES" = true ]; then
-    send_telegram "📝 **Cycle** ${CYCLE_ID:8:6} — pushed (${DURATION_MIN}m)" "" "cycle_done"
-  else
-    send_telegram "📭 **Cycle** ${CYCLE_ID:8:6} — no changes (${DURATION_MIN}m)" "" "cycle_done"
-  fi
-
-  # ── Quality gates run separately (not inside opencode) ──
-  if [ "$HAS_CHANGES" = true ]; then
-    log "INFO" "Running quality gates on changes..."
-    for CMD in "pnpm lint 2>&1" "pnpm lint:eslint 2>&1" "pnpm test 2>&1"; do
-      timeout 120 bash -c "$CMD" 2>&1 | tee -a "$LOG_FILE" || log "WARN" "Quality gate failed: $CMD"
-    done
-    git add -A 2>&1 | tee -a "$LOG_FILE" || true
-    if [ -n "$(git status --porcelain)" ]; then
-      git commit -m "chore: fix quality gates after cycle $CYCLE_ID" 2>&1 | tee -a "$LOG_FILE" || true
-      git push origin Dev 2>&1 | tee -a "$LOG_FILE" || log "WARN" "push failed"
-      log "OK" "Quality gate fixes pushed"
-    fi
-  else
-    # Even when no changes, run lint once to generate diagnostics
-    timeout 120 bash -c "pnpm lint 2>&1 | tail -5" 2>&1 | tee -a "$LOG_FILE" || true
+    send_telegram "📝 **${CYCLE_ID:8:6}** — pushed (${DURATION_MIN}m)" "" "cycle_done"
   fi
 
   # ── Save State ──
@@ -329,6 +311,5 @@ $FAILURE_LOG"
 }
 STATE_EOF
 
-  log "OK" "Cycle $CYCLE_ID complete (${DURATION_MIN}m). Sleeping 60s..."
-  sleep 60
+  log "OK" "Cycle $CYCLE_ID complete (${DURATION_MIN}m)"
 done
