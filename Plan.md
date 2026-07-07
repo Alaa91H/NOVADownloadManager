@@ -186,6 +186,32 @@
   4. Ensure tests pass locally with vitest
   5. Push to Dev (workflow runs them in CI)
 
+### AGENT-002 — CI monitoring & auto-fix
+
+- Status: `[ ] PLANNED`
+- Priority: high
+- Type: infra
+- Source branch: `Dev`
+- Work branch: `ai/ci-monitor`
+- Target branch: `Dev`
+- Started: pending
+- Completed: pending
+- PR: pending
+- Validation:
+  - gh monitor: pending
+  - auto-fix works: pending
+- Objective:
+  - Agent monitors GitHub Actions workflows after each push. If a workflow fails, agent fetches logs, analyzes the failure, and fixes the underlying code in the next cycle.
+- Plan:
+  1. Use gh CLI to get latest workflow run status
+  2. Wait for completion (timeout 5 min)
+  3. On failure: save run ID to .last-ci-failure
+  4. Next opencode cycle: read failure logs, analyze cause, fix code
+  5. Notify via Telegram on success/failure
+  6. Re-push after fix, triggering new CI run
+- Notes:
+  - Implemented in nova-dev-agent.sh: monitor_workflow() function
+
 ### AGENT-003 — Agent release automation (trigger via gh)
 
 - Status: `[ ] PLANNED`
