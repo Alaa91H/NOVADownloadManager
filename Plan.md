@@ -596,7 +596,8 @@ P26-07-07
 - Progress:
   - Cycle 2026-07-07: +25 unit tests (idUtils, timeUtils, expanded initialData). 9 test files, 60 tests total.
   - Cycle 2026-07-07 (cycle 2): +42 unit tests (useQueueStore helpers, mergeDaemonTasks, useTaskSortFilter, useMultiSelection). 13 test files, 102 tests total. Fix pre-existing TS errors in initialData.test.ts. Exported pure helper functions from useQueueStore.ts.
-  - Next: Cover appStore provider, useColumnState hook, remaining components.
+  - Cycle 2026-07-07 (cycle 3): +134 unit tests across 6 new test files: ColumnConfigPanel (15), TaskCardList (20), ContextMenu (12), TimePicker (14), TaskCheckboxAndIcon (6), primitives (67). 19 test files, 236 tests total.
+  - Next: Cover scheduler components (SchedulerBasicTab, SchedulerSidebar, SchedulerPanel, etc.), remaining primitives/dialogs.
 
 ---
 
