@@ -39,17 +39,13 @@ describe('TaskCheckboxAndIcon', () => {
   });
 
   it('renders for video file type', () => {
-    const { container } = render(
-      <TaskCheckboxAndIcon {...defaultProps} fileType="video" />,
-    );
+    const { container } = render(<TaskCheckboxAndIcon {...defaultProps} fileType="video" />);
     const outerDiv = container.querySelector('.group');
     expect(outerDiv).toBeInTheDocument();
   });
 
   it('renders for audio file type', () => {
-    const { container } = render(
-      <TaskCheckboxAndIcon {...defaultProps} fileType="audio" />,
-    );
+    const { container } = render(<TaskCheckboxAndIcon {...defaultProps} fileType="audio" />);
     const outerDiv = container.querySelector('.group');
     expect(outerDiv).toBeInTheDocument();
   });

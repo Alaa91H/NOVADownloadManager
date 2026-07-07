@@ -93,14 +93,17 @@ describe('installerAssetUrl', () => {
   });
 
   it('falls back to msi', () => {
-    const assets = [
-      { name: 'app.msi', browser_download_url: 'https://example.com/app.msi' },
-    ];
+    const assets = [{ name: 'app.msi', browser_download_url: 'https://example.com/app.msi' }];
     expect(installerAssetUrl(assets, '')).toBe('https://example.com/app.msi');
   });
 
   it('returns fallback when no matching assets', () => {
-    expect(installerAssetUrl([{ name: 'source.zip', browser_download_url: 'https://example.com/source.zip' }], 'https://fallback')).toBe('https://fallback');
+    expect(
+      installerAssetUrl(
+        [{ name: 'source.zip', browser_download_url: 'https://example.com/source.zip' }],
+        'https://fallback',
+      ),
+    ).toBe('https://fallback');
   });
 
   it('handles empty assets array', () => {
@@ -208,12 +211,13 @@ describe('tauriClient.checkDaemonHealth', () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({
-        name: 'NOVA',
-        version: '1.0.0',
-        pid: 1234,
-        engines: { curl: { available: true }, ytdlp: { available: true } },
-      }),
+      json: () =>
+        Promise.resolve({
+          name: 'NOVA',
+          version: '1.0.0',
+          pid: 1234,
+          engines: { curl: { available: true }, ytdlp: { available: true } },
+        }),
       status: 200,
     });
 
@@ -232,12 +236,13 @@ describe('tauriClient.checkDaemonHealth', () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({
-        name: 'NOVA',
-        version: '1.0.0',
-        pid: 5678,
-        engines: { curl: { available: false }, ytdlp: { available: false } },
-      }),
+      json: () =>
+        Promise.resolve({
+          name: 'NOVA',
+          version: '1.0.0',
+          pid: 5678,
+          engines: { curl: { available: false }, ytdlp: { available: false } },
+        }),
       status: 200,
     });
 

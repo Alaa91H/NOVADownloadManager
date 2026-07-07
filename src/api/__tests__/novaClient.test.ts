@@ -394,8 +394,23 @@ describe('novaClient.configureBrowserExtension', () => {
   });
 
   it('sends config via POST', async () => {
-    const config = { enabled: true, token: 'abc', minSizeMb: 10, defaultFolder: '/downloads', categoryFolders: {}, userAgent: '' };
-    const response = { status: 'ok', enabled: true, paired: false, version: '1.0', captureEndpoint: '', directDownloads: true, mediaDownloads: true };
+    const config = {
+      enabled: true,
+      token: 'abc',
+      minSizeMb: 10,
+      defaultFolder: '/downloads',
+      categoryFolders: {},
+      userAgent: '',
+    };
+    const response = {
+      status: 'ok',
+      enabled: true,
+      paired: false,
+      version: '1.0',
+      captureEndpoint: '',
+      directDownloads: true,
+      mediaDownloads: true,
+    };
     mockFetch({ json: () => Promise.resolve(response) });
     const result = await novaClient.configureBrowserExtension(config);
     expect(fetch).toHaveBeenCalledWith(

@@ -1,9 +1,11 @@
 [Unit]
-Description=NOVA Watchdog Timer (every 5 minutes)
+Description=NOVA Emergency Watchdog Timer
 
 [Timer]
-OnBootSec=5min
+OnBootSec=2min
 OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
 
 [Install]
 WantedBy=timers.target

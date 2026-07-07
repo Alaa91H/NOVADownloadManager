@@ -335,7 +335,9 @@ export const ActiveProgressDialog: React.FC = () => {
                 resumeTask(task.id);
               }}
               disabled={!isEngineAvailable(task)}
-              title={!isEngineAvailable(task) ? 'The engine required for this download is not available.' : 'Resume download'}
+              title={
+                !isEngineAvailable(task) ? 'The engine required for this download is not available.' : 'Resume download'
+              }
               className="px-6 py-1.5 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] active:scale-95 text-white text-[11px] font-bold rounded-lg shadow-sm transition-all cursor-pointer min-w-[80px] disabled:cursor-not-allowed disabled:opacity-50"
             >
               Resume

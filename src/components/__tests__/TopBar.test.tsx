@@ -18,26 +18,52 @@ function makeStore(overrides: StoreOverrides = {}) {
     addToast: vi.fn(),
     settings: initialSettings,
     themeSettings: {
-      theme: 'dark' as const, density: 'normal' as const, accent: 'blue' as const,
-      sidebar: 'expanded' as const, progress: 'bar' as const, contrast: 'normal' as const,
-      motion: 'enabled' as const, blur: 'enabled' as const,
+      theme: 'dark' as const,
+      density: 'normal' as const,
+      accent: 'blue' as const,
+      sidebar: 'expanded' as const,
+      progress: 'bar' as const,
+      contrast: 'normal' as const,
+      motion: 'enabled' as const,
+      blur: 'enabled' as const,
     },
-    toasts: [], removeToast: vi.fn(),
-    searchQuery: '', setSearchQuery: vi.fn(),
-    selectedTaskId: null, setSelectedTaskId: vi.fn(),
+    toasts: [],
+    removeToast: vi.fn(),
+    searchQuery: '',
+    setSearchQuery: vi.fn(),
+    selectedTaskId: null,
+    setSelectedTaskId: vi.fn(),
     isLoading: false,
     dialog: { active: null, payload: null },
-    activePage: 'downloads' as const, setActivePage: vi.fn(),
-    queues: [], isDegradedMode: false,
-    isNotificationsMuted: false, setIsNotificationsMuted: vi.fn(),
-    updatingTaskId: null, setUpdatingTaskId: vi.fn(),
-    activeProgressMinimizedToTaskbar: false, setActiveProgressMinimizedToTaskbar: vi.fn(),
-    minimizedProgressTask: null, setMinimizedProgressTask: vi.fn(),
-    addTask: vi.fn(), pauseTask: vi.fn(), resumeTask: vi.fn(), deleteTask: vi.fn(),
-    updateTaskProperties: vi.fn(), updateQueue: vi.fn(), addQueue: vi.fn(), deleteQueue: vi.fn(),
-    removeTaskFromQueue: vi.fn(), moveTaskToQueue: vi.fn(), createQueueAndMoveTask: vi.fn(),
-    updateSettings: vi.fn(), updateThemeSettings: vi.fn(), closeDialog: vi.fn(),
-    triggerBatchDownload: vi.fn(), openTaskFile: vi.fn(), openTaskLocation: vi.fn(),
+    activePage: 'downloads' as const,
+    setActivePage: vi.fn(),
+    queues: [],
+    isDegradedMode: false,
+    isNotificationsMuted: false,
+    setIsNotificationsMuted: vi.fn(),
+    updatingTaskId: null,
+    setUpdatingTaskId: vi.fn(),
+    activeProgressMinimizedToTaskbar: false,
+    setActiveProgressMinimizedToTaskbar: vi.fn(),
+    minimizedProgressTask: null,
+    setMinimizedProgressTask: vi.fn(),
+    addTask: vi.fn(),
+    pauseTask: vi.fn(),
+    resumeTask: vi.fn(),
+    deleteTask: vi.fn(),
+    updateTaskProperties: vi.fn(),
+    updateQueue: vi.fn(),
+    addQueue: vi.fn(),
+    deleteQueue: vi.fn(),
+    removeTaskFromQueue: vi.fn(),
+    moveTaskToQueue: vi.fn(),
+    createQueueAndMoveTask: vi.fn(),
+    updateSettings: vi.fn(),
+    updateThemeSettings: vi.fn(),
+    closeDialog: vi.fn(),
+    triggerBatchDownload: vi.fn(),
+    openTaskFile: vi.fn(),
+    openTaskLocation: vi.fn(),
     ...overrides,
   };
 }
@@ -203,10 +229,7 @@ describe('TopBar', () => {
   });
 
   it('resumes all when no task selected', () => {
-    const tasks = [
-      makeTask({ id: 't1', status: 'paused' }),
-      makeTask({ id: 't2', status: 'queued' }),
-    ];
+    const tasks = [makeTask({ id: 't1', status: 'paused' }), makeTask({ id: 't2', status: 'queued' })];
     const resumeTask = vi.fn();
     mockStoreRef.current = makeStore({ tasks, selectedTaskId: null, resumeTask });
     render(<TopBar />);
@@ -232,10 +255,7 @@ describe('TopBar', () => {
   });
 
   it('stops all when no selected task', () => {
-    const tasks = [
-      makeTask({ id: 't1', status: 'downloading' }),
-      makeTask({ id: 't2', status: 'downloading' }),
-    ];
+    const tasks = [makeTask({ id: 't1', status: 'downloading' }), makeTask({ id: 't2', status: 'downloading' })];
     const pauseTask = vi.fn();
     mockStoreRef.current = makeStore({ tasks, selectedTaskId: null, pauseTask });
     render(<TopBar />);
@@ -362,10 +382,16 @@ describe('TopBar', () => {
       ...base.settings,
       ui: {
         ...base.settings.ui,
-        customButtons: [{
-          id: 'settings-btn', label: 'My Settings', action: 'openSettings',
-          icon: 'settings', enabled: true, display: 'full',
-        }],
+        customButtons: [
+          {
+            id: 'settings-btn',
+            label: 'My Settings',
+            action: 'openSettings',
+            icon: 'settings',
+            enabled: true,
+            display: 'full',
+          },
+        ],
       },
     };
     mockStoreRef.current = base;
@@ -385,10 +411,16 @@ describe('TopBar', () => {
       },
       ui: {
         ...base.settings.ui,
-        customButtons: [{
-          id: 'speed-btn', label: 'Speed', action: 'toggleSpeedLimiter',
-          icon: 'play', enabled: true, display: 'full',
-        }],
+        customButtons: [
+          {
+            id: 'speed-btn',
+            label: 'Speed',
+            action: 'toggleSpeedLimiter',
+            icon: 'play',
+            enabled: true,
+            display: 'full',
+          },
+        ],
       },
     };
     mockStoreRef.current = base;
@@ -404,10 +436,16 @@ describe('TopBar', () => {
       ...base.settings,
       ui: {
         ...base.settings.ui,
-        customButtons: [{
-          id: 'notif-btn', label: 'Notifs', action: 'toggleNotifications',
-          icon: 'bell', enabled: true, display: 'full',
-        }],
+        customButtons: [
+          {
+            id: 'notif-btn',
+            label: 'Notifs',
+            action: 'toggleNotifications',
+            icon: 'bell',
+            enabled: true,
+            display: 'full',
+          },
+        ],
       },
     };
     mockStoreRef.current = base;

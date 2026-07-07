@@ -1,5 +1,5 @@
 [Unit]
-Description=NOVA Maintenance Timer (daily at 04:00)
+Description=NOVA Maintenance Timer
 
 [Timer]
 OnCalendar=daily

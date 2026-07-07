@@ -9,8 +9,20 @@ const STORAGE_KEYS = {
 } as const;
 
 const defaultOrder = [
-  'name', 'size', 'progress', 'speed', 'timeLeft', 'date', 'status',
-  'retries', 'connections', 'crc32', 'priority', 'completedDate', 'sourceUrl', 'smartCategory',
+  'name',
+  'size',
+  'progress',
+  'speed',
+  'timeLeft',
+  'date',
+  'status',
+  'retries',
+  'connections',
+  'crc32',
+  'priority',
+  'completedDate',
+  'sourceUrl',
+  'smartCategory',
 ];
 
 describe('loadFromStorage', () => {

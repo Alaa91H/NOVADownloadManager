@@ -135,12 +135,7 @@ describe('TaskCardList', () => {
     const openTaskLocation = vi.fn(async () => {});
     const tasks = [makeTask({ status: 'completed' })];
     render(
-      <TaskCardList
-        {...defaultProps}
-        tasks={tasks}
-        openTaskFile={openTaskFile}
-        openTaskLocation={openTaskLocation}
-      />,
+      <TaskCardList {...defaultProps} tasks={tasks} openTaskFile={openTaskFile} openTaskLocation={openTaskLocation} />,
     );
     expect(screen.getByLabelText('Open File')).toBeInTheDocument();
     expect(screen.getByLabelText('Open Location')).toBeInTheDocument();
@@ -180,18 +175,14 @@ describe('TaskCardList', () => {
 
   it('applies selected styling when task is selected', () => {
     const tasks = [makeTask()];
-    const { container } = render(
-      <TaskCardList {...defaultProps} tasks={tasks} selectedTaskId="task-1" />,
-    );
+    const { container } = render(<TaskCardList {...defaultProps} tasks={tasks} selectedTaskId="task-1" />);
     const card = container.querySelector('.bg-\\[var\\(--bg-selected\\)\\]');
     expect(card).toBeInTheDocument();
   });
 
   it('applies checked styling when task is checked', () => {
     const tasks = [makeTask()];
-    const { container } = render(
-      <TaskCardList {...defaultProps} tasks={tasks} checkedTaskIds={new Set(['task-1'])} />,
-    );
+    const { container } = render(<TaskCardList {...defaultProps} tasks={tasks} checkedTaskIds={new Set(['task-1'])} />);
     const card = container.querySelector('.bg-\\[var\\(--accent-primary\\)\\]\\/5');
     expect(card).toBeInTheDocument();
   });
@@ -225,10 +216,7 @@ describe('TaskCardList', () => {
   });
 
   it('renders multiple tasks', () => {
-    const tasks = [
-      makeTask({ id: 't1', name: 'file1.zip' }),
-      makeTask({ id: 't2', name: 'file2.zip' }),
-    ];
+    const tasks = [makeTask({ id: 't1', name: 'file1.zip' }), makeTask({ id: 't2', name: 'file2.zip' })];
     render(<TaskCardList {...defaultProps} tasks={tasks} />);
     expect(screen.getByText('file1.zip')).toBeInTheDocument();
     expect(screen.getByText('file2.zip')).toBeInTheDocument();

@@ -238,23 +238,41 @@ export const StatusBar: React.FC = () => {
           <div className="flex items-center gap-0.5 ml-1">
             <button
               onClick={() => {
-                addToast(caps.directReady ? 'success' : 'warning', t('engine_direct_title'), caps.directReady ? t('engine_direct_ready') : caps.directBlockedReason() || t('engine_direct_unavailable'));
+                addToast(
+                  caps.directReady ? 'success' : 'warning',
+                  t('engine_direct_title'),
+                  caps.directReady
+                    ? t('engine_direct_ready')
+                    : caps.directBlockedReason() || t('engine_direct_unavailable'),
+                );
               }}
               className={`p-1 rounded transition-all cursor-pointer flex items-center justify-center ${
                 caps.directReady ? 'text-emerald-500' : 'text-rose-500'
               }`}
-              title={caps.directReady ? t('engine_direct_ready') : caps.directBlockedReason() || t('engine_direct_unavailable')}
+              title={
+                caps.directReady
+                  ? t('engine_direct_ready')
+                  : caps.directBlockedReason() || t('engine_direct_unavailable')
+              }
             >
               <Wifi className="w-3 h-3" />
             </button>
             <button
               onClick={() => {
-                addToast(caps.mediaReady ? 'success' : 'warning', t('engine_media_title'), caps.mediaReady ? t('engine_media_ready') : caps.mediaBlockedReason() || t('engine_media_unavailable'));
+                addToast(
+                  caps.mediaReady ? 'success' : 'warning',
+                  t('engine_media_title'),
+                  caps.mediaReady
+                    ? t('engine_media_ready')
+                    : caps.mediaBlockedReason() || t('engine_media_unavailable'),
+                );
               }}
               className={`p-1 rounded transition-all cursor-pointer flex items-center justify-center ${
                 caps.mediaReady ? 'text-emerald-500' : 'text-rose-500'
               }`}
-              title={caps.mediaReady ? t('engine_media_ready') : caps.mediaBlockedReason() || t('engine_media_unavailable')}
+              title={
+                caps.mediaReady ? t('engine_media_ready') : caps.mediaBlockedReason() || t('engine_media_unavailable')
+              }
             >
               <Video className="w-3 h-3" />
             </button>

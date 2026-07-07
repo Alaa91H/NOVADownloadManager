@@ -6,15 +6,20 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=ubuntu
+Group=ubuntu
 WorkingDirectory=/home/ubuntu/NOVA
+EnvironmentFile=-/etc/nova/nova.env
+Environment=HOME=/home/ubuntu
+Environment=PATH=/home/ubuntu/.opencode/bin:/usr/local/lib/nova/blocked-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/usr/bin/python3 /home/ubuntu/NOVA/nova-bot.py
 Restart=always
 RestartSec=10
-Environment="NOVA_BOT_TOKEN=8996219734:AAF23wUwd-cdkeCO1kuLIym99G3fYEyZegY"
-Environment="NOVA_API_ID=38089413"
-Environment="NOVA_API_HASH=4a45cef09ce00b27c7487830ffaa5f44"
-StandardOutput=append:/var/log/nova-bot.log
-StandardError=append:/var/log/nova-bot.log
+TimeoutStopSec=30
+KillMode=mixed
+MemoryAccounting=true
+MemoryMax=900M
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target

@@ -33,23 +33,39 @@ vi.mock('../../state/appStore', () => ({
 
 describe('Card', () => {
   it('renders children', () => {
-    render(<Card><div data-testid="child">Content</div></Card>);
+    render(
+      <Card>
+        <div data-testid="child">Content</div>
+      </Card>,
+    );
     expect(screen.getByTestId('child')).toHaveTextContent('Content');
   });
 
   it('applies custom className', () => {
-    const { container } = render(<Card className="custom-class"><div>Content</div></Card>);
+    const { container } = render(
+      <Card className="custom-class">
+        <div>Content</div>
+      </Card>,
+    );
     expect(container.firstChild).toHaveClass('custom-class');
   });
 
   it('renders with id', () => {
-    render(<Card id="card-1"><div>Content</div></Card>);
+    render(
+      <Card id="card-1">
+        <div>Content</div>
+      </Card>,
+    );
     expect(document.getElementById('card-1')).toBeInTheDocument();
   });
 
   it('calls onClick when clicked', () => {
     const onClick = vi.fn();
-    render(<Card onClick={onClick}><div>Content</div></Card>);
+    render(
+      <Card onClick={onClick}>
+        <div>Content</div>
+      </Card>,
+    );
     fireEvent.click(screen.getByText('Content'));
     expect(onClick).toHaveBeenCalledOnce();
   });
@@ -352,15 +368,7 @@ describe('Tabs', () => {
 });
 
 describe('StatusPill', () => {
-  const statuses: DownloadStatus[] = [
-    'downloading',
-    'completed',
-    'paused',
-    'pausing',
-    'stopping',
-    'queued',
-    'error',
-  ];
+  const statuses: DownloadStatus[] = ['downloading', 'completed', 'paused', 'pausing', 'stopping', 'queued', 'error'];
 
   statuses.forEach((status) => {
     it(`renders status pill for ${status}`, () => {

@@ -1,12 +1,11 @@
 [Unit]
-Description=NOVA Maintenance Service
-ConditionPathExists=/home/ubuntu/NOVA/scripts/agent/maintenance.sh
+Description=NOVA Self-Maintenance
+ConditionPathExists=/usr/local/lib/nova/scripts/maintenance.sh
 
 [Service]
 Type=oneshot
-ExecStart=/home/ubuntu/NOVA/scripts/agent/maintenance.sh
-User=ubuntu
-Group=ubuntu
-Environment=NOVA_BOT_TOKEN=8996219734:AAF23wUwd-cdkeCO1kuLIym99G3fYEyZegY
-StandardOutput=append:/var/log/nova-maintenance.log
-StandardError=append:/var/log/nova-maintenance.log
+EnvironmentFile=-/etc/nova/nova.env
+Environment=PATH=/home/ubuntu/.local/share/pnpm:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/usr/local/lib/nova/scripts/maintenance.sh
+StandardOutput=append:/var/log/nova/nova-maintenance.log
+StandardError=append:/var/log/nova/nova-maintenance.log

@@ -50,9 +50,7 @@ describe('ContextMenu', () => {
 
   it('does not call onClick for disabled options', () => {
     const onClick = vi.fn();
-    renderMenu([
-      { id: 'disabled', label: 'Disabled Option', disabled: true, onClick },
-    ]);
+    renderMenu([{ id: 'disabled', label: 'Disabled Option', disabled: true, onClick }]);
     const btn = screen.getByText('Disabled Option').closest('button')!;
     expect(btn.className).toContain('opacity-40');
     fireEvent.click(btn);
@@ -61,7 +59,13 @@ describe('ContextMenu', () => {
 
   it('shows disabled reason as tooltip', () => {
     renderMenu([
-      { id: 'disabled', label: 'Disabled Option', disabled: true, disabledReason: 'Engine not ready', onClick: vi.fn() },
+      {
+        id: 'disabled',
+        label: 'Disabled Option',
+        disabled: true,
+        disabledReason: 'Engine not ready',
+        onClick: vi.fn(),
+      },
     ]);
     const btn = screen.getByText('Disabled Option').closest('button');
     expect(btn).toHaveAttribute('title', 'Engine not ready');
@@ -69,9 +73,7 @@ describe('ContextMenu', () => {
 
   it('renders icon when provided', () => {
     const icon = <span data-testid="test-icon">I</span>;
-    renderMenu([
-      { id: 'with-icon', label: 'With Icon', icon, onClick: vi.fn() },
-    ]);
+    renderMenu([{ id: 'with-icon', label: 'With Icon', icon, onClick: vi.fn() }]);
     expect(screen.getByTestId('test-icon')).toBeInTheDocument();
   });
 
@@ -88,9 +90,7 @@ describe('ContextMenu', () => {
   });
 
   it('positions menu at given coordinates', () => {
-    render(
-      <ContextMenu x={50} y={100} options={[{ id: 'a', label: 'A', onClick: vi.fn() }]} onClose={vi.fn()} />,
-    );
+    render(<ContextMenu x={50} y={100} options={[{ id: 'a', label: 'A', onClick: vi.fn() }]} onClose={vi.fn()} />);
     const menu = screen.getByText('A').closest('div[style]');
     expect(menu).toBeInTheDocument();
   });

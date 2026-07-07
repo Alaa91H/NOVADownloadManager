@@ -150,3 +150,12 @@ nova-dev-agent.sh
 nova-bot.py
 CONSTITUTION.md
 scripts/agent/
+nova-watchdog.py
+.agent-state.json
+.bot-chats.json
+.notif-last.json
+.notif-prefs.json
+.last-ci-failure
+watchdog.log
+agent.log
+nova-bot-update.py

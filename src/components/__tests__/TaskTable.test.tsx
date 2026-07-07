@@ -180,10 +180,7 @@ describe('TaskTable', () => {
   });
 
   it('renders multiple tasks', () => {
-    const tasks = [
-      makeTask({ id: 't1', name: 'file1.zip' }),
-      makeTask({ id: 't2', name: 'file2.zip' }),
-    ];
+    const tasks = [makeTask({ id: 't1', name: 'file1.zip' }), makeTask({ id: 't2', name: 'file2.zip' })];
     mockStoreRef.current = createMockStore({ tasks });
     render(<TaskTable />);
     expect(screen.getByText('file1.zip')).toBeInTheDocument();
@@ -200,10 +197,7 @@ describe('TaskTable', () => {
   });
 
   it('clicking select all checkbox selects all tasks', () => {
-    const tasks = [
-      makeTask({ id: 't1', name: 'f1.zip' }),
-      makeTask({ id: 't2', name: 'f2.zip' }),
-    ];
+    const tasks = [makeTask({ id: 't1', name: 'f1.zip' }), makeTask({ id: 't2', name: 'f2.zip' })];
     mockStoreRef.current = createMockStore({ tasks });
     render(<TaskTable />);
     const selectAllCheckbox = screen.getAllByRole('checkbox')[0];

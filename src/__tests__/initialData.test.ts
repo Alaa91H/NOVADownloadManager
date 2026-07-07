@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { formatBytes, formatSpeed, formatTimeLeft, initialSettings, fileTypeMetadata, statusMetadata } from '../initialData';
+import {
+  formatBytes,
+  formatSpeed,
+  formatTimeLeft,
+  initialSettings,
+  fileTypeMetadata,
+  statusMetadata,
+} from '../initialData';
 
 describe('formatBytes', () => {
   it('returns "0 B" for zero', () => {

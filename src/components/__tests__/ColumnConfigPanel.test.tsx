@@ -106,9 +106,7 @@ describe('ColumnConfigPanel', () => {
   });
 
   it('applies dragging style when column is being dragged', () => {
-    const { container } = render(
-      <ColumnConfigPanel {...createDefaultProps({ draggingCustomizeCol: 'size' })} />,
-    );
+    const { container } = render(<ColumnConfigPanel {...createDefaultProps({ draggingCustomizeCol: 'size' })} />);
     const sizeDiv = screen.getByText('Size').closest('div[draggable]');
     expect(sizeDiv?.className).toContain('opacity-40');
   });
