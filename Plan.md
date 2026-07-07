@@ -203,9 +203,10 @@ P26-07-07
   - ✅ TopBar main "New Download" button gated by `directReady || mediaReady` with disabled state + tooltip
   - ✅ StatusBar engine status indicators (direct/media/ffmpeg) with colored dots and clickable diagnostics
   - ✅ Sidebar engine capability indicators below bridge widget (Direct/Media/FFmpeg ready/unavailable)
-  - ⬜ TaskTable context menu engine-aware actions
-  - ⬜ StatusBar per-engine status with translations
-  - ⬜ Remaining: Resume/Stop/Delete engine gating, dialog engine awareness
+  - ✅ TaskTable context menu engine-aware actions (disabled with tooltip when engine unavailable)
+  - ✅ StatusBar per-engine status with translations (en.ts + ar.ts keys added, StatusBar uses t() calls)
+  - ✅ Resume/Stop/Delete engine gating (context menu + batch resume gated by engine availability)
+  - ⬜ Dialog engine awareness (AddDownloadDialog already gated, others pending)
 - Plan:
   1. **Engine compatibility audit**: Map every interactive element in TopBar, Sidebar, StatusBar, TaskTable, and all dialogs to their required engine. Disable/hide elements when required engine is unavailable.
   2. **Button audit**: Scan ALL buttons/icons across the UI. Ensure each has: proper label, translation key, tooltip/aria-label, correct enabled/disabled state based on engine capabilities and task state.

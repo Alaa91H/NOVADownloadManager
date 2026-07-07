@@ -33,6 +33,7 @@ import {
   renderSortIcon,
 } from '../utils/taskTableUtils';
 import { novaClient } from '../api/novaClient';
+import { useEngineCapabilities } from '../capabilities/EngineCapabilityContext';
 
 export const TaskTable: React.FC = () => {
   const {
@@ -51,6 +52,13 @@ export const TaskTable: React.FC = () => {
     addToast,
     t,
   } = useAppStore();
+  const caps = useEngineCapabilities();
+
+  const isEngineAvailable = (task: DownloadItem): boolean => {
+    if (!task.engine) return true;
+    if (task.engine === 'yt-dlp') return caps.mediaReady;
+    return caps.directReady;
+  };
 
   const {
     colWidths,
@@ -127,10 +135,13 @@ export const TaskTable: React.FC = () => {
       });
     }
     if (task.status === 'paused' || task.status === 'error') {
+      const engineAvail = isEngineAvailable(task);
       opts.push({
         id: 'resume',
         label: task.status === 'error' ? t('menu_retry_download') : t('resume'),
         icon: <ResumeIcon className="w-3.5 h-3.5" />,
+        disabled: !engineAvail,
+        disabledReason: !engineAvail ? t('engine_task_blocked') : undefined,
         onClick: () => {
           resumeTask(task.id);
         },
@@ -203,6 +214,10 @@ export const TaskTable: React.FC = () => {
     checkedTaskIds.forEach((id) => {
       const task = tasks.find((t) => t.id === id);
       if (task && (task.status === 'paused' || task.status === 'error')) {
+        if (!isEngineAvailable(task)) {
+          addToast('warning', t('resume'), t('engine_task_blocked'));
+          return;
+        }
         resumeTask(id);
       }
     });

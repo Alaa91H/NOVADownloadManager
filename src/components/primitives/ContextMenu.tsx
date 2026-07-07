@@ -5,6 +5,8 @@ export interface ContextMenuOption {
   label: string;
   icon?: React.ReactNode;
   danger?: boolean;
+  disabled?: boolean;
+  disabledReason?: string;
   onClick: () => void;
 }
 
@@ -62,11 +64,18 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, options, onClose
           <button
             key={opt.id}
             onClick={() => {
-              opt.onClick();
-              onClose();
+              if (!opt.disabled) {
+                opt.onClick();
+                onClose();
+              }
             }}
-            className={`w-full text-left px-3 py-2 text-xs flex items-center gap-2 transition-colors cursor-pointer ${
-              opt.danger ? 'text-red-400 hover:bg-red-500/10' : 'text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
+            title={opt.disabled && opt.disabledReason ? opt.disabledReason : undefined}
+            className={`w-full text-left px-3 py-2 text-xs flex items-center gap-2 transition-colors ${
+              opt.disabled
+                ? 'opacity-40 cursor-not-allowed'
+                : opt.danger
+                  ? 'text-red-400 hover:bg-red-500/10 cursor-pointer'
+                  : 'text-[var(--text-primary)] hover:bg-[var(--bg-hover)] cursor-pointer'
             }`}
           >
             {opt.icon && <span className="w-4 h-4 shrink-0 flex items-center justify-center">{opt.icon}</span>}

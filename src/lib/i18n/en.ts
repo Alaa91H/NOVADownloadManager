@@ -904,4 +904,11 @@ export const en: Record<string, string> = {
   engine_direct_unavailable: 'Direct download engine unavailable',
   engine_media_unavailable: 'Media download engine unavailable',
   engine_unavailable_desc: 'The required download engine is not ready. Check the daemon status.',
+  engine_direct_title: 'Direct Engine',
+  engine_direct_ready: 'Direct download engine ready',
+  engine_media_title: 'Media Engine',
+  engine_media_ready: 'Media download engine ready',
+  engine_ffmpeg_ready: 'FFmpeg ready',
+  engine_ffmpeg_unavailable: 'FFmpeg not available',
+  engine_task_blocked: 'The engine required for this download is not available.',
 };

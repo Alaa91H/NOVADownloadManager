@@ -238,31 +238,31 @@ export const StatusBar: React.FC = () => {
           <div className="flex items-center gap-0.5 ml-1">
             <button
               onClick={() => {
-                addToast(caps.directReady ? 'success' : 'warning', 'Direct Engine', caps.directReady ? 'Ready' : caps.directBlockedReason() || 'Unavailable');
+                addToast(caps.directReady ? 'success' : 'warning', t('engine_direct_title'), caps.directReady ? t('engine_direct_ready') : caps.directBlockedReason() || t('engine_direct_unavailable'));
               }}
               className={`p-1 rounded transition-all cursor-pointer flex items-center justify-center ${
                 caps.directReady ? 'text-emerald-500' : 'text-rose-500'
               }`}
-              title={caps.directReady ? 'Direct download engine ready' : caps.directBlockedReason() || 'Direct download engine unavailable'}
+              title={caps.directReady ? t('engine_direct_ready') : caps.directBlockedReason() || t('engine_direct_unavailable')}
             >
               <Wifi className="w-3 h-3" />
             </button>
             <button
               onClick={() => {
-                addToast(caps.mediaReady ? 'success' : 'warning', 'Media Engine', caps.mediaReady ? 'Ready' : caps.mediaBlockedReason() || 'Unavailable');
+                addToast(caps.mediaReady ? 'success' : 'warning', t('engine_media_title'), caps.mediaReady ? t('engine_media_ready') : caps.mediaBlockedReason() || t('engine_media_unavailable'));
               }}
               className={`p-1 rounded transition-all cursor-pointer flex items-center justify-center ${
                 caps.mediaReady ? 'text-emerald-500' : 'text-rose-500'
               }`}
-              title={caps.mediaReady ? 'Media download engine ready' : caps.mediaBlockedReason() || 'Media download engine unavailable'}
+              title={caps.mediaReady ? t('engine_media_ready') : caps.mediaBlockedReason() || t('engine_media_unavailable')}
             >
               <Video className="w-3 h-3" />
             </button>
             {caps.ffmpegReady && (
-              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" title="FFmpeg ready" />
+              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" title={t('engine_ffmpeg_ready')} />
             )}
             {!caps.ffmpegReady && caps.mediaReady && (
-              <span className="w-1.5 h-1.5 bg-rose-500 rounded-full" title="FFmpeg not available" />
+              <span className="w-1.5 h-1.5 bg-rose-500 rounded-full" title={t('engine_ffmpeg_unavailable')} />
             )}
           </div>
         )}
