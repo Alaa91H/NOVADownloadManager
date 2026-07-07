@@ -1,0 +1,19 @@
+[Unit]
+Description=NOVA Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/NOVA
+ExecStart=/usr/bin/python3 /home/ubuntu/NOVA/nova-bot.py
+Restart=always
+RestartSec=10
+Environment="NOVA_BOT_TOKEN=8996219734:AAF23wUwd-cdkeCO1kuLIym99G3fYEyZegY"
+Environment="NOVA_ALLOWED_USERS="
+StandardOutput=append:/var/log/nova-bot.log
+StandardError=append:/var/log/nova-bot.log
+
+[Install]
+WantedBy=multi-user.target
