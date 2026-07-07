@@ -2,12 +2,12 @@
   "7502561234": {
     "cycle_start": true,
     "cycle_done": true,
-    "ci_result": false,
+    "ci_result": true,
     "ci_fail": true,
     "error": true,
-    "maintenance": false,
-    "analysis": false,
-    "system": false,
-    "freq": "important"
+    "maintenance": true,
+    "analysis": true,
+    "system": true,
+    "freq": "normal"
   }
 }
