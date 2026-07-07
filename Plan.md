@@ -178,11 +178,11 @@
 
 ### CI-001 — Add Dev trigger to build.yml + quality workflow
 
-- Status: `[ ] PLANNED`
+- Status: `[x] COMPLETED`
 - Priority: critical
 - Type: ci
-- Started: pending
-- Completed: pending
+- Started: 2026-07-07
+P26-07-07
 - Objective:
   - Modify `.github/workflows/build.yml` to trigger on `Dev` pushes. Create dedicated `quality.yml` for fast feedback.
 - Plan:
@@ -199,6 +199,13 @@
 - Completed: pending
 - Objective:
   - Refine the entire UI professionally — buttons, toolbars, dialogs, status bar, sidebar, task table. Ensure 100% compatibility between UI state and engine capabilities (curl, yt-dlp, ffmpeg). Every UI element must react correctly to available engines.
+- Progress:
+  - ✅ TopBar main "New Download" button gated by `directReady || mediaReady` with disabled state + tooltip
+  - ✅ StatusBar engine status indicators (direct/media/ffmpeg) with colored dots and clickable diagnostics
+  - ✅ Sidebar engine capability indicators below bridge widget (Direct/Media/FFmpeg ready/unavailable)
+  - ⬜ TaskTable context menu engine-aware actions
+  - ⬜ StatusBar per-engine status with translations
+  - ⬜ Remaining: Resume/Stop/Delete engine gating, dialog engine awareness
 - Plan:
   1. **Engine compatibility audit**: Map every interactive element in TopBar, Sidebar, StatusBar, TaskTable, and all dialogs to their required engine. Disable/hide elements when required engine is unavailable.
   2. **Button audit**: Scan ALL buttons/icons across the UI. Ensure each has: proper label, translation key, tooltip/aria-label, correct enabled/disabled state based on engine capabilities and task state.

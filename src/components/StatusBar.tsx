@@ -2,8 +2,23 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../state/appStore';
 import { formatBytes, formatSpeed } from '../initialData';
-import { Bell, BellOff, Gauge, Shield, Download, Activity, Check, AlertTriangle, Send, Server, Clipboard } from 'lucide-react';
+import {
+  Bell,
+  BellOff,
+  Gauge,
+  Shield,
+  Download,
+  Activity,
+  Check,
+  AlertTriangle,
+  Send,
+  Server,
+  Clipboard,
+  Wifi,
+  Video,
+} from 'lucide-react';
 import { novaClient } from '../api/novaClient';
+import { useEngineCapabilities } from '../capabilities/EngineCapabilityContext';
 
 export const StatusBar: React.FC = () => {
   const {
@@ -37,6 +52,8 @@ export const StatusBar: React.FC = () => {
   const [showManualInput, setShowManualInput] = useState(false);
   const [telegramMenuVisible, setTelegramMenuVisible] = useState(false);
   const [telegramMenuCoords, setTelegramMenuCoords] = useState({ x: 0, y: 0 });
+
+  const caps = useEngineCapabilities();
 
   const statusVisible = (id: keyof typeof settings.ui.statusBar) => settings.ui.statusBar[id].visible;
 
@@ -148,38 +165,40 @@ export const StatusBar: React.FC = () => {
       <div className="flex items-center gap-2 min-w-0 overflow-x-auto scrollbar-none">
         {/* Total Speed */}
         {statusVisible('speed') && (
-        <div className="flex items-center gap-1.5" title={t('statusbar_speed_tip')}>
-          <Activity className="w-3.5 h-3.5 text-emerald-500 animate-pulse shrink-0" />
-          <span className="text-[10px] text-[var(--text-primary)] font-mono font-bold">{formatSpeed(totalSpeed)}</span>
-        </div>
+          <div className="flex items-center gap-1.5" title={t('statusbar_speed_tip')}>
+            <Activity className="w-3.5 h-3.5 text-emerald-500 animate-pulse shrink-0" />
+            <span className="text-[10px] text-[var(--text-primary)] font-mono font-bold">
+              {formatSpeed(totalSpeed)}
+            </span>
+          </div>
         )}
 
         {statusVisible('speed') && statusVisible('counts') && <div className="h-4 w-px bg-[var(--border-color)]" />}
 
         {/* Downloading and Total Count */}
         {statusVisible('counts') && (
-        <div className="flex items-center gap-1.5" title={t('statusbar_counts_tip')}>
-          <Download className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-          <span>
-            {t('statusbar_active')} <strong className="text-[var(--text-primary)] font-mono">{activeCount}</strong>
-            <span className="text-[var(--text-muted)] mx-1">/</span>
-            {t('statusbar_total')} <strong className="text-[var(--text-primary)] font-mono">{totalCount}</strong>
-          </span>
-        </div>
+          <div className="flex items-center gap-1.5" title={t('statusbar_counts_tip')}>
+            <Download className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <span>
+              {t('statusbar_active')} <strong className="text-[var(--text-primary)] font-mono">{activeCount}</strong>
+              <span className="text-[var(--text-muted)] mx-1">/</span>
+              {t('statusbar_total')} <strong className="text-[var(--text-primary)] font-mono">{totalCount}</strong>
+            </span>
+          </div>
         )}
 
         {statusVisible('downloaded') && <div className="h-4 w-px bg-[var(--border-color)] hidden md:block" />}
 
         {/* Total Downloaded Size */}
         {statusVisible('downloaded') && (
-        <div className="items-center gap-1.5 hidden md:flex" title={t('statusbar_downloaded_tip')}>
-          <span className="text-[var(--text-muted)]">{t('statusbar_downloaded')}</span>
-          <span className="text-[10px] font-mono font-bold text-[var(--text-primary)]">
-            {formatBytes(totalDownloaded)}
-          </span>
-          <span className="text-[var(--text-muted)]">{t('statusbar_of')}</span>
-          <span className="text-[10px] font-mono font-bold text-[var(--text-muted)]">{formatBytes(totalSize)}</span>
-        </div>
+          <div className="items-center gap-1.5 hidden md:flex" title={t('statusbar_downloaded_tip')}>
+            <span className="text-[var(--text-muted)]">{t('statusbar_downloaded')}</span>
+            <span className="text-[10px] font-mono font-bold text-[var(--text-primary)]">
+              {formatBytes(totalDownloaded)}
+            </span>
+            <span className="text-[var(--text-muted)]">{t('statusbar_of')}</span>
+            <span className="text-[10px] font-mono font-bold text-[var(--text-muted)]">{formatBytes(totalSize)}</span>
+          </div>
         )}
       </div>
 
@@ -215,6 +234,39 @@ export const StatusBar: React.FC = () => {
           </button>
         )}
 
+        {!caps.loading && (
+          <div className="flex items-center gap-0.5 ml-1">
+            <button
+              onClick={() => {
+                addToast(caps.directReady ? 'success' : 'warning', 'Direct Engine', caps.directReady ? 'Ready' : caps.directBlockedReason() || 'Unavailable');
+              }}
+              className={`p-1 rounded transition-all cursor-pointer flex items-center justify-center ${
+                caps.directReady ? 'text-emerald-500' : 'text-rose-500'
+              }`}
+              title={caps.directReady ? 'Direct download engine ready' : caps.directBlockedReason() || 'Direct download engine unavailable'}
+            >
+              <Wifi className="w-3 h-3" />
+            </button>
+            <button
+              onClick={() => {
+                addToast(caps.mediaReady ? 'success' : 'warning', 'Media Engine', caps.mediaReady ? 'Ready' : caps.mediaBlockedReason() || 'Unavailable');
+              }}
+              className={`p-1 rounded transition-all cursor-pointer flex items-center justify-center ${
+                caps.mediaReady ? 'text-emerald-500' : 'text-rose-500'
+              }`}
+              title={caps.mediaReady ? 'Media download engine ready' : caps.mediaBlockedReason() || 'Media download engine unavailable'}
+            >
+              <Video className="w-3 h-3" />
+            </button>
+            {caps.ffmpegReady && (
+              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" title="FFmpeg ready" />
+            )}
+            {!caps.ffmpegReady && caps.mediaReady && (
+              <span className="w-1.5 h-1.5 bg-rose-500 rounded-full" title="FFmpeg not available" />
+            )}
+          </div>
+        )}
+
         {activeProgressMinimizedToTaskbar && minimizedRealTask && (
           <button
             onClick={() => {
@@ -232,17 +284,17 @@ export const StatusBar: React.FC = () => {
 
         {/* 1. Browser Integration Shield */}
         {statusVisible('browser') && (
-        <button
-          onClick={() => {
-            openDialog('browserIntegration');
-          }}
-          className={`p-1.5 hover:bg-[var(--bg-hover)] rounded transition-all cursor-pointer flex items-center justify-center ${
-            isExtensionConnected ? 'text-emerald-500 hover:text-emerald-400' : 'text-rose-500 hover:text-rose-400'
-          }`}
-          title={t('nav_browser_integration')}
-        >
-          <Shield className="w-3.5 h-3.5" />
-        </button>
+          <button
+            onClick={() => {
+              openDialog('browserIntegration');
+            }}
+            className={`p-1.5 hover:bg-[var(--bg-hover)] rounded transition-all cursor-pointer flex items-center justify-center ${
+              isExtensionConnected ? 'text-emerald-500 hover:text-emerald-400' : 'text-rose-500 hover:text-rose-400'
+            }`}
+            title={t('nav_browser_integration')}
+          >
+            <Shield className="w-3.5 h-3.5" />
+          </button>
         )}
 
         {statusVisible('telegram') && (
@@ -280,48 +332,50 @@ export const StatusBar: React.FC = () => {
 
         {/* 2. Speed Limiter Inline Widget */}
         {statusVisible('speedLimiter') && (
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            onClick={handleSpeedClick}
-            className={`p-1.5 rounded-lg cursor-pointer transition-all flex items-center justify-center hover:bg-[var(--bg-hover)] ${
-              settings.connection.speedLimiter.enabled
-                ? 'text-amber-500 drop-shadow-[0_0_4px_rgba(245,158,11,0.3)] font-bold'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-            title={t('speed_limiter')}
-          >
-            <Gauge className="w-3.5 h-3.5" />
-          </button>
-        </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              onClick={handleSpeedClick}
+              className={`p-1.5 rounded-lg cursor-pointer transition-all flex items-center justify-center hover:bg-[var(--bg-hover)] ${
+                settings.connection.speedLimiter.enabled
+                  ? 'text-amber-500 drop-shadow-[0_0_4px_rgba(245,158,11,0.3)] font-bold'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+              title={t('speed_limiter')}
+            >
+              <Gauge className="w-3.5 h-3.5" />
+            </button>
+          </div>
         )}
 
         {/* 3. Notification Bell */}
         {statusVisible('notifications') && (
-        <button
-          onClick={() => {
-            setIsNotificationsMuted(!isNotificationsMuted);
-            if (isNotificationsMuted) {
-              addToast('info', t('statusbar_notifications_title'), t('statusbar_notifications_on'));
-            } else {
-              addToast('warning', t('statusbar_notifications_title'), t('statusbar_notifications_off'));
+          <button
+            onClick={() => {
+              setIsNotificationsMuted(!isNotificationsMuted);
+              if (isNotificationsMuted) {
+                addToast('info', t('statusbar_notifications_title'), t('statusbar_notifications_on'));
+              } else {
+                addToast('warning', t('statusbar_notifications_title'), t('statusbar_notifications_off'));
+              }
+            }}
+            className={`p-1.5 hover:bg-[var(--bg-hover)] rounded transition-all cursor-pointer relative flex items-center justify-center ${
+              isNotificationsMuted
+                ? 'text-rose-500 hover:text-rose-400'
+                : 'text-[var(--text-secondary)] hover:text-amber-500'
+            }`}
+            title={
+              isNotificationsMuted ? t('statusbar_notifications_muted_tip') : t('statusbar_notifications_active_tip')
             }
-          }}
-          className={`p-1.5 hover:bg-[var(--bg-hover)] rounded transition-all cursor-pointer relative flex items-center justify-center ${
-            isNotificationsMuted
-              ? 'text-rose-500 hover:text-rose-400'
-              : 'text-[var(--text-secondary)] hover:text-amber-500'
-          }`}
-          title={isNotificationsMuted ? t('statusbar_notifications_muted_tip') : t('statusbar_notifications_active_tip')}
-        >
-          {isNotificationsMuted ? (
-            <BellOff className="w-3.5 h-3.5" />
-          ) : (
-            <>
-              <Bell className="w-3.5 h-3.5" />
-              <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-rose-500 rounded-full" />
-            </>
-          )}
-        </button>
+          >
+            {isNotificationsMuted ? (
+              <BellOff className="w-3.5 h-3.5" />
+            ) : (
+              <>
+                <Bell className="w-3.5 h-3.5" />
+                <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-rose-500 rounded-full" />
+              </>
+            )}
+          </button>
         )}
       </div>
 
@@ -414,7 +468,7 @@ export const StatusBar: React.FC = () => {
 
             <button
               onClick={() => {
-                const updated = { ...settings };
+                const updated = structuredClone(settings);
                 updated.connection.speedLimiter.enabled = !updated.connection.speedLimiter.enabled;
                 updateSettings(updated);
                 setSpeedMenuVisible(false);
@@ -445,7 +499,7 @@ export const StatusBar: React.FC = () => {
                 <button
                   key={preset.value}
                   onClick={() => {
-                    const updated = { ...settings };
+                    const updated = structuredClone(settings);
                     updated.connection.speedLimiter.enabled = true;
                     updated.connection.speedLimiter.maxSpeedKbs = preset.value;
                     updateSettings(updated);
@@ -501,7 +555,7 @@ export const StatusBar: React.FC = () => {
                         const val = parseFloat(manualSpeedInput);
                         if (!isNaN(val) && val > 0) {
                           const speedKbs = manualSpeedUnit === 'MB' ? Math.round(val * 1024) : Math.round(val);
-                          const updated = { ...settings };
+                          const updated = structuredClone(settings);
                           updated.connection.speedLimiter.enabled = true;
                           updated.connection.speedLimiter.maxSpeedKbs = speedKbs;
                           updateSettings(updated);
@@ -557,7 +611,7 @@ export const StatusBar: React.FC = () => {
                       const val = parseFloat(manualSpeedInput);
                       if (!isNaN(val) && val > 0) {
                         const speedKbs = manualSpeedUnit === 'MB' ? Math.round(val * 1024) : Math.round(val);
-                        const updated = { ...settings };
+                        const updated = structuredClone(settings);
                         updated.connection.speedLimiter.enabled = true;
                         updated.connection.speedLimiter.maxSpeedKbs = speedKbs;
                         updateSettings(updated);

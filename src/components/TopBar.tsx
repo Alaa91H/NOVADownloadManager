@@ -17,6 +17,7 @@ import {
   Send,
 } from 'lucide-react';
 import { useAppStore } from '../state/appStore';
+import { useEngineCapabilities } from '../capabilities/EngineCapabilityContext';
 import { CustomButtonAction, CustomButtonIcon, ToolbarButtonId } from '../types/desktop-ui.types';
 import { novaClient } from '../api/novaClient';
 
@@ -37,8 +38,11 @@ export const TopBar: React.FC = () => {
     updateSettings,
     isNotificationsMuted,
     setIsNotificationsMuted,
+    isDegradedMode,
     t,
   } = useAppStore();
+
+  const caps = useEngineCapabilities();
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId);
 
@@ -112,7 +116,11 @@ export const TopBar: React.FC = () => {
     for (const task of completed) {
       await deleteTask(task.id, false);
     }
-    addToast('warning', t('topbar_delete_completed_title'), t('topbar_delete_completed_done', { count: completed.length }));
+    addToast(
+      'warning',
+      t('topbar_delete_completed_title'),
+      t('topbar_delete_completed_done', { count: completed.length }),
+    );
   };
 
   const toggleSpeedLimiter = () => {
@@ -185,12 +193,28 @@ export const TopBar: React.FC = () => {
         openDialog('addDownload');
         break;
       case 'batchDownload':
+        if (!caps.directReady) {
+          addToast(
+            'warning',
+            t('engine_direct_unavailable'),
+            caps.directBlockedReason() || t('engine_unavailable_desc'),
+          );
+          break;
+        }
         openDialog('batchDownload');
         break;
       case 'webpageGrabber':
+        if (!caps.mediaReady) {
+          addToast('warning', t('engine_media_unavailable'), caps.mediaBlockedReason() || t('engine_unavailable_desc'));
+          break;
+        }
         openDialog('webpageGrabber');
         break;
       case 'youtubeDownload':
+        if (!caps.mediaReady) {
+          addToast('warning', t('engine_media_unavailable'), caps.mediaBlockedReason() || t('engine_unavailable_desc'));
+          break;
+        }
         openDialog('youtubeDownload');
         break;
       case 'resumeAll':
@@ -241,286 +265,379 @@ export const TopBar: React.FC = () => {
       <div className="flex flex-nowrap items-center gap-1.5 shrink-0">
         {/* Action: Unified Add Task Button with Dropdown (Split Button Pattern) */}
         {toolbarButtonVisible('newDownload') && (
-        <div className="relative">
-          <div className="flex items-stretch rounded-lg bg-[var(--accent-primary)] hover:scale-[1.03] active:scale-[0.97] transition-all duration-150 shadow-md accent-glow select-none shrink-0 overflow-hidden">
-            <button
-              onClick={() => {
-                openDialog('addDownload');
-              }}
-              className="px-3 py-1.5 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-white font-extrabold transition-all cursor-pointer flex items-center gap-1.5 text-xs border-r border-white/15"
-              title={t('topbar_new_download_tip')}
-            >
-              {renderButtonContent(
-                'newDownload',
-                <Plus className="w-3.5 h-3.5 stroke-[3]" />,
-                t('topbar_new_download'),
-                '',
-              )}
-            </button>
+          <div className="relative">
+            <div className="flex items-stretch rounded-lg bg-[var(--accent-primary)] hover:scale-[1.03] active:scale-[0.97] transition-all duration-150 shadow-md accent-glow select-none shrink-0 overflow-hidden">
+              <button
+                onClick={() => {
+                  if (!caps.directReady && !caps.mediaReady) {
+                    addToast('warning', t('engine_no_engine'), caps.error || t('engine_unavailable_desc'));
+                    return;
+                  }
+                  openDialog('addDownload');
+                }}
+                disabled={!caps.directReady && !caps.mediaReady}
+                className="px-3 py-1.5 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-white font-extrabold transition-all cursor-pointer flex items-center gap-1.5 text-xs border-r border-white/15 disabled:opacity-40 disabled:cursor-not-allowed"
+                title={
+                  !caps.directReady && !caps.mediaReady
+                    ? caps.loading
+                      ? t('engine_caps_loading')
+                      : caps.error || t('engine_no_engine')
+                    : t('topbar_new_download_tip')
+                }
+              >
+                {renderButtonContent(
+                  'newDownload',
+                  <Plus className="w-3.5 h-3.5 stroke-[3]" />,
+                  t('topbar_new_download'),
+                  '',
+                )}
+              </button>
 
-            {toolbarShowsDropdown('newDownload') && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleDropdown('newDownload');
-              }}
-              data-dialog-trigger="true"
-              className="px-2 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-white transition-all cursor-pointer flex items-center justify-center"
-              title={t('topbar_more_options')}
-            >
-              <ChevronDown
-                className={`w-3.5 h-3.5 transition-transform duration-200 ${openDropdown === 'newDownload' ? 'rotate-180' : ''}`}
-              />
-            </button>
+              {toolbarShowsDropdown('newDownload') && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleDropdown('newDownload');
+                  }}
+                  data-dialog-trigger="true"
+                  className="px-2 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-white transition-all cursor-pointer flex items-center justify-center"
+                  title={t('topbar_more_options')}
+                >
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 transition-transform duration-200 ${openDropdown === 'newDownload' ? 'rotate-180' : ''}`}
+                  />
+                </button>
+              )}
+            </div>
+
+            {toolbarShowsDropdown('newDownload') && openDropdown === 'newDownload' && (
+              <>
+                <div className="fixed inset-0 z-40 bg-transparent" onClick={closeDropdown} />
+                <div className="absolute top-full left-0 mt-1.5 w-64 bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded-lg shadow-xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100 flex flex-col gap-0.5">
+                  <button
+                    onClick={() => {
+                      openDialog('addDownload');
+                      closeDropdown();
+                    }}
+                    disabled={!caps.directReady && !caps.mediaReady}
+                    className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+                    title={
+                      !caps.directReady && !caps.mediaReady
+                        ? caps.loading
+                          ? t('engine_caps_loading')
+                          : caps.error || t('engine_no_engine')
+                        : ''
+                    }
+                  >
+                    <Plus className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <span>{t('topbar_single_url')}</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      openDialog('batchDownload');
+                      closeDropdown();
+                    }}
+                    disabled={!caps.directReady}
+                    className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+                    title={
+                      !caps.directReady
+                        ? caps.loading
+                          ? t('engine_caps_loading')
+                          : caps.directBlockedReason() || t('engine_direct_unavailable')
+                        : ''
+                    }
+                  >
+                    <Layers className="w-4 h-4 text-sky-500 shrink-0" />
+                    <span>{t('topbar_batch_download')}</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      openDialog('webpageGrabber');
+                      closeDropdown();
+                    }}
+                    disabled={!caps.mediaReady}
+                    className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+                    title={
+                      !caps.mediaReady
+                        ? caps.loading
+                          ? t('engine_caps_loading')
+                          : caps.mediaBlockedReason() || t('engine_media_unavailable')
+                        : ''
+                    }
+                  >
+                    <Globe className="w-4 h-4 text-indigo-400 shrink-0" />
+                    <span>{t('dlg_webpage_grabber')}</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      openDialog('youtubeDownload');
+                      closeDropdown();
+                    }}
+                    disabled={!caps.mediaReady}
+                    className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+                    title={
+                      !caps.mediaReady
+                        ? caps.loading
+                          ? t('engine_caps_loading')
+                          : caps.mediaBlockedReason() || t('engine_media_unavailable')
+                        : ''
+                    }
+                  >
+                    <Video className="w-4 h-4 text-red-500 shrink-0" />
+                    <span>{t('dlg_media_downloader')}</span>
+                  </button>
+                </div>
+              </>
             )}
           </div>
-
-          {toolbarShowsDropdown('newDownload') && openDropdown === 'newDownload' && (
-            <>
-              <div className="fixed inset-0 z-40 bg-transparent" onClick={closeDropdown} />
-              <div className="absolute top-full left-0 mt-1.5 w-64 bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded-lg shadow-xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100 flex flex-col gap-0.5">
-                <button
-                  onClick={() => { openDialog('addDownload'); closeDropdown(); }}
-                  className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold"
-                >
-                  <Plus className="w-4 h-4 text-emerald-500 shrink-0" />
-                  <span>{t('topbar_single_url')}</span>
-                </button>
-                <button
-                  onClick={() => { openDialog('batchDownload'); closeDropdown(); }}
-                  className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold"
-                >
-                  <Layers className="w-4 h-4 text-sky-500 shrink-0" />
-                  <span>{t('topbar_batch_download')}</span>
-                </button>
-                <button
-                  onClick={() => { openDialog('webpageGrabber'); closeDropdown(); }}
-                  className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold"
-                >
-                  <Globe className="w-4 h-4 text-indigo-400 shrink-0" />
-                  <span>{t('dlg_webpage_grabber')}</span>
-                </button>
-                <button
-                  onClick={() => { openDialog('youtubeDownload'); closeDropdown(); }}
-                  className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold"
-                >
-                  <Video className="w-4 h-4 text-red-500 shrink-0" />
-                  <span>{t('dlg_media_downloader')}</span>
-                </button>
-              </div>
-            </>
-          )}
-        </div>
         )}
 
         <div className="h-5 w-px bg-[var(--border-color)] mx-1 shrink-0" />
 
         {/* Action: Resume (Split Button) */}
         {toolbarButtonVisible('resume') && (
-        <div className="relative">
-          <div className="flex items-stretch rounded-lg border border-[var(--border-color)] hover:border-emerald-500/20 hover:bg-emerald-500/5 hover:scale-[1.03] active:scale-[0.97] transition-all duration-150 overflow-hidden shrink-0">
-            <button
-              onClick={() => {
-                if (canResumeSelected && selectedTaskId) {
-                  resumeTask(selectedTaskId);
-                } else {
-                  handleResumeAll();
-                }
-              }}
-              className="px-3 py-1.5 text-[var(--text-secondary)] hover:text-emerald-400 hover:bg-emerald-500/10 transition-all cursor-pointer flex items-center gap-1 text-xs font-bold"
-              title={hasSelectedTask ? t('topbar_resume_selected_tip') : t('topbar_resume_all_tip')}
-            >
-              {renderButtonContent(
-                'resume',
-                <Play className="w-4 h-4 text-emerald-500 fill-emerald-500/20" />,
-                t('resume'),
+          <div className="relative">
+            <div className="flex items-stretch rounded-lg border border-[var(--border-color)] hover:border-emerald-500/20 hover:bg-emerald-500/5 hover:scale-[1.03] active:scale-[0.97] transition-all duration-150 overflow-hidden shrink-0">
+              <button
+                onClick={() => {
+                  if (canResumeSelected && selectedTaskId) {
+                    resumeTask(selectedTaskId);
+                  } else {
+                    handleResumeAll();
+                  }
+                }}
+                className="px-3 py-1.5 text-[var(--text-secondary)] hover:text-emerald-400 hover:bg-emerald-500/10 transition-all cursor-pointer flex items-center gap-1 text-xs font-bold"
+                title={hasSelectedTask ? t('topbar_resume_selected_tip') : t('topbar_resume_all_tip')}
+              >
+                {renderButtonContent(
+                  'resume',
+                  <Play className="w-4 h-4 text-emerald-500 fill-emerald-500/20" />,
+                  t('resume'),
+                )}
+              </button>
+              {toolbarShowsDropdown('resume') && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleDropdown('resume');
+                  }}
+                  className="px-1.5 text-[var(--text-secondary)] hover:text-emerald-400 hover:bg-emerald-500/10 transition-all cursor-pointer flex items-center justify-center border-l border-[var(--border-color)]"
+                >
+                  <ChevronDown
+                    className={`w-3 h-3 transition-transform duration-200 ${openDropdown === 'resume' ? 'rotate-180' : ''}`}
+                  />
+                </button>
               )}
-            </button>
-            {toolbarShowsDropdown('resume') && (
-            <button
-              onClick={(e) => { e.stopPropagation(); toggleDropdown('resume'); }}
-              className="px-1.5 text-[var(--text-secondary)] hover:text-emerald-400 hover:bg-emerald-500/10 transition-all cursor-pointer flex items-center justify-center border-l border-[var(--border-color)]"
-            >
-              <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${openDropdown === 'resume' ? 'rotate-180' : ''}`} />
-            </button>
+            </div>
+
+            {toolbarShowsDropdown('resume') && openDropdown === 'resume' && (
+              <>
+                <div className="fixed inset-0 z-40 bg-transparent" onClick={closeDropdown} />
+                <div className="absolute top-full left-0 mt-1.5 w-52 bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded-lg shadow-xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100 flex flex-col gap-0.5">
+                  <button
+                    onClick={() => {
+                      if (canResumeSelected && selectedTaskId) resumeTask(selectedTaskId);
+                      closeDropdown();
+                    }}
+                    disabled={!canResumeSelected}
+                    className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Play className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <span>{t('topbar_resume_selected')}</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleResumeAll();
+                      closeDropdown();
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold"
+                  >
+                    <Play className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>{t('topbar_resume_all')}</span>
+                  </button>
+                </div>
+              </>
             )}
           </div>
-
-          {toolbarShowsDropdown('resume') && openDropdown === 'resume' && (
-            <>
-              <div className="fixed inset-0 z-40 bg-transparent" onClick={closeDropdown} />
-              <div className="absolute top-full left-0 mt-1.5 w-52 bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded-lg shadow-xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100 flex flex-col gap-0.5">
-                <button
-                  onClick={() => { if (canResumeSelected && selectedTaskId) resumeTask(selectedTaskId); closeDropdown(); }}
-                  disabled={!canResumeSelected}
-                  className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Play className="w-4 h-4 text-emerald-500 shrink-0" />
-                  <span>{t('topbar_resume_selected')}</span>
-                </button>
-                <button
-                  onClick={() => { handleResumeAll(); closeDropdown(); }}
-                  className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold"
-                >
-                  <Play className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>{t('topbar_resume_all')}</span>
-                </button>
-              </div>
-            </>
-          )}
-        </div>
         )}
 
         {/* Action: Stop (Split Button) */}
         {toolbarButtonVisible('stop') && (
-        <div className="relative">
-          <div className="flex items-stretch rounded-lg border border-[var(--border-color)] hover:border-rose-500/20 hover:bg-rose-500/5 hover:scale-[1.03] active:scale-[0.97] transition-all duration-150 overflow-hidden shrink-0">
-            <button
-              onClick={() => {
-                if (canStopSelected && selectedTaskId) {
-                  pauseTask(selectedTaskId);
-                } else {
-                  handleStopAll();
-                }
-              }}
-              className="px-3 py-1.5 text-[var(--text-secondary)] hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer flex items-center gap-1 text-xs font-bold"
-              title={hasSelectedTask ? t('topbar_stop_selected_tip') : t('topbar_stop_all_tip')}
-            >
-              {renderButtonContent(
-                'stop',
-                <Square className="w-3.5 h-3.5 text-rose-500 fill-rose-500/20" />,
-                t('topbar_stop'),
+          <div className="relative">
+            <div className="flex items-stretch rounded-lg border border-[var(--border-color)] hover:border-rose-500/20 hover:bg-rose-500/5 hover:scale-[1.03] active:scale-[0.97] transition-all duration-150 overflow-hidden shrink-0">
+              <button
+                onClick={() => {
+                  if (canStopSelected && selectedTaskId) {
+                    pauseTask(selectedTaskId);
+                  } else {
+                    handleStopAll();
+                  }
+                }}
+                className="px-3 py-1.5 text-[var(--text-secondary)] hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer flex items-center gap-1 text-xs font-bold"
+                title={hasSelectedTask ? t('topbar_stop_selected_tip') : t('topbar_stop_all_tip')}
+              >
+                {renderButtonContent(
+                  'stop',
+                  <Square className="w-3.5 h-3.5 text-rose-500 fill-rose-500/20" />,
+                  t('topbar_stop'),
+                )}
+              </button>
+              {toolbarShowsDropdown('stop') && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleDropdown('stop');
+                  }}
+                  className="px-1.5 text-[var(--text-secondary)] hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer flex items-center justify-center border-l border-[var(--border-color)]"
+                >
+                  <ChevronDown
+                    className={`w-3 h-3 transition-transform duration-200 ${openDropdown === 'stop' ? 'rotate-180' : ''}`}
+                  />
+                </button>
               )}
-            </button>
-            {toolbarShowsDropdown('stop') && (
-            <button
-              onClick={(e) => { e.stopPropagation(); toggleDropdown('stop'); }}
-              className="px-1.5 text-[var(--text-secondary)] hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer flex items-center justify-center border-l border-[var(--border-color)]"
-            >
-              <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${openDropdown === 'stop' ? 'rotate-180' : ''}`} />
-            </button>
+            </div>
+
+            {toolbarShowsDropdown('stop') && openDropdown === 'stop' && (
+              <>
+                <div className="fixed inset-0 z-40 bg-transparent" onClick={closeDropdown} />
+                <div className="absolute top-full left-0 mt-1.5 w-52 bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded-lg shadow-xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100 flex flex-col gap-0.5">
+                  <button
+                    onClick={() => {
+                      if (canStopSelected && selectedTaskId) pauseTask(selectedTaskId);
+                      closeDropdown();
+                    }}
+                    disabled={!canStopSelected}
+                    className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Square className="w-4 h-4 text-rose-500 shrink-0" />
+                    <span>{t('topbar_stop_selected')}</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleStopAll();
+                      closeDropdown();
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold"
+                  >
+                    <Square className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span>{t('topbar_stop_all')}</span>
+                  </button>
+                </div>
+              </>
             )}
           </div>
-
-          {toolbarShowsDropdown('stop') && openDropdown === 'stop' && (
-            <>
-              <div className="fixed inset-0 z-40 bg-transparent" onClick={closeDropdown} />
-              <div className="absolute top-full left-0 mt-1.5 w-52 bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded-lg shadow-xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100 flex flex-col gap-0.5">
-                <button
-                  onClick={() => { if (canStopSelected && selectedTaskId) pauseTask(selectedTaskId); closeDropdown(); }}
-                  disabled={!canStopSelected}
-                  className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Square className="w-4 h-4 text-rose-500 shrink-0" />
-                  <span>{t('topbar_stop_selected')}</span>
-                </button>
-                <button
-                  onClick={() => { handleStopAll(); closeDropdown(); }}
-                  className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold"
-                >
-                  <Square className="w-4 h-4 text-rose-400 shrink-0" />
-                  <span>{t('topbar_stop_all')}</span>
-                </button>
-              </div>
-            </>
-          )}
-        </div>
         )}
 
         {/* Action: Delete (Split Button) */}
         {toolbarButtonVisible('delete') && (
-        <div className="relative">
-          <div className="flex items-stretch rounded-lg border border-[var(--border-color)] hover:border-red-500/20 hover:bg-red-500/5 hover:scale-[1.03] active:scale-[0.97] transition-all duration-150 overflow-hidden shrink-0">
-            <button
-              onClick={() => {
-                if (hasSelectedTask) {
-                  openDialog('confirmDelete', selectedTask);
-                } else if (tasks.length > 0) {
-                  openDialog('genericConfirm', {
-                    message: t('topbar_delete_all_confirm'),
-                    isDanger: true,
-                    onConfirm: () => { void handleDeleteAll(); },
-                  });
-                }
-              }}
-              className="px-3 py-1.5 text-red-500 hover:text-red-400 hover:bg-red-500/10 transition-all cursor-pointer flex items-center gap-1 text-xs font-bold"
-              title={hasSelectedTask ? t('topbar_delete_selected_tip') : t('topbar_delete_all_tip')}
-            >
-              {renderButtonContent('delete', <Trash2 className="w-4 h-4" />, t('action_delete'))}
-            </button>
-            {toolbarShowsDropdown('delete') && (
-            <button
-              onClick={(e) => { e.stopPropagation(); toggleDropdown('delete'); }}
-              className="px-1.5 text-red-500 hover:text-red-400 hover:bg-red-500/10 transition-all cursor-pointer flex items-center justify-center border-l border-[var(--border-color)]"
-            >
-              <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${openDropdown === 'delete' ? 'rotate-180' : ''}`} />
-            </button>
-            )}
-          </div>
-
-          {toolbarShowsDropdown('delete') && openDropdown === 'delete' && (
-            <>
-              <div className="fixed inset-0 z-40 bg-transparent" onClick={closeDropdown} />
-              <div className="absolute top-full left-0 mt-1.5 w-56 bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded-lg shadow-xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100 flex flex-col gap-0.5">
-                <button
-                  onClick={() => {
-                    if (hasSelectedTask) openDialog('confirmDelete', selectedTask);
-                    closeDropdown();
-                  }}
-                  disabled={!hasSelectedTask}
-                  className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Trash2 className="w-4 h-4 text-red-500 shrink-0" />
-                  <span>{t('topbar_delete_selected')}</span>
-                </button>
-                <button
-                  onClick={() => {
+          <div className="relative">
+            <div className="flex items-stretch rounded-lg border border-[var(--border-color)] hover:border-red-500/20 hover:bg-red-500/5 hover:scale-[1.03] active:scale-[0.97] transition-all duration-150 overflow-hidden shrink-0">
+              <button
+                onClick={() => {
+                  if (hasSelectedTask) {
+                    openDialog('confirmDelete', selectedTask);
+                  } else if (tasks.length > 0) {
                     openDialog('genericConfirm', {
                       message: t('topbar_delete_all_confirm'),
                       isDanger: true,
-                      onConfirm: () => { void handleDeleteAll(); },
+                      onConfirm: () => {
+                        void handleDeleteAll();
+                      },
                     });
-                    closeDropdown();
-                  }}
-                  className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold"
-                >
-                  <Trash2 className="w-4 h-4 text-red-400 shrink-0" />
-                  <span>{t('topbar_delete_all')}</span>
-                </button>
+                  }
+                }}
+                className="px-3 py-1.5 text-red-500 hover:text-red-400 hover:bg-red-500/10 transition-all cursor-pointer flex items-center gap-1 text-xs font-bold"
+                title={hasSelectedTask ? t('topbar_delete_selected_tip') : t('topbar_delete_all_tip')}
+              >
+                {renderButtonContent('delete', <Trash2 className="w-4 h-4" />, t('action_delete'))}
+              </button>
+              {toolbarShowsDropdown('delete') && (
                 <button
-                  onClick={() => {
-                    openDialog('genericConfirm', {
-                      message: t('topbar_delete_completed_confirm'),
-                      isDanger: true,
-                      onConfirm: () => { void handleDeleteCompleted(); },
-                    });
-                    closeDropdown();
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleDropdown('delete');
                   }}
-                  className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold"
+                  className="px-1.5 text-red-500 hover:text-red-400 hover:bg-red-500/10 transition-all cursor-pointer flex items-center justify-center border-l border-[var(--border-color)]"
                 >
-                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                  <span>{t('topbar_delete_completed')}</span>
+                  <ChevronDown
+                    className={`w-3 h-3 transition-transform duration-200 ${openDropdown === 'delete' ? 'rotate-180' : ''}`}
+                  />
                 </button>
-              </div>
-            </>
-          )}
-        </div>
+              )}
+            </div>
+
+            {toolbarShowsDropdown('delete') && openDropdown === 'delete' && (
+              <>
+                <div className="fixed inset-0 z-40 bg-transparent" onClick={closeDropdown} />
+                <div className="absolute top-full left-0 mt-1.5 w-56 bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded-lg shadow-xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100 flex flex-col gap-0.5">
+                  <button
+                    onClick={() => {
+                      if (hasSelectedTask) openDialog('confirmDelete', selectedTask);
+                      closeDropdown();
+                    }}
+                    disabled={!hasSelectedTask}
+                    className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 className="w-4 h-4 text-red-500 shrink-0" />
+                    <span>{t('topbar_delete_selected')}</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      openDialog('genericConfirm', {
+                        message: t('topbar_delete_all_confirm'),
+                        isDanger: true,
+                        onConfirm: () => {
+                          void handleDeleteAll();
+                        },
+                      });
+                      closeDropdown();
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold"
+                  >
+                    <Trash2 className="w-4 h-4 text-red-400 shrink-0" />
+                    <span>{t('topbar_delete_all')}</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      openDialog('genericConfirm', {
+                        message: t('topbar_delete_completed_confirm'),
+                        isDanger: true,
+                        onConfirm: () => {
+                          void handleDeleteCompleted();
+                        },
+                      });
+                      closeDropdown();
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md transition-colors flex items-center gap-2.5 cursor-pointer font-bold"
+                  >
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <span>{t('topbar_delete_completed')}</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         )}
 
         <div className="h-5 w-px bg-[var(--border-color)] mx-1 shrink-0" />
 
         {/* Action: Scheduler / Organiser */}
         {toolbarButtonVisible('scheduler') && (
-        <button
-          onClick={() => {
-            openDialog('scheduler');
-          }}
-          data-dialog-trigger="true"
-          className="px-3 py-1.5 border border-[var(--border-color)] rounded-lg text-[var(--text-secondary)] hover:text-amber-400 hover:border-amber-500/20 hover:bg-amber-500/10 transition-all cursor-pointer flex items-center gap-1 text-xs font-bold shrink-0 hover:scale-[1.03] active:scale-[0.97] duration-150"
-          title={t('topbar_scheduler_tip')}
-        >
-          {renderButtonContent('scheduler', <Clock className="w-4 h-4 text-amber-500" />, t('nav_queues'), 'hidden sm:inline')}
-        </button>
+          <button
+            onClick={() => {
+              openDialog('scheduler');
+            }}
+            data-dialog-trigger="true"
+            className="px-3 py-1.5 border border-[var(--border-color)] rounded-lg text-[var(--text-secondary)] hover:text-amber-400 hover:border-amber-500/20 hover:bg-amber-500/10 transition-all cursor-pointer flex items-center gap-1 text-xs font-bold shrink-0 hover:scale-[1.03] active:scale-[0.97] duration-150"
+            title={t('topbar_scheduler_tip')}
+          >
+            {renderButtonContent(
+              'scheduler',
+              <Clock className="w-4 h-4 text-amber-500" />,
+              t('nav_queues'),
+              'hidden sm:inline',
+            )}
+          </button>
         )}
 
         {settings.ui.customButtons

@@ -16,12 +16,15 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useAppStore } from '../state/appStore';
+import { useEngineCapabilities } from '../capabilities/EngineCapabilityContext';
 import { AppThemeSettings } from '../types/desktop-ui.types';
 import { Logo } from './Logo';
 
 export const Sidebar: React.FC = () => {
   const { tasks, workspaceView, setWorkspaceView, bridge, themeSettings, updateThemeSettings, openDialog, dialog, t } =
     useAppStore();
+
+  const caps = useEngineCapabilities();
 
   const handleFilterClick = (view: typeof workspaceView) => {
     if (view === 'scheduler') {
@@ -83,6 +86,38 @@ export const Sidebar: React.FC = () => {
           </div>
           <RefreshCw className="w-3.5 h-3.5 text-[var(--text-muted)]" />
         </div>
+
+        {/* Engine Capability Status */}
+        {!caps.loading && (
+          <div className="flex items-center gap-2 px-1 py-1.5 text-[10px] text-[var(--text-muted)]">
+            <span
+              className={`inline-flex items-center gap-1 ${caps.directReady ? 'text-emerald-500' : 'text-rose-500'}`}
+              title={caps.directReady ? 'Direct engine ready' : caps.directBlockedReason() || 'Unavailable'}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${caps.directReady ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+              Direct
+            </span>
+            <span
+              className={`inline-flex items-center gap-1 ${caps.mediaReady ? 'text-emerald-500' : 'text-rose-500'}`}
+              title={caps.mediaReady ? 'Media engine ready' : caps.mediaBlockedReason() || 'Unavailable'}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${caps.mediaReady ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+              Media
+            </span>
+            {caps.ffmpegReady && (
+              <span className="inline-flex items-center gap-1 text-emerald-500">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                FFmpeg
+              </span>
+            )}
+            {!caps.ffmpegReady && caps.mediaReady && (
+              <span className="inline-flex items-center gap-1 text-rose-500">
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                FFmpeg
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Quick Filter Lists */}
         <div className="space-y-0.5">
