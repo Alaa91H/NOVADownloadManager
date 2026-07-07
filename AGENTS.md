@@ -102,6 +102,7 @@ Record every task in this exact shape so the controller can parse and execute it
 - The controller regenerates the plan when the backlog is empty and runs a periodic deep audit
   (~6h) that **appends** new tasks without disturbing the current `IN_PROGRESS` one.
 - While Dev is red, planning adds only FIX tasks (Green Gate). Never invent work — every task traces to real evidence, and each is small enough to finish in one focused cycle.
+- Plan toward the **North Star** (Charter Article XI) with the **Engineering Doctrine** (Article X): expand platforms and architectures, release channels, signing, performance, security, accessibility, and i18n. Ambition is unbounded; delivery is incremental — fix red first, prove each platform in CI before the next, never regress a shipped platform.
 
 ## Code quality standards
 - `strict: true`; no `any` (use `unknown`); explicit return types; functional components
