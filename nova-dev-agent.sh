@@ -38,25 +38,37 @@ send_telegram() {
   local now
   now=$(date +%s)
   local cooldown=120
+  local tmp
+  tmp=$(mktemp 2>/dev/null || echo "/tmp/nova-notif-$$")
 
   if [ ! -f "$CHATS_FILE" ]; then return; fi
 
+  # Write message to temp file to avoid quoting hell
+  printf '%s' "$full_msg" > "$tmp"
+
   # Check cooldown & dedup
-  local skip=false
   if [ -f "$NOTIF_LAST" ]; then
-    skip=$(python3 -c "
+    if python3 -c "
 import json, sys
-try:
-    last = json.load(open('$NOTIF_LAST'))
-    prev = last.get('$notif_type', {})
-    elapsed = $now - prev.get('ts', 0)
-    if elapsed < $cooldown:
-        sys.exit(0)  # skip — within cooldown
-    if prev.get('text', '') == '''$full_msg''':
-        sys.exit(0)  # skip — identical to last
-    sys.exit(1)  # send
-except: sys.exit(1)
-" 2>/dev/null || echo "send") && { log "DEBUG" "Notif $notif_type skipped (cooldown/dedup)"; return; } || true
+last = json.load(open('$NOTIF_LAST'))
+nt = '$notif_type'
+now = $now
+cooldown = $cooldown
+msg = open('$tmp', 'r').read()
+prev = last.get(nt, {})
+elapsed = now - prev.get('ts', 0)
+if elapsed < cooldown:
+    sys.exit(0)
+if prev.get('text', '') == msg:
+    sys.exit(0)
+sys.exit(1)
+" 2>/dev/null; then
+      :  # should send
+    else
+      log "DEBUG" "Notif $notif_type skipped"
+      rm -f "$tmp"
+      return
+    fi
   fi
 
   python3 -c "
@@ -67,16 +79,15 @@ CHATS_FILE = '$CHATS_FILE'
 NOTIF_FILE = '$NOTIF_FILE'
 NOTIF_LAST = '$NOTIF_LAST'
 NOTIF_TYPE = '$notif_type'
-MESSAGE = '''$full_msg'''
 NOW = $now
 
-# Load chat list
+MESSAGE = open('$tmp', 'r').read()
+
 try:
     chats = json.load(open(CHATS_FILE))
 except:
     sys.exit(0)
 
-# Load notification preferences
 prefs = {}
 try:
     prefs = json.load(open(NOTIF_FILE))
@@ -94,7 +105,7 @@ for chat_id in chats:
         'chat_id': chat_id,
         'text': MESSAGE,
         'parse_mode': 'Markdown',
-        'disable_notification': 'true',  # silent by default
+        'disable_notification': 'true',
     }).encode()
     try:
         urllib.request.urlopen(url, data=data, timeout=5)
@@ -102,7 +113,6 @@ for chat_id in chats:
     except:
         pass
 
-# Update last-sent tracker
 if sent_any:
     try:
         last = json.load(open(NOTIF_LAST)) if os.path.exists(NOTIF_LAST) else {}
@@ -111,6 +121,7 @@ if sent_any:
     except:
         pass
 " 2>/dev/null || true
+  rm -f "$tmp"
 }
 
 get_active_task() {
@@ -193,11 +204,9 @@ while true; do
   log "INFO" "Git sync complete"
 
   # ── Check for CI failures from last cycle ──
-  local CI_FIX=""
+  CI_FIX=""
   if [ -f "$PROJECT_DIR/.last-ci-failure" ]; then
-    local FAILED_RUN
     FAILED_RUN=$(cat "$PROJECT_DIR/.last-ci-failure")
-    local FAILURE_LOG
     FAILURE_LOG=$(gh run view "$FAILED_RUN" --repo "$GH_REPO" --log --jq '.[].text' 2>/dev/null | tail -100 || echo "unable to fetch logs")
     CI_FIX="⚠️ Previous CI run #$FAILED_RUN FAILED. Fix the issues.
 CI Logs (tail):
@@ -265,7 +274,7 @@ $FAILURE_LOG"
   fi
 
   # ── Commit & Push ──
-  local HAS_CHANGES=false
+  HAS_CHANGES=false
   git add -A 2>&1 | tee -a "$LOG_FILE" || true
   if [ -n "$(git status --porcelain)" ]; then
     git commit -m "chore: dev cycle $CYCLE_ID" 2>&1 | tee -a "$LOG_FILE" || true
@@ -279,7 +288,7 @@ $FAILURE_LOG"
   fi
 
   # ── Send ONE notification at cycle end ──
-  local CHANGES_ICON="📝" && local CHANGES_TEXT="changes pushed"
+  CHANGES_ICON="📝" && CHANGES_TEXT="changes pushed"
   if [ "$HAS_CHANGES" = false ]; then CHANGES_ICON="📭" && CHANGES_TEXT="no changes"; fi
   send_telegram "${CHANGES_ICON} **Cycle** ${CYCLE_ID:8:6} — ${CHANGES_TEXT} (${DURATION_MIN}m ${DURATION_SEC}s)" "" "cycle_done"
 
