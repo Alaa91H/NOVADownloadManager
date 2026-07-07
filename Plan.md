@@ -595,7 +595,8 @@ P26-07-07
 - Completed: pending
 - Progress:
   - Cycle 2026-07-07: +25 unit tests (idUtils, timeUtils, expanded initialData). 9 test files, 60 tests total.
-  - Next: Cover state stores (appStore, useTaskStore, useQueueStore) and hooks.
+  - Cycle 2026-07-07 (cycle 2): +42 unit tests (useQueueStore helpers, mergeDaemonTasks, useTaskSortFilter, useMultiSelection). 13 test files, 102 tests total. Fix pre-existing TS errors in initialData.test.ts. Exported pure helper functions from useQueueStore.ts.
+  - Next: Cover appStore provider, useColumnState hook, remaining components.
 
 ---
 

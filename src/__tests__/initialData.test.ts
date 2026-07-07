@@ -83,7 +83,7 @@ describe('initialSettings', () => {
 
 describe('fileTypeMetadata', () => {
   it('has entries for all file types', () => {
-    const types = ['document', 'program', 'compressed', 'video', 'audio', 'other'];
+    const types = ['document', 'program', 'compressed', 'video', 'audio', 'other'] as const;
     for (const type of types) {
       expect(fileTypeMetadata[type]).toBeDefined();
       expect(fileTypeMetadata[type].label).toBeDefined();
@@ -100,7 +100,7 @@ describe('fileTypeMetadata', () => {
 
 describe('statusMetadata', () => {
   it('has entries for all download statuses', () => {
-    const statuses = ['downloading', 'completed', 'paused', 'queued', 'error'];
+    const statuses = ['downloading', 'completed', 'paused', 'queued', 'error'] as const;
     for (const status of statuses) {
       expect(statusMetadata[status]).toBeDefined();
       expect(statusMetadata[status].label).toBeDefined();

@@ -6,7 +6,7 @@ import { createLocalId } from '../utils/idUtils';
 
 const allScheduleDays = [0, 1, 2, 3, 4, 5, 6];
 
-const normalizeScheduleDays = (days: unknown): number[] => {
+export const normalizeScheduleDays = (days: unknown): number[] => {
   if (!Array.isArray(days)) return allScheduleDays;
   const normalized = days
     .filter((day): day is number => typeof day === 'number' && Number.isInteger(day) && day >= 0 && day <= 6)
@@ -15,7 +15,7 @@ const normalizeScheduleDays = (days: unknown): number[] => {
   return normalized.length > 0 ? normalized : allScheduleDays;
 };
 
-const inferScheduleType = (queue: Partial<Queue>, days: number[]): Queue['scheduleType'] => {
+export const inferScheduleType = (queue: Partial<Queue>, days: number[]): Queue['scheduleType'] => {
   if (queue.scheduleType === 'once' || queue.scheduleType === 'daily' || queue.scheduleType === 'custom') {
     return queue.scheduleType;
   }
@@ -24,7 +24,7 @@ const inferScheduleType = (queue: Partial<Queue>, days: number[]): Queue['schedu
   return 'custom';
 };
 
-const normalizeQueue = (queue: Partial<Queue>, fallback?: Queue): Queue => {
+export const normalizeQueue = (queue: Partial<Queue>, fallback?: Queue): Queue => {
   const base = fallback || initialQueues[0];
   const days = normalizeScheduleDays(queue.days);
   return {
