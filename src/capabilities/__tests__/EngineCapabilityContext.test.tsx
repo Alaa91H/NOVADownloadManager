@@ -90,7 +90,7 @@ describe('EngineCapabilityProvider', () => {
     expect(screen.getByTestId('directReady').textContent).toBe('true');
     expect(screen.getByTestId('mediaReady').textContent).toBe('true');
     expect(screen.getByTestId('ffmpegReady').textContent).toBe('true');
-    expect(screen.getByTestId('directEngineId).textContent).toBe('libcurl-multi');
+    expect(screen.getByTestId('directEngineId').textContent).toBe('libcurl-multi');
     expect(screen.getByTestId('mediaEngineId').textContent).toBe('yt-dlp');
     expect(screen.getByTestId('postProcessorId').textContent).toBe('ffmpeg');
     expect(screen.getByTestId('directProtocols').textContent).toBe('http,https,ftp');

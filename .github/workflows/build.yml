@@ -101,6 +101,11 @@ jobs:
         continue-on-error: true
         run: pnpm run i18n:sync
 
+      - name: Fill missing translation keys
+        id: i18n_fill
+        continue-on-error: true
+        run: pnpm run i18n:fill
+
       - name: Validate translations
         id: i18n_validate
         continue-on-error: true
@@ -136,6 +141,7 @@ jobs:
             @{ Name = 'Browser extension release checks'; Outcome = '${{ steps.ext_release_checks.outcome }}' },
             @{ Name = 'Browser extension production build'; Outcome = '${{ steps.ext_build.outcome }}' },
             @{ Name = 'Synchronize translation indexes';  Outcome = '${{ steps.i18n_sync.outcome }}' },
+            @{ Name = 'Fill missing translation keys';    Outcome = '${{ steps.i18n_fill.outcome }}' },
             @{ Name = 'Validate translations';            Outcome = '${{ steps.i18n_validate.outcome }}' },
             @{ Name = 'TypeScript check';                 Outcome = '${{ steps.ts_check.outcome }}' },
             @{ Name = 'ESLint';                           Outcome = '${{ steps.eslint.outcome }}' },

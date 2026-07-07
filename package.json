@@ -38,6 +38,7 @@
     "i18n:sync": "tsx scripts/sync-i18n-index.mjs",
     "i18n:validate": "tsx scripts/validate-i18n.mjs",
     "i18n:validate-primary": "tsx scripts/validate-primary-i18n.mjs",
+    "i18n:fill": "tsx scripts/fill-missing-i18n.mjs",
     "extension:install": "pnpm install --frozen-lockfile",
     "extension:build": "pnpm --filter nova-browser-extension build",
     "extension:package": "pnpm --filter nova-browser-extension build:zip",

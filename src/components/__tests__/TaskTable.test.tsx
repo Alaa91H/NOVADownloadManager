@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createMockStore } from '../../test/mockStore';
 
@@ -92,19 +92,22 @@ describe('TaskTable', () => {
 
   it('shows empty state', () => {
     render(<TaskTable />);
-    expect(screen.getByText('No Downloads')).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('No Downloads')).toBeInTheDocument();
   });
 
   it('renders task rows', () => {
     mockStoreRef.current = createMockStore({ tasks: [makeTask()] });
     render(<TaskTable />);
-    expect(screen.getByText('test-file.zip')).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('test-file.zip')).toBeInTheDocument();
   });
 
   it('shows progress percentage', () => {
     mockStoreRef.current = createMockStore({ tasks: [makeTask()] });
     render(<TaskTable />);
-    expect(screen.getByText('50%')).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('50%')).toBeInTheDocument();
   });
 
   it('shows completed status pill', () => {
@@ -112,7 +115,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ status: 'completed', downloadedBytes: 1024 * 1024 })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('Completed')).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('Completed')).toBeInTheDocument();
   });
 
   it('shows paused status pill', () => {
@@ -120,7 +124,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ status: 'paused' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('Paused')).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('Paused')).toBeInTheDocument();
   });
 
   it('shows error status pill', () => {
@@ -128,7 +133,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ status: 'error' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('Error')).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('Error')).toBeInTheDocument();
   });
 
   it('shows queued status pill', () => {
@@ -136,7 +142,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ status: 'queued' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('Queued')).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('Queued')).toBeInTheDocument();
   });
 
   it('shows speed for downloading task', () => {
@@ -144,7 +151,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ status: 'downloading', speedBytesPerSec: 204800 })],
     });
     render(<TaskTable />);
-    expect(screen.getByText(/200/)).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText(/200/)).toBeInTheDocument();
   });
 
   it('formats size column', () => {
@@ -183,8 +191,9 @@ describe('TaskTable', () => {
     const tasks = [makeTask({ id: 't1', name: 'file1.zip' }), makeTask({ id: 't2', name: 'file2.zip' })];
     mockStoreRef.current = createMockStore({ tasks });
     render(<TaskTable />);
-    expect(screen.getByText('file1.zip')).toBeInTheDocument();
-    expect(screen.getByText('file2.zip')).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('file1.zip')).toBeInTheDocument();
+    expect(within(table).getByText('file2.zip')).toBeInTheDocument();
   });
 
   it('shows batch action bar when task checked', () => {
@@ -213,38 +222,42 @@ describe('TaskTable', () => {
     render(<TaskTable />);
     const checkbox = screen.getAllByRole('checkbox')[1];
     fireEvent.click(checkbox);
-    fireEvent.click(screen.getByText('Delete'));
+    fireEvent.click(screen.getAllByText('Delete')[0]);
     expect(openDialog).toHaveBeenCalledWith('genericConfirm', expect.objectContaining({ isDanger: true }));
   });
 
   it('opens context menu on right click', () => {
     mockStoreRef.current = createMockStore({ tasks: [makeTask()] });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const table = screen.getByRole('table');
+    const row = within(table).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
-    expect(screen.getByText('Properties')).toBeInTheDocument();
+    expect(screen.getAllByText('Properties')[0]).toBeInTheDocument();
   });
 
   it('context menu shows stop for downloading task', () => {
     mockStoreRef.current = createMockStore({ tasks: [makeTask({ status: 'downloading' })] });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const table = screen.getByRole('table');
+    const row = within(table).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
-    expect(screen.getByText('Stop')).toBeInTheDocument();
+    expect(screen.getAllByText('Stop')[0]).toBeInTheDocument();
   });
 
   it('context menu shows resume for paused task', () => {
     mockStoreRef.current = createMockStore({ tasks: [makeTask({ status: 'paused' })] });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const table = screen.getByRole('table');
+    const row = within(table).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
-    expect(screen.getByText('Resume')).toBeInTheDocument();
+    expect(screen.getAllByText('Resume')[0]).toBeInTheDocument();
   });
 
   it('context menu shows retry for error task', () => {
     mockStoreRef.current = createMockStore({ tasks: [makeTask({ status: 'error' })] });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const table = screen.getByRole('table');
+    const row = within(table).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
     expect(screen.getByText('Retry Download')).toBeInTheDocument();
   });
@@ -252,7 +265,8 @@ describe('TaskTable', () => {
   it('context menu shows open file for completed task', () => {
     mockStoreRef.current = createMockStore({ tasks: [makeTask({ status: 'completed' })] });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const table = screen.getByRole('table');
+    const row = within(table).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
     expect(screen.getByText('Open File')).toBeInTheDocument();
   });
@@ -271,7 +285,8 @@ describe('TaskTable', () => {
       },
     });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const table = screen.getByRole('table');
+    const row = within(table).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
     expect(screen.getByText('Send to Telegram')).toBeInTheDocument();
   });
@@ -281,7 +296,8 @@ describe('TaskTable', () => {
     Object.assign(navigator, { clipboard: { writeText } });
     mockStoreRef.current = createMockStore({ tasks: [makeTask()] });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const table = screen.getByRole('table');
+    const row = within(table).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
     fireEvent.click(screen.getByText('Copy URL'));
     expect(writeText).toHaveBeenCalledWith('https://example.com/test-file.zip');
@@ -291,9 +307,10 @@ describe('TaskTable', () => {
     const deleteTask = vi.fn();
     mockStoreRef.current = createMockStore({ tasks: [makeTask()], deleteTask });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const table = screen.getByRole('table');
+    const row = within(table).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
-    fireEvent.click(screen.getByText('Delete'));
+    fireEvent.click(screen.getAllByText('Delete')[0]);
     expect(deleteTask).toHaveBeenCalledWith('task-1', false);
   });
 
@@ -301,9 +318,10 @@ describe('TaskTable', () => {
     const resumeTask = vi.fn();
     mockStoreRef.current = createMockStore({ tasks: [makeTask({ status: 'paused' })], resumeTask });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const table = screen.getByRole('table');
+    const row = within(table).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
-    fireEvent.click(screen.getByText('Resume'));
+    fireEvent.click(screen.getAllByText('Resume')[0]);
     expect(resumeTask).toHaveBeenCalledWith('task-1');
   });
 
@@ -311,9 +329,10 @@ describe('TaskTable', () => {
     const pauseTask = vi.fn();
     mockStoreRef.current = createMockStore({ tasks: [makeTask({ status: 'downloading' })], pauseTask });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const table = screen.getByRole('table');
+    const row = within(table).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
-    fireEvent.click(screen.getByText('Stop'));
+    fireEvent.click(screen.getAllByText('Stop')[0]);
     expect(pauseTask).toHaveBeenCalledWith('task-1');
   });
 
@@ -321,9 +340,10 @@ describe('TaskTable', () => {
     const openDialog = vi.fn();
     mockStoreRef.current = createMockStore({ tasks: [makeTask()], openDialog });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const table = screen.getByRole('table');
+    const row = within(table).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
-    fireEvent.click(screen.getByText('Properties'));
+    fireEvent.click(screen.getAllByText('Properties')[0]);
     expect(openDialog).toHaveBeenCalledWith('taskProperties', expect.objectContaining({ id: 'task-1' }));
   });
 
@@ -331,9 +351,10 @@ describe('TaskTable', () => {
     mockCaps.mediaReady = false;
     mockStoreRef.current = createMockStore({ tasks: [makeTask({ status: 'paused', engine: 'yt-dlp' })] });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const table = screen.getByRole('table');
+    const row = within(table).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
-    const resumeBtn = screen.getByText('Resume').closest('button') || screen.getByText('Resume');
+    const resumeBtn = screen.getAllByText('Resume')[0].closest('button') || screen.getAllByText('Resume')[0];
     expect(resumeBtn.closest('[class*="disabled"]') || resumeBtn).toBeDefined();
   });
 
@@ -344,7 +365,8 @@ describe('TaskTable', () => {
       openTaskFile,
     });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const table = screen.getByRole('table');
+    const row = within(table).getByText('test-file.zip').closest('tr')!;
     fireEvent.doubleClick(row);
     expect(openTaskFile).toHaveBeenCalledWith('task-1');
   });
@@ -356,7 +378,8 @@ describe('TaskTable', () => {
       openDialog,
     });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const table = screen.getByRole('table');
+    const row = within(table).getByText('test-file.zip').closest('tr')!;
     fireEvent.doubleClick(row);
     expect(openDialog).toHaveBeenCalledWith('activeProgress', expect.objectContaining({ id: 'task-1' }));
   });
@@ -371,7 +394,7 @@ describe('TaskTable', () => {
     render(<TaskTable />);
     const checkboxes = screen.getAllByRole('checkbox');
     fireEvent.click(checkboxes[0]);
-    fireEvent.click(screen.getByText('Resume'));
+    fireEvent.click(screen.getAllByText('Resume')[0]);
     expect(resumeTask).toHaveBeenCalledTimes(2);
   });
 
@@ -385,7 +408,7 @@ describe('TaskTable', () => {
     render(<TaskTable />);
     const checkboxes = screen.getAllByRole('checkbox');
     fireEvent.click(checkboxes[0]);
-    fireEvent.click(screen.getByText('Stop'));
+    fireEvent.click(screen.getAllByText('Stop')[0]);
     expect(pauseTask).toHaveBeenCalledTimes(2);
   });
 
@@ -407,7 +430,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ url: 'https://example.com/file.zip' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('https://example.com/file.zip')).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('https://example.com/file.zip')).toBeInTheDocument();
   });
 
   it('shows retries count for error task', () => {
@@ -416,7 +440,8 @@ describe('TaskTable', () => {
     });
     render(<TaskTable />);
     fireEvent.click(screen.getByTitle('Customize columns'));
-    expect(screen.getByText('3')).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('3')).toBeInTheDocument();
   });
 
   it('shows smart category for program type', () => {
@@ -424,7 +449,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ fileType: 'program' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('Programs')).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('Programs')).toBeInTheDocument();
   });
 
   it('shows smart category for video type', () => {
@@ -432,7 +458,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ fileType: 'video' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('Video')).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('Video')).toBeInTheDocument();
   });
 
   it('shows smart category for audio type', () => {
@@ -440,7 +467,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ fileType: 'audio' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('Audio')).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('Audio')).toBeInTheDocument();
   });
 
   it('shows smart category for document type', () => {
@@ -448,7 +476,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ fileType: 'document' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('Documents')).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('Documents')).toBeInTheDocument();
   });
 
   it('shows smart category for other type', () => {
@@ -456,7 +485,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ fileType: 'other' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('Other')).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('Other')).toBeInTheDocument();
   });
 
   it('shows CRC32 for completed task', () => {
@@ -465,7 +495,8 @@ describe('TaskTable', () => {
     });
     render(<TaskTable />);
     fireEvent.click(screen.getByTitle('Customize columns'));
-    expect(screen.getByText('E89FA21B')).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('E89FA21B')).toBeInTheDocument();
   });
 
   it('shows -- for CRC32 when not completed', () => {
@@ -482,7 +513,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ status: 'completed', dateAdded: '2026-07-07' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('2026-07-07')).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('2026-07-07')).toBeInTheDocument();
   });
 
   it('highlights selected row', () => {
@@ -491,7 +523,8 @@ describe('TaskTable', () => {
       selectedTaskId: 'task-1',
     });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const table = screen.getByRole('table');
+    const row = within(table).getByText('test-file.zip').closest('tr')!;
     expect(row.className).toContain('selected');
   });
 
@@ -501,6 +534,7 @@ describe('TaskTable', () => {
     });
     render(<TaskTable />);
     fireEvent.click(screen.getByTitle('Customize columns'));
-    expect(screen.getByText(/Auto/)).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText(/Auto/)).toBeInTheDocument();
   });
 });
