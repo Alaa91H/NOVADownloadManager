@@ -61,7 +61,7 @@ export const Sidebar: React.FC = () => {
           <div>
             <h1 className="text-xs font-bold text-[var(--text-primary)]">NOVA Download Manager</h1>
             <p className="text-[9px] text-[var(--accent-primary)] font-extrabold uppercase font-mono tracking-wider">
-              NOVA Engine
+              {t('app_title_nova_engine')}
             </p>
           </div>
         </div>
@@ -92,26 +92,26 @@ export const Sidebar: React.FC = () => {
           <div className="flex items-center gap-2 px-1 py-1.5 text-[10px] text-[var(--text-muted)]">
             <span
               className={`inline-flex items-center gap-1 ${caps.directReady ? 'text-emerald-500' : 'text-rose-500'}`}
-              title={caps.directReady ? 'Direct engine ready' : caps.directBlockedReason() || 'Unavailable'}
+              title={caps.directReady ? t('engine_direct_ready') : caps.directBlockedReason() || t('engine_direct_unavailable')}
             >
               <span className={`w-1.5 h-1.5 rounded-full ${caps.directReady ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-              Direct
+              {t('engine_direct_title')}
             </span>
             <span
               className={`inline-flex items-center gap-1 ${caps.mediaReady ? 'text-emerald-500' : 'text-rose-500'}`}
-              title={caps.mediaReady ? 'Media engine ready' : caps.mediaBlockedReason() || 'Unavailable'}
+              title={caps.mediaReady ? t('engine_media_ready') : caps.mediaBlockedReason() || t('engine_media_unavailable')}
             >
               <span className={`w-1.5 h-1.5 rounded-full ${caps.mediaReady ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-              Media
+              {t('engine_media_title')}
             </span>
             {caps.ffmpegReady && (
-              <span className="inline-flex items-center gap-1 text-emerald-500">
+              <span className="inline-flex items-center gap-1 text-emerald-500" title={t('engine_ffmpeg_ready')}>
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                 FFmpeg
               </span>
             )}
             {!caps.ffmpegReady && caps.mediaReady && (
-              <span className="inline-flex items-center gap-1 text-rose-500">
+              <span className="inline-flex items-center gap-1 text-rose-500" title={t('engine_ffmpeg_unavailable')}>
                 <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
                 FFmpeg
               </span>
@@ -261,19 +261,20 @@ export const Sidebar: React.FC = () => {
 
         {/* Open workspace layouts */}
         <div className="space-y-0.5">
-          <h3 className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] px-1">Web Browser</h3>
+          <h3 className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] px-1">{t('sidebar_web_browser_section')}</h3>
 
           <button
             onClick={() => {
               window.open('https://arab-downloads.net/home', '_blank');
             }}
             className="w-full flex items-center justify-between px-2 py-1.5 rounded text-[11px] transition-all text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] cursor-pointer"
+            title={t('sidebar_system_web_browser')}
           >
             <span className="flex items-center gap-1.5">
-              <Globe className="w-3.5 h-3.5 text-sky-500" /> System Web Browser
+              <Globe className="w-3.5 h-3.5 text-sky-500" /> {t('sidebar_system_web_browser')}
             </span>
             <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 px-1 py-0.5 rounded text-[9px] font-bold">
-              OS
+              {t('sidebar_os_badge')}
             </span>
           </button>
         </div>

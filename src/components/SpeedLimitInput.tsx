@@ -100,6 +100,7 @@ export const SpeedLimitInput: React.FC<SpeedLimitInputProps> = ({ maxSpeedKbs, o
             type="button"
             onClick={increment}
             className="flex-1 flex items-center justify-center hover:bg-[var(--border-color-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+            aria-label="Increase speed"
           >
             <ChevronUp className={compact ? 'w-2.5 h-2.5' : 'w-3 h-3'} />
           </button>
@@ -107,6 +108,7 @@ export const SpeedLimitInput: React.FC<SpeedLimitInputProps> = ({ maxSpeedKbs, o
             type="button"
             onClick={decrement}
             className="flex-1 flex items-center justify-center hover:bg-[var(--border-color-hover)] border-t border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+            aria-label="Decrease speed"
           >
             <ChevronDown className={compact ? 'w-2.5 h-2.5' : 'w-3 h-3'} />
           </button>
@@ -127,6 +129,7 @@ export const SpeedLimitInput: React.FC<SpeedLimitInputProps> = ({ maxSpeedKbs, o
               ? 'bg-[var(--accent-primary)] text-white'
               : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
           } ${compact ? 'text-[8.5px]' : 'text-[10px]'}`}
+          aria-label="Switch to KB/s"
         >
           KB
         </button>
@@ -140,6 +143,7 @@ export const SpeedLimitInput: React.FC<SpeedLimitInputProps> = ({ maxSpeedKbs, o
               ? 'bg-[var(--accent-primary)] text-white'
               : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
           } ${compact ? 'text-[8.5px]' : 'text-[10px]'}`}
+          aria-label="Switch to MB/s"
         >
           MB
         </button>

@@ -255,6 +255,7 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
                 onClick={handleMinimizeToTaskbar}
                 className="w-7 h-5 flex items-center justify-center hover:bg-slate-800 text-emerald-500 hover:text-emerald-400 transition-colors cursor-pointer shrink-0"
                 title={t('modal_minimize_taskbar')}
+                aria-label={t('aria_minimize_taskbar')}
               >
                 <svg
                   className="w-3 h-3 animate-pulse"
@@ -277,6 +278,7 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
               }}
               className={`w-7 h-5 flex items-center justify-center hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer ${isMinimized ? 'bg-amber-500/10 text-amber-500 hover:bg-amber-500/20' : ''}`}
               title={isMinimized ? t('modal_restore') : t('win_minimize')}
+              aria-label={isMinimized ? t('aria_restore') : t('aria_minimize')}
             >
               <span className="block w-1.5 h-[1.2px] bg-current" />
             </button>
@@ -288,6 +290,7 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
                 }}
                 className="w-7 h-5 flex items-center justify-center hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
                 title={isMaximized ? t('modal_restore_size') : t('win_maximize')}
+                aria-label={isMaximized ? t('aria_restore_size') : t('aria_maximize')}
               >
                 <span className="block w-1.5 h-1.5 border-[1.2px] border-current rounded-xs" />
               </button>
@@ -297,6 +300,7 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
               onClick={handleCloseAttempt}
               className="w-7 h-5 flex items-center justify-center hover:bg-red-600 text-slate-400 hover:text-white transition-colors cursor-pointer"
               title={t('btn_close')}
+              aria-label={t('aria_close')}
             >
               <X className="w-2.5 h-2.5" />
             </button>

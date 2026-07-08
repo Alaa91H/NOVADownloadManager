@@ -460,6 +460,7 @@ const AppShellInner: React.FC = () => {
             }}
             className="h-full px-3 hover:bg-[var(--bg-hover)] transition-colors flex items-center justify-center cursor-pointer"
             title={t('win_minimize')}
+            aria-label={t('aria_minimize')}
           >
             <Minus className="w-3 h-3 text-[var(--text-secondary)]" />
           </button>
@@ -471,6 +472,7 @@ const AppShellInner: React.FC = () => {
             }}
             className="h-full px-3 hover:bg-[var(--bg-hover)] transition-colors flex items-center justify-center cursor-pointer"
             title={t('win_maximize')}
+            aria-label={t('aria_maximize')}
           >
             <Square className="w-3 h-3 text-[var(--text-secondary)]" />
           </button>
@@ -482,6 +484,7 @@ const AppShellInner: React.FC = () => {
             }}
             className="h-full px-3 hover:bg-red-500 hover:text-white transition-colors flex items-center justify-center cursor-pointer"
             title={t('btn_close')}
+            aria-label={t('aria_close')}
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -535,6 +538,7 @@ const AppShellInner: React.FC = () => {
                 removeToast(toast.id);
               }}
               className="text-[var(--text-muted)] hover:text-[var(--text-primary)] p-0.5 rounded cursor-pointer"
+              aria-label={t('toast_dismiss')}
             >
               <X className="w-3.5 h-3.5" />
             </button>

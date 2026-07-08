@@ -231,10 +231,10 @@ P26-07-07
 
 ### UI-002 — Comprehensive button translation & tooltip audit
 
-- Status: `[ ] PLANNED`
+- Status: `[/] IN_PROGRESS`
 - Priority: high
 - Type: refactor
-- Started: pending
+- Started: 2026-07-08
 - Completed: pending
 - Objective:
   - Find EVERY button, icon, clickable element, menu item, and label across ALL components. Ensure all have: proper i18n translation key, tooltip describing the action, and aria-label for accessibility.
@@ -249,6 +249,15 @@ P26-07-07
   3. **Tooltip addition**: Add `title` attribute or custom Tooltip component to every icon-only button. Tooltip text should come from translations.
   4. **Aria-labels**: Add meaningful `aria-label` to all icon buttons, progress bars, and interactive elements for accessibility.
   5. **Description**: For complex buttons (e.g., speed limiter, queue selector), add short helper text below or on hover.
+- Progress:
+  - ✅ Button inventory completed: 15 files, 150+ hardcoded strings, ~12 icon buttons missing aria-labels
+  - ✅ Sidebar hardcoded strings fixed (NOVA Engine, Web Browser, engine labels → translated)
+  - ✅ Window control buttons (AppShell, Modal) now have aria-labels
+  - ✅ SpeedLimitInput stepper/unit buttons now have aria-labels
+  - ✅ TimePicker labels translated
+  - ✅ Added translation keys to en.ts and ar.ts
+  - ✅ tsc --noEmit clean
+- Cycle 2026-07-08 (round 1): Fixed Sidebar (7 hardcoded strings → t() calls), added aria-labels to 12 icon-only buttons across AppShell, Modal, SpeedLimitInput; translated TimePicker labels; added 18 new translation keys to en.ts/ar.ts.
 - Files affected:
   - `src/components/TopBar.tsx`, `StatusBar.tsx`, `Sidebar.tsx`, `TaskTable.tsx`
   - `src/lib/i18n/en.ts`, `src/lib/i18n/ar.ts`

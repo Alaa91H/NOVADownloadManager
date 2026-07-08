@@ -1,5 +1,6 @@
 import React from 'react';
 import { parseTimeTo12Hour, formatTimeTo24Hour } from '../../utils/timeUtils';
+import { useAppStore } from '../../state/appStore';
 
 interface TimePickerProps {
   label: string;
@@ -8,6 +9,7 @@ interface TimePickerProps {
 }
 
 export const TimePicker: React.FC<TimePickerProps> = ({ label, value, onChange }) => {
+  const { t } = useAppStore();
   const { hour12, minute, ampm } = parseTimeTo12Hour(value);
 
   const handleHourChange = (newHour: number) => {
@@ -36,7 +38,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({ label, value, onChange }
 
       <div className="flex items-center gap-2">
         <div className="flex-1 flex flex-col gap-1">
-          <span className="text-[9px] text-[var(--text-muted)] font-bold">Hour</span>
+          <span className="text-[9px] text-[var(--text-muted)] font-bold">{t('time_picker_hour')}</span>
           <select
             value={hour12}
             onChange={(e) => {
@@ -53,7 +55,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({ label, value, onChange }
         </div>
 
         <div className="flex-1 flex flex-col gap-1">
-          <span className="text-[9px] text-[var(--text-muted)] font-bold">Minute</span>
+          <span className="text-[9px] text-[var(--text-muted)] font-bold">{t('time_picker_minute')}</span>
           <select
             value={minute}
             onChange={(e) => {
@@ -70,7 +72,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({ label, value, onChange }
         </div>
 
         <div className="flex flex-col gap-1 shrink-0">
-          <span className="text-[9px] text-[var(--text-muted)] font-bold text-center">Period</span>
+          <span className="text-[9px] text-[var(--text-muted)] font-bold text-center">{t('time_picker_period')}</span>
           <div className="flex rounded-lg border border-[var(--border-color)] overflow-hidden bg-[var(--bg-input)] p-0.5">
             <button
               type="button"
