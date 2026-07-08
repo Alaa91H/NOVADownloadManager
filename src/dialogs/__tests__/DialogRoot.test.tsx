@@ -76,6 +76,9 @@ describe('DialogRoot', () => {
           nav_browser_integration: 'Browser Integration',
           action_delete: 'Delete',
           app_name: 'NOVA',
+          btn_close: 'Close',
+          win_minimize: 'Minimize',
+          modal_minimized_prefix: 'Minimized:',
         };
         return map[k] || k;
       },
@@ -206,7 +209,7 @@ describe('DialogRoot', () => {
   it('renders fallback title when activeProgress payload has no task info', () => {
     storeRef.current = {
       ...storeRef.current,
-      dialog: { active: 'activeProgress', payload: {} },
+      dialog: { active: 'activeProgress', payload: null },
     };
     render(<DefaultDialogRoot />);
     expect(screen.getByText('Properties')).toBeInTheDocument();

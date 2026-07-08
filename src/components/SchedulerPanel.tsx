@@ -32,6 +32,14 @@ export const SchedulerPanel: React.FC = () => {
   const { tasks, queues, updateQueue, resumeTask, pauseTask, addToast, addQueue, deleteQueue, removeTaskFromQueue, t } =
     useAppStore();
 
+  if (queues.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3">
+        <p className="text-xs text-[var(--text-secondary)]">{t('sched_no_queues')}</p>
+      </div>
+    );
+  }
+
   const [selectedQueueId, setSelectedQueueId] = useState<string>('main');
   const [prevQueuesCount, setPrevQueuesCount] = useState(queues.length);
   const [queueToDeleteId, setQueueToDeleteId] = React.useState<string | null>(null);
@@ -46,15 +54,6 @@ export const SchedulerPanel: React.FC = () => {
     setPrevQueuesCount(queues.length);
   }
   const selectedQueue = queues.find((q) => q.id === selectedQueueId) || queues[0];
-
-  if (!selectedQueue) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-[var(--text-secondary)] gap-2">
-        <AlertCircle className="w-8 h-8" />
-        <p className="text-sm">{t('sched_no_queues') || 'No queues available'}</p>
-      </div>
-    );
-  }
 
   const [name, setName] = useState(selectedQueue.name || 'Main Download Queue');
   const [startTime, setStartTime] = useState(selectedQueue.startTime || '02:00');
@@ -137,14 +136,6 @@ export const SchedulerPanel: React.FC = () => {
     selectedQueueId,
     updateQueue,
   ]);
-
-  if (queues.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full gap-3">
-        <p className="text-xs text-[var(--text-secondary)]">{t('sched_no_queues')}</p>
-      </div>
-    );
-  }
 
   const queueTasks = tasks.filter((t) => t.queueId === selectedQueueId);
   const orderedQueueTasks = [...queueTasks].sort((a, b) => {

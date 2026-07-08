@@ -6,10 +6,17 @@ vi.mock('../../../state/appStore', () => ({
   useAppStore: () => storeRef.current,
 }));
 
+const { mockProbeMedia } = vi.hoisted(() => {
+  const fn = vi.fn().mockImplementation(
+    () => new Promise((_, reject) => setTimeout(() => reject(new Error('No URL provided')), 100)),
+  );
+  return { mockProbeMedia: fn };
+});
+
 vi.mock('../../../api/novaClient', () => ({
   novaClient: {
     checkFfmpeg: vi.fn().mockResolvedValue({ available: true }),
-    probeMedia: vi.fn().mockRejectedValue(new Error('No URL provided')),
+    probeMedia: mockProbeMedia,
     probePlaylist: vi.fn().mockRejectedValue(new Error('No URL provided')),
   },
 }));
@@ -56,6 +63,10 @@ const { storeRef, mockCloseDialog, mockAddTask, mockAddToast, mockOpenDialog } =
 describe('YoutubeDownloadDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockEngineCapabilities.mediaReady = true;
+    mockEngineCapabilities.directReady = true;
+    mockEngineCapabilities.postProcessingReady = true;
+    mockEngineCapabilities.mediaBlockedReason = (): string | null => null;
     storeRef.current = {
       dialog: { active: 'youtubeDownload', payload: null },
       closeDialog: mockCloseDialog,
@@ -131,6 +142,8 @@ describe('YoutubeDownloadDialog', () => {
     mockEngineCapabilities.mediaBlockedReason = () => 'yt-dlp is not installed';
     render(<YoutubeDownloadDialog />);
     expect(screen.getByText(/yt-dlp is not ready/)).toBeInTheDocument();
+    const input = document.getElementById('yt-url') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'https://example.com/video' } });
     fireEvent.click(screen.getByText('Start Download'));
     expect(mockAddToast).toHaveBeenCalledWith('error', 'Media engine unavailable', 'yt-dlp is not installed');
   });
@@ -151,19 +164,19 @@ describe('YoutubeDownloadDialog', () => {
 
   it('renders video and audio mode buttons', () => {
     render(<YoutubeDownloadDialog />);
-    expect(screen.getByText('Video')).toBeInTheDocument();
-    expect(screen.getByText('Audio')).toBeInTheDocument();
+    expect(screen.getByText('Video & Audio')).toBeInTheDocument();
+    expect(screen.getByText('Audio Only')).toBeInTheDocument();
   });
 
   it('switches to audio mode when audio button clicked', () => {
     render(<YoutubeDownloadDialog />);
-    fireEvent.click(screen.getByText('Audio'));
+    fireEvent.click(screen.getByText('Audio Only'));
     expect(screen.getByText('Audio Format')).toBeInTheDocument();
   });
 
   it('renders advanced settings section', () => {
     render(<YoutubeDownloadDialog />);
-    expect(screen.getByText(/Advanced Options/)).toBeInTheDocument();
+    expect(screen.getByText('Advanced Media Options')).toBeInTheDocument();
   });
 
   it('calls closeDialog on cancel', () => {
@@ -186,8 +199,7 @@ describe('YoutubeDownloadDialog', () => {
 
   it('renders subtitle options', () => {
     render(<YoutubeDownloadDialog />);
-    fireEvent.click(screen.getByText(/Advanced Options/));
-    expect(screen.getByText('Download Subtitles')).toBeInTheDocument();
+    expect(screen.getByText('Download subtitles')).toBeInTheDocument();
   });
 
   it('renders format selector section', () => {

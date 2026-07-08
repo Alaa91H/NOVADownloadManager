@@ -186,6 +186,8 @@ export const Switch: React.FC<SwitchProps> = ({ checked, onChange, label, id }) 
     >
       {label && <span className="text-[var(--text-secondary)] text-[11px] font-semibold">{label}</span>}
       <div
+        role="switch"
+        aria-checked={checked}
         onClick={() => {
           onChange(!checked);
         }}

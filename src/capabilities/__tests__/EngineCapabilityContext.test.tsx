@@ -1,8 +1,8 @@
 import React from 'react';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EngineCapabilityProvider, useEngineCapabilities } from '../EngineCapabilityContext';
-import type { DirectDownloadOptions, MediaDownloadOptions } from '../../types/desktop-ui.types';
+import type { DirectDownloadOptions } from '../../types/desktop-ui.types';
 
 const TestConsumer: React.FC = () => {
   const caps = useEngineCapabilities();
@@ -141,9 +141,9 @@ describe('EngineCapabilityProvider', () => {
       },
     });
 
-    let caps: ReturnType<typeof useEngineCapabilities> | null = null;
+    const capsHolder: { current: ReturnType<typeof useEngineCapabilities> | null } = { current: null };
     const CaptureCaps: React.FC = () => {
-      caps = useEngineCapabilities();
+      capsHolder.current = useEngineCapabilities();
       return null;
     };
 
@@ -154,10 +154,10 @@ describe('EngineCapabilityProvider', () => {
     );
 
     await vi.waitFor(() => {
-      expect(caps?.loading).toBe(false);
+      expect(capsHolder.current?.loading).toBe(false);
     });
 
-    const sanitized = caps!.sanitizeDirectOptions({
+    const sanitized = capsHolder.current!.sanitizeDirectOptions({
       userAgent: 'test',
       referer: 'http://example.com',
       proxy: 'http://proxy:8080',
