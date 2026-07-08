@@ -274,7 +274,16 @@ P26-07-07
   - Fix: Moved all hooks before the `if (queues.length === 0)` early return. Added `if (!selectedQueue) return null` guard after all hooks for TypeScript narrowing.
   - Preflight: `tsc --noEmit`: clean | `eslint SchedulerPanel.tsx`: clean | `SchedulerPanel.test.tsx`: 20/20
   - Push: pushed to Dev at 2026-07-08
-- Next cycle: Continue dialog audit (AddDownloadDialog, YoutubeDownloadDialog, ActiveProgressDialog — highest count of hardcoded strings).
+- Cycle 2026-07-08 (round 4 — Dialog translation audit): Completed AddDownloadDialog, YoutubeDownloadDialog, ActiveProgressDialog.
+  - Added 150+ translation keys to en.ts and ar.ts for tooltips, labels, buttons, status messages, section headers.
+  - AddDownloadDialog: connection options, tooltips, advanced field labels (Referer, User-Agent, Proxy, Speed Limit, Retries, Timeout), engine-unavailable banner, media URL banner, size/checking indicators, custom headers/cookies labels/placeholders.
+  - YoutubeDownloadDialog: all section headers (Save Mode, Video Quality, Output Naming, Advanced Media Options, Network/Auth), all field labels (Format Selector, Match Filter, Sponsor Block, etc.), 8 switch labels (subtitles, thumbnails, metadata), FFmpeg status messages, quality/format options (Best Quality, MP3, M4A, FLAC, WAV), template preset buttons, download button text (Playlist vs Single).
+  - ActiveProgressDialog: 3 tab headers (Status, Speed Limit, Completion), 6 status field labels, speed tab labels (Transfer rate, Use global limit, Maximum speed, KB/s), completion options (Notify, Disconnect, Exit, Power action, Force close), 3 action buttons (Hide Tab, Show/Hide Details, Resume, Finished, Close), segment table headers and state labels.
+  - Preflight: brace/paren/bracket balance verified on all 5 changed files.
+  - Stats: 5 files changed, 443 insertions, 139 deletions.
+  - Push: `697cbb0` pushed to Dev at 2026-07-08
+  - CI: https://github.com/Alaa91H/NOVADownloadManager/actions/runs/28919314725 (pending)
+- Next cycle: SettingsDialog sections (8 sections), BatchImportDialog, remaining dialog toast strings; or start UI-003 (drag & drop) if CI is green.
 - Files affected:
   - `src/components/TopBar.tsx`, `StatusBar.tsx`, `Sidebar.tsx`, `TaskTable.tsx`
   - `src/lib/i18n/en.ts`, `src/lib/i18n/ar.ts`
