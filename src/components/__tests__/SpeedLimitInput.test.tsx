@@ -7,7 +7,7 @@ describe('SpeedLimitInput', () => {
   it('renders with KB unit for values < 1024', () => {
     const onChange = vi.fn();
     render(<SpeedLimitInput maxSpeedKbs={500} onChange={onChange} />);
-    const input = screen.getByRole('textbox') as HTMLInputElement;
+    const input = screen.getByRole<HTMLInputElement>('textbox');
     expect(input.value).toBe('500');
     expect(screen.getByText('KB')).toBeInTheDocument();
   });
@@ -15,7 +15,7 @@ describe('SpeedLimitInput', () => {
   it('renders with MB unit for values >= 1024 and divisible by 1024', () => {
     const onChange = vi.fn();
     render(<SpeedLimitInput maxSpeedKbs={2048} onChange={onChange} />);
-    const input = screen.getByRole('textbox') as HTMLInputElement;
+    const input = screen.getByRole<HTMLInputElement>('textbox');
     expect(input.value).toBe('2');
     expect(screen.getByText('MB')).toBeInTheDocument();
   });
@@ -23,7 +23,7 @@ describe('SpeedLimitInput', () => {
   it('renders with KB unit for values >= 1024 but not divisible by 1024', () => {
     const onChange = vi.fn();
     render(<SpeedLimitInput maxSpeedKbs={1500} onChange={onChange} />);
-    const input = screen.getByRole('textbox') as HTMLInputElement;
+    const input = screen.getByRole<HTMLInputElement>('textbox');
     expect(input.value).toBe('1500');
     expect(screen.getByText('KB')).toBeInTheDocument();
   });
@@ -59,7 +59,7 @@ describe('SpeedLimitInput', () => {
   it('switches unit from KB to MB', () => {
     const onChange = vi.fn();
     render(<SpeedLimitInput maxSpeedKbs={1024} onChange={onChange} />);
-    const input = screen.getByRole('textbox') as HTMLInputElement;
+    const input = screen.getByRole<HTMLInputElement>('textbox');
     expect(input.value).toBe('1');
     const kbButton = screen.getByText('KB');
     const mbButton = screen.getByText('MB');

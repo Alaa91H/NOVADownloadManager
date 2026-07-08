@@ -213,8 +213,11 @@ describe('SchedulerSidebar', () => {
   it('highlights active tab', () => {
     const onChange = vi.fn();
     render(<SchedulerSidebar activeTab="basic" onChange={onChange} fileCount={0} />);
-    const scheduleBtn = screen.getByText('Schedule').closest('button')!;
-    expect(scheduleBtn.className).toContain('text-[var(--accent-primary)]');
+    const scheduleBtn = screen.getByText('Schedule').closest('button');
+    expect(scheduleBtn).toBeDefined();
+    if (scheduleBtn) {
+      expect(scheduleBtn.className).toContain('text-[var(--accent-primary)]');
+    }
   });
 
   it('does not highlight inactive tabs', () => {
@@ -483,7 +486,7 @@ describe('SchedulerRetriesTab', () => {
 
   it('shows correct default retry count value', () => {
     render(<SchedulerRetriesTab {...defaultProps} retryCount={5} />);
-    const select = screen.getByRole('combobox') as HTMLSelectElement;
+    const select = screen.getByRole<HTMLSelectElement>('combobox');
     expect(select.value).toBe('5');
   });
 });

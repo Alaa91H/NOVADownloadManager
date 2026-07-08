@@ -106,20 +106,20 @@ describe('ColumnConfigPanel', () => {
   });
 
   it('applies dragging style when column is being dragged', () => {
-    const { container } = render(<ColumnConfigPanel {...createDefaultProps({ draggingCustomizeCol: 'size' })} />);
+    render(<ColumnConfigPanel {...createDefaultProps({ draggingCustomizeCol: 'size' })} />);
     const sizeDiv = screen.getByText('Size').closest('div[draggable]');
     expect(sizeDiv?.className).toContain('opacity-40');
   });
 
   it('does not render grip icon for name column', () => {
-    const { container } = render(<ColumnConfigPanel {...createDefaultProps()} />);
+    render(<ColumnConfigPanel {...createDefaultProps()} />);
     const nameDiv = screen.getByText('Filename').closest('div[draggable]');
     const gripInName = nameDiv?.querySelector('.lucide-grip-vertical');
     expect(gripInName).toBeNull();
   });
 
   it('renders grip icon for non-name columns', () => {
-    const { container } = render(<ColumnConfigPanel {...createDefaultProps()} />);
+    render(<ColumnConfigPanel {...createDefaultProps()} />);
     const sizeDiv = screen.getByText('Size').closest('div[draggable]');
     const gripInSize = sizeDiv?.querySelector('.lucide-grip-vertical');
     expect(gripInSize).toBeInTheDocument();

@@ -2,7 +2,6 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EngineCapabilityProvider, useEngineCapabilities } from '../EngineCapabilityContext';
-import type { DirectDownloadOptions } from '../../types/desktop-ui.types';
 
 const TestConsumer: React.FC = () => {
   const caps = useEngineCapabilities();
@@ -141,33 +140,36 @@ describe('EngineCapabilityProvider', () => {
       },
     });
 
-    const capsHolderRef: { current: ReturnType<typeof useEngineCapabilities> | null } = { current: null };
-    const CaptureCaps: React.FC = () => {
-      capsHolderRef.current = useEngineCapabilities();
-      return null;
-    };
+    function TestComponent() {
+      const caps = useEngineCapabilities();
+      if (caps.loading) return <div data-testid="caps-loading">true</div>;
+
+      const sanitized = caps.sanitizeDirectOptions({
+        userAgent: 'test',
+        referer: 'http://example.com',
+        proxy: 'http://proxy:8080',
+      });
+
+      return (
+        <div>
+          <div data-testid="has-userAgent">{String('userAgent' in sanitized)}</div>
+          <div data-testid="has-referer">{String('referer' in sanitized)}</div>
+          <div data-testid="has-proxy">{String('proxy' in sanitized)}</div>
+        </div>
+      );
+    }
 
     render(
       <EngineCapabilityProvider>
-        <CaptureCaps />
+        <TestComponent />
       </EngineCapabilityProvider>,
     );
 
     await vi.waitFor(() => {
-      expect(capsHolderRef.current?.loading).toBe(false);
+      expect(screen.getByTestId('has-userAgent').textContent).toBe('true');
     });
-
-    const caps = capsHolderRef.current;
-    if (!caps) throw new Error('caps not loaded');
-    const sanitized = caps.sanitizeDirectOptions({
-      userAgent: 'test',
-      referer: 'http://example.com',
-      proxy: 'http://proxy:8080',
-    } as DirectDownloadOptions);
-
-    expect(sanitized).toHaveProperty('userAgent');
-    expect(sanitized).toHaveProperty('referer');
-    expect(sanitized).not.toHaveProperty('proxy');
+    expect(screen.getByTestId('has-referer').textContent).toBe('true');
+    expect(screen.getByTestId('has-proxy').textContent).toBe('false');
   });
 
   it('reports directBlockedReason when direct not ready', async () => {

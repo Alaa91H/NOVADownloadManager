@@ -38,7 +38,6 @@ export const TopBar: React.FC = () => {
     updateSettings,
     isNotificationsMuted,
     setIsNotificationsMuted,
-    isDegradedMode,
     t,
   } = useAppStore();
 
