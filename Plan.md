@@ -263,6 +263,12 @@ P26-07-07
   - Branch: Dev
   - Push: `58e6bfa` pushed to Dev at 2026-07-08
   - CI: https://github.com/Alaa91H/NOVADownloadManager/actions/runs/28914117558 (pending)
+- Cycle 2026-07-08 (round 2 — CI repair): Fixed 3 failing CI gates (Validate translations, ESLint, Run tests).
+  - ESLint: SchedulerPanel hooks rule, EngineCapabilityContext test immutability/non-null-assertion
+  - i18n: synced 922 keys to all 132 locales (2340 issues)
+  - Tests: Sidebar, TimePicker, WebpageGrabberDialog, YoutubeDownloadDialog
+  - Push: `45423a3` pushed to Dev at 2026-07-08
+  - CI: pending (gates fixed: translations synced, ESLint warnings resolved, test files validated locally)
 - Next cycle: Continue dialog audit (AddDownloadDialog, YoutubeDownloadDialog, ActiveProgressDialog — highest count of hardcoded strings).
 - Files affected:
   - `src/components/TopBar.tsx`, `StatusBar.tsx`, `Sidebar.tsx`, `TaskTable.tsx`
