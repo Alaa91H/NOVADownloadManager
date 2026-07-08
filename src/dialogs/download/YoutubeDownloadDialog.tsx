@@ -422,7 +422,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
     }> = [];
     options.push({
       value: 'best',
-      label: 'Best Quality Available (Recommended)',
+      label: t('ytdl_best_quality'),
       size: '',
       sizeBytes: 0,
       needsFfmpeg: true,
@@ -460,20 +460,20 @@ export const YoutubeDownloadDialog: React.FC = () => {
       [];
     options.push({
       value: 'mp3',
-      label: 'MP3 (Best Compatibility)',
+      label: t('ytdl_mp3_compat'),
       needsFfmpeg: true,
       bitrate: '320kbps',
       sizeBytes: 0,
     });
     options.push({
       value: 'm4a',
-      label: 'M4A (AAC - Original Quality)',
+      label: t('ytdl_m4a_orig'),
       needsFfmpeg: false,
       bitrate: '',
       sizeBytes: 0,
     });
-    options.push({ value: 'flac', label: 'FLAC (Lossless Archive)', needsFfmpeg: true, bitrate: '', sizeBytes: 0 });
-    options.push({ value: 'wav', label: 'WAV (Uncompressed PCM)', needsFfmpeg: true, bitrate: '', sizeBytes: 0 });
+    options.push({ value: 'flac', label: t('ytdl_flac_lossless'), needsFfmpeg: true, bitrate: '', sizeBytes: 0 });
+    options.push({ value: 'wav', label: t('ytdl_wav_pcm'), needsFfmpeg: true, bitrate: '', sizeBytes: 0 });
 
     if (probeResult) {
       const audioOnly = probeResult.formats.filter(
@@ -533,38 +533,37 @@ export const YoutubeDownloadDialog: React.FC = () => {
     <div className="space-y-4 text-ui text-left" dir="ltr">
       {!engineCapabilities.mediaReady && (
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-[11px] text-red-200">
-          yt-dlp is not ready. Media downloads are disabled until the runtime engine check passes.
+          {t('ytdl_unavailable')}
         </div>
       )}
       {engineCapabilities.mediaReady && !engineCapabilities.postProcessingReady && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-[11px] text-amber-200">
-          FFmpeg is not ready. Merging, remuxing, audio extraction, thumbnails, subtitles, and chapter processing are
-          disabled.
+          {t('ytdl_ffmpeg_not_ready')}
         </div>
       )}
       {/* Header */}
       <div className="flex items-center gap-2">
         <Video className="w-5 h-5 text-red-500" />
-        <h2 className="text-sm font-extrabold text-slate-200">Media Downloader</h2>
+        <h2 className="text-sm font-extrabold text-slate-200">{t('ytdl_title')}</h2>
       </div>
 
       <div className="space-y-3">
         {/* URL Input with probing */}
         <div className="space-y-1">
           <TextField
-            label="Media URL (Video or Playlist URL)"
+            label={t('ytdl_media_url')}
             value={url}
             onChange={(e) => {
               setUrl(e.target.value);
             }}
-            placeholder="https://www.example.com/watch?v=..."
+            placeholder={t('ytdl_url_placeholder')}
             icon={isProbingAny ? Loader2 : undefined}
             id="yt-url"
           />
           {isProbingAny && (
             <p className="flex items-center gap-1 text-[10px] text-slate-400">
               <Loader2 className="w-3 h-3 animate-spin" />
-              {isProbingPlaylist ? 'Fetching playlist entries...' : 'Fetching available formats...'}
+              {isProbingPlaylist ? t('ytdl_fetching_playlist') : t('ytdl_fetching_formats')}
             </p>
           )}
           {probeError && (
@@ -601,7 +600,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
                   {probeResult.duration > 0 && (
                     <span className="text-[10px] text-slate-400">{formatDuration(probeResult.duration)}</span>
                   )}
-                  <span className="text-[10px] text-slate-500">{probeResult.formats.length} formats</span>
+                  <span className="text-[10px] text-slate-500">{t('ytdl_formats_count', { count: probeResult.formats.length })}</span>
                 </div>
               </div>
             </div>
@@ -626,7 +625,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
                 className="flex items-center gap-1 text-[10px] text-sky-400 hover:text-sky-300"
               >
                 {selectAllPlaylist ? <CheckSquare className="w-3 h-3" /> : <Square className="w-3 h-3" />}
-                {selectAllPlaylist ? 'All selected' : `Selected ${String(selectedPlaylistItems.size)}`}
+                {selectAllPlaylist ? t('ytdl_all_selected') : t('ytdl_selected_count', { count: selectedPlaylistItems.size })}
               </button>
             </div>
             <div className="max-h-48 overflow-y-auto divide-y divide-[var(--border-color)]/10">
@@ -676,7 +675,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
         {/* Row: Save Path & Target Type */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <TextField
-            label="Save Directory"
+            label={t('ytdl_save_dir')}
             value={savePath}
             onChange={(e) => {
               setSavePath(e.target.value);
@@ -685,7 +684,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
             id="yt-path"
           />
           <div className="space-y-1">
-            <label className="text-xs font-extrabold text-slate-300">Target Content Type</label>
+            <label className="text-xs font-extrabold text-slate-300">{t('ytdl_target_type')}</label>
             <select
               value={targetType}
               onChange={(e) => {
@@ -694,8 +693,8 @@ export const YoutubeDownloadDialog: React.FC = () => {
               className="w-full text-xs font-semibold bg-[var(--bg-input)] border border-[var(--border-color)] hover:border-[var(--border-color-hover)] rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-[var(--accent-primary)]"
               id="yt-target-type"
             >
-              <option value="video">Single Video</option>
-              <option value="playlist">Full Playlist</option>
+              <option value="video">{t('ytdl_single_video')}</option>
+              <option value="playlist">{t('ytdl_full_playlist')}</option>
             </select>
           </div>
         </div>
@@ -703,7 +702,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
         {/* Row: Save Mode & Quality */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-[var(--border-color)]/50 pt-3">
           <div className="space-y-1">
-            <label className="text-xs font-extrabold text-slate-300">Save Mode</label>
+            <label className="text-xs font-extrabold text-slate-300">{t('ytdl_save_mode')}</label>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -720,7 +719,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
                 }`}
               >
                 <Video className="w-4 h-4" />
-                Video & Audio
+                {t('ytdl_video_audio')}
               </button>
               <button
                 type="button"
@@ -737,14 +736,14 @@ export const YoutubeDownloadDialog: React.FC = () => {
                 }`}
               >
                 <Music className="w-4 h-4" />
-                Audio Only
+                {t('ytdl_audio_only')}
               </button>
             </div>
           </div>
 
           <div className="space-y-1">
             <label className="text-xs font-extrabold text-slate-300">
-              {saveMode === 'video' ? 'Video Quality' : 'Audio Format'}
+              {saveMode === 'video' ? t('ytdl_video_quality') : t('ytdl_audio_format')}
             </label>
             {saveMode === 'video' ? (
               <select
@@ -758,7 +757,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
                 {dynamicQualityOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
-                    {opt.needsFfmpeg ? ' *needs FFmpeg' : ''}
+                    {opt.needsFfmpeg ? ` ${t('ytdl_needs_ffmpeg')}` : ''}
                   </option>
                 ))}
               </select>
@@ -774,7 +773,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
                 {dynamicAudioOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
-                    {opt.needsFfmpeg ? ' *needs FFmpeg' : ''}
+                    {opt.needsFfmpeg ? ` ${t('ytdl_needs_ffmpeg')}` : ''}
                   </option>
                 ))}
               </select>
@@ -782,12 +781,12 @@ export const YoutubeDownloadDialog: React.FC = () => {
             <div className="flex items-center justify-between mt-1">
               {selectedFormatSize > 0 && (
                 <span className="text-[10px] text-slate-400">
-                  Per file: {formatBytes(selectedFormatSize)}
+                  {t('ytdl_per_file', { size: formatBytes(selectedFormatSize) })}
                   {selectedFormat?.tbr ? ` @ ${selectedFormat.tbr.toFixed(0)}kbps` : ''}
                 </span>
               )}
               {totalSize > 0 && (isPlaylistUrl ? playlistResult : false) && (
-                <span className="text-[10px] text-sky-400 font-semibold">Total: {formatBytes(totalSize)}</span>
+                <span className="text-[10px] text-sky-400 font-semibold">{t('ytdl_total', { size: formatBytes(totalSize) })}</span>
               )}
             </div>
           </div>
@@ -801,22 +800,22 @@ export const YoutubeDownloadDialog: React.FC = () => {
                 <Code
                   className={`w-4 h-4 ${ffmpegAvailable === null ? 'text-slate-400' : ffmpegAvailable ? 'text-emerald-400' : 'text-red-400'}`}
                 />
-                FFmpeg Post-processing
+                {t('ytdl_ffmpeg_section')}
               </span>
               <div className="flex items-center gap-1.5">
                 {ffmpegAvailable === null ? (
                   <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                    <Loader2 className="w-3 h-3 animate-spin" /> Checking availability...
+                    <Loader2 className="w-3 h-3 animate-spin" /> {t('ytdl_ffmpeg_checking')}
                   </span>
                 ) : ffmpegAvailable ? (
                   <span className="text-[10px] text-emerald-400 flex items-center gap-1">
                     <CheckCircle2 className="w-3 h-3" />
-                    FFmpeg is installed and ready
+                    {t('ytdl_ffmpeg_ready')}
                   </span>
                 ) : (
                   <span className="text-[10px] text-red-400 flex items-center gap-1">
                     <XCircle className="w-3 h-3" />
-                    FFmpeg not detected
+                    {t('ytdl_ffmpeg_missing')}
                   </span>
                 )}
               </div>
@@ -827,14 +826,14 @@ export const YoutubeDownloadDialog: React.FC = () => {
           {requiresFfmpeg && ffmpegAvailable && (
             <div className="flex items-start gap-1.5 text-[10px] text-amber-400">
               <Info className="w-3 h-3 mt-0.5 shrink-0" />
-              <span>This quality requires FFmpeg for merging video+audio streams.</span>
+              <span>{t('ytdl_ffmpeg_req_note')}</span>
             </div>
           )}
 
           {ffmpegEnabled && saveMode === 'audio' && (
             <div className="grid grid-cols-2 gap-3 pt-1">
               <div className="space-y-1">
-                <span className="text-[10px] text-slate-400 font-bold">Audio Bitrate</span>
+                <span className="text-[10px] text-slate-400 font-bold">{t('ytdl_audio_bitrate')}</span>
                 <select
                   value={convertBitrate}
                   onChange={(e) => {
@@ -856,7 +855,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
         {/* Output Template */}
         <div className="space-y-2 border-t border-[var(--border-color)]/50 pt-3">
           <div className="flex justify-between items-center">
-            <span className="text-xs font-extrabold text-slate-300">Output Naming Template</span>
+            <span className="text-xs font-extrabold text-slate-300">{t('ytdl_output_template')}</span>
             <div className="flex gap-1">
               <button
                 type="button"
@@ -865,7 +864,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
                 }}
                 className="text-[9px] bg-[var(--bg-hover)] hover:bg-[var(--border-color)] text-slate-400 hover:text-slate-200 px-1.5 py-1 rounded"
               >
-                Video Title
+                {t('ytdl_template_video_title')}
               </button>
               <button
                 type="button"
@@ -874,7 +873,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
                 }}
                 className="text-[9px] bg-[var(--bg-hover)] hover:bg-[var(--border-color)] text-slate-400 hover:text-slate-200 px-1.5 py-1 rounded"
               >
-                Uploader - Title
+                {t('ytdl_template_uploader')}
               </button>
               <button
                 type="button"
@@ -883,7 +882,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
                 }}
                 className="text-[9px] bg-[var(--bg-hover)] hover:bg-[var(--border-color)] text-slate-400 hover:text-slate-200 px-1.5 py-1 rounded"
               >
-                Playlist Index
+                {t('ytdl_template_playlist_idx')}
               </button>
             </div>
           </div>
@@ -899,11 +898,11 @@ export const YoutubeDownloadDialog: React.FC = () => {
         </div>
 
         <div className="space-y-3 border-t border-[var(--border-color)]/50 pt-3">
-          <span className="text-xs font-extrabold text-slate-300">Advanced Media Options</span>
+          <span className="text-xs font-extrabold text-slate-300">{t('ytdl_advanced_media_opts')}</span>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <TextField
-              label="Format Selector Override"
+              label={t('ytdl_format_selector')}
               disabled={!supportsMediaOption('formatSelector')}
               value={formatSelectorOverride}
               onChange={(e) => {
@@ -914,7 +913,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
-              label="Format Sorting"
+              label={t('ytdl_format_sorting')}
               disabled={!supportsMediaOption('formatSort')}
               value={formatSort}
               onChange={(e) => {
@@ -925,7 +924,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
-              label="Download Sections"
+              label={t('ytdl_download_sections')}
               disabled={!supportsMediaOption('downloadSections')}
               value={downloadSections}
               onChange={(e) => {
@@ -936,7 +935,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
-              label="Match Filter"
+              label={t('ytdl_match_filter')}
               disabled={!supportsMediaOption('matchFilter')}
               value={matchFilter}
               onChange={(e) => {
@@ -947,7 +946,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
-              label="Remux Format"
+              label={t('ytdl_remux_format')}
               disabled={!supportsMediaOption('remuxFormat')}
               value={remuxFormat}
               onChange={(e) => {
@@ -956,7 +955,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
               placeholder="mp4, mkv, webm"
             />
             <TextField
-              label="Sponsor Segment Removal"
+              label={t('ytdl_sponsor_block')}
               disabled={!supportsMediaOption('sponsorBlock')}
               value={sponsorBlock}
               onChange={(e) => {
@@ -967,18 +966,18 @@ export const YoutubeDownloadDialog: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <Switch label="Download subtitles" checked={downloadSubtitles} onChange={setDownloadSubtitles} />
-            <Switch label="Download auto-generated subtitles" checked={autoSubtitles} onChange={setAutoSubtitles} />
-            <Switch label="Embed subtitles when possible" checked={embedSubtitles} onChange={setEmbedSubtitles} />
-            <Switch label="Write thumbnail file" checked={writeThumbnail} onChange={setWriteThumbnail} />
-            <Switch label="Embed thumbnail when possible" checked={embedThumbnail} onChange={setEmbedThumbnail} />
-            <Switch label="Write metadata JSON" checked={writeInfoJson} onChange={setWriteInfoJson} />
-            <Switch label="Write description file" checked={writeDescription} onChange={setWriteDescription} />
-            <Switch label="Split chapters into files" checked={splitChapters} onChange={setSplitChapters} />
+            <Switch label={t('ytdl_subtitles')} checked={downloadSubtitles} onChange={setDownloadSubtitles} />
+            <Switch label={t('ytdl_auto_subtitles')} checked={autoSubtitles} onChange={setAutoSubtitles} />
+            <Switch label={t('ytdl_embed_subtitles')} checked={embedSubtitles} onChange={setEmbedSubtitles} />
+            <Switch label={t('ytdl_write_thumbnail')} checked={writeThumbnail} onChange={setWriteThumbnail} />
+            <Switch label={t('ytdl_embed_thumbnail')} checked={embedThumbnail} onChange={setEmbedThumbnail} />
+            <Switch label={t('ytdl_write_metadata')} checked={writeInfoJson} onChange={setWriteInfoJson} />
+            <Switch label={t('ytdl_write_description')} checked={writeDescription} onChange={setWriteDescription} />
+            <Switch label={t('ytdl_split_chapters')} checked={splitChapters} onChange={setSplitChapters} />
           </div>
 
           <TextField
-            label="Subtitle Languages"
+            label={t('ytdl_subtitle_langs')}
             value={subtitleLanguages}
             onChange={(e) => {
               setSubtitleLanguages(e.target.value);
@@ -990,10 +989,10 @@ export const YoutubeDownloadDialog: React.FC = () => {
         </div>
 
         <div className="space-y-3 border-t border-[var(--border-color)]/50 pt-3">
-          <span className="text-xs font-extrabold text-slate-300">Network, Authentication & Recovery</span>
+          <span className="text-xs font-extrabold text-slate-300">{t('ytdl_network_auth')}</span>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <TextField
-              label="Proxy"
+              label={t('add_dl_proxy')}
               disabled={!supportsMediaOption('proxy')}
               value={mediaProxy}
               onChange={(e) => {
@@ -1004,7 +1003,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
-              label="Cookies From Browser"
+              label={t('ytdl_cookies_browser')}
               disabled={!supportsMediaOption('cookiesFromBrowser')}
               value={cookiesFromBrowser}
               onChange={(e) => {
@@ -1015,7 +1014,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
-              label="User-Agent"
+              label={t('add_dl_user_agent')}
               disabled={!supportsMediaOption('userAgent')}
               value={mediaUserAgent}
               onChange={(e) => {
@@ -1026,7 +1025,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
-              label="Referer"
+              label={t('add_dl_referer')}
               disabled={!supportsMediaOption('referer')}
               value={mediaReferer}
               onChange={(e) => {
@@ -1040,7 +1039,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
 
           <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             <TextField
-              label="Rate Limit (KB/s)"
+              label={t('ytdl_rate_limit')}
               disabled={!supportsMediaOption('rateLimitKbs')}
               type="number"
               value={rateLimitKbs}
@@ -1049,7 +1048,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
               }}
             />
             <TextField
-              label="Retries"
+              label={t('add_dl_retries')}
               disabled={!supportsMediaOption('retries')}
               type="number"
               value={retries}
@@ -1058,7 +1057,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
               }}
             />
             <TextField
-              label="Fragment Retries"
+              label={t('ytdl_fragment_retries')}
               disabled={!supportsMediaOption('fragmentRetries')}
               type="number"
               value={fragmentRetries}
@@ -1067,7 +1066,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
               }}
             />
             <TextField
-              label="Fragments"
+              label={t('ytdl_concurrent_frags')}
               disabled={!supportsMediaOption('concurrentFragments')}
               type="number"
               value={concurrentFragments}
@@ -1076,7 +1075,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
               }}
             />
             <TextField
-              label="Sleep (s)"
+              label={t('ytdl_sleep_interval')}
               disabled={!supportsMediaOption('sleepIntervalSec')}
               type="number"
               value={sleepIntervalSec}
@@ -1085,7 +1084,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
               }}
             />
             <TextField
-              label="Max Sleep (s)"
+              label={t('ytdl_max_sleep')}
               disabled={!supportsMediaOption('maxSleepIntervalSec')}
               type="number"
               value={maxSleepIntervalSec}
@@ -1098,7 +1097,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="flex flex-col gap-1">
               <label className="text-[var(--text-secondary)] text-[10px] md:text-[11px] font-bold">
-                Custom Headers
+                {t('add_dl_custom_headers')}
               </label>
               <textarea
                 rows={3}
@@ -1106,7 +1105,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
                 onChange={(e) => {
                   setMediaHeaders(e.target.value);
                 }}
-                placeholder="Header-Name: value"
+                placeholder={t('add_dl_headers_placeholder')}
                 className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-md text-[11px] font-mono text-left text-[var(--text-primary)] p-2 focus:outline-none focus:border-[var(--accent-primary)]"
                 style={{ direction: 'ltr' }}
                 disabled={!supportsMediaOption('headers')}
@@ -1114,7 +1113,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-[var(--text-secondary)] text-[10px] md:text-[11px] font-bold">
-                Cookies or Cookies File
+                {t('ytdl_cookies_text')}
               </label>
               <textarea
                 rows={3}
@@ -1122,7 +1121,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
                 onChange={(e) => {
                   setMediaCookies(e.target.value);
                 }}
-                placeholder="name=value; other=value  or  C:\\path\\cookies.txt"
+                placeholder={t('add_dl_cookies_placeholder')}
                 className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-md text-[11px] font-mono text-left text-[var(--text-primary)] p-2 focus:outline-none focus:border-[var(--accent-primary)]"
                 style={{ direction: 'ltr' }}
                 disabled={!supportsMediaOption('cookies')}
@@ -1132,7 +1131,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
 
           <div className="flex flex-col gap-1">
             <label className="text-[var(--text-secondary)] text-[10px] md:text-[11px] font-bold">
-              Expert Media Arguments (disabled by verified-capability policy)
+              {t('ytdl_expert_args')}
             </label>
             <textarea
               rows={3}
@@ -1163,7 +1162,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
           className="flex items-center gap-1.5 font-bold bg-red-600 hover:bg-red-700"
         >
           <Download className="w-3.5 h-3.5" />
-          {isPlaylistUrl ? 'Download Playlist' : 'Start Download'}
+          {isPlaylistUrl ? t('ytdl_download_playlist') : t('ytdl_start_download')}
         </DialogButton>
       </div>
     </div>

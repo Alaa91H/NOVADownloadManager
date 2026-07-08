@@ -97,7 +97,7 @@ export const ActiveProgressDialog: React.FC = () => {
           className={tabClass('status')}
           style={{ borderRadius: '4px 4px 0 0' }}
         >
-          Status
+          {t('prog_status')}
         </button>
         <button
           onClick={() => {
@@ -106,7 +106,7 @@ export const ActiveProgressDialog: React.FC = () => {
           className={tabClass('speed')}
           style={{ borderRadius: '4px 4px 0 0' }}
         >
-          Speed Limit
+          {t('prog_speed_limit')}
         </button>
         <button
           onClick={() => {
@@ -115,7 +115,7 @@ export const ActiveProgressDialog: React.FC = () => {
           className={tabClass('options')}
           style={{ borderRadius: '4px 4px 0 0' }}
         >
-          Completion
+          {t('prog_completion')}
         </button>
       </div>
 
@@ -133,25 +133,25 @@ export const ActiveProgressDialog: React.FC = () => {
             </div>
             <div className="h-[1px] bg-[var(--border-color)]" />
             <div className="grid grid-cols-12 gap-y-2 text-[11px] md:text-xs">
-              <div className="col-span-3 text-[var(--text-secondary)] font-semibold">Status:</div>
+              <div className="col-span-3 text-[var(--text-secondary)] font-semibold">{t('prog_status_label')}</div>
               <div className="col-span-9 text-[var(--text-primary)] font-medium capitalize">{task.status}</div>
-              <div className="col-span-3 text-[var(--text-secondary)] font-semibold">File size:</div>
+              <div className="col-span-3 text-[var(--text-secondary)] font-semibold">{t('prog_file_size_label')}</div>
               <div className="col-span-9 text-[var(--text-primary)] font-medium">{formatBytes(task.sizeBytes)}</div>
-              <div className="col-span-3 text-[var(--text-secondary)] font-semibold">Downloaded:</div>
+              <div className="col-span-3 text-[var(--text-secondary)] font-semibold">{t('prog_downloaded_label')}</div>
               <div className="col-span-9 text-[var(--text-primary)] font-medium">
                 {formatBytes(task.downloadedBytes)} ({progressPercent}%)
               </div>
-              <div className="col-span-3 text-[var(--text-secondary)] font-semibold">Transfer rate:</div>
+              <div className="col-span-3 text-[var(--text-secondary)] font-semibold">{t('prog_transfer_rate')}</div>
               <div className="col-span-9 text-[var(--accent-primary)] font-bold">
-                {task.status === 'downloading' ? formatSpeed(task.speedBytesPerSec) : '0 B/s'}
+                {task.status === 'downloading' ? formatSpeed(task.speedBytesPerSec) : t('prog_zero_speed')}
               </div>
-              <div className="col-span-3 text-[var(--text-secondary)] font-semibold">Time left:</div>
+              <div className="col-span-3 text-[var(--text-secondary)] font-semibold">{t('prog_time_left')}</div>
               <div className="col-span-9 text-sky-400 font-semibold">
-                {task.status === 'downloading' ? formatTime(task.timeLeftSeconds) : 'Not running'}
+                {task.status === 'downloading' ? formatTime(task.timeLeftSeconds) : t('prog_not_running')}
               </div>
-              <div className="col-span-3 text-[var(--text-secondary)] font-semibold">Resume:</div>
+              <div className="col-span-3 text-[var(--text-secondary)] font-semibold">{t('prog_resume')}</div>
               <div className="col-span-9 text-[var(--accent-primary)] font-bold">
-                {task.resumable ? 'Supported' : 'Not supported'}
+                {task.resumable ? t('prog_supported') : t('prog_not_supported')}
               </div>
             </div>
           </div>
@@ -160,9 +160,9 @@ export const ActiveProgressDialog: React.FC = () => {
         {activeTab === 'speed' && (
           <div className="space-y-3.5 animate-in fade-in duration-150">
             <div className="flex justify-between items-center text-xs">
-              <span className="text-[var(--text-secondary)] font-semibold">Transfer rate:</span>
+              <span className="text-[var(--text-secondary)] font-semibold">{t('prog_transfer_rate')}</span>
               <span className="text-[var(--accent-primary)] font-bold">
-                {task.status === 'downloading' ? formatSpeed(task.speedBytesPerSec) : '0 B/s'}
+                {task.status === 'downloading' ? formatSpeed(task.speedBytesPerSec) : t('prog_zero_speed')}
               </span>
             </div>
             <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -174,10 +174,10 @@ export const ActiveProgressDialog: React.FC = () => {
                 }}
                 className="w-3.5 h-3.5 rounded border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--accent-primary)] focus:ring-0 cursor-pointer"
               />
-              <span className="text-xs text-[var(--text-primary)]">Use global speed limit</span>
+              <span className="text-xs text-[var(--text-primary)]">{t('prog_use_global_limit')}</span>
             </label>
             <div className="space-y-1">
-              <span className="text-[11px] text-[var(--text-secondary)] block">Maximum speed:</span>
+              <span className="text-[11px] text-[var(--text-secondary)] block">{t('prog_max_speed')}</span>
               <div className="flex items-center gap-1.5">
                 <input
                   type="text"
@@ -188,7 +188,7 @@ export const ActiveProgressDialog: React.FC = () => {
                   disabled={!speedLimitEnabled}
                   className="w-20 bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono text-center text-xs py-0.5 px-2 focus:outline-none focus:border-[var(--accent-primary)] disabled:opacity-40 disabled:bg-[var(--bg-hover)] disabled:cursor-not-allowed"
                 />
-                <span className="text-[11px] text-[var(--text-secondary)]">KB/s</span>
+                <span className="text-[11px] text-[var(--text-secondary)]">{t('prog_kbs')}</span>
               </div>
             </div>
             <button
@@ -197,7 +197,7 @@ export const ActiveProgressDialog: React.FC = () => {
               }}
               className="px-3.5 py-1 bg-[var(--bg-surface)] hover:bg-[var(--bg-hover)] active:scale-95 border border-[var(--border-color)] text-[var(--text-primary)] text-[11px] font-sans font-bold shadow-sm transition-all cursor-pointer rounded-lg"
             >
-              Hide Tab
+              {t('prog_hide_tab')}
             </button>
           </div>
         )}
@@ -205,7 +205,7 @@ export const ActiveProgressDialog: React.FC = () => {
         {activeTab === 'options' && (
           <div className="space-y-2 animate-in fade-in duration-150">
             <div className="flex justify-between items-center text-xs text-[var(--text-secondary)]">
-              <span className="font-semibold shrink-0">Save to:</span>
+              <span className="font-semibold shrink-0">{t('prog_save_to')}</span>
               <span className="text-[var(--text-primary)] font-mono truncate ml-2 select-all w-full text-left">
                 {task.savePath}
               </span>
@@ -219,7 +219,7 @@ export const ActiveProgressDialog: React.FC = () => {
                 }}
                 className="w-3.5 h-3.5 rounded border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--accent-primary)] focus:ring-0 cursor-pointer"
               />
-              <span className="text-xs text-[var(--text-primary)]">Notify when complete</span>
+              <span className="text-xs text-[var(--text-primary)]">{t('prog_notify_complete')}</span>
             </label>
             <div
               className={`grid grid-cols-12 gap-y-1.5 text-[11px] ${notifyOnComplete ? 'opacity-40 pointer-events-none' : ''}`}
@@ -234,7 +234,7 @@ export const ActiveProgressDialog: React.FC = () => {
                   disabled={notifyOnComplete}
                   className="w-3.5 h-3.5 rounded border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--accent-primary)] focus:ring-0 cursor-pointer"
                 />
-                <span className="text-[var(--text-secondary)]">Disconnect when complete</span>
+                <span className="text-[var(--text-secondary)]">{t('prog_disconnect_complete')}</span>
               </label>
               <label className="col-span-12 flex items-center gap-2 cursor-pointer select-none">
                 <input
@@ -246,7 +246,7 @@ export const ActiveProgressDialog: React.FC = () => {
                   disabled={notifyOnComplete}
                   className="w-3.5 h-3.5 rounded border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--accent-primary)] focus:ring-0 cursor-pointer"
                 />
-                <span className="text-[var(--text-secondary)]">Exit NOVA when complete</span>
+                <span className="text-[var(--text-secondary)]">{t('prog_exit_complete')}</span>
               </label>
               <div className="col-span-12 flex flex-wrap items-center gap-2">
                 <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -259,7 +259,7 @@ export const ActiveProgressDialog: React.FC = () => {
                     disabled={notifyOnComplete}
                     className="w-3.5 h-3.5 rounded border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--accent-primary)] focus:ring-0 cursor-pointer"
                   />
-                  <span className="text-[var(--text-secondary)] whitespace-nowrap">Power action when complete</span>
+                  <span className="text-[var(--text-secondary)] whitespace-nowrap">{t('prog_power_action')}</span>
                 </label>
                 <select
                   value={shutdownAction}
@@ -269,9 +269,9 @@ export const ActiveProgressDialog: React.FC = () => {
                   disabled={notifyOnComplete || !shutdownOnComplete}
                   className="bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-primary)] text-[10px] md:text-xs px-2 py-0.5 rounded focus:outline-none focus:border-[var(--accent-primary)] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <option value="Shutdown computer">Shutdown computer</option>
-                  <option value="Restart computer">Restart computer</option>
-                  <option value="Sleep">Sleep</option>
+                  <option value={t('prog_shutdown')}>{t('prog_shutdown')}</option>
+                  <option value={t('prog_restart')}>{t('prog_restart')}</option>
+                  <option value={t('prog_sleep')}>{t('prog_sleep')}</option>
                 </select>
                 <label className="flex items-center gap-1.5 cursor-pointer select-none">
                   <input
@@ -283,7 +283,7 @@ export const ActiveProgressDialog: React.FC = () => {
                     disabled={notifyOnComplete || !shutdownOnComplete}
                     className="w-3.5 h-3.5 rounded border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--accent-primary)] focus:ring-0 cursor-pointer"
                   />
-                  <span className="text-[var(--text-secondary)]">Force close apps</span>
+                  <span className="text-[var(--text-secondary)]">{t('prog_force_close')}</span>
                 </label>
               </div>
             </div>
@@ -316,7 +316,7 @@ export const ActiveProgressDialog: React.FC = () => {
           }}
           className="px-4 py-1.5 bg-[var(--bg-surface)] hover:bg-[var(--bg-hover)] active:scale-95 text-[var(--text-primary)] border border-[var(--border-color)] text-[11px] font-bold rounded-lg shadow-sm transition-all cursor-pointer flex items-center justify-center min-w-[140px]"
         >
-          {showPartInfo ? 'Hide Details <<' : 'Show Details >>'}
+          {showPartInfo ? t('prog_hide_details') : t('prog_show_details')}
         </button>
 
         <div className="flex items-center gap-2">
@@ -336,15 +336,15 @@ export const ActiveProgressDialog: React.FC = () => {
               }}
               disabled={!isEngineAvailable(task)}
               title={
-                !isEngineAvailable(task) ? 'The engine required for this download is not available.' : 'Resume download'
+                !isEngineAvailable(task) ? t('prog_engine_unavail') : t('prog_resume_tip')
               }
               className="px-6 py-1.5 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] active:scale-95 text-white text-[11px] font-bold rounded-lg shadow-sm transition-all cursor-pointer min-w-[80px] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Resume
+              {t('prog_resume_dl')}
             </button>
           ) : (
             <div className="px-6 py-1.5 bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-muted)] text-[11px] font-bold select-none min-w-[80px] text-center rounded-lg">
-              Finished
+              {t('prog_finished')}
             </div>
           )}
 
@@ -352,7 +352,7 @@ export const ActiveProgressDialog: React.FC = () => {
             onClick={closeDialog}
             className="px-5 py-1.5 bg-[var(--bg-surface)] hover:bg-[var(--bg-hover)] active:scale-95 text-[var(--text-primary)] border border-[var(--border-color)] text-[11px] font-bold rounded-lg shadow-sm transition-all cursor-pointer min-w-[80px]"
           >
-            Close
+            {t('prog_close')}
           </button>
         </div>
       </div>
@@ -360,7 +360,7 @@ export const ActiveProgressDialog: React.FC = () => {
       {showPartInfo && (
         <div className="pt-2.5 space-y-2 animate-in slide-in-from-top-2 duration-200">
           <div className="text-center font-bold text-[var(--text-secondary)] font-sans text-[11px]">
-            Connection segments
+            {t('prog_conn_segments')}
           </div>
           <div
             className="w-full h-4 bg-[var(--bg-input)] border border-[var(--border-color)] flex rounded-lg overflow-hidden select-none"
@@ -392,9 +392,9 @@ export const ActiveProgressDialog: React.FC = () => {
             >
               <thead>
                 <tr className="bg-[var(--bg-sidebar)] text-[var(--text-secondary)] border-b border-[var(--border-color)] font-bold text-[10px] uppercase">
-                  <th className="py-1 px-3 text-center border-r border-[var(--border-color)] w-12 font-mono">N.</th>
-                  <th className="py-1 px-3 border-r border-[var(--border-color)] w-36">Downloaded</th>
-                  <th className="py-1 px-3 text-left">State</th>
+                  <th className="py-1 px-3 text-center border-r border-[var(--border-color)] w-12 font-mono">{t('prog_seg_num')}</th>
+                  <th className="py-1 px-3 border-r border-[var(--border-color)] w-36">{t('prog_seg_downloaded')}</th>
+                  <th className="py-1 px-3 text-left">{t('prog_seg_state')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -413,7 +413,7 @@ export const ActiveProgressDialog: React.FC = () => {
                         {formatBytes(segDownloaded)}
                       </td>
                       <td className="py-1 px-3 text-left pr-4 font-sans font-medium text-[var(--text-secondary)]">
-                        {seg.progress === 100 ? 'Complete' : seg.active ? 'Receiving data' : 'Idle'}
+                        {seg.progress === 100 ? t('prog_seg_complete') : seg.active ? t('prog_seg_receiving') : t('prog_seg_idle')}
                       </td>
                     </tr>
                   );

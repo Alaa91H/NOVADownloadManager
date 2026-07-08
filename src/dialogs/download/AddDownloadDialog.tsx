@@ -393,13 +393,13 @@ export const AddDownloadDialog: React.FC = () => {
   const queueOptions = queues.map((q) => ({ value: q.id, label: q.name }));
   const connectionOptions = supportsSegmentedDownloads
     ? [
-        { value: 0, label: 'Automatic (Default)' },
-        { value: 8, label: '8 threads' },
-        { value: 16, label: '16 threads' },
-        { value: 24, label: '24 threads' },
-        { value: 32, label: '32 threads (Max Speed)' },
+        { value: 0, label: t('add_dl_auto_default') },
+        { value: 8, label: t('add_dl_threads_8') },
+        { value: 16, label: t('add_dl_threads_16') },
+        { value: 24, label: t('add_dl_threads_24') },
+        { value: 32, label: t('add_dl_threads_32') },
       ]
-    : [{ value: 1, label: 'Single connection (server/libcurl range unavailable)' }];
+    : [{ value: 1, label: t('add_dl_single_conn') }];
 
   const categoryOptions = [
     { value: 'document', label: t('documents') },
@@ -416,13 +416,12 @@ export const AddDownloadDialog: React.FC = () => {
     <div className="space-y-4">
       {!directEngineReady && (
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-[11px] text-red-200">
-          Linked libcurl is not ready. Direct downloads are disabled until the runtime capability check passes.
+          {t('add_dl_direct_unavailable')}
         </div>
       )}
       {showAdvanced && supportedDirectOptions.size > 0 && (
         <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-hover)]/30 p-2 text-[10px] text-[var(--text-secondary)]">
-          Advanced controls are gated by the linked libcurl capability matrix. Unsupported options are hidden or omitted
-          before the request reaches the daemon.
+          {t('add_dl_advanced_gated')}
         </div>
       )}
       {/* 1. Direct URL Input Row with Paste icon on far right */}
@@ -452,7 +451,7 @@ export const AddDownloadDialog: React.FC = () => {
                 })();
               }}
               className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors p-1"
-              title="Paste from clipboard"
+              title={t('add_dl_paste_clipboard')}
             >
               <svg
                 className="w-4 h-4"
@@ -491,7 +490,7 @@ export const AddDownloadDialog: React.FC = () => {
           <div className="flex items-center gap-2 text-xs">
             <Video className="w-4 h-4 text-red-500 shrink-0" />
             <span className="text-slate-300">
-              This is a media URL. Use the Media Downloader for quality & format options.
+              {t('add_dl_media_banner')}
             </span>
           </div>
           <button
@@ -503,7 +502,7 @@ export const AddDownloadDialog: React.FC = () => {
             className="shrink-0 px-3 py-1 text-[10px] font-bold bg-red-600 hover:bg-red-500 text-white rounded transition-colors cursor-pointer flex items-center gap-1.5"
           >
             <Video className="w-3 h-3" />
-            <span>Open Media Downloader</span>
+            <span>{t('add_dl_open_media_dl')}</span>
             <ArrowRight className="w-3 h-3" />
           </button>
         </div>
@@ -528,7 +527,7 @@ export const AddDownloadDialog: React.FC = () => {
                   void handlePickDirectory();
                 }}
                 className="hover:text-[var(--text-primary)] transition-colors cursor-pointer"
-                title="Browse folders"
+                title={t('add_dl_browse_folders')}
               >
                 <svg
                   className="w-4 h-4 text-[var(--text-secondary)]"
@@ -548,12 +547,12 @@ export const AddDownloadDialog: React.FC = () => {
             let borderColor = 'border-[var(--border-color)] bg-[var(--bg-hover)]/30 text-[var(--text-muted)]';
             let textColor = 'text-[var(--text-secondary)]';
             const sizeKnown = sizeBytes > 0;
-            const sizeLabel = isFetchingInfo ? 'Checking...' : sizeKnown ? formatBytes(sizeBytes) : 'Unknown';
+            const sizeLabel = isFetchingInfo ? t('add_dl_checking') : sizeKnown ? formatBytes(sizeBytes) : t('add_dl_unknown');
             const sizeTitle = isFetchingInfo
-              ? 'Calculating size...'
+              ? t('add_dl_checking')
               : sizeKnown
-                ? 'File size'
-                : probeError || 'File size unavailable';
+                ? t('add_dl_file_size')
+                : probeError || t('add_dl_file_size_unavail');
 
             if (isFetchingInfo) {
               borderColor = 'border-amber-500 bg-amber-500/5 text-amber-500 animate-pulse';
@@ -609,7 +608,7 @@ export const AddDownloadDialog: React.FC = () => {
               }
             }}
             className="w-7.5 h-7.5 flex items-center justify-center bg-[var(--bg-input)] border border-[var(--border-color)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded transition-colors cursor-pointer"
-            title="Refresh file information"
+            title={t('add_dl_refresh_info')}
           >
             <RefreshCw className="w-3.5 h-3.5" strokeWidth={2.5} />
           </button>
@@ -624,7 +623,7 @@ export const AddDownloadDialog: React.FC = () => {
                 ? 'bg-[var(--accent-light)] border-[var(--accent-primary)] text-[var(--accent-primary)]'
                 : 'bg-[var(--bg-input)] border-[var(--border-color)]'
             }`}
-            title="Advanced Options"
+            title={t('add_dl_advanced_opts')}
           >
             <svg
               className="w-3.5 h-3.5"
@@ -684,7 +683,7 @@ export const AddDownloadDialog: React.FC = () => {
             onChange={(e) => {
               setDescription(e.target.value);
             }}
-            placeholder="Enter notes or description for this file..."
+            placeholder={t('add_dl_notes_placeholder')}
           />
 
           <div className="flex items-center gap-6 pt-2">
@@ -698,7 +697,7 @@ export const AddDownloadDialog: React.FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-[var(--border-color)]/40">
             <TextField
-              label="Referer"
+              label={t('add_dl_referer')}
               value={referer}
               onChange={(e) => {
                 setReferer(e.target.value);
@@ -709,7 +708,7 @@ export const AddDownloadDialog: React.FC = () => {
               disabled={!isDirectOptionSupported('referer')}
             />
             <TextField
-              label="User-Agent"
+              label={t('add_dl_user_agent')}
               value={userAgent}
               onChange={(e) => {
                 setUserAgent(e.target.value);
@@ -720,7 +719,7 @@ export const AddDownloadDialog: React.FC = () => {
               disabled={!isDirectOptionSupported('userAgent')}
             />
             <TextField
-              label="Proxy"
+              label={t('add_dl_proxy')}
               value={proxy}
               onChange={(e) => {
                 setProxy(e.target.value);
@@ -734,7 +733,7 @@ export const AddDownloadDialog: React.FC = () => {
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <TextField
-              label="Speed Limit (KB/s)"
+              label={t('add_dl_speed_limit')}
               type="number"
               value={speedLimitKbs}
               onChange={(e) => {
@@ -743,7 +742,7 @@ export const AddDownloadDialog: React.FC = () => {
               disabled={!isDirectOptionSupported('speedLimitKbs')}
             />
             <TextField
-              label="Retries"
+              label={t('add_dl_retries')}
               type="number"
               value={retryCount}
               onChange={(e) => {
@@ -752,7 +751,7 @@ export const AddDownloadDialog: React.FC = () => {
               disabled={!isDirectOptionSupported('retryCount')}
             />
             <TextField
-              label="Retry Delay (s)"
+              label={t('add_dl_retry_delay')}
               type="number"
               value={retryDelaySec}
               onChange={(e) => {
@@ -761,7 +760,7 @@ export const AddDownloadDialog: React.FC = () => {
               disabled={!isDirectOptionSupported('retryDelaySec')}
             />
             <TextField
-              label="Timeout (s)"
+              label={t('add_dl_timeout')}
               type="number"
               value={timeoutSec}
               onChange={(e) => {
@@ -770,7 +769,7 @@ export const AddDownloadDialog: React.FC = () => {
               disabled={!isDirectOptionSupported('timeoutSec')}
             />
             <TextField
-              label="Connect Timeout (s)"
+              label={t('add_dl_connect_timeout')}
               type="number"
               value={connectTimeoutSec}
               onChange={(e) => {
@@ -782,7 +781,7 @@ export const AddDownloadDialog: React.FC = () => {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
             <Checkbox
-              label="Allow overwrite"
+              label={t('add_dl_allow_overwrite')}
               checked={allowOverwrite}
               onChange={setAllowOverwrite}
               disabled={!isDirectOptionSupported('allowOverwrite')}
@@ -792,7 +791,7 @@ export const AddDownloadDialog: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="flex flex-col gap-1">
               <label className="text-[var(--text-secondary)] text-[10px] md:text-[11px] font-bold">
-                Custom Headers
+                {t('add_dl_custom_headers')}
               </label>
               <textarea
                 rows={3}
@@ -800,21 +799,21 @@ export const AddDownloadDialog: React.FC = () => {
                 onChange={(e) => {
                   setHeaders(e.target.value);
                 }}
-                placeholder="Header-Name: value"
+                placeholder={t('add_dl_headers_placeholder')}
                 className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-md text-[11px] font-mono text-left text-[var(--text-primary)] p-2 focus:outline-none focus:border-[var(--accent-primary)]"
                 style={{ direction: 'ltr' }}
                 disabled={!isDirectOptionSupported('headers')}
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-[var(--text-secondary)] text-[10px] md:text-[11px] font-bold">Cookies</label>
+              <label className="text-[var(--text-secondary)] text-[10px] md:text-[11px] font-bold">{t('add_dl_cookies')}</label>
               <textarea
                 rows={3}
                 value={cookies}
                 onChange={(e) => {
                   setCookies(e.target.value);
                 }}
-                placeholder="name=value; other=value"
+                placeholder={t('add_dl_cookies_placeholder')}
                 className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-md text-[11px] font-mono text-left text-[var(--text-primary)] p-2 focus:outline-none focus:border-[var(--accent-primary)]"
                 style={{ direction: 'ltr' }}
                 disabled={!isDirectOptionSupported('cookies')}
