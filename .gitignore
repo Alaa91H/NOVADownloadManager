@@ -159,3 +159,10 @@ nova-watchdog.py
 watchdog.log
 agent.log
 nova-bot-update.py
+
+# Operator runbook and server-only systemd units / backups (never tracked)
+AGENTS.md
+nova-*.service
+nova-*.timer
+nova-bot.py.bak-*
+*.bak-*

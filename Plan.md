@@ -40,7 +40,7 @@
 6. **وثّق القرار** في Notes المهمة أو في ملف RESEARCH.md
 7. إذا كان القرار خطير (مثلاً تغيير الـ state management)، اكتب خطة كاملة أولاً
 
-### 3. 🤖 الإدارة الذاتية الكاملة (Self-Directed)
+### 3. الإدارة الذاتية الكاملة (Self-Directed)
 الوكيل **لا ينتظر أوامر** — هو يدير نفسه بنفسه:
 - **تحليل الـ Codebase**: كل دورة يفحص الكود ويحدد نقاط الضعف والتحسين
 - **توليد المهام**: يضيف مهام جديدة لـ Plan.md بشكل استباقي (قبل ما تطلبها أنت)
@@ -108,7 +108,7 @@
 - **Disk cleanup**: node_modules/.cache, dist, old builds, logs
 - **Health check**: service status, disk space, memory, swap usage
 
-### 10. 🤖 تطوير البوت تلغرام المستمر
+### 10. تطوير البوت تلغرام المستمر
 البوت (`nova-bot.py`) يجب أن يتطور مع الوكيل:
 - **كل قدرة للوكيل = أمر في البوت**
 - البحث، التخطيط، التقارير، التحكم الكامل بالسيرفر
@@ -155,7 +155,7 @@
 - لا تكتب أبداً tokens, keys, كلمات مرور في الكود
 - استخدم environment variables لكل الأسرار
 - لا تكتب path محلية أو user-specific data
-- لا تذكر "AI" أو "agent" أو "LLM" في أي commit, PR, issue, comment
+- استخدم لغة صيانة محايدة واحترافية في كل رسالة commit وPR وissue وتعليق
 
 ---
 
@@ -752,7 +752,7 @@ P26-07-07
 - Started: 2026-07-07
 - Completed: 2026-07-07
 - Notes:
-  - Telegram bot with /start, /status, /log, /exec, /quality, /plan management, /git, /opencode, /build, /register, /myid
+  - Telegram bot with /start, /status, /log, /exec, /quality, /plan management, /git, /build, /register, /myid
   - Agent sends automated notifications at each cycle phase
   - Systemd nova-bot.service + nova-dev-agent.service running
 
@@ -764,7 +764,7 @@ P26-07-07
 - Started: 2026-07-07
 - Completed: 2026-07-07
 - Notes:
-  - Plan.md, Dev branch, opencode 1.17.14, systemd service 24/7, Zen Big Pickle, 8GB swap
+  - Plan.md, Dev branch, systemd service 24/7, 8GB swap
 
 ### INFRA-002 — Agent script with Telegram notifications + CI monitoring
 
