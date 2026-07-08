@@ -1,6 +1,20 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('../../state/appStore', () => ({
+  useAppStore: () => ({
+    t: (k: string) => {
+      const map: Record<string, string> = {
+        time_picker_hour: 'Hour',
+        time_picker_minute: 'Minute',
+        time_picker_period: 'Period',
+      };
+      return map[k] || k;
+    },
+  }),
+}));
+
 import { TimePicker } from '../primitives/TimePicker';
 
 describe('TimePicker', () => {

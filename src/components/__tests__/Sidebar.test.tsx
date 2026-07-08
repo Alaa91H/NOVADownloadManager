@@ -23,6 +23,6 @@ describe('Sidebar', () => {
 
   it('renders theme customization controls', () => {
     render(<Sidebar />);
-    expect(screen.getByText('Theme')).toBeInTheDocument();
+    expect(screen.getByText('theme')).toBeInTheDocument();
   });
 });

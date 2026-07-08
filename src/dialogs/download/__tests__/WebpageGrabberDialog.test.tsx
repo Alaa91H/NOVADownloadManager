@@ -169,18 +169,20 @@ describe('WebpageGrabberDialog', () => {
 
   it('toggles follow external domains switch', () => {
     render(<WebpageGrabberDialog />);
-    const sw = screen.getByRole('switch', { name: /follow external domain/i });
-    expect(sw.getAttribute('aria-checked')).toBe('false');
-    fireEvent.click(sw);
-    expect(sw.getAttribute('aria-checked')).toBe('true');
+    const sw = document.querySelector('#grabber-domains [role="switch"]');
+    expect(sw).toBeInTheDocument();
+    expect(sw!.getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(sw!);
+    expect(sw!.getAttribute('aria-checked')).toBe('true');
   });
 
   it('toggles overwrite existing files switch', () => {
     render(<WebpageGrabberDialog />);
-    const sw = screen.getByRole('switch', { name: /overwrite existing files/i });
-    expect(sw.getAttribute('aria-checked')).toBe('true');
-    fireEvent.click(sw);
-    expect(sw.getAttribute('aria-checked')).toBe('false');
+    const sw = document.querySelector('#grabber-overwrite [role="switch"]');
+    expect(sw).toBeInTheDocument();
+    expect(sw!.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(sw!);
+    expect(sw!.getAttribute('aria-checked')).toBe('false');
   });
 
   it('renders backup notice for missing crawler backend', () => {

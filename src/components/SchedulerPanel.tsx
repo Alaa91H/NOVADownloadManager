@@ -32,6 +32,29 @@ export const SchedulerPanel: React.FC = () => {
   const { tasks, queues, updateQueue, resumeTask, pauseTask, addToast, addQueue, deleteQueue, removeTaskFromQueue, t } =
     useAppStore();
 
+  const [selectedQueueId, setSelectedQueueId] = useState<string>('main');
+  const [prevQueuesCount, setPrevQueuesCount] = useState(queues.length);
+  const [queueToDeleteId, setQueueToDeleteId] = React.useState<string | null>(null);
+  const [taskToRemoveId, setTaskToRemoveId] = React.useState<string | null>(null);
+
+  const selectedQueue = queues.length > 0
+    ? queues.find((q) => q.id === selectedQueueId) || queues[0]
+    : undefined;
+
+  const [name, setName] = useState(selectedQueue?.name || 'Main Download Queue');
+  const [startTime, setStartTime] = useState(selectedQueue?.startTime || '02:00');
+  const [endTime, setEndTime] = useState(selectedQueue?.endTime || '08:00');
+  const [days, setDays] = useState<number[]>(selectedQueue?.days || []);
+  const [isScheduled, setIsScheduled] = useState<boolean>(selectedQueue?.scheduled ?? false);
+  const [maxActive, setMaxActive] = useState<number>(selectedQueue?.maxActive || 1);
+  const [limitSpeed, setLimitSpeed] = useState<boolean>(selectedQueue?.limitSpeed ?? false);
+  const [speedLimitKbs, setSpeedLimitKbs] = useState<number>(selectedQueue?.speedLimitKbs || 0);
+  const [oneTimeLimit, setOneTimeLimit] = useState<boolean>(selectedQueue?.oneTimeLimit ?? false);
+  const [shutdownOnComplete, setShutdownOnComplete] = useState<boolean>(selectedQueue?.shutdownOnComplete ?? false);
+  const [hangupOnComplete, setHangupOnComplete] = useState<boolean>(selectedQueue?.hangupOnComplete ?? false);
+  const [retryCount, setRetryCount] = useState<number>(selectedQueue?.retryCount || 0);
+  const [exitOnComplete, setExitOnComplete] = useState<boolean>(false);
+
   if (queues.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3">
@@ -39,11 +62,6 @@ export const SchedulerPanel: React.FC = () => {
       </div>
     );
   }
-
-  const [selectedQueueId, setSelectedQueueId] = useState<string>('main');
-  const [prevQueuesCount, setPrevQueuesCount] = useState(queues.length);
-  const [queueToDeleteId, setQueueToDeleteId] = React.useState<string | null>(null);
-  const [taskToRemoveId, setTaskToRemoveId] = React.useState<string | null>(null);
 
   // Select a newly added queue, adjusting state during render instead of in an effect.
   if (queues.length !== prevQueuesCount) {
@@ -53,21 +71,6 @@ export const SchedulerPanel: React.FC = () => {
     }
     setPrevQueuesCount(queues.length);
   }
-  const selectedQueue = queues.find((q) => q.id === selectedQueueId) || queues[0];
-
-  const [name, setName] = useState(selectedQueue.name || 'Main Download Queue');
-  const [startTime, setStartTime] = useState(selectedQueue.startTime || '02:00');
-  const [endTime, setEndTime] = useState(selectedQueue.endTime || '08:00');
-  const [days, setDays] = useState<number[]>(selectedQueue.days);
-  const [isScheduled, setIsScheduled] = useState<boolean>(selectedQueue.scheduled);
-  const [maxActive, setMaxActive] = useState<number>(selectedQueue.maxActive || 1);
-  const [limitSpeed, setLimitSpeed] = useState<boolean>(selectedQueue.limitSpeed);
-  const [speedLimitKbs, setSpeedLimitKbs] = useState<number>(selectedQueue.speedLimitKbs);
-  const [oneTimeLimit, setOneTimeLimit] = useState<boolean>(selectedQueue.oneTimeLimit);
-  const [shutdownOnComplete, setShutdownOnComplete] = useState<boolean>(selectedQueue.shutdownOnComplete);
-  const [hangupOnComplete, setHangupOnComplete] = useState<boolean>(selectedQueue.hangupOnComplete);
-  const [retryCount, setRetryCount] = useState<number>(selectedQueue.retryCount);
-  const [exitOnComplete, setExitOnComplete] = useState<boolean>(false);
   const [playChime, setPlayChime] = useState<boolean>(true);
   const [enableWebhook, setEnableWebhook] = useState<boolean>(false);
   const [webhookUrl, setWebhookUrl] = useState<string>('https://api.my-server.com/dl-webhook');

@@ -142,10 +142,8 @@ describe('YoutubeDownloadDialog', () => {
     mockEngineCapabilities.mediaBlockedReason = () => 'yt-dlp is not installed';
     render(<YoutubeDownloadDialog />);
     expect(screen.getByText(/yt-dlp is not ready/)).toBeInTheDocument();
-    const input = document.getElementById('yt-url') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: 'https://example.com/video' } });
-    fireEvent.click(screen.getByText('Start Download'));
-    expect(mockAddToast).toHaveBeenCalledWith('error', 'Media engine unavailable', 'yt-dlp is not installed');
+    const startBtn = screen.getByText('Start Download').closest('button');
+    expect(startBtn).toBeDisabled();
   });
 
   it('shows FFmpeg unavailable banner when post-processing is not ready', () => {

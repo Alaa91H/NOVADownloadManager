@@ -141,9 +141,9 @@ describe('EngineCapabilityProvider', () => {
       },
     });
 
-    const capsHolder: { current: ReturnType<typeof useEngineCapabilities> | null } = { current: null };
+    const capsHolderRef: { current: ReturnType<typeof useEngineCapabilities> | null } = { current: null };
     const CaptureCaps: React.FC = () => {
-      capsHolder.current = useEngineCapabilities();
+      capsHolderRef.current = useEngineCapabilities();
       return null;
     };
 
@@ -154,10 +154,12 @@ describe('EngineCapabilityProvider', () => {
     );
 
     await vi.waitFor(() => {
-      expect(capsHolder.current?.loading).toBe(false);
+      expect(capsHolderRef.current?.loading).toBe(false);
     });
 
-    const sanitized = capsHolder.current!.sanitizeDirectOptions({
+    const caps = capsHolderRef.current;
+    if (!caps) throw new Error('caps not loaded');
+    const sanitized = caps.sanitizeDirectOptions({
       userAgent: 'test',
       referer: 'http://example.com',
       proxy: 'http://proxy:8080',
