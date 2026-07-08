@@ -603,6 +603,50 @@ P26-07-07
 
 ---
 
+## FIX Tasks (added 2026-07-08 — Dev CI is red)
+
+### FIX-001 — Fix TypeScript syntax error in EngineCapabilityContext.test.tsx
+
+- Status: `[ ] PLANNED`
+- Stream: FIX
+- Priority: P0
+- Impact: Blocks TypeScript check gate in CI; 5 TS1005/TS1002 errors on a single line
+- Plan: Fix missing closing single quote on line 93: `'directEngineId'` is written as `'directEngineId)` (no closing quote before the closing paren)
+- Acceptance: `tsc --noEmit` passes clean, `EngineCapabilityContext.test.tsx` compiles
+- Validation: CI TypeScript check gate (tsc --noEmit)
+
+### FIX-002 — Sync missing engine_* translation keys across all locales
+
+- Status: `[ ] PLANNED`
+- Stream: FIX
+- Priority: P0
+- Impact: CI Validate translations gate reports 1560 missing keys; many locales lack engine status keys added in UI-001
+- Plan: Run `pnpm run i18n:sync` (scripts/sync-i18n-index.mjs) to copy the 12 new engine_* keys from en.ts to every locale, then run `pnpm run i18n:validate` to verify zero issues
+- Acceptance: `pnpm run i18n:validate` exits with zero missing-key issues
+- Validation: CI Validate translations gate
+
+### FIX-003 — Fix ESLint errors in test files (novaClient.test.ts, tauriClient.test.ts)
+
+- Status: `[ ] PLANNED`
+- Stream: FIX
+- Priority: P0
+- Impact: CI ESLint gate fails with many `no-unsafe-*`, `no-explicit-any`, `no-unused-vars` errors in test files
+- Plan: Fix per-file: add `@jest-environment` or eslint-disable-lines for test-specific patterns (mocked `any` returns, unused imports), or properly type the mocks. Fix unused `afterEach` imports and floating promises.
+- Acceptance: `pnpm run lint:eslint` exits with zero errors on changed test files
+- Validation: CI ESLint gate
+
+### FIX-004 — Fix TaskTable.test.tsx dual-render test failures
+
+- Status: `[ ] PLANNED`
+- Stream: FIX
+- Priority: P0
+- Impact: CI tests gate fails — 44/46 tests in TaskTable.test.tsx fail with "Found multiple elements with the text"
+- Plan: Scope all `getByText`/`getByRole` queries with `within(container)` or use `getAllBy*` to handle the dual desktop-table + mobile-card rendering in jsdom. Follow the pattern in AGENTS.md §3.
+- Acceptance: `pnpm test` (or `vitest run src/components/__tests__/TaskTable.test.tsx`) passes all 46 tests green
+- Validation: CI Run tests gate
+
+---
+
 ## Completed Tasks
 
 ### BOT-001 — Telegram bot for agent control & notifications
