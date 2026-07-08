@@ -106,7 +106,16 @@ const T_MAP: Record<string, string> = {
 
 export function createMockStore(overrides: Record<string, unknown> = {}) {
   return {
-    t: (k: string, _params?: Record<string, string | number>) => T_MAP[k] || k,
+    t: (k: string, params?: Record<string, string | number>) => {
+      let val = T_MAP[k];
+      if (val === undefined) return k;
+      if (params) {
+        for (const [key, value] of Object.entries(params)) {
+          val = val.replace(`{${key}}`, String(value));
+        }
+      }
+      return val;
+    },
     bridge: { status: 'disconnected' as const, version: '', pid: 0, uptime: 0, speedLimit: null },
     workspaceView: 'all' as const,
     setWorkspaceView: vi.fn(),

@@ -3,9 +3,9 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { ErrorBoundary } from '../ErrorBoundary';
 
-const ThrowError: React.FC<{ shouldThrow?: boolean }> = ({ shouldThrow }) => {
+const ThrowError: React.FC<{ shouldThrow?: boolean; msg?: string }> = ({ shouldThrow, msg }) => {
   if (shouldThrow) {
-    throw new Error('Test error message');
+    throw new Error(msg);
   }
   return <div>Normal content</div>;
 };
@@ -24,7 +24,7 @@ describe('ErrorBoundary', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     render(
       <ErrorBoundary>
-        <ThrowError shouldThrow />
+        <ThrowError shouldThrow msg="Test error message" />
       </ErrorBoundary>,
     );
     expect(screen.getByText('Something went wrong')).toBeInTheDocument();
@@ -37,7 +37,7 @@ describe('ErrorBoundary', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     render(
       <ErrorBoundary>
-        <ThrowError shouldThrow />
+        <ThrowError shouldThrow msg={undefined} />
       </ErrorBoundary>,
     );
     expect(screen.getByText('An unexpected error occurred.')).toBeInTheDocument();
@@ -48,16 +48,16 @@ describe('ErrorBoundary', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { rerender } = render(
       <ErrorBoundary>
-        <ThrowError shouldThrow />
+        <ThrowError shouldThrow msg="Test error message" />
       </ErrorBoundary>,
     );
     expect(screen.getByText('Something went wrong')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Retry'));
     rerender(
       <ErrorBoundary>
         <div>Recovered content</div>
       </ErrorBoundary>,
     );
+    fireEvent.click(screen.getByText('Retry'));
     expect(screen.getByText('Recovered content')).toBeInTheDocument();
     spy.mockRestore();
   });

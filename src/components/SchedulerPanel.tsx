@@ -47,6 +47,15 @@ export const SchedulerPanel: React.FC = () => {
   }
   const selectedQueue = queues.find((q) => q.id === selectedQueueId) || queues[0];
 
+  if (!selectedQueue) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-[var(--text-secondary)] gap-2">
+        <AlertCircle className="w-8 h-8" />
+        <p className="text-sm">{t('sched_no_queues') || 'No queues available'}</p>
+      </div>
+    );
+  }
+
   const [name, setName] = useState(selectedQueue.name || 'Main Download Queue');
   const [startTime, setStartTime] = useState(selectedQueue.startTime || '02:00');
   const [endTime, setEndTime] = useState(selectedQueue.endTime || '08:00');

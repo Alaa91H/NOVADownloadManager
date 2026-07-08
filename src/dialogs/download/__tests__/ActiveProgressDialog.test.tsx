@@ -80,8 +80,8 @@ describe('ActiveProgressDialog', () => {
   it('shows downloading status fields', () => {
     render(<ActiveProgressDialog />);
     expect(screen.getByText('downloading')).toBeInTheDocument();
-    expect(screen.getByText(/1\.00 MB/)).toBeInTheDocument();
-    expect(screen.getByText(/500\.00 KB\/s/)).toBeInTheDocument();
+    expect(screen.getByText('1 MB')).toBeInTheDocument();
+    expect(screen.getByText('500 KB/s')).toBeInTheDocument();
   });
 
   it('shows Stop button when downloading', () => {

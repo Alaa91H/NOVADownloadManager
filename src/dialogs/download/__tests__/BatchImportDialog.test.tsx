@@ -1,7 +1,9 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BatchImportDialog } from '../BatchImportDialog';
+
+const engineRef: { current: Record<string, unknown> } = { current: {} };
 
 const { storeRef, mockCloseDialog, mockTriggerBatchDownload, mockAddToast } = vi.hoisted(() => {
   const mockCloseDialog = vi.fn();
@@ -15,14 +17,27 @@ vi.mock('../../../state/appStore', () => ({
   useAppStore: () => storeRef.current,
 }));
 
+const mockEngineDefaults = {
+  directReady: true,
+  directProtocols: ['http', 'https', 'ftp'],
+  supportsDirectProtocol: (url: string) => url.startsWith('http'),
+  supportsDirectOption: (key: string) => ['segmented', 'range', 'referer', 'userAgent', 'proxy', 'retryCount', 'timeoutSec', 'headers', 'cookies'].includes(key),
+  sanitizeDirectOptions: (options: Record<string, unknown>) => options,
+};
+Object.assign(engineRef.current, mockEngineDefaults);
+
+const mockNoDirectEngine = () => {
+  engineRef.current = {
+    directReady: false,
+    directProtocols: [],
+    supportsDirectProtocol: () => false,
+    supportsDirectOption: () => false,
+    sanitizeDirectOptions: (o: Record<string, unknown>) => o,
+  };
+};
+
 vi.mock('../../../capabilities/EngineCapabilityContext', () => ({
-  useEngineCapabilities: () => ({
-    directReady: true,
-    directProtocols: ['http', 'https', 'ftp'],
-    supportsDirectProtocol: (url: string) => url.startsWith('http'),
-    supportsDirectOption: (key: string) => ['segmented', 'range', 'referer', 'userAgent', 'proxy', 'retryCount', 'timeoutSec', 'headers', 'cookies'].includes(key),
-    sanitizeDirectOptions: (options: Record<string, unknown>) => options,
-  }),
+  useEngineCapabilities: () => engineRef.current,
 }));
 
 vi.mock('../../../utils/clipboard', () => ({
@@ -92,44 +107,40 @@ describe('BatchImportDialog', () => {
     expect(screen.getByText('Save Directory')).toBeInTheDocument();
   });
 
-  it('imports valid URLs', () => {
+  it('imports valid URLs', async () => {
     render(<BatchImportDialog />);
     const textarea = document.querySelector('textarea')!;
     fireEvent.change(textarea, { target: { value: 'https://example.com/file1.zip\nhttps://example.com/file2.zip' } });
     fireEvent.click(screen.getByText('Import & Queue'));
-    expect(mockTriggerBatchDownload).toHaveBeenCalledWith(
-      ['https://example.com/file1.zip', 'https://example.com/file2.zip'],
-      expect.any(Object),
-    );
+    await waitFor(() => {
+      expect(mockTriggerBatchDownload).toHaveBeenCalledWith(
+        ['https://example.com/file1.zip', 'https://example.com/file2.zip'],
+        expect.any(Object),
+      );
+    });
     expect(mockCloseDialog).toHaveBeenCalled();
   });
 
-  it('shows error when no valid URLs', () => {
+  it('shows error when no valid URLs', async () => {
     render(<BatchImportDialog />);
     const textarea = document.querySelector('textarea')!;
     fireEvent.change(textarea, { target: { value: 'invalid\nnot a url' } });
     fireEvent.click(screen.getByText('Import & Queue'));
-    expect(mockAddToast).toHaveBeenCalledWith('error', 'Error', expect.stringContaining('No valid direct links'));
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith('error', 'Error', expect.stringContaining('No valid direct links'));
+    });
   });
 
-  it('shows error when input is empty', () => {
+  it('shows error when input is empty', async () => {
     render(<BatchImportDialog />);
     fireEvent.click(screen.getByText('Import & Queue'));
-    expect(mockAddToast).toHaveBeenCalledWith('error', 'Error', expect.stringContaining('No valid direct links'));
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith('error', 'Error', expect.stringContaining('No valid direct links'));
+    });
   });
 
   it('shows direct engine not ready warning', () => {
-    vi.restoreAllMocks();
-    vi.mock('../../../capabilities/EngineCapabilityContext', () => ({
-      useEngineCapabilities: () => ({
-        directReady: false,
-        directProtocols: [],
-        supportsDirectProtocol: () => false,
-        supportsDirectOption: () => false,
-        sanitizeDirectOptions: (o: Record<string, unknown>) => o,
-      }),
-    }));
-    storeRef.current = { ...storeRef.current };
+    mockNoDirectEngine();
     render(<BatchImportDialog />);
     expect(screen.getByText(/Direct imports are disabled/)).toBeInTheDocument();
   });

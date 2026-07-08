@@ -220,7 +220,7 @@ describe('TaskTable', () => {
     const tableCheckboxes = within(screen.getByRole('table')).getAllByRole('checkbox');
     const taskCheckbox = tableCheckboxes[1];
     fireEvent.click(taskCheckbox);
-    expect(screen.getByText(/Selected/)).toBeInTheDocument();
+    expect(screen.getByText(/selected/i)).toBeInTheDocument();
   });
 
   it('clicking select all checkbox selects all tasks', () => {
@@ -230,7 +230,7 @@ describe('TaskTable', () => {
     const tableCheckboxes = within(screen.getByRole('table')).getAllByRole('checkbox');
     const selectAllCheckbox = tableCheckboxes[0];
     fireEvent.click(selectAllCheckbox);
-    expect(screen.getByText(/Selected.*2/)).toBeInTheDocument();
+    expect(screen.getByText('2 selected')).toBeInTheDocument();
   });
 
   it('opens confirmDelete dialog via batch delete', () => {
@@ -401,7 +401,8 @@ describe('TaskTable', () => {
     render(<TaskTable />);
     const tableCheckboxes = within(screen.getByRole('table')).getAllByRole('checkbox');
     fireEvent.click(tableCheckboxes[0]);
-    fireEvent.click(screen.getByText('Resume'));
+    const resumeButtons = screen.getAllByText('Resume');
+    fireEvent.click(resumeButtons[0]);
     expect(resumeTask).toHaveBeenCalledTimes(2);
   });
 
@@ -415,7 +416,8 @@ describe('TaskTable', () => {
     render(<TaskTable />);
     const tableCheckboxes = within(screen.getByRole('table')).getAllByRole('checkbox');
     fireEvent.click(tableCheckboxes[0]);
-    fireEvent.click(screen.getByText('Stop'));
+    const stopButtons = screen.getAllByText('Stop');
+    fireEvent.click(stopButtons[0]);
     expect(pauseTask).toHaveBeenCalledTimes(2);
   });
 

@@ -2,23 +2,30 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const { storeRef, mockCloseDialog, mockUpdateSettings, mockAddToast, mockConfigureBrowserExtension, mockGetBrowserExtensionPaths, mockOpenInExplorer, mockOpenExternalUrl, mockOpenBrowserExtensions } = vi.hoisted(() => {
+  const mockCloseDialog = vi.fn();
+  const mockUpdateSettings = vi.fn();
+  const mockAddToast = vi.fn();
+  const storeRef: { current: Record<string, unknown> } = { current: {} };
+  const mockConfigureBrowserExtension = vi.fn().mockResolvedValue({
+    enabled: true,
+    paired: true,
+    lastChecked: '2024-01-01T00:00:00Z',
+    token: 'test-token',
+  });
+  const mockGetBrowserExtensionPaths = vi.fn().mockResolvedValue({
+    devPath: '/home/user/nova/extension',
+    resourcePath: '/usr/share/nova/extension',
+  });
+  const mockOpenInExplorer = vi.fn().mockResolvedValue(true);
+  const mockOpenExternalUrl = vi.fn().mockResolvedValue(undefined);
+  const mockOpenBrowserExtensions = vi.fn().mockResolvedValue(undefined);
+  return { storeRef, mockCloseDialog, mockUpdateSettings, mockAddToast, mockConfigureBrowserExtension, mockGetBrowserExtensionPaths, mockOpenInExplorer, mockOpenExternalUrl, mockOpenBrowserExtensions };
+});
+
 vi.mock('../../../state/appStore', () => ({
   useAppStore: () => storeRef.current,
 }));
-
-const mockConfigureBrowserExtension = vi.fn().mockResolvedValue({
-  enabled: true,
-  paired: true,
-  lastChecked: '2024-01-01T00:00:00Z',
-  token: 'test-token',
-});
-const mockGetBrowserExtensionPaths = vi.fn().mockResolvedValue({
-  devPath: '/home/user/nova/extension',
-  resourcePath: '/usr/share/nova/extension',
-});
-const mockOpenInExplorer = vi.fn().mockResolvedValue(true);
-const mockOpenExternalUrl = vi.fn().mockResolvedValue(undefined);
-const mockOpenBrowserExtensions = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('../../../api/tauriClient', () => ({
   tauriClient: {
@@ -37,17 +44,22 @@ vi.mock('../../../api/novaClient', () => ({
 
 import { BrowserIntegrationDialog } from '../BrowserIntegrationDialog';
 
-const { storeRef, mockCloseDialog, mockUpdateSettings, mockAddToast } = vi.hoisted(() => {
-  const mockCloseDialog = vi.fn();
-  const mockUpdateSettings = vi.fn();
-  const mockAddToast = vi.fn();
-  const storeRef: { current: Record<string, unknown> } = { current: {} };
-  return { storeRef, mockCloseDialog, mockUpdateSettings, mockAddToast };
-});
-
 describe('BrowserIntegrationDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockConfigureBrowserExtension.mockResolvedValue({
+      enabled: true,
+      paired: true,
+      lastChecked: '2024-01-01T00:00:00Z',
+      token: 'test-token',
+    });
+    mockGetBrowserExtensionPaths.mockResolvedValue({
+      devPath: '/home/user/nova/extension',
+      resourcePath: '/usr/share/nova/extension',
+    });
+    mockOpenInExplorer.mockResolvedValue(true);
+    mockOpenExternalUrl.mockResolvedValue(undefined);
+    mockOpenBrowserExtensions.mockResolvedValue(undefined);
     storeRef.current = {
       closeDialog: mockCloseDialog,
       updateSettings: mockUpdateSettings,
@@ -159,6 +171,9 @@ describe('BrowserIntegrationDialog', () => {
 
   it('opens dev folder when button clicked', async () => {
     render(<BrowserIntegrationDialog />);
+    await waitFor(() => {
+      expect(mockGetBrowserExtensionPaths).toHaveBeenCalled();
+    });
     fireEvent.click(screen.getByText('Open Dev Folder'));
     await waitFor(() => {
       expect(mockOpenInExplorer).toHaveBeenCalledWith('/home/user/nova/extension');
