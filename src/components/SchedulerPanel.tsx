@@ -54,53 +54,17 @@ export const SchedulerPanel: React.FC = () => {
   const [hangupOnComplete, setHangupOnComplete] = useState<boolean>(selectedQueue?.hangupOnComplete ?? false);
   const [retryCount, setRetryCount] = useState<number>(selectedQueue?.retryCount || 0);
   const [exitOnComplete, setExitOnComplete] = useState<boolean>(false);
-
-  if (queues.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full gap-3">
-        <p className="text-xs text-[var(--text-secondary)]">{t('sched_no_queues')}</p>
-      </div>
-    );
-  }
-
-  // Select a newly added queue, adjusting state during render instead of in an effect.
-  if (queues.length !== prevQueuesCount) {
-    if (queues.length > prevQueuesCount) {
-      const lastQueue = queues[queues.length - 1];
-      setSelectedQueueId(lastQueue.id);
-    }
-    setPrevQueuesCount(queues.length);
-  }
   const [playChime, setPlayChime] = useState<boolean>(true);
   const [enableWebhook, setEnableWebhook] = useState<boolean>(false);
   const [webhookUrl, setWebhookUrl] = useState<string>('https://api.my-server.com/dl-webhook');
   const [retryDelay, setRetryDelay] = useState<number>(10);
-  const [smartScheduleType, setSmartScheduleType] = useState<ScheduleType>(inferScheduleType(selectedQueue));
-
+  const [smartScheduleType, setSmartScheduleType] = useState<ScheduleType>(
+    selectedQueue ? inferScheduleType(selectedQueue) : 'custom',
+  );
   const [activeTab, setActiveTab] = useState<TabId>('files');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [newQueueName, setNewQueueName] = useState('');
-
-  // Load the form when switching queues, adjusting state during render.
-  // The auto-save effect below then fires once with the freshly synced values,
-  // which is an idempotent write back to the same queue.
   const [prevSelectedQueueId, setPrevSelectedQueueId] = useState(selectedQueueId);
-  if (prevSelectedQueueId !== selectedQueueId) {
-    setPrevSelectedQueueId(selectedQueueId);
-    setName(selectedQueue.name);
-    setStartTime(selectedQueue.startTime || '02:00');
-    setEndTime(selectedQueue.endTime || '08:00');
-    setDays(selectedQueue.days);
-    setMaxActive(selectedQueue.maxActive || 1);
-    setIsScheduled(selectedQueue.scheduled || false);
-    setSmartScheduleType(inferScheduleType(selectedQueue));
-    setLimitSpeed(selectedQueue.limitSpeed || false);
-    setSpeedLimitKbs(selectedQueue.speedLimitKbs || 2048);
-    setOneTimeLimit(selectedQueue.oneTimeLimit || false);
-    setShutdownOnComplete(selectedQueue.shutdownOnComplete || false);
-    setHangupOnComplete(selectedQueue.hangupOnComplete || false);
-    setRetryCount(selectedQueue.retryCount || 10);
-  }
 
   React.useEffect(() => {
     updateQueue(
@@ -139,6 +103,44 @@ export const SchedulerPanel: React.FC = () => {
     selectedQueueId,
     updateQueue,
   ]);
+
+  if (queues.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3">
+        <p className="text-xs text-[var(--text-secondary)]">{t('sched_no_queues')}</p>
+      </div>
+    );
+  }
+  if (!selectedQueue) return null;
+
+  // Select a newly added queue, adjusting state during render instead of in an effect.
+  if (queues.length !== prevQueuesCount) {
+    if (queues.length > prevQueuesCount) {
+      const lastQueue = queues[queues.length - 1];
+      setSelectedQueueId(lastQueue.id);
+    }
+    setPrevQueuesCount(queues.length);
+  }
+
+  // Load the form when switching queues, adjusting state during render.
+  // The auto-save effect below then fires once with the freshly synced values,
+  // which is an idempotent write back to the same queue.
+  if (prevSelectedQueueId !== selectedQueueId) {
+    setPrevSelectedQueueId(selectedQueueId);
+    setName(selectedQueue.name);
+    setStartTime(selectedQueue.startTime || '02:00');
+    setEndTime(selectedQueue.endTime || '08:00');
+    setDays(selectedQueue.days);
+    setMaxActive(selectedQueue.maxActive || 1);
+    setIsScheduled(selectedQueue.scheduled || false);
+    setSmartScheduleType(inferScheduleType(selectedQueue));
+    setLimitSpeed(selectedQueue.limitSpeed || false);
+    setSpeedLimitKbs(selectedQueue.speedLimitKbs || 2048);
+    setOneTimeLimit(selectedQueue.oneTimeLimit || false);
+    setShutdownOnComplete(selectedQueue.shutdownOnComplete || false);
+    setHangupOnComplete(selectedQueue.hangupOnComplete || false);
+    setRetryCount(selectedQueue.retryCount || 10);
+  }
 
   const queueTasks = tasks.filter((t) => t.queueId === selectedQueueId);
   const orderedQueueTasks = [...queueTasks].sort((a, b) => {

@@ -268,7 +268,12 @@ P26-07-07
   - i18n: synced 922 keys to all 132 locales (2340 issues)
   - Tests: Sidebar, TimePicker, WebpageGrabberDialog, YoutubeDownloadDialog
   - Push: `45423a3` pushed to Dev at 2026-07-08
-  - CI: pending (gates fixed: translations synced, ESLint warnings resolved, test files validated locally)
+  - CI: https://github.com/Alaa91H/NOVADownloadManager/actions/runs/28916426329 (FAILED: TypeScript + ESLint — SchedulerPanel conditional hooks)
+- Cycle 2026-07-08 (round 3 — CI repair): Fixed SchedulerPanel conditional hooks & TS errors.
+  - Root cause: 9 `useState` and 1 `useEffect` were placed after early returns, violating Rules of Hooks.
+  - Fix: Moved all hooks before the `if (queues.length === 0)` early return. Added `if (!selectedQueue) return null` guard after all hooks for TypeScript narrowing.
+  - Preflight: `tsc --noEmit`: clean | `eslint SchedulerPanel.tsx`: clean | `SchedulerPanel.test.tsx`: 20/20
+  - Push: pushed to Dev at 2026-07-08
 - Next cycle: Continue dialog audit (AddDownloadDialog, YoutubeDownloadDialog, ActiveProgressDialog — highest count of hardcoded strings).
 - Files affected:
   - `src/components/TopBar.tsx`, `StatusBar.tsx`, `Sidebar.tsx`, `TaskTable.tsx`
@@ -638,6 +643,12 @@ P26-07-07
 > Push: `e231eb7` pushed to Dev at 2026-07-08 07:41 UTC.
 > Changes: 9 files, fixed 3 test files with remaining failures (ActiveProgressDialog, BatchImportDialog, BrowserIntegrationDialog) and added empty-queue guard in SchedulerPanel.
 > Tests: ActiveProgressDialog 14/14, BatchImportDialog 10/10, BrowserIntegrationDialog 16/16 — all pass locally.
+
+### Round 3 — fix SchedulerPanel conditional hooks & TS errors
+
+> Push: pushed to Dev at 2026-07-08.
+> Changes: 1 file (SchedulerPanel.tsx). Moved 9 `useState` and 1 `useEffect` hooks before early returns to fix Rules of Hooks violation. Added `if (!selectedQueue) return null` guard for type safety.
+> Preflight: `tsc --noEmit`: clean | `eslint SchedulerPanel.tsx`: clean | `SchedulerPanel.test.tsx`: 20/20 | `Sidebar.test.tsx`: 3/3 | `TimePicker.test.tsx`: 14/14
 
 ### FIX-001 — Fix TypeScript syntax error in EngineCapabilityContext.test.tsx
 
