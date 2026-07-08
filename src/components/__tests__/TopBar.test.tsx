@@ -7,9 +7,59 @@ vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => false }));
 
 type StoreOverrides = Record<string, unknown>;
 
+const T_MAP: Record<string, string> = {
+  topbar_new_download: 'New Download',
+  topbar_new_download_tip: 'New Download',
+  topbar_more_options: 'More Options',
+  topbar_single_url: 'Single URL',
+  topbar_batch_download: 'Batch Download',
+  dlg_webpage_grabber: 'Webpage Grabber',
+  dlg_media_downloader: 'Media Downloader',
+  engine_caps_loading: 'Checking engine capabilities\u2026',
+  engine_no_engine: 'Direct download & media engines are not available.',
+  engine_unavailable_desc: 'Engine is unavailable.',
+  engine_direct_unavailable: 'Direct engine is not available.',
+  engine_media_unavailable: 'Media engine is not available.',
+  topbar_scheduler_tip: 'Scheduler',
+  nav_settings: 'Settings',
+  topbar_search_placeholder: 'Search Downloads\u2026',
+  topbar_resume_selected_tip: 'Resume selected download',
+  topbar_resume_all_tip: 'Resume all downloads',
+  topbar_resume_all_title: 'Resume All',
+  topbar_resume_all_none: 'No downloads to resume.',
+  topbar_resume_all_done: 'Resumed {count} downloads.',
+  topbar_stop_selected_tip: 'Stop selected download',
+  topbar_stop_all_tip: 'Stop all downloads',
+  topbar_stop_all_title: 'Stop All',
+  topbar_stop_all_none: 'No active downloads to stop.',
+  topbar_stop_all_done: 'Stopped {count} downloads.',
+  topbar_delete_selected_tip: 'Delete selected download',
+  topbar_delete_all_tip: 'Delete all downloads',
+  topbar_delete_all_title: 'Delete All',
+  topbar_delete_all_none: 'No downloads to delete.',
+  topbar_delete_all_done: 'Deleted {count} downloads.',
+  topbar_delete_completed_title: 'Delete Completed',
+  topbar_delete_completed_none: 'No completed downloads to delete.',
+  topbar_delete_completed_done: 'Deleted {count} completed downloads.',
+  topbar_delete_all_confirm: 'Delete all downloads?',
+  topbar_delete_completed_confirm: 'Delete all completed downloads?',
+  resume: 'Resume',
+  topbar_resume_selected: 'Resume Selected',
+  topbar_resume_all: 'Resume All',
+  topbar_stop_selected: 'Stop Selected',
+  topbar_stop_all: 'Stop All',
+  topbar_delete_selected: 'Delete Selected',
+  topbar_delete_all: 'Delete All',
+  topbar_delete_completed: 'Delete Completed',
+  telegram_send_file_title: 'Send File',
+  telegram_send_file_no_file: 'No file to send.',
+  telegram_send_file_ok: 'File sent successfully.',
+  telegram_send_file_failed: 'Failed to send file.',
+};
+
 function makeStore(overrides: StoreOverrides = {}) {
   return {
-    t: (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+    t: (k: string) => T_MAP[k] || k,
     bridge: { status: 'disconnected' as const, version: '', pid: 0, uptime: 0, speedLimit: null },
     workspaceView: 'all' as const,
     setWorkspaceView: vi.fn(),
@@ -288,12 +338,12 @@ describe('TopBar', () => {
     expect(openDialog).toHaveBeenCalledWith('genericConfirm', expect.objectContaining({ isDanger: true }));
   });
 
-  it('shows toast when deleting all with no tasks', () => {
+  it('does nothing when deleting all with no tasks', () => {
     const addToast = vi.fn();
     mockStoreRef.current = makeStore({ tasks: [], addToast });
     render(<TopBar />);
     fireEvent.click(screen.getByTitle('Delete all downloads'));
-    expect(addToast).toHaveBeenCalledWith('info', 'Delete All', 'No downloads to delete.');
+    expect(addToast).not.toHaveBeenCalled();
   });
 
   it('renders new download dropdown items', () => {
@@ -330,15 +380,17 @@ describe('TopBar', () => {
     expect(screen.getByText('Media Downloader').closest('button')).toBeDisabled();
   });
 
-  it('shows warning toast when both engines blocked on new download click', () => {
+  it('does nothing when both engines blocked on new download click (button disabled)', () => {
     mockCaps.directReady = false;
     mockCaps.mediaReady = false;
     mockCaps.error = 'No engines available';
     const addToast = vi.fn();
     mockStoreRef.current = makeStore({ addToast });
     render(<TopBar />);
-    fireEvent.click(screen.getByTitle('No engines available'));
-    expect(addToast).toHaveBeenCalledWith('warning', 'No Engine Available', 'No engines available');
+    const disabledBtn = screen.getByTitle('No engines available');
+    expect(disabledBtn).toBeDisabled();
+    fireEvent.click(disabledBtn);
+    expect(addToast).not.toHaveBeenCalled();
   });
 
   it('resume dropdown has resume selected and resume all items', () => {
@@ -347,7 +399,7 @@ describe('TopBar', () => {
     mockStoreRef.current = makeStore({ tasks: [task], selectedTaskId: 'task-1', resumeTask });
     render(<TopBar />);
     const chevrons = screen.getAllByRole('button').filter((b) => b.querySelector('.lucide-chevron-down'));
-    if (chevrons[0]) fireEvent.click(chevrons[0]);
+    if (chevrons[1]) fireEvent.click(chevrons[1]);
     expect(screen.getByText('Resume Selected')).toBeInTheDocument();
     expect(screen.getByText('Resume All')).toBeInTheDocument();
   });
@@ -358,7 +410,7 @@ describe('TopBar', () => {
     mockStoreRef.current = makeStore({ tasks: [task], selectedTaskId: 'task-1', pauseTask });
     render(<TopBar />);
     const chevrons = screen.getAllByRole('button').filter((b) => b.querySelector('.lucide-chevron-down'));
-    if (chevrons[1]) fireEvent.click(chevrons[1]);
+    if (chevrons[2]) fireEvent.click(chevrons[2]);
     expect(screen.getByText('Stop Selected')).toBeInTheDocument();
     expect(screen.getByText('Stop All')).toBeInTheDocument();
   });

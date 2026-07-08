@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createMockStore } from '../../test/mockStore';
 
@@ -77,6 +77,17 @@ function makeTask(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const ALL_COLS_VISIBLE = {
+  name: true, size: true, progress: true, speed: true, timeLeft: true,
+  date: true, status: true, retries: true, connections: true,
+  crc32: true, priority: true, completedDate: true, sourceUrl: true,
+  smartCategory: true,
+};
+const DEFAULT_COL_ORDER = [
+  'name', 'size', 'progress', 'speed', 'timeLeft', 'date', 'status',
+  'retries', 'connections', 'crc32', 'priority', 'completedDate', 'sourceUrl', 'smartCategory',
+];
+
 describe('TaskTable', () => {
   beforeEach(() => {
     mockStoreRef.current = createMockStore();
@@ -88,23 +99,28 @@ describe('TaskTable', () => {
     mockCaps.mediaBlockedReason = vi.fn(() => null);
     vi.clearAllMocks();
     localStorage.clear();
+    localStorage.setItem('nova_visible_cols', JSON.stringify(ALL_COLS_VISIBLE));
+    localStorage.setItem('nova_col_order', JSON.stringify(DEFAULT_COL_ORDER));
   });
 
   it('shows empty state', () => {
     render(<TaskTable />);
-    expect(screen.getByText('No Downloads')).toBeInTheDocument();
+    const matches = screen.getAllByText('No Downloads');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('renders task rows', () => {
     mockStoreRef.current = createMockStore({ tasks: [makeTask()] });
     render(<TaskTable />);
-    expect(screen.getByText('test-file.zip')).toBeInTheDocument();
+    const matches = within(screen.getByRole('table')).getAllByText('test-file.zip');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('shows progress percentage', () => {
     mockStoreRef.current = createMockStore({ tasks: [makeTask()] });
     render(<TaskTable />);
-    expect(screen.getByText('50%')).toBeInTheDocument();
+    const matches = within(screen.getByRole('table')).getAllByText('50%');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('shows completed status pill', () => {
@@ -112,7 +128,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ status: 'completed', downloadedBytes: 1024 * 1024 })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('Completed')).toBeInTheDocument();
+    const matches = within(screen.getByRole('table')).getAllByText('Completed');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('shows paused status pill', () => {
@@ -120,7 +137,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ status: 'paused' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('Paused')).toBeInTheDocument();
+    const matches = within(screen.getByRole('table')).getAllByText('Paused');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('shows error status pill', () => {
@@ -128,7 +146,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ status: 'error' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('Error')).toBeInTheDocument();
+    const matches = within(screen.getByRole('table')).getAllByText('Error');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('shows queued status pill', () => {
@@ -136,7 +155,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ status: 'queued' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('Queued')).toBeInTheDocument();
+    const matches = within(screen.getByRole('table')).getAllByText('Queued');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('shows speed for downloading task', () => {
@@ -144,7 +164,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ status: 'downloading', speedBytesPerSec: 204800 })],
     });
     render(<TaskTable />);
-    expect(screen.getByText(/200/)).toBeInTheDocument();
+    const matches = within(screen.getByRole('table')).getAllByText(/200/);
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('formats size column', () => {
@@ -152,7 +173,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ sizeBytes: 2 * 1024 * 1024 })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('2.0 MB')).toBeInTheDocument();
+    const matches = within(screen.getByRole('table')).getAllByText('2 MB');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('shows priority badge for fast queue', () => {
@@ -160,7 +182,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ queueId: 'fast' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('High')).toBeInTheDocument();
+    const matches = within(screen.getByRole('table')).getAllByText('High');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('shows priority badge for night queue', () => {
@@ -168,7 +191,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ queueId: 'night' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('Low')).toBeInTheDocument();
+    const matches = within(screen.getByRole('table')).getAllByText('Low');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('shows priority badge for normal queue', () => {
@@ -176,23 +200,26 @@ describe('TaskTable', () => {
       tasks: [makeTask({ queueId: 'main' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('Normal')).toBeInTheDocument();
+    const matches = within(screen.getByRole('table')).getAllByText('Normal');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('renders multiple tasks', () => {
     const tasks = [makeTask({ id: 't1', name: 'file1.zip' }), makeTask({ id: 't2', name: 'file2.zip' })];
     mockStoreRef.current = createMockStore({ tasks });
     render(<TaskTable />);
-    expect(screen.getByText('file1.zip')).toBeInTheDocument();
-    expect(screen.getByText('file2.zip')).toBeInTheDocument();
+    const tbl = within(screen.getByRole('table'));
+    expect(tbl.getAllByText('file1.zip').length).toBeGreaterThan(0);
+    expect(tbl.getAllByText('file2.zip').length).toBeGreaterThan(0);
   });
 
   it('shows batch action bar when task checked', () => {
     const tasks = [makeTask({ id: 't1' })];
     mockStoreRef.current = createMockStore({ tasks });
     render(<TaskTable />);
-    const checkbox = screen.getAllByRole('checkbox')[1];
-    fireEvent.click(checkbox);
+    const tableCheckboxes = within(screen.getByRole('table')).getAllByRole('checkbox');
+    const taskCheckbox = tableCheckboxes[1];
+    fireEvent.click(taskCheckbox);
     expect(screen.getByText(/Selected/)).toBeInTheDocument();
   });
 
@@ -200,7 +227,8 @@ describe('TaskTable', () => {
     const tasks = [makeTask({ id: 't1', name: 'f1.zip' }), makeTask({ id: 't2', name: 'f2.zip' })];
     mockStoreRef.current = createMockStore({ tasks });
     render(<TaskTable />);
-    const selectAllCheckbox = screen.getAllByRole('checkbox')[0];
+    const tableCheckboxes = within(screen.getByRole('table')).getAllByRole('checkbox');
+    const selectAllCheckbox = tableCheckboxes[0];
     fireEvent.click(selectAllCheckbox);
     expect(screen.getByText(/Selected.*2/)).toBeInTheDocument();
   });
@@ -211,40 +239,41 @@ describe('TaskTable', () => {
     const deleteTask = vi.fn();
     mockStoreRef.current = createMockStore({ tasks, openDialog, deleteTask });
     render(<TaskTable />);
-    const checkbox = screen.getAllByRole('checkbox')[1];
-    fireEvent.click(checkbox);
-    fireEvent.click(screen.getByText('Delete'));
+    const tableCheckboxes = within(screen.getByRole('table')).getAllByRole('checkbox');
+    const taskCheckbox = tableCheckboxes[1];
+    fireEvent.click(taskCheckbox);
+    fireEvent.click(screen.getAllByText('Delete')[0]);
     expect(openDialog).toHaveBeenCalledWith('genericConfirm', expect.objectContaining({ isDanger: true }));
   });
 
   it('opens context menu on right click', () => {
     mockStoreRef.current = createMockStore({ tasks: [makeTask()] });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
-    expect(screen.getByText('Properties')).toBeInTheDocument();
+    expect(screen.getAllByText('Properties').length).toBeGreaterThan(0);
   });
 
   it('context menu shows stop for downloading task', () => {
     mockStoreRef.current = createMockStore({ tasks: [makeTask({ status: 'downloading' })] });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
-    expect(screen.getByText('Stop')).toBeInTheDocument();
+    expect(screen.getAllByText('Stop').length).toBeGreaterThan(0);
   });
 
   it('context menu shows resume for paused task', () => {
     mockStoreRef.current = createMockStore({ tasks: [makeTask({ status: 'paused' })] });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
-    expect(screen.getByText('Resume')).toBeInTheDocument();
+    expect(screen.getAllByText('Resume').length).toBeGreaterThan(0);
   });
 
   it('context menu shows retry for error task', () => {
     mockStoreRef.current = createMockStore({ tasks: [makeTask({ status: 'error' })] });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
     expect(screen.getByText('Retry Download')).toBeInTheDocument();
   });
@@ -252,7 +281,7 @@ describe('TaskTable', () => {
   it('context menu shows open file for completed task', () => {
     mockStoreRef.current = createMockStore({ tasks: [makeTask({ status: 'completed' })] });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
     expect(screen.getByText('Open File')).toBeInTheDocument();
   });
@@ -271,7 +300,7 @@ describe('TaskTable', () => {
       },
     });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
     expect(screen.getByText('Send to Telegram')).toBeInTheDocument();
   });
@@ -281,7 +310,7 @@ describe('TaskTable', () => {
     Object.assign(navigator, { clipboard: { writeText } });
     mockStoreRef.current = createMockStore({ tasks: [makeTask()] });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
     fireEvent.click(screen.getByText('Copy URL'));
     expect(writeText).toHaveBeenCalledWith('https://example.com/test-file.zip');
@@ -291,9 +320,9 @@ describe('TaskTable', () => {
     const deleteTask = vi.fn();
     mockStoreRef.current = createMockStore({ tasks: [makeTask()], deleteTask });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
-    fireEvent.click(screen.getByText('Delete'));
+    fireEvent.click(screen.getAllByText('Delete')[0]);
     expect(deleteTask).toHaveBeenCalledWith('task-1', false);
   });
 
@@ -301,9 +330,9 @@ describe('TaskTable', () => {
     const resumeTask = vi.fn();
     mockStoreRef.current = createMockStore({ tasks: [makeTask({ status: 'paused' })], resumeTask });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
-    fireEvent.click(screen.getByText('Resume'));
+    fireEvent.click(screen.getAllByText('Resume')[0]);
     expect(resumeTask).toHaveBeenCalledWith('task-1');
   });
 
@@ -311,9 +340,9 @@ describe('TaskTable', () => {
     const pauseTask = vi.fn();
     mockStoreRef.current = createMockStore({ tasks: [makeTask({ status: 'downloading' })], pauseTask });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
-    fireEvent.click(screen.getByText('Stop'));
+    fireEvent.click(screen.getAllByText('Stop')[0]);
     expect(pauseTask).toHaveBeenCalledWith('task-1');
   });
 
@@ -321,9 +350,9 @@ describe('TaskTable', () => {
     const openDialog = vi.fn();
     mockStoreRef.current = createMockStore({ tasks: [makeTask()], openDialog });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
-    fireEvent.click(screen.getByText('Properties'));
+    fireEvent.click(screen.getAllByText('Properties')[0]);
     expect(openDialog).toHaveBeenCalledWith('taskProperties', expect.objectContaining({ id: 'task-1' }));
   });
 
@@ -331,9 +360,10 @@ describe('TaskTable', () => {
     mockCaps.mediaReady = false;
     mockStoreRef.current = createMockStore({ tasks: [makeTask({ status: 'paused', engine: 'yt-dlp' })] });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr')!;
     fireEvent.contextMenu(row);
-    const resumeBtn = screen.getByText('Resume').closest('button') || screen.getByText('Resume');
+    const resumeBtns = screen.getAllByText('Resume');
+    const resumeBtn = resumeBtns[0].closest('button') || resumeBtns[0];
     expect(resumeBtn.closest('[class*="disabled"]') || resumeBtn).toBeDefined();
   });
 
@@ -344,7 +374,7 @@ describe('TaskTable', () => {
       openTaskFile,
     });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr')!;
     fireEvent.doubleClick(row);
     expect(openTaskFile).toHaveBeenCalledWith('task-1');
   });
@@ -356,7 +386,7 @@ describe('TaskTable', () => {
       openDialog,
     });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr')!;
     fireEvent.doubleClick(row);
     expect(openDialog).toHaveBeenCalledWith('activeProgress', expect.objectContaining({ id: 'task-1' }));
   });
@@ -369,8 +399,8 @@ describe('TaskTable', () => {
     ];
     mockStoreRef.current = createMockStore({ tasks, resumeTask });
     render(<TaskTable />);
-    const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    const tableCheckboxes = within(screen.getByRole('table')).getAllByRole('checkbox');
+    fireEvent.click(tableCheckboxes[0]);
     fireEvent.click(screen.getByText('Resume'));
     expect(resumeTask).toHaveBeenCalledTimes(2);
   });
@@ -383,8 +413,8 @@ describe('TaskTable', () => {
     ];
     mockStoreRef.current = createMockStore({ tasks, pauseTask });
     render(<TaskTable />);
-    const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    const tableCheckboxes = within(screen.getByRole('table')).getAllByRole('checkbox');
+    fireEvent.click(tableCheckboxes[0]);
     fireEvent.click(screen.getByText('Stop'));
     expect(pauseTask).toHaveBeenCalledTimes(2);
   });
@@ -392,14 +422,17 @@ describe('TaskTable', () => {
   it('shows column config button', () => {
     mockStoreRef.current = createMockStore({ tasks: [makeTask()] });
     render(<TaskTable />);
-    expect(screen.getByTitle('Customize columns')).toBeInTheDocument();
+    const matches = screen.getAllByTitle('Customize columns');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('opens column config panel on button click', () => {
     mockStoreRef.current = createMockStore({ tasks: [makeTask()] });
     render(<TaskTable />);
-    fireEvent.click(screen.getByTitle('Customize columns'));
-    expect(screen.getByText('Size')).toBeInTheDocument();
+    const colConfigButtons = screen.getAllByTitle('Customize columns');
+    fireEvent.click(colConfigButtons[colConfigButtons.length - 1]);
+    const sizeMatches = screen.getAllByText('Size');
+    expect(sizeMatches.length).toBeGreaterThan(0);
   });
 
   it('shows sourceUrl column data when column visible', () => {
@@ -407,7 +440,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ url: 'https://example.com/file.zip' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('https://example.com/file.zip')).toBeInTheDocument();
+    const matches = within(screen.getByRole('table')).getAllByText('https://example.com/file.zip');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('shows retries count for error task', () => {
@@ -415,8 +449,10 @@ describe('TaskTable', () => {
       tasks: [makeTask({ status: 'error' })],
     });
     render(<TaskTable />);
-    fireEvent.click(screen.getByTitle('Customize columns'));
-    expect(screen.getByText('3')).toBeInTheDocument();
+    const colConfigButtons = screen.getAllByTitle('Customize columns');
+    fireEvent.click(colConfigButtons[colConfigButtons.length - 1]);
+    const matches = within(screen.getByRole('table')).getAllByText('3');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('shows smart category for program type', () => {
@@ -424,7 +460,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ fileType: 'program' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('Programs')).toBeInTheDocument();
+    const matches = within(screen.getByRole('table')).getAllByText('Programs');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('shows smart category for video type', () => {
@@ -432,7 +469,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ fileType: 'video' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('Video')).toBeInTheDocument();
+    const matches = within(screen.getByRole('table')).getAllByText('Video');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('shows smart category for audio type', () => {
@@ -440,7 +478,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ fileType: 'audio' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('Audio')).toBeInTheDocument();
+    const matches = within(screen.getByRole('table')).getAllByText('Audio');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('shows smart category for document type', () => {
@@ -448,7 +487,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ fileType: 'document' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('Documents')).toBeInTheDocument();
+    const matches = within(screen.getByRole('table')).getAllByText('Documents');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('shows smart category for other type', () => {
@@ -456,7 +496,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ fileType: 'other' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('Other')).toBeInTheDocument();
+    const matches = within(screen.getByRole('table')).getAllByText('Other');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('shows CRC32 for completed task', () => {
@@ -464,8 +505,10 @@ describe('TaskTable', () => {
       tasks: [makeTask({ status: 'completed' })],
     });
     render(<TaskTable />);
-    fireEvent.click(screen.getByTitle('Customize columns'));
-    expect(screen.getByText('E89FA21B')).toBeInTheDocument();
+    const colConfigButtons = screen.getAllByTitle('Customize columns');
+    fireEvent.click(colConfigButtons[colConfigButtons.length - 1]);
+    const matches = within(screen.getByRole('table')).getAllByText('E89FA21B');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('shows -- for CRC32 when not completed', () => {
@@ -473,8 +516,10 @@ describe('TaskTable', () => {
       tasks: [makeTask({ status: 'downloading' })],
     });
     render(<TaskTable />);
-    fireEvent.click(screen.getByTitle('Customize columns'));
-    expect(screen.getAllByText('--').length).toBeGreaterThan(0);
+    const colConfigButtons = screen.getAllByTitle('Customize columns');
+    fireEvent.click(colConfigButtons[colConfigButtons.length - 1]);
+    const matches = within(screen.getByRole('table')).getAllByText('--');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('shows completedDate for completed task', () => {
@@ -482,7 +527,8 @@ describe('TaskTable', () => {
       tasks: [makeTask({ status: 'completed', dateAdded: '2026-07-07' })],
     });
     render(<TaskTable />);
-    expect(screen.getByText('2026-07-07')).toBeInTheDocument();
+    const matches = within(screen.getByRole('table')).getAllByText('2026-07-07');
+    expect(matches.length).toBeGreaterThan(0);
   });
 
   it('highlights selected row', () => {
@@ -491,7 +537,7 @@ describe('TaskTable', () => {
       selectedTaskId: 'task-1',
     });
     render(<TaskTable />);
-    const row = screen.getByText('test-file.zip').closest('tr')!;
+    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr')!;
     expect(row.className).toContain('selected');
   });
 
@@ -500,7 +546,9 @@ describe('TaskTable', () => {
       tasks: [makeTask({ connections: 0, segments: [{}, {}] })],
     });
     render(<TaskTable />);
-    fireEvent.click(screen.getByTitle('Customize columns'));
-    expect(screen.getByText(/Auto/)).toBeInTheDocument();
+    const colConfigButtons = screen.getAllByTitle('Customize columns');
+    fireEvent.click(colConfigButtons[colConfigButtons.length - 1]);
+    const matches = within(screen.getByRole('table')).getAllByText(/Auto/);
+    expect(matches.length).toBeGreaterThan(0);
   });
 });

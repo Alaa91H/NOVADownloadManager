@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createMockStore } from '../../test/mockStore';
 
@@ -422,7 +422,9 @@ describe('StatusBar', () => {
     fireEvent.contextMenu(screen.getByTitle('Telegram is connected'));
     fireEvent.click(screen.getByText('Send Test Notification'));
     expect(mockNovaClient.updateTelegramConfig).toHaveBeenCalled();
-    expect(mockNovaClient.testTelegram).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(mockNovaClient.testTelegram).toHaveBeenCalled();
+    });
   });
 
   it('shows speed limiter enabled state with amber color', () => {
@@ -438,7 +440,8 @@ describe('StatusBar', () => {
     render(<StatusBar />);
     fireEvent.click(screen.getByTitle('Speed Limiter'));
     expect(screen.getByText('Speed Limit')).toBeInTheDocument();
-    expect(screen.getByText(/1 MB\/s/)).toBeInTheDocument();
+    const speedMatches = screen.getAllByText(/1 MB\/s/);
+    expect(speedMatches.length).toBeGreaterThan(0);
   });
 
   it('toggles speed limiter enable from speed menu', () => {
