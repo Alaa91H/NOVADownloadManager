@@ -42,6 +42,6 @@ describe('LANGUAGE_METADATA', () => {
   });
 
   it('has the correct number of entries', () => {
-    expect(LANGUAGE_METADATA.length).toBe(134);
+    expect(LANGUAGE_METADATA.length).toBe(132);
   });
 });

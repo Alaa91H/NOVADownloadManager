@@ -2,8 +2,9 @@ import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { ContextMenu } from '../primitives/ContextMenu';
+import type { ContextMenuOption } from '../primitives/ContextMenu';
 
-const defaultOptions = [
+const defaultOptions: ContextMenuOption[] = [
   { id: 'resume', label: 'Resume', onClick: vi.fn() },
   { id: 'pause', label: 'Pause', onClick: vi.fn() },
   { id: 'delete', label: 'Delete', danger: true, onClick: vi.fn() },

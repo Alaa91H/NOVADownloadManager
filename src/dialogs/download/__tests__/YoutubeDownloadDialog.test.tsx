@@ -36,7 +36,7 @@ const mockEngineCapabilities = {
   mediaReady: true,
   directReady: true,
   postProcessingReady: true,
-  mediaBlockedReason: () => null,
+  mediaBlockedReason: (): string | null => null,
   supportsMediaOption: () => true,
   sanitizeMediaOptions: (opts: Record<string, unknown>) => opts,
   supportsDirectOption: () => true,

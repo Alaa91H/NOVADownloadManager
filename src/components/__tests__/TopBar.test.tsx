@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { initialSettings } from '../../initialData';
 import type { DownloadItem } from '../../types/desktop-ui.types';
 
@@ -76,7 +76,7 @@ vi.mock('../../state/appStore', () => ({
 
 const mockCaps = vi.hoisted(() => ({
   loading: false,
-  error: null,
+  error: null as string | null,
   raw: null,
   directReady: true,
   mediaReady: true,

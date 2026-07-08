@@ -123,30 +123,30 @@ describe('Button', () => {
 });
 
 describe('IconButton', () => {
+  const TestIcon = (() => () => <svg />)() as React.ComponentType<{ size?: number; className?: string }>;
+
   it('renders icon', () => {
-    const TestIcon = () => <svg data-testid="icon-svg" />;
     const { container } = render(<IconButton icon={TestIcon as never} />);
     expect(container.querySelector('svg')).toBeInTheDocument();
   });
 
   it('renders with tooltip', () => {
-    render(<IconButton icon={() => <svg />} tooltip="My Tooltip" />);
+    render(<IconButton icon={TestIcon as never} tooltip="My Tooltip" />);
     expect(screen.getByTitle('My Tooltip')).toBeInTheDocument();
   });
 
   it('applies size classes', () => {
-    const { container } = render(<IconButton icon={() => <svg />} size="sm" />);
+    const { container } = render(<IconButton icon={TestIcon as never} size="sm" />);
     expect(container.firstChild).toHaveClass('p-0.5');
   });
 
   it('applies variant classes', () => {
-    const { container } = render(<IconButton icon={() => <svg />} variant="primary" />);
+    const { container } = render(<IconButton icon={TestIcon as never} variant="primary" />);
     expect(container.firstChild).toHaveClass('bg-[var(--accent-primary)]');
   });
 
   it('calls onClick when clicked', () => {
     const onClick = vi.fn();
-    const TestIcon = () => <svg />;
     render(<IconButton icon={TestIcon as never} onClick={onClick} />);
     fireEvent.click(screen.getByRole('button'));
     expect(onClick).toHaveBeenCalledOnce();

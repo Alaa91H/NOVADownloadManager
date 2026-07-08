@@ -1,4 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   getDaemonUrl,
   tauriClient,
@@ -175,7 +177,7 @@ describe('getDaemonUrl', () => {
 describe('getBuildVersion', () => {
   beforeEach(() => {
     delete (window as any).__TAURI_INTERNALS__;
-    import.meta.env.VITE_APP_VERSION = undefined;
+    delete import.meta.env.VITE_APP_VERSION;
   });
 
   it('falls back to VITE_APP_VERSION env var', async () => {

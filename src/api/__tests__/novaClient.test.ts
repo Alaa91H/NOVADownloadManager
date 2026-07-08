@@ -1,19 +1,12 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-confusing-void-expression */
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { novaClient, setApiBase } from '../novaClient';
 
 const BASE = 'http://127.0.0.1:3199';
 
 function mockFetch(response: Partial<Response>) {
   globalThis.fetch = vi.fn().mockResolvedValue({
-    ok: true,
-    json: () => Promise.resolve({}),
-    status: 200,
-    ...response,
-  });
-}
-
-function mockFetchOnce(response: Partial<Response>) {
-  globalThis.fetch = vi.fn().mockResolvedValueOnce({
     ok: true,
     json: () => Promise.resolve({}),
     status: 200,
@@ -29,7 +22,7 @@ describe('setApiBase', () => {
   it('strips trailing slash', () => {
     setApiBase('http://localhost:3199/');
     mockFetch({ json: () => Promise.resolve({}) });
-    novaClient.health();
+    void novaClient.health();
     expect(fetch).toHaveBeenCalledWith(
       'http://localhost:3199/api/health',
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
@@ -39,7 +32,7 @@ describe('setApiBase', () => {
   it('overrides the default base URL', () => {
     setApiBase('http://localhost:9999');
     mockFetch({ json: () => Promise.resolve({}) });
-    novaClient.health();
+    void novaClient.health();
     expect(fetch).toHaveBeenCalledWith(
       'http://localhost:9999/api/health',
       expect.objectContaining({ signal: expect.any(AbortSignal) }),

@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createMockStore } from '../../test/mockStore';
 
 vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => false }));
