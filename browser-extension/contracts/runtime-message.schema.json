@@ -1,0 +1,2257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novadownloadmanager.app/contracts/runtime-message.schema.json",
+  "title": "NOVA Extension Runtime Message",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "GET_BRIDGE_STATE"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "AUTO_CONNECT"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "RETRY_CONNECT"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "RESET_PAIRING"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "SCAN_PAGE"
+        },
+        "tabId": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "userActivated": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "OVERLAY_SCAN_PAGE"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "OVERLAY_REFRESH_CANDIDATES"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "OVERLAY_SEND_SELECTED"
+        },
+        "candidateIds": {
+          "minItems": 1,
+          "maxItems": 100,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "required": [
+        "type",
+        "candidateIds"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "RESOLVE_STREAM"
+        },
+        "manifestType": {
+          "type": "string",
+          "enum": [
+            "hls",
+            "dash"
+          ]
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "pageUrl": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "manifestType",
+        "url"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "SEND_STREAM"
+        },
+        "candidateId": {
+          "type": "string"
+        },
+        "selectedQualityUrl": {
+          "type": "string"
+        },
+        "selectedQuality": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string"
+            },
+            "width": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "height": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "bandwidth": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "codecs": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "formatId": {
+              "type": "string"
+            },
+            "estimatedSizeBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "container": {
+              "type": "string"
+            },
+            "fps": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "hasAudio": {
+              "type": "boolean"
+            },
+            "hasVideo": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "candidateId"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "PAGE_TAP_CANDIDATES_FOUND"
+        },
+        "events": {
+          "minItems": 1,
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "pageUrl": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "initiator": {
+                "type": "string",
+                "enum": [
+                  "fetch",
+                  "xhr",
+                  "media-src",
+                  "source-src",
+                  "player-config",
+                  "performance-resource",
+                  "mediasource",
+                  "websocket",
+                  "eventsource",
+                  "blob-url"
+                ]
+              },
+              "detectedAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "mimeHint": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "extensionHint": {
+                "type": "string",
+                "maxLength": 20
+              },
+              "mediaHint": {
+                "type": "string",
+                "enum": [
+                  "video",
+                  "audio",
+                  "image",
+                  "document",
+                  "archive",
+                  "torrent",
+                  "manifest",
+                  "other"
+                ]
+              },
+              "sizeBytes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "width": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "height": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "bitrate": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "durationSec": {
+                "type": "number",
+                "minimum": 0
+              },
+              "qualityLabel": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "itag": {
+                "type": "string",
+                "maxLength": 16
+              }
+            },
+            "required": [
+              "url",
+              "pageUrl",
+              "initiator",
+              "detectedAt"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "type",
+        "events"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "PAGE_TAP_DRM_DETECTED"
+        },
+        "events": {
+          "minItems": 1,
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pageUrl": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "detectedAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "drm": {
+                "type": "object",
+                "properties": {
+                  "protected": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "system": {
+                    "type": "string",
+                    "enum": [
+                      "widevine",
+                      "playready",
+                      "fairplay",
+                      "clearkey",
+                      "unknown"
+                    ]
+                  },
+                  "keySystem": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "scheme": {
+                    "type": "string",
+                    "enum": [
+                      "cenc",
+                      "cbcs",
+                      "cens",
+                      "cbc1",
+                      "unknown"
+                    ]
+                  },
+                  "source": {
+                    "default": "unknown",
+                    "type": "string",
+                    "enum": [
+                      "eme",
+                      "encrypted-event",
+                      "dash-manifest",
+                      "hls-manifest",
+                      "init-segment",
+                      "html-keyword",
+                      "headers",
+                      "unknown"
+                    ]
+                  },
+                  "initDataType": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "psshCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000
+                  },
+                  "licenseRequestObserved": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "downloadable": {
+                    "default": true,
+                    "type": "boolean"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 240
+                  }
+                },
+                "required": [
+                  "protected",
+                  "source",
+                  "downloadable",
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "pageUrl",
+              "detectedAt",
+              "drm"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "type",
+        "events"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "CAPTURE_CONTEXT_MENU"
+        },
+        "menuItemId": {
+          "type": "string"
+        },
+        "pageUrl": {
+          "type": "string"
+        },
+        "linkUrl": {
+          "type": "string"
+        },
+        "srcUrl": {
+          "type": "string"
+        },
+        "selectionText": {
+          "type": "string"
+        },
+        "tabId": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "type",
+        "menuItemId"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "GET_CANDIDATES"
+        },
+        "tabId": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "CLEAR_CANDIDATES"
+        },
+        "tabId": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "SEND_CANDIDATE"
+        },
+        "candidate": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "finalUrl": {
+              "type": "string"
+            },
+            "pageUrl": {
+              "type": "string"
+            },
+            "referrer": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "dom",
+                "network",
+                "downloads-api",
+                "context-menu",
+                "hls-manifest",
+                "dash-manifest",
+                "media-element",
+                "opengraph",
+                "jsonld",
+                "drm-detection",
+                "websocket-webrtc",
+                "platform"
+              ]
+            },
+            "mediaType": {
+              "type": "string",
+              "enum": [
+                "video",
+                "audio",
+                "image",
+                "document",
+                "archive",
+                "app",
+                "torrent",
+                "magnet",
+                "manifest",
+                "other"
+              ]
+            },
+            "mimeType": {
+              "type": "string"
+            },
+            "extension": {
+              "type": "string"
+            },
+            "filename": {
+              "type": "string"
+            },
+            "sizeBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "width": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "height": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "durationSec": {
+              "type": "number",
+              "minimum": 0
+            },
+            "bitrate": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "codecs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "variants": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "width": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "height": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "bandwidth": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "codecs": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "mimeType": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "url"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "subtitles": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "language": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "format": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "url"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "headers": {
+              "type": "object",
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "contentLength": {
+                  "type": "string"
+                },
+                "contentRange": {
+                  "type": "string"
+                },
+                "contentDisposition": {
+                  "type": "string"
+                },
+                "acceptRanges": {
+                  "type": "string"
+                },
+                "etag": {
+                  "type": "string"
+                },
+                "lastModified": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "drm": {
+              "type": "object",
+              "properties": {
+                "protected": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "system": {
+                  "type": "string",
+                  "enum": [
+                    "widevine",
+                    "playready",
+                    "fairplay",
+                    "clearkey",
+                    "unknown"
+                  ]
+                },
+                "keySystem": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "scheme": {
+                  "type": "string",
+                  "enum": [
+                    "cenc",
+                    "cbcs",
+                    "cens",
+                    "cbc1",
+                    "unknown"
+                  ]
+                },
+                "source": {
+                  "default": "unknown",
+                  "type": "string",
+                  "enum": [
+                    "eme",
+                    "encrypted-event",
+                    "dash-manifest",
+                    "hls-manifest",
+                    "init-segment",
+                    "html-keyword",
+                    "headers",
+                    "unknown"
+                  ]
+                },
+                "initDataType": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "psshCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 10000
+                },
+                "licenseRequestObserved": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "downloadable": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 240
+                }
+              },
+              "required": [
+                "protected",
+                "source",
+                "downloadable",
+                "reason"
+              ],
+              "additionalProperties": false
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "dom",
+                      "network",
+                      "downloads-api",
+                      "context-menu",
+                      "hls-manifest",
+                      "dash-manifest",
+                      "media-element",
+                      "opengraph",
+                      "jsonld",
+                      "page-tap",
+                      "fetch",
+                      "xhr",
+                      "media-source",
+                      "player-config",
+                      "redirect",
+                      "headers",
+                      "drm-detection",
+                      "websocket-webrtc",
+                      "eme",
+                      "encrypted-media",
+                      "manifest-protection",
+                      "platform"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "weight": {
+                    "type": "number",
+                    "minimum": -100,
+                    "maximum": 100
+                  },
+                  "observedAt": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "details": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "source",
+                  "reason",
+                  "weight",
+                  "observedAt"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            },
+            "metadata": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {}
+            }
+          },
+          "required": [
+            "id",
+            "url",
+            "source",
+            "mediaType",
+            "confidence",
+            "createdAt"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "candidate"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "SEND_BATCH"
+        },
+        "candidates": {
+          "minItems": 1,
+          "maxItems": 100,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "finalUrl": {
+                "type": "string"
+              },
+              "pageUrl": {
+                "type": "string"
+              },
+              "referrer": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "dom",
+                  "network",
+                  "downloads-api",
+                  "context-menu",
+                  "hls-manifest",
+                  "dash-manifest",
+                  "media-element",
+                  "opengraph",
+                  "jsonld",
+                  "drm-detection",
+                  "websocket-webrtc",
+                  "platform"
+                ]
+              },
+              "mediaType": {
+                "type": "string",
+                "enum": [
+                  "video",
+                  "audio",
+                  "image",
+                  "document",
+                  "archive",
+                  "app",
+                  "torrent",
+                  "magnet",
+                  "manifest",
+                  "other"
+                ]
+              },
+              "mimeType": {
+                "type": "string"
+              },
+              "extension": {
+                "type": "string"
+              },
+              "filename": {
+                "type": "string"
+              },
+              "sizeBytes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "width": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "height": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "durationSec": {
+                "type": "number",
+                "minimum": 0
+              },
+              "bitrate": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "codecs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "variants": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "width": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "height": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "bandwidth": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "codecs": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "subtitles": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "language": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "headers": {
+                "type": "object",
+                "properties": {
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "contentLength": {
+                    "type": "string"
+                  },
+                  "contentRange": {
+                    "type": "string"
+                  },
+                  "contentDisposition": {
+                    "type": "string"
+                  },
+                  "acceptRanges": {
+                    "type": "string"
+                  },
+                  "etag": {
+                    "type": "string"
+                  },
+                  "lastModified": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "drm": {
+                "type": "object",
+                "properties": {
+                  "protected": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "system": {
+                    "type": "string",
+                    "enum": [
+                      "widevine",
+                      "playready",
+                      "fairplay",
+                      "clearkey",
+                      "unknown"
+                    ]
+                  },
+                  "keySystem": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "scheme": {
+                    "type": "string",
+                    "enum": [
+                      "cenc",
+                      "cbcs",
+                      "cens",
+                      "cbc1",
+                      "unknown"
+                    ]
+                  },
+                  "source": {
+                    "default": "unknown",
+                    "type": "string",
+                    "enum": [
+                      "eme",
+                      "encrypted-event",
+                      "dash-manifest",
+                      "hls-manifest",
+                      "init-segment",
+                      "html-keyword",
+                      "headers",
+                      "unknown"
+                    ]
+                  },
+                  "initDataType": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "psshCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000
+                  },
+                  "licenseRequestObserved": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "downloadable": {
+                    "default": true,
+                    "type": "boolean"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 240
+                  }
+                },
+                "required": [
+                  "protected",
+                  "source",
+                  "downloadable",
+                  "reason"
+                ],
+                "additionalProperties": false
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "dom",
+                        "network",
+                        "downloads-api",
+                        "context-menu",
+                        "hls-manifest",
+                        "dash-manifest",
+                        "media-element",
+                        "opengraph",
+                        "jsonld",
+                        "page-tap",
+                        "fetch",
+                        "xhr",
+                        "media-source",
+                        "player-config",
+                        "redirect",
+                        "headers",
+                        "drm-detection",
+                        "websocket-webrtc",
+                        "eme",
+                        "encrypted-media",
+                        "manifest-protection",
+                        "platform"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "weight": {
+                      "type": "number",
+                      "minimum": -100,
+                      "maximum": 100
+                    },
+                    "observedAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "details": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {}
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "reason",
+                    "weight",
+                    "observedAt"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "updatedAt": {
+                "type": "string"
+              },
+              "metadata": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "id",
+              "url",
+              "source",
+              "mediaType",
+              "confidence",
+              "createdAt"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "type",
+        "candidates"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "GET_OUTBOX_STATUS"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "RUN_OUTBOX_RETRY"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "GET_DIAGNOSTICS"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "GET_SETTINGS"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "UPDATE_SETTINGS"
+        },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "type": "boolean"
+            },
+            "autoConnect": {
+              "default": true,
+              "type": "boolean"
+            },
+            "notifications": {
+              "default": true,
+              "type": "boolean"
+            },
+            "showBadge": {
+              "default": true,
+              "type": "boolean"
+            },
+            "openNovaAfterSend": {
+              "default": false,
+              "type": "boolean"
+            },
+            "captureProfile": {
+              "default": "smart",
+              "type": "string",
+              "enum": [
+                "store-safe",
+                "smart",
+                "aggressive",
+                "power-user",
+                "enterprise"
+              ]
+            },
+            "capture": {
+              "default": {
+                "dom": true,
+                "network": false,
+                "downloads": false,
+                "hlsDash": true,
+                "mediaProbe": true,
+                "minFileSizeMB": 1,
+                "showLowConfidence": false,
+                "preferManifestQualities": true,
+                "liveQualityRefresh": true,
+                "aggressiveMode": false,
+                "takeoverEnabled": false,
+                "askBeforeTakeover": true,
+                "takeoverMinSizeMB": 0,
+                "takeoverFileTypes": [],
+                "neverTakeoverHosts": [],
+                "alwaysTakeoverHosts": []
+              },
+              "type": "object",
+              "properties": {
+                "dom": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "network": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "downloads": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "hlsDash": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "mediaProbe": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "minFileSizeMB": {
+                  "default": 1,
+                  "type": "number",
+                  "minimum": 0
+                },
+                "showLowConfidence": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "preferManifestQualities": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "liveQualityRefresh": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "aggressiveMode": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "takeoverEnabled": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "askBeforeTakeover": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "takeoverMinSizeMB": {
+                  "default": 0,
+                  "type": "number",
+                  "minimum": 0
+                },
+                "takeoverFileTypes": {
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "neverTakeoverHosts": {
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "alwaysTakeoverHosts": {
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "dom",
+                "network",
+                "downloads",
+                "hlsDash",
+                "mediaProbe",
+                "minFileSizeMB",
+                "showLowConfidence",
+                "preferManifestQualities",
+                "liveQualityRefresh",
+                "aggressiveMode",
+                "takeoverEnabled",
+                "askBeforeTakeover",
+                "takeoverMinSizeMB",
+                "takeoverFileTypes",
+                "neverTakeoverHosts",
+                "alwaysTakeoverHosts"
+              ],
+              "additionalProperties": false
+            },
+            "overlay": {
+              "default": {
+                "enabled": true,
+                "preset": "smart",
+                "showOnlyWhenCandidates": true,
+                "defaultPosition": "top-right",
+                "openDirection": "auto",
+                "rememberDraggedPosition": true,
+                "positionScope": "global",
+                "snapToEdges": false,
+                "compactPermanentActions": true,
+                "showProgramLogo": false,
+                "attachPickerToOverlay": true,
+                "opacity": 0.86,
+                "hoverOpacity": 1,
+                "buttonSizePx": 46,
+                "scale": 1,
+                "menuAnimationMs": 100,
+                "zIndex": 2147483647,
+                "keyboardNudgePx": 8,
+                "autoHideWhenIdle": false,
+                "idleAfterMs": 8000,
+                "minConfidence": 20,
+                "smartVideoOnlyOnVideoPages": true,
+                "smartVideoMaxItems": 60,
+                "smartVideoContinuousRefresh": true,
+                "smartVideoRefreshMs": 1000,
+                "maxPickerItems": 100,
+                "defaultPickerSelection": "high-confidence",
+                "minFileSizeMB": 1,
+                "maxFileSizeMB": 0,
+                "hideWhenFiltersRejectAll": true,
+                "mediaTypes": [
+                  "video",
+                  "audio",
+                  "image",
+                  "document",
+                  "archive",
+                  "app",
+                  "torrent",
+                  "magnet",
+                  "manifest",
+                  "other"
+                ],
+                "extensionsAllowlist": [],
+                "extensionsBlocklist": [
+                  "css",
+                  "js",
+                  "woff",
+                  "woff2",
+                  "ttf",
+                  "ico"
+                ]
+              },
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "preset": {
+                  "default": "smart",
+                  "type": "string",
+                  "enum": [
+                    "custom",
+                    "minimal",
+                    "smart",
+                    "media-focused",
+                    "power-user",
+                    "store-safe"
+                  ]
+                },
+                "showOnlyWhenCandidates": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "defaultPosition": {
+                  "default": "top-right",
+                  "type": "string",
+                  "enum": [
+                    "top-right",
+                    "top-left",
+                    "bottom-right",
+                    "bottom-left",
+                    "custom"
+                  ]
+                },
+                "openDirection": {
+                  "default": "auto",
+                  "type": "string",
+                  "enum": [
+                    "auto",
+                    "up",
+                    "down",
+                    "left",
+                    "right"
+                  ]
+                },
+                "rememberDraggedPosition": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "positionScope": {
+                  "default": "global",
+                  "type": "string",
+                  "enum": [
+                    "global",
+                    "domain",
+                    "site"
+                  ]
+                },
+                "snapToEdges": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "compactPermanentActions": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "showProgramLogo": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "attachPickerToOverlay": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "opacity": {
+                  "default": 0.86,
+                  "type": "number",
+                  "minimum": 0.2,
+                  "maximum": 1
+                },
+                "hoverOpacity": {
+                  "default": 1,
+                  "type": "number",
+                  "minimum": 0.2,
+                  "maximum": 1
+                },
+                "buttonSizePx": {
+                  "default": 46,
+                  "type": "integer",
+                  "minimum": 32,
+                  "maximum": 72
+                },
+                "scale": {
+                  "default": 1,
+                  "type": "number",
+                  "minimum": 0.7,
+                  "maximum": 1.4
+                },
+                "menuAnimationMs": {
+                  "default": 100,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 400
+                },
+                "zIndex": {
+                  "default": 2147483647,
+                  "type": "integer",
+                  "minimum": 1000,
+                  "maximum": 2147483647
+                },
+                "keyboardNudgePx": {
+                  "default": 8,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 50
+                },
+                "autoHideWhenIdle": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "idleAfterMs": {
+                  "default": 8000,
+                  "type": "integer",
+                  "minimum": 1000,
+                  "maximum": 60000
+                },
+                "minConfidence": {
+                  "default": 20,
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "smartVideoOnlyOnVideoPages": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "smartVideoMaxItems": {
+                  "default": 60,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 200
+                },
+                "smartVideoContinuousRefresh": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "smartVideoRefreshMs": {
+                  "default": 1000,
+                  "type": "integer",
+                  "minimum": 250,
+                  "maximum": 15000
+                },
+                "maxPickerItems": {
+                  "default": 100,
+                  "type": "integer",
+                  "minimum": 10,
+                  "maximum": 500
+                },
+                "defaultPickerSelection": {
+                  "default": "high-confidence",
+                  "type": "string",
+                  "enum": [
+                    "all",
+                    "high-confidence",
+                    "none"
+                  ]
+                },
+                "minFileSizeMB": {
+                  "default": 1,
+                  "type": "number",
+                  "minimum": 0
+                },
+                "maxFileSizeMB": {
+                  "default": 0,
+                  "type": "number",
+                  "minimum": 0
+                },
+                "hideWhenFiltersRejectAll": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "mediaTypes": {
+                  "default": [
+                    "video",
+                    "audio",
+                    "image",
+                    "document",
+                    "archive",
+                    "app",
+                    "torrent",
+                    "magnet",
+                    "manifest",
+                    "other"
+                  ],
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "video",
+                      "audio",
+                      "image",
+                      "document",
+                      "archive",
+                      "app",
+                      "torrent",
+                      "magnet",
+                      "manifest",
+                      "other"
+                    ]
+                  }
+                },
+                "extensionsAllowlist": {
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16
+                  }
+                },
+                "extensionsBlocklist": {
+                  "default": [
+                    "css",
+                    "js",
+                    "woff",
+                    "woff2",
+                    "ttf",
+                    "ico"
+                  ],
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16
+                  }
+                }
+              },
+              "required": [
+                "enabled",
+                "preset",
+                "showOnlyWhenCandidates",
+                "defaultPosition",
+                "openDirection",
+                "rememberDraggedPosition",
+                "positionScope",
+                "snapToEdges",
+                "compactPermanentActions",
+                "showProgramLogo",
+                "attachPickerToOverlay",
+                "opacity",
+                "hoverOpacity",
+                "buttonSizePx",
+                "scale",
+                "menuAnimationMs",
+                "zIndex",
+                "keyboardNudgePx",
+                "autoHideWhenIdle",
+                "idleAfterMs",
+                "minConfidence",
+                "smartVideoOnlyOnVideoPages",
+                "smartVideoMaxItems",
+                "smartVideoContinuousRefresh",
+                "smartVideoRefreshMs",
+                "maxPickerItems",
+                "defaultPickerSelection",
+                "minFileSizeMB",
+                "maxFileSizeMB",
+                "hideWhenFiltersRejectAll",
+                "mediaTypes",
+                "extensionsAllowlist",
+                "extensionsBlocklist"
+              ],
+              "additionalProperties": false
+            },
+            "popup": {
+              "default": {
+                "defaultTab": "connection",
+                "density": "comfortable",
+                "showTechnicalConnectionDetails": true,
+                "showOutboxOnConnection": true,
+                "showCandidateCounts": true,
+                "showTaskTab": true,
+                "autoRefreshCandidates": true,
+                "candidateRefreshMs": 2500,
+                "maxVisibleCandidates": 150,
+                "confirmBeforeSendAll": false,
+                "showHandoffWarnings": true
+              },
+              "type": "object",
+              "properties": {
+                "defaultTab": {
+                  "default": "connection",
+                  "type": "string",
+                  "enum": [
+                    "connection",
+                    "candidates",
+                    "tasks",
+                    "popup-options",
+                    "capture-options"
+                  ]
+                },
+                "density": {
+                  "default": "comfortable",
+                  "type": "string",
+                  "enum": [
+                    "comfortable",
+                    "compact",
+                    "dense"
+                  ]
+                },
+                "showTechnicalConnectionDetails": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "showOutboxOnConnection": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "showCandidateCounts": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "showTaskTab": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "autoRefreshCandidates": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "candidateRefreshMs": {
+                  "default": 2500,
+                  "type": "integer",
+                  "minimum": 1000,
+                  "maximum": 30000
+                },
+                "maxVisibleCandidates": {
+                  "default": 150,
+                  "type": "integer",
+                  "minimum": 20,
+                  "maximum": 500
+                },
+                "confirmBeforeSendAll": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "showHandoffWarnings": {
+                  "default": true,
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "defaultTab",
+                "density",
+                "showTechnicalConnectionDetails",
+                "showOutboxOnConnection",
+                "showCandidateCounts",
+                "showTaskTab",
+                "autoRefreshCandidates",
+                "candidateRefreshMs",
+                "maxVisibleCandidates",
+                "confirmBeforeSendAll",
+                "showHandoffWarnings"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "type",
+        "settings"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "EXPORT_SETTINGS"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "IMPORT_SETTINGS"
+        },
+        "settings": {}
+      },
+      "required": [
+        "type",
+        "settings"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "CLEAR_LOCAL_DATA"
+        },
+        "scope": {
+          "default": "candidate-cache",
+          "type": "string",
+          "enum": [
+            "candidate-cache",
+            "diagnostics",
+            "overlay-diagnostics",
+            "overlay-positions",
+            "outbox-terminal",
+            "all-local"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "scope"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "GET_SITE_RULES"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "UPSERT_SITE_RULE"
+        },
+        "rule": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "host": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 253
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "autoCapture": {
+              "type": "boolean"
+            },
+            "askBeforeSend": {
+              "type": "boolean"
+            },
+            "mediaTypes": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "video",
+                  "audio",
+                  "image",
+                  "document",
+                  "archive",
+                  "app",
+                  "torrent",
+                  "magnet"
+                ]
+              }
+            },
+            "minSizeMB": {
+              "type": "number",
+              "minimum": 0
+            },
+            "includePatterns": {
+              "maxItems": 100,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 512
+              }
+            },
+            "excludePatterns": {
+              "maxItems": 100,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 512
+              }
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "host",
+            "enabled",
+            "autoCapture",
+            "askBeforeSend",
+            "mediaTypes",
+            "minSizeMB",
+            "includePatterns",
+            "excludePatterns",
+            "createdAt",
+            "updatedAt"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "rule"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "DELETE_SITE_RULE"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "IMPORT_SITE_RULES"
+        },
+        "rules": {}
+      },
+      "required": [
+        "type",
+        "rules"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "EXPORT_SITE_RULES"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "REQUEST_PERMISSION"
+        },
+        "permissions": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "origins": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "permissions",
+        "origins"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "GET_PERMISSION_STATUS"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "PAUSE_TASK"
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "type",
+        "taskId"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "RESUME_TASK"
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "type",
+        "taskId"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "CANCEL_TASK"
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "type",
+        "taskId"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "LIST_TASKS"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "OPEN_NOVA"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "OPEN_OPTIONS"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

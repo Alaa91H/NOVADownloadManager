@@ -1,0 +1,440 @@
+/* src/styles/app.css */
+@import './tokens.css';
+
+:root {
+  --spacing-row: 5px;
+  --spacing-container: 8px;
+  --font-size-ui: 12px;
+  --font-size-title: 13px;
+  --row-height: 28px;
+}
+
+/* App Shell Base Styles */
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  margin: 0;
+  height: 100vh;
+  overflow: hidden;
+  font-size: var(--font-size-ui);
+  transition:
+    background-color var(--transition-speed) var(--transition-bezier),
+    color var(--transition-speed) var(--transition-bezier);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-border);
+}
+
+/* Glassmorphism & Acrylic Panels */
+.glass-panel {
+  background-color: var(--glass-bg);
+  backdrop-filter: blur(var(--blur-amount));
+  -webkit-backdrop-filter: blur(var(--blur-amount));
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-md);
+  transition: all var(--transition-speed) var(--transition-bezier);
+}
+
+.glass-panel:hover {
+  border-color: var(--border-color-hover);
+}
+
+.acrylic-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-speed) var(--transition-bezier);
+}
+
+.acrylic-card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-color-hover);
+}
+
+/* Custom animations and glowing elements */
+.accent-glow {
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.accent-border-glow {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+/* Spacers & Padding utility helpers based on Density Mode */
+.density-p {
+  padding: var(--spacing-container);
+}
+
+.density-py {
+  padding-top: var(--spacing-row);
+  padding-bottom: var(--spacing-row);
+}
+
+.density-px {
+  padding-left: var(--spacing-container);
+  padding-right: var(--spacing-container);
+}
+
+.density-gap {
+  gap: var(--spacing-row);
+}
+
+.density-gap-lg {
+  gap: var(--spacing-container);
+}
+
+/* Desktop Task Table Layout Styling */
+.desktop-table-header {
+  border-bottom: 2px solid var(--border-color);
+  background: var(--bg-surface);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.desktop-table-header th,
+.desktop-table-row td,
+.sort-icon-box {
+  border-radius: 0px !important;
+}
+
+.desktop-table-row {
+  height: var(--row-height);
+  border-bottom: 1px solid var(--border-color);
+  transition: background-color var(--transition-speed) var(--transition-bezier);
+  cursor: pointer;
+}
+
+.desktop-table-row:hover {
+  background-color: var(--bg-hover);
+}
+
+.desktop-table-row.selected {
+  background-color: var(--bg-selected) !important;
+  border-left: 3px solid var(--accent-primary);
+}
+
+/* RTL layout utility adjustments */
+[dir='rtl'] .desktop-table-row.selected {
+  border-left: none;
+  border-right: 3px solid var(--accent-primary);
+}
+
+/* Interactive elements — one shared press/hover effect for every button
+   (download toolbar, settings, scheduler) so the whole app feels unified. */
+.interactive-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  transition: all 150ms var(--transition-bezier);
+  cursor: pointer;
+}
+
+.interactive-btn:hover:not(:disabled) {
+  transform: scale(1.03);
+}
+
+.interactive-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* Toolbar-style action button: the exact look of the download-list buttons,
+   reusable across pages (settings, scheduler, headers). */
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+  transition: all 150ms var(--transition-bezier);
+}
+
+.toolbar-btn:hover:not(:disabled) {
+  transform: scale(1.03);
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--border-color-hover);
+}
+
+.toolbar-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* Full-page views (Settings, Download Lists) */
+.app-page {
+  animation: page-in 200ms var(--transition-bezier);
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+[data-motion='reduced'] .app-page {
+  animation: none;
+}
+
+[data-motion='reduced'] .interactive-btn:hover:not(:disabled),
+[data-motion='reduced'] .toolbar-btn:hover:not(:disabled),
+[data-motion='reduced'] .interactive-btn:active:not(:disabled),
+[data-motion='reduced'] .toolbar-btn:active:not(:disabled) {
+  transform: none;
+}
+
+/* Text sizes mapped to Density mode */
+.text-ui {
+  font-size: var(--font-size-ui);
+}
+
+.text-title {
+  font-size: var(--font-size-title);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Segment thread blocks visualizer */
+.segment-block {
+  height: 10px;
+  border-radius: 1px;
+  background: rgba(148, 163, 184, 0.15);
+  position: relative;
+  overflow: hidden;
+}
+
+.segment-block-fill {
+  height: 100%;
+  background: var(--accent-primary);
+  transition: width 300ms ease-out;
+}
+
+/* Tooltip and Menus styled elegantly */
+.context-menu {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  box-shadow: var(--shadow-lg);
+  padding: 2px;
+}
+
+/* Global Desktop-Style High-Density Dropdowns, Context Menus, and Popups */
+.context-menu,
+[class*='popup'],
+.fixed.z-50,
+.absolute.z-50 {
+  border-radius: var(--radius-xs) !important;
+  padding: 2px !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+
+.fixed.z-50 button,
+.absolute.z-50 button,
+.context-menu button,
+[class*='popup'] button,
+.fixed.z-50 a,
+.absolute.z-50 a,
+.context-menu a,
+[class*='popup'] a {
+  padding-top: 3.5px !important;
+  padding-bottom: 3.5px !important;
+  padding-left: 6px !important;
+  padding-right: 6px !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  gap: 4px !important;
+  border-radius: var(--radius-xs) !important;
+}
+
+.fixed.z-50 button svg,
+.absolute.z-50 button svg,
+.context-menu button svg,
+[class*='popup'] button svg {
+  width: 11px !important;
+  height: 11px !important;
+}
+
+/* Overriding explicit paddings/font sizes inside standard form components within any modal/dialog to achieve high compactness */
+div[id*='modal'] input,
+div[id*='modal'] select,
+div[id*='modal'] textarea,
+[id*='modal-title'] ~ div input,
+[id*='modal-title'] ~ div select,
+[id*='modal-title'] ~ div textarea,
+[class*='dialog'] input,
+[class*='dialog'] select,
+[class*='dialog'] textarea,
+[class*='Dialog'] input,
+[class*='Dialog'] select,
+[class*='Dialog'] textarea {
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+  font-size: 11px !important;
+  border-radius: var(--radius-xs) !important;
+}
+
+/* Force clean typography rendering */
+html,
+body,
+#root {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Allow inputs to align based on their direction */
+input:not([type='checkbox']):not([type='radio']),
+select,
+textarea {
+  text-align: start;
+}
+
+/* Maintain center alignment for centered items like icons/checkboxes */
+.text-center,
+.justify-center,
+th.text-center,
+td.text-center {
+  text-align: center !important;
+}
+
+/* Make table columns header bar extremely thin and compact */
+.desktop-table-header th {
+  padding-top: 1.5px !important;
+  padding-bottom: 1.5px !important;
+  font-size: 10px !important;
+  height: 22px !important;
+}
+
+/* Make status bar extremely thin and compact */
+footer {
+  min-height: 22px !important;
+  height: 22px !important; /* Ultra thin, from 36px */
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+  font-size: 10px !important;
+}
+
+footer svg {
+  width: 11px !important;
+  height: 11px !important;
+}
+
+footer .h-4 {
+  height: 10px !important;
+}
+
+footer button {
+  height: 18px !important;
+  padding-top: 0px !important;
+  padding-bottom: 0px !important;
+  font-size: 10px !important;
+}
+
+/* Ensure flex button containers are beautifully spaced, never drifting or overlapping */
+.flex.gap-2,
+.flex.gap-2\.5,
+.flex.gap-3,
+[class*='footer'] .flex,
+.dialog-footer {
+  gap: 8px !important;
+}
+
+/* Ensure action buttons don't shrink or wrap text awkwardly */
+#root button {
+  flex-shrink: 0 !important;
+  white-space: nowrap !important;
+}
+
+footer .min-w-0 {
+  min-width: 0 !important;
+}
+
+footer .truncate {
+  min-width: 0 !important;
+}
+
+/* Keep pills and naturally circular/badge items fully-rounded */
+.rounded-full,
+[class*='badge'],
+[class*='tag'] {
+  border-radius: 9999px;
+}
+
+/* Modals, dialogs, dropdowns, menus, and panels should have a generous curve */
+[class*='Dialog'],
+[class*='dialog'],
+[class*='Modal'],
+[class*='modal'],
+.dialog-panel,
+.glass-panel,
+.card,
+[class*='card'],
+[class*='panel'],
+.context-menu,
+.dropdown-menu,
+[class*='menu'] {
+  border-radius: 20px !important;
+}
+
+/* Override standard utility classes to be beautifully curved */
+.rounded,
+.rounded-sm,
+.rounded-md {
+  border-radius: 10px;
+}
+.rounded-lg {
+  border-radius: 14px;
+}
+.rounded-xl,
+.rounded-2xl {
+  border-radius: 18px;
+}
+
+/* Specific Overrides for the Retro Active Progress Dialog (IDM-style) */
+#active-progress-modal {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface-elevated);
+  box-shadow: var(--shadow-lg);
+}
+
+#active-progress-modal button,
+#active-progress-modal select,
+#active-progress-modal input:not([type='checkbox']) {
+  border-radius: var(--radius-sm);
+}
+
+#active-progress-modal input[type='checkbox'] {
+  border-radius: 4px;
+}
