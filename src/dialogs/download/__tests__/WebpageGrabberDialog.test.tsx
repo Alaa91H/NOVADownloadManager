@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any, @typescript-eslint/no-confusing-void-expression */
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -162,28 +161,31 @@ describe('WebpageGrabberDialog', () => {
 
   it('toggles file type filter checkboxes', () => {
     render(<WebpageGrabberDialog />);
-    const pagesCheckbox = screen.getByLabelText('Webpages (HTML)') as HTMLInputElement;
-    expect(pagesCheckbox.checked).toBe(true);
-    fireEvent.click(pagesCheckbox);
-    expect(pagesCheckbox.checked).toBe(false);
+    const pagesCheckbox = screen.getByLabelText('Webpages (HTML)');
+    expect(pagesCheckbox).toBeInTheDocument();
+    if (pagesCheckbox instanceof HTMLInputElement) {
+      expect(pagesCheckbox.checked).toBe(true);
+      fireEvent.click(pagesCheckbox);
+      expect(pagesCheckbox.checked).toBe(false);
+    }
   });
 
   it('toggles follow external domains switch', () => {
     render(<WebpageGrabberDialog />);
     const sw = document.querySelector('#grabber-domains [role="switch"]');
     expect(sw).toBeInTheDocument();
-    expect(sw!.getAttribute('aria-checked')).toBe('false');
-    fireEvent.click(sw!);
-    expect(sw!.getAttribute('aria-checked')).toBe('true');
+    expect(sw?.getAttribute('aria-checked')).toBe('false');
+    if (sw) fireEvent.click(sw);
+    expect(sw?.getAttribute('aria-checked')).toBe('true');
   });
 
   it('toggles overwrite existing files switch', () => {
     render(<WebpageGrabberDialog />);
     const sw = document.querySelector('#grabber-overwrite [role="switch"]');
     expect(sw).toBeInTheDocument();
-    expect(sw!.getAttribute('aria-checked')).toBe('true');
-    fireEvent.click(sw!);
-    expect(sw!.getAttribute('aria-checked')).toBe('false');
+    expect(sw?.getAttribute('aria-checked')).toBe('true');
+    if (sw) fireEvent.click(sw);
+    expect(sw?.getAttribute('aria-checked')).toBe('false');
   });
 
   it('renders backup notice for missing crawler backend', () => {

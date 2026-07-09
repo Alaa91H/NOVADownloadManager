@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-condition */
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { initialSettings } from '../../initialData';
