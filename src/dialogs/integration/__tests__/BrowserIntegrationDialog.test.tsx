@@ -217,7 +217,7 @@ describe('BrowserIntegrationDialog', () => {
     await waitFor(() => {
       expect(mockOpenInExplorer).toHaveBeenCalledWith('/home/user/nova/extension');
     });
-    expect(mockAddToast).toHaveBeenCalledWith('success', 'Extension Folder', expect.any(String));
+    expect(mockAddToast).toHaveBeenCalledWith('success', 'Local Browser Bridge', expect.any(String));
   });
 
   it('renders Download from GitHub Releases button', () => {
@@ -286,7 +286,7 @@ describe('BrowserIntegrationDialog', () => {
     render(<BrowserIntegrationDialog />);
     fireEvent.click(screen.getByText('Test'));
     await waitFor(() => {
-      expect(mockAddToast).toHaveBeenCalledWith('success', 'Browser Bridge', expect.any(String));
+      expect(mockAddToast).toHaveBeenCalledWith('success', 'Local Browser Bridge', expect.any(String));
     });
   });
 
@@ -295,7 +295,7 @@ describe('BrowserIntegrationDialog', () => {
     render(<BrowserIntegrationDialog />);
     fireEvent.click(screen.getByText('Test'));
     await waitFor(() => {
-      expect(mockAddToast).toHaveBeenCalledWith('error', 'Browser Bridge', 'Connection refused');
+      expect(mockAddToast).toHaveBeenCalledWith('error', 'Local Browser Bridge', 'Connection refused');
     });
   });
 });
