@@ -808,13 +808,13 @@ P26-07-07
 - Priority: P0
 - Impact: CI Run tests gate — 65 failures across 7 files; CI Validate translations gate failure
 - Plan:
-  1. Logo.test.tsx: add useAppStore mock returning `t` that maps `logo_alt` → 'NOVA Logo'
-  2. AboutDialog.test.tsx: add `t` to `storeRef.current` mapping all `about_*` + `btn_ok` keys
-  3. TaskPropertiesDialog.test.tsx: extend existing `t` map with all `task_prop_*`, `engine_direct_*` keys
-  4. UpdateLinkDialog.test.tsx: extend existing `t` map with all `update_link_*` keys
-  5. DiagnosticsDialog.test.tsx: add `t` to `storeRef.current` mapping all `diag_*` keys
-  6. BrowserIntegrationDialog.test.tsx: add `t` to `storeRef.current` mapping all `brw_*` keys
-  7. Run `fix-i18n.mjs` to sync 1250 keys across all 131 non-English locales
+   1. Logo.test.tsx: add useAppStore mock returning `t` that maps `logo_alt` → 'NOVA Logo'
+   2. AboutDialog.test.tsx: add `t` to `storeRef.current` mapping all `about_*` + `btn_ok` keys
+   3. TaskPropertiesDialog.test.tsx: extend existing `t` map with all `task_prop_*`, `engine_direct_*` keys
+   4. UpdateLinkDialog.test.tsx: extend existing `t` map with all `update_link_*` keys
+   5. DiagnosticsDialog.test.tsx: add `t` to `storeRef.current` mapping all `diag_*` keys
+   6. BrowserIntegrationDialog.test.tsx: add `t` to `storeRef.current` mapping all `brw_*` keys
+   7. Run `fix-i18n.mjs` to sync 1250 keys across all 131 non-English locales
 - Acceptance: `tsc --noEmit` clean; `i18n:validate` passes 132/132 with 1250 keys each
 - Validation: CI run at https://github.com/Alaa91H/NOVADownloadManager/actions/runs/28991449518
 - Completed: 2026-07-09
@@ -826,10 +826,17 @@ P26-07-07
   - `fix-i18n.mjs` added 120 missing keys (about_*, diag_*, brw_*, task_prop_*, update_link_*,
     logo_alt, btn_ok, etc.) to 131 locale files.
   - Validated: tsc --noEmit exit 0; i18n:validate 132/132 pass
+- Cycle 2026-07-09 (round 2): Fixed 3 remaining BrowserIntegrationDialog test assertions where
+  toast title expectations used old hardcoded strings ('Extension Folder', 'Browser Bridge')
+  instead of translated values ('Local Browser Bridge'). Root cause: the test mock's t() returned
+  correct translations but the assertions weren't updated to match. All 3 failing tests now use
+  `'Local Browser Bridge'` which is the actual `t('brw_bridge_title')` return value.
+  - Validation: CI runs 28992182758, 28992210510, 28991449518 all failed with same 3 assertions
+  - Fix in `31d5087`
 
 ### FIX-008 — CI pipeline: run fix-i18n.mjs before i18n:validate
 
-- Status: `[ ] PLANNED`
+- Status: `[/] IN_PROGRESS`
 - Stream: FIX
 - Priority: P1
 - Impact: Prevents i18n validation gate failure when new translation keys are added
@@ -837,6 +844,8 @@ P26-07-07
   that newly added en.ts keys are automatically copied to all locale files before validation runs.
 - Acceptance: Adding a new translation key to en.ts in a PR no longer causes `i18n:validate` to fail
 - Validation: CI Validate translations gate
+- Started: 2026-07-09
+- Cycle 2026-07-09: Pending — waiting for CI green on FIX-007 first
 
 ---
 
