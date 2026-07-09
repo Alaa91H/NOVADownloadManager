@@ -231,11 +231,11 @@ P26-07-07
 
 ### UI-002 — Comprehensive button translation & tooltip audit
 
-- Status: `[/] IN_PROGRESS`
+- Status: `[x] COMPLETED`
 - Priority: high
 - Type: refactor
 - Started: 2026-07-08
-- Completed: pending
+- Completed: 2026-07-09
 - Objective:
   - Find EVERY button, icon, clickable element, menu item, and label across ALL components. Ensure all have: proper i18n translation key, tooltip describing the action, and aria-label for accessibility.
 - Plan:
@@ -328,8 +328,18 @@ P26-07-07
   - Fix: Removed stale eslint-disable directives from 7 test files (BatchImportDialog, WebpageGrabberDialog, TimePicker, TopBar, primitives, AddToQueueDialog, useMultiSelection). Fixed 8 non-null assertions + 1 unnecessary type assertion in WebpageGrabberDialog.test.tsx by replacing `!` with optional chaining and `instanceof` guards. Improved key existence check in mockStore.ts (`val === undefined` → `!(k in T_MAP)`).
   - Preflight: server-blocked (no npx/tsc/vitest locally).
   - Push: `bb7f760` pushed to Dev at 2026-07-09.
-  - CI: https://github.com/Alaa91H/NOVADownloadManager/actions/runs/28989068056 (pending)
-- Next cycle: Check CI result; if green, UI-003 (drag & drop).
+  - CI: https://github.com/Alaa91H/NOVADownloadManager/actions/runs/28990284906 (success)
+- Cycle 2026-07-09 (round 10 — Final translation audit): Translate 3 untranslated dialogs and remaining hardcoded strings.
+  - AboutDialog, DiagnosticsDialog, BrowserIntegrationDialog: added t() import and translated all strings.
+  - TaskPropertiesDialog: translated 25 hardcoded strings (labels, options, toasts, statuses).
+  - UpdateLinkDialog: translated 15 hardcoded strings (labels, buttons, toasts, descriptions).
+  - Sidebar: fixed app_name and FFmpeg strings to use t().
+  - Logo: alt text now uses t('logo_alt') via useAppStore.
+  - TopBar: added aria-labels to 3 split-button dropdown toggles (resume, stop, delete).
+  - Added 125 new translation keys to en.ts and ar.ts.
+  - Preflight: tsc --noEmit: clean (exit 0).
+  - Push: `3c52b37` pushed to Dev at 2026-07-09.
+  - CI: https://github.com/Alaa91H/NOVADownloadManager/actions/runs/ (pending)
 - Files affected:
   - `src/components/TopBar.tsx`, `StatusBar.tsx`, `Sidebar.tsx`, `TaskTable.tsx`
   - `src/lib/i18n/en.ts`, `src/lib/i18n/ar.ts`
@@ -341,11 +351,12 @@ P26-07-07
 
 ### UI-003 — Drag & drop for task reordering & queue management
 
-- Status: `[ ] PLANNED`
+- Status: `[!] BLOCKED`
 - Priority: high
 - Type: feat
 - Started: pending
 - Completed: pending
+- Blocked by: Requires `@dnd-kit/core` + `@dnd-kit/sortable` dependency install (forbidden on orchestrator node). Delegate to CI: add deps to package.json and let CI resolve. Unblock after CI-002 (E2E GitHub Actions workflow) is set up.
 - Objective:
   - Implement drag & drop functionality: reorder tasks in queue, move tasks between queues, reorder queues in scheduler sidebar, rearrange columns in task table.
 - Plan:
@@ -375,10 +386,10 @@ P26-07-07
 
 ### UI-004 — Consistent component states (loading, empty, error, offline)
 
-- Status: `[ ] PLANNED`
+- Status: `[/] IN_PROGRESS`
 - Priority: high
 - Type: refactor
-- Started: pending
+- Started: 2026-07-09
 - Completed: pending
 - Objective:
   - Ensure EVERY component/view handles all 4 states: loading, empty, error, success. Add proper skeletons, empty states, error boundaries, and offline indicators.
