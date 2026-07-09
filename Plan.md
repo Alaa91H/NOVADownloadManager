@@ -283,13 +283,33 @@ P26-07-07
   - Stats: 5 files changed, 443 insertions, 139 deletions.
   - Push: `697cbb0` pushed to Dev at 2026-07-08
   - CI: https://github.com/Alaa91H/NOVADownloadManager/actions/runs/28919314725 (pending)
-- Next cycle: SettingsDialog sections (8 sections), BatchImportDialog, remaining dialog toast strings; or start UI-003 (drag & drop) if CI is green.
+- Cycle 2026-07-09 (round 5 — BatchImportDialog + toast strings): Translated BatchImportDialog, AddDownloadDialog and YoutubeDownloadDialog toast strings.
+  - BatchImportDialog: replaced all hardcoded strings with t() calls (labels, buttons, descriptions, advanced options, connection options, toasts).
+  - AddDownloadDialog: localized 6 toast messages (clipboard, directory picker, VPN routing, direct engine unavailable, torrent link, validation error).
+  - YoutubeDownloadDialog: localized 5 toast messages (invalid link, media engine unavailable, VPN incomplete, no videos selected, FFmpeg unavailable).
+  - Added 18 new translation keys to en.ts/ar.ts (ytdl_toast_*, batch_*).
+  - Push: `7a6b99b` pushed to Dev at 2026-07-09
+- Cycle 2026-07-09 (round 6 — SettingsDialog sections translation): Completed all 8 SettingsDialog sections + SpeedLimitInput.
+  - GeneralAndDownloads: translated timezone UTC option label.
+  - NetworkAndPerformance: translated proxy error message, 5 placeholder texts (UA, host, port, username, password).
+  - BrowserAndIntegration: translated confirm dialog message, extension status toast, capture size placeholder.
+  - MediaAndTorrent: translated 2 FFmpeg toasts, torrent disabled toast + description block, ffmpeg path placeholder.
+  - IntegrationsAndAutomation: translated toast fallback, 3 placeholders, 4 demo rule title/description strings.
+  - DiagnosticsAndSystem: translated ping toast + response label, status badges (pass/warn/fail), 2 header placeholders.
+  - InterfaceCustomization: translated custom button icon dropdown labels via `t('settings_icon_' + icon)`.
+  - SpeedLimitInput: imported useAppStore, translated 4 aria-labels (increase/decrease speed, switch KB/s/MB/s).
+  - Added 40 translation keys to en.ts/ar.ts.
+  - Preflight: all edits verified for consistency.
+  - Push: `f7cb45e` pushed to Dev at 2026-07-09
+- Next cycle: UI-003 (drag & drop) or address remaining minor hardcoded strings (formatTime 'Unknown' in ActiveProgressDialog).
 - Files affected:
   - `src/components/TopBar.tsx`, `StatusBar.tsx`, `Sidebar.tsx`, `TaskTable.tsx`
   - `src/lib/i18n/en.ts`, `src/lib/i18n/ar.ts`
   - `src/lib/i18n/translations.ts`
   - All dialog files
   - `src/components/primitives/` (for shared Tooltip component if needed)
+  - `src/components/SpeedLimitInput.tsx`
+  - `src/dialogs/settings/sections/*.tsx` (all 8 sections)
 
 ### UI-003 — Drag & drop for task reordering & queue management
 
