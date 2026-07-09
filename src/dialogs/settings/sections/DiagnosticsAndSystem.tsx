@@ -49,7 +49,7 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
       onAddToast(
         health.status === 'connected' ? 'success' : 'warning',
         t('settings_toast_ping'),
-        `NOVA responded in ${String(latency)}ms with status: ${health.status}.`,
+        t('settings_diag_ping_msg', { latency: String(latency), status: health.status }),
       );
     } catch (error) {
       onAddToast(
@@ -195,7 +195,7 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
             {pinging && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
             {t('settings_test_response')}
           </button>
-          {pingLatency != null && <p className="text-[11px] text-emerald-400 font-mono">Response: {pingLatency}ms</p>}
+          {pingLatency != null && <p className="text-[11px] text-emerald-400 font-mono">{t('settings_diag_response', { latency: String(pingLatency) })}</p>}
         </div>
       )}
 
@@ -226,7 +226,7 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
                 <span
                   className={`border px-2 py-0.5 rounded text-[9px] font-bold uppercase ${statusClass(result.status)}`}
                 >
-                  {result.status === 'idle' ? t('settings_diag_pending') : result.status}
+                  {result.status === 'idle' ? t('settings_diag_pending') : result.status === 'pass' ? t('settings_diag_pass') : result.status === 'warn' ? t('settings_diag_warn') : t('settings_diag_fail')}
                 </span>
               </div>
             ))}
@@ -315,11 +315,11 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
           <div className="grid grid-cols-2 gap-2">
             <input
               className="bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1 text-xs font-mono"
-              placeholder="X-NOVA-Client"
+              placeholder={t('settings_advanced_header_key_placeholder')}
             />
             <input
               className="bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1 text-xs font-mono"
-              placeholder="desktop"
+              placeholder={t('settings_advanced_header_value_placeholder')}
             />
           </div>
         </div>

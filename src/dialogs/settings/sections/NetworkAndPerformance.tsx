@@ -23,7 +23,7 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
     setTimeout(() => {
       if (settings.connection.proxyHost === '127.0.0.1' || !settings.connection.proxyHost) {
         setProxyTestStatus('fail');
-        setProxyErrorMessage('Connection refused or proxy host is empty.');
+        setProxyErrorMessage(t('settings_proxy_error'));
         onAddToast('error', t('settings_toast_proxy_test'), t('settings_toast_proxy_fail'));
       } else {
         setProxyTestStatus('pass');
@@ -138,7 +138,7 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
           onChange={(e) => {
             updateSetting('extra', 'userAgent', e.target.value);
           }}
-          placeholder="Mozilla/5.0..."
+          placeholder={t('settings_user_agent_placeholder')}
           style={{ direction: 'ltr', textAlign: 'left' }}
         />
 
@@ -161,7 +161,7 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
                   onChange={(e) => {
                     updateSetting('connection', 'proxyHost', e.target.value);
                   }}
-                  placeholder="127.0.0.1 or proxy.company.com"
+                  placeholder={t('settings_proxy_host_placeholder')}
                   style={{ direction: 'ltr', textAlign: 'left' }}
                 />
                 <TextField
@@ -170,7 +170,7 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
                   onChange={(e) => {
                     updateSetting('connection', 'proxyPort', e.target.value);
                   }}
-                  placeholder="8080"
+                  placeholder={t('settings_proxy_port_placeholder')}
                   style={{ direction: 'ltr', textAlign: 'left' }}
                 />
               </div>
@@ -182,7 +182,7 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
                   onChange={(e) => {
                     updateSetting('connection', 'proxyUser', e.target.value);
                   }}
-                  placeholder="Username"
+                  placeholder={t('settings_proxy_user_placeholder')}
                   style={{ direction: 'ltr', textAlign: 'left' }}
                 />
                 <TextField
@@ -192,7 +192,7 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
                   onChange={(e) => {
                     updateSetting('connection', 'proxyPass', e.target.value);
                   }}
-                  placeholder="Password"
+                  placeholder={t('settings_proxy_pass_placeholder')}
                   style={{ direction: 'ltr', textAlign: 'left' }}
                 />
               </div>

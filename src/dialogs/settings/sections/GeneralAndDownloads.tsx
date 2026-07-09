@@ -189,7 +189,7 @@ export const GeneralAndDownloads: React.FC<Props> = ({
             }}
             options={[
               { value: 'system', label: t('settings_timezone_system') },
-              { value: 'utc', label: 'UTC' },
+              { value: 'utc', label: t('settings_timezone_utc') },
             ]}
           />
         </div>

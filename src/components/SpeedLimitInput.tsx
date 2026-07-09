@@ -1,6 +1,7 @@
 /* src/components/SpeedLimitInput.tsx */
 import React, { useState } from 'react';
 import { ChevronUp, ChevronDown } from 'lucide-react';
+import { useAppStore } from '../state/appStore';
 
 interface SpeedLimitInputProps {
   maxSpeedKbs: number;
@@ -9,6 +10,7 @@ interface SpeedLimitInputProps {
 }
 
 export const SpeedLimitInput: React.FC<SpeedLimitInputProps> = ({ maxSpeedKbs, onChange, compact = false }) => {
+  const { t } = useAppStore();
   // Determine initial display unit and value
   const isMbInitial = maxSpeedKbs >= 1024 && maxSpeedKbs % 1024 === 0;
   const [unit, setUnit] = useState<'KB' | 'MB'>(isMbInitial ? 'MB' : 'KB');
@@ -100,7 +102,7 @@ export const SpeedLimitInput: React.FC<SpeedLimitInputProps> = ({ maxSpeedKbs, o
             type="button"
             onClick={increment}
             className="flex-1 flex items-center justify-center hover:bg-[var(--border-color-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-            aria-label="Increase speed"
+              aria-label={t('speed_limit_increase')}
           >
             <ChevronUp className={compact ? 'w-2.5 h-2.5' : 'w-3 h-3'} />
           </button>
@@ -108,7 +110,7 @@ export const SpeedLimitInput: React.FC<SpeedLimitInputProps> = ({ maxSpeedKbs, o
             type="button"
             onClick={decrement}
             className="flex-1 flex items-center justify-center hover:bg-[var(--border-color-hover)] border-t border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-            aria-label="Decrease speed"
+              aria-label={t('speed_limit_decrease')}
           >
             <ChevronDown className={compact ? 'w-2.5 h-2.5' : 'w-3 h-3'} />
           </button>
@@ -129,7 +131,7 @@ export const SpeedLimitInput: React.FC<SpeedLimitInputProps> = ({ maxSpeedKbs, o
               ? 'bg-[var(--accent-primary)] text-white'
               : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
           } ${compact ? 'text-[8.5px]' : 'text-[10px]'}`}
-          aria-label="Switch to KB/s"
+              aria-label={t('speed_limit_switch_kbs')}
         >
           KB
         </button>
@@ -143,7 +145,7 @@ export const SpeedLimitInput: React.FC<SpeedLimitInputProps> = ({ maxSpeedKbs, o
               ? 'bg-[var(--accent-primary)] text-white'
               : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
           } ${compact ? 'text-[8.5px]' : 'text-[10px]'}`}
-          aria-label="Switch to MB/s"
+              aria-label={t('speed_limit_switch_mbs')}
         >
           MB
         </button>

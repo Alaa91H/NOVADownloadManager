@@ -36,14 +36,14 @@ export const MediaAndTorrent: React.FC<Props> = ({ settings, updateSetting, onAd
           onAddToast(
             'warning',
             t('settings_toast_ffmpeg_detect'),
-            'FFmpeg was not found in the bundled resources or PATH.',
+            t('settings_ffmpeg_not_found'),
           );
         }
       })
       .catch(() => {
         setFfmpegStatus('not_found');
         setFfmpegVersion('');
-        onAddToast('error', t('settings_toast_ffmpeg_detect'), 'Could not query the daemon for FFmpeg runtime status.');
+        onAddToast('error', t('settings_toast_ffmpeg_detect'), t('settings_ffmpeg_query_fail'));
       });
   };
 
@@ -52,7 +52,7 @@ export const MediaAndTorrent: React.FC<Props> = ({ settings, updateSetting, onAd
     onAddToast(
       'info',
       t('settings_toast_torrent_port'),
-      'Torrent/magnet support is disabled until a dedicated torrent engine is added.',
+      t('settings_torrent_disabled'),
     );
   };
 
@@ -155,7 +155,7 @@ export const MediaAndTorrent: React.FC<Props> = ({ settings, updateSetting, onAd
             onChange={(e) => {
               updateSetting('extra', 'ffmpegPath', e.target.value);
             }}
-            placeholder="C:\\ffmpeg\\bin\\ffmpeg.exe"
+            placeholder={t('settings_ffmpeg_path_placeholder')}
             style={{ direction: 'ltr', textAlign: 'left' }}
           />
           <div className="flex flex-col gap-2 pt-1">
@@ -207,8 +207,7 @@ export const MediaAndTorrent: React.FC<Props> = ({ settings, updateSetting, onAd
             {t('settings_torrent_engine')}
           </span>
           <div className="rounded-md border border-amber-500/25 bg-amber-500/10 p-2 text-[11px] text-amber-200">
-            Torrent and magnet downloads are disabled in this libcurl-based build. libcurl is used for direct
-            HTTP/HTTPS/FTP downloads only; add a dedicated torrent engine before enabling these controls.
+            {t('settings_torrent_disabled_desc')}
           </div>
           <div className="grid grid-cols-1 gap-3 opacity-50 pointer-events-none">
             <Checkbox

@@ -29,7 +29,7 @@ export const BrowserAndIntegration: React.FC<Props> = ({ settings, updateSetting
 
   const handleRegenerateToken = () => {
     openDialog('genericConfirm', {
-      message: 'Generate a new pairing token? Installed browser extensions will need to be paired again.',
+      message: t('settings_pairing_confirm'),
       isDanger: true,
       onConfirm: () => {
         updateSetting('extra', 'browserPairingToken', generatePairingToken());
@@ -53,7 +53,7 @@ export const BrowserAndIntegration: React.FC<Props> = ({ settings, updateSetting
       onAddToast(
         'success',
         t('settings_toast_extension_bridge'),
-        `Browser capture is ${health.enabled ? 'enabled' : 'disabled'} and the local bridge is reachable.`,
+        t('settings_extension_status_msg', { status: health.enabled ? t('settings_enabled') : t('settings_disabled') }),
       );
     } catch (error) {
       onAddToast(
@@ -147,7 +147,7 @@ export const BrowserAndIntegration: React.FC<Props> = ({ settings, updateSetting
             onChange={(e) => {
               updateSetting('fileTypes', 'autoDownloadMaxSizeMb', Number(e.target.value));
             }}
-            placeholder="128"
+            placeholder={t('settings_capture_size_placeholder')}
           />
 
           <div className="space-y-1">

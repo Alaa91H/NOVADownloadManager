@@ -277,7 +277,7 @@ export const InterfaceCustomization: React.FC<Props> = ({ settings, updateSettin
               onChange={(e) => {
                 setCustomIcon(e.target.value as CustomButtonIcon);
               }}
-              options={customButtonIcons.map((icon) => ({ value: icon, label: icon }))}
+              options={customButtonIcons.map((icon) => ({ value: icon, label: t('settings_icon_' + icon) }))}
             />
             <Button type="button" size="md" variant="primary" icon={Plus} onClick={addCustomButton}>
               {t('settings_webhook_add')}
@@ -314,7 +314,7 @@ export const InterfaceCustomization: React.FC<Props> = ({ settings, updateSettin
                   onChange={(e) => {
                     updateCustomButton(button.id, { icon: e.target.value as CustomButtonIcon });
                   }}
-                  options={customButtonIcons.map((icon) => ({ value: icon, label: icon }))}
+                  options={customButtonIcons.map((icon) => ({ value: icon, label: t('settings_icon_' + icon) }))}
                 />
                 <SelectField
                   value={button.display}

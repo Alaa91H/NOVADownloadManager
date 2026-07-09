@@ -70,7 +70,7 @@ export const IntegrationsAndAutomation: React.FC<Props> = ({
       if (result.ok) {
         onAddToast('success', t('settings_toast_telegram_test'), t('settings_toast_telegram_ok'));
       } else {
-        onAddToast('error', t('settings_toast_telegram_test'), result.error || 'Test failed.');
+        onAddToast('error', t('settings_toast_telegram_test'), result.error || t('settings_telegram_test_failed'));
       }
     } catch {
       setTelegramStatus('fail');
@@ -131,7 +131,7 @@ export const IntegrationsAndAutomation: React.FC<Props> = ({
               onChange={(e) => {
                 updateSetting('extra', 'tgChatId', e.target.value);
               }}
-              placeholder="-100123456789"
+              placeholder={t('settings_tg_chat_id_placeholder')}
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
@@ -140,7 +140,7 @@ export const IntegrationsAndAutomation: React.FC<Props> = ({
               onChange={(e) => {
                 updateSetting('extra', 'tgApiBase', e.target.value);
               }}
-              placeholder="https://api.telegram.org"
+              placeholder={t('settings_tg_api_base_placeholder')}
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
@@ -239,7 +239,7 @@ export const IntegrationsAndAutomation: React.FC<Props> = ({
                 onChange={(e) => {
                   setWebhookUrl(e.target.value);
                 }}
-                placeholder="https://api.example.com/webhook"
+                placeholder={t('settings_webhook_url_placeholder')}
                 className="flex-1 bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2.5 py-1.5 text-xs font-mono text-left"
                 style={{ direction: 'ltr' }}
               />
@@ -377,19 +377,18 @@ export const IntegrationsAndAutomation: React.FC<Props> = ({
             </button>
             <div className="space-y-2">
               <div className="bg-[var(--bg-input)]/50 border border-[var(--border-color)] rounded-lg p-3">
-                <span className="text-xs font-extrabold text-slate-100">Rule: Organize large videos</span>
+                <span className="text-xs font-extrabold text-slate-100">{t('settings_demo_rule_video_title')}</span>
                 <p className="text-[11px] text-slate-400 mt-1">
-                  If size is greater than 500 MB and type is video, move the file to /Videos/Large/ and send a
-                  notification.
+                  {t('settings_demo_rule_video_desc')}
                 </p>
                 <span className="inline-block mt-2 bg-amber-500/15 border border-amber-500/30 text-amber-500 text-[9px] font-bold px-1.5 py-0.5 rounded">
                   {t('settings_webhook_active')}
                 </span>
               </div>
               <div className="bg-[var(--bg-input)]/50 border border-[var(--border-color)] rounded-lg p-3">
-                <span className="text-xs font-extrabold text-slate-100">Rule: Critical failure alerts</span>
+                <span className="text-xs font-extrabold text-slate-100">{t('settings_demo_rule_failure_title')}</span>
                 <p className="text-[11px] text-slate-400 mt-1">
-                  If a download fails three times, run an external recovery command.
+                  {t('settings_demo_rule_failure_desc')}
                 </p>
                 <span className="inline-block mt-2 bg-slate-500/15 border border-slate-500/30 text-slate-400 text-[9px] font-bold px-1.5 py-0.5 rounded">
                   {t('settings_webhook_paused')}
