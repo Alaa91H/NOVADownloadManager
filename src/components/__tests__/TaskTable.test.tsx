@@ -249,31 +249,31 @@ describe('TaskTable', () => {
   it('opens context menu on right click', () => {
     mockStoreRef.current = createMockStore({ tasks: [makeTask()] });
     render(<TaskTable />);
-    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr')!;
-    fireEvent.contextMenu(row);
+    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr');
+    if (row) fireEvent.contextMenu(row);
     expect(screen.getAllByText('Properties').length).toBeGreaterThan(0);
   });
 
   it('context menu shows stop for downloading task', () => {
     mockStoreRef.current = createMockStore({ tasks: [makeTask({ status: 'downloading' })] });
     render(<TaskTable />);
-    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr')!;
-    fireEvent.contextMenu(row);
+    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr');
+    if (row) fireEvent.contextMenu(row);
     expect(screen.getAllByText('Stop').length).toBeGreaterThan(0);
   });
 
   it('context menu shows resume for paused task', () => {
     mockStoreRef.current = createMockStore({ tasks: [makeTask({ status: 'paused' })] });
     render(<TaskTable />);
-    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr')!;
-    fireEvent.contextMenu(row);
+    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr');
+    if (row) fireEvent.contextMenu(row);
     expect(screen.getAllByText('Resume').length).toBeGreaterThan(0);
   });
 
   it('context menu shows retry for error task', () => {
     mockStoreRef.current = createMockStore({ tasks: [makeTask({ status: 'error' })] });
     render(<TaskTable />);
-    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr')!;
+    const row = within(screen.getByRole('table')).getByText('test-file.zip').closest('tr');
     fireEvent.contextMenu(row);
     expect(screen.getByText('Retry Download')).toBeInTheDocument();
   });

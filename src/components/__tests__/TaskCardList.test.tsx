@@ -192,7 +192,6 @@ describe('TaskCardList', () => {
     const tasks = [makeTask()];
     render(<TaskCardList {...defaultProps} tasks={tasks} startRowPress={startRowPress} />);
     const nameSpan = screen.getByText('test-file.zip');
-    const card = nameSpan.closest('[onmousedown]') || nameSpan.closest('div')?.closest('div');
     fireEvent.mouseDown(nameSpan);
     expect(startRowPress).toHaveBeenCalledWith('task-1', expect.any(Object));
   });

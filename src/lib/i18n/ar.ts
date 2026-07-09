@@ -921,7 +921,6 @@ export const ar: Record<string, string> = {
   'aria_minimize_taskbar': 'تصغير إلى شريط المهام',
   'aria_restore': 'استعادة النافذة',
   'aria_restore_size': 'استعادة الحجم',
-
   'add_dl_paste_clipboard': 'لصق من الحافظة',
   'add_dl_browse_folders': 'تصفح المجلدات',
   'add_dl_refresh_info': 'تحديث معلومات الملف',
@@ -968,7 +967,6 @@ export const ar: Record<string, string> = {
   'add_dl_threads_24': '24 خيطًا',
   'add_dl_threads_32': '32 خيطًا (السرعة القصوى)',
   'add_dl_single_conn': 'اتصال واحد (الخادم/libcurl النطاق غير متاح)',
-
   'ytdl_title': 'أداة تنزيل الوسائط',
   'ytdl_media_url': 'رابط الوسائط (فيديو أو قائمة تشغيل)',
   'ytdl_url_placeholder': 'https://www.example.com/watch?v=...',
@@ -1041,7 +1039,6 @@ export const ar: Record<string, string> = {
   'ytdl_toast_select_video': 'الرجاء تحديد فيديو واحد على الأقل من قائمة التشغيل.',
   'ytdl_toast_ffmpeg_unavail_title': 'FFmpeg غير متاح',
   'ytdl_toast_ffmpeg_unavail_desc': 'عملية الوسائط المحددة تتطلب FFmpeg، لكن محرك المعالجة البعدية غير جاهز.',
-
   'batch_field_links_label': 'روابط التنزيل للدفعة',
   'batch_btn_advanced': 'متقدم',
   'batch_btn_paste': 'لصق',
@@ -1049,7 +1046,6 @@ export const ar: Record<string, string> = {
   'batch_toast_clipboard_read': 'تعذرت قراءة الحافظة تلقائيًا. الرجاء اللصق يدويًا.',
   'batch_toast_engine_not_ready': 'محرك libcurl المباشر غير جاهز.',
   'batch_toast_no_valid_links': 'لم يتم العثور على روابط مباشرة صالحة. البروتوكولات المباشرة المتاحة: {protocols}.',
-
   'prog_status': 'الحالة',
   'prog_speed_limit': 'حد السرعة',
   'prog_completion': 'الإكمال',
@@ -1090,7 +1086,6 @@ export const ar: Record<string, string> = {
   'prog_shutdown': 'إيقاف تشغيل الكمبيوتر',
   'prog_restart': 'إعادة تشغيل الكمبيوتر',
   'prog_sleep': 'سكون',
-
   'settings_enabled': 'مفعل',
   'settings_disabled': 'معطل',
   'settings_timezone_utc': 'UTC',

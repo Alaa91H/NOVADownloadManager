@@ -37,8 +37,8 @@ const mockCaps = vi.hoisted(() => ({
   supportsMediaOption: vi.fn(() => true),
   supportsDirectProtocol: vi.fn(() => true),
   supportsStreamCandidate: vi.fn(() => true),
-  sanitizeDirectOptions: vi.fn((o) => o),
-  sanitizeMediaOptions: vi.fn((o) => o),
+  sanitizeDirectOptions: vi.fn((o: unknown) => o),
+  sanitizeMediaOptions: vi.fn((o: unknown) => o),
   directBlockedReason: vi.fn(() => null),
   mediaBlockedReason: vi.fn(() => null),
 }));
@@ -94,8 +94,8 @@ describe('StatusBar', () => {
   it('renders active and total counts', () => {
     mockStoreRef.current = createMockStore({
       tasks: [
-        { id: 't1', status: 'downloading', speedBytesPerSec: 102400, downloadedBytes: 500, sizeBytes: 1000 } as any,
-        { id: 't2', status: 'completed', speedBytesPerSec: 0, downloadedBytes: 1000, sizeBytes: 1000 } as any,
+        { id: 't1', status: 'downloading' as const, speedBytesPerSec: 102400, downloadedBytes: 500, sizeBytes: 1000 },
+        { id: 't2', status: 'completed' as const, speedBytesPerSec: 0, downloadedBytes: 1000, sizeBytes: 1000 },
       ],
     });
     render(<StatusBar />);
