@@ -36,6 +36,7 @@
     "i18n:dicts": "tsx scripts/i18n-dicts.mjs",
     "i18n:update": "tsx scripts/update-translations.mjs",
     "i18n:sync": "tsx scripts/sync-i18n-index.mjs",
+    "i18n:fix": "tsx scripts/fix-i18n.mjs",
     "i18n:validate": "tsx scripts/validate-i18n.mjs",
     "i18n:validate-primary": "tsx scripts/validate-primary-i18n.mjs",
     "extension:install": "pnpm install --frozen-lockfile",

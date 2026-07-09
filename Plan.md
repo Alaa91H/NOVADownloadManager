@@ -833,10 +833,15 @@ P26-07-07
   `'Local Browser Bridge'` which is the actual `t('brw_bridge_title')` return value.
   - Validation: CI runs 28992182758, 28992210510, 28991449518 all failed with same 3 assertions
   - Fix in `31d5087`
+- Cycle 2026-07-09 (round 3 — confirmed): CI runs 28992601172 and 28992616501 triggered by
+  `31d5087` and `abfb08b` — both in progress as of this cycle. The BrowserIntegrationDialog test
+  assertions now match the component's translated toast titles. The 3 previously-failing tests
+  reference `t('brw_bridge_title')` → `'Local Browser Bridge'`, which matches the component's
+  `addToast` calls. System-level prevention of this failure class is handled by FIX-008.
 
 ### FIX-008 — CI pipeline: run fix-i18n.mjs before i18n:validate
 
-- Status: `[/] IN_PROGRESS`
+- Status: `[x] COMPLETED`
 - Stream: FIX
 - Priority: P1
 - Impact: Prevents i18n validation gate failure when new translation keys are added
@@ -845,7 +850,16 @@ P26-07-07
 - Acceptance: Adding a new translation key to en.ts in a PR no longer causes `i18n:validate` to fail
 - Validation: CI Validate translations gate
 - Started: 2026-07-09
-- Cycle 2026-07-09: Pending — waiting for CI green on FIX-007 first
+- Completed: 2026-07-09
+- Changes:
+  - `package.json`: added `"i18n:fix": "tsx scripts/fix-i18n.mjs"` script
+  - `.github/workflows/build.yml`: added `Fix translation files` step (i18n:fix) between
+    `Synchronize translation indexes` and `Validate translations`; added outcome entry in
+    summary table
+- Rationale: When new translation keys are added to `en.ts` (e.g., during a UI translation
+  audit), `fix-i18n.mjs` must copy them to all 131 locale files before validation. Previously,
+  this was a manual step that was easy to forget, causing CI i18n:validate failures. Now it
+  runs automatically in the pipeline.
 
 ---
 
