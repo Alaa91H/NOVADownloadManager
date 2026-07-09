@@ -301,6 +301,18 @@ P26-07-07
   - Added 40 translation keys to en.ts/ar.ts.
   - Preflight: all edits verified for consistency.
   - Push: `f7cb45e` pushed to Dev at 2026-07-09
+- Cycle 2026-07-09 (round 7 — CI repair): Fixed 3 failing CI gates (Validate translations, ESLint, Run tests).
+  - Validate translations: Committed 131 locale files that were synced by fix-i18n.mjs in previous cycles
+    but never committed; i18n:validate now passes 132/132 with 1134 keys each.
+  - ESLint: Fixed 4 non-null assertions in TaskTable.test.tsx (closest('tr')! → closest('tr') with guard);
+    removed unused fireEvent import from TaskCheckboxAndIcon.test.tsx; removed unused `card` variable from
+    TaskCardList.test.tsx; fixed `any` return types in StatusBar.test.tsx mock (added :unknown to callbacks,
+    replaced `as any` with `as const` on task objects).
+  - Run tests: Added all 41 prog_* translation keys to ActiveProgressDialog.test.tsx mock t() map;
+    test was rendering raw keys (prog_resume_dl, prog_status, etc.) because the component now uses t()
+    but the mock only mapped topbar_stop.
+  - Preflight: tsc --noEmit: clean | i18n:validate: 132/132 pass | ActiveProgressDialog: 14/14 pass.
+  - Push: `90b616a` pushed to Dev at 2026-07-09
 - Next cycle: UI-003 (drag & drop) or address remaining minor hardcoded strings (formatTime 'Unknown' in ActiveProgressDialog).
 - Files affected:
   - `src/components/TopBar.tsx`, `StatusBar.tsx`, `Sidebar.tsx`, `TaskTable.tsx`
