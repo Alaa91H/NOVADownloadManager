@@ -20,7 +20,7 @@ import { DialogButton, Button } from '../../components/primitives';
 const EXTENSION_RELEASES_URL = 'https://github.com/Alaa91H/NovaDownloadManager/releases/latest';
 
 export const BrowserIntegrationDialog: React.FC = () => {
-  const { closeDialog, settings, updateSettings, addToast } = useAppStore();
+  const { closeDialog, settings, updateSettings, addToast, t } = useAppStore();
   const [health, setHealth] = useState<BrowserExtensionHealth | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [extensionPaths, setExtensionPaths] = useState<{ devPath: string; resourcePath: string } | null>(null);
@@ -49,12 +49,12 @@ export const BrowserIntegrationDialog: React.FC = () => {
         userAgent: settings.extra.userAgent,
       });
       setHealth(result);
-      addToast('success', 'Browser Bridge', 'The local browser bridge is ready.');
+      addToast('success', t('brw_bridge_title'), t('brw_toast_bridge_ready'));
     } catch (error) {
       addToast(
         'error',
-        'Browser Bridge',
-        error instanceof Error ? error.message : 'The local browser bridge is not reachable.',
+        t('brw_bridge_title'),
+        error instanceof Error ? error.message : t('brw_toast_bridge_unreachable'),
       );
     } finally {
       setIsChecking(false);
@@ -80,18 +80,18 @@ export const BrowserIntegrationDialog: React.FC = () => {
   const copyToken = async () => {
     try {
       await writeClipboardText(settings.extra.browserPairingToken);
-      addToast('success', 'Pairing Token', 'The browser pairing token was copied.');
+      addToast('success', t('brw_pairing_token'), t('brw_toast_token_copied'));
     } catch {
-      addToast('warning', 'Pairing Token', 'Select the token manually if clipboard write is blocked.');
+      addToast('warning', t('brw_pairing_token'), t('brw_toast_token_manual'));
     }
   };
 
   const copyPath = async (path: string) => {
     try {
       await writeClipboardText(path);
-      addToast('success', 'Extension Path', 'The extension folder path was copied.');
+      addToast('success', t('brw_extension_downloads'), t('brw_toast_path_copied'));
     } catch {
-      addToast('warning', 'Extension Path', 'Select the path manually if clipboard write is blocked.');
+      addToast('warning', t('brw_extension_downloads'), t('brw_toast_path_manual'));
     }
   };
 
@@ -99,18 +99,18 @@ export const BrowserIntegrationDialog: React.FC = () => {
     if (!extensionPaths) return;
     const opened = await tauriClient.openInExplorer(extensionPaths.devPath);
     if (!opened) {
-      addToast('error', 'Extension Folder', 'NOVA could not open the browser extension folder.');
+      addToast('error', t('brw_bridge_title'), t('brw_toast_folder_failed'));
       return;
     }
-    addToast('success', 'Extension Folder', 'The browser extension folder was opened.');
+    addToast('success', t('brw_bridge_title'), t('brw_toast_folder_opened'));
   };
 
   const openReleasesPage = async () => {
     try {
       await tauriClient.openExternalUrl(EXTENSION_RELEASES_URL);
-      addToast('info', 'Browser Extension', 'Opened the NOVA releases page for extension downloads.');
+      addToast('info', t('brw_extension_downloads'), t('brw_toast_releases_opened'));
     } catch (e) {
-      addToast('error', 'Browser Extension', e instanceof Error ? e.message : 'Could not open the releases page.');
+      addToast('error', t('brw_extension_downloads'), e instanceof Error ? e.message : t('brw_toast_releases_opened'));
     }
   };
 
@@ -119,23 +119,23 @@ export const BrowserIntegrationDialog: React.FC = () => {
       await tauriClient.openBrowserExtensions(browser);
       addToast(
         'info',
-        'Browser Extension',
-        `Opened ${browser === 'edge' ? 'Edge' : browser === 'firefox' ? 'Firefox' : 'Chrome'} extension management.`,
+        t('brw_extension_downloads'),
+        t('brw_toast_browser_opened').replace('{browser}', browser === 'edge' ? 'Edge' : browser === 'firefox' ? 'Firefox' : 'Chrome'),
       );
     } catch (e) {
       addToast(
         'error',
-        'Browser Extension',
-        e instanceof Error ? e.message : `Could not open ${browser} extension page.`,
+        t('brw_extension_downloads'),
+        e instanceof Error ? e.message : t('brw_toast_browser_failed').replace('{browser}', browser),
       );
     }
   };
 
   const statusText = health
-    ? `${health.enabled ? 'Enabled' : 'Disabled'} / ${health.paired ? 'Paired' : 'Token required'}`
+    ? `${health.enabled ? t('brw_status_enabled') : t('brw_status_disabled')} / ${health.paired ? t('brw_status_paired') : t('brw_status_token_required')}`
     : browsersEnabled
-      ? 'Enabled in settings'
-      : 'Disabled in settings';
+      ? t('brw_status_enabled_settings')
+      : t('brw_status_disabled_settings');
   const devChromiumPath = extensionPaths ? `${extensionPaths.devPath}\\dist\\chromium` : '';
   const devEdgePath = extensionPaths ? `${extensionPaths.devPath}\\dist\\edge` : '';
   const devFirefoxPath = extensionPaths ? `${extensionPaths.devPath}\\dist\\firefox` : '';
@@ -146,7 +146,7 @@ export const BrowserIntegrationDialog: React.FC = () => {
         <div className="flex items-start gap-2.5">
           <ShieldCheck className="w-5 h-5 text-[var(--accent-primary)] shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <h4 className="text-xs font-extrabold text-[var(--text-primary)]">Local Browser Bridge</h4>
+            <h4 className="text-xs font-extrabold text-[var(--text-primary)]">{t('brw_bridge_title')}</h4>
             <p className="text-[11px] text-[var(--text-secondary)] mt-1">{statusText}</p>
           </div>
         </div>
@@ -157,7 +157,7 @@ export const BrowserIntegrationDialog: React.FC = () => {
           size="sm"
           icon={isChecking ? RefreshCw : CheckCircle2}
         >
-          Test
+          {t('brw_btn_test')}
         </Button>
       </div>
 
@@ -166,19 +166,19 @@ export const BrowserIntegrationDialog: React.FC = () => {
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-xs font-extrabold text-[var(--text-primary)]">
               <Monitor className="w-4 h-4 text-blue-400" />
-              Chrome / Edge
+              {t('brw_chrome_edge')}
             </div>
             <div className="flex gap-1.5">
               <Button onClick={() => void openBrowserPage('chrome')} variant="secondary" size="sm">
-                Chrome
+                {t('brw_chrome')}
               </Button>
               <Button onClick={() => void openBrowserPage('edge')} variant="secondary" size="sm">
-                Edge
+                {t('brw_edge')}
               </Button>
             </div>
           </div>
           <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-            Open the extensions page, enable developer mode, then load the unpacked NOVA Chromium or Edge folder.
+            {t('brw_chrome_desc')}
           </p>
         </div>
 
@@ -186,45 +186,43 @@ export const BrowserIntegrationDialog: React.FC = () => {
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-xs font-extrabold text-[var(--text-primary)]">
               <Globe2 className="w-4 h-4 text-orange-400" />
-              Firefox
+              {t('brw_firefox')}
             </div>
             <Button onClick={() => void openBrowserPage('firefox')} variant="secondary" size="sm">
-              Open
+              {t('brw_btn_open')}
             </Button>
           </div>
           <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-            Open debugging extensions, load a temporary add-on, then select the manifest from the NOVA Firefox folder.
+            {t('brw_firefox_desc')}
           </p>
         </div>
       </div>
 
       <div className="border border-[var(--border-color)] rounded-lg p-3 bg-[var(--bg-hover)]/25 space-y-2">
-        <div className="text-xs font-extrabold text-[var(--text-primary)]">Extension Downloads</div>
+        <div className="text-xs font-extrabold text-[var(--text-primary)]">{t('brw_extension_downloads')}</div>
         <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-          The browser extension packages are published as standalone files with every NOVA release: a Chrome/Chromium{' '}
-          <code>.zip</code>, an Edge <code>.zip</code>, and a Firefox <code>.xpi</code>. Download the package for your
-          browser, then load it from the extensions page.
+          {t('brw_extension_desc')}
         </p>
         <div className="flex flex-wrap gap-2 pt-1">
           <Button onClick={() => void openReleasesPage()} variant="primary" size="sm" icon={Download}>
-            Download from GitHub Releases
+            {t('brw_download_gh')}
           </Button>
           <Button onClick={() => void copyPath(EXTENSION_RELEASES_URL)} variant="secondary" size="sm" icon={Copy}>
-            Copy Link
+            {t('brw_copy_link')}
           </Button>
         </div>
         <div className="flex flex-wrap gap-2 pt-1">
           <Button onClick={() => void openFolder()} variant="secondary" size="sm" icon={FolderOpen}>
-            Open Dev Folder
+            {t('brw_open_dev_folder')}
           </Button>
           <Button onClick={() => void copyPath(devChromiumPath)} variant="secondary" size="sm" icon={Copy}>
-            Copy Dev Chromium
+            {t('brw_copy_dev_chromium')}
           </Button>
           <Button onClick={() => void copyPath(devEdgePath)} variant="secondary" size="sm" icon={Copy}>
-            Copy Dev Edge
+            {t('brw_copy_dev_edge')}
           </Button>
           <Button onClick={() => void copyPath(devFirefoxPath)} variant="secondary" size="sm" icon={Copy}>
-            Copy Dev Firefox
+            {t('brw_copy_dev_firefox')}
           </Button>
         </div>
       </div>
@@ -232,7 +230,7 @@ export const BrowserIntegrationDialog: React.FC = () => {
       <div className="border border-[var(--border-color)] rounded-lg p-3 bg-[var(--bg-hover)]/25 space-y-2">
         <div className="flex items-center gap-2 text-xs font-extrabold text-[var(--text-primary)]">
           <KeyRound className="w-4 h-4 text-amber-400" />
-          Pairing Token
+          {t('brw_pairing_token')}
         </div>
         <div className="flex gap-2">
           <input
@@ -249,7 +247,7 @@ export const BrowserIntegrationDialog: React.FC = () => {
             size="sm"
             icon={Copy}
           >
-            Copy
+            {t('brw_copy')}
           </Button>
         </div>
       </div>
@@ -262,10 +260,10 @@ export const BrowserIntegrationDialog: React.FC = () => {
           variant={browsersEnabled ? 'danger' : 'primary'}
           size="sm"
         >
-          {browsersEnabled ? 'Disable Browser Capture' : 'Enable Browser Capture'}
+          {browsersEnabled ? t('brw_disable_capture') : t('brw_enable_capture')}
         </Button>
         <DialogButton onClick={closeDialog} variant="primary">
-          Done
+          {t('brw_done')}
         </DialogButton>
       </div>
     </div>

@@ -59,7 +59,7 @@ export const Sidebar: React.FC = () => {
         <div className="flex items-center gap-3 border-b border-[var(--border-color)] pb-3">
           <Logo size={36} className="accent-glow filter drop-shadow-md" />
           <div>
-            <h1 className="text-xs font-bold text-[var(--text-primary)]">NOVA Download Manager</h1>
+            <h1 className="text-xs font-bold text-[var(--text-primary)]">{t('app_name')}</h1>
             <p className="text-[9px] text-[var(--accent-primary)] font-extrabold uppercase font-mono tracking-wider">
               {t('app_title_nova_engine')}
             </p>
@@ -107,13 +107,13 @@ export const Sidebar: React.FC = () => {
             {caps.ffmpegReady && (
               <span className="inline-flex items-center gap-1 text-emerald-500" title={t('engine_ffmpeg_ready')}>
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                FFmpeg
+                {t('engine_ffmpeg_title')}
               </span>
             )}
             {!caps.ffmpegReady && caps.mediaReady && (
               <span className="inline-flex items-center gap-1 text-rose-500" title={t('engine_ffmpeg_unavailable')}>
                 <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                FFmpeg
+                {t('engine_ffmpeg_title')}
               </span>
             )}
           </div>

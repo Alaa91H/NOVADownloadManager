@@ -421,6 +421,8 @@ export const TopBar: React.FC = () => {
                     toggleDropdown('resume');
                   }}
                   className="px-1.5 text-[var(--text-secondary)] hover:text-emerald-400 hover:bg-emerald-500/10 transition-all cursor-pointer flex items-center justify-center border-l border-[var(--border-color)]"
+                  title={t('topbar_resume_options')}
+                  aria-label={t('topbar_resume_options')}
                 >
                   <ChevronDown
                     className={`w-3 h-3 transition-transform duration-200 ${openDropdown === 'resume' ? 'rotate-180' : ''}`}
@@ -488,6 +490,8 @@ export const TopBar: React.FC = () => {
                     toggleDropdown('stop');
                   }}
                   className="px-1.5 text-[var(--text-secondary)] hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer flex items-center justify-center border-l border-[var(--border-color)]"
+                  title={t('topbar_stop_options')}
+                  aria-label={t('topbar_stop_options')}
                 >
                   <ChevronDown
                     className={`w-3 h-3 transition-transform duration-200 ${openDropdown === 'stop' ? 'rotate-180' : ''}`}
@@ -557,6 +561,8 @@ export const TopBar: React.FC = () => {
                     toggleDropdown('delete');
                   }}
                   className="px-1.5 text-red-500 hover:text-red-400 hover:bg-red-500/10 transition-all cursor-pointer flex items-center justify-center border-l border-[var(--border-color)]"
+                  title={t('topbar_delete_options')}
+                  aria-label={t('topbar_delete_options')}
                 >
                   <ChevronDown
                     className={`w-3 h-3 transition-transform duration-200 ${openDropdown === 'delete' ? 'rotate-180' : ''}`}

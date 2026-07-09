@@ -24,7 +24,7 @@ export const TaskPropertiesDialog: React.FC = () => {
   if (!task) {
     return (
       <div className="text-center p-4">
-        <p className="text-red-500 text-xs">No download was selected.</p>
+        <p className="text-red-500 text-xs">{t('task_prop_no_selection')}</p>
         <DialogButton onClick={closeDialog} variant="secondary" className="mt-2">
           {t('btn_close')}
         </DialogButton>
@@ -48,8 +48,8 @@ export const TaskPropertiesDialog: React.FC = () => {
     if (connections > 1 && !supportsSegmentedDownloads) {
       addToast(
         'warning',
-        'Engine capabilities',
-        'The linked libcurl engine does not expose range/segmented downloads. Connections were reduced to 1.',
+        t('engine_direct_title'),
+        t('task_prop_toast_engine_warning'),
       );
       setConnections(1);
     }
@@ -67,55 +67,54 @@ export const TaskPropertiesDialog: React.FC = () => {
   };
 
   const categoryOptions = [
-    { value: 'document', label: 'Documents' },
-    { value: 'program', label: 'Programs & Apps' },
-    { value: 'compressed', label: 'Compressed Files' },
-    { value: 'video', label: 'Videos' },
-    { value: 'audio', label: 'Audio' },
-    { value: 'other', label: 'Other Files' },
+    { value: 'document', label: t('task_prop_cat_document') },
+    { value: 'program', label: t('task_prop_cat_program') },
+    { value: 'compressed', label: t('task_prop_cat_compressed') },
+    { value: 'video', label: t('task_prop_cat_video') },
+    { value: 'audio', label: t('task_prop_cat_audio') },
+    { value: 'other', label: t('task_prop_cat_other') },
   ];
 
   const connectionOptions = supportsSegmentedDownloads
     ? [
-        { value: 0, label: 'Automatic' },
-        { value: 8, label: '8 connections' },
-        { value: 16, label: '16 connections' },
-        { value: 24, label: '24 connections' },
-        { value: 32, label: '32 connections' },
+        { value: 0, label: t('task_prop_conn_auto') },
+        { value: 8, label: t('task_prop_conn_8') },
+        { value: 16, label: t('task_prop_conn_16') },
+        { value: 24, label: t('task_prop_conn_24') },
+        { value: 32, label: t('task_prop_conn_32') },
       ]
-    : [{ value: 1, label: 'Single connection (range unavailable)' }];
+    : [{ value: 1, label: t('task_prop_conn_single') }];
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 bg-[var(--bg-hover)] p-3 border border-[var(--border-color)] rounded-lg">
         <div className="flex flex-col">
-          <span className="text-[10px] text-[var(--text-muted)]">File Size</span>
+          <span className="text-[10px] text-[var(--text-muted)]">{t('task_prop_file_size')}</span>
           <span className="text-xs font-semibold font-mono">{formatBytes(task.sizeBytes)}</span>
         </div>
         <div className="flex flex-col">
-          <span className="text-[10px] text-[var(--text-muted)]">Date Added</span>
+          <span className="text-[10px] text-[var(--text-muted)]">{t('task_prop_date_added')}</span>
           <span className="text-xs font-semibold font-mono">{task.dateAdded}</span>
         </div>
         <div className="flex flex-col mt-2">
-          <span className="text-[10px] text-[var(--text-muted)]">Status</span>
+          <span className="text-[10px] text-[var(--text-muted)]">{t('task_prop_status')}</span>
           <span className="text-xs font-semibold capitalize">{task.status}</span>
         </div>
         <div className="flex flex-col mt-2">
-          <span className="text-[10px] text-[var(--text-muted)]">Resume Support</span>
+          <span className="text-[10px] text-[var(--text-muted)]">{t('task_prop_resume_support')}</span>
           <span className={`text-xs font-semibold ${resumable ? 'text-green-500' : 'text-red-500'}`}>
-            {resumable ? 'Supported' : 'Not supported'}
+            {resumable ? t('task_prop_supported') : t('task_prop_not_supported')}
           </span>
         </div>
       </div>
 
       <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-hover)]/30 p-2 text-[11px] text-[var(--text-secondary)]">
-        Task editing is capability-aware. Direct-engine thread and resume controls are disabled unless linked libcurl
-        reports range/segmented support.
+        {t('task_prop_capability_notice')}
       </div>
 
       <div className="space-y-3">
         <TextField
-          label="File Name"
+          label={t('task_prop_file_name')}
           value={name}
           onChange={(e) => {
             setName(e.target.value);
@@ -123,7 +122,7 @@ export const TaskPropertiesDialog: React.FC = () => {
         />
 
         <div className="space-y-1">
-          <label className="text-xs font-semibold text-[var(--text-secondary)]">Source URL</label>
+          <label className="text-xs font-semibold text-[var(--text-secondary)]">{t('task_prop_source_url')}</label>
           <input
             type="text"
             value={url}
@@ -136,7 +135,7 @@ export const TaskPropertiesDialog: React.FC = () => {
         </div>
 
         <div className="flex flex-col gap-1 text-ui">
-          <span className="text-xs font-semibold text-[var(--text-secondary)]">Save Path</span>
+          <span className="text-xs font-semibold text-[var(--text-secondary)]">{t('task_prop_save_path')}</span>
           <div className="flex gap-2">
             <input
               type="text"
@@ -155,14 +154,14 @@ export const TaskPropertiesDialog: React.FC = () => {
               icon={HardDrive}
               size="sm"
             >
-              Change
+              {t('task_prop_change')}
             </Button>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <SelectField
-            label="Category"
+            label={t('task_prop_category')}
             value={category}
             onChange={(e) => {
               setCategory(e.target.value as FileType);
@@ -170,7 +169,7 @@ export const TaskPropertiesDialog: React.FC = () => {
             options={categoryOptions}
           />
           <SelectField
-            label="Connections"
+            label={t('task_prop_connections')}
             value={normalizedConnections}
             onChange={(e) => {
               setConnections(Number(e.target.value));
@@ -181,7 +180,7 @@ export const TaskPropertiesDialog: React.FC = () => {
         </div>
 
         <TextField
-          label="Description"
+          label={t('task_prop_description')}
           value={description}
           onChange={(e) => {
             setDescription(e.target.value);
@@ -190,7 +189,7 @@ export const TaskPropertiesDialog: React.FC = () => {
 
         <div className="pt-1 flex items-center gap-2">
           <Checkbox
-            label="Treat this download as resumable"
+            label={t('task_prop_resumable')}
             checked={resumable}
             onChange={setResumable}
             disabled={!supportsRange}
@@ -200,7 +199,7 @@ export const TaskPropertiesDialog: React.FC = () => {
 
       <div className="flex justify-end gap-2 pt-4 border-t border-[var(--border-color)]">
         <DialogButton onClick={handleSave} variant="primary">
-          Save Changes
+          {t('task_prop_save_changes')}
         </DialogButton>
         <DialogButton onClick={closeDialog} variant="ghost">
           {t('btn_cancel')}

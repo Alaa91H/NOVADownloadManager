@@ -1,6 +1,7 @@
 /* src/components/Logo.tsx */
 import React from 'react';
 import logoImg from '../assets/logo.png';
+import { useAppStore } from '../state/appStore';
 
 interface LogoProps {
   className?: string;
@@ -8,10 +9,11 @@ interface LogoProps {
 }
 
 export const Logo: React.FC<LogoProps> = ({ className = '', size = 24 }) => {
+  const { t } = useAppStore();
   return (
     <img
       src={logoImg}
-      alt="NOVA Logo"
+      alt={t('logo_alt')}
       width={size}
       height={size}
       className={`${className} select-none object-contain`}
