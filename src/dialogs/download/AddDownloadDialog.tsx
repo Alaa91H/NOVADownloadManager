@@ -298,7 +298,7 @@ export const AddDownloadDialog: React.FC = () => {
     if (picked) {
       setSavePath(`${picked}\\${fileName || 'download'}`);
     } else {
-      addToast('info', 'Directory picker unavailable', 'Type the destination path manually.');
+      addToast('info', t('add_dl_dir_picker_unavail'), t('add_dl_dir_picker_desc'));
     }
   };
 
@@ -307,7 +307,7 @@ export const AddDownloadDialog: React.FC = () => {
 
     const directBlock = engineCapabilities.directBlockedReason(submittedUrl);
     if (directBlock) {
-      addToast('error', 'Direct engine unavailable', directBlock);
+      addToast('error', t('add_dl_direct_unavail'), directBlock);
       return;
     }
 
@@ -317,27 +317,23 @@ export const AddDownloadDialog: React.FC = () => {
       ((settings.extra.vpnMode === 'proxy' && !settings.extra.vpnProxyUrl.trim()) ||
         (settings.extra.vpnMode === 'bind' && !settings.extra.vpnBindAddress.trim()))
     ) {
-      addToast('error', 'VPN routing', 'Complete the VPN routing settings before creating a new download.');
+      addToast('error', t('add_dl_vpn_routing'), t('add_dl_vpn_incomplete'));
       return;
     }
 
     const vpnRoute = await tauriClient.validateVpnRoute(settings);
     if (!vpnRoute.ok) {
-      addToast('error', 'VPN routing', vpnRoute.message);
+      addToast('error', t('add_dl_vpn_routing'), vpnRoute.message);
       return;
     }
 
     if (!submittedUrl || !fileName) {
-      addToast('error', 'Download Error', 'Please enter a valid download link.');
+      addToast('error', t('add_dl_err_title'), t('add_dl_valid_link'));
       return;
     }
 
     if (submittedUrl.startsWith('magnet:') || submittedUrl.toLowerCase().endsWith('.torrent')) {
-      addToast(
-        'error',
-        'Unsupported link',
-        'Torrent and magnet links require a dedicated torrent engine. The direct engine is libcurl multi.',
-      );
+      addToast('error', t('add_dl_unsupported'), t('add_dl_unsupported_desc'));
       return;
     }
 
@@ -446,7 +442,7 @@ export const AddDownloadDialog: React.FC = () => {
                     const text = await readClipboardText();
                     if (text) setUrl(text);
                   } catch {
-                    addToast('error', 'Clipboard unavailable', 'NOVA could not read a URL from the clipboard.');
+                    addToast('error', t('add_dl_clipboard_unavail'), t('add_dl_clipboard_desc'));
                   }
                 })();
               }}

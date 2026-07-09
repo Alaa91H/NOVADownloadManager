@@ -284,12 +284,12 @@ export const YoutubeDownloadDialog: React.FC = () => {
   const handleStartDownload = async () => {
     const submittedUrl = url.trim();
     if (!submittedUrl || !submittedUrl.startsWith('http')) {
-      addToast('error', 'Invalid Link', 'Please enter a valid media URL.');
+      addToast('error', t('ytdl_toast_invalid_link'), t('ytdl_toast_valid_media_url'));
       return;
     }
 
     if (!engineCapabilities.mediaReady) {
-      addToast('error', 'Media engine unavailable', engineCapabilities.mediaBlockedReason() || 'yt-dlp is not ready.');
+      addToast('error', t('ytdl_toast_engine_unavail_title'), engineCapabilities.mediaBlockedReason() || t('ytdl_unavailable'));
       return;
     }
 
@@ -299,27 +299,23 @@ export const YoutubeDownloadDialog: React.FC = () => {
       ((settings.extra.vpnMode === 'proxy' && !settings.extra.vpnProxyUrl.trim()) ||
         (settings.extra.vpnMode === 'bind' && !settings.extra.vpnBindAddress.trim()))
     ) {
-      addToast('error', 'VPN routing', 'Complete the VPN routing settings before creating a new media download.');
+      addToast('error', t('add_dl_vpn_routing'), t('ytdl_toast_vpn_incomplete_media'));
       return;
     }
 
     const vpnRoute = await tauriClient.validateVpnRoute(settings);
     if (!vpnRoute.ok) {
-      addToast('error', 'VPN routing', vpnRoute.message);
+      addToast('error', t('add_dl_vpn_routing'), vpnRoute.message);
       return;
     }
 
     if (isPlaylistUrl && playlistResult && !selectAllPlaylist && selectedPlaylistItems.size === 0) {
-      addToast('error', 'No videos selected', 'Please select at least one video from the playlist.');
+      addToast('error', t('ytdl_toast_no_videos'), t('ytdl_toast_select_video'));
       return;
     }
 
     if (requiresFfmpeg && !engineCapabilities.postProcessingReady) {
-      addToast(
-        'error',
-        'FFmpeg unavailable',
-        'The selected media operation requires FFmpeg, but the post-processing engine is not ready.',
-      );
+      addToast('error', t('ytdl_toast_ffmpeg_unavail_title'), t('ytdl_toast_ffmpeg_unavail_desc'));
       return;
     }
 

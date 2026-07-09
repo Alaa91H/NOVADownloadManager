@@ -35,7 +35,7 @@ export const BatchImportDialog: React.FC = () => {
         setInputText((prev) => (prev ? `${prev}\n${text}` : text));
       }
     } catch {
-      addToast('error', t('toast_error_title'), 'Unable to read clipboard automatically. Please paste manually.');
+      addToast('error', t('toast_error_title'), t('batch_toast_clipboard_read'));
     }
   };
 
@@ -47,16 +47,12 @@ export const BatchImportDialog: React.FC = () => {
     const urls = candidateUrls.filter((line) => engineCapabilities.supportsDirectProtocol(line));
 
     if (!engineCapabilities.directReady) {
-      addToast('error', t('toast_error_title'), 'The runtime linked libcurl direct engine is not ready.');
+      addToast('error', t('toast_error_title'), t('batch_toast_engine_not_ready'));
       return;
     }
 
     if (urls.length === 0) {
-      addToast(
-        'error',
-        t('toast_error_title'),
-        `No valid direct links found. Enabled direct protocols: ${engineCapabilities.directProtocols.join(', ') || 'none'}.`,
-      );
+      addToast('error', t('toast_error_title'), t('batch_toast_no_valid_links', { protocols: engineCapabilities.directProtocols.join(', ') || 'none' }));
       return;
     }
 
@@ -84,32 +80,29 @@ export const BatchImportDialog: React.FC = () => {
   const queueOptions = queues.map((q) => ({ value: q.id, label: q.name }));
   const connectionOptions = supportsSegmentedDownloads
     ? [
-        { value: 0, label: 'Automatic' },
-        { value: 8, label: '8 connections' },
-        { value: 16, label: '16 connections' },
-        { value: 24, label: '24 connections' },
-        { value: 32, label: '32 connections' },
+        { value: 0, label: t('add_dl_auto_default') },
+        { value: 8, label: t('add_dl_threads_8') },
+        { value: 16, label: t('add_dl_threads_16') },
+        { value: 24, label: t('add_dl_threads_24') },
+        { value: 32, label: t('add_dl_threads_32') },
       ]
-    : [{ value: 1, label: 'Single connection (range unavailable)' }];
+    : [{ value: 1, label: t('add_dl_single_conn') }];
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 p-3 bg-blue-500/10 border border-blue-500/20 text-[var(--text-secondary)] rounded-lg text-xs">
         <AlertCircle className="w-5 h-5 text-[var(--accent-primary)] shrink-0" />
-        <p className="leading-relaxed">
-          Enter one download link per line. NOVA will queue only links whose protocols are enabled by the linked libcurl
-          build.
-        </p>
+        <p className="leading-relaxed">{t('batch_desc')}</p>
       </div>
       {!engineCapabilities.directReady && (
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-[11px] text-red-200">
-          Direct imports are disabled until the runtime libcurl capability check passes.
+          {t('batch_unavailable')}
         </div>
       )}
 
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <label className="text-xs font-semibold text-[var(--text-secondary)]">Batch Download Links</label>
+          <label className="text-xs font-semibold text-[var(--text-secondary)]">{t('batch_field_links_label')}</label>
           <div className="flex gap-1.5">
             <Button
               onClick={() => {
@@ -119,7 +112,7 @@ export const BatchImportDialog: React.FC = () => {
               icon={Sliders}
               size="sm"
             >
-              Advanced
+              {t('batch_btn_advanced')}
             </Button>
             <Button
               onClick={() => {
@@ -129,7 +122,7 @@ export const BatchImportDialog: React.FC = () => {
               icon={Clipboard}
               size="sm"
             >
-              Paste
+              {t('batch_btn_paste')}
             </Button>
           </div>
         </div>
@@ -149,7 +142,7 @@ export const BatchImportDialog: React.FC = () => {
         <div className="p-3 bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded-lg space-y-3 animate-in fade-in slide-in-from-top-2 duration-150">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <SelectField
-              label="Queue"
+              label={t('add_dl_queue')}
               value={queueId}
               onChange={(e) => {
                 setQueueId(e.target.value);
@@ -157,7 +150,7 @@ export const BatchImportDialog: React.FC = () => {
               options={queueOptions}
             />
             <SelectField
-              label="Connections"
+              label={t('add_dl_threads')}
               value={connections}
               onChange={(e) => {
                 setConnections(Number(e.target.value));
@@ -166,7 +159,7 @@ export const BatchImportDialog: React.FC = () => {
               disabled={!supportsSegmentedDownloads}
             />
             <TextField
-              label="Save Directory"
+              label={t('add_dl_save_path')}
               value={saveDirectory}
               onChange={(e) => {
                 setSaveDirectory(e.target.value);
@@ -177,7 +170,7 @@ export const BatchImportDialog: React.FC = () => {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <TextField
-              label="Referer"
+              label={t('add_dl_referer')}
               disabled={!supportsDirectOption('referer')}
               value={referer}
               onChange={(e) => {
@@ -187,7 +180,7 @@ export const BatchImportDialog: React.FC = () => {
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
-              label="User-Agent"
+              label={t('add_dl_user_agent')}
               disabled={!supportsDirectOption('userAgent')}
               value={userAgent}
               onChange={(e) => {
@@ -197,7 +190,7 @@ export const BatchImportDialog: React.FC = () => {
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
-              label="Proxy"
+              label={t('add_dl_proxy')}
               disabled={!supportsDirectOption('proxy')}
               value={proxy}
               onChange={(e) => {
@@ -209,7 +202,7 @@ export const BatchImportDialog: React.FC = () => {
             />
             <div className="grid grid-cols-2 gap-3">
               <TextField
-                label="Retries"
+                label={t('add_dl_retries')}
                 disabled={!supportsDirectOption('retryCount')}
                 type="number"
                 value={retryCount}
@@ -218,7 +211,7 @@ export const BatchImportDialog: React.FC = () => {
                 }}
               />
               <TextField
-                label="Timeout (s)"
+                label={t('add_dl_timeout')}
                 disabled={!supportsDirectOption('timeoutSec')}
                 type="number"
                 value={timeoutSec}
@@ -235,7 +228,7 @@ export const BatchImportDialog: React.FC = () => {
               onChange={(e) => {
                 setHeaders(e.target.value);
               }}
-              placeholder="Header-Name: value"
+              placeholder={t('add_dl_headers_placeholder')}
               className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-md text-[11px] font-mono text-left text-[var(--text-primary)] p-2 focus:outline-none focus:border-[var(--accent-primary)]"
               style={{ direction: 'ltr' }}
               disabled={!supportsDirectOption('headers')}
@@ -246,7 +239,7 @@ export const BatchImportDialog: React.FC = () => {
               onChange={(e) => {
                 setCookies(e.target.value);
               }}
-              placeholder="name=value; other=value"
+              placeholder={t('add_dl_cookies_placeholder')}
               className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-md text-[11px] font-mono text-left text-[var(--text-primary)] p-2 focus:outline-none focus:border-[var(--accent-primary)]"
               style={{ direction: 'ltr' }}
               disabled={!supportsDirectOption('cookies')}
@@ -257,7 +250,7 @@ export const BatchImportDialog: React.FC = () => {
 
       <div className="flex justify-end gap-2 pt-4 border-t border-[var(--border-color)]">
         <DialogButton onClick={handleImport} variant="primary" icon={Layers} disabled={!engineCapabilities.directReady}>
-          Import & Queue
+          {t('batch_btn_import')}
         </DialogButton>
         <DialogButton onClick={closeDialog} variant="ghost">
           {t('btn_cancel')}
