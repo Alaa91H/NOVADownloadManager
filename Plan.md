@@ -322,8 +322,14 @@ P26-07-07
   - Removed unused `waitFor` import from YoutubeDownloadDialog.test.tsx.
   - Preflight: server-blocked (no npx/tsc/vitest locally).
   - Push: `74e5f7f` pushed to Dev at 2026-07-09.
+  - CI: https://github.com/Alaa91H/NOVADownloadManager/actions/runs/28989068056 (failed — ESLint)
+- Cycle 2026-07-09 (round 9 — ESLint fix): Remove unused eslint-disable directives and fix remaining ESLint violations in test files.
+  - Root cause: `74e5f7f` added eslint-disable directives for wrong rules (e.g., `no-unsafe-argument` instead of `no-non-null-assertion`); WebpageGrabberDialog.test.tsx had 8 actual ESLint errors not covered by the disable directives.
+  - Fix: Removed stale eslint-disable directives from 7 test files (BatchImportDialog, WebpageGrabberDialog, TimePicker, TopBar, primitives, AddToQueueDialog, useMultiSelection). Fixed 8 non-null assertions + 1 unnecessary type assertion in WebpageGrabberDialog.test.tsx by replacing `!` with optional chaining and `instanceof` guards. Improved key existence check in mockStore.ts (`val === undefined` → `!(k in T_MAP)`).
+  - Preflight: server-blocked (no npx/tsc/vitest locally).
+  - Push: `bb7f760` pushed to Dev at 2026-07-09.
   - CI: https://github.com/Alaa91H/NOVADownloadManager/actions/runs/28989068056 (pending)
-- Next cycle: Check CI result; if green, UI-003 (drag & drop) or address remaining minor hardcoded strings.
+- Next cycle: Check CI result; if green, UI-003 (drag & drop).
 - Files affected:
   - `src/components/TopBar.tsx`, `StatusBar.tsx`, `Sidebar.tsx`, `TaskTable.tsx`
   - `src/lib/i18n/en.ts`, `src/lib/i18n/ar.ts`
