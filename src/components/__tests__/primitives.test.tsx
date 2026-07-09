@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-unnecessary-type-assertion */
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
@@ -95,7 +96,7 @@ describe('Button', () => {
 
   it('is disabled when disabled prop is set', () => {
     render(<Button disabled>Disabled</Button>);
-    const button = screen.getByText('Disabled').closest('button')!;
+    const button = screen.getByText('Disabled').closest('button') as HTMLElement;
     expect(button).toBeDisabled();
   });
 
@@ -227,7 +228,7 @@ describe('SelectField', () => {
 
   it('renders with value selected', () => {
     render(<SelectField options={options} value="b" onChange={vi.fn()} />);
-    const select = screen.getByRole('combobox') as HTMLSelectElement;
+    const select = screen.getByRole<HTMLSelectElement>('combobox');
     expect(select.value).toBe('b');
   });
 

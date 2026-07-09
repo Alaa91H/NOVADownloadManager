@@ -27,6 +27,51 @@ const mockTask = {
   ],
 };
 
+const tMap: Record<string, string> = {
+  topbar_stop: 'Stop',
+  prog_status: 'Status',
+  prog_speed_limit: 'Speed Limit',
+  prog_completion: 'Completion',
+  prog_status_label: 'Status:',
+  prog_file_size_label: 'File size:',
+  prog_downloaded_label: 'Downloaded:',
+  prog_transfer_rate: 'Transfer rate:',
+  prog_time_left: 'Time left:',
+  prog_resume: 'Resume:',
+  prog_not_running: 'Not running',
+  prog_supported: 'Supported',
+  prog_not_supported: 'Not supported',
+  prog_zero_speed: '0 B/s',
+  prog_use_global_limit: 'Use global speed limit',
+  prog_max_speed: 'Maximum speed:',
+  prog_kbs: 'KB/s',
+  prog_hide_tab: 'Hide Tab',
+  prog_show_details: 'Show Details >>',
+  prog_hide_details: 'Hide Details <<',
+  prog_resume_dl: 'Resume',
+  prog_finished: 'Finished',
+  prog_close: 'Close',
+  prog_conn_segments: 'Connection segments',
+  prog_seg_num: 'N.',
+  prog_seg_downloaded: 'Downloaded',
+  prog_seg_state: 'State',
+  prog_seg_complete: 'Complete',
+  prog_seg_receiving: 'Receiving data',
+  prog_seg_idle: 'Idle',
+  prog_save_to: 'Save to:',
+  prog_notify_complete: 'Notify when complete',
+  prog_disconnect_complete: 'Disconnect when complete',
+  prog_exit_complete: 'Exit NOVA when complete',
+  prog_power_action: 'Power action when complete',
+  prog_force_close: 'Force close apps',
+  prog_shutdown: 'Shutdown computer',
+  prog_restart: 'Restart computer',
+  prog_sleep: 'Sleep',
+  prog_engine_unavail: 'The engine required for this download is not available.',
+  prog_resume_tip: 'Resume download',
+};
+const identityT = (k: string) => tMap[k] || k;
+
 const { storeRef, mockCloseDialog, mockPauseTask, mockResumeTask, mockUpdateSettings } = vi.hoisted(() => {
   const mockCloseDialog = vi.fn();
   const mockPauseTask = vi.fn();
@@ -63,52 +108,7 @@ describe('ActiveProgressDialog', () => {
         },
       },
       updateSettings: mockUpdateSettings,
-      t: (k: string) => {
-        const map: Record<string, string> = {
-          topbar_stop: 'Stop',
-          prog_status: 'Status',
-          prog_speed_limit: 'Speed Limit',
-          prog_completion: 'Completion',
-          prog_status_label: 'Status:',
-          prog_file_size_label: 'File size:',
-          prog_downloaded_label: 'Downloaded:',
-          prog_transfer_rate: 'Transfer rate:',
-          prog_time_left: 'Time left:',
-          prog_resume: 'Resume:',
-          prog_not_running: 'Not running',
-          prog_supported: 'Supported',
-          prog_not_supported: 'Not supported',
-          prog_zero_speed: '0 B/s',
-          prog_use_global_limit: 'Use global speed limit',
-          prog_max_speed: 'Maximum speed:',
-          prog_kbs: 'KB/s',
-          prog_hide_tab: 'Hide Tab',
-          prog_show_details: 'Show Details >>',
-          prog_hide_details: 'Hide Details <<',
-          prog_resume_dl: 'Resume',
-          prog_finished: 'Finished',
-          prog_close: 'Close',
-          prog_conn_segments: 'Connection segments',
-          prog_seg_num: 'N.',
-          prog_seg_downloaded: 'Downloaded',
-          prog_seg_state: 'State',
-          prog_seg_complete: 'Complete',
-          prog_seg_receiving: 'Receiving data',
-          prog_seg_idle: 'Idle',
-          prog_save_to: 'Save to:',
-          prog_notify_complete: 'Notify when complete',
-          prog_disconnect_complete: 'Disconnect when complete',
-          prog_exit_complete: 'Exit NOVA when complete',
-          prog_power_action: 'Power action when complete',
-          prog_force_close: 'Force close apps',
-          prog_shutdown: 'Shutdown computer',
-          prog_restart: 'Restart computer',
-          prog_sleep: 'Sleep',
-          prog_engine_unavail: 'The engine required for this download is not available.',
-          prog_resume_tip: 'Resume download',
-        };
-        return map[k] || k;
-      },
+      t: identityT,
     };
   });
 
@@ -140,6 +140,7 @@ describe('ActiveProgressDialog', () => {
       ...storeRef.current,
       tasks: [{ ...mockTask, status: 'paused' as const }],
       dialog: { active: 'activeProgress', payload: { ...mockTask, status: 'paused' } },
+      t: identityT,
     };
     render(<ActiveProgressDialog />);
     expect(screen.getByText('Resume')).toBeInTheDocument();
@@ -150,6 +151,7 @@ describe('ActiveProgressDialog', () => {
       ...storeRef.current,
       tasks: [{ ...mockTask, status: 'paused' as const }],
       dialog: { active: 'activeProgress', payload: { ...mockTask, status: 'paused' } },
+      t: identityT,
     };
     render(<ActiveProgressDialog />);
     fireEvent.click(screen.getByText('Resume'));
@@ -210,6 +212,7 @@ describe('ActiveProgressDialog', () => {
       ...storeRef.current,
       tasks: [{ ...mockTask, status: 'completed' as const }],
       dialog: { active: 'activeProgress', payload: { ...mockTask, status: 'completed' } },
+      t: identityT,
     };
     render(<ActiveProgressDialog />);
     expect(screen.getByText('Finished')).toBeInTheDocument();

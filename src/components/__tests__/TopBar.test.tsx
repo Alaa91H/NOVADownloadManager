@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-condition */
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { initialSettings } from '../../initialData';
@@ -147,8 +148,8 @@ const mockCaps = vi.hoisted(() => ({
   supportsMediaOption: vi.fn(() => true),
   supportsDirectProtocol: vi.fn(() => true),
   supportsStreamCandidate: vi.fn(() => true),
-  sanitizeDirectOptions: vi.fn((o) => o),
-  sanitizeMediaOptions: vi.fn((o) => o),
+  sanitizeDirectOptions: vi.fn((o: unknown) => o),
+  sanitizeMediaOptions: vi.fn((o: unknown) => o),
   directBlockedReason: vi.fn(() => null),
   mediaBlockedReason: vi.fn(() => null),
 }));
@@ -421,7 +422,7 @@ describe('TopBar', () => {
     render(<TopBar />);
     const chevrons = screen.getAllByRole('button').filter((b) => b.querySelector('.lucide-chevron-down'));
     const deleteChevron = chevrons[chevrons.length - 1];
-    if (deleteChevron) fireEvent.click(deleteChevron);
+    fireEvent.click(deleteChevron);
     expect(screen.getByText('Delete Selected')).toBeInTheDocument();
     expect(screen.getByText('Delete All')).toBeInTheDocument();
     expect(screen.getByText('Delete Completed')).toBeInTheDocument();

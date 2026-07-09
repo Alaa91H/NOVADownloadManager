@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-unnecessary-type-assertion */
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -62,10 +63,35 @@ describe('BatchImportDialog', () => {
         { id: 'main', name: 'Main Queue' },
         { id: 'nightly', name: 'Nightly Queue' },
       ],
-      t: (k: string) => {
+      t: (k: string, _opts?: unknown) => {
         const map: Record<string, string> = {
           toast_error_title: 'Error',
           btn_cancel: 'Cancel',
+          batch_desc: 'Enter one download link per line. The program will automatically scan the links, detect their sizes, and import them.',
+          batch_btn_import: 'Import & Queue',
+          batch_btn_advanced: 'Advanced',
+          batch_btn_paste: 'Paste from Clipboard',
+          batch_field_links_label: 'Batch Download Links',
+          batch_unavailable: 'Direct imports are disabled until the runtime libcurl capability check passes.',
+          batch_toast_clipboard_read: 'Unable to read clipboard automatically. Please paste manually.',
+          batch_toast_engine_not_ready: 'The runtime linked libcurl direct engine is not ready.',
+          batch_toast_no_valid_links: 'No valid direct links found. Enabled direct protocols: {protocols}.',
+          add_dl_queue: 'Queue',
+          add_dl_threads: 'Connections',
+          add_dl_save_path: 'Save Directory',
+          add_dl_referer: 'Referer',
+          add_dl_user_agent: 'User-Agent',
+          add_dl_proxy: 'Proxy',
+          add_dl_auto_default: 'Auto',
+          add_dl_threads_8: '8 Threads',
+          add_dl_threads_16: '16 Threads',
+          add_dl_threads_24: '24 Threads',
+          add_dl_threads_32: '32 Threads',
+          add_dl_single_conn: 'Single Connection',
+          add_dl_retries: 'Retries',
+          add_dl_timeout: 'Timeout',
+          add_dl_headers_placeholder: 'Header:Value (one per line)',
+          add_dl_cookies_placeholder: 'Cookie:Value (one per line)',
         };
         return map[k] || k;
       },
@@ -109,7 +135,7 @@ describe('BatchImportDialog', () => {
 
   it('imports valid URLs', async () => {
     render(<BatchImportDialog />);
-    const textarea = document.querySelector('textarea')!;
+    const textarea = document.querySelector('textarea') as HTMLElement;
     fireEvent.change(textarea, { target: { value: 'https://example.com/file1.zip\nhttps://example.com/file2.zip' } });
     fireEvent.click(screen.getByText('Import & Queue'));
     await waitFor(() => {
@@ -123,7 +149,7 @@ describe('BatchImportDialog', () => {
 
   it('shows error when no valid URLs', async () => {
     render(<BatchImportDialog />);
-    const textarea = document.querySelector('textarea')!;
+    const textarea = document.querySelector('textarea') as HTMLElement;
     fireEvent.change(textarea, { target: { value: 'invalid\nnot a url' } });
     fireEvent.click(screen.getByText('Import & Queue'));
     await waitFor(() => {

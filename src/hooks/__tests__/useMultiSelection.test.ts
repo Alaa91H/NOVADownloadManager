@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any */
+import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useMultiSelection } from '../useMultiSelection';
@@ -19,12 +21,12 @@ describe('useMultiSelection', () => {
   it('toggles a single task on click', () => {
     const { result } = renderHook(() => useMultiSelection(taskIds));
     act(() => {
-      result.current.handleToggleCheckTask('id-1', { stopPropagation: vi.fn(), shiftKey: false } as any);
+      result.current.handleToggleCheckTask('id-1', { stopPropagation: vi.fn(), shiftKey: false } as unknown as React.MouseEvent);
     });
     expect(result.current.checkedTaskIds.has('id-1')).toBe(true);
     expect(result.current.checkedTaskIds.size).toBe(1);
     act(() => {
-      result.current.handleToggleCheckTask('id-1', { stopPropagation: vi.fn(), shiftKey: false } as any);
+      result.current.handleToggleCheckTask('id-1', { stopPropagation: vi.fn(), shiftKey: false } as unknown as React.MouseEvent);
     });
     expect(result.current.checkedTaskIds.has('id-1')).toBe(false);
     expect(result.current.checkedTaskIds.size).toBe(0);
@@ -32,7 +34,7 @@ describe('useMultiSelection', () => {
 
   it('selects all with selectAll', () => {
     const { result } = renderHook(() => useMultiSelection(taskIds));
-    act(() => result.current.selectAll());
+    act(() => { result.current.selectAll(); });
     expect(result.current.checkedTaskIds.size).toBe(5);
     expect(result.current.isAllChecked).toBe(true);
     expect(result.current.isSomeChecked).toBe(false);
@@ -40,26 +42,26 @@ describe('useMultiSelection', () => {
 
   it('clears selection with clearSelection', () => {
     const { result } = renderHook(() => useMultiSelection(taskIds));
-    act(() => result.current.selectAll());
-    act(() => result.current.clearSelection());
+    act(() => { result.current.selectAll(); });
+    act(() => { result.current.clearSelection(); });
     expect(result.current.checkedTaskIds.size).toBe(0);
   });
 
   it('toggles all with handleToggleCheckAll', () => {
     const { result } = renderHook(() => useMultiSelection(taskIds));
-    act(() => result.current.handleToggleCheckAll());
+    act(() => { result.current.handleToggleCheckAll(); });
     expect(result.current.checkedTaskIds.size).toBe(5);
-    act(() => result.current.handleToggleCheckAll());
+    act(() => { result.current.handleToggleCheckAll(); });
     expect(result.current.checkedTaskIds.size).toBe(0);
   });
 
   it('selects range with shift+click', () => {
     const { result } = renderHook(() => useMultiSelection(taskIds));
     act(() => {
-      result.current.handleToggleCheckTask('id-1', { stopPropagation: vi.fn(), shiftKey: false } as any);
+      result.current.handleToggleCheckTask('id-1', { stopPropagation: vi.fn(), shiftKey: false } as unknown as React.MouseEvent);
     });
     act(() => {
-      result.current.handleToggleCheckTask('id-3', { stopPropagation: vi.fn(), shiftKey: true } as any);
+      result.current.handleToggleCheckTask('id-3', { stopPropagation: vi.fn(), shiftKey: true } as unknown as React.MouseEvent);
     });
     expect(result.current.checkedTaskIds.size).toBe(3);
     expect(result.current.checkedTaskIds.has('id-1')).toBe(true);
@@ -70,7 +72,7 @@ describe('useMultiSelection', () => {
   it('isSomeChecked is true when only some are selected', () => {
     const { result } = renderHook(() => useMultiSelection(taskIds));
     act(() => {
-      result.current.handleToggleCheckTask('id-1', { stopPropagation: vi.fn(), shiftKey: false } as any);
+      result.current.handleToggleCheckTask('id-1', { stopPropagation: vi.fn(), shiftKey: false } as unknown as React.MouseEvent);
     });
     expect(result.current.isAllChecked).toBe(false);
     expect(result.current.isSomeChecked).toBe(true);
@@ -85,7 +87,7 @@ describe('useMultiSelection', () => {
   it('long press toggles task after 600ms', () => {
     const { result } = renderHook(() => useMultiSelection(taskIds));
     act(() => {
-      result.current.startRowPress('id-2', { button: 0 } as any);
+      result.current.startRowPress('id-2', { button: 0 } as unknown as React.MouseEvent);
     });
     expect(result.current.checkedTaskIds.size).toBe(0);
     act(() => {
@@ -97,7 +99,7 @@ describe('useMultiSelection', () => {
   it('cancelRowPress clears the press timer', () => {
     const { result } = renderHook(() => useMultiSelection(taskIds));
     act(() => {
-      result.current.startRowPress('id-3', { button: 0 } as any);
+      result.current.startRowPress('id-3', { button: 0 } as unknown as React.MouseEvent);
     });
     act(() => {
       result.current.cancelRowPress();
@@ -110,9 +112,9 @@ describe('useMultiSelection', () => {
 
   it('endRowPress toggles if some items already checked', () => {
     const { result } = renderHook(() => useMultiSelection(taskIds));
-    act(() => result.current.selectAll());
+    act(() => { result.current.selectAll(); });
     act(() => {
-      result.current.endRowPress('id-5', {} as any);
+      result.current.endRowPress('id-5', {} as unknown as React.MouseEvent);
     });
     expect(result.current.checkedTaskIds.has('id-5')).toBe(false);
   });
@@ -121,7 +123,7 @@ describe('useMultiSelection', () => {
     const onSelect = vi.fn();
     const { result } = renderHook(() => useMultiSelection(taskIds));
     act(() => {
-      result.current.endRowPress('id-1', {} as any, onSelect);
+      result.current.endRowPress('id-1', {} as unknown as React.MouseEvent, onSelect);
     });
     expect(onSelect).toHaveBeenCalledWith('id-1');
   });

@@ -2,11 +2,16 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { SpeedLimitInput } from '../SpeedLimitInput';
+import { AppStoreProvider } from '../../state/appStore';
+
+function TestWrapper({ children }: { children: React.ReactNode }) {
+  return React.createElement(AppStoreProvider, null, children);
+}
 
 describe('SpeedLimitInput', () => {
   it('renders with KB unit for values < 1024', () => {
     const onChange = vi.fn();
-    render(<SpeedLimitInput maxSpeedKbs={500} onChange={onChange} />);
+    render(<SpeedLimitInput maxSpeedKbs={500} onChange={onChange} />, { wrapper: TestWrapper });
     const input = screen.getByRole<HTMLInputElement>('textbox');
     expect(input.value).toBe('500');
     expect(screen.getByText('KB')).toBeInTheDocument();
@@ -14,7 +19,7 @@ describe('SpeedLimitInput', () => {
 
   it('renders with MB unit for values >= 1024 and divisible by 1024', () => {
     const onChange = vi.fn();
-    render(<SpeedLimitInput maxSpeedKbs={2048} onChange={onChange} />);
+    render(<SpeedLimitInput maxSpeedKbs={2048} onChange={onChange} />, { wrapper: TestWrapper });
     const input = screen.getByRole<HTMLInputElement>('textbox');
     expect(input.value).toBe('2');
     expect(screen.getByText('MB')).toBeInTheDocument();
@@ -22,7 +27,7 @@ describe('SpeedLimitInput', () => {
 
   it('renders with KB unit for values >= 1024 but not divisible by 1024', () => {
     const onChange = vi.fn();
-    render(<SpeedLimitInput maxSpeedKbs={1500} onChange={onChange} />);
+    render(<SpeedLimitInput maxSpeedKbs={1500} onChange={onChange} />, { wrapper: TestWrapper });
     const input = screen.getByRole<HTMLInputElement>('textbox');
     expect(input.value).toBe('1500');
     expect(screen.getByText('KB')).toBeInTheDocument();
@@ -30,7 +35,7 @@ describe('SpeedLimitInput', () => {
 
   it('calls onChange when incrementing', () => {
     const onChange = vi.fn();
-    render(<SpeedLimitInput maxSpeedKbs={500} onChange={onChange} />);
+    render(<SpeedLimitInput maxSpeedKbs={500} onChange={onChange} />, { wrapper: TestWrapper });
     const buttons = screen.getAllByRole('button');
     const upButton = buttons.find((b) => b.querySelector('.lucide-chevron-up'));
     expect(upButton).toBeDefined();
@@ -40,7 +45,7 @@ describe('SpeedLimitInput', () => {
 
   it('calls onChange when decrementing', () => {
     const onChange = vi.fn();
-    render(<SpeedLimitInput maxSpeedKbs={500} onChange={onChange} />);
+    render(<SpeedLimitInput maxSpeedKbs={500} onChange={onChange} />, { wrapper: TestWrapper });
     const buttons = screen.getAllByRole('button');
     const downButton = buttons.find((b) => b.querySelector('.lucide-chevron-down'));
     expect(downButton).toBeDefined();
@@ -50,7 +55,7 @@ describe('SpeedLimitInput', () => {
 
   it('calls onChange when typing a value', () => {
     const onChange = vi.fn();
-    render(<SpeedLimitInput maxSpeedKbs={500} onChange={onChange} />);
+    render(<SpeedLimitInput maxSpeedKbs={500} onChange={onChange} />, { wrapper: TestWrapper });
     const input = screen.getByRole('textbox');
     fireEvent.change(input, { target: { value: '750' } });
     expect(onChange).toHaveBeenCalledWith(750);
@@ -58,7 +63,7 @@ describe('SpeedLimitInput', () => {
 
   it('switches unit from KB to MB', () => {
     const onChange = vi.fn();
-    render(<SpeedLimitInput maxSpeedKbs={1024} onChange={onChange} />);
+    render(<SpeedLimitInput maxSpeedKbs={1024} onChange={onChange} />, { wrapper: TestWrapper });
     const input = screen.getByRole<HTMLInputElement>('textbox');
     expect(input.value).toBe('1');
     const kbButton = screen.getByText('KB');
@@ -70,14 +75,14 @@ describe('SpeedLimitInput', () => {
 
   it('applies compact styling when compact prop is true', () => {
     const onChange = vi.fn();
-    const { container } = render(<SpeedLimitInput maxSpeedKbs={500} onChange={onChange} compact />);
+    const { container } = render(<SpeedLimitInput maxSpeedKbs={500} onChange={onChange} compact />, { wrapper: TestWrapper });
     const buttons = container.querySelectorAll('button');
     expect(buttons.length).toBeGreaterThan(0);
   });
 
   it('clamps decrement to minimum of 10 KB', () => {
     const onChange = vi.fn();
-    render(<SpeedLimitInput maxSpeedKbs={10} onChange={onChange} />);
+    render(<SpeedLimitInput maxSpeedKbs={10} onChange={onChange} />, { wrapper: TestWrapper });
     const buttons = screen.getAllByRole('button');
     const downButton = buttons[1];
     fireEvent.click(downButton);

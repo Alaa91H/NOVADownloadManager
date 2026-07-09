@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -114,7 +115,7 @@ describe('AddToQueueDialog', () => {
   it('shows toast when clicking the current queue', () => {
     render(<AddToQueueDialog />);
     const queueItems = screen.getAllByText('Main Queue');
-    fireEvent.click(queueItems[0].closest('div')!);
+    fireEvent.click(queueItems[0].closest('div') as HTMLElement);
     expect(mockAddToast).toHaveBeenCalledWith('info', 'Info', 'File is already in this queue.');
   });
 

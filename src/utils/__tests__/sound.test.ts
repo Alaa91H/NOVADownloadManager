@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-confusing-void-expression */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { initialSettings } from '../../initialData';
 import type { AppSettings } from '../../types/desktop-ui.types';

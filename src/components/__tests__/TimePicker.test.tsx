@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
@@ -87,7 +88,9 @@ describe('TimePicker', () => {
     const onChange = vi.fn();
     render(<TimePicker label="Time" value="08:30" onChange={onChange} />);
     const pmButtons = screen.getAllByText('PM');
-    const pmBtn = pmButtons.find((b) => b.tagName === 'BUTTON')!;
+    const pmBtn = pmButtons.find((b) => b.tagName === 'BUTTON');
+    expect(pmBtn).toBeDefined();
+    if (!pmBtn) return;
     fireEvent.click(pmBtn);
     expect(onChange).toHaveBeenCalledWith('20:30');
   });
@@ -96,7 +99,9 @@ describe('TimePicker', () => {
     const onChange = vi.fn();
     render(<TimePicker label="Time" value="14:30" onChange={onChange} />);
     const amButtons = screen.getAllByText('AM');
-    const amBtn = amButtons.find((b) => b.tagName === 'BUTTON')!;
+    const amBtn = amButtons.find((b) => b.tagName === 'BUTTON');
+    expect(amBtn).toBeDefined();
+    if (!amBtn) return;
     fireEvent.click(amBtn);
     expect(onChange).toHaveBeenCalledWith('02:30');
   });
@@ -120,14 +125,18 @@ describe('TimePicker', () => {
   it('highlights AM when ampm is AM', () => {
     render(<TimePicker label="Time" value="08:00" onChange={vi.fn()} />);
     const amButtons = screen.getAllByText('AM');
-    const amBtn = amButtons.find((b) => b.tagName === 'BUTTON')!;
+    const amBtn = amButtons.find((b) => b.tagName === 'BUTTON');
+    expect(amBtn).toBeDefined();
+    if (!amBtn) return;
     expect(amBtn.className).toContain('text-white');
   });
 
   it('highlights PM when ampm is PM', () => {
     render(<TimePicker label="Time" value="14:00" onChange={vi.fn()} />);
     const pmButtons = screen.getAllByText('PM');
-    const pmBtn = pmButtons.find((b) => b.tagName === 'BUTTON')!;
+    const pmBtn = pmButtons.find((b) => b.tagName === 'BUTTON');
+    expect(pmBtn).toBeDefined();
+    if (!pmBtn) return;
     expect(pmBtn.className).toContain('text-white');
   });
 });

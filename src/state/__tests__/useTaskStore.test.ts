@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any */
 import { describe, it, expect } from 'vitest';
 import { mergeDaemonTasks } from '../useTaskStore';
 

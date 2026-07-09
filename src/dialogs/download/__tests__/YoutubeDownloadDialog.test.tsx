@@ -1,5 +1,6 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+/* eslint-disable @typescript-eslint/no-confusing-void-expression */
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../../state/appStore', () => ({
@@ -102,6 +103,34 @@ describe('YoutubeDownloadDialog', () => {
       t: (k: string) => {
         const map: Record<string, string> = {
           btn_cancel: 'Cancel',
+          ytdl_title: 'Media Downloader',
+          ytdl_media_url: 'Media URL (Video or Playlist URL)',
+          ytdl_url_placeholder: 'https://www.example.com/watch?v=...',
+          ytdl_start_download: 'Start Download',
+          ytdl_unavailable: 'yt-dlp is not ready. Media downloads are disabled until the runtime engine check passes.',
+          ytdl_ffmpeg_not_ready: 'FFmpeg is not ready. Merging, remuxing, audio extraction, thumbnails, subtitles, and chapter processing are disabled.',
+          ytdl_video_audio: 'Video & Audio',
+          ytdl_audio_only: 'Audio Only',
+          ytdl_audio_format: 'Audio Format',
+          ytdl_advanced_media_opts: 'Advanced Media Options',
+          ytdl_subtitles: 'Download subtitles',
+          ytdl_format_selector: 'Format Selector Override',
+          ytdl_fetching_formats: 'Fetching available formats...',
+          ytdl_toast_invalid_link: 'Invalid Link',
+          ytdl_toast_valid_media_url: 'Please enter a valid media URL.',
+          ytdl_save_dir: 'Save Directory',
+          ytdl_target_type: 'Target Content Type',
+          ytdl_single_video: 'Single Video',
+          ytdl_full_playlist: 'Full Playlist',
+          ytdl_save_mode: 'Save Mode',
+          ytdl_best_quality: 'Best Quality Available (Recommended)',
+          ytdl_output_template: 'Output Naming Template',
+          ytdl_template_video_title: 'Video Title',
+          ytdl_mp3_compat: 'MP3 (Best Compatibility)',
+          ytdl_m4a_orig: 'M4A (AAC - Original Quality)',
+          ytdl_flac_lossless: 'FLAC (Lossless Archive)',
+          ytdl_wav_pcm: 'WAV (Uncompressed PCM)',
+          ytdl_needs_ffmpeg: '*needs FFmpeg',
         };
         return map[k] || k;
       },

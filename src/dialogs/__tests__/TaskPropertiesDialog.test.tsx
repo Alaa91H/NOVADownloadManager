@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -45,7 +46,7 @@ vi.mock('../../state/appStore', () => ({
 
 vi.mock('../../api/tauriClient', () => ({
   tauriClient: {
-    showDirectoryPicker: () => mockShowDirectoryPicker(),
+    showDirectoryPicker: (): Promise<string | null> => mockShowDirectoryPicker(),
   },
 }));
 
