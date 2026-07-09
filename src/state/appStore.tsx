@@ -250,7 +250,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [dialog, setDialog] = useState<DialogState>({ active: null });
   const [activePage, setActivePage] = useState<AppPage>('downloads');
   const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const isLoading = false;
+  const [isLoading, setIsLoading] = useState(true);
   const settingsRef = useRef(settings);
   const completedTaskIdsRef = useRef<Set<string>>(new Set());
   const hasSyncedDownloadsRef = useRef(false);
@@ -510,6 +510,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
             const delay = Math.min(500 * (1 << attempt), 3000);
             await new Promise((r) => setTimeout(r, delay));
           } else {
+            setIsLoading(false);
             setBridge((b) => ({ ...b, status: 'degraded', version: 'NOVA daemon unavailable' }));
             setIsDegradedMode(true);
             setTasks([]);
@@ -642,6 +643,9 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
 
     const applyDownloads = (daemonTasks: DownloadItem[], fromStream = false) => {
       if (cancelled) return;
+      if (!started && !fromStream) {
+        setIsLoading(false);
+      }
       started = true;
       if (fromStream) {
         sseFailed = false;

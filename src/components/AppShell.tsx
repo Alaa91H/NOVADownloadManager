@@ -495,23 +495,77 @@ const AppShellInner: React.FC = () => {
         {/* 2. Main Workspace Layout — downloads view or a full page (settings / lists) */}
         <div className="flex-1 flex flex-col h-full overflow-hidden">
           {activePage === 'settings' ? (
-            <SettingsPage />
+            <ErrorBoundary
+              fallback={
+                <div className="flex flex-col items-center justify-center h-full text-[var(--text-secondary)] gap-3 p-8">
+                  <AlertCircle className="w-8 h-8 text-red-500" />
+                  <p className="text-xs font-bold">{t('shell_error_section_title')}</p>
+                  <button onClick={() => { window.location.reload(); }} className="px-3 py-1 text-[11px] font-bold bg-[var(--accent-primary)] text-white rounded cursor-pointer">
+                    <RefreshCw className="w-3 h-3 inline mr-1" />{t('shell_error_section_retry')}
+                  </button>
+                </div>
+              }
+            >
+              <SettingsPage />
+            </ErrorBoundary>
           ) : activePage === 'scheduler' ? (
-            <SchedulerPage />
+            <ErrorBoundary
+              fallback={
+                <div className="flex flex-col items-center justify-center h-full text-[var(--text-secondary)] gap-3 p-8">
+                  <AlertCircle className="w-8 h-8 text-red-500" />
+                  <p className="text-xs font-bold">{t('shell_error_section_title')}</p>
+                  <button onClick={() => { window.location.reload(); }} className="px-3 py-1 text-[11px] font-bold bg-[var(--accent-primary)] text-white rounded cursor-pointer">
+                    <RefreshCw className="w-3 h-3 inline mr-1" />{t('shell_error_section_retry')}
+                  </button>
+                </div>
+              }
+            >
+              <SchedulerPage />
+            </ErrorBoundary>
           ) : (
             <>
               {/* Top bar toolbar */}
-              <TopBar />
+              <ErrorBoundary
+                fallback={
+                  <div className="h-10 flex items-center justify-center bg-red-500/5 text-xs text-[var(--text-secondary)] gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-500" />
+                    <span>{t('shell_error_section_title')}</span>
+                  </div>
+                }
+              >
+                <TopBar />
+              </ErrorBoundary>
 
               {/* Content Container (Grid) */}
               <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
-                <TaskTable />
+                <ErrorBoundary
+                  fallback={
+                    <div className="flex flex-col items-center justify-center h-full text-[var(--text-secondary)] gap-3 p-8">
+                      <AlertCircle className="w-8 h-8 text-red-500" />
+                      <p className="text-xs font-bold">{t('shell_error_section_title')}</p>
+                      <button onClick={() => { window.location.reload(); }} className="px-3 py-1 text-[11px] font-bold bg-[var(--accent-primary)] text-white rounded cursor-pointer">
+                        <RefreshCw className="w-3 h-3 inline mr-1" />{t('shell_error_section_retry')}
+                      </button>
+                    </div>
+                  }
+                >
+                  <TaskTable />
+                </ErrorBoundary>
               </div>
             </>
           )}
 
           {/* Bottom Status Bar */}
-          <StatusBar />
+          <ErrorBoundary
+            fallback={
+              <div className="h-7 flex items-center justify-center bg-red-500/5 text-[10px] text-[var(--text-secondary)] gap-2">
+                <AlertCircle className="w-3 h-3 text-red-500" />
+                <span>{t('shell_error_section_title')}</span>
+              </div>
+            }
+          >
+            <StatusBar />
+          </ErrorBoundary>
         </div>
       </div>
 

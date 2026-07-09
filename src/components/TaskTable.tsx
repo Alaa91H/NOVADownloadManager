@@ -12,6 +12,9 @@ import {
   FolderOpen,
   Play as ResumeIcon,
   Send,
+  Download,
+  SearchX,
+  WifiOff,
 } from 'lucide-react';
 import { useAppStore } from '../state/appStore';
 import { DownloadItem } from '../types/desktop-ui.types';
@@ -20,6 +23,8 @@ import { ContextMenu, ContextMenuOption } from './primitives/ContextMenu';
 import TaskCheckboxAndIcon from './primitives/TaskCheckboxAndIcon';
 import TaskCardList from './TaskCardList';
 import ColumnConfigPanel from './ColumnConfigPanel';
+import { LoadingSpinner } from './primitives/LoadingSpinner';
+import { EmptyState } from './primitives/EmptyState';
 import { useColumnState } from '../hooks/useColumnState';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { useTaskSortFilter } from '../hooks/useTaskSortFilter';
@@ -41,6 +46,7 @@ export const TaskTable: React.FC = () => {
     selectedTaskId,
     setSelectedTaskId,
     searchQuery,
+    setSearchQuery,
     workspaceView,
     pauseTask,
     resumeTask,
@@ -51,6 +57,8 @@ export const TaskTable: React.FC = () => {
     settings,
     addToast,
     t,
+    isLoading,
+    isDegradedMode,
   } = useAppStore();
   const caps = useEngineCapabilities();
 
@@ -445,10 +453,52 @@ export const TaskTable: React.FC = () => {
           </tr>
         </thead>
         <tbody>
-          {sortedTasks.length === 0 ? (
+          {isLoading ? (
             <tr>
-              <td colSpan={visibleColsCount} className="px-4 py-24 text-center text-[var(--text-muted)]">
-                {t('no_downloads')}
+              <td colSpan={visibleColsCount} className="px-4 py-24 text-center">
+                <LoadingSpinner size="lg" label={t('table_loading_tasks')} />
+              </td>
+            </tr>
+          ) : isDegradedMode && tasks.length === 0 ? (
+            <tr>
+              <td colSpan={visibleColsCount} className="px-4 py-16 text-center">
+                <EmptyState
+                  icon={WifiOff}
+                  title={t('degraded_mode_title')}
+                  description={t('degraded_mode_desc')}
+                  action={{
+                    label: t('degraded_mode_retry'),
+                    onClick: () => { window.location.reload(); },
+                  }}
+                />
+              </td>
+            </tr>
+          ) : sortedTasks.length === 0 && searchQuery ? (
+            <tr>
+              <td colSpan={visibleColsCount} className="px-4 py-16 text-center">
+                <EmptyState
+                  icon={SearchX}
+                  title={t('no_search_results')}
+                  description={t('no_search_results_desc')}
+                  action={{
+                    label: t('no_search_clear'),
+                    onClick: () => { setSearchQuery(''); },
+                  }}
+                />
+              </td>
+            </tr>
+          ) : sortedTasks.length === 0 ? (
+            <tr>
+              <td colSpan={visibleColsCount} className="px-4 py-16 text-center">
+                <EmptyState
+                  icon={Download}
+                  title={t('no_downloads')}
+                  description={t('no_downloads_desc')}
+                  action={{
+                    label: t('no_downloads_action'),
+                    onClick: () => { openDialog('addDownload'); },
+                  }}
+                />
               </td>
             </tr>
           ) : (
