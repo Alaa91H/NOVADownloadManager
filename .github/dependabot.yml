@@ -1,0 +1,136 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 8
+    versioning-strategy: "increase-if-necessary"
+    rebase-strategy: "auto"
+    labels:
+      - "dependencies"
+      - "frontend"
+    commit-message:
+      prefix: "deps(ui)"
+      include: "scope"
+    groups:
+      ui-runtime:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react*"
+          - "@tauri-apps/*"
+          - "lucide-react"
+          - "clsx"
+      ui-tooling:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "vitest"
+          - "typescript"
+          - "eslint*"
+          - "@eslint/*"
+          - "typescript-eslint"
+          - "prettier"
+          - "tsx"
+
+  - package-ecosystem: "npm"
+    directory: "/browser-extension"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:20"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 8
+    versioning-strategy: "increase-if-necessary"
+    rebase-strategy: "auto"
+    labels:
+      - "dependencies"
+      - "browser-extension"
+    commit-message:
+      prefix: "deps(extension)"
+      include: "scope"
+    groups:
+      extension-runtime:
+        patterns:
+          - "@wxt-dev/*"
+          - "wxt"
+          - "webextension-polyfill"
+          - "dexie"
+          - "idb-keyval"
+          - "zod"
+          - "m3u8-parser"
+          - "mpd-parser"
+          - "react"
+          - "react-dom"
+      extension-quality:
+        patterns:
+          - "typescript"
+          - "vitest"
+          - "@vitest/*"
+          - "eslint"
+          - "@typescript-eslint/*"
+          - "@playwright/*"
+          - "playwright"
+          - "tsx"
+          - "prettier"
+          - "cross-env"
+
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:40"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 8
+    rebase-strategy: "auto"
+    labels:
+      - "dependencies"
+      - "rust"
+      - "engine"
+    commit-message:
+      prefix: "deps(rust)"
+      include: "scope"
+    groups:
+      tauri-rust:
+        patterns:
+          - "tauri"
+          - "tauri-*"
+          - "tauri-plugin-*"
+      runtime-engine:
+        patterns:
+          - "curl"
+          - "curl-sys"
+          - "tokio"
+          - "reqwest"
+          - "axum"
+          - "serde"
+          - "serde_json"
+          - "uuid"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 5
+    rebase-strategy: "auto"
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "deps(ci)"
+      include: "scope"
+    groups:
+      ci-actions:
+        patterns:
+          - "actions/*"
+          - "pnpm/action-setup"
+          - "dtolnay/rust-toolchain"
+          - "softprops/action-gh-release"
