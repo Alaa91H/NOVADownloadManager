@@ -37,10 +37,37 @@ vi.mock('../../../api/tauriClient', () => ({
 import { DiagnosticsDialog } from '../DiagnosticsDialog';
 
 describe('DiagnosticsDialog', () => {
+  const diagT = (k: string) => {
+    const map: Record<string, string> = {
+      diag_loading: 'Generating live diagnostics...',
+      diag_cpu: 'Service CPU Usage',
+      diag_memory: 'Memory Usage',
+      diag_memory_desc: 'Allocated runtime memory',
+      diag_disk: 'Free Disk Space',
+      diag_disk_desc: 'Default system drive',
+      diag_system_details: 'System Details',
+      diag_os: 'Operating System',
+      diag_service_version: 'Service Version',
+      diag_runtime_target: 'Runtime Target',
+      diag_sqlite: 'SQLite',
+      diag_active_connections: 'Active Connections',
+      diag_active: 'active',
+      diag_network_interfaces: 'Network Interfaces',
+      diag_engine_capabilities: 'Runtime Engine Capabilities',
+      diag_engine_caps_desc: 'Live data reported by curl, yt-dlp, and FFmpeg at runtime. Unsupported options are excluded from execution.',
+      diag_success: 'Diagnostics were collected successfully.',
+      diag_refresh_desc: 'Report refreshed through the local service diagnostics API.',
+      diag_refresh_btn: 'Refresh Report',
+      diag_close_report: 'Close Report',
+    };
+    return map[k] || k;
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     storeRef.current = {
       closeDialog: mockCloseDialog,
+      t: diagT,
     };
   });
 

@@ -2,6 +2,9 @@ import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('../../assets/logo.png', () => ({ default: 'mocked-logo-path' }));
+vi.mock('../../state/appStore', () => ({
+  useAppStore: () => ({ t: (k: string) => ({ logo_alt: 'NOVA Logo' }[k] || k) }),
+}));
 
 import { Logo } from '../Logo';
 

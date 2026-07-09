@@ -1133,15 +1133,12 @@ export const ar: Record<string, string> = {
   'speed_limit_decrease': 'تقليل السرعة',
   'speed_limit_switch_kbs': 'التبديل إلى كيلوبايت/ثانية',
   'speed_limit_switch_mbs': 'التبديل إلى ميغابايت/ثانية',
-
   'btn_ok': 'موافق',
-
   'about_local_service': 'خدمة التنزيل المحلية',
   'about_description': 'NOVA هو مدير تنزيل سطح مكتب للملفات المباشرة والوسائط والقوائم والجدولة والتقاط المتصفح والأتمتة المحلية.',
   'about_service_label': 'الخدمة',
   'about_open_source_license': 'رخصة مفتوحة المصدر',
   'about_copyright': 'حقوق النشر (ج) 2026 NOVA.',
-
   'diag_refresh_desc': 'تم تحديث التقرير عبر واجهة برمجة تطبيقات تشخيص الخدمة المحلية.',
   'diag_refresh_btn': 'تحديث التقرير',
   'diag_loading': 'جاري إنشاء التشخيص المباشر...',
@@ -1162,7 +1159,6 @@ export const ar: Record<string, string> = {
   'diag_engine_caps_desc': 'بيانات مباشرة يتم الإبلاغ عنها بواسطة curl و yt-dlp و FFmpeg في وقت التشغيل. يتم استبعاد الخيارات غير المدعومة من التنفيذ.',
   'diag_success': 'تم جمع التشخيصات بنجاح.',
   'diag_close_report': 'إغلاق التقرير',
-
   'brw_bridge_title': 'جسر المتصفح المحلي',
   'brw_status_enabled': 'مفعل',
   'brw_status_disabled': 'معطل',
@@ -1202,7 +1198,6 @@ export const ar: Record<string, string> = {
   'brw_toast_releases_opened': 'تم فتح صفحة إصدارات NOVA لتنزيل الإضافات.',
   'brw_toast_browser_opened': 'تم فتح إدارة إضافات {browser}.',
   'brw_toast_browser_failed': 'تعذر فتح صفحة إضافة {browser}.',
-
   'task_prop_no_selection': 'لم يتم تحديد أي تنزيل.',
   'task_prop_toast_engine_warning': 'محرك libcurl المرتبط لا يعرض التنزيل المقسم. تم تقليل الاتصالات إلى 1.',
   'task_prop_cat_document': 'مستندات',
@@ -1233,7 +1228,6 @@ export const ar: Record<string, string> = {
   'task_prop_description': 'الوصف',
   'task_prop_resumable': 'اعتبار هذا التنزيل قابلًا للاستئناف',
   'task_prop_save_changes': 'حفظ التغييرات',
-
   'update_link_no_selection': 'لم يتم تحديد ملف لتجديد الرابط.',
   'update_link_toast_invalid': 'أدخل رابط تنزيل مباشر صالح (http:// أو https://).',
   'update_link_toast_success_title': 'تم تحديث الرابط',
@@ -1250,11 +1244,8 @@ export const ar: Record<string, string> = {
   'update_link_open_page': 'فتح الصفحة',
   'update_link_new_link': 'رابط تنزيل مباشر جديد',
   'update_link_update': 'تحديث الرابط',
-
   'engine_ffmpeg_title': 'FFmpeg',
-
   'logo_alt': 'شعار NOVA',
-
   'topbar_resume_options': 'خيارات الاستئناف',
   'topbar_stop_options': 'خيارات الإيقاف',
   'topbar_delete_options': 'خيارات الحذف',

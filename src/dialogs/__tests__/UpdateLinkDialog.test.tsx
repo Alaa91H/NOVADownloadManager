@@ -44,9 +44,25 @@ describe('UpdateLinkDialog', () => {
       addToast: mockAddToast,
       t: (k: string) => {
         const map: Record<string, string> = {
-          toast_error_title: 'Error',
+          toast_error_title: 'Error / Failure',
           btn_close: 'Close',
           btn_cancel: 'Cancel',
+          update_link_no_selection: 'No file was selected for link renewal.',
+          update_link_title: 'Update Download Link',
+          update_link_desc: 'If a temporary direct link expired, open the source page or paste a fresh direct link manually.',
+          update_link_open_source: 'Open Source Page',
+          update_link_paste_link: 'Paste Link',
+          update_link_current_file: 'Current File',
+          update_link_current_link: 'Current Link',
+          update_link_browser_desc: 'NOVA will open the source page in your system browser. Paste the renewed direct link in the manual tab afterward.',
+          update_link_open_page: 'Open Page',
+          update_link_new_link: 'New Direct Download Link',
+          update_link_update: 'Update Link',
+          update_link_toast_invalid: 'Enter a valid direct download link (http:// or https://).',
+          update_link_toast_success_title: 'Link Updated',
+          update_link_toast_success_desc: 'The download link was updated successfully.',
+          update_link_toast_open_title: 'Source Page Opened',
+          update_link_toast_open_desc: 'Copy the new direct link from your browser and paste it here.',
         };
         return map[k] || k;
       },
@@ -100,7 +116,7 @@ describe('UpdateLinkDialog', () => {
     const input = screen.getByDisplayValue('https://example.com/test-file.zip');
     fireEvent.change(input, { target: { value: 'ftp://invalid' } });
     fireEvent.click(screen.getByText('Update Link'));
-    expect(mockAddToast).toHaveBeenCalledWith('error', 'Error', expect.any(String));
+    expect(mockAddToast).toHaveBeenCalledWith('error', 'Error / Failure', expect.any(String));
   });
 
   it('closes dialog with close button in browser mode', () => {
@@ -124,7 +140,7 @@ describe('UpdateLinkDialog', () => {
       updateTaskProperties: mockUpdateTaskProperties,
       addToast: mockAddToast,
       t: (k: string) => {
-        const map: Record<string, string> = { btn_close: 'Close' };
+        const map: Record<string, string> = { btn_close: 'Close', update_link_no_selection: 'No file was selected for link renewal.' };
         return map[k] || k;
       },
     };
@@ -139,7 +155,7 @@ describe('UpdateLinkDialog', () => {
       updateTaskProperties: mockUpdateTaskProperties,
       addToast: mockAddToast,
       t: (k: string) => {
-        const map: Record<string, string> = { btn_close: 'Close' };
+        const map: Record<string, string> = { btn_close: 'Close', update_link_no_selection: 'No file was selected for link renewal.' };
         return map[k] || k;
       },
     };

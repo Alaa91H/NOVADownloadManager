@@ -14,11 +14,25 @@ vi.mock('../../state/appStore', () => ({
 }));
 
 describe('AboutDialog', () => {
+  const aboutT = (k: string) => {
+    const map: Record<string, string> = {
+      app_name: 'NOVA Download Manager',
+      about_local_service: 'Local download service',
+      about_description: 'NOVA is a desktop download manager for direct files, media, queues, scheduling, browser capture, and local automation.',
+      about_service_label: 'Service',
+      about_open_source_license: 'Open Source License',
+      about_copyright: 'Copyright (c) 2026 NOVA.',
+      btn_ok: 'OK',
+    };
+    return map[k] || k;
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     storeRef.current = {
       closeDialog: mockCloseDialog,
       bridge: { version: 'v0.1.0' },
+      t: aboutT,
     };
   });
 
@@ -57,6 +71,7 @@ describe('AboutDialog', () => {
     storeRef.current = {
       closeDialog: mockCloseDialog,
       bridge: {},
+      t: aboutT,
     };
     render(<AboutDialog />);
     expect(screen.getByText(/Service v0.1.0/)).toBeInTheDocument();

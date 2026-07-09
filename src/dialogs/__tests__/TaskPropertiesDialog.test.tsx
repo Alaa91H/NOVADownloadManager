@@ -67,9 +67,40 @@ describe('TaskPropertiesDialog', () => {
       },
       t: (k: string) => {
         const map: Record<string, string> = {
-          toast_error_title: 'Error',
+          toast_error_title: 'Error / Failure',
           btn_close: 'Close',
           btn_cancel: 'Cancel',
+          task_prop_no_selection: 'No download was selected.',
+          task_prop_file_name: 'File Name',
+          task_prop_source_url: 'Source URL',
+          task_prop_save_path: 'Save Path',
+          task_prop_change: 'Change',
+          task_prop_file_size: 'File Size',
+          task_prop_date_added: 'Date Added',
+          task_prop_status: 'Status',
+          task_prop_resume_support: 'Resume Support',
+          task_prop_supported: 'Supported',
+          task_prop_not_supported: 'Not supported',
+          task_prop_category: 'Category',
+          task_prop_connections: 'Connections',
+          task_prop_description: 'Description',
+          task_prop_resumable: 'Treat this download as resumable',
+          task_prop_save_changes: 'Save Changes',
+          task_prop_conn_auto: 'Automatic',
+          task_prop_conn_8: '8 connections',
+          task_prop_conn_16: '16 connections',
+          task_prop_conn_24: '24 connections',
+          task_prop_conn_32: '32 connections',
+          task_prop_conn_single: 'Single connection (range unavailable)',
+          task_prop_cat_document: 'Documents',
+          task_prop_cat_program: 'Programs & Apps',
+          task_prop_cat_compressed: 'Compressed Files',
+          task_prop_cat_video: 'Videos',
+          task_prop_cat_audio: 'Audio',
+          task_prop_cat_other: 'Other Files',
+          task_prop_capability_notice: 'Task editing is capability-aware. Direct-engine thread and resume controls are disabled unless linked libcurl reports range/segmented support.',
+          task_prop_toast_engine_warning: 'The linked libcurl engine does not expose range/segmented downloads. Connections were reduced to 1.',
+          engine_direct_title: 'Direct Engine',
         };
         return map[k] || k;
       },
@@ -166,7 +197,7 @@ describe('TaskPropertiesDialog', () => {
       updateTaskProperties: mockUpdateTaskProperties,
       addToast: mockAddToast,
       t: (k: string) => {
-        const map: Record<string, string> = { btn_close: 'Close' };
+        const map: Record<string, string> = { btn_close: 'Close', task_prop_no_selection: 'No download was selected.' };
         return map[k] || k;
       },
     };
@@ -181,7 +212,7 @@ describe('TaskPropertiesDialog', () => {
       updateTaskProperties: mockUpdateTaskProperties,
       addToast: mockAddToast,
       t: (k: string) => {
-        const map: Record<string, string> = { btn_close: 'Close' };
+        const map: Record<string, string> = { btn_close: 'Close', task_prop_no_selection: 'No download was selected.' };
         return map[k] || k;
       },
     };
