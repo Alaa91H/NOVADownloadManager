@@ -408,6 +408,14 @@ P26-07-07
   - `src/state/appStore.tsx`
   - `src/pages/SettingsPage.tsx`, `src/pages/SchedulerPage.tsx`
   - `src/dialogs/*` (all dialogs)
+- Cycle 2026-07-10 (round 1):
+  - **Root ErrorBoundary**: Replaced bare inline ErrorBoundary in App.tsx with the reusable ErrorBoundary component; added i18n via getTranslation to default fallback.
+  - **Mobile card states**: Added loading spinner, degraded (WifiOff), search-empty (SearchX), and rich empty (Download + action) states to TaskCardList — parity with desktop TaskTable.
+  - **Sidebar loading skeletons**: All 9 count badges replaced with pulsing SkeletonBadge placeholders during initial loading.
+  - **i18n**: Added `shell_error_occurred` key; added missing `shell_error_section_title`/`shell_error_section_retry` to ar.ts.
+  - Branch: `feat/ui-004-component-states`
+  - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/19
+  - Validation: CI run at https://github.com/Alaa91H/NOVADownloadManager/actions (pending)
 
 ### UI-005 — Button & interaction polish pass
 
