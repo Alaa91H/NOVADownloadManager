@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novabrowserextension.app/contracts/errors.schema.json",
+  "title": "NOVA Browser Error",
+  "type": "object",
+  "required": ["code", "message", "retryable"],
+  "properties": {
+    "code": { "type": "string" },
+    "message": { "type": "string" },
+    "retryable": { "type": "boolean" },
+    "repairHint": { "type": "string" },
+    "details": { "type": "object" }
+  },
+  "additionalProperties": false
+}

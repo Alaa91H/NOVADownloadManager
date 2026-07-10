@@ -1,0 +1,56 @@
+[package]
+name = "nova"
+version = "0.1.0"
+description = "NOVA Download Manager"
+authors = ["NOVA"]
+license = "MIT"
+repository = "https://github.com/nova-download-manager/nova"
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "nova_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-log = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+tokio = { version = "1", features = ["rt", "macros", "time", "net", "sync", "io-util"] }
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors", "fs"] }
+reqwest = { version = "0.12", features = ["json", "blocking", "multipart", "stream"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+async-stream = "0.3"
+futures-core = "0.3"
+curl = { version = "0.4", default-features = false, features = ["ssl", "http2", "protocol-ftp", "ntlm"] }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+opt-level = 3
+panic = "abort"
+debug = false
+incremental = false
+overflow-checks = false
+
+[profile.release.package."*"]
+opt-level = 3
+
+[profile.release.build-override]
+opt-level = 3
+debug = false
+
+[dev-dependencies]

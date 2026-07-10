@@ -1,0 +1,70 @@
+name: Dependabot auto-merge
+
+# Enables auto-merge for low-risk Dependabot updates. The merge itself is gated
+# by the branch-protection required status checks, so nothing lands until CI has
+# proven the update builds and passes tests. Higher-risk updates are labelled and
+# left for manual review.
+#
+# Policy:
+#   - npm / github-actions:  patch + minor  -> auto-merge (fully covered by the
+#                                              "validate" CI job)
+#   - cargo (Rust):          patch only     -> auto-merge; minor/major are held
+#                                              because 0.x minor bumps are
+#                                              effectively breaking and Rust is
+#                                              only compiled by the installer job
+#   - any ecosystem:         major          -> manual review
+#
+# Prerequisites (configure once in the GitHub UI — see
+# docs/maintenance/DEPENDABOT_AND_MAINTENANCE.md):
+#   1. Settings > General > "Allow auto-merge".
+#   2. A branch-protection rule / ruleset on `main` that requires the CI status
+#      checks to pass (this is what makes auto-merge wait for the tests).
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  dependabot-auto-merge:
+    name: Evaluate Dependabot update
+    runs-on: ubuntu-latest
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge for low-risk updates
+        if: >-
+          ${{
+            steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+            (steps.meta.outputs.update-type == 'version-update:semver-minor' &&
+             steps.meta.outputs.package-ecosystem != 'cargo')
+          }}
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Flag higher-risk updates for manual review
+        if: >-
+          ${{
+            steps.meta.outputs.update-type == 'version-update:semver-major' ||
+            (steps.meta.outputs.update-type == 'version-update:semver-minor' &&
+             steps.meta.outputs.package-ecosystem == 'cargo')
+          }}
+        run: |
+          gh label create needs-manual-review \
+            --color FBCA04 \
+            --description "Dependabot update held for manual review" \
+            --force || true
+          gh pr edit "$PR_URL" --add-label needs-manual-review
+          gh pr comment "$PR_URL" --body "🔎 **Manual review required.** This is a \`${{ steps.meta.outputs.update-type }}\` update for \`${{ steps.meta.outputs.package-ecosystem }}\` (${{ steps.meta.outputs.dependency-names }}). Auto-merge is intentionally disabled for this class of change — please review the upstream changelog, confirm CI is green, and merge manually."
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

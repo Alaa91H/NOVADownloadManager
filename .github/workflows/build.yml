@@ -1,0 +1,435 @@
+name: Build and Release Nova Download Manager
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version tag, for example v1.0.0'
+        required: false
+        default: ''
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '24'
+  RUST_BACKTRACE: '1'
+  NPM_CONFIG_AUDIT: 'true'
+  NPM_CONFIG_FUND: 'false'
+  NO_UPDATE_NOTIFIER: '1'
+
+jobs:
+  validate:
+    name: Validate frontend and translations
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6.0.9
+        with:
+          version: 11.6.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The gates below are independent diagnostics. Each runs to completion with
+      # continue-on-error so a single failure does not hide the others; the final
+      # "Summarize validation gates" step aggregates every outcome and fails once
+      # at the end, surfacing all errors and warnings in a single run.
+      - name: Final source audit
+        id: audit_final
+        continue-on-error: true
+        run: pnpm run audit:final
+
+      - name: Browser extension typecheck
+        id: ext_typecheck
+        continue-on-error: true
+        run: pnpm --filter nova-browser-extension typecheck
+
+      - name: Browser extension release checks
+        id: ext_release_checks
+        continue-on-error: true
+        run: pnpm --filter nova-browser-extension verify:offline
+
+      - name: Browser extension production build
+        id: ext_build
+        continue-on-error: true
+        run: pnpm run extension:package
+
+      - name: Synchronize translation indexes
+        id: i18n_sync
+        continue-on-error: true
+        run: pnpm run i18n:sync
+
+      - name: Validate translations
+        id: i18n_validate
+        continue-on-error: true
+        run: pnpm run i18n:validate
+
+      - name: TypeScript check
+        id: ts_check
+        continue-on-error: true
+        run: pnpm run lint
+
+      - name: ESLint
+        id: eslint
+        continue-on-error: true
+        run: pnpm run lint:eslint
+
+      - name: Run tests
+        id: tests
+        continue-on-error: true
+        run: pnpm test
+
+      - name: Frontend production build
+        id: fe_build
+        continue-on-error: true
+        run: pnpm run build
+
+      - name: Summarize validation gates without failing early
+        if: always()
+        shell: pwsh
+        run: |
+          $gates = @(
+            @{ Name = 'Final source audit';              Outcome = '${{ steps.audit_final.outcome }}' },
+            @{ Name = 'Browser extension typecheck';      Outcome = '${{ steps.ext_typecheck.outcome }}' },
+            @{ Name = 'Browser extension release checks'; Outcome = '${{ steps.ext_release_checks.outcome }}' },
+            @{ Name = 'Browser extension production build'; Outcome = '${{ steps.ext_build.outcome }}' },
+            @{ Name = 'Synchronize translation indexes';  Outcome = '${{ steps.i18n_sync.outcome }}' },
+            @{ Name = 'Validate translations';            Outcome = '${{ steps.i18n_validate.outcome }}' },
+            @{ Name = 'TypeScript check';                 Outcome = '${{ steps.ts_check.outcome }}' },
+            @{ Name = 'ESLint';                           Outcome = '${{ steps.eslint.outcome }}' },
+            @{ Name = 'Run tests';                        Outcome = '${{ steps.tests.outcome }}' },
+            @{ Name = 'Frontend production build';        Outcome = '${{ steps.fe_build.outcome }}' }
+          )
+          "## Validation gates" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| Gate | Result |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| --- | --- |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          $failed = @()
+          foreach ($gate in $gates) {
+            switch ($gate.Outcome) {
+              'success' { $icon = 'PASS' }
+              'failure' { $icon = 'FAIL'; $failed += $gate.Name }
+              default   { $icon = 'SKIPPED' }
+            }
+            "| $($gate.Name) | $icon |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            Write-Host ("{0,-9} {1}" -f $icon, $gate.Name)
+          }
+          if ($failed.Count -gt 0) {
+            Write-Error "Validation failed after collecting all gates. Failed gate(s): $($failed -join ', ')"
+            exit 1
+          }
+          Write-Host 'All validation gates passed.'
+
+  build-windows-installer:
+    name: Build Windows NSIS installer
+    runs-on: windows-latest
+    needs: validate
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6.0.9
+        with:
+          version: 11.6.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install native build helpers
+        shell: pwsh
+        run: |
+          choco install pkgconfiglite ffmpeg -y --no-progress
+
+      - name: Install static libcurl feature dependencies
+        shell: pwsh
+        run: |
+          if (-not $env:VCPKG_INSTALLATION_ROOT) {
+            Write-Error "VCPKG_INSTALLATION_ROOT is not available on this runner."
+            exit 1
+          }
+          vcpkg install zlib:x64-windows-static brotli:x64-windows-static zstd:x64-windows-static nghttp2:x64-windows-static libssh2:x64-windows-static
+          "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "VCPKG_TARGET_TRIPLET=x64-windows-static" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "NOVA_LIBCURL_FEATURE_PROFILE=maximum-stable" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Cache Cargo registry and target
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+            !src-tauri/target/release/bundle
+          key: cargo-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+
+      - name: Resolve build version
+        shell: pwsh
+        run: |
+          $version = "${{ github.event.inputs.version }}"
+          if (-not $version) { $version = "${{ github.ref_name }}" }
+          if (-not $version -or $version -notmatch '^v\d+\.\d+\.\d+') {
+            $version = "v0.1.0+${{ github.run_number }}"
+          }
+          $shortSha = "${{ github.sha }}".Substring(0, 8)
+          $buildId = "${{ github.run_id }}.${{ github.run_attempt }}"
+          "BUILD_TAG=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "VITE_APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "WXT_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "BUILD_COMMIT=$shortSha" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "BUILD_ID=$buildId" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "BUILD_TIMESTAMP=$(Get-Date -Format o)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Stamp version into project files
+        run: node scripts/apply-version.mjs
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Synchronize translation indexes
+        run: pnpm run i18n:sync
+
+      - name: Build latest static libcurl and fetch bundled engines
+        run: pnpm run fetch-engines
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NOVA_REQUIRE_FFMPEG: '1'
+          NOVA_BUNDLE_SYSTEM_FFMPEG: '1'
+
+      - name: Export native libcurl link environment
+        shell: pwsh
+        run: |
+          node scripts/print-native-curl-env.mjs | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Verify native curl manifest
+        run: pnpm run native-curl:verify
+
+      - name: Stage Tauri resources for compile check
+        run: pnpm run tauri:prepare
+
+      - name: Rust compile check with pinned libcurl
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Build browser extension packages
+        run: |
+          pnpm --filter nova-browser-extension verify:offline
+          pnpm run extension:package
+
+      - name: Clean stale bundle output
+        shell: pwsh
+        run: |
+          if (Test-Path src-tauri\target\release\bundle) {
+            Remove-Item src-tauri\target\release\bundle -Recurse -Force -Confirm:$false
+          }
+
+      - name: Build Tauri installer
+        run: pnpm run tauri:build
+
+      - name: Code sign installer (optional)
+        if: env.WINDOWS_CERT_BASE64 != ''
+        shell: pwsh
+        env:
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          $certPath = Join-Path $env:RUNNER_TEMP 'nova-signing-cert.pfx'
+          [System.IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_CERT_BASE64))
+          $nsisDir = "src-tauri\target\release\bundle\nsis"
+          $installers = Get-ChildItem -LiteralPath $nsisDir -File -Filter "*.exe" -ErrorAction SilentlyContinue
+          foreach ($installer in $installers) {
+            Write-Host "Signing $($installer.Name)..."
+            $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
+              Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+            if (-not $signtool) {
+              Write-Warning "signtool.exe not found; skipping code signing."
+              break
+            }
+            & $signtool sign /f $certPath /p $env:WINDOWS_CERT_PASSWORD /tr http://timestamp.digicert.com /td sha256 /fd sha256 /d "Nova Download Manager" $installer.FullName
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "  Signed: $($installer.Name)"
+            } else {
+              Write-Warning "  Code signing failed for $($installer.Name) (exit $LASTEXITCODE)"
+            }
+          }
+
+      - name: Prepare release files
+        shell: pwsh
+        run: |
+          $version = $env:BUILD_TAG -replace '^v', ''
+          $commitSha = $env:BUILD_COMMIT
+          $buildId = $env:BUILD_ID
+          $timestamp = $env:BUILD_TIMESTAMP
+          New-Item -ItemType Directory -Force release | Out-Null
+          $nsisDir = "src-tauri\target\release\bundle\nsis"
+          if (-not (Test-Path -LiteralPath $nsisDir)) {
+            Write-Error "NSIS output directory was not created: $nsisDir"
+            exit 1
+          }
+          $installers = Get-ChildItem -LiteralPath $nsisDir -File -Filter "*.exe" |
+            Where-Object { $_.BaseName -like "*_${version}_*" -or $_.BaseName -like "*_${version}*" }
+          if (-not $installers) {
+            $available = Get-ChildItem -LiteralPath $nsisDir -File | Select-Object -ExpandProperty Name
+            Write-Error "No installer found matching version ${version}. Available NSIS files: $($available -join ', ')"
+            exit 1
+          }
+          $installers | ForEach-Object {
+            Copy-Item $_.FullName "release\$($_.Name)" -Force
+          }
+          Get-ChildItem browser-extension\dist\release-assets\* -File -ErrorAction SilentlyContinue |
+            ForEach-Object {
+              Copy-Item $_.FullName "release\$($_.Name)" -Force
+          }
+
+      - name: Generate SHA-256 checksums
+        shell: pwsh
+        run: |
+          $releaseDir = "release"
+          $checksumFile = Join-Path $releaseDir "SHA256SUMS.txt"
+          "" | Out-File -FilePath $checksumFile -Encoding utf8
+          "# Nova Download Manager ${{ env.BUILD_TAG }}" | Out-File -FilePath $checksumFile -Append -Encoding utf8
+          "# Build: ${{ env.BUILD_ID }} | Commit: ${{ env.BUILD_COMMIT }} | Timestamp: ${{ env.BUILD_TIMESTAMP }}" | Out-File -FilePath $checksumFile -Append -Encoding utf8
+          "" | Out-File -FilePath $checksumFile -Append -Encoding utf8
+          Get-ChildItem -LiteralPath $releaseDir -File |
+            Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
+            Sort-Object Name |
+            ForEach-Object {
+              $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower()
+              "$hash  $($_.Name)" | Out-File -FilePath $checksumFile -Append -Encoding utf8
+              Write-Host "$hash  $($_.Name)"
+            }
+          Write-Host "Checksums written to $checksumFile"
+
+      - name: Write build metadata
+        shell: pwsh
+        run: |
+          $metadata = @{
+            product = "Nova Download Manager"
+            version = "${{ env.BUILD_TAG }}"
+            commit = "${{ github.sha }}"
+            shortCommit = "${{ env.BUILD_COMMIT }}"
+            buildId = "${{ env.BUILD_ID }}"
+            branch = "${{ github.ref_name }}"
+            runner = "${{ runner.os }} ${{ runner.arch }}"
+            timestamp = "${{ env.BUILD_TIMESTAMP }}"
+            workflow = "${{ github.workflow }}"
+            runUrl = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            rustVersion = (rustc --version 2>$null) -replace '^rustc\s+',''
+            nodeVersion = (node --version 2>$null) -replace '^v',''
+            vcpkgTriplet = $env:VCPKG_TARGET_TRIPLET
+            curlProfile = $env:NOVA_LIBCURL_FEATURE_PROFILE
+          }
+          $metadata | ConvertTo-Json -Depth 4 | Out-File -FilePath "release/build-metadata.json" -Encoding utf8
+          Write-Host "Build metadata written to release/build-metadata.json"
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: Nova-Download-Manager-${{ env.BUILD_TAG }}-${{ env.BUILD_COMMIT }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Build summary
+        if: always()
+        shell: pwsh
+        run: |
+          $version = "${{ env.BUILD_TAG }}"
+          $commit = "${{ env.BUILD_COMMIT }}"
+          $buildId = "${{ env.BUILD_ID }}"
+          $nsisDir = "src-tauri\target\release\bundle\nsis"
+          $releaseDir = "release"
+
+          "## Build Summary" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| Property | Value |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| --- | --- |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| Product | Nova Download Manager |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| Version | \`$version\` |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| Commit | \`$commit\` |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| Build ID | \`$buildId\` |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| Branch | \`${{ github.ref_name }}\` |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| Runner | ${{ runner.os }} ${{ runner.arch }} |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| Workflow Run | [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+          if (Test-Path -LiteralPath $nsisDir) {
+            $nsisFiles = Get-ChildItem -LiteralPath $nsisDir -File -Filter "*.exe" -ErrorAction SilentlyContinue
+            if ($nsisFiles) {
+              "### Installer" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              "| File | Size |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              "| --- | --- |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              foreach ($f in $nsisFiles) {
+                $sizeMB = [math]::Round($f.Length / 1MB, 2)
+                "| $($f.Name) | ${sizeMB} MB |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              }
+              "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            }
+          }
+
+          if (Test-Path -LiteralPath $releaseDir) {
+            $releaseFiles = Get-ChildItem -LiteralPath $releaseDir -File
+            if ($releaseFiles) {
+              "### Release Artifacts" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              "| File | Size |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              "| --- | --- |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              foreach ($f in $releaseFiles) {
+                $sizeMB = [math]::Round($f.Length / 1MB, 2)
+                "| $($f.Name) | ${sizeMB} MB |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              }
+            }
+          }
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Nova Download Manager ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

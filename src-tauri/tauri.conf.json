@@ -1,0 +1,85 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Nova Download Manager",
+  "version": "0.1.0",
+  "identifier": "com.nova.downloadmanager",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://127.0.0.1:3000",
+    "beforeBuildCommand": "pnpm run tauri:prepare"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "NOVA Download Manager",
+        "width": 900,
+        "height": 600,
+        "minWidth": 900,
+        "minHeight": 600,
+        "decorations": false,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http://127.0.0.1:*; font-src 'self' data: https://fonts.gstatic.com https://fonts.googleapis.com; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:3199 http://127.0.0.1:3200 http://127.0.0.1:3201 http://127.0.0.1:3202 http://127.0.0.1:3203 http://127.0.0.1:3204 http://127.0.0.1:3205 ws://127.0.0.1:3199 ws://127.0.0.1:3200 ws://127.0.0.1:3201 ws://127.0.0.1:3202 ws://127.0.0.1:3203 ws://127.0.0.1:3204 ws://127.0.0.1:3205; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; media-src 'none'; worker-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "publisher": "NOVA",
+    "copyright": "Copyright (c) 2026 NOVA",
+    "category": "Utility",
+    "shortDescription": "Professional download manager for direct and media downloads.",
+    "longDescription": "Nova Download Manager is a professional desktop download manager with direct downloads, media downloads, queues, scheduling, diagnostics, and advanced connection controls.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "resources/**/*"
+    ],
+    "windows": {
+      "allowDowngrades": false,
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "wix": null,
+      "nsis": {
+        "template": "./windows/installer-template.nsi",
+        "installerHooks": "./windows/hooks.nsi",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "installMode": "perMachine",
+        "languages": [
+          "English",
+          "Arabic",
+          "French",
+          "German",
+          "Spanish",
+          "Portuguese",
+          "Italian",
+          "Japanese",
+          "Korean",
+          "SimpChinese",
+          "TradChinese",
+          "Russian",
+          "Turkish"
+        ],
+        "displayLanguageSelector": true,
+        "compression": "lzma",
+        "startMenuFolder": "Nova Download Manager",
+        "headerImage": "./windows/installer-header.bmp",
+        "sidebarImage": "./windows/installer-sidebar.bmp",
+        "uninstallerHeaderImage": "./windows/installer-header.bmp"
+      }
+    }
+  }
+}
