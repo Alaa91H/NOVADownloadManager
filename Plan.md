@@ -861,6 +861,29 @@ P26-07-07
   this was a manual step that was easy to forget, causing CI i18n:validate failures. Now it
   runs automatically in the pipeline.
 
+### FIX-009 — Strip auth headers from file downloads to avoid Node.js 24 cross-host redirect rejection
+
+- Status: `[x] COMPLETED`
+- Stream: FIX
+- Priority: P0
+- Impact: Fixes Windows installer build failure on main; yt-dlp and curl source downloads
+  redirect to `release-assets.githubusercontent.com` which Node.js 24 rejects when
+  `Authorization` header is present
+- Plan: Replace `githubApiHeaders()`/`githubHeaders()` with simple User-Agent-only headers
+  in `downloadFile()` and `download()` utility functions. Public release assets do not need
+  authentication.
+- Acceptance: `pnpm run fetch-engines` succeeds on windows-latest with Node.js 24
+- Validation: CI Build Windows NSIS installer gate
+- Started: 2026-07-09
+- Completed: 2026-07-09
+- Branch: `fix/ci-curl-ytdlp-redirect`
+- PR: https://github.com/Alaa91H/NOVADownloadManager/pull/13
+- Changes:
+  - `scripts/fetch-engines.mjs`: added `DOWNLOAD_HEADERS` constant, replaced `githubApiHeaders()`
+    usage in `downloadFile()`
+  - `scripts/build-native-curl.mjs`: added `CURL_DOWNLOAD_HEADERS` constant, replaced
+    `githubHeaders()` usage in `download()`
+
 ---
 
 ## Completed Tasks
