@@ -899,6 +899,87 @@ P26-07-07
 
 ---
 
+## Newly Discovered Tasks (deep analysis pass — 2026-07-10)
+
+### FIX-009 — Sync 11 missing translation keys across 130 non-English locales
+
+- Status: `[ ] PLANNED`
+- Stream: FIX
+- Priority: P1
+- Impact: CI Validate translations gate may fail when en.ts keys are added but not synced to locales
+- Plan: Run `scripts/fix-i18n.mjs` then `scripts/sync-i18n.mjs` to copy the 11 keys added to en.ts after the last bulk sync (degraded_mode_*, no_downloads_*, no_search_*, shell_error_*, table_loading_tasks) to all 130 non-English locale files. Also add 2 missing keys to ar.ts (shell_error_section_retry, shell_error_section_title).
+- Acceptance: `i18n:validate` passes 132/132 with 1,261 keys each; no missing-key warnings
+- Validation: CI Validate translations gate
+
+### FIX-010 — Translate remaining hardcoded English strings in production components
+
+- Status: `[ ] PLANNED`
+- Stream: FIX
+- Priority: P1
+- Impact: 15+ hardcoded English strings in 4 production files break i18n for non-English users
+- Plan: Add translation keys to en.ts/ar.ts and replace hardcoded strings with t() calls in:
+  1. `src/components/ErrorBoundary.tsx` — 3 strings: "Something went wrong", "An unexpected error occurred.", "Retry" (class component; use i18n.getTranslation() directly since hooks are unavailable)
+  2. `src/components/ColumnConfigPanel.tsx` — 2 strings: "Customize & Reorder Columns", "Drag columns to reorder or toggle visibility"
+  3. `src/dialogs/download/WebpageGrabberDialog.tsx` — 6 strings: "Invalid Link", "Please enter a valid URL...", "Real backend required", "Webpage mirroring...", "Professional Full Webpage Web Grabber...", "Download entire websites...", "Target Webpage / Root URL", "Save Directory", "Follow external domain links", "Overwrite existing files", "Web Grabber will only create tasks..."
+  4. `src/state/appStore.tsx` — 8 hardcoded toast strings: "Settings Saved", "Preferences and settings were saved.", "Open File", "The selected download was not found.", "No saved file path...", "Open File Location", `Could not open "${task.name}"...`, "Daemon Reconnected", "NOVA service is reachable...", "NOVA download service is now available.", "Daemon unreachable"
+- Acceptance: All non-test .tsx files use t() for user-visible strings; `i18n:validate` passes
+- Validation: CI Validate translations + Run tests gates
+
+### IMPROVE-001 — Add explicit return type interfaces for custom hooks
+
+- Status: `[ ] PLANNED`
+- Stream: IMPROVE
+- Priority: P2
+- Impact: Developer experience; prevents accidental field omissions in hook return values
+- Plan: Add exported interface types for:
+  1. `src/hooks/useTaskSortFilter.ts` — define `UseTaskSortFilterReturn` interface
+  2. `src/hooks/useColumnState.ts` — define `UseColumnStateReturn` interface (22 properties)
+  3. `src/hooks/useMultiSelection.ts` — define `UseMultiSelectionReturn` interface (10 properties)
+- Acceptance: All three hooks have explicit return type annotations; `tsc --noEmit` clean
+- Validation: CI TypeScript check gate
+
+### IMPROVE-002 — Replace duplicate inline ErrorBoundary in App.tsx with reusable component
+
+- Status: `[ ] PLANNED`
+- Stream: IMPROVE
+- Priority: P2
+- Impact: Consistent error UI; removes redundant class component with less informative fallback
+- Plan: Replace the inline `ErrorBoundary` class in `src/App.tsx` (lines 6-23) with an import of the reusable `ErrorBoundary` from `src/components/ErrorBoundary.tsx`. The reusable version has retry button and richer fallback UI.
+- Acceptance: App.tsx uses the shared ErrorBoundary; no duplicate class component
+- Validation: CI Run tests gate (AppShell test covers error boundary behavior)
+
+### IMPROVE-003 — Fix out-of-order import in taskTableUtils.tsx
+
+- Status: `[ ] PLANNED`
+- Stream: IMPROVE
+- Priority: P3
+- Impact: Code quality; import after function declarations violates ECMAScript module convention
+- Plan: Move `import { formatSpeed as fmtSpeed, formatTimeLeft as fmtTimeLeft } from '../initialData'` from line 72 to the top of `src/utils/taskTableUtils.tsx` (after line 3).
+- Acceptance: All imports at top of file; `tsc --noEmit` clean
+- Validation: CI TypeScript check gate
+
+### IMPROVE-004 — Translate columnLabels dictionary for i18n
+
+- Status: `[ ] PLANNED`
+- Stream: IMPROVE
+- Priority: P2
+- Impact: 14 hardcoded English column header labels shown to all non-English users
+- Plan: Replace the hardcoded `columnLabels` object in `src/utils/taskTableUtils.tsx` with a function that accepts a `t` translation function and returns translated labels. Update `ColumnConfigPanel.tsx` and `TaskTable.tsx` to pass `t()` when calling the labels. Add translation keys for all 14 column names to en.ts/ar.ts.
+- Acceptance: All column headers display translated text in non-English locales
+- Validation: CI Run tests + Validate translations gates
+
+### IMPROVE-005 — Investigate and resolve eslint-disable for exhaustive-deps in appStore.tsx
+
+- Status: `[ ] PLANNED`
+- Stream: IMPROVE
+- Priority: P3
+- Impact: Stale closure risk; missing useEffect dependencies may cause subtle bugs
+- Plan: Read `src/state/appStore.tsx` lines 510-566, analyze the daemon reconnect useEffect that has `eslint-disable-next-line react-hooks/exhaustive-deps`. Determine if the empty dependency array is intentional (mount-only effect) or if `refreshDaemonUrl`, `tauriClient`, `markConnected`, `addToast`, `setBridge`, `setIsDegradedMode` should be listed. If intentional, add a comment explaining why. If not, add the missing deps.
+- Acceptance: No eslint-disable for exhaustive-deps; effect behavior unchanged
+- Validation: CI ESLint gate
+
+---
+
 ## Blocked Tasks
 
 *None yet.*
