@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# ============================================================================
+# Repository guardian — pre-push
+# Last line of defence: scans every outgoing commit for secrets before they
+# leave the machine. Blocks the push on any hit.
+# ============================================================================
+set -uo pipefail
+zero="0000000000000000000000000000000000000000"
+fail=0
+
+# Optional NOVA branch-policy guard. This blocks accidental local direct pushes
+# to protected policy branches while allowing PR/task branches.
+[ -f /etc/nova/nova.env ] && . /etc/nova/nova.env 2>/dev/null || true
+BRANCH_POLICY_BIN="${NOVA_BRANCH_POLICY_BIN:-/usr/local/lib/nova/nova-branch-policy.py}"
+
+while read -r localref localsha remoteref remotesha; do
+  [ "$localsha" = "$zero" ] && continue
+  branch="${localref#refs/heads/}"
+  if [ -x "$BRANCH_POLICY_BIN" ] && [ "$branch" != "$localref" ]; then
+    if ! "$BRANCH_POLICY_BIN" guard-push "$branch" --purpose pre-push >/tmp/nova-branch-policy-prepush.$$ 2>/dev/null; then
+      echo "guardian: branch policy blocked direct push to $branch" >&2
+      cat /tmp/nova-branch-policy-prepush.$$ >&2 2>/dev/null || true
+      rm -f /tmp/nova-branch-policy-prepush.$$
+      fail=1
+      continue
+    fi
+    rm -f /tmp/nova-branch-policy-prepush.$$
+  fi
+  if [ "$remotesha" = "$zero" ]; then
+    diff="$(git log --first-parent -p -U0 "$localsha" 2>/dev/null | head -n 20000)"
+  else
+    diff="$(git diff -U0 "$remotesha..$localsha" 2>/dev/null)"
+  fi
+  added="$(printf '%s\n' "$diff" | grep -E '^\+' || true)"
+  if printf '%s\n' "$added" | grep -qE 'BEGIN (RSA |OPENSSH |EC |DSA |PGP )?PRIVATE KEY|AKIA[0-9A-Z]{16}|[0-9]{8,10}:[A-Za-z0-9_-]{35}'; then
+    echo "guardian: secret detected in outgoing commits ($localref) — push blocked." >&2
+    fail=1
+  fi
+done
+
+exit $fail

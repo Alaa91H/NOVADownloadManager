@@ -1,0 +1,21 @@
+[Unit]
+Description=NOVA Factory Self-Update
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/usr/local/lib/nova/nova-admin.py
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/nova/nova.env
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/usr/local/lib/nova/nova-admin.py update auto
+UMask=0077
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/usr/local/lib/nova /etc/systemd/system /var/lib/nova /var/log/nova /tmp /home/ubuntu/NOVA /home/ubuntu/.opencode /home/ubuntu/backups
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+StandardOutput=journal
+StandardError=journal

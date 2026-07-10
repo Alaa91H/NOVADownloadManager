@@ -1,0 +1,23 @@
+[Unit]
+Description=NOVA Daily Repository Digest
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/NOVA
+Environment=HOME=/home/ubuntu
+Environment=NOVA_PROJECT_DIR=/home/ubuntu/NOVA
+Environment=NOVA_BRANCH=develop
+ExecStart=/usr/bin/python3 /usr/local/lib/nova/daily-digest.py
+Nice=15
+NoNewPrivileges=true
+UMask=0077
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/home/ubuntu/NOVA /var/lib/nova /var/log/nova /tmp
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

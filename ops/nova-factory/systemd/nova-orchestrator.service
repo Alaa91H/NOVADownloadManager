@@ -1,0 +1,22 @@
+[Unit]
+Description=NOVA orchestration coordination pass
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/nova/nova.env
+ExecStart=/usr/local/lib/nova/nova-orchestrator.py cycle --dispatch-limit 2
+User=root
+Group=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/nova /var/log/nova /var/cache/nova /var/backups/nova
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_CHOWN CAP_FOWNER
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

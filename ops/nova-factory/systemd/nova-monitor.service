@@ -1,0 +1,30 @@
+[Unit]
+Description=NOVA Service Monitor
+After=network-online.target nova-dev-agent.service nova-bot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/nova/nova.env
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/usr/local/lib/nova/monitor.sh
+Restart=always
+RestartSec=15
+TimeoutStopSec=20
+CPUQuota=10%
+MemoryAccounting=true
+MemoryMax=128M
+NoNewPrivileges=true
+UMask=0077
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/nova /var/log/nova /tmp
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

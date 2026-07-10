@@ -1,0 +1,12 @@
+[Unit]
+Description=Run NOVA orchestration coordination pass
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=10min
+RandomizedDelaySec=90s
+Persistent=true
+Unit=nova-orchestrator.service
+
+[Install]
+WantedBy=timers.target

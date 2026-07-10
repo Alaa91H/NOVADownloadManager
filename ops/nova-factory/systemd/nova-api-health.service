@@ -1,0 +1,16 @@
+[Unit]
+Description=NOVA API and progress health check
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/nova/nova.env
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+NoNewPrivileges=true
+UMask=0077
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/nova /var/log/nova /tmp
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ExecStart=/usr/local/lib/nova/scripts/api-health.sh

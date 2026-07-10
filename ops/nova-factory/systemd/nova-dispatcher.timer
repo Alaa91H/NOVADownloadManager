@@ -1,0 +1,12 @@
+[Unit]
+Description=Dispatch queued NOVA jobs to remote workers
+
+[Timer]
+OnBootSec=4min
+OnUnitActiveSec=15min
+RandomizedDelaySec=120s
+Persistent=true
+Unit=nova-dispatcher.service
+
+[Install]
+WantedBy=timers.target

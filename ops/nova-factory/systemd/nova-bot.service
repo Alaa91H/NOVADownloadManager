@@ -1,0 +1,33 @@
+[Unit]
+Description=NOVA Telegram Interface
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/NOVA
+EnvironmentFile=-/etc/nova/nova.env
+Environment=HOME=/home/ubuntu
+Environment=PATH=/home/ubuntu/.opencode/bin:/usr/local/lib/nova/blocked-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/usr/bin/python3 /home/ubuntu/NOVA/nova-bot.py
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+KillMode=mixed
+MemoryAccounting=true
+MemoryMax=900M
+UMask=0077
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/home/ubuntu/NOVA /home/ubuntu/.opencode /usr/local/lib/nova /etc/systemd/system /var/lib/nova /var/log/nova /tmp
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

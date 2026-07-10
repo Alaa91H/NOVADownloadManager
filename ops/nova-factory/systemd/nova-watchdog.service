@@ -1,0 +1,20 @@
+[Unit]
+Description=NOVA Emergency Watchdog
+ConditionPathExists=/usr/local/lib/nova/scripts/watchdog.sh
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/nova/nova.env
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/usr/local/lib/nova/scripts/watchdog.sh
+NoNewPrivileges=true
+UMask=0077
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/nova /var/log/nova /tmp
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+StandardOutput=journal
+StandardError=journal

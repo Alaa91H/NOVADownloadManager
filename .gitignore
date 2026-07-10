@@ -166,3 +166,8 @@ nova-*.service
 nova-*.timer
 nova-bot.py.bak-*
 *.bak-*
+
+# Factory self-update package (see ops/nova-factory + UPDATING.md): keep tracked
+# despite operational-name ignore patterns above. Guardian pre-commit exempts this path.
+!ops/nova-factory/
+!ops/nova-factory/**

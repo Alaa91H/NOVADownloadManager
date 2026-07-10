@@ -1,0 +1,42 @@
+[Unit]
+Description=NOVA Continuous Development Controller
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=900
+StartLimitBurst=6
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/NOVA
+EnvironmentFile=-/etc/nova/nova.env
+Environment=HOME=/home/ubuntu
+Environment=PATH=/home/ubuntu/.opencode/bin:/usr/local/lib/nova/blocked-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=NODE_OPTIONS=--max-old-space-size=384
+ExecStartPre=/usr/local/lib/nova/controller-guard.sh
+ExecStart=/usr/local/lib/nova/agent.sh
+Restart=always
+RestartSec=30
+TimeoutStopSec=45
+KillMode=mixed
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+CPUQuota=80%
+MemoryAccounting=true
+MemoryMax=900M
+NoNewPrivileges=true
+UMask=0077
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/home/ubuntu/NOVA /home/ubuntu/.opencode /var/lib/nova /var/log/nova /tmp
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

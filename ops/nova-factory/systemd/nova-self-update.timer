@@ -1,0 +1,12 @@
+[Unit]
+Description=Run NOVA Factory Self-Update periodically
+
+[Timer]
+OnBootSec=20min
+OnCalendar=*-*-* 03,15:20:00
+RandomizedDelaySec=20min
+Persistent=true
+Unit=nova-self-update.service
+
+[Install]
+WantedBy=timers.target
