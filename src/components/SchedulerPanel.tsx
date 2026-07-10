@@ -1,8 +1,10 @@
 /* src/components/SchedulerPanel.tsx */
 import React, { useState } from 'react';
-import { Play, Square, Plus, Trash2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Play, Square, Plus, Trash2, AlertCircle, CheckCircle2, List } from 'lucide-react';
 import { useAppStore } from '../state/appStore';
 import { Button } from './primitives';
+import { EmptyState } from './primitives/EmptyState';
+import { LoadingSpinner } from './primitives/LoadingSpinner';
 import { SchedulerSidebar } from './SchedulerSidebar';
 import { SchedulerFilesTab } from './SchedulerFilesTab';
 import { SchedulerBasicTab } from './SchedulerBasicTab';
@@ -34,7 +36,7 @@ const inferScheduleType = (
 };
 
 export const SchedulerPanel: React.FC = () => {
-  const { tasks, queues, updateQueue, resumeTask, pauseTask, addToast, addQueue, deleteQueue, removeTaskFromQueue, t } =
+  const { tasks, queues, updateQueue, resumeTask, pauseTask, addToast, addQueue, deleteQueue, removeTaskFromQueue, t, isLoading } =
     useAppStore();
 
   const [selectedQueueId, setSelectedQueueId] = useState<string>('main');
@@ -110,10 +112,22 @@ export const SchedulerPanel: React.FC = () => {
     updateQueue,
   ]);
 
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full">
+        <LoadingSpinner size="lg" label={t('sched_loading')} />
+      </div>
+    );
+  }
+
   if (queues.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-3">
-        <p className="text-xs text-[var(--text-secondary)]">{t('sched_no_queues')}</p>
+      <div className="flex flex-col items-center justify-center h-full">
+        <EmptyState
+          icon={List}
+          title={t('sched_no_queues')}
+          description={t('sched_no_queues_desc')}
+        />
       </div>
     );
   }

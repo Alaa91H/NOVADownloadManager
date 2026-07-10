@@ -111,6 +111,7 @@ describe('SchedulerPanel', () => {
     storeRef.current = {
       tasks: mockTasks,
       queues: [mockQueue()],
+      isLoading: false,
       updateQueue: mockUpdateQueue,
       resumeTask: mockResumeTask,
       pauseTask: mockPauseTask,
@@ -232,8 +233,12 @@ describe('SchedulerPanel', () => {
     storeRef.current = {
       tasks: [],
       queues: [],
+      isLoading: false,
       t: (k: string) => {
-        const map: Record<string, string> = { sched_no_queues: 'No queues available' };
+        const map: Record<string, string> = {
+          sched_no_queues: 'No queues available',
+          sched_no_queues_desc: 'Create a download list to organize.',
+        };
         return map[k] || k;
       },
       updateQueue: vi.fn(),
@@ -248,6 +253,31 @@ describe('SchedulerPanel', () => {
 
     render(<SchedulerPanel />);
     expect(screen.getByText('No queues available')).toBeInTheDocument();
+  });
+
+  it('renders loading state when isLoading is true', () => {
+    storeRef.current = {
+      tasks: [],
+      queues: [],
+      isLoading: true,
+      t: (k: string) => {
+        const map: Record<string, string> = {
+          sched_loading: 'Loading download lists...',
+        };
+        return map[k] || k;
+      },
+      updateQueue: vi.fn(),
+      resumeTask: vi.fn(),
+      pauseTask: vi.fn(),
+      addToast: vi.fn(),
+      addQueue: vi.fn(),
+      deleteQueue: vi.fn(),
+      removeTaskFromQueue: vi.fn(),
+      openDialog: vi.fn(),
+    };
+
+    render(<SchedulerPanel />);
+    expect(screen.getByText('Loading download lists...')).toBeInTheDocument();
   });
 
   it('renders with main queue selected by default', () => {
