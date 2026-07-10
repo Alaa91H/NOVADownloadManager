@@ -416,6 +416,11 @@ P26-07-07
   - Branch: `feat/ui-004-component-states`
   - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/19
   - Validation: CI run at https://github.com/Alaa91H/NOVADownloadManager/actions (pending)
+- Cycle 2026-07-10 (round 2 — ESLint gate repair):
+  - **Root cause**: `@typescript-eslint/no-non-null-assertion` at `ContextMenu.test.tsx:55:17` — `.closest('tr')!` used in test assertions.
+  - **Fix**: Removed non-null assertion, replaced with optional chaining and `instanceof` guard. Merged via PR #16 (`9ae665f`).
+  - Dev CI (run 29072080130) failed ESLint gate; subsequent runs 29073388959 and 29074196975 both green — all 11 gates passing.
+  - Validation: Dev CI green (TypeScript ✓, ESLint ✓, Tests ✓, Build ✓, Translations ✓, all browser extension gates ✓).
 
 ### UI-005 — Button & interaction polish pass
 
