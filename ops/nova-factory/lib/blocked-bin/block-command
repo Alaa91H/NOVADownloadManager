@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+cmd="$(basename "$0")"
+cat >&2 <<EOF
+NOVA server policy: '$cmd' is blocked for AI-controlled services.
+This server is orchestrator-only. Run builds, tests, lint, coverage, release,
+packaging, and dependency audits through GitHub Actions instead.
+EOF
+exit 126

@@ -1,0 +1,22 @@
+[Unit]
+Description=NOVA emergency recovery policy check
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/nova/nova.env
+ExecStart=/usr/local/lib/nova/nova-emergency.py check
+User=root
+Group=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/nova /var/log/nova
+CapabilityBoundingSet=CAP_SYS_BOOT
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

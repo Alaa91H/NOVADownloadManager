@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# ============================================================================
+# Repository guardian — commit-msg
+# Rewrites the commit message so it reads as neutral, professional, human
+# maintenance language: strips AI/tool/model references, attribution or
+# co-author trailers, and bot markers. Never blocks; always sanitizes.
+# ============================================================================
+set -uo pipefail
+msg_file="$1"
+[ -f "$msg_file" ] || exit 0
+
+python3 - "$msg_file" <<'PY'
+import re, sys
+
+path = sys.argv[1]
+raw = open(path, encoding="utf-8", errors="replace").read()
+out = []
+for line in raw.split("\n"):
+    low = line.lower()
+    # Drop attribution / co-author / generation trailers entirely.
+    if re.match(r'\s*co-authored-by\s*:', low):
+        continue
+    if re.search(r'(generated|authored|written|created)\s+(with|by)\s+.*(ai|opencode|claude|gpt|copilot|assistant|model|bot)', low):
+        continue
+    if re.match(r'\s*(signed-off-by|assisted-by|reviewed-by)\s*:.*(bot|agent|opencode|claude|gpt|ai)\b', low):
+        continue
+    # Strip tool / model / AI tokens and bot emoji from remaining text.
+    line = re.sub(r'(?i)\b(opencode|claude|anthropic|openai|chatgpt|gpt-?\d+|copilot|codex|as an ai|language model|ai agent|autonomous agent|ai assistant)\b', '', line)
+    line = re.sub(r'[🤖🧠✨]', '', line)
+    # Collapse whitespace left by removals.
+    line = re.sub(r'[ \t]{2,}', ' ', line).rstrip()
+    out.append(line)
+
+msg = "\n".join(out)
+msg = re.sub(r'\n{3,}', '\n\n', msg).strip()
+if not msg or msg.startswith("#"):
+    msg = "chore: update project files"
+open(path, "w", encoding="utf-8").write(msg + "\n")
+PY
+exit 0

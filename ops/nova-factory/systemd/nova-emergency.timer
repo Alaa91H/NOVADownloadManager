@@ -1,0 +1,12 @@
+[Unit]
+Description=Run NOVA emergency recovery checks
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+RandomizedDelaySec=60s
+Persistent=true
+Unit=nova-emergency.service
+
+[Install]
+WantedBy=timers.target

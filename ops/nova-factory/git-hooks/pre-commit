@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# ============================================================================
+# Repository guardian — pre-commit
+# Final gate before a commit is recorded. Two duties:
+#   1. Keep server-only / non-source files out of the repository.
+#   2. Block any secret (private key, token, credential) from being committed.
+# Runs for every commit, including automated ones (hooks are never bypassed).
+# ============================================================================
+set -uo pipefail
+
+staged="$(git diff --cached --name-only --diff-filter=AM 2>/dev/null)"
+[ -z "$staged" ] && exit 0
+
+# --- 1) Server-only / non-source filenames: unstage and continue --------------
+# Exception: ops/nova-factory/ holds the factory self-update package (UPDATING.md);
+# its files intentionally carry operational names and stay tracked. The secret
+# scan below still applies to them in full.
+unstaged=""
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in
+    ops/nova-factory/*) continue ;;
+  esac
+  base="$(basename "$f")"
+  case "$base" in
+    nova-bot.py|nova-bot-update.py|nova-dev-agent.sh|nova-watchdog.py|\
+    AGENTS.md|CONSTITUTION.md|NOVA_SUPREME_PLAN.md|check-server.sh|setup-server.sh|\
+    .agent-state.json|.bot-chats.json|.notif-cursor.json|events.jsonl)
+      git reset -q -- "$f" 2>/dev/null || true; unstaged="$unstaged $f" ;;
+    nova-*.service|nova-*.timer|.notif-*.json|*.bak|*.bak-*|*.log|*.tmp)
+      git reset -q -- "$f" 2>/dev/null || true; unstaged="$unstaged $f" ;;
+  esac
+done <<EOF
+$staged
+EOF
+if [ -n "$unstaged" ]; then
+  echo "guardian: kept server-only files out of the commit:" >&2
+  for f in $unstaged; do echo "  - $f" >&2; done
+fi
+
+# --- 2) Secret scan on staged content: hard block -----------------------------
+diff="$(git diff --cached -U0 --diff-filter=AM 2>/dev/null)"
+added="$(printf '%s\n' "$diff" | grep -E '^\+' || true)"
+
+if printf '%s\n' "$added" | grep -qE 'BEGIN (RSA |OPENSSH |EC |DSA |PGP )?PRIVATE KEY'; then
+  echo "guardian: PRIVATE KEY detected in staged changes — commit blocked." >&2
+  exit 1
+fi
+if printf '%s\n' "$added" | grep -qE 'AKIA[0-9A-Z]{16}'; then
+  echo "guardian: AWS access key detected — commit blocked." >&2
+  exit 1
+fi
+if printf '%s\n' "$added" | grep -qE '[0-9]{8,10}:[A-Za-z0-9_-]{35}'; then
+  echo "guardian: bot/API token detected — commit blocked." >&2
+  exit 1
+fi
+# Credential assignment with a real-looking value (excludes placeholders,
+# test fixtures, and code that merely reads an environment variable).
+cred="$(printf '%s\n' "$added" | grep -iE '(secret|token|passwd|password|api_?key|client_secret)[[:space:]]*[:=][[:space:]]*["'"'"']?[A-Za-z0-9_/+\-]{16,}' || true)"
+cred="$(printf '%s\n' "$cred" | grep -viE 'example|placeholder|dummy|changeme|your[_-]|redacted|sample|fake|<[a-z]|xxxx|test|mock|process\.env|import\.meta|getenv|os\.environ|env\[|\$\{?[A-Z_]+\}?' || true)"
+if [ -n "$cred" ]; then
+  echo "guardian: possible credential assignment detected — commit blocked." >&2
+  echo "guardian: move secrets to the environment file; never commit them." >&2
+  exit 1
+fi
+
+exit 0

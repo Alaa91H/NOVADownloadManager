@@ -1,0 +1,8 @@
+[Unit]
+Description=Run NOVA API/progress health check periodically
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=20min
+Persistent=true
+[Install]
+WantedBy=timers.target

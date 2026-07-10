@@ -1,0 +1,9 @@
+[Unit]
+Description=Fire the NOVA daily repository digest at 22:00 Europe/Berlin
+
+[Timer]
+OnCalendar=*-*-* 22:00:00 Europe/Berlin
+Persistent=true
+
+[Install]
+WantedBy=timers.target

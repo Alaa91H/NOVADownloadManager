@@ -1,0 +1,18 @@
+[Unit]
+Description=NOVA Continuous Development Timer — runs agent every 3 hours
+Requires=nova-dev-agent.service
+
+[Timer]
+OnCalendar=*-*-* 06:00:00
+OnCalendar=*-*-* 09:00:00
+OnCalendar=*-*-* 12:00:00
+OnCalendar=*-*-* 15:00:00
+OnCalendar=*-*-* 18:00:00
+OnCalendar=*-*-* 21:00:00
+OnCalendar=*-*-* 00:00:00
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

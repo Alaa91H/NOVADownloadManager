@@ -1,0 +1,455 @@
+{
+  "name": "nova-factory",
+  "edition": "autonomous-production-orchestrator",
+  "manifest_format": 2,
+  "created_at": "2026-07-08T15:54:00Z",
+  "file_count": 84,
+  "capabilities": [
+    "rbac-telegram-control-plane",
+    "actor-correlated-jsonl-audit",
+    "privileged-admin-boundary",
+    "config-validation-redaction",
+    "health-snapshots",
+    "root-owned-backup-restore-prune",
+    "validated-self-update-rollback",
+    "release-engineering",
+    "ci-read-model",
+    "acceptance-matrix",
+    "shell-free-telegram-read-path",
+    "production-system-snapshot",
+    "runtime-certification",
+    "global-leases-and-inhibitors",
+    "durable-job-queue",
+    "remote-agent-dispatch",
+    "alpha-beta-stable-release-train",
+    "emergency-recovery-policy",
+    "evidence-based-roadmap-scoring",
+    "orchestration-kernel",
+    "state-integrity-quarantine",
+    "deferred-attempt-tracking",
+    "package-validation",
+    "systemd-monitor-watchdog-integration"
+  ],
+  "files": [
+    {
+      "path": "ACCEPTANCE.md",
+      "sha256": "8b1ded459fe94935ec98277a492bbf7e7bf824b6012088ba07f8b2225157f3d2",
+      "bytes": 755
+    },
+    {
+      "path": "ARCHITECTURE.md",
+      "sha256": "02e7d2b16a84d11a56cf682e64afd351d2d167dea756df8657146d0120f5f126",
+      "bytes": 2151
+    },
+    {
+      "path": "BRANCH_POLICY.md",
+      "sha256": "96e2ab06c4a22c92402dc328651833820bd3d6c39e05140f0a53d212de22bb99",
+      "bytes": 2288
+    },
+    {
+      "path": "CI_INTEGRATION.md",
+      "sha256": "862bfd8c7bb6f0baa8b0dd1852377aaaab17d3a9ad2398299f06ee99e07d901e",
+      "bytes": 1319
+    },
+    {
+      "path": "GITHUB_ACTIONS_WORKER.md",
+      "sha256": "c116452a3d628c986dd13a015f54a120aec2b4466563ae69a6614377fa695cd3",
+      "bytes": 3311
+    },
+    {
+      "path": "OPERATIONS.md",
+      "sha256": "7fe6c10c34d73465fb83f6af0895fb15d92390084cebf0d5abbc213fc83c848f",
+      "bytes": 1668
+    },
+    {
+      "path": "ORCHESTRATION.md",
+      "sha256": "396dc1b1eac5999c726cbf223051073744f0347da2b64ea7613ed0c61631704d",
+      "bytes": 4958
+    },
+    {
+      "path": "PRODUCTION_READINESS.md",
+      "sha256": "1215ae6972ec7c133b2983ace758e1bb06a3c2697489b0bcd69d94c4c00baced",
+      "bytes": 3206
+    },
+    {
+      "path": "README.md",
+      "sha256": "9d7684befc5822bdc4052c695116cdd0798f6c56be1dff07618476487a2b2662",
+      "bytes": 13485
+    },
+    {
+      "path": "RELEASE_ENGINEERING.md",
+      "sha256": "fddc5fd20a0d8c64cf2fe9586f09febd072df70144828f6decfb90ced883b616",
+      "bytes": 788
+    },
+    {
+      "path": "ROLLBACK.md",
+      "sha256": "3bef516b19746ec8aacf566eaa6f7022a4b910dbe1abd4b4230413162dc78fc6",
+      "bytes": 777
+    },
+    {
+      "path": "RUNTIME_CERTIFICATION.md",
+      "sha256": "f80f5351f5c59babbddd26e9e2b328cdeae267fbe0fbf8f737db16796bc756c1",
+      "bytes": 1425
+    },
+    {
+      "path": "SECURITY.md",
+      "sha256": "0bdef64bd5e233d1ea3159a327c2c6445f44fbc4daf29ca1773a2a8cf5d82e35",
+      "bytes": 1538
+    },
+    {
+      "path": "TELEGRAM_COMMANDS.md",
+      "sha256": "ecb3a0dc15742b7118b657c565f5b54bd95ae49a50205b0a727f5184f8b669ef",
+      "bytes": 3781
+    },
+    {
+      "path": "UPDATING.md",
+      "sha256": "c8db710057345a4a5332894811ba67e159626394b40fe1b9f4fbe1db1c88db28",
+      "bytes": 974
+    },
+    {
+      "path": "VERSION",
+      "sha256": "e165545aaba3612834d5f053828448304f8803a3a1cbfa4f7673171e7ae452ca",
+      "bytes": 144
+    },
+    {
+      "path": "config/nova.env.example",
+      "sha256": "35b4812b2b62100357b5056b6a3c30e1ed5a0ece5d2e4b57511107c1508f6a54",
+      "bytes": 6978
+    },
+    {
+      "path": "git-hooks/commit-msg",
+      "sha256": "71ed19fc025862425271fd417911d134c9516b002173cd36d314a47140206404",
+      "bytes": 1696
+    },
+    {
+      "path": "git-hooks/pre-commit",
+      "sha256": "801d7ac5299a8342d02b8ac290ce4fc4e4d2709d9d442f2e99280624b724ecd5",
+      "bytes": 3095
+    },
+    {
+      "path": "git-hooks/pre-push",
+      "sha256": "388fff07c9c4d838c80140eb8256e1c0b4c359945c5187017f40fd15bc255e29",
+      "bytes": 1836
+    },
+    {
+      "path": "install.sh",
+      "sha256": "57025668ad5832c23c4ec78d303918c50e52e3a2aac6d3ba3663228401446445",
+      "bytes": 8539
+    },
+    {
+      "path": "lib/agent.sh",
+      "sha256": "4c43adb99f062af42e6f455719650cdfeee2f4a0cb5bb939d3b4f5f38382c6f6",
+      "bytes": 26900
+    },
+    {
+      "path": "lib/blocked-bin/block-command",
+      "sha256": "5a80e7442bd73dcf6ea74880b78a9843dce5c308459243849d163f931352218a",
+      "bytes": 279
+    },
+    {
+      "path": "lib/controller-guard.sh",
+      "sha256": "f16e1dd1c27bb1f4485d9649001b310fd45343540ef1b74a45681593eb4fcebb",
+      "bytes": 1185
+    },
+    {
+      "path": "lib/daily-digest.py",
+      "sha256": "53f9a925398516e9a754063bd49b040051105196f978c440dc6bfbaf88be8c61",
+      "bytes": 4329
+    },
+    {
+      "path": "lib/monitor.sh",
+      "sha256": "96f780428e28fc68827ba790d10d56fe6f52b304231e53ab8db1241f044fe74d",
+      "bytes": 6759
+    },
+    {
+      "path": "lib/nova-acceptance.py",
+      "sha256": "dedd5a5e159678fc62179a413dbe72fb5374253483fbe157c06dec9d3ca4a1fc",
+      "bytes": 3295
+    },
+    {
+      "path": "lib/nova-admin.py",
+      "sha256": "65d2873317cecde7f8d53d92a9fdd1226acda27d93dd11bf86d4d1369b5aef77",
+      "bytes": 29349
+    },
+    {
+      "path": "lib/nova-backup.py",
+      "sha256": "b6905c43eedbd593109ad7b9f6eefac4c3f7f7e76f7d6a6d7522550b63e08a89",
+      "bytes": 9557
+    },
+    {
+      "path": "lib/nova-branch-policy.py",
+      "sha256": "6d72cd85a8a1371bdb99c8e46223e8e49cdcc06dd777a56069099eea863df353",
+      "bytes": 14462
+    },
+    {
+      "path": "lib/nova-ci.py",
+      "sha256": "e1500571bad5519f1a6c618e08f9796671f46102e1e0c09edaffa16018c9cc5b",
+      "bytes": 5014
+    },
+    {
+      "path": "lib/nova-config.py",
+      "sha256": "aba262dfe06725f05e1f389e8bfb7b9ab39b288975ed941912740ffe602c1d01",
+      "bytes": 9353
+    },
+    {
+      "path": "lib/nova-dispatcher.py",
+      "sha256": "b97395b54ebb2aa1a1e623b0a79c20bb9948c76df4e96b1e30c10c16ecb13bd8",
+      "bytes": 9413
+    },
+    {
+      "path": "lib/nova-emergency.py",
+      "sha256": "b125c3bd5d783a15f2fa8e55ce3babf845aef5f3360748a079f0ba65a3e4aeba",
+      "bytes": 6660
+    },
+    {
+      "path": "lib/nova-github-actions-worker.py",
+      "sha256": "2aeb20a87e2558e66b8347f08affe744d8cd74b115aabcb6c375572466ec3dca",
+      "bytes": 18219
+    },
+    {
+      "path": "lib/nova-health.py",
+      "sha256": "da6a5c92425b305b94fe5873972dee23b8c29f2e9e27965dc62cd538db524a4b",
+      "bytes": 9017
+    },
+    {
+      "path": "lib/nova-job-queue.py",
+      "sha256": "b73cb621781d943cd46079cbbb92d309905dddbf65b1103dc8b2c15c1c93ee64",
+      "bytes": 13044
+    },
+    {
+      "path": "lib/nova-lease.py",
+      "sha256": "c886b2d84a7d9c90175b5e3d27c5b00e4cf64968b061da465052a5166c043f75",
+      "bytes": 15239
+    },
+    {
+      "path": "lib/nova-orchestrator.py",
+      "sha256": "c42158ff480f18eae1d7dc0ff4f52f3ea6eb825f6aef15757bbfd5d637a91dba",
+      "bytes": 8177
+    },
+    {
+      "path": "lib/nova-release-train.py",
+      "sha256": "e90127bcd3fc3422536f3daa55afdfc5ff70e6d476ca8ad4d00e26fe2aefa3b6",
+      "bytes": 9498
+    },
+    {
+      "path": "lib/nova-release.py",
+      "sha256": "3cdc7229af330138cad05e806ebd0019af8960e4a41cba0dd7650c90c2222ddb",
+      "bytes": 12084
+    },
+    {
+      "path": "lib/nova-roadmap.py",
+      "sha256": "b0139ccfc33135aa64af617e75c4f5090eec6adf0110e1915eab8a0519da8709",
+      "bytes": 5178
+    },
+    {
+      "path": "lib/nova-runtime-certify.py",
+      "sha256": "b280064b1b66b40653948275b49166fec1f2228e03e139a02cfe645a1d2b2929",
+      "bytes": 6574
+    },
+    {
+      "path": "lib/nova-state.py",
+      "sha256": "b3e2e80410621747359b5823025fe8b572baf8430b1d973a772b9ded9038826a",
+      "bytes": 4845
+    },
+    {
+      "path": "lib/nova-system.py",
+      "sha256": "417a9baa9866d89d11485ff5cbca56f2f574db2f6e22cb80feac07db13ff68df",
+      "bytes": 11211
+    },
+    {
+      "path": "lib/nova-updater.py",
+      "sha256": "36411cd8880906e3a17081c40867afabc9fc3b962606c437f158084394210b4a",
+      "bytes": 23224
+    },
+    {
+      "path": "lib/scripts/analyze.sh",
+      "sha256": "ee8f01b25317f7d1ce90a50131b20a9e67ce6b5ee340995e85c9a23732596607",
+      "bytes": 2578
+    },
+    {
+      "path": "lib/scripts/api-health.sh",
+      "sha256": "793adcc65986fa573e11379a66a219d1bf3937a9af03f9f4257afcc573b2efb8",
+      "bytes": 2572
+    },
+    {
+      "path": "lib/scripts/doctor.sh",
+      "sha256": "8325799319520e43f22301d98c0346bd06945da152086d770151bdbee262219c",
+      "bytes": 6211
+    },
+    {
+      "path": "lib/scripts/maintenance.sh",
+      "sha256": "42929655cefa8429752c8c22551f901ee62cb80d5ed8cde9ee92b92e655c3297",
+      "bytes": 6040
+    },
+    {
+      "path": "lib/scripts/metrics.sh",
+      "sha256": "0bc6f5298e771a7d4aa8c3a185f336c52350e2d49f84cf8b1a5969381d91dc8a",
+      "bytes": 3335
+    },
+    {
+      "path": "lib/scripts/package-validate.sh",
+      "sha256": "aa7a7e3ced30a80df0f7af37302e2bc56a0c0aa89417a4684074641e22283f08",
+      "bytes": 3528
+    },
+    {
+      "path": "lib/scripts/release.sh",
+      "sha256": "4bb9dc0ba9c48de9e6a8992c0429ca26a70cc870e41278886b86aec1d603d438",
+      "bytes": 254
+    },
+    {
+      "path": "lib/scripts/research.sh",
+      "sha256": "5f6f5c3429bc151988b1f5a46e2d908c8bb18d6a199679c586afae6a637b290b",
+      "bytes": 5325
+    },
+    {
+      "path": "lib/scripts/run-tests.sh",
+      "sha256": "730b9c7d5067014447e36fd66834f735ece7027f269aa264f06e72b6dc7b0572",
+      "bytes": 133
+    },
+    {
+      "path": "lib/scripts/self-update.sh",
+      "sha256": "860f7d3836c38126f3c391058c39b70d319b9b7124afda1d6f787eee97dbdbac",
+      "bytes": 426
+    },
+    {
+      "path": "lib/scripts/watchdog.sh",
+      "sha256": "3c85cac9f43a93a6d01e2a9c438f2da8c434ae23f3e9009c55e2ef69cd4e891b",
+      "bytes": 4101
+    },
+    {
+      "path": "repo-overlay/AGENTS.md",
+      "sha256": "735d4e758155c6871dcb65039bc499e23dbea9fa49b65800330c1caece1916ab",
+      "bytes": 8647
+    },
+    {
+      "path": "repo-overlay/CONSTITUTION.md",
+      "sha256": "66d830e54807dbdbcdd3ef928cce6693217170da2b91cd118991bd0cd43672ec",
+      "bytes": 10855
+    },
+    {
+      "path": "repo-overlay/nova-bot-update.py",
+      "sha256": "03f0d771397b092233210b7fa105c7e82af1721ba0c8b4779e1d94c7086b93af",
+      "bytes": 822
+    },
+    {
+      "path": "repo-overlay/nova-bot.py",
+      "sha256": "04b899b05bb7f8c51cca10c11226cfec8718e12b77716c0e583fba7d1858926b",
+      "bytes": 118751
+    },
+    {
+      "path": "repo-overlay/nova-dev-agent.sh",
+      "sha256": "9ffca1ec82e7ea342c0171da0afc7b3e7a83d669bc4537353afcf5b30e50ed61",
+      "bytes": 378
+    },
+    {
+      "path": "repo-overlay/nova-watchdog.py",
+      "sha256": "604e32c4d230a80f9f25ec1e6a517243806ff2f51f876c419dbe79cd4c4d0c64",
+      "bytes": 2838
+    },
+    {
+      "path": "systemd/nova-api-health.service",
+      "sha256": "871fc1dcecc442d44b2cdc79997d11151913dc8d2cf648e09eeabeee16fa496d",
+      "bytes": 481
+    },
+    {
+      "path": "systemd/nova-api-health.timer",
+      "sha256": "79bfe73214f8a770a4429afdc6df8f031d10899201518e9055e84258ec6ee38c",
+      "bytes": 162
+    },
+    {
+      "path": "systemd/nova-bot.service",
+      "sha256": "d99806aa484be77ba08a9f5e1b46d17d2ac8f155423614301663f872c55de82c",
+      "bytes": 922
+    },
+    {
+      "path": "systemd/nova-daily-digest.service",
+      "sha256": "d95a18e73c9c5c0b4ea6c002ba65184a7a19abf1ef3054bc01eef1f2634e91ae",
+      "bytes": 596
+    },
+    {
+      "path": "systemd/nova-daily-digest.timer",
+      "sha256": "52f99634d6c7015d53543a27b47b63c66f4d48c63ec67078d26ccf54251840c2",
+      "bytes": 179
+    },
+    {
+      "path": "systemd/nova-dev-agent.service",
+      "sha256": "615aac27ec2ce52164c5cdbcd98c116f8bbf0ea6f9caa315578d5dc2ce667c62",
+      "bytes": 1121
+    },
+    {
+      "path": "systemd/nova-dev-agent.timer",
+      "sha256": "66f0841d5be60eb9163e760e54347b16461b42a7d202af7d490e3951728b07b6",
+      "bytes": 404
+    },
+    {
+      "path": "systemd/nova-dispatcher.service",
+      "sha256": "dc3ae19aba41088a3c296367545a4f2b8a72dedea36ccebc7d7d4f9503bd1a53",
+      "bytes": 496
+    },
+    {
+      "path": "systemd/nova-dispatcher.timer",
+      "sha256": "93bcdcf09ede69a4a51365b600f2daef2f13e86bdce78744bea1887cf1ece6e6",
+      "bytes": 212
+    },
+    {
+      "path": "systemd/nova-emergency.service",
+      "sha256": "4307774a890473a037106159402a3f127b3faa9b0fa53b94bcdeac8ec7cd51fc",
+      "bytes": 481
+    },
+    {
+      "path": "systemd/nova-emergency.timer",
+      "sha256": "24a929c20b8a27db6cb094e0442e5c9d25cc2295ab558b11dddfd2c23543371f",
+      "bytes": 200
+    },
+    {
+      "path": "systemd/nova-maintenance.service",
+      "sha256": "23186080ce2f267682729d53c184a218dead360485e1d40439035883f19af93d",
+      "bytes": 617
+    },
+    {
+      "path": "systemd/nova-maintenance.timer",
+      "sha256": "235f1d5ee657b0fc2c021e01e65c14195af76ad36bc7327ade9b79433a5264e3",
+      "bytes": 142
+    },
+    {
+      "path": "systemd/nova-monitor.service",
+      "sha256": "df33469995ecea968b5ee8d85c67e13392d97455565e9ce3c9f8ac06b350bf95",
+      "bytes": 732
+    },
+    {
+      "path": "systemd/nova-orchestrator.service",
+      "sha256": "f1a90e5bf798aeacc2c85d952d393816c2497334c0c7e578e37d5f9b85d611c6",
+      "bytes": 562
+    },
+    {
+      "path": "systemd/nova-orchestrator.timer",
+      "sha256": "bb0b34dea277b0d1085dd0aa095002ac4e1cf5012a19372d772be8d4c21f4a72",
+      "bytes": 210
+    },
+    {
+      "path": "systemd/nova-self-update.service",
+      "sha256": "4eed0a683d5861677883eba1bd148954cc577ac69183f34249f19237885ff1f5",
+      "bytes": 712
+    },
+    {
+      "path": "systemd/nova-self-update.timer",
+      "sha256": "ced606cbbb50d1479df373172c5477c1a19240fa94f8d2b9eeb3cc09ec188db8",
+      "bytes": 220
+    },
+    {
+      "path": "systemd/nova-watchdog.service",
+      "sha256": "91a00a6f7794a0995f51e6069551f01b0ce5d7bb2ae08eb6ff09062e60e5d94a",
+      "bytes": 574
+    },
+    {
+      "path": "systemd/nova-watchdog.timer",
+      "sha256": "1a2508ea71950b0d0a7682672cbcc75d2e2a7ed5685a7af6a41c89d1d3384658",
+      "bytes": 160
+    },
+    {
+      "path": "tests/test_static_package.py",
+      "sha256": "69094242ac2e9d8430033aaae2c36aa18e577bcc17240d31c72b44aeaa172cc0",
+      "bytes": 8010
+    }
+  ]
+}
