@@ -420,7 +420,16 @@ P26-07-07
   - **Root cause**: `@typescript-eslint/no-non-null-assertion` at `ContextMenu.test.tsx:55:17` — `.closest('tr')!` used in test assertions.
   - **Fix**: Removed non-null assertion, replaced with optional chaining and `instanceof` guard. Merged via PR #16 (`9ae665f`).
   - Dev CI (run 29072080130) failed ESLint gate; subsequent runs 29073388959 and 29074196975 both green — all 11 gates passing.
-  - Validation: Dev CI green (TypeScript ✓, ESLint ✓, Tests ✓, Build ✓, Translations ✓, all browser extension gates ✓).
+   - Validation: Dev CI green (TypeScript ✓, ESLint ✓, Tests ✓, Build ✓, Translations ✓, all browser extension gates ✓).
+- Cycle 2026-07-10 (round 3 — Loading, empty, error boundaries consolidation):
+  - **SchedulerPanel loading state**: Added LoadingSpinner with `sched_loading` i18n key when `isLoading` is true.
+  - **SchedulerPanel empty state**: Replaced basic text with EmptyState component (`List` icon + description) when no queues exist.
+  - **DialogRoot ErrorBoundary**: Wrapped all dialogs with ErrorBoundary for error resilience during dialog rendering.
+  - **AppShell ErrorBoundary consolidation**: Removed 5 duplicated inline fallbacks — the ErrorBoundary component's built-in i18n fallback is now used consistently across all sections.
+  - **i18n**: Added `sched_loading` and `sched_no_queues_desc` keys to en.ts and ar.ts.
+  - **Tests**: Added loading state test for SchedulerPanel; updated empty queue test to match EmptyState component.
+  - Branch: Dev (direct push)
+  - Validation: CI at https://github.com/Alaa91H/NOVADownloadManager/actions (pending)
 
 ### UI-005 — Button & interaction polish pass
 

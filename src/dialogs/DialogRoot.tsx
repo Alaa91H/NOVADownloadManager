@@ -2,6 +2,7 @@
 import React from 'react';
 import { useAppStore } from '../state/appStore';
 import { Modal } from './Modal';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 // Sub-dialogs imports
 import { AddDownloadDialog } from './download/AddDownloadDialog';
@@ -119,7 +120,9 @@ export default function DialogRoot() {
       size={size}
       id={dialog.active === 'activeProgress' ? 'active-progress-modal' : undefined}
     >
-      {childComponent}
+      <ErrorBoundary>
+        {childComponent}
+      </ErrorBoundary>
     </Modal>
   );
 }
