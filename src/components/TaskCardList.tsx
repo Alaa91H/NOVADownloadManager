@@ -1,10 +1,12 @@
 import React from 'react';
-import { ExternalLink, FolderOpen } from 'lucide-react';
+import { Download, ExternalLink, FolderOpen, SearchX, WifiOff } from 'lucide-react';
 import { DownloadItem } from '../types/desktop-ui.types';
 import { formatBytes } from '../initialData';
 import { formatSpeed, formatTimeLeft } from '../utils/taskTableUtils';
 import TaskCheckboxAndIcon from './primitives/TaskCheckboxAndIcon';
 import { StatusPill } from './primitives';
+import { LoadingSpinner } from './primitives/LoadingSpinner';
+import { EmptyState } from './primitives/EmptyState';
 
 interface TaskCardListProps {
   tasks: DownloadItem[];
@@ -21,6 +23,10 @@ interface TaskCardListProps {
   openTaskLocation: (id: string) => Promise<void>;
   openDialog: (active: string, payload?: unknown) => void;
   t: (key: string, params?: Record<string, string | number>) => string;
+  isLoading?: boolean;
+  isDegradedMode?: boolean;
+  searchQuery?: string;
+  setSearchQuery?: (query: string) => void;
 }
 
 const TaskCardList: React.FC<TaskCardListProps> = ({
@@ -38,11 +44,71 @@ const TaskCardList: React.FC<TaskCardListProps> = ({
   openTaskLocation,
   openDialog,
   t,
+  isLoading = false,
+  isDegradedMode = false,
+  searchQuery = '',
+  setSearchQuery,
 }) => {
+  if (isLoading) {
+    return (
+      <div className="md:hidden p-3 space-y-3">
+        <div className="py-12 text-center">
+          <LoadingSpinner size="lg" label={t('table_loading_tasks')} />
+        </div>
+      </div>
+    );
+  }
+
+  if (isDegradedMode && tasks.length === 0) {
+    return (
+      <div className="md:hidden p-3 space-y-3">
+        <div className="py-12 text-center">
+          <EmptyState
+            icon={WifiOff}
+            title={t('degraded_mode_title')}
+            description={t('degraded_mode_desc')}
+            action={{
+              label: t('degraded_mode_retry'),
+              onClick: () => { window.location.reload(); },
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (tasks.length === 0 && searchQuery) {
+    return (
+      <div className="md:hidden p-3 space-y-3">
+        <div className="py-12 text-center">
+          <EmptyState
+            icon={SearchX}
+            title={t('no_search_results')}
+            description={t('no_search_results_desc')}
+            action={{
+              label: t('no_search_clear'),
+              onClick: () => { setSearchQuery?.(''); },
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   if (tasks.length === 0) {
     return (
       <div className="md:hidden p-3 space-y-3">
-        <div className="py-12 text-center text-[var(--text-muted)] text-xs">{t('no_downloads')}</div>
+        <div className="py-12 text-center">
+          <EmptyState
+            icon={Download}
+            title={t('no_downloads')}
+            description={t('no_downloads_desc')}
+            action={{
+              label: t('no_downloads_action'),
+              onClick: () => { openDialog('addDownload'); },
+            }}
+          />
+        </div>
       </div>
     );
   }

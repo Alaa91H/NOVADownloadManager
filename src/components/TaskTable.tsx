@@ -778,6 +778,10 @@ export const TaskTable: React.FC = () => {
         openTaskLocation={openTaskLocation}
         openDialog={openDialog}
         t={t}
+        isLoading={isLoading}
+        isDegradedMode={isDegradedMode}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
       />
 
       {/* Column Config Panel */}

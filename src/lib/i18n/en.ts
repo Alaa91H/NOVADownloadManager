@@ -602,6 +602,7 @@ export const en: Record<string, string> = {
   shell_retry: 'Retry',
   shell_error_section_title: 'This section encountered an error.',
   shell_error_section_retry: 'Reload Section',
+  shell_error_occurred: 'An unexpected error occurred.',
   shell_drop_title: 'Drop a URL here to start a download',
   shell_drop_desc: 'NOVA will detect the file name, type, and destination automatically.',
   shell_local_file_title: 'Local file ignored',

@@ -21,7 +21,7 @@ import { AppThemeSettings } from '../types/desktop-ui.types';
 import { Logo } from './Logo';
 
 export const Sidebar: React.FC = () => {
-  const { tasks, workspaceView, setWorkspaceView, bridge, themeSettings, updateThemeSettings, openDialog, dialog, t } =
+  const { tasks, workspaceView, setWorkspaceView, bridge, themeSettings, updateThemeSettings, openDialog, dialog, t, isLoading } =
     useAppStore();
 
   const caps = useEngineCapabilities();
@@ -42,6 +42,10 @@ export const Sidebar: React.FC = () => {
     if (filter === 'queued') return tasks.filter((t) => t.status === 'queued').length;
     return tasks.filter((t) => t.fileType === filter).length;
   };
+
+  const SkeletonBadge = () => (
+    <span className="inline-block w-6 h-4 bg-[var(--border-color)] animate-pulse rounded" />
+  );
 
   // Accent colors list
   const accents: Array<{ id: AppThemeSettings['accent']; color: string; label: string }> = [
@@ -134,9 +138,11 @@ export const Sidebar: React.FC = () => {
             <span className="flex items-center gap-1.5">
               <Layers className="w-3.5 h-3.5" /> {t('all_downloads')}
             </span>
-            <span className="bg-[var(--border-color)] px-1.5 py-0.5 rounded text-[10px] font-mono font-bold text-[var(--text-secondary)]">
-              {getTaskCount('all')}
-            </span>
+            {isLoading ? <SkeletonBadge /> : (
+              <span className="bg-[var(--border-color)] px-1.5 py-0.5 rounded text-[10px] font-mono font-bold text-[var(--text-secondary)]">
+                {getTaskCount('all')}
+              </span>
+            )}
           </button>
 
           <button
@@ -148,9 +154,11 @@ export const Sidebar: React.FC = () => {
             <span className="flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5" /> {t('downloading')}
             </span>
-            <span className="bg-[var(--border-color)] px-1.5 py-0.5 rounded text-[10px] font-mono font-bold text-[var(--text-secondary)]">
-              {getTaskCount('unfinished')}
-            </span>
+            {isLoading ? <SkeletonBadge /> : (
+              <span className="bg-[var(--border-color)] px-1.5 py-0.5 rounded text-[10px] font-mono font-bold text-[var(--text-secondary)]">
+                {getTaskCount('unfinished')}
+              </span>
+            )}
           </button>
 
           <button
@@ -162,9 +170,11 @@ export const Sidebar: React.FC = () => {
             <span className="flex items-center gap-1.5">
               <CheckCircle className="w-3.5 h-3.5" /> {t('completed')}
             </span>
-            <span className="bg-[var(--border-color)] px-1.5 py-0.5 rounded text-[10px] font-mono font-bold text-[var(--text-secondary)]">
-              {getTaskCount('finished')}
-            </span>
+            {isLoading ? <SkeletonBadge /> : (
+              <span className="bg-[var(--border-color)] px-1.5 py-0.5 rounded text-[10px] font-mono font-bold text-[var(--text-secondary)]">
+                {getTaskCount('finished')}
+              </span>
+            )}
           </button>
 
           <button
@@ -176,9 +186,11 @@ export const Sidebar: React.FC = () => {
             <span className="flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5" /> {t('queued_downloads')}
             </span>
-            <span className="bg-[var(--border-color)] px-1.5 py-0.5 rounded text-[10px] font-mono font-bold text-[var(--text-secondary)]">
-              {getTaskCount('queued')}
-            </span>
+            {isLoading ? <SkeletonBadge /> : (
+              <span className="bg-[var(--border-color)] px-1.5 py-0.5 rounded text-[10px] font-mono font-bold text-[var(--text-secondary)]">
+                {getTaskCount('queued')}
+              </span>
+            )}
           </button>
         </div>
 
@@ -197,9 +209,11 @@ export const Sidebar: React.FC = () => {
             <span className="flex items-center gap-1.5">
               <Sliders className="w-3.5 h-3.5 text-amber-500" /> {t('compressed')}
             </span>
-            <span className="bg-[var(--border-color)] px-1.5 py-0.5 rounded text-[10px] font-mono text-[var(--text-muted)]">
-              {getTaskCount('compressed')}
-            </span>
+            {isLoading ? <SkeletonBadge /> : (
+              <span className="bg-[var(--border-color)] px-1.5 py-0.5 rounded text-[10px] font-mono text-[var(--text-muted)]">
+                {getTaskCount('compressed')}
+              </span>
+            )}
           </button>
 
           <button
@@ -211,9 +225,11 @@ export const Sidebar: React.FC = () => {
             <span className="flex items-center gap-1.5">
               <Cpu className="w-3.5 h-3.5 text-emerald-500" /> {t('programs')}
             </span>
-            <span className="bg-[var(--border-color)] px-1.5 py-0.5 rounded text-[10px] font-mono text-[var(--text-muted)]">
-              {getTaskCount('program')}
-            </span>
+            {isLoading ? <SkeletonBadge /> : (
+              <span className="bg-[var(--border-color)] px-1.5 py-0.5 rounded text-[10px] font-mono text-[var(--text-muted)]">
+                {getTaskCount('program')}
+              </span>
+            )}
           </button>
 
           <button
@@ -225,9 +241,11 @@ export const Sidebar: React.FC = () => {
             <span className="flex items-center gap-1.5">
               <Film className="w-3.5 h-3.5 text-sky-500" /> {t('videos')}
             </span>
-            <span className="bg-[var(--border-color)] px-1.5 py-0.5 rounded text-[10px] font-mono text-[var(--text-muted)]">
-              {getTaskCount('video')}
-            </span>
+            {isLoading ? <SkeletonBadge /> : (
+              <span className="bg-[var(--border-color)] px-1.5 py-0.5 rounded text-[10px] font-mono text-[var(--text-muted)]">
+                {getTaskCount('video')}
+              </span>
+            )}
           </button>
 
           <button
@@ -239,9 +257,11 @@ export const Sidebar: React.FC = () => {
             <span className="flex items-center gap-1.5">
               <Music className="w-3.5 h-3.5 text-violet-500" /> {t('audio')}
             </span>
-            <span className="bg-[var(--border-color)] px-1.5 py-0.5 rounded text-[10px] font-mono text-[var(--text-muted)]">
-              {getTaskCount('audio')}
-            </span>
+            {isLoading ? <SkeletonBadge /> : (
+              <span className="bg-[var(--border-color)] px-1.5 py-0.5 rounded text-[10px] font-mono text-[var(--text-muted)]">
+                {getTaskCount('audio')}
+              </span>
+            )}
           </button>
 
           <button
@@ -253,9 +273,11 @@ export const Sidebar: React.FC = () => {
             <span className="flex items-center gap-1.5">
               <FileText className="w-3.5 h-3.5 text-red-500" /> {t('documents')}
             </span>
-            <span className="bg-[var(--border-color)] px-1.5 py-0.5 rounded text-[10px] font-mono text-[var(--text-muted)]">
-              {getTaskCount('document')}
-            </span>
+            {isLoading ? <SkeletonBadge /> : (
+              <span className="bg-[var(--border-color)] px-1.5 py-0.5 rounded text-[10px] font-mono text-[var(--text-muted)]">
+                {getTaskCount('document')}
+              </span>
+            )}
           </button>
         </div>
 
