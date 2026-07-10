@@ -428,8 +428,9 @@ P26-07-07
   - **AppShell ErrorBoundary consolidation**: Removed 5 duplicated inline fallbacks — the ErrorBoundary component's built-in i18n fallback is now used consistently across all sections.
   - **i18n**: Added `sched_loading` and `sched_no_queues_desc` keys to en.ts and ar.ts.
   - **Tests**: Added loading state test for SchedulerPanel; updated empty queue test to match EmptyState component.
-  - Branch: Dev (direct push)
-  - Validation: CI at https://github.com/Alaa91H/NOVADownloadManager/actions (pending)
+   - Branch: `feature/ui-004-consolidate`
+   - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/20 (squash-merged to Dev)
+   - Validation: CI at https://github.com/Alaa91H/NOVADownloadManager/actions (pending)
 
 ### UI-005 — Button & interaction polish pass
 
