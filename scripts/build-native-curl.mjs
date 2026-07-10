@@ -46,10 +46,15 @@ function httpsGetJson(url) {
   });
 }
 
+const CURL_DOWNLOAD_HEADERS = {
+  'User-Agent': 'NOVA-NativeCurlBuilder/1.0',
+  Accept: 'application/octet-stream',
+};
+
 function download(url, destination) {
   return new Promise((resolve, reject) => {
     const file = createWriteStream(destination);
-    const req = get(url, { headers: githubHeaders() }, (res) => {
+    const req = get(url, { headers: CURL_DOWNLOAD_HEADERS }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         file.close();
         rmSync(destination, { force: true });

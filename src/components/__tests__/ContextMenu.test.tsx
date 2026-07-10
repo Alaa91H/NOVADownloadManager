@@ -52,12 +52,10 @@ describe('ContextMenu', () => {
   it('does not call onClick for disabled options', () => {
     const onClick = vi.fn();
     renderMenu([{ id: 'disabled', label: 'Disabled Option', disabled: true, onClick }]);
-    const btn = screen.getByText('Disabled Option').closest('button');
+    const btn = screen.getByText('Disabled Option').closest('button')!;
     expect(btn).toBeDefined();
-    if (btn) {
-      expect(btn.className).toContain('opacity-40');
-      fireEvent.click(btn);
-    }
+    expect(btn.className).toContain('opacity-40');
+    fireEvent.click(btn);
     expect(onClick).not.toHaveBeenCalled();
   });
 

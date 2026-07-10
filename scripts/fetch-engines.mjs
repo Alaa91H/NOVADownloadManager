@@ -74,10 +74,15 @@ function httpsGetJson(url) {
   });
 }
 
+const DOWNLOAD_HEADERS = {
+  'User-Agent': 'NOVA-Builder/2.0',
+  Accept: 'application/octet-stream',
+};
+
 function downloadFile(url, destPath) {
   return new Promise((resolve, reject) => {
     const file = createWriteStream(destPath);
-    const req = get(url, { headers: githubApiHeaders() }, (response) => {
+    const req = get(url, { headers: DOWNLOAD_HEADERS }, (response) => {
       if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
         file.close();
         rmSync(destPath, { force: true });
