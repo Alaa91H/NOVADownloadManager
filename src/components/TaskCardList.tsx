@@ -1,11 +1,11 @@
 import React from 'react';
-import { Download, ExternalLink, FolderOpen, SearchX, WifiOff } from 'lucide-react';
+import { Download, ExternalLink, FolderOpen, SearchX, WifiOff, AlertTriangle } from 'lucide-react';
 import { DownloadItem } from '../types/desktop-ui.types';
 import { formatBytes } from '../initialData';
 import { formatSpeed, formatTimeLeft } from '../utils/taskTableUtils';
 import TaskCheckboxAndIcon from './primitives/TaskCheckboxAndIcon';
 import { StatusPill } from './primitives';
-import { LoadingSpinner } from './primitives/LoadingSpinner';
+import { CardSkeleton } from './primitives/CardSkeleton';
 import { EmptyState } from './primitives/EmptyState';
 
 interface TaskCardListProps {
@@ -24,6 +24,7 @@ interface TaskCardListProps {
   openDialog: (active: string, payload?: unknown) => void;
   t: (key: string, params?: Record<string, string | number>) => string;
   isLoading?: boolean;
+  taskError?: string | null;
   isDegradedMode?: boolean;
   searchQuery?: string;
   setSearchQuery?: (query: string) => void;
@@ -45,15 +46,32 @@ const TaskCardList: React.FC<TaskCardListProps> = ({
   openDialog,
   t,
   isLoading = false,
+  taskError = null,
   isDegradedMode = false,
   searchQuery = '',
   setSearchQuery,
 }) => {
   if (isLoading) {
     return (
+      <div className="md:hidden p-3">
+        <CardSkeleton count={4} label={t('table_loading_tasks')} />
+      </div>
+    );
+  }
+
+  if (taskError) {
+    return (
       <div className="md:hidden p-3 space-y-3">
         <div className="py-12 text-center">
-          <LoadingSpinner size="lg" label={t('table_loading_tasks')} />
+          <EmptyState
+            icon={AlertTriangle}
+            title={t('table_error_loading')}
+            description={taskError}
+            action={{
+              label: t('table_error_retry'),
+              onClick: () => { window.location.reload(); },
+            }}
+          />
         </div>
       </div>
     );

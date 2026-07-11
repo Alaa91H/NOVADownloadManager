@@ -446,8 +446,18 @@ P26-07-07
      - **1 file changed, 1 line changed.**
      - Branch: `feature/ui-004-table-skeleton-reconnect`
      - Push: `af056e0` pushed to feature branch at 2026-07-11
-     - Validation: CI at https://github.com/Alaa91H/NOVADownloadManager/actions (pending)
-     - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/33
+      - Validation: CI at https://github.com/Alaa91H/NOVADownloadManager/actions (pending)
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/33
+   - Cycle 2026-07-11 (round 8 — TaskTable/TaskCardList error state, CardSkeleton, ConfirmDialog loading):
+     - **CardSkeleton primitive**: New `src/components/primitives/CardSkeleton.tsx` — animated shimmer cards matching the mobile card layout (icon + title bar + progress lines). Replaces centered LoadingSpinner in TaskCardList for layout-consistent loading feedback.
+     - **TaskCardList loading state**: Updated to render `CardSkeleton` (4 cards) instead of `LoadingSpinner` for initial task load on mobile.
+     - **taskError state**: Added `taskError: string | null` to AppStoreContextType interface, useState in AppStoreProvider, and exposed via context. Set when `syncDownloads()` polling fails; cleared on success.
+     - **TaskTable error state**: New error row between loading and degraded states — renders `EmptyState` with `AlertTriangle` icon, i18n title `table_error_loading`, raw error description, and a retry button (page reload).
+     - **TaskCardList error state**: Same error state pattern as TaskTable, inserted between loading and degraded mode checks.
+     - **ConfirmDialog loading state**: Added `isDeleting` state to prevent double-submit during async `deleteTask` call. Delete button shows `confirm_deleting` text and is disabled; Cancel button also disabled during deletion. Hardcoded "not found" string replaced with `confirm_item_not_found` i18n key.
+     - **i18n**: Added `table_error_loading`, `table_error_retry`, `confirm_item_not_found`, `confirm_deleting` keys to en.ts and ar.ts. Synced to all 132 locales (1269 keys each).
+     - Branch: `feature/ui-004-error-states`
+     - Preflight: brace/paren/bracket balance verified on all changed files (strip strings+JSX method).
 
 ### UI-005 — Button & interaction polish pass
 

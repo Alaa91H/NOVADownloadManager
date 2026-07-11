@@ -38,6 +38,7 @@ interface AppStoreContextType {
   themeSettings: AppThemeSettings;
   toasts: ToastItem[];
   isLoading: boolean;
+  taskError: string | null;
   isDegradedMode: boolean;
   isNotificationsMuted: boolean;
   setIsNotificationsMuted: (muted: boolean) => void;
@@ -251,6 +252,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [activePage, setActivePage] = useState<AppPage>('downloads');
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [taskError, setTaskError] = useState<string | null>(null);
   const settingsRef = useRef(settings);
   const completedTaskIdsRef = useRef<Set<string>>(new Set());
   const hasSyncedDownloadsRef = useRef(false);
@@ -693,9 +695,11 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       try {
         const daemonTasks = await novaClient.listDownloads();
         applyDownloads(daemonTasks);
+        setTaskError(null);
       } catch {
         if (!cancelled && started) {
           setIsDegradedMode(true);
+          setTaskError('Failed to load downloads from the daemon.');
         }
       }
     };
@@ -850,13 +854,14 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       themeSettings,
       toasts,
       isLoading,
+      taskError,
       isDegradedMode,
       isNotificationsMuted,
-      setIsNotificationsMuted,
       t,
       activeProgressMinimizedToTaskbar,
-      setActiveProgressMinimizedToTaskbar,
       minimizedProgressTask,
+      setIsNotificationsMuted,
+      setActiveProgressMinimizedToTaskbar,
       setMinimizedProgressTask,
       setActivePage,
       setWorkspaceView,
@@ -896,6 +901,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       themeSettings,
       toasts,
       isLoading,
+      taskError,
       isDegradedMode,
       isNotificationsMuted,
       t,
@@ -904,6 +910,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       setIsNotificationsMuted,
       setActiveProgressMinimizedToTaskbar,
       setMinimizedProgressTask,
+      setActivePage,
       setWorkspaceView,
       setSearchQuery,
       setSelectedTaskId,

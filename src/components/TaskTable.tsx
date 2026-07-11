@@ -15,6 +15,8 @@ import {
   Download,
   SearchX,
   WifiOff,
+  AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 import { useAppStore } from '../state/appStore';
 import { DownloadItem } from '../types/desktop-ui.types';
@@ -58,6 +60,7 @@ export const TaskTable: React.FC = () => {
     addToast,
     t,
     isLoading,
+    taskError,
     isDegradedMode,
   } = useAppStore();
   const caps = useEngineCapabilities();
@@ -459,6 +462,20 @@ export const TaskTable: React.FC = () => {
                 <TableSkeleton rows={8} columns={Math.min(visibleColsCount, 6)} label={t('table_loading_tasks')} />
               </td>
             </tr>
+          ) : taskError ? (
+            <tr>
+              <td colSpan={visibleColsCount} className="px-4 py-16 text-center">
+                <EmptyState
+                  icon={AlertTriangle}
+                  title={t('table_error_loading')}
+                  description={taskError}
+                  action={{
+                    label: t('table_error_retry'),
+                    onClick: () => { window.location.reload(); },
+                  }}
+                />
+              </td>
+            </tr>
           ) : isDegradedMode && tasks.length === 0 ? (
             <tr>
               <td colSpan={visibleColsCount} className="px-4 py-16 text-center">
@@ -779,6 +796,7 @@ export const TaskTable: React.FC = () => {
         openDialog={openDialog}
         t={t}
         isLoading={isLoading}
+        taskError={taskError}
         isDegradedMode={isDegradedMode}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}

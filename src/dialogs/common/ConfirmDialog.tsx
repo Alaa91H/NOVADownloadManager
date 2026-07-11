@@ -8,6 +8,7 @@ import { DownloadItem } from '../../types/desktop-ui.types';
 export const ConfirmDialog: React.FC = () => {
   const { dialog, closeDialog, deleteTask, t } = useAppStore();
   const [deleteDisk, setDeleteDisk] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const payload = dialog.payload;
   const task: DownloadItem | null =
     payload &&
@@ -20,7 +21,7 @@ export const ConfirmDialog: React.FC = () => {
   if (!task) {
     return (
       <div className="text-center p-4">
-        <p className="text-red-500 text-xs">The download item was not found.</p>
+        <p className="text-red-500 text-xs">{t('confirm_item_not_found')}</p>
         <DialogButton onClick={closeDialog} variant="secondary" className="mt-2">
           {t('btn_close')}
         </DialogButton>
@@ -29,8 +30,13 @@ export const ConfirmDialog: React.FC = () => {
   }
 
   const handleConfirm = async () => {
-    await deleteTask(task.id, deleteDisk);
-    closeDialog();
+    setIsDeleting(true);
+    try {
+      await deleteTask(task.id, deleteDisk);
+      closeDialog();
+    } catch {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -46,7 +52,7 @@ export const ConfirmDialog: React.FC = () => {
           {task.name}
         </div>
 
-        <Checkbox label={t('confirm_delete_disk')} checked={deleteDisk} onChange={setDeleteDisk} />
+        <Checkbox label={t('confirm_delete_disk')} checked={deleteDisk} onChange={setDeleteDisk} disabled={isDeleting} />
       </div>
 
       <div className="flex justify-end gap-2 pt-3 border-t border-[var(--border-color)]">
@@ -56,10 +62,11 @@ export const ConfirmDialog: React.FC = () => {
           }}
           variant="danger"
           icon={Trash2}
+          disabled={isDeleting}
         >
-          {t('action_delete')}
+          {isDeleting ? t('confirm_deleting') : t('action_delete')}
         </DialogButton>
-        <DialogButton onClick={closeDialog} variant="ghost">
+        <DialogButton onClick={closeDialog} variant="ghost" disabled={isDeleting}>
           {t('btn_cancel')}
         </DialogButton>
       </div>
