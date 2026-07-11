@@ -1,0 +1,13 @@
+[Unit]
+Description=NOVA Offsite State Backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/nova/nova.env
+ExecStart=/usr/local/lib/nova/scripts/offsite-backup.sh
+Nice=15
+IOSchedulingClass=idle
+UMask=0077
+PrivateTmp=true

@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily NOVA offsite state backup
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 UTC
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

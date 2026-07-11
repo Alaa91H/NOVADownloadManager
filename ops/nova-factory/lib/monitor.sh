@@ -168,6 +168,50 @@ check_watchdog() {
   fi
 }
 
+check_self_update_result() {
+  # Alert once per new failed self-update (silent nightly failures are how
+  # a broken updater goes unnoticed for days).
+  local status_file="$VAR_DIR/update-status.json" marker="$VAR_DIR/.monitor-update-alerted"
+  [[ -s "$status_file" ]] || return 0
+  local result stamp
+  result="$(python3 - "$status_file" <<'PY' 2>/dev/null || true
+import json, sys
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+    print(d.get("last_result", ""), d.get("updated_at", ""))
+except Exception:
+    pass
+PY
+)"
+  stamp="${result#* }"
+  result="${result%% *}"
+  case "$result" in
+    rolled-back|rollback-failed|failed)
+      if [[ "$(cat "$marker" 2>/dev/null || true)" != "$stamp" ]]; then
+        printf '%s' "$stamp" > "$marker"
+        log "ERROR" "self-update $result at $stamp"
+        send_alert "self-update $result at $stamp — check: nova-admin.py update status"
+      fi
+      ;;
+  esac
+}
+
+check_failed_units() {
+  # Oneshot timers (dispatcher, orchestrator, emergency, self-update) are not
+  # supervised elsewhere; surface any failed nova unit exactly once per episode.
+  local failed marker="$VAR_DIR/.monitor-failed-units"
+  failed="$(systemctl --failed --plain --no-legend 2>/dev/null | awk '{print $1}' | grep '^nova-' | sort | tr '\n' ' ' || true)"
+  local previous
+  previous="$(cat "$marker" 2>/dev/null || true)"
+  if [[ "$failed" != "$previous" ]]; then
+    printf '%s' "$failed" > "$marker"
+    if [[ -n "$failed" ]]; then
+      log "ERROR" "failed units: $failed"
+      send_alert "failed units: $failed"
+    fi
+  fi
+}
+
 resource_guard() {
   local mem_pct load cores load_int
   mem_pct=$(free | awk 'NR==2{printf "%.0f", $3*100/$2}')
@@ -222,6 +266,8 @@ while true; do
   check_watchdog
   check_controller
   check_telegram_interface
+  check_self_update_result
+  check_failed_units
   resource_guard
   write_state
   write_health_snapshot

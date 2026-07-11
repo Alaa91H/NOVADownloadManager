@@ -7,10 +7,17 @@ set -u
 
 LIB=/usr/local/lib/nova
 AGENT="$LIB/agent.sh"
-GOOD="$LIB/agent.sh.lastgood"
+# Snapshot lives under /var/lib/nova: /usr is read-only for the service
+# (ProtectSystem=full), while /var/lib/nova is in ReadWritePaths.
+GOOD=/var/lib/nova/agent.sh.lastgood
+LEGACY_GOOD="$LIB/agent.sh.lastgood"
 LOG=/var/log/nova/nova-guard.log
 
-mkdir -p /var/log/nova 2>/dev/null || true
+mkdir -p /var/log/nova /var/lib/nova 2>/dev/null || true
+# One-time migration from the legacy read-only location.
+if [[ ! -f "$GOOD" && -f "$LEGACY_GOOD" ]]; then
+  cp -f "$LEGACY_GOOD" "$GOOD" 2>/dev/null || true
+fi
 ts() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
 
 if [[ ! -f "$AGENT" ]]; then

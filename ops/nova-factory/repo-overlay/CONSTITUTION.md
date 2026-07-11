@@ -58,6 +58,12 @@ NOVA Download Manager repository. Every cycle is bound by it. Where the runbook
   preserve these guards.
 - On CI failure: fetch the failure log, fix the root cause, push, move on. One repair
   attempt per cycle; do not thrash. Escalate after repeated identical failures.
+- **Three-attempt limit (absolute).** No task, fix, or repair may be attempted more
+  than **three times**. After the third failed attempt: stop, mark the task
+  `BLOCKED` in `Plan.md` with a one-line diagnosis, record the failure pattern in
+  durable memory, and move on to the next task. A blocked task is only retried when
+  its underlying cause has demonstrably changed (new push, dependency update, or an
+  explicit maintainer instruction). Retry loops are a P0 defect in themselves.
 - On resource pressure: cool down; never spawn parallel heavy work.
 - The runtime timeout is a safety net, not a workflow step. A cycle should complete
   well within it — never run to the wall.
@@ -144,6 +150,24 @@ program step per cycle; a red develop preempts all of them.
     generates a fresh prioritized backlog (20+ tasks) in `Plan.md`; the cycle never idles.
 13. **Operational reporting.** The daily digest reports cycles executed, repairs,
     improvements applied, and the security/performance posture to the administrator channel.
+
+### Article XIII — Fresh-State Planning (maintainer uploads reset the world)
+- A push authored by the maintainer is a **hard reset signal**. The repository state
+  after that push is the only source of truth; nothing planned before it survives on
+  inertia.
+- On detecting a maintainer upload, the system must:
+  1. Synchronize the working copy to the pushed state exactly (discarding stale local
+     edits from earlier cycles; a fresh clone and an exact hard sync are equivalent).
+  2. Re-run the deep architectural analysis against the **current** state of the
+     project — never against cached knowledge of how the project used to be.
+  3. Rebuild `Plan.md` from scratch out of that analysis, deleting old tasks wholesale.
+     A task from the previous plan may reappear only if the fresh analysis
+     independently rediscovers it.
+  4. Reset repair-attempt counters and in-flight work; abandoned intermediate state is
+     discarded, not merged.
+- Rationale: plans rot the moment the maintainer changes the project under them.
+  Continuing a stale plan wastes cycles on problems that no longer exist and misses
+  the problems that now do.
 
 ### Article IX — Canonical Locations
 | Purpose | Path |

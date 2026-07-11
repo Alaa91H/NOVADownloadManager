@@ -3,7 +3,7 @@
   "edition": "autonomous-production-orchestrator",
   "manifest_format": 2,
   "created_at": "2026-07-08T15:54:00Z",
-  "file_count": 84,
+  "file_count": 87,
   "capabilities": [
     "rbac-telegram-control-plane",
     "actor-correlated-jsonl-audit",
@@ -108,13 +108,13 @@
     },
     {
       "path": "VERSION",
-      "sha256": "e165545aaba3612834d5f053828448304f8803a3a1cbfa4f7673171e7ae452ca",
-      "bytes": 144
+      "sha256": "70529ccddd3deac956419f188c6db944981bdc04702ec95ba5e7f641991d59d1",
+      "bytes": 166
     },
     {
       "path": "config/nova.env.example",
-      "sha256": "35b4812b2b62100357b5056b6a3c30e1ed5a0ece5d2e4b57511107c1508f6a54",
-      "bytes": 6978
+      "sha256": "d3f1614b36bf41d215b8175e4ca2432e6461b96700cf655f89c721c1bafe7e1f",
+      "bytes": 7292
     },
     {
       "path": "git-hooks/commit-msg",
@@ -148,8 +148,8 @@
     },
     {
       "path": "lib/controller-guard.sh",
-      "sha256": "f16e1dd1c27bb1f4485d9649001b310fd45343540ef1b74a45681593eb4fcebb",
-      "bytes": 1185
+      "sha256": "d625172cf660f7a143b776a04966051f69630458c42420e426dd221badc289c2",
+      "bytes": 1541
     },
     {
       "path": "lib/daily-digest.py",
@@ -158,8 +158,8 @@
     },
     {
       "path": "lib/monitor.sh",
-      "sha256": "96f780428e28fc68827ba790d10d56fe6f52b304231e53ab8db1241f044fe74d",
-      "bytes": 6759
+      "sha256": "967b95b1fff4437fd6945fc818172fe6797545896294fec6d5dfdbd82017c1e6",
+      "bytes": 8378
     },
     {
       "path": "lib/nova-acceptance.py",
@@ -258,8 +258,8 @@
     },
     {
       "path": "lib/nova-updater.py",
-      "sha256": "36411cd8880906e3a17081c40867afabc9fc3b962606c437f158084394210b4a",
-      "bytes": 23224
+      "sha256": "7e471d59ff587136734670008830c10e01420ac7b6bafec0ebe7c54d9c7c09ac",
+      "bytes": 23282
     },
     {
       "path": "lib/scripts/analyze.sh",
@@ -285,6 +285,11 @@
       "path": "lib/scripts/metrics.sh",
       "sha256": "0bc6f5298e771a7d4aa8c3a185f336c52350e2d49f84cf8b1a5969381d91dc8a",
       "bytes": 3335
+    },
+    {
+      "path": "lib/scripts/offsite-backup.sh",
+      "sha256": "8991fc93b8be068bcfe7f4486f94271d46053964408ae53b3c446d8fad1df490",
+      "bytes": 2257
     },
     {
       "path": "lib/scripts/package-validate.sh",
@@ -323,8 +328,8 @@
     },
     {
       "path": "repo-overlay/CONSTITUTION.md",
-      "sha256": "66d830e54807dbdbcdd3ef928cce6693217170da2b91cd118991bd0cd43672ec",
-      "bytes": 10855
+      "sha256": "e74e0c82d5fcb5e361d3037650732f9bfdcdee56cee125ede10b7977be7e2811",
+      "bytes": 12496
     },
     {
       "path": "repo-overlay/nova-bot-update.py",
@@ -415,6 +420,16 @@
       "path": "systemd/nova-monitor.service",
       "sha256": "df33469995ecea968b5ee8d85c67e13392d97455565e9ce3c9f8ac06b350bf95",
       "bytes": 732
+    },
+    {
+      "path": "systemd/nova-offsite-backup.service",
+      "sha256": "bff5f2e75eadef610c01ff44215c0fd12ccb05aaeb2ac6175a5035a5c692d639",
+      "bytes": 275
+    },
+    {
+      "path": "systemd/nova-offsite-backup.timer",
+      "sha256": "8258da31f44f836be10df308ad79724e8e68d78afd9b25ea7f0c95355620d0ed",
+      "bytes": 163
     },
     {
       "path": "systemd/nova-orchestrator.service",

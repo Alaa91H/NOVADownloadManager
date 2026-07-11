@@ -47,6 +47,7 @@ SERVICE_ALLOWLIST = {
     "nova-dispatcher.timer",
     "nova-emergency.service",
     "nova-emergency.timer",
+    "nova-offsite-backup.timer",
 }
 REPO_OVERLAY_FILES = {
     "nova-bot.py",
@@ -61,6 +62,7 @@ SCRIPT_NAMES = {
     "api-health.sh",
     "maintenance.sh",
     "metrics.sh",
+    "offsite-backup.sh",
     "research.sh",
     "self-update.sh",
     "watchdog.sh",
