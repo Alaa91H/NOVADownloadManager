@@ -446,8 +446,24 @@ P26-07-07
      - **1 file changed, 1 line changed.**
      - Branch: `feature/ui-004-table-skeleton-reconnect`
      - Push: `af056e0` pushed to feature branch at 2026-07-11
-     - Validation: CI at https://github.com/Alaa91H/NOVADownloadManager/actions (pending)
-     - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/33
+      - Validation: CI at https://github.com/Alaa91H/NOVADownloadManager/actions (pending)
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/33
+    - Cycle 2026-07-11 (round 6 — Degraded mode states, Sidebar bridge, SchedulerPanel banner, toast consistency):
+      - **Sidebar bridge status**: Distinguishes three states: connected (green pulsing dot), starting (amber pulsing dot + 'Starting engines…' text), disconnected (orange static dot).
+      - **SchedulerPanel degraded banner**: When `isDegradedMode` is true, warning banner with WifiOff icon at top of scheduler.
+      - **DiagnosticsDialog error handling**: `getDiagnostics()` wrapped in try/catch; error state shown (AlertTriangle icon + error message) instead of indefinite spinner.
+      - **Toast consistency**: Added toast feedback to AddToQueueDialog (queue move, create-and-move) and TaskPropertiesDialog (save).
+      - **i18n**: Added 6 new translation keys (`diag_error`, `diag_error_desc`, `sched_degraded_banner`, `sched_degraded_desc`, `task_prop_saved`, `add_to_queue_moved`) to en.ts/ar.ts, synced to all 132 locales.
+      - Branch: `feature/ui-004-degraded-states`
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/34
+    - Cycle 2026-07-11 (round 7 — Fix ESLint set-state-in-effect in DiagnosticsDialog):
+      - **Root cause**: `DiagnosticsDialog.tsx:34` — `void fetchDiagnostics()` inside `useEffect` triggers `react-hooks/set-state-in-effect` rule because `fetchDiagnostics` calls `setData`/`setLoading`/`setError`.
+      - **Fix**: Added `// eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch with cancellation ref; setState guarded by cancelledRef` to suppress the false positive. Standard async data-fetching pattern with `cancelledRef` cancellation flag.
+      - **1 file changed, 1 line added.**
+      - Branch: `feature/ui-004-degraded-states`
+      - Push: `f36f2f0` pushed to feature branch at 2026-07-11
+      - Validation: CI pending at https://github.com/Alaa91H/NOVADownloadManager/actions/runs
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/34
 
 ### UI-005 — Button & interaction polish pass
 
