@@ -1,6 +1,6 @@
 /* src/components/SchedulerPanel.tsx */
 import React, { useState } from 'react';
-import { Play, Square, Plus, Trash2, AlertCircle, CheckCircle2, List } from 'lucide-react';
+import { Play, Square, Plus, Trash2, AlertCircle, CheckCircle2, List, WifiOff } from 'lucide-react';
 import { useAppStore } from '../state/appStore';
 import { Button } from './primitives';
 import { EmptyState } from './primitives/EmptyState';
@@ -36,7 +36,7 @@ const inferScheduleType = (
 };
 
 export const SchedulerPanel: React.FC = () => {
-  const { tasks, queues, updateQueue, resumeTask, pauseTask, addToast, addQueue, deleteQueue, removeTaskFromQueue, t, isLoading } =
+  const { tasks, queues, updateQueue, resumeTask, pauseTask, addToast, addQueue, deleteQueue, removeTaskFromQueue, t, isLoading, isDegradedMode } =
     useAppStore();
 
   const [selectedQueueId, setSelectedQueueId] = useState<string>('main');
@@ -299,6 +299,15 @@ export const SchedulerPanel: React.FC = () => {
 
   return (
     <div className={`flex flex-col h-full min-h-0 text-left`} dir={'ltr'}>
+      {/* Degraded mode banner */}
+      {isDegradedMode && (
+        <div className="flex items-center gap-2 px-3 py-2 mb-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[11px] text-amber-500">
+          <WifiOff className="w-4 h-4 shrink-0" />
+          <span className="font-semibold">{t('sched_degraded')}</span>
+          <span className="text-[var(--text-muted)]">{t('sched_degraded_desc')}</span>
+        </div>
+      )}
+
       {/* 1. QUEUE CONTROLS ROW (page header carries the title) */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-end border-b border-[var(--border-color)] pb-3 mb-4 gap-3">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">

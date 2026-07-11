@@ -17,6 +17,7 @@ export const AddToQueueDialog: React.FC = () => {
       return;
     }
     moveTaskToQueue(task.id, queueId);
+    addToast('success', t('toast_success_title'), t('queue_toast_moved'));
     closeDialog();
   };
 
@@ -26,6 +27,7 @@ export const AddToQueueDialog: React.FC = () => {
       return;
     }
     createQueueAndMoveTask(newQueueName.trim(), task.id);
+    addToast('success', t('toast_success_title'), t('queue_toast_created_and_moved'));
     closeDialog();
   };
 

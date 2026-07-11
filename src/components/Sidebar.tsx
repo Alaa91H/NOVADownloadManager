@@ -79,11 +79,21 @@ export const Sidebar: React.FC = () => {
         >
           <div className="flex items-center gap-2">
             <span
-              className={`w-2 h-2 rounded-full ${bridge.status === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-orange-500'}`}
+              className={`w-2 h-2 rounded-full ${
+                bridge.status === 'connected'
+                  ? 'bg-emerald-500 animate-pulse'
+                  : bridge.status === 'degraded'
+                    ? 'bg-amber-500 animate-pulse'
+                    : 'bg-orange-500'
+              }`}
             />
             <div className="text-[10px]">
               <span className="font-semibold block text-[var(--text-primary)]">
-                {bridge.status === 'connected' ? t('daemon_bridge_connected') : t('daemon_bridge_disconnected')}
+                {bridge.status === 'connected'
+                  ? t('daemon_bridge_connected')
+                  : bridge.status === 'degraded'
+                    ? t('daemon_bridge_degraded')
+                    : t('daemon_bridge_disconnected')}
               </span>
               <span className="text-[9px] text-[var(--text-muted)] font-mono">{bridge.version || '--'}</span>
             </div>
