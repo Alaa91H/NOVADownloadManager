@@ -437,7 +437,8 @@ P26-07-07
      - **StatusBar reconnection indicator**: When `isDegradedMode` is true, the daemon status button now shows a pulsing `Server` icon with "Reconnecting…" text label. When the daemon badge is hidden but degraded, the `AlertTriangle` fallback also shows the reconnecting text.
      - **TopBar degraded mode gating**: Added `isDegradedMode` to the store destructuring. New Download, Resume, Stop, and Delete buttons are now disabled with `disabled:opacity-40` styling when the daemon is unreachable. Tooltip shows the degraded mode description.
      - **i18n**: Added `statusbar_reconnecting` key to en.ts and ar.ts. Synced to all 131 non-English locales (1265 keys each).
-     - Branch: `feat/ui-004-table-skeleton-reconnect`
+     - Branch: `feature/ui-004-table-skeleton-reconnect`
+     - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/33
      - Preflight: brace/paren/bracket balance verified on all changed files.
 
 ### UI-005 — Button & interaction polish pass
