@@ -439,7 +439,15 @@ P26-07-07
      - **i18n**: Added `statusbar_reconnecting` key to en.ts and ar.ts. Synced to all 131 non-English locales (1265 keys each).
      - Branch: `feature/ui-004-table-skeleton-reconnect`
      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/33
-     - Preflight: brace/paren/bracket balance verified on all changed files.
+      - Preflight: brace/paren/bracket balance verified on all changed files.
+   - Cycle 2026-07-11 (round 5 — Fix ErrorBoundary test for i18n retry button):
+     - **Root cause**: `ErrorBoundary.test.tsx` line 60 used hardcoded `'Retry'` string but the component now renders the i18n key `shell_error_section_retry` → `'Reload Section'`.
+     - **Fix**: Updated `fireEvent.click(screen.getByText('Retry'))` → `fireEvent.click(screen.getByText('Reload Section'))`. Other assertions (title, fallback message) were already updated to i18n values.
+     - **1 file changed, 1 line changed.**
+     - Branch: `feature/ui-004-table-skeleton-reconnect`
+     - Push: `af056e0` pushed to feature branch at 2026-07-11
+     - Validation: CI at https://github.com/Alaa91H/NOVADownloadManager/actions (pending)
+     - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/33
 
 ### UI-005 — Button & interaction polish pass
 
