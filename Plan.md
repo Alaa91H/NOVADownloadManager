@@ -355,7 +355,7 @@ P26-07-07
 - Priority: high
 - Type: feat
 - Started: pending
-- Completed: pending
+P26-07-11
 - Blocked by: Requires `@dnd-kit/core` + `@dnd-kit/sortable` dependency install (forbidden on orchestrator node). Delegate to CI: add deps to package.json and let CI resolve. Unblock after CI-002 (E2E GitHub Actions workflow) is set up.
 - Objective:
   - Implement drag & drop functionality: reorder tasks in queue, move tasks between queues, reorder queues in scheduler sidebar, rearrange columns in task table.
@@ -386,7 +386,7 @@ P26-07-07
 
 ### UI-004 — Consistent component states (loading, empty, error, offline)
 
-- Status: `[/] IN_PROGRESS`
+- Status: `[x] COMPLETED`
 - Priority: high
 - Type: refactor
 - Started: 2026-07-09
