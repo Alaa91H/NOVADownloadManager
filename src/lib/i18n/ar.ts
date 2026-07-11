@@ -663,6 +663,7 @@ export const ar: Record<string, string> = {
   'statusbar_degraded_title': 'الوضع المتدهور',
   'statusbar_degraded_desc': 'محركات التنزيل ليست جاهزة بالكامل. قد تكون بعض الميزات غير متوفرة.',
   'statusbar_degraded_tip': 'الخدمة في الوضع المنخفض — انقر للحصول على التفاصيل',
+  'statusbar_reconnecting': 'إعادة الاتصال…',
   'statusbar_restore_progress_tip': 'نافذة التقدم (انقر للاستعادة)',
   'statusbar_notifications_title': 'الإشعارات',
   'statusbar_notifications_on': 'تم تمكين الإشعارات.',

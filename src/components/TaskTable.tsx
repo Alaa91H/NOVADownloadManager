@@ -23,7 +23,7 @@ import { ContextMenu, ContextMenuOption } from './primitives/ContextMenu';
 import TaskCheckboxAndIcon from './primitives/TaskCheckboxAndIcon';
 import TaskCardList from './TaskCardList';
 import ColumnConfigPanel from './ColumnConfigPanel';
-import { LoadingSpinner } from './primitives/LoadingSpinner';
+import { TableSkeleton } from './primitives/TableSkeleton';
 import { EmptyState } from './primitives/EmptyState';
 import { useColumnState } from '../hooks/useColumnState';
 import { useMultiSelection } from '../hooks/useMultiSelection';
@@ -455,8 +455,8 @@ export const TaskTable: React.FC = () => {
         <tbody>
           {isLoading ? (
             <tr>
-              <td colSpan={visibleColsCount} className="px-4 py-24 text-center">
-                <LoadingSpinner size="lg" label={t('table_loading_tasks')} />
+              <td colSpan={visibleColsCount} className="px-4 py-8">
+                <TableSkeleton rows={8} columns={Math.min(visibleColsCount, 6)} label={t('table_loading_tasks')} />
               </td>
             </tr>
           ) : isDegradedMode && tasks.length === 0 ? (

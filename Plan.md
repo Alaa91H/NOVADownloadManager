@@ -421,16 +421,33 @@ P26-07-07
   - **Fix**: Removed non-null assertion, replaced with optional chaining and `instanceof` guard. Merged via PR #16 (`9ae665f`).
   - Dev CI (run 29072080130) failed ESLint gate; subsequent runs 29073388959 and 29074196975 both green — all 11 gates passing.
    - Validation: Dev CI green (TypeScript ✓, ESLint ✓, Tests ✓, Build ✓, Translations ✓, all browser extension gates ✓).
-- Cycle 2026-07-10 (round 3 — Loading, empty, error boundaries consolidation):
-  - **SchedulerPanel loading state**: Added LoadingSpinner with `sched_loading` i18n key when `isLoading` is true.
-  - **SchedulerPanel empty state**: Replaced basic text with EmptyState component (`List` icon + description) when no queues exist.
-  - **DialogRoot ErrorBoundary**: Wrapped all dialogs with ErrorBoundary for error resilience during dialog rendering.
-  - **AppShell ErrorBoundary consolidation**: Removed 5 duplicated inline fallbacks — the ErrorBoundary component's built-in i18n fallback is now used consistently across all sections.
-  - **i18n**: Added `sched_loading` and `sched_no_queues_desc` keys to en.ts and ar.ts.
-  - **Tests**: Added loading state test for SchedulerPanel; updated empty queue test to match EmptyState component.
-   - Branch: `feature/ui-004-consolidate`
-   - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/20 (squash-merged to Dev)
-   - Validation: CI at https://github.com/Alaa91H/NOVADownloadManager/actions (pending)
+   - Cycle 2026-07-10 (round 3 — Loading, empty, error boundaries consolidation):
+   - **SchedulerPanel loading state**: Added LoadingSpinner with `sched_loading` i18n key when `isLoading` is true.
+   - **SchedulerPanel empty state**: Replaced basic text with EmptyState component (`List` icon + description) when no queues exist.
+   - **DialogRoot ErrorBoundary**: Wrapped all dialogs with ErrorBoundary for error resilience during dialog rendering.
+   - **AppShell ErrorBoundary consolidation**: Removed 5 duplicated inline fallbacks — the ErrorBoundary component's built-in i18n fallback is now used consistently across all sections.
+   - **i18n**: Added `sched_loading` and `sched_no_queues_desc` keys to en.ts and ar.ts.
+   - **Tests**: Added loading state test for SchedulerPanel; updated empty queue test to match EmptyState component.
+    - Branch: `feature/ui-004-consolidate`
+    - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/20 (squash-merged to Dev)
+    - Validation: CI at https://github.com/Alaa91H/NOVADownloadManager/actions (pending)
+   - Cycle 2026-07-11 (round 4 — Table skeleton, StatusBar reconnect, TopBar degraded gating):
+     - **TableSkeleton primitive**: New `src/components/primitives/TableSkeleton.tsx` — animated shimmer rows matching table column layout (8 rows × 6 columns). Replaces centered LoadingSpinner in TaskTable for higher-fidelity loading state.
+     - **TaskTable loading state**: Updated to render `TableSkeleton` instead of `LoadingSpinner` for initial task load.
+     - **StatusBar reconnection indicator**: When `isDegradedMode` is true, the daemon status button now shows a pulsing `Server` icon with "Reconnecting…" text label. When the daemon badge is hidden but degraded, the `AlertTriangle` fallback also shows the reconnecting text.
+     - **TopBar degraded mode gating**: Added `isDegradedMode` to the store destructuring. New Download, Resume, Stop, and Delete buttons are now disabled with `disabled:opacity-40` styling when the daemon is unreachable. Tooltip shows the degraded mode description.
+     - **i18n**: Added `statusbar_reconnecting` key to en.ts and ar.ts. Synced to all 131 non-English locales (1265 keys each).
+     - Branch: `feature/ui-004-table-skeleton-reconnect`
+     - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/33
+      - Preflight: brace/paren/bracket balance verified on all changed files.
+   - Cycle 2026-07-11 (round 5 — Fix ErrorBoundary test for i18n retry button):
+     - **Root cause**: `ErrorBoundary.test.tsx` line 60 used hardcoded `'Retry'` string but the component now renders the i18n key `shell_error_section_retry` → `'Reload Section'`.
+     - **Fix**: Updated `fireEvent.click(screen.getByText('Retry'))` → `fireEvent.click(screen.getByText('Reload Section'))`. Other assertions (title, fallback message) were already updated to i18n values.
+     - **1 file changed, 1 line changed.**
+     - Branch: `feature/ui-004-table-skeleton-reconnect`
+     - Push: `af056e0` pushed to feature branch at 2026-07-11
+     - Validation: CI at https://github.com/Alaa91H/NOVADownloadManager/actions (pending)
+     - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/33
 
 ### UI-005 — Button & interaction polish pass
 

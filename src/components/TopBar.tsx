@@ -38,6 +38,7 @@ export const TopBar: React.FC = () => {
     updateSettings,
     isNotificationsMuted,
     setIsNotificationsMuted,
+    isDegradedMode,
     t,
   } = useAppStore();
 
@@ -274,14 +275,16 @@ export const TopBar: React.FC = () => {
                   }
                   openDialog('addDownload');
                 }}
-                disabled={!caps.directReady && !caps.mediaReady}
+                disabled={isDegradedMode || (!caps.directReady && !caps.mediaReady)}
                 className="px-3 py-1.5 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-white font-extrabold transition-all cursor-pointer flex items-center gap-1.5 text-xs border-r border-white/15 disabled:opacity-40 disabled:cursor-not-allowed"
                 title={
-                  !caps.directReady && !caps.mediaReady
-                    ? caps.loading
-                      ? t('engine_caps_loading')
-                      : caps.error || t('engine_no_engine')
-                    : t('topbar_new_download_tip')
+                  isDegradedMode
+                    ? t('statusbar_degraded_desc')
+                    : !caps.directReady && !caps.mediaReady
+                      ? caps.loading
+                        ? t('engine_caps_loading')
+                        : caps.error || t('engine_no_engine')
+                      : t('topbar_new_download_tip')
                 }
               >
                 {renderButtonContent(
@@ -405,8 +408,9 @@ export const TopBar: React.FC = () => {
                     handleResumeAll();
                   }
                 }}
-                className="px-3 py-1.5 text-[var(--text-secondary)] hover:text-emerald-400 hover:bg-emerald-500/10 transition-all cursor-pointer flex items-center gap-1 text-xs font-bold"
-                title={hasSelectedTask ? t('topbar_resume_selected_tip') : t('topbar_resume_all_tip')}
+                disabled={isDegradedMode}
+                className="px-3 py-1.5 text-[var(--text-secondary)] hover:text-emerald-400 hover:bg-emerald-500/10 transition-all cursor-pointer flex items-center gap-1 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+                title={isDegradedMode ? t('statusbar_degraded_desc') : hasSelectedTask ? t('topbar_resume_selected_tip') : t('topbar_resume_all_tip')}
               >
                 {renderButtonContent(
                   'resume',
@@ -474,8 +478,9 @@ export const TopBar: React.FC = () => {
                     handleStopAll();
                   }
                 }}
-                className="px-3 py-1.5 text-[var(--text-secondary)] hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer flex items-center gap-1 text-xs font-bold"
-                title={hasSelectedTask ? t('topbar_stop_selected_tip') : t('topbar_stop_all_tip')}
+                disabled={isDegradedMode}
+                className="px-3 py-1.5 text-[var(--text-secondary)] hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer flex items-center gap-1 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+                title={isDegradedMode ? t('statusbar_degraded_desc') : hasSelectedTask ? t('topbar_stop_selected_tip') : t('topbar_stop_all_tip')}
               >
                 {renderButtonContent(
                   'stop',
@@ -549,8 +554,9 @@ export const TopBar: React.FC = () => {
                     });
                   }
                 }}
-                className="px-3 py-1.5 text-red-500 hover:text-red-400 hover:bg-red-500/10 transition-all cursor-pointer flex items-center gap-1 text-xs font-bold"
-                title={hasSelectedTask ? t('topbar_delete_selected_tip') : t('topbar_delete_all_tip')}
+                disabled={isDegradedMode}
+                className="px-3 py-1.5 text-red-500 hover:text-red-400 hover:bg-red-500/10 transition-all cursor-pointer flex items-center gap-1 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+                title={isDegradedMode ? t('statusbar_degraded_desc') : hasSelectedTask ? t('topbar_delete_selected_tip') : t('topbar_delete_all_tip')}
               >
                 {renderButtonContent('delete', <Trash2 className="w-4 h-4" />, t('action_delete'))}
               </button>
