@@ -667,6 +667,7 @@ export const en: Record<string, string> = {
   statusbar_degraded_title: 'Degraded Mode',
   statusbar_degraded_desc: 'Download engines are not fully ready. Some features may be unavailable.',
   statusbar_degraded_tip: 'The service is in degraded mode — click for details',
+  statusbar_reconnecting: 'Reconnecting…',
   statusbar_restore_progress_tip: 'Progress window (click to restore)',
   statusbar_notifications_title: 'Notifications',
   statusbar_notifications_on: 'Notifications enabled.',

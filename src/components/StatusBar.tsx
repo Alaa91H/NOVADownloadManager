@@ -213,12 +213,15 @@ export const StatusBar: React.FC = () => {
                 isDegradedMode ? t('statusbar_degraded_desc') : t('statusbar_daemon_ok'),
               );
             }}
-            className={`p-1.5 hover:bg-[var(--bg-hover)] rounded transition-all cursor-pointer flex items-center justify-center ${
-              isDegradedMode ? 'text-amber-500 animate-pulse' : 'text-emerald-500 hover:text-emerald-400'
+            className={`p-1.5 hover:bg-[var(--bg-hover)] rounded transition-all cursor-pointer flex items-center gap-1.5 ${
+              isDegradedMode ? 'text-amber-500' : 'text-emerald-500 hover:text-emerald-400'
             }`}
             title={isDegradedMode ? t('statusbar_degraded_tip') : t('statusbar_daemon_tip')}
           >
-            <Server className="w-3.5 h-3.5" />
+            <Server className={`w-3.5 h-3.5 ${isDegradedMode ? 'animate-pulse' : ''}`} />
+            {isDegradedMode && (
+              <span className="text-[9px] font-bold animate-pulse whitespace-nowrap">{t('statusbar_reconnecting')}</span>
+            )}
           </button>
         )}
 
@@ -227,10 +230,11 @@ export const StatusBar: React.FC = () => {
             onClick={() => {
               addToast('warning', t('statusbar_degraded_title'), t('statusbar_degraded_desc'));
             }}
-            className="p-1.5 hover:bg-[var(--bg-hover)] rounded transition-all cursor-pointer flex items-center justify-center text-amber-500 animate-pulse"
+            className="p-1.5 hover:bg-[var(--bg-hover)] rounded transition-all cursor-pointer flex items-center gap-1.5 text-amber-500"
             title={t('statusbar_degraded_tip')}
           >
-            <AlertTriangle className="w-3.5 h-3.5" />
+            <AlertTriangle className="w-3.5 h-3.5 animate-pulse" />
+            <span className="text-[9px] font-bold animate-pulse whitespace-nowrap">{t('statusbar_reconnecting')}</span>
           </button>
         )}
 
