@@ -29,6 +29,7 @@ export const DiagnosticsDialog: React.FC = () => {
     }
   };
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch with cancellation ref; setState guarded by cancelledRef
   useEffect(() => {
     cancelledRef.current = false;
     void fetchDiagnostics();
