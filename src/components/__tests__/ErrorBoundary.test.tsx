@@ -57,7 +57,7 @@ describe('ErrorBoundary', () => {
         <div>Recovered content</div>
       </ErrorBoundary>,
     );
-    fireEvent.click(screen.getByText('Retry'));
+    fireEvent.click(screen.getByText('Reload Section'));
     expect(screen.getByText('Recovered content')).toBeInTheDocument();
     spy.mockRestore();
   });
