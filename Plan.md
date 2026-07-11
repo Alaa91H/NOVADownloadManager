@@ -458,6 +458,13 @@ P26-07-07
       - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/34
       - Validation: CI pending
       - Preflight: brace/paren/bracket balance verified on all 5 source files.
+    - Cycle 2026-07-11 (round 7 — ESLint fix for DiagnosticsDialog):
+      - **Root cause**: `eslint-disable-next-line react-hooks/set-state-in-effect` was placed before `useEffect(() => {` but the rule fires on `void fetchDiagnostics()` inside the callback. The directive only covers the next line, not nested calls.
+      - **Fix**: Moved the `eslint-disable-next-line` comment from line 32 (before useEffect) to line 34 (directly before `void fetchDiagnostics()`). 1 line changed.
+      - Branch: `feature/ui-004-degraded-states`
+      - Push: `6637011` pushed to feature branch at 2026-07-11
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/34
+      - Validation: CI pending
 
 ### UI-005 — Button & interaction polish pass
 
