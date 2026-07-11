@@ -27,9 +27,9 @@ describe('ErrorBoundary', () => {
         <ThrowError shouldThrow msg="Test error message" />
       </ErrorBoundary>,
     );
-    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
+    expect(screen.getByText('This section encountered an error.')).toBeInTheDocument();
     expect(screen.getByText('Test error message')).toBeInTheDocument();
-    expect(screen.getByText('Retry')).toBeInTheDocument();
+    expect(screen.getByText('Reload Section')).toBeInTheDocument();
     spy.mockRestore();
   });
 
@@ -51,7 +51,7 @@ describe('ErrorBoundary', () => {
         <ThrowError shouldThrow msg="Test error message" />
       </ErrorBoundary>,
     );
-    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
+    expect(screen.getByText('This section encountered an error.')).toBeInTheDocument();
     rerender(
       <ErrorBoundary>
         <div>Recovered content</div>

@@ -20,6 +20,10 @@ import { useEngineCapabilities } from '../capabilities/EngineCapabilityContext';
 import { AppThemeSettings } from '../types/desktop-ui.types';
 import { Logo } from './Logo';
 
+const SkeletonBadge: React.FC = () => (
+  <span className="inline-block w-6 h-4 bg-[var(--border-color)] animate-pulse rounded" />
+);
+
 export const Sidebar: React.FC = () => {
   const { tasks, workspaceView, setWorkspaceView, bridge, themeSettings, updateThemeSettings, openDialog, dialog, t, isLoading } =
     useAppStore();
@@ -42,10 +46,6 @@ export const Sidebar: React.FC = () => {
     if (filter === 'queued') return tasks.filter((t) => t.status === 'queued').length;
     return tasks.filter((t) => t.fileType === filter).length;
   };
-
-  const SkeletonBadge = () => (
-    <span className="inline-block w-6 h-4 bg-[var(--border-color)] animate-pulse rounded" />
-  );
 
   // Accent colors list
   const accents: Array<{ id: AppThemeSettings['accent']; color: string; label: string }> = [

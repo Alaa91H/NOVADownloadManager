@@ -26,9 +26,9 @@ export const TableSkeleton: React.FC<TableSkeletonProps> = ({ rows = 8, columns 
                 key={colIdx}
                 className="h-2.5 rounded-full bg-[var(--text-muted)]/10 animate-pulse"
                 style={{
-                  width: `${barWidths[colIdx % barWidths.length]}%`,
+                  width: `${String(barWidths[colIdx % barWidths.length])}%`,
                   animationDelay: `${String((rowIdx * columns + colIdx) * 40)}ms`,
-                  maxWidth: `${colIdx === 0 ? 200 : 80}px`,
+                  maxWidth: `${String(colIdx === 0 ? 200 : 80)}px`,
                 }}
               />
             ))}
