@@ -501,6 +501,11 @@ P26-07-07
       - Branch: `feature/ui-004-dialog-degraded-banners`
       - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/44
       - Preflight: brace/paren/bracket balance verified on all 6 changed files.
+    - Cycle 2026-07-12 (round 11 CI repair — BrowserIntegrationDialog flaky test):
+      - **Root cause**: `BrowserIntegrationDialog.test.tsx` "opens dev folder when button clicked" — race condition. `waitFor(() => expect(mockGetBrowserExtensionPaths).toHaveBeenCalled())` resolves when the mock is called synchronously in `useEffect`, but the `.then()` callback that calls `setExtensionPaths(paths)` is a microtask that may not have flushed. `openFolder()` returns early because `extensionPaths` is still `null`.
+      - **Fix**: Added `import { act }` from `@testing-library/react` and inserted `await act(async () => {})` after the `waitFor` to flush all pending microtasks before clicking the button. 1 line added, 1 import added.
+      - Branch: `feature/ui-004-dialog-degraded-banners`
+      - Push: `26f74d1` pushed to feature branch at 2026-07-12
 
 ### UI-005 — Button & interaction polish pass
 
