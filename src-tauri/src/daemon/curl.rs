@@ -1063,7 +1063,8 @@ fn apply_easy_options(
     if direct_u64(opts, "connectTimeoutSec").is_none() {
         let _ = easy.connect_timeout(Duration::from_secs(30));
     }
-    if direct_u64(opts, "lowSpeedLimitBytes").is_none() && direct_u64(opts, "speedTimeSec").is_none()
+    if direct_u64(opts, "lowSpeedLimitBytes").is_none()
+        && direct_u64(opts, "speedTimeSec").is_none()
     {
         let _ = easy.low_speed_limit(1);
         let _ = easy.low_speed_time(Duration::from_secs(45));

@@ -608,6 +608,32 @@ jobs:
           # .app bundle (a directory) pollutes the release with its internals.
           find src-tauri/target/release/bundle/dmg -name "*.dmg" 2>/dev/null | head -5 | while read f; do cp "$f" release/; done
 
+      - name: Insert OS name before architecture in filenames
+        shell: bash
+        run: |
+          case "${{ runner.os }}" in
+            Windows) os=windows ;;
+            macOS)   os=macos ;;
+            Linux)   os=linux ;;
+            *)       os=unknown ;;
+          esac
+          cd release
+          shopt -s nullglob
+          # Underscore/dash-separated names (exe, msix, dmg, deb, AppImage):
+          # insert "<os>_" right after the separator that precedes the arch.
+          for f in *.exe *.msix *.dmg *.deb *.AppImage; do
+            [ -f "$f" ] || continue
+            new=$(echo "$f" | sed -E "s/([_-])(x64|arm64|aarch64|amd64|i686)([-.])/\1${os}_\2\3/")
+            [ "$new" != "$f" ] && mv "$f" "$new"
+          done
+          # rpm names are dot-separated (…-1.x86_64.rpm).
+          for f in *.rpm; do
+            [ -f "$f" ] || continue
+            new=$(echo "$f" | sed -E "s/\.(x86_64|aarch64|i686)\.rpm$/.${os}.\1.rpm/")
+            [ "$new" != "$f" ] && mv "$f" "$new"
+          done
+          ls -la
+
       # ── Checksums & metadata ──
       - name: Generate SHA-256 checksums
         shell: bash
