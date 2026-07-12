@@ -492,6 +492,15 @@ P26-07-07
       - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/42
       - CI: https://github.com/Alaa91H/NOVADownloadManager/actions/runs/29176260547 (pending)
       - Preflight: brace/paren/bracket balance verified on all 3 source files.
+    - Cycle 2026-07-12 (round 12 — Fetch error state for TaskTable/TaskCardList, SchedulerPanel fix):
+      - **appStore.tsx**: New `fetchError: string | null` state field set in `syncDownloads` catch block with error message, cleared on successful sync and on daemon reconnect, exposed in `AppStoreContextType` and provider value.
+      - **TaskTable.tsx**: New error state branch between loading and empty states using `ErrorState` primitive. Shows `AlertTriangle` icon, title/description, actual error message, and retry button.
+      - **TaskCardList.tsx**: Same error state branch for mobile parity with desktop table. Added `fetchError` prop.
+      - **SchedulerPanel.tsx**: Removed no-op `onClick: () => {}` from the unreachable `!selectedQueue` dead code guard.
+      - **i18n**: Added `fetch_error_title` and `fetch_error_desc` keys to en.ts, ar.ts, and all 131 non-English locales.
+      - Branch: `feature/ui-004-fetch-error-state`
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/45
+      - Preflight: brace/paren/bracket balance verified on all 4 source files.
 
 ### UI-005 — Button & interaction polish pass
 
