@@ -20,9 +20,14 @@
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   IgnorableNamespaces="uap rescap">
 
+  <!--
+    These are valid sideload defaults so the package builds out of the box.
+    For a Store submission, replace Name/Publisher with the exact values from
+    Partner Center (Product management -> Product identity).
+  -->
   <Identity
-    Name="REPLACE_WITH_PARTNER_CENTER_IDENTITY_NAME"
-    Publisher="CN=REPLACE_WITH_PARTNER_CENTER_PUBLISHER_ID"
+    Name="NOVA.DownloadManager"
+    Publisher="CN=NOVA"
     Version="0.0.0.0"
     ProcessorArchitecture="x64" />
 

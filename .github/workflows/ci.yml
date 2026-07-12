@@ -584,11 +584,13 @@ jobs:
 
       - name: Build MSIX package (Microsoft Store)
         if: matrix.platform == 'windows-x64'
-        continue-on-error: true
         shell: bash
         run: |
-          pnpm run msix:build
-          cp dist-msix/*.msix release/ 2>/dev/null || true
+          if pnpm run msix:build; then
+            cp dist-msix/*.msix release/ 2>/dev/null || true
+          else
+            echo "::notice::MSIX packaging skipped (makeappx/SDK unavailable)"
+          fi
 
       - name: Prepare release files (Linux)
         if: runner.os == 'Linux'
