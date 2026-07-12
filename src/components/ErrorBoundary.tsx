@@ -1,6 +1,7 @@
 import React from 'react';
-import { AlertCircle, RefreshCw } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import { getTranslation } from '../lib/i18n/translations';
+import { ErrorState } from './primitives/ErrorState';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -43,19 +44,16 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
         return this.props.fallback;
       }
       return (
-        <div className="flex flex-col items-center justify-center h-full w-full bg-[var(--bg-app)] text-[var(--text-primary)] gap-4 p-8">
-          <AlertCircle className="w-12 h-12 text-red-500" />
-          <h2 className="text-lg font-bold">{this.tr('shell_error_section_title')}</h2>
-          <p className="text-sm text-[var(--text-secondary)] text-center max-w-md">
-            {this.state.error?.message || this.tr('shell_error_occurred')}
-          </p>
-          <button
-            onClick={this.handleRetry}
-            className="mt-2 px-4 py-1.5 text-[11px] font-bold bg-[var(--accent-primary)] text-white rounded transition-all cursor-pointer flex items-center gap-1.5"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            {this.tr('shell_error_section_retry')}
-          </button>
+        <div className="flex items-center justify-center h-full w-full bg-[var(--bg-app)] p-4">
+          <ErrorState
+            icon={AlertCircle}
+            title={this.tr('shell_error_section_title')}
+            description={this.state.error?.message || this.tr('shell_error_occurred')}
+            action={{
+              label: this.tr('shell_error_section_retry'),
+              onClick: this.handleRetry,
+            }}
+          />
         </div>
       );
     }

@@ -7,6 +7,7 @@ import TaskCheckboxAndIcon from './primitives/TaskCheckboxAndIcon';
 import { StatusPill } from './primitives';
 import { LoadingSpinner } from './primitives/LoadingSpinner';
 import { EmptyState } from './primitives/EmptyState';
+import { DegradedBanner } from './primitives/DegradedBanner';
 
 interface TaskCardListProps {
   tasks: DownloadItem[];
@@ -115,6 +116,12 @@ const TaskCardList: React.FC<TaskCardListProps> = ({
 
   return (
     <div className="md:hidden p-3 space-y-3">
+      {isDegradedMode && tasks.length > 0 && (
+        <DegradedBanner
+          title={t('degraded_mode_title')}
+          description={t('degraded_mode_desc')}
+        />
+      )}
       {tasks.map((task) => {
         const progressPercent = task.sizeBytes > 0 ? Math.round((task.downloadedBytes / task.sizeBytes) * 100) : 0;
         const isSelected = selectedTaskId === task.id;

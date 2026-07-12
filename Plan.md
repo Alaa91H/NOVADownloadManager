@@ -483,6 +483,15 @@ P26-07-07
       - Branch: `feature/ui-004-store-i18n-error-state`
       - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/41
       - Preflight: brace/paren/bracket balance verified; `t` declared before `updateSettings` confirmed.
+    - Cycle 2026-07-12 (round 10 — ErrorBoundary consistency, degraded banners for TaskTable/TaskCardList):
+      - **ErrorBoundary → ErrorState primitive**: Replaced the inline error UI in `ErrorBoundary.tsx` (AlertCircle + h2 + p + button) with the reusable `ErrorState` primitive. Removes `RefreshCw` import. All error states across the app now share the same visual treatment.
+      - **TaskTable degraded banner**: When `isDegradedMode` is true AND tasks exist, a `DegradedBanner` now appears at the top of the table (previously only shown when tasks were empty). Users see the warning even when tasks are loaded.
+      - **TaskCardList degraded banner**: Same `DegradedBanner` added to the mobile card list view for parity with the desktop table.
+      - **i18n**: No new keys required — all used keys (`degraded_mode_title`, `degraded_mode_desc`, `shell_error_section_title`, `shell_error_section_retry`, `shell_error_occurred`) already existed. Locale files reordered by `fix-i18n.mjs`.
+      - Branch: `feature/ui-004-error-boundary-consistency`
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/42
+      - CI: https://github.com/Alaa91H/NOVADownloadManager/actions/runs/29176260547 (pending)
+      - Preflight: brace/paren/bracket balance verified on all 3 source files.
 
 ### UI-005 — Button & interaction polish pass
 
