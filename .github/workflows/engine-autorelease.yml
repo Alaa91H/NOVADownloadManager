@@ -1,0 +1,77 @@
+name: Engine auto-release
+
+# Watches the upstream download engines (curl, yt-dlp). When either publishes a
+# new release, bump Nova's version and push a tag, which the CI workflow builds
+# and publishes automatically.
+#
+# For the pushed tag to trigger the build+publish run, set a RELEASE_PAT secret
+# (a fine-grained PAT with "contents: write" on this repo). The default
+# GITHUB_TOKEN cannot trigger the tag-driven workflow (Actions recursion guard),
+# so without RELEASE_PAT the tag is created but the release build won't start.
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # daily at 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: engine-autorelease
+  cancel-in-progress: false
+
+jobs:
+  check-and-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Check engine sources and release on update
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl_latest=$(gh api repos/curl/curl/releases/latest --jq .tag_name)
+          ytdlp_latest=$(gh api repos/yt-dlp/yt-dlp/releases/latest --jq .tag_name)
+          file=.github/engine-versions.json
+          curl_known=$(jq -r .curl "$file")
+          ytdlp_known=$(jq -r .ytdlp "$file")
+          echo "curl: $curl_known -> $curl_latest | yt-dlp: $ytdlp_known -> $ytdlp_latest"
+
+          if [ "$curl_latest" = "$curl_known" ] && [ "$ytdlp_latest" = "$ytdlp_known" ]; then
+            echo "No engine updates; nothing to release."
+            exit 0
+          fi
+
+          # Record the new engine versions.
+          jq -n --arg c "$curl_latest" --arg y "$ytdlp_latest" '{curl: $c, ytdlp: $y}' > "$file"
+
+          # Next version = patch bump of the numeric part of the latest release.
+          latest=$(gh release view --json tagName --jq .tagName 2>/dev/null || echo v0.1.0)
+          base=$(echo "${latest#v}" | sed -E 's/[-+].*//')
+          major=$(echo "$base" | cut -d. -f1)
+          minor=$(echo "$base" | cut -d. -f2)
+          patch=$(echo "$base" | cut -d. -f3)
+          newver="${major:-0}.${minor:-1}.$(( ${patch:-0} + 1 ))"
+          echo "New Nova version: $newver"
+
+          # Stamp version into project files.
+          export NEWVER="$newver"
+          jq --arg v "$newver" '.version = $v' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
+          mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version=process.env.NEWVER;fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+          node scripts/apply-version.mjs || true
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore(engines): release v$newver (curl $curl_latest, yt-dlp $ytdlp_latest)"
+          git push origin HEAD:main
+          git tag -a "v$newver" -m "Engine auto-release v$newver"
+          git push origin "v$newver"
