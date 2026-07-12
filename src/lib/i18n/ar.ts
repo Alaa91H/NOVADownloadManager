@@ -681,6 +681,7 @@ export const ar: Record<string, string> = {
   'sched_loading': 'جاري تحميل قوائم التنزيل...',
   'sched_no_queues': 'لا توجد قوائم تنزيل متاحة.',
   'sched_no_queues_desc': 'أنشئ قائمة تنزيل لتنظيم ملفاتك وجدولة التنزيلات.',
+  'sched_add_queue': 'إنشاء قائمة',
   'sched_degraded': 'الخدمة غير متاحة',
   'sched_degraded_desc': 'الخدمة المحلية غير متاحة. قد لا يتم تنفيذ الجدولة حتى يتم استعادة الخدمة.',
   'sched_add_btn': 'إضافة',

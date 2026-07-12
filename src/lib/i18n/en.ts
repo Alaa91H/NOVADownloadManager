@@ -683,6 +683,7 @@ export const en: Record<string, string> = {
   sched_loading: 'Loading download lists...',
   sched_no_queues: 'No download lists available.',
   sched_no_queues_desc: 'Create a download list to organize your downloads and set schedules.',
+  sched_add_queue: 'Create List',
   sched_degraded: 'Service unavailable',
   sched_degraded_desc: 'The local daemon is unreachable. Schedules may not execute until the service is restored.',
   sched_add_btn: 'Add',
