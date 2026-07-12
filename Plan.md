@@ -465,6 +465,15 @@ P26-07-07
       - Push: `6637011` pushed to feature branch at 2026-07-11
       - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/34
       - Validation: CI pending
+    - Cycle 2026-07-12 (round 8 — Store i18n, ErrorState primitive, DialogRoot boundary, Settings degraded):
+      - **ErrorState primitive**: New `src/components/primitives/ErrorState.tsx` — composable error state component (icon + title + description + error message + retry action) for use inside function components when async operations fail.
+      - **Store i18n**: Replaced 30+ hardcoded English toast strings across `appStore.tsx`, `useTaskStore.ts`, and `useQueueStore.ts` with `t()` / `getTranslation()` calls. All toast titles and messages now respect the active locale.
+      - **DialogRoot ErrorBoundary**: Wrapped `<DialogRoot />` with `<ErrorBoundary>` in AppShell.tsx to catch and recover from crashes inside any dialog.
+      - **SettingsPage degraded banner**: Added amber `WifiOff` banner at the top of SettingsPage when `isDegradedMode` is true, informing the user that some settings require the daemon.
+      - **TaskTable CRC32 i18n**: Replaced hardcoded `'CRC32'` column header with `t('col_crc32')`.
+      - **i18n**: Added 48 new translation keys to en.ts and ar.ts (toast_service_*, toast_daemon_*, toast_download_*, toast_engine_*, toast_queue_*, toast_props_*, toast_batch_*, toast_open_*, settings_degraded_*, col_crc32). Synced to all 132 locales (1321 keys each).
+      - Branch: `feature/ui-004-store-i18n-error-state`
+      - Preflight: brace/paren/bracket balance verified on all 7 changed source files.
 
 ### UI-005 — Button & interaction polish pass
 

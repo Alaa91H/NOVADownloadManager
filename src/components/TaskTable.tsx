@@ -372,7 +372,7 @@ export const TaskTable: React.FC = () => {
                   arabicLabel = t('col_threads');
                   break;
                 case 'crc32':
-                  arabicLabel = 'CRC32';
+                  arabicLabel = t('col_crc32');
                   break;
                 case 'priority':
                   arabicLabel = t('col_priority');

@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Queue, DownloadItem } from '../types/desktop-ui.types';
 import { initialQueues } from '../initialData';
 import { createLocalId } from '../utils/idUtils';
+import { getTranslation } from '../lib/i18n/translations';
 
 const allScheduleDays = [0, 1, 2, 3, 4, 5, 6];
 
@@ -44,7 +45,11 @@ export function useQueueStore(
   tasks: DownloadItem[],
   addToast: (type: 'success' | 'error' | 'info' | 'warning', title: string, message: string) => void,
   setTasks: React.Dispatch<React.SetStateAction<DownloadItem[]>>,
+  language?: string,
 ) {
+  const lang = language || 'en';
+  const t = (key: string, params?: Record<string, string | number>) =>
+    getTranslation(lang, key, params);
   const [queues, setQueues] = useState<Queue[]>(() => {
     const cached = localStorage.getItem('nova_queues');
     if (cached) {
@@ -72,7 +77,7 @@ export function useQueueStore(
       }),
     );
     if (!silent) {
-      addToast('success', 'Queue Updated', 'Queue settings were saved successfully.');
+      addToast('success', t('toast_queue_updated_title'), t('toast_queue_updated_desc'));
     }
   };
 
@@ -98,12 +103,12 @@ export function useQueueStore(
       downloadOrder: [],
     };
     setQueues((prev) => [...prev, newQueue]);
-    addToast('success', 'Queue Created', `Download queue "${name}" was added successfully.`);
+    addToast('success', t('toast_queue_created_title'), t('toast_queue_created_desc', { name }));
   };
 
   const deleteQueue = (id: string) => {
     if (id === 'main') {
-      addToast('error', 'Delete Error', 'The default main queue cannot be deleted.');
+      addToast('error', t('toast_queue_delete_error'), t('toast_queue_delete_error'));
       return;
     }
     const targetQueue = queues.find((q) => q.id === id);
@@ -111,29 +116,29 @@ export function useQueueStore(
 
     setQueues((prev) => prev.filter((q) => q.id !== id));
     setTasks((prev) =>
-      prev.map((t) => {
-        if (t.queueId === id) {
-          return { ...t, queueId: 'main' };
+      prev.map((task) => {
+        if (task.queueId === id) {
+          return { ...task, queueId: 'main' };
         }
-        return t;
+        return task;
       }),
     );
 
     addToast(
       'warning',
-      'Queue Deleted',
-      `Queue "${targetQueue.name}" was deleted and its files were moved to the main queue.`,
+      t('toast_queue_deleted_title'),
+      t('toast_queue_deleted_desc', { name: targetQueue.name }),
     );
   };
 
   const removeTaskFromQueue = (taskId: string) => {
-    const targetTask = tasks.find((t) => t.id === taskId);
+    const targetTask = tasks.find((task) => task.id === taskId);
     setTasks((prev) =>
-      prev.map((t) => {
-        if (t.id === taskId) {
-          return { ...t, queueId: 'main' };
+      prev.map((task) => {
+        if (task.id === taskId) {
+          return { ...task, queueId: 'main' };
         }
-        return t;
+        return task;
       }),
     );
     setQueues((prev) =>
@@ -143,17 +148,17 @@ export function useQueueStore(
       }),
     );
     if (targetTask) {
-      addToast('info', 'Removed from Queue', `"${targetTask.name}" was moved to the main queue.`);
+      addToast('info', t('toast_removed_from_queue_title'), t('toast_removed_from_queue_desc', { name: targetTask.name }));
     }
   };
 
   const moveTaskToQueue = (taskId: string, targetQueueId: string) => {
     setTasks((prev) =>
-      prev.map((t) => {
-        if (t.id === taskId) {
-          return { ...t, queueId: targetQueueId };
+      prev.map((task) => {
+        if (task.id === taskId) {
+          return { ...task, queueId: targetQueueId };
         }
-        return t;
+        return task;
       }),
     );
     setQueues((prev) =>
@@ -201,14 +206,14 @@ export function useQueueStore(
     };
     setQueues((prev) => [...prev, newQueue]);
     setTasks((prev) =>
-      prev.map((t) => {
-        if (t.id === taskId) {
-          return { ...t, queueId: newQueueId };
+      prev.map((task) => {
+        if (task.id === taskId) {
+          return { ...task, queueId: newQueueId };
         }
-        return t;
+        return task;
       }),
     );
-    addToast('success', 'Queue Created', `Queue "${queueName}" was created and the file was moved into it.`);
+    addToast('success', t('toast_queue_created_moved_title'), t('toast_queue_created_moved_desc', { name: queueName }));
   };
 
   return {
