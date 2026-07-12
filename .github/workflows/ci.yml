@@ -619,23 +619,6 @@ jobs:
             fi
           done
 
-      - name: Write build metadata
-        shell: bash
-        run: |
-          mkdir -p release
-          cat > release/build-metadata.json << EOF
-          {
-            "product": "Nova Download Manager",
-            "version": "$BUILD_TAG",
-            "commit": "${{ github.sha }}",
-            "shortCommit": "$BUILD_COMMIT",
-            "buildId": "$BUILD_ID",
-            "branch": "${{ github.ref_name }}",
-            "platform": "${{ matrix.platform }}",
-            "runner": "${{ runner.os }} ${{ runner.arch }}",
-            "timestamp": "$BUILD_TIMESTAMP"
-          }
-          EOF
 
       - name: Record build end time
         if: always()

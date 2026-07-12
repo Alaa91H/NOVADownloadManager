@@ -148,7 +148,9 @@ async function main() {
   // Daemon is now compiled into the Tauri binary (Rust/axum) — no Node.js bundling needed.
 
   console.log('[tauri-assets] Copying download engines...');
-  copyIfExists(join(ROOT, 'bin', CURL_BINARY), join(RESOURCE_BIN_DIR, CURL_BINARY));
+  // The direct engine is the statically linked libcurl compiled into the Tauri
+  // binary, so the standalone curl(.exe) tool is redundant and no longer bundled.
+  rmSync(join(RESOURCE_BIN_DIR, CURL_BINARY), { force: true });
   copyIfExists(join(ROOT, 'bin', YTDLP_BINARY), join(RESOURCE_BIN_DIR, YTDLP_BINARY));
   copyIfExists(join(ROOT, 'bin', FFMPEG_BINARY), join(RESOURCE_BIN_DIR, FFMPEG_BINARY));
   copyIfExists(join(ROOT, 'bin', NATIVE_CURL_MANIFEST), join(RESOURCE_DIR, NATIVE_CURL_MANIFEST));
@@ -165,7 +167,7 @@ async function main() {
     builtAt: new Date().toISOString(),
     version: process.env.VITE_APP_VERSION || process.env.BUILD_TAG || process.env.GITHUB_REF_NAME || stampedVersion,
     files: {
-      directEngine: existsSync(join(RESOURCE_BIN_DIR, CURL_BINARY)) ? 'curl' : false,
+      directEngine: existsSync(join(RESOURCE_DIR, NATIVE_CURL_MANIFEST)) ? 'static-libcurl' : 'cargo-fallback',
       mediaEngine: existsSync(join(RESOURCE_BIN_DIR, YTDLP_BINARY)) ? 'yt-dlp' : false,
       postProcessor: existsSync(join(RESOURCE_BIN_DIR, FFMPEG_BINARY)) ? 'ffmpeg' : false,
       nativeLibcurl: existsSync(join(RESOURCE_DIR, NATIVE_CURL_MANIFEST))
