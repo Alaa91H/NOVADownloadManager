@@ -10,19 +10,23 @@ import {
   KeyRound,
   RefreshCw,
   ShieldCheck,
+  AlertTriangle,
 } from 'lucide-react';
 import { novaClient, type BrowserExtensionHealth } from '../../api/novaClient';
 import { tauriClient } from '../../api/tauriClient';
 import { useAppStore } from '../../state/appStore';
 import { writeClipboardText } from '../../utils/clipboard';
 import { DialogButton, Button } from '../../components/primitives';
+import { DegradedBanner } from '../../components/primitives/DegradedBanner';
+import { ErrorState } from '../../components/primitives/ErrorState';
 
 const EXTENSION_RELEASES_URL = 'https://github.com/Alaa91H/NovaDownloadManager/releases/latest';
 
 export const BrowserIntegrationDialog: React.FC = () => {
-  const { closeDialog, settings, updateSettings, addToast, t } = useAppStore();
+  const { closeDialog, settings, updateSettings, addToast, t, isDegradedMode } = useAppStore();
   const [health, setHealth] = useState<BrowserExtensionHealth | null>(null);
   const [isChecking, setIsChecking] = useState(false);
+  const [checkError, setCheckError] = useState<string | null>(null);
   const [extensionPaths, setExtensionPaths] = useState<{ devPath: string; resourcePath: string } | null>(null);
 
   const browsersEnabled = Object.values(settings.general.integrateWithBrowsers).some(Boolean);
@@ -39,6 +43,7 @@ export const BrowserIntegrationDialog: React.FC = () => {
 
   const configureBridge = async (nextEnabled = browsersEnabled) => {
     setIsChecking(true);
+    setCheckError(null);
     try {
       const result = await novaClient.configureBrowserExtension({
         enabled: nextEnabled,
@@ -51,11 +56,9 @@ export const BrowserIntegrationDialog: React.FC = () => {
       setHealth(result);
       addToast('success', t('brw_bridge_title'), t('brw_toast_bridge_ready'));
     } catch (error) {
-      addToast(
-        'error',
-        t('brw_bridge_title'),
-        error instanceof Error ? error.message : t('brw_toast_bridge_unreachable'),
-      );
+      const message = error instanceof Error ? error.message : t('brw_toast_bridge_unreachable');
+      setCheckError(message);
+      addToast('error', t('brw_bridge_title'), message);
     } finally {
       setIsChecking(false);
     }
@@ -142,6 +145,21 @@ export const BrowserIntegrationDialog: React.FC = () => {
 
   return (
     <div className="space-y-4 text-left text-ui" dir="ltr">
+      {isDegradedMode && (
+        <DegradedBanner title={t('brw_degraded_title')} description={t('brw_degraded_desc')} />
+      )}
+      {checkError && (
+        <ErrorState
+          icon={AlertTriangle}
+          title={t('brw_health_error')}
+          description={t('brw_health_error_desc')}
+          errorMessage={checkError}
+          action={{
+            label: t('brw_btn_test'),
+            onClick: () => void configureBridge(),
+          }}
+        />
+      )}
       <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-start border border-[var(--border-color)] rounded-lg bg-[var(--bg-hover)]/40 p-3">
         <div className="flex items-start gap-2.5">
           <ShieldCheck className="w-5 h-5 text-[var(--accent-primary)] shrink-0 mt-0.5" />

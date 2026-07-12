@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, ExternalLink, FolderOpen, SearchX, WifiOff } from 'lucide-react';
+import { Download, ExternalLink, FolderOpen, SearchX, WifiOff, AlertTriangle } from 'lucide-react';
 import { DownloadItem } from '../types/desktop-ui.types';
 import { formatBytes } from '../initialData';
 import { formatSpeed, formatTimeLeft } from '../utils/taskTableUtils';
@@ -7,6 +7,7 @@ import TaskCheckboxAndIcon from './primitives/TaskCheckboxAndIcon';
 import { StatusPill } from './primitives';
 import { LoadingSpinner } from './primitives/LoadingSpinner';
 import { EmptyState } from './primitives/EmptyState';
+import { ErrorState } from './primitives/ErrorState';
 import { DegradedBanner } from './primitives/DegradedBanner';
 
 interface TaskCardListProps {
@@ -26,6 +27,7 @@ interface TaskCardListProps {
   t: (key: string, params?: Record<string, string | number>) => string;
   isLoading?: boolean;
   isDegradedMode?: boolean;
+  loadError?: string | null;
   searchQuery?: string;
   setSearchQuery?: (query: string) => void;
 }
@@ -47,6 +49,7 @@ const TaskCardList: React.FC<TaskCardListProps> = ({
   t,
   isLoading = false,
   isDegradedMode = false,
+  loadError = null,
   searchQuery = '',
   setSearchQuery,
 }) => {
@@ -56,6 +59,19 @@ const TaskCardList: React.FC<TaskCardListProps> = ({
         <div className="py-12 text-center">
           <LoadingSpinner size="lg" label={t('table_loading_tasks')} />
         </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="md:hidden p-3">
+        <ErrorState
+          icon={AlertTriangle}
+          title={t('card_error_title')}
+          description={t('card_error_desc')}
+          errorMessage={loadError}
+        />
       </div>
     );
   }
