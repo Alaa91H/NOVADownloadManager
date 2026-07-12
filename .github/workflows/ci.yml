@@ -357,7 +357,7 @@ jobs:
             os: macos-15-intel
             bundle_targets: dmg,app
           - platform: macos-arm64
-            os: macos-latest
+            os: macos-15
             bundle_targets: dmg,app
 
     steps:
@@ -602,8 +602,9 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           mkdir -p release
+          # Ship the .dmg only — it already contains the .app. Copying the raw
+          # .app bundle (a directory) pollutes the release with its internals.
           find src-tauri/target/release/bundle/dmg -name "*.dmg" 2>/dev/null | head -5 | while read f; do cp "$f" release/; done
-          find src-tauri/target/release/bundle/macos -name "*.app" -maxdepth 1 2>/dev/null | head -5 | while read f; do cp -R "$f" release/; done
 
       # ── Checksums & metadata ──
       - name: Generate SHA-256 checksums
@@ -665,12 +666,15 @@ jobs:
       - name: Collect release files
         run: |
           mkdir -p release
-          find artifacts -type f \
-            ! -name 'SHA256SUMS.txt' \
-            ! -name 'build-metadata.json' \
-            -exec cp {} release/ \;
+          # Whitelist only distributable artifacts: OS installers and browser
+          # extension packages. This avoids picking up the contents of the macOS
+          # .app bundle (raw binaries, Info.plist, icons, manifests) that a bare
+          # `find -type f` would flatten into the release.
+          find artifacts -type f \( \
+              -name '*.exe' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' \
+              -o -name '*.AppImage' -o -name '*.zip' -o -name '*.xpi' \
+            \) -exec cp {} release/ \;
           cd release
-          rm -f SHA256SUMS.txt
           for f in *; do
             [ -f "$f" ] && echo "$(sha256sum "$f" | cut -d' ' -f1)  $f" >> SHA256SUMS.txt
           done
