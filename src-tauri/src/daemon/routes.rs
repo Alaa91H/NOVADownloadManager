@@ -777,7 +777,9 @@ fn is_cloudflare_challenge(body: &str) -> bool {
     lower.contains("cf-chl-bypass")
         || lower.contains("challenge-platform")
         || lower.contains("cf_chl_opt")
-        || (lower.contains("cloudflare") && lower.contains("challenge") && lower.contains("<script"))
+        || (lower.contains("cloudflare")
+            && lower.contains("challenge")
+            && lower.contains("<script"))
 }
 
 /// For SourceForge URLs, try the direct downloads subdomain which often
@@ -809,7 +811,11 @@ fn refreshed_url(refresh: String, page_url: &str) -> String {
     if refresh.starts_with("http://") || refresh.starts_with("https://") {
         refresh
     } else if let Some(base) = page_url.rsplit_once('/') {
-        format!("{}/{}", base.0.trim_end_matches('/'), refresh.trim_start_matches('/'))
+        format!(
+            "{}/{}",
+            base.0.trim_end_matches('/'),
+            refresh.trim_start_matches('/')
+        )
     } else {
         refresh
     }
@@ -1347,8 +1353,13 @@ async fn probe_url_uncached(
         let headers_snapshot = resp.headers().clone();
         let body_text = resp.text().await.unwrap_or_default();
         if status < 400 {
-            let payload =
-                probe_payload(url, &stage_final, &headers_snapshot, status, "GET (encoding)");
+            let payload = probe_payload(
+                url,
+                &stage_final,
+                &headers_snapshot,
+                status,
+                "GET (encoding)",
+            );
             let has_size = payload
                 .get("sizeBytes")
                 .and_then(|v| v.as_u64())
@@ -1358,15 +1369,12 @@ async fn probe_url_uncached(
                 return Ok(Json(payload));
             }
             // If body is HTML, try to extract meta-refresh URL (VideoLAN pattern)
-            if content_type.contains("text/html") || body_text.trim_start().starts_with("<!DOCTYPE")
+            if content_type.contains("text/html")
+                || body_text.trim_start().starts_with("<!DOCTYPE")
                 || body_text.trim_start().starts_with("<html")
             {
                 if let Some(refresh_url) = parse_meta_refresh_url(&body_text) {
-                    log::info!(
-                        "probe meta-refresh redirect for {}: {}",
-                        url,
-                        refresh_url
-                    );
+                    log::info!("probe meta-refresh redirect for {}: {}", url, refresh_url);
                     // Follow the meta-refresh URL with a new GET request
                     if let Ok(refreshed) = apply_probe_request_options(
                         client

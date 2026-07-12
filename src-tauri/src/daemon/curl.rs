@@ -2089,8 +2089,7 @@ fn run_libcurl_download(
                                 return Ok(size);
                             }
                             Err(fb_error)
-                                if fb_error == "cancelled"
-                                    || cancel.load(Ordering::Acquire) =>
+                                if fb_error == "cancelled" || cancel.load(Ordering::Acquire) =>
                             {
                                 return Err("cancelled".to_string());
                             }
