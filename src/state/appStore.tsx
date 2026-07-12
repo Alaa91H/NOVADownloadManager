@@ -333,7 +333,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     moveTaskToQueue,
     addTaskToQueueOrder,
     createQueueAndMoveTask,
-  } = useQueueStore(tasks, addToast, setTasks);
+  } = useQueueStore(tasks, addToast, setTasks, settings.extra.language);
 
   // Task store
   const { addTask, pauseTask, resumeTask, deleteTask, updateTaskProperties, triggerBatchDownload } = useTaskStore(
@@ -491,12 +491,13 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
           await refreshDaemonUrl();
           const info = await tauriClient.checkDaemonHealth();
           markConnected(info);
+          const lang = settingsRef.current.extra.language || 'en';
           addToast(
             info.status === 'degraded' ? 'warning' : 'success',
-            info.status === 'degraded' ? 'Service Partially Ready' : 'Service Connected',
+            info.status === 'degraded' ? getTranslation(lang, 'toast_service_partial_title') : getTranslation(lang, 'toast_service_connected_title'),
             info.status === 'degraded'
-              ? 'NOVA connected to the local service. Some engines are still starting.'
-              : 'NOVA connected to the local download service successfully.',
+              ? getTranslation(lang, 'toast_service_partial_desc')
+              : getTranslation(lang, 'toast_service_connected_desc'),
           );
           const params = new URLSearchParams(window.location.search);
           const captureUrl = params.get('capture');
@@ -510,15 +511,16 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
             const delay = Math.min(500 * (1 << attempt), 3000);
             await new Promise((r) => setTimeout(r, delay));
           } else {
+            const lang = settingsRef.current.extra.language || 'en';
             setIsLoading(false);
-            setBridge((b) => ({ ...b, status: 'degraded', version: 'NOVA daemon unavailable' }));
+            setBridge((b) => ({ ...b, status: 'degraded', version: getTranslation(lang, 'toast_daemon_unavailable_title') }));
             setIsDegradedMode(true);
             setTasks([]);
             wasDegraded = true;
             addToast(
               'warning',
-              'NOVA daemon unavailable',
-              e instanceof Error ? e.message : 'The local download engines are not available.',
+              getTranslation(lang, 'toast_daemon_unavailable_title'),
+              e instanceof Error ? e.message : getTranslation(lang, 'toast_daemon_unavailable_desc'),
             );
           }
         }
@@ -538,18 +540,19 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
             const info = await tauriClient.checkDaemonHealth();
             markConnected(info);
             if (wasDegraded) {
+              const lang = settingsRef.current.extra.language || 'en';
               addToast(
                 info.status === 'degraded' ? 'warning' : 'info',
-                'Daemon Reconnected',
+                getTranslation(lang, 'toast_daemon_reconnected_title'),
                 info.status === 'degraded'
-                  ? 'NOVA service is reachable while engines continue starting.'
-                  : 'NOVA download service is now available.',
+                  ? getTranslation(lang, 'toast_daemon_reconnected_partial_desc')
+                  : getTranslation(lang, 'toast_daemon_reconnected_desc'),
               );
               wasDegraded = false;
             }
           } catch {
             wasDegraded = true;
-            setBridge((b) => ({ ...b, status: 'degraded', version: 'Daemon unreachable' }));
+            setBridge((b) => ({ ...b, status: 'degraded', version: getTranslation(settingsRef.current.extra.language || 'en', 'toast_daemon_unavailable_title') }));
             setIsDegradedMode(true);
           }
         })();
@@ -736,22 +739,6 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     };
   }, [bridge.status, settings.extra.enableSse]);
 
-  // Settings actions
-  const updateSettings = useCallback(
-    (updatedSettings: AppSettings, silent = false) => {
-      setSettings(updatedSettings);
-      void tauriClient.saveConfigToDisk(updatedSettings);
-      if (!silent) {
-        addToast('success', 'Settings Saved', 'Preferences and settings were saved.');
-      }
-    },
-    [addToast],
-  );
-
-  const updateThemeSettings = useCallback((key: keyof AppThemeSettings, value: string) => {
-    setThemeSettings((prev) => ({ ...prev, [key]: value }));
-  }, []);
-
   // Translation
   const t = useCallback(
     (key: string, params?: Record<string, string | number>) => {
@@ -760,6 +747,22 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     },
     [settings.extra.language, i18nRevision],
   );
+
+  // Settings actions
+  const updateSettings = useCallback(
+    (updatedSettings: AppSettings, silent = false) => {
+      setSettings(updatedSettings);
+      void tauriClient.saveConfigToDisk(updatedSettings);
+      if (!silent) {
+        addToast('success', t('toast_settings_saved_title'), t('toast_settings_saved_desc'));
+      }
+    },
+    [addToast, t],
+  );
+
+  const updateThemeSettings = useCallback((key: keyof AppThemeSettings, value: string) => {
+    setThemeSettings((prev) => ({ ...prev, [key]: value }));
+  }, []);
 
   // Effects: unsigned update check. This intentionally does not download or
   // install updates automatically, so development builds do not require signing.
@@ -788,7 +791,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     async (id: string) => {
       const task = tasks.find((item) => item.id === id);
       if (!task) {
-        addToast('error', 'Open File', 'The selected download was not found.');
+        addToast('error', t('toast_file_opened_title'), t('toast_open_file_not_found'));
         return;
       }
       if (task.status !== 'completed') {
@@ -796,7 +799,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         return;
       }
       if (!task.savePath) {
-        addToast('error', t('toast_file_opened_title'), 'No saved file path is available for this download.');
+        addToast('error', t('toast_file_opened_title'), t('toast_no_save_path'));
         return;
       }
 
@@ -804,7 +807,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       if (opened) {
         addToast('success', t('toast_file_opened_title'), t('toast_file_opened_desc', { name: task.name }));
       } else {
-        addToast('error', t('toast_file_opened_title'), `Could not open "${task.name}". The file may have moved.`);
+        addToast('error', t('toast_file_opened_title'), t('toast_open_file_failed', { name: task.name }));
       }
     },
     [addToast, t, tasks],
@@ -814,11 +817,11 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     async (id: string) => {
       const task = tasks.find((item) => item.id === id);
       if (!task) {
-        addToast('error', 'Open File Location', 'The selected download was not found.');
+        addToast('error', t('toast_folder_opened_title'), t('toast_open_location_not_found'));
         return;
       }
       if (!task.savePath) {
-        addToast('error', t('toast_folder_opened_title'), 'No saved file path is available for this download.');
+        addToast('error', t('toast_folder_opened_title'), t('toast_no_save_path'));
         return;
       }
 
@@ -830,7 +833,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
           t('toast_folder_opened_desc', { folder: containingFolder(task.savePath), name: task.name }),
         );
       } else {
-        addToast('error', t('toast_folder_opened_title'), `Could not open the location for "${task.name}".`);
+        addToast('error', t('toast_folder_opened_title'), t('toast_open_location_failed', { name: task.name }));
       }
     },
     [addToast, t, tasks],

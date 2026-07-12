@@ -2,6 +2,7 @@
 import React from 'react';
 import { DownloadItem, AppSettings } from '../types/desktop-ui.types';
 import { novaClient } from '../api/novaClient';
+import { getTranslation } from '../lib/i18n/translations';
 
 const isNativeEngineTask = (task: DownloadItem) =>
   task.engine === 'curl' || task.engine === 'libcurl-multi' || task.engine === 'yt-dlp';
@@ -22,6 +23,10 @@ export function useTaskStore(
   setIsDegradedMode: React.Dispatch<React.SetStateAction<boolean>>,
   settings: AppSettings,
 ) {
+  const lang = settings.extra.language || 'en';
+  const t = (key: string, params?: Record<string, string | number>) =>
+    getTranslation(lang, key, params);
+
   const addTask = async (
     newItem: Omit<
       DownloadItem,
@@ -30,7 +35,7 @@ export function useTaskStore(
     downloadImmediately: boolean,
   ): Promise<DownloadItem | null> => {
     if (bridgeStatus === 'connecting' || bridgeStatus === 'disconnected') {
-      addToast('error', 'NOVA daemon unavailable', 'Start the local NOVA daemon before creating downloads.');
+      addToast('error', t('toast_daemon_unavailable_title'), t('toast_daemon_start_first'));
       return null;
     }
 
@@ -45,7 +50,7 @@ export function useTaskStore(
         addTaskToQueueOrder(normalizedTask.id, newItem.queueId);
       }
 
-      addToast('success', 'Download added', `"${normalizedTask.name}" was added to the download queue.`);
+      addToast('success', t('toast_download_added_title'), t('toast_download_added_desc', { name: normalizedTask.name }));
       if (downloadImmediately) {
         openDialog('activeProgress', normalizedTask);
       }
@@ -54,8 +59,8 @@ export function useTaskStore(
       setIsDegradedMode(true);
       addToast(
         'error',
-        'NOVA daemon',
-        error instanceof Error ? error.message : 'The local download engine rejected the task.',
+        t('toast_daemon_unavailable_title'),
+        error instanceof Error ? error.message : t('toast_engine_error_default'),
       );
       return null;
     }
@@ -64,19 +69,19 @@ export function useTaskStore(
   const pauseTask = async (id: string) => {
     const targetItem = tasks.find((t) => t.id === id);
     if (!targetItem || !isNativeEngineTask(targetItem)) {
-      addToast('error', 'NOVA daemon', 'This task is not backed by a real download engine.');
+      addToast('error', t('toast_daemon_unavailable_title'), t('toast_engine_not_native'));
       return;
     }
 
     try {
       const normalizedTask = hydrateTask(await novaClient.pauseDownload(id));
       setTasks((prev) => prev.map((item) => (item.id === id ? normalizedTask : item)));
-      addToast('info', 'Download stopped', `"${normalizedTask.name}" was stopped.`);
+      addToast('info', t('toast_download_stopped_title'), t('toast_download_stopped_desc', { name: normalizedTask.name }));
     } catch (error) {
       addToast(
         'error',
-        'NOVA daemon',
-        error instanceof Error ? error.message : 'The local engine could not stop the download.',
+        t('toast_daemon_unavailable_title'),
+        error instanceof Error ? error.message : t('toast_engine_stop_error'),
       );
     }
   };
@@ -84,7 +89,7 @@ export function useTaskStore(
   const resumeTask = async (id: string) => {
     const targetItem = tasks.find((t) => t.id === id);
     if (!targetItem || !isNativeEngineTask(targetItem)) {
-      addToast('error', 'NOVA daemon', 'This task is not backed by a real download engine.');
+      addToast('error', t('toast_daemon_unavailable_title'), t('toast_engine_not_native'));
       return;
     }
 
@@ -97,12 +102,12 @@ export function useTaskStore(
           addTaskToQueueOrder(normalizedTask.id, normalizedTask.queueId);
         }
       }
-      addToast('info', 'Download resumed', `"${normalizedTask.name}" was resumed.`);
+      addToast('info', t('toast_download_resumed_title'), t('toast_download_resumed_desc', { name: normalizedTask.name }));
     } catch (error) {
       addToast(
         'error',
-        'NOVA daemon',
-        error instanceof Error ? error.message : 'The local engine could not resume the download.',
+        t('toast_daemon_unavailable_title'),
+        error instanceof Error ? error.message : t('toast_engine_resume_error'),
       );
     }
   };
@@ -110,7 +115,7 @@ export function useTaskStore(
   const deleteTask = async (id: string, deleteDisk: boolean) => {
     const targetItem = tasks.find((t) => t.id === id);
     if (!targetItem || !isNativeEngineTask(targetItem)) {
-      addToast('error', 'NOVA daemon', 'This task is not backed by a real download engine.');
+      addToast('error', t('toast_daemon_unavailable_title'), t('toast_engine_not_native'));
       return;
     }
 
@@ -119,17 +124,17 @@ export function useTaskStore(
       let diskMessage = '';
       if (deleteDisk) {
         diskMessage = targetItem.savePath
-          ? ' The daemon also deleted the local file and libcurl partial segments when present.'
-          : ' No saved file path was available for disk deletion.';
+          ? t('toast_download_removed_disk_msg')
+          : t('toast_download_removed_no_path');
       }
       setTasks((prev) => prev.filter((t) => t.id !== id));
       if (selectedTaskId === id) setSelectedTaskId(null);
-      addToast('warning', 'Download removed', `"${targetItem.name}" was removed from the daemon.${diskMessage}`);
+      addToast('warning', t('toast_download_removed_title'), t('toast_download_removed_desc', { name: targetItem.name }) + diskMessage);
     } catch (error) {
       addToast(
         'error',
-        'NOVA daemon',
-        error instanceof Error ? error.message : 'The local engine could not delete the download.',
+        t('toast_daemon_unavailable_title'),
+        error instanceof Error ? error.message : t('toast_engine_delete_error'),
       );
     }
   };
@@ -143,7 +148,7 @@ export function useTaskStore(
         return item;
       }),
     );
-    addToast('success', 'Properties Updated', 'Download properties were updated successfully.');
+    addToast('success', t('toast_props_updated_title'), t('toast_props_updated_desc'));
   };
 
   const triggerBatchDownload = async (
@@ -181,7 +186,7 @@ export function useTaskStore(
       if (task) accepted.push(task);
     }
     if (accepted.length > 0) {
-      addToast('success', 'Batch import', `${String(accepted.length)} link(s) were accepted by the local daemon.`);
+      addToast('success', t('toast_batch_import_title'), t('toast_batch_import_desc', { count: accepted.length }));
     }
   };
 

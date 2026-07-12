@@ -465,6 +465,24 @@ P26-07-07
       - Push: `6637011` pushed to feature branch at 2026-07-11
       - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/34
       - Validation: CI pending
+    - Cycle 2026-07-12 (round 8 — Store i18n, ErrorState primitive, DialogRoot boundary, Settings degraded):
+      - **ErrorState primitive**: New `src/components/primitives/ErrorState.tsx` — composable error state component (icon + title + description + error message + retry action) for use inside function components when async operations fail.
+      - **Store i18n**: Replaced 30+ hardcoded English toast strings across `appStore.tsx`, `useTaskStore.ts`, and `useQueueStore.ts` with `t()` / `getTranslation()` calls. All toast titles and messages now respect the active locale.
+      - **DialogRoot ErrorBoundary**: Wrapped `<DialogRoot />` with `<ErrorBoundary>` in AppShell.tsx to catch and recover from crashes inside any dialog.
+      - **SettingsPage degraded banner**: Added amber `WifiOff` banner at the top of SettingsPage when `isDegradedMode` is true, informing the user that some settings require the daemon.
+      - **TaskTable CRC32 i18n**: Replaced hardcoded `'CRC32'` column header with `t('col_crc32')`.
+      - **i18n**: Added 48 new translation keys to en.ts and ar.ts (toast_service_*, toast_daemon_*, toast_download_*, toast_engine_*, toast_queue_*, toast_props_*, toast_batch_*, toast_open_*, settings_degraded_*, col_crc32). Synced to all 132 locales (1321 keys each).
+      - Branch: `feature/ui-004-store-i18n-error-state`
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/41
+      - Preflight: brace/paren/bracket balance verified on all 7 changed source files.
+    - Cycle 2026-07-12 (round 9 — CI gate repair for TypeScript + ESLint):
+      - **Root cause (TypeScript)**: `en.ts` had duplicate `toast_settings_saved_title` and `toast_settings_saved_desc` properties (lines 274-275 and 1313-1314). TS1117: object literal cannot have multiple properties with the same name.
+      - **Fix (TypeScript)**: Removed the earlier duplicate pair (lines 274-275) which had stale values ('Save Confirmed'). The round 8 pair ('Settings Saved') matches the appStore.tsx usage.
+      - **Root cause (ESLint)**: `appStore.tsx` `updateSettings` useCallback used `t(...)` at line 748 but `t` was declared at line 759 (temporal dead zone). Also missing `t` in `updateSettings` dependency array.
+      - **Fix (ESLint)**: Moved `t` useCallback declaration above `updateSettings`. Added `t` to `updateSettings` dependency array.
+      - Branch: `feature/ui-004-store-i18n-error-state`
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/41
+      - Preflight: brace/paren/bracket balance verified; `t` declared before `updateSettings` confirmed.
 
 ### UI-005 — Button & interaction polish pass
 
@@ -997,13 +1015,12 @@ P26-07-07
 
 ### IMPROVE-002 — Replace duplicate inline ErrorBoundary in App.tsx with reusable component
 
-- Status: `[ ] PLANNED`
+- Status: `[x] COMPLETED`
 - Stream: IMPROVE
 - Priority: P2
 - Impact: Consistent error UI; removes redundant class component with less informative fallback
-- Plan: Replace the inline `ErrorBoundary` class in `src/App.tsx` (lines 6-23) with an import of the reusable `ErrorBoundary` from `src/components/ErrorBoundary.tsx`. The reusable version has retry button and richer fallback UI.
-- Acceptance: App.tsx uses the shared ErrorBoundary; no duplicate class component
-- Validation: CI Run tests gate (AppShell test covers error boundary behavior)
+- Completed: 2026-07-10
+- Notes: Implemented during UI-004 round 3 (commit `6a69529`). App.tsx now imports `ErrorBoundary` from `src/components/ErrorBoundary.tsx` with i18n fallback.
 
 ### IMPROVE-003 — Fix out-of-order import in taskTableUtils.tsx
 
@@ -1034,6 +1051,99 @@ P26-07-07
 - Plan: Read `src/state/appStore.tsx` lines 510-566, analyze the daemon reconnect useEffect that has `eslint-disable-next-line react-hooks/exhaustive-deps`. Determine if the empty dependency array is intentional (mount-only effect) or if `refreshDaemonUrl`, `tauriClient`, `markConnected`, `addToast`, `setBridge`, `setIsDegradedMode` should be listed. If intentional, add a comment explaining why. If not, add the missing deps.
 - Acceptance: No eslint-disable for exhaustive-deps; effect behavior unchanged
 - Validation: CI ESLint gate
+
+---
+
+## Newly Discovered Tasks (deep analysis pass — 2026-07-11)
+
+### FIX-011 — Fix ActiveProgressDialog shutdown action default state mismatch
+
+- Status: `[ ] PLANNED`
+- Stream: FIX
+- Priority: P1
+- Impact: Shutdown action dropdown shows blank/wrong selection on initial render in non-English locales
+- Plan: In `src/dialogs/download/ActiveProgressDialog.tsx` line 21, replace `useState('Shutdown computer')` with `useState(() => getTranslation('prog_shutdown'))` (or `t('prog_shutdown')` if hooks are available at that point). The current default `'Shutdown computer'` is a raw English string but the `<select>` option values at lines 272-274 use `t('prog_shutdown')`, `t('prog_restart')`, `t('prog_sleep')` — in non-English locales the initial value won't match any option.
+- Acceptance: Shutdown dropdown displays correct default selection in all locales
+- Validation: CI Run tests gate (ActiveProgressDialog.test.tsx)
+
+### FIX-012 — Add noopener,noreferrer to window.open in UpdateLinkDialog
+
+- Status: `[ ] PLANNED`
+- Stream: FIX
+- Priority: P2
+- Impact: Defense-in-depth; prevents opened page from accessing window.opener
+- Plan: In `src/dialogs/tasks/UpdateLinkDialog.tsx` line 40, change `window.open(targetUrl, '_blank')` to `window.open(targetUrl, '_blank', 'noopener,noreferrer')`.
+- Acceptance: window.open call includes noopener,noreferrer flags
+- Validation: CI Run tests gate
+
+### FIX-013 — Remove unsafe type cast `undefined as T` in novaClient.ts
+
+- Status: `[ ] PLANNED`
+- Stream: FIX
+- Priority: P2
+- Impact: Type safety; casting undefined to generic T can cause runtime type mismatches
+- Plan: In `src/api/novaClient.ts` line 387, replace `return undefined as T;` with a proper approach — either `return undefined as unknown as T` with a comment, or restructure the function to return `T | undefined` in its signature.
+- Acceptance: No `as T` cast on undefined; `tsc --noEmit` clean
+- Validation: CI TypeScript check gate
+
+### FIX-014 — Add .catch() to clipboard.writeText in TaskTable
+
+- Status: `[ ] PLANNED`
+- Stream: FIX
+- Priority: P2
+- Impact: Prevents unhandled promise rejection when clipboard permission is denied
+- Plan: In `src/components/TaskTable.tsx` line 206, wrap `void navigator.clipboard.writeText(task.url)` with `.catch(() => {})` or add a toast notification on clipboard failure.
+- Acceptance: No unhandled promise rejection from clipboard write
+- Validation: CI Run tests gate
+
+### TEST-002 — Add tests for SettingsDialog and AddDownloadDialog
+
+- Status: `[ ] PLANNED`
+- Stream: IMPROVE
+- Priority: P1
+- Impact: 857-line AddDownloadDialog and 496-line SettingsDialog + 8 sections have zero test coverage
+- Plan: Write test files for:
+  1. `src/dialogs/settings/__tests__/SettingsDialog.test.tsx` — test tab navigation, settings payload validation, dialog open/close
+  2. `src/dialogs/settings/sections/__tests__/GeneralAndDownloads.test.tsx` — test form fields, save behavior
+  3. `src/dialogs/download/__tests__/AddDownloadDialog.test.tsx` — test URL input, engine detection, advanced options, validation
+  - Focus on render, user interactions, validation errors, and engine gating. Mock i18n `t()` consistently.
+- Acceptance: All 3 test files pass; coverage increases for settings and download dialogs
+- Validation: CI Run tests gate
+
+### TEST-003 — Add tests for primitive components (LoadingSpinner, TableSkeleton, EmptyState)
+
+- Status: `[ ] PLANNED`
+- Stream: IMPROVE
+- Priority: P2
+- Impact: 3 newly added primitive components have no test coverage
+- Plan: Write `src/components/__tests__/primitives-extended.test.tsx` covering LoadingSpinner (size variants), TableSkeleton (row/column rendering), EmptyState (icon, message, action button). Simple render + prop tests.
+- Acceptance: All 3 components render correctly with various props
+- Validation: CI Run tests gate
+
+### TEST-004 — Add tests for UI-004 new components and features
+
+- Status: `[ ] PLANNED`
+- Stream: IMPROVE
+- Priority: P2
+- Impact: New components from UI-004 (reconnection indicator, degraded mode gating) lack dedicated tests
+- Plan: Extend StatusBar.test.tsx to cover reconnection indicator when isDegradedMode=true. Extend TopBar.test.tsx to verify buttons are disabled in degraded mode. Add tests for AppShell error boundary consolidation.
+- Acceptance: Degraded mode UI behavior is covered by tests
+- Validation: CI Run tests gate
+
+### IMPROVE-006 — Decompose monolithic components (5 components >500 lines)
+
+- Status: `[ ] PLANNED`
+- Stream: IMPROVE
+- Priority: P2
+- Impact: Maintainability; 5 components exceed 500 lines making them difficult to understand, test, and modify
+- Plan: Extract sub-components from the largest files:
+  1. `YoutubeDownloadDialog.tsx` (1166 lines) → split into URLInput, FormatSelector, PlaylistPicker, AudioOptions, AdvancedOptions sub-components
+  2. `TaskTable.tsx` (804 lines) → extract cell renderers into separate functions, move column definitions to taskTableUtils
+  3. `TopBar.tsx` (703 lines) → extract ToolbarGroup component for the 3 nearly-identical split-button groups
+  4. `StatusBar.tsx` (656 lines) → extract SpeedLimiterPopup and TelegramContextMenu into separate components
+  5. `AppShell.tsx` (560 lines) → extract ToastRenderer, KeyboardHandler, DragDropOverlay
+- Acceptance: No single component exceeds 300 lines; `tsc --noEmit` clean; all existing tests pass
+- Validation: CI TypeScript + Run tests gates
 
 ---
 

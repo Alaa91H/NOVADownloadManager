@@ -1,10 +1,12 @@
 /* src/components/SchedulerPanel.tsx */
 import React, { useState } from 'react';
-import { Play, Square, Plus, Trash2, AlertCircle, CheckCircle2, List, WifiOff } from 'lucide-react';
+import { Play, Square, Plus, Trash2, AlertCircle, CheckCircle2, List } from 'lucide-react';
 import { useAppStore } from '../state/appStore';
 import { Button } from './primitives';
 import { EmptyState } from './primitives/EmptyState';
+import { ErrorState } from './primitives/ErrorState';
 import { LoadingSpinner } from './primitives/LoadingSpinner';
+import { DegradedBanner } from './primitives/DegradedBanner';
 import { SchedulerSidebar } from './SchedulerSidebar';
 import { SchedulerFilesTab } from './SchedulerFilesTab';
 import { SchedulerBasicTab } from './SchedulerBasicTab';
@@ -131,7 +133,17 @@ export const SchedulerPanel: React.FC = () => {
       </div>
     );
   }
-  if (!selectedQueue) return null;
+  if (!selectedQueue) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full">
+        <ErrorState
+          title={t('sched_no_queues')}
+          description={t('sched_no_queues_desc')}
+          action={{ label: t('sched_add_queue'), onClick: () => {} }}
+        />
+      </div>
+    );
+  }
 
   // Select a newly added queue, adjusting state during render instead of in an effect.
   if (queues.length !== prevQueuesCount) {
@@ -301,11 +313,7 @@ export const SchedulerPanel: React.FC = () => {
     <div className={`flex flex-col h-full min-h-0 text-left`} dir={'ltr'}>
       {/* Degraded mode banner */}
       {isDegradedMode && (
-        <div className="flex items-center gap-2 px-3 py-2 mb-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[11px] text-amber-500">
-          <WifiOff className="w-4 h-4 shrink-0" />
-          <span className="font-semibold">{t('sched_degraded')}</span>
-          <span className="text-[var(--text-muted)]">{t('sched_degraded_desc')}</span>
-        </div>
+        <DegradedBanner title={t('sched_degraded')} description={t('sched_degraded_desc')} />
       )}
 
       {/* 1. QUEUE CONTROLS ROW (page header carries the title) */}

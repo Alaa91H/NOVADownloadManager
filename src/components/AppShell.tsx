@@ -526,7 +526,9 @@ const AppShellInner: React.FC = () => {
       </div>
 
       {/* 3. Centralized Dialog router */}
-      <DialogRoot />
+      <ErrorBoundary>
+        <DialogRoot />
+      </ErrorBoundary>
 
       {/* 4. Responsive Toast Notification HUD */}
       <div
