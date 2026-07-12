@@ -10,7 +10,7 @@ import { SettingsPage } from '../pages/SettingsPage';
 import { SchedulerPage } from '../pages/SchedulerPage';
 import { MediaDownloadPage } from '../pages/MediaDownloadPage';
 import DialogRoot from '../dialogs/DialogRoot';
-import { AlertCircle, CheckCircle, Info, X, RefreshCw, Minus, Square } from 'lucide-react';
+import { AlertCircle, CheckCircle, Info, X, RefreshCw, Minus, Square, Copy } from 'lucide-react';
 import { Logo } from './Logo';
 import { extractFirstHttpUrl, readClipboardText } from '../utils/clipboard';
 import { getDialogForUrl } from '../utils/urlDetector';
@@ -75,6 +75,7 @@ const AppShellInner: React.FC = () => {
 
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [connectTimer, setConnectTimer] = useState(0);
+  const [isWindowMaximized, setIsWindowMaximized] = useState(false);
   const dragCounter = useRef(0);
   const lastClipboardText = useRef('');
   const clipboardPrimed = useRef(false);
@@ -101,6 +102,28 @@ const AppShellInner: React.FC = () => {
       window.clearInterval(interval);
     };
   }, [bridge.status]);
+
+  // Keep the maximize/restore control in sync with the actual window state.
+  useEffect(() => {
+    if (!isTauri()) return;
+    const win = getCurrentWindow();
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    const sync = () => {
+      void win.isMaximized().then((max) => {
+        if (!cancelled) setIsWindowMaximized(max);
+      });
+    };
+    sync();
+    void win.onResized(sync).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
     const preventUnsupportedContextMenu = (event: MouseEvent) => {
@@ -473,7 +496,11 @@ const AppShellInner: React.FC = () => {
             className="h-full px-3 hover:bg-[var(--bg-hover)] transition-colors flex items-center justify-center cursor-pointer"
             title={t('win_maximize')}
           >
-            <Square className="w-3 h-3 text-[var(--text-secondary)]" />
+            {isWindowMaximized ? (
+              <Copy className="w-3 h-3 text-[var(--text-secondary)] -scale-x-100" />
+            ) : (
+              <Square className="w-3 h-3 text-[var(--text-secondary)]" />
+            )}
           </button>
           <button
             onClick={() => {
