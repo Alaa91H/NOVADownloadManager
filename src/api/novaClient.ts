@@ -198,14 +198,14 @@ export const novaClient = {
     }
 
     let source: EventSource | null = null;
-    let retryDelay = 1000;
-    const MAX_RETRY_DELAY = 30000;
+    let retryDelay = 500;
+    const MAX_RETRY_DELAY = 10000;
     let cancelled = false;
     let healthTimer: ReturnType<typeof setInterval> | null = null;
     let lastEventTime = Date.now();
 
-    const HEALTH_CHECK_INTERVAL = 15000;
-    const STALE_THRESHOLD = 30000;
+    const HEALTH_CHECK_INTERVAL = 10000;
+    const STALE_THRESHOLD = 10000;
 
     // Delta sync: merge changed/removed into current list.
     let currentTasks: DownloadItem[] = [];
@@ -275,7 +275,7 @@ export const novaClient = {
       };
       // On open, reset backoff
       source.onopen = () => {
-        retryDelay = 1000;
+        retryDelay = 500;
         lastEventTime = Date.now();
       };
     };

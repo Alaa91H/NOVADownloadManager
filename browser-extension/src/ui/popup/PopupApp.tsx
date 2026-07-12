@@ -106,6 +106,7 @@ export function PopupApp() {
   const [outbox, setOutbox] = useState<OutboxCounts>();
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [sendAllConfirmOpen, setSendAllConfirmOpen] = useState(false);
+  const [miniMode, setMiniMode] = useState(false);
 
   const refresh = useCallback(async (showErrors = true): Promise<void> => {
     try {
@@ -225,6 +226,10 @@ export function PopupApp() {
     setTheme((current) => current === 'dark' ? 'light' : 'dark');
   }
 
+  function toggleMiniMode(): void {
+    setMiniMode((prev) => !prev);
+  }
+
   function toggleSelected(id: string): void {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -316,12 +321,6 @@ export function PopupApp() {
     void saveSettings(next, t('popup.settingsSavedOverlay'));
   }
 
-  function openFullOptions(): void {
-    void runtimeRequest({ type: 'OPEN_OPTIONS' }).catch((error) => {
-      setNotice({ kind: 'error', message: messageFromError(error) });
-    });
-  }
-
   const tone = statusTone(bridge?.status);
   const availableTabs = useMemo(() => visiblePopupTabs(settings), [settings]);
   const visibleCandidates = filter === 'all' ? candidates : candidates.filter((candidate) => candidate.mediaType === filter);
@@ -331,17 +330,26 @@ export function PopupApp() {
   const protectedCount = candidates.filter((candidate) => Boolean(candidate.drm?.protected || candidate.metadata?.drmProtected)).length;
   const selectedHandoffable = candidates.some((candidate) => selected.has(candidate.id) && isHandoffable(candidate) && isSupportedByRuntime(candidate, bridge));
 
-  return <main className="nova-popup nova-connection-popup" data-density={settings.popup.density}>
+  return <main className={`nova-popup nova-connection-popup${miniMode ? ' nova-popup-mini' : ''}`} data-density={settings.popup.density}>
     <section className="nova-connection-panel" aria-label={t('popup.connection.aria')}>
       <header className="nova-connection-header">
         <div className="nova-brand">
           <AppLogo />
           <div>
             <h1 className="nova-title">{t('popup.title')}</h1>
-            <p className="nova-subtitle">{t('popup.subtitle')}</p>
+            {!miniMode && <p className="nova-subtitle">{t('popup.subtitle')}</p>}
           </div>
         </div>
         <div className="nova-header-tools">
+          <button
+            type="button"
+            className="nova-theme-toggle"
+            title={miniMode ? 'Expand' : 'Mini mode'}
+            aria-label={miniMode ? 'Expand' : 'Mini mode'}
+            onClick={toggleMiniMode}
+          >
+            {miniMode ? '\u25A1' : '\u2013'}
+          </button>
           <button
             type="button"
             className="nova-theme-toggle"
@@ -435,7 +443,6 @@ export function PopupApp() {
             <h2>{t('popup.customization.title')}</h2>{/* Popup customization */}
             <p className="nova-help">{t('popup.customization.help')}</p>
           </div>
-          <button type="button" onClick={openFullOptions}>{t('popup.customization.fullOptions')}</button>
         </div>
         <div className="nova-field-grid nova-popup-field-grid">
           <label className="nova-toggle">

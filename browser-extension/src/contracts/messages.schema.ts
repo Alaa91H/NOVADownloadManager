@@ -112,7 +112,6 @@ export const RuntimeMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('CANCEL_TASK'), taskId: z.string().trim().min(1).max(MAX_TASK_ID_CHARS) }),
   z.object({ type: z.literal('LIST_TASKS') }),
   z.object({ type: z.literal('OPEN_NOVA') }),
-  z.object({ type: z.literal('OPEN_OPTIONS') }),
 ]);
 
 export type RuntimeMessage = z.infer<typeof RuntimeMessageSchema>;

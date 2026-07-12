@@ -232,17 +232,17 @@ pub async fn handle_download_events(
 ) -> Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>> {
     let stream = async_stream::stream! {
         let mut last_snapshots: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
-        let mut interval = tokio::time::interval(Duration::from_millis(400));
+        let mut interval = tokio::time::interval(Duration::from_millis(250));
         let mut full_sync_counter: u32 = 0;
 
         loop {
             interval.tick().await;
             let tasks = list_all_tasks(&state).await;
 
-            // Every 15 ticks (~6 seconds), send a full sync so the frontend can
+            // Every 40 ticks (~10 seconds), send a full sync so the frontend can
             // reconcile any missed events or ghost entries.
             full_sync_counter += 1;
-            if full_sync_counter >= 15 {
+            if full_sync_counter >= 40 {
                 full_sync_counter = 0;
                 let payload = serde_json::to_string(&tasks).unwrap_or_else(|_| "[]".to_string());
                 last_snapshots.clear();
@@ -725,6 +725,93 @@ fn fallback_file_name(url: &str) -> String {
         "download".to_string()
     } else {
         name.to_string()
+    }
+}
+
+/// Parse HTML content for `<meta http-equiv="refresh" content="5;URL='...'">`
+/// patterns commonly used by VideoLAN and similar mirrors that redirect via
+/// HTML rather than HTTP 3xx. Returns the redirected URL if found.
+fn parse_meta_refresh_url(html: &str) -> Option<String> {
+    // Case-insensitive search for meta refresh tags
+    let lower = html.to_ascii_lowercase();
+    // Match: <meta http-equiv="refresh" content="N;URL='...'">
+    // Also handles: <meta http-equiv="refresh" content="N; url=...">
+    let patterns = ["url='", "url=\"", "url="];
+    for tag_match in lower.match_indices("<meta") {
+        let start = tag_match.0;
+        // Find the closing > of this tag
+        if let Some(end) = lower[start..].find('>') {
+            let tag = &lower[start..start + end + 1];
+            if tag.contains("http-equiv") && tag.contains("refresh") {
+                for pat in &patterns {
+                    if let Some(pat_pos) = tag.rfind(pat) {
+                        let value_start = pat_pos + pat.len();
+                        let remaining = &tag[value_start..];
+                        let value = if *pat == "url='" || *pat == "url=\"" {
+                            let quote = if pat.ends_with('\'') { '\'' } else { '"' };
+                            if let Some(q_end) = remaining.find(quote) {
+                                &remaining[..q_end]
+                            } else {
+                                remaining.trim_end_matches('>')
+                            }
+                        } else {
+                            remaining.trim_end_matches('>').trim()
+                        };
+                        let value = value.trim();
+                        if !value.is_empty() {
+                            return Some(value.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Check if a response body contains Cloudflare challenge indicators.
+/// Cloudflare bot protection returns HTML with challenge scripts and
+/// specific markers like `cf-chl-bypass`, `challenge-platform`, etc.
+fn is_cloudflare_challenge(body: &str) -> bool {
+    let lower = body.to_ascii_lowercase();
+    lower.contains("cf-chl-bypass")
+        || lower.contains("challenge-platform")
+        || lower.contains("cf_chl_opt")
+        || (lower.contains("cloudflare") && lower.contains("challenge") && lower.contains("<script"))
+}
+
+/// For SourceForge URLs, try the direct downloads subdomain which often
+/// bypasses Cloudflare protection.
+fn sourceforge_direct_url(url: &str) -> Option<String> {
+    if !url.contains("sourceforge.net") {
+        return None;
+    }
+    // https://sourceforge.net/projects/foo/files/bar.exe/download
+    // -> https://downloads.sourceforge.net/project/foo/bar.exe
+    if let Some(files_pos) = url.find("/files/") {
+        let base = &url[..files_pos];
+        let project = base.rsplit('/').next()?;
+        let after_files = &url[files_pos + 7..].trim_end_matches("/download");
+        if after_files.is_empty() {
+            return None;
+        }
+        Some(format!(
+            "https://downloads.sourceforge.net/project/{}/{}",
+            project, after_files
+        ))
+    } else {
+        None
+    }
+}
+
+/// Resolve a meta-refresh redirect URL relative to the page URL if needed.
+fn refreshed_url(refresh: String, page_url: &str) -> String {
+    if refresh.starts_with("http://") || refresh.starts_with("https://") {
+        refresh
+    } else if let Some(base) = page_url.rsplit_once('/') {
+        format!("{}/{}", base.0.trim_end_matches('/'), refresh.trim_start_matches('/'))
+    } else {
+        refresh
     }
 }
 
@@ -1241,7 +1328,7 @@ async fn probe_url_uncached(
     // Some CDNs (CloudFront, Akamai) block requests without a proper
     // Accept-Encoding header or without Range. Try a plain GET with
     // browser-like encoding and abort headers-only.
-    if let Ok(resp) = apply_probe_request_options(
+    let _stage3b_body = if let Ok(resp) = apply_probe_request_options(
         client
             .get(target_url)
             .header(reqwest::header::USER_AGENT, PROBE_USER_AGENT)
@@ -1255,9 +1342,13 @@ async fn probe_url_uncached(
     {
         let status = resp.status().as_u16();
         let stage_final = resp.url().to_string();
+        let status_reason = resp.status().canonical_reason().unwrap_or("").to_string();
+        let content_type = header_string(resp.headers(), "content-type");
+        let headers_snapshot = resp.headers().clone();
+        let body_text = resp.text().await.unwrap_or_default();
         if status < 400 {
             let payload =
-                probe_payload(url, &stage_final, resp.headers(), status, "GET (encoding)");
+                probe_payload(url, &stage_final, &headers_snapshot, status, "GET (encoding)");
             let has_size = payload
                 .get("sizeBytes")
                 .and_then(|v| v.as_u64())
@@ -1266,15 +1357,88 @@ async fn probe_url_uncached(
             if has_size {
                 return Ok(Json(payload));
             }
+            // If body is HTML, try to extract meta-refresh URL (VideoLAN pattern)
+            if content_type.contains("text/html") || body_text.trim_start().starts_with("<!DOCTYPE")
+                || body_text.trim_start().starts_with("<html")
+            {
+                if let Some(refresh_url) = parse_meta_refresh_url(&body_text) {
+                    log::info!(
+                        "probe meta-refresh redirect for {}: {}",
+                        url,
+                        refresh_url
+                    );
+                    // Follow the meta-refresh URL with a new GET request
+                    if let Ok(refreshed) = apply_probe_request_options(
+                        client
+                            .get(&refreshed_url(refresh_url, &stage_final))
+                            .header(reqwest::header::USER_AGENT, PROBE_USER_AGENT)
+                            .header(reqwest::header::ACCEPT, "*/*")
+                            .header(RANGE, "bytes=0-0")
+                            .timeout(Duration::from_secs(PROBE_RANGE_TIMEOUT_SECS)),
+                        body,
+                    )
+                    .send()
+                    .await
+                    {
+                        let r_status = refreshed.status().as_u16();
+                        let r_final = refreshed.url().to_string();
+                        if r_status == 206 || r_status == 416 || r_status < 400 {
+                            let payload = probe_payload(
+                                url,
+                                &r_final,
+                                refreshed.headers(),
+                                r_status,
+                                "GET meta-refresh range=0-0",
+                            );
+                            return Ok(Json(payload));
+                        }
+                    }
+                }
+            }
+            // Check for Cloudflare challenge (SourceForge pattern)
+            if is_cloudflare_challenge(&body_text) {
+                log::info!("probe Cloudflare challenge detected for {}", url);
+                if let Some(direct_url) = sourceforge_direct_url(url) {
+                    log::info!("probe trying SourceForge direct URL: {}", direct_url);
+                    if let Ok(direct_resp) = apply_probe_request_options(
+                        client
+                            .get(&direct_url)
+                            .header(reqwest::header::USER_AGENT, PROBE_USER_AGENT)
+                            .header(reqwest::header::ACCEPT, "*/*")
+                            .header(RANGE, "bytes=0-0")
+                            .timeout(Duration::from_secs(PROBE_RANGE_TIMEOUT_SECS)),
+                        body,
+                    )
+                    .send()
+                    .await
+                    {
+                        let d_status = direct_resp.status().as_u16();
+                        let d_final = direct_resp.url().to_string();
+                        if d_status == 206 || d_status < 400 {
+                            let payload = probe_payload(
+                                url,
+                                &d_final,
+                                direct_resp.headers(),
+                                d_status,
+                                "GET sourceforge-direct",
+                            );
+                            return Ok(Json(payload));
+                        }
+                    }
+                }
+            }
         } else {
             log::warn!(
                 "probe GET (encoding) {} -> {} {}",
                 url,
                 status,
-                resp.status().canonical_reason().unwrap_or("")
+                status_reason
             );
         }
-    }
+        body_text
+    } else {
+        String::new()
+    };
 
     // ── Stage 4: Synthetic fallback ────────────────────────────────────────
     // All network attempts failed (timeout / DNS / TLS / 4xx-5xx).
@@ -1853,7 +2017,7 @@ pub async fn handle_v1_events(
     let stream = async_stream::stream! {
         yield Ok::<Event, Infallible>(Event::default().data(serde_json::json!({"type":"connected", "at": now_str_for_events()}).to_string()));
         let mut last_payload = String::new();
-        let mut interval = tokio::time::interval(Duration::from_secs(2));
+        let mut interval = tokio::time::interval(Duration::from_millis(500));
         loop {
             interval.tick().await;
             let tasks = list_all_tasks(&state).await;

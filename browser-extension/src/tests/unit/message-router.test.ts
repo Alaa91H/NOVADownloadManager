@@ -118,14 +118,6 @@ describe('message-router dispatch + policy', () => {
     expect(Array.isArray(response.tasks)).toBe(true);
   });
 
-  it('falls back to opening options.html in a tab when the options API fails', async () => {
-    harness.openOptionsPage.mockRejectedValueOnce(new Error('openOptionsPage unavailable'));
-    const response = (await harness.invoke({ type: 'OPEN_OPTIONS' }, harness.uiSender)) as { ok?: boolean };
-
-    expect(response.ok).toBe(true);
-    expect(harness.createTab).toHaveBeenCalledWith({ url: 'chrome-extension://testextid/options.html' });
-  });
-
   it('rejects OVERLAY_SEND_SELECTED when the sender has no originating tab id', async () => {
     const response = (await harness.invoke({ type: 'OVERLAY_SEND_SELECTED', candidateIds: ['c1'] }, { url: 'https://example.com/no-tab' })) as { ok: boolean; code: string };
     expect(response.ok).toBe(false);

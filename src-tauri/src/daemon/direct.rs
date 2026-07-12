@@ -454,6 +454,29 @@ pub struct ConnectionLimits {
 }
 
 impl ConnectionLimits {
+    /// Recommend per-host connection count for known CDNs that misbehave
+    /// with many concurrent connections (e.g. Google throttles, SourceForge
+    /// mirrors reject, VideoLAN stalls).
+    fn recommended_per_host(url: &str) -> Option<usize> {
+        let host = url
+            .split("://")
+            .nth(1)?
+            .split('/')
+            .next()?
+            .to_ascii_lowercase();
+        if host.contains("dl.google.com") || host.contains("google.com") {
+            Some(4)
+        } else if host.contains("sourceforge.net") {
+            Some(1)
+        } else if host.contains("videolan.org") || host.contains("halifax.rwth-aachen.de") {
+            Some(4)
+        } else if host.contains("mega.nz") || host.contains("mega.co.nz") {
+            Some(1)
+        } else {
+            None
+        }
+    }
+
     pub fn from_options(
         options: &HashMap<String, Value>,
         requested: u32,
@@ -479,6 +502,23 @@ impl ConnectionLimits {
             per_host,
             cache,
         }
+    }
+
+    /// Like `from_options` but applies hostname-aware per-host limits when
+    /// the user hasn't explicitly set `maxHostConnections`.
+    pub fn from_options_for_url(
+        options: &HashMap<String, Value>,
+        requested: u32,
+        max_connections: u32,
+        url: &str,
+    ) -> Self {
+        let mut limits = Self::from_options(options, requested, max_connections);
+        if option_u64(options, "maxHostConnections").is_none() {
+            if let Some(recommended) = Self::recommended_per_host(url) {
+                limits.per_host = recommended.min(limits.total);
+            }
+        }
+        limits
     }
 }
 

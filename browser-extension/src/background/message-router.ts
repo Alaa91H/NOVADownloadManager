@@ -140,8 +140,6 @@ async function dispatchMessage(msg: RuntimeMessage, sender?: RuntimeMessageSende
       return bridgeManager.listTasks().then((tasks) => ListTasksResponseSchema.parse({ ok: true, tasks }));
     case 'OPEN_NOVA':
       return openNova();
-    case 'OPEN_OPTIONS':
-      return openOptions();
   }
 }
 
@@ -439,7 +437,7 @@ async function assertAggressiveAllSitesAccess(): Promise<void> {
       code: 'PERMISSION_MISSING',
       message: 'Aggressive Capture Mode requires browser all-sites access (<all_urls>) plus downloads, webRequest, scripting, and tabs permissions.',
       retryable: false,
-      repairHint: 'Open Options > Capture and grant the aggressive all-sites permission bundle from the browser prompt.',
+      repairHint: 'Grant the aggressive all-sites permission bundle from the browser prompt when prompted.',
       details: AGGRESSIVE_CAPTURE_PERMISSION_BUNDLE,
     });
   }
@@ -630,15 +628,6 @@ async function openNova(captureUrl?: string): Promise<{ ok: true }> {
   const baseUrl = 'http://127.0.0.1:3199';
   const url = captureUrl ? `${baseUrl}/?capture=${encodeURIComponent(captureUrl)}` : baseUrl;
   await browser.tabs.create({ url });
-  return { ok: true };
-}
-
-async function openOptions(): Promise<{ ok: true }> {
-  try {
-    await browser.runtime.openOptionsPage();
-  } catch {
-    await browser.tabs.create({ url: browser.runtime.getURL('options.html') });
-  }
   return { ok: true };
 }
 

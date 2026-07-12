@@ -1066,8 +1066,8 @@ fn apply_easy_options(
     if direct_u64(opts, "lowSpeedLimitBytes").is_none()
         && direct_u64(opts, "speedTimeSec").is_none()
     {
-        let _ = easy.low_speed_limit(1);
-        let _ = easy.low_speed_time(Duration::from_secs(45));
+        let _ = easy.low_speed_limit(500);
+        let _ = easy.low_speed_time(Duration::from_secs(15));
     }
     // ── Authentication ──
     if let Some(user) = direct_str(opts, "username") {
@@ -1877,10 +1877,11 @@ fn run_segmented_libcurl(
     let mut multi = Multi::new();
     configure_multi_limits(
         &mut multi,
-        ConnectionLimits::from_options(
+        ConnectionLimits::from_options_for_url(
             &plan.direct_options,
             plan.connections,
             MAX_DIRECT_CONNECTIONS,
+            &plan.url,
         ),
     )?;
     multi
@@ -2069,6 +2070,42 @@ fn run_libcurl_download(
                                 new_url
                             );
                         }
+                    }
+                }
+                // Smart fallback: if segmented download failed, try single
+                // connection immediately before the next retry attempt.
+                // Many CDNs (Google, VideoLAN, SourceForge) accept only one
+                // range connection and stall the rest.
+                if plan.segmented {
+                    log::info!(
+                        "Segmented attempt failed for task {}; trying single-connection fallback",
+                        id
+                    );
+                    plan.segmented = false;
+                    if !cancel.load(Ordering::Acquire) {
+                        match run_single_libcurl(state, id, &plan, cancel.clone()) {
+                            Ok(size) => {
+                                integrity.validate_size(size)?;
+                                return Ok(size);
+                            }
+                            Err(fb_error)
+                                if fb_error == "cancelled"
+                                    || cancel.load(Ordering::Acquire) =>
+                            {
+                                return Err("cancelled".to_string());
+                            }
+                            Err(fb_error) => {
+                                log::warn!(
+                                    "Single-connection fallback also failed for task {}: {}",
+                                    id,
+                                    fb_error
+                                );
+                                // Continue to normal retry with segmented re-enabled
+                                plan.segmented = started_segmented;
+                            }
+                        }
+                    } else {
+                        return Err("cancelled".to_string());
                     }
                 }
                 if RetryPolicy::is_permanent_error(&error)

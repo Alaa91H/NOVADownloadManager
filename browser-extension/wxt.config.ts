@@ -126,7 +126,6 @@ export default defineConfig({
           128: 'icons/icon-128.png',
         },
       },
-      options_ui: { page: 'options.html', open_in_tab: true },
       commands: {
         'send-current-page-to-nova': {
           suggested_key: { default: 'Alt+Shift+D' },

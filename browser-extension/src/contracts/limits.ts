@@ -27,7 +27,7 @@ export const MAX_EVENT_MESSAGE_BYTES = 256_000;
 export const MAX_SSE_BUFFER_BYTES = 512_000;
 export const MAX_EVENT_PARSE_ERRORS_PER_CONNECTION = 20;
 // Event stream is considered stale (silent drop) when no heartbeat arrives within this window.
-export const EVENT_STREAM_STALE_MS = 90_000;
+export const EVENT_STREAM_STALE_MS = 3_000;
 export const MAX_HTTP_REQUEST_PAYLOAD_BYTES = 2_000_000;
 export const MAX_HTTP_RESPONSE_BYTES = 2_000_000;
 export const MAX_NATIVE_MESSAGE_BYTES = 1_000_000;

@@ -4,7 +4,7 @@ use std::process::Command;
 
 /// Browser-like UA avoids 403/Forbidden from CDNs and download mirrors that
 /// block non-browser clients (e.g. some anti-hotlink middleware).
-pub const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
+pub const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
 
 /// Lock a Mutex and return the guard, or log error and recover on poison.
 /// Recovery is safe here because our mutexes protect simple data (HashMaps)

@@ -34,7 +34,6 @@ const UI_ONLY_MESSAGES = new Set<RuntimeMessage['type']>([
   'CANCEL_TASK',
   'LIST_TASKS',
   'OPEN_NOVA',
-  'OPEN_OPTIONS',
 ]);
 
 const PASSIVE_MESSAGES = new Set<RuntimeMessage['type']>(['GET_BRIDGE_STATE']);
