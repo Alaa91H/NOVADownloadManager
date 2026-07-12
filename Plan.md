@@ -475,6 +475,14 @@ P26-07-07
       - Branch: `feature/ui-004-store-i18n-error-state`
       - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/41
       - Preflight: brace/paren/bracket balance verified on all 7 changed source files.
+    - Cycle 2026-07-12 (round 9 — CI gate repair for TypeScript + ESLint):
+      - **Root cause (TypeScript)**: `en.ts` had duplicate `toast_settings_saved_title` and `toast_settings_saved_desc` properties (lines 274-275 and 1313-1314). TS1117: object literal cannot have multiple properties with the same name.
+      - **Fix (TypeScript)**: Removed the earlier duplicate pair (lines 274-275) which had stale values ('Save Confirmed'). The round 8 pair ('Settings Saved') matches the appStore.tsx usage.
+      - **Root cause (ESLint)**: `appStore.tsx` `updateSettings` useCallback used `t(...)` at line 748 but `t` was declared at line 759 (temporal dead zone). Also missing `t` in `updateSettings` dependency array.
+      - **Fix (ESLint)**: Moved `t` useCallback declaration above `updateSettings`. Added `t` to `updateSettings` dependency array.
+      - Branch: `feature/ui-004-store-i18n-error-state`
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/41
+      - Preflight: brace/paren/bracket balance verified; `t` declared before `updateSettings` confirmed.
 
 ### UI-005 — Button & interaction polish pass
 

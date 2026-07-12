@@ -271,8 +271,6 @@ export const en: Record<string, string> = {
   set_reset_tab_confirm: 'Are you sure you want to reset current tab settings to defaults?',
   set_reset_all_confirm:
     'Critical security warning: All settings and themes will be initialized. Do you want to proceed?',
-  toast_settings_saved_title: 'Save Confirmed',
-  toast_settings_saved_desc: 'All current settings have been successfully saved and applied.',
   toast_tab_reset_title: 'Tab Reset',
   toast_tab_reset_desc: 'Default settings restored for the active tab.',
   toast_all_reset_title: 'Full Factory Reset',

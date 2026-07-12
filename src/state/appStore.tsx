@@ -739,6 +739,15 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     };
   }, [bridge.status, settings.extra.enableSse]);
 
+  // Translation
+  const t = useCallback(
+    (key: string, params?: Record<string, string | number>) => {
+      void i18nRevision;
+      return getTranslation(settings.extra.language || 'en', key, params);
+    },
+    [settings.extra.language, i18nRevision],
+  );
+
   // Settings actions
   const updateSettings = useCallback(
     (updatedSettings: AppSettings, silent = false) => {
@@ -748,21 +757,12 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
         addToast('success', t('toast_settings_saved_title'), t('toast_settings_saved_desc'));
       }
     },
-    [addToast],
+    [addToast, t],
   );
 
   const updateThemeSettings = useCallback((key: keyof AppThemeSettings, value: string) => {
     setThemeSettings((prev) => ({ ...prev, [key]: value }));
   }, []);
-
-  // Translation
-  const t = useCallback(
-    (key: string, params?: Record<string, string | number>) => {
-      void i18nRevision;
-      return getTranslation(settings.extra.language || 'en', key, params);
-    },
-    [settings.extra.language, i18nRevision],
-  );
 
   // Effects: unsigned update check. This intentionally does not download or
   // install updates automatically, so development builds do not require signing.
