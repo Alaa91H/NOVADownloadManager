@@ -25,6 +25,7 @@ import TaskCardList from './TaskCardList';
 import ColumnConfigPanel from './ColumnConfigPanel';
 import { TableSkeleton } from './primitives/TableSkeleton';
 import { EmptyState } from './primitives/EmptyState';
+import { DegradedBanner } from './primitives/DegradedBanner';
 import { useColumnState } from '../hooks/useColumnState';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { useTaskSortFilter } from '../hooks/useTaskSortFilter';
@@ -298,6 +299,16 @@ export const TaskTable: React.FC = () => {
               <Trash2 className="w-3 h-3" /> {t('action_delete')}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Degraded mode banner when tasks exist but daemon is offline */}
+      {isDegradedMode && tasks.length > 0 && (
+        <div className="px-3 pt-2">
+          <DegradedBanner
+            title={t('degraded_mode_title')}
+            description={t('degraded_mode_desc')}
+          />
         </div>
       )}
 
