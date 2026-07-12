@@ -590,6 +590,14 @@ jobs:
           Get-ChildItem browser-extension\dist\release-assets\* -File -ErrorAction SilentlyContinue |
             ForEach-Object { Copy-Item $_.FullName "release\$($_.Name)" -Force }
 
+      - name: Build MSIX package (Microsoft Store)
+        if: matrix.platform == 'windows-x64'
+        continue-on-error: true
+        shell: bash
+        run: |
+          pnpm run msix:build
+          cp dist-msix/*.msix release/ 2>/dev/null || true
+
       - name: Prepare release files (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -671,7 +679,7 @@ jobs:
           # .app bundle (raw binaries, Info.plist, icons, manifests) that a bare
           # `find -type f` would flatten into the release.
           find artifacts -type f \( \
-              -name '*.exe' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' \
+              -name '*.exe' -o -name '*.msix' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' \
               -o -name '*.AppImage' -o -name '*.zip' -o -name '*.xpi' \
             \) -exec cp {} release/ \;
           cd release

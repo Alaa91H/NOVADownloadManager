@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSIX package manifest for publishing Nova Download Manager to the Microsoft
+  Store (packaged as a full-trust desktop app / Desktop Bridge).
+
+  Before a Store submission you MUST replace the identity fields below with the
+  values reserved for your app in Partner Center
+  (https://partner.microsoft.com/dashboard):
+
+    Identity/@Name                 -> Package/Identity/Name from Partner Center
+    Identity/@Publisher            -> Package/Identity/Publisher (e.g. CN=XXXX...)
+    Properties/PublisherDisplayName-> your registered publisher display name
+
+  scripts/build-msix.mjs injects the 4-part @Version at build time from the
+  release tag, so leave the "0.0.0.0" placeholder here.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity
+    Name="REPLACE_WITH_PARTNER_CENTER_IDENTITY_NAME"
+    Publisher="CN=REPLACE_WITH_PARTNER_CENTER_PUBLISHER_ID"
+    Version="0.0.0.0"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Nova Download Manager</DisplayName>
+    <PublisherDisplayName>NOVA</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="NovaDownloadManager" Executable="nova.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="Nova Download Manager"
+        Description="Fast, modern, multi-engine download manager."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" ShortName="Nova" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>
