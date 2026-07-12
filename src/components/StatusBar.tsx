@@ -324,12 +324,6 @@ export const StatusBar: React.FC = () => {
             title={browserStatusTip}
           >
             <Shield className="w-3.5 h-3.5" />
-            {browserIconState === 'connected' && (
-              <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-[var(--success)] rounded-full" />
-            )}
-            {browserIconState === 'degraded' && (
-              <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-[var(--warning)] rounded-full" />
-            )}
           </button>
         )}
 
