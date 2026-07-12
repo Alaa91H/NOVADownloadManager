@@ -492,6 +492,15 @@ P26-07-07
       - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/42
       - CI: https://github.com/Alaa91H/NOVADownloadManager/actions/runs/29176260547 (pending)
       - Preflight: brace/paren/bracket balance verified on all 3 source files.
+    - Cycle 2026-07-12 (round 11 — Dialog degraded banners + AddToQueue empty state):
+      - **YoutubeDownloadDialog**: Added `isDegradedMode` from useAppStore. DegradedBanner shown at top when daemon unreachable. Engine-specific banners (media unavailable, FFmpeg warning) remain below.
+      - **BatchImportDialog**: Added `isDegradedMode` from useAppStore. DegradedBanner shown at top. Engine-specific unavailable banner remains below.
+      - **ActiveProgressDialog**: Added `isDegradedMode` from useAppStore. DegradedBanner shown above tabs.
+      - **AddToQueueDialog**: Added `isDegradedMode` from useAppStore. DegradedBanner shown at top. EmptyState with `List` icon shown when `queues.length === 0` instead of blank space.
+      - **i18n**: Added 3 keys to en.ts/ar.ts (`dialog_degraded_title`, `dialog_degraded_desc`, `queue_no_queues`, `queue_no_queues_desc`). Synced to ar.ts.
+      - Branch: `feature/ui-004-dialog-degraded-banners`
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/44
+      - Preflight: brace/paren/bracket balance verified on all 6 changed files.
 
 ### UI-005 — Button & interaction polish pass
 
