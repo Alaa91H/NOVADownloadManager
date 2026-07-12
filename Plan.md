@@ -447,7 +447,24 @@ P26-07-07
      - Branch: `feature/ui-004-table-skeleton-reconnect`
      - Push: `af056e0` pushed to feature branch at 2026-07-11
      - Validation: CI at https://github.com/Alaa91H/NOVADownloadManager/actions (pending)
-     - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/33
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/33
+    - Cycle 2026-07-11 (round 6 — Degraded mode states & error handling):
+      - **Sidebar bridge status**: Added third visual state for `bridge.status === 'degraded'` — amber pulsing dot + `daemon_bridge_degraded` text ('Starting engines…'), distinct from green (connected) and orange (disconnected).
+      - **SchedulerPanel degraded banner**: When `isDegradedMode` is true, a warning banner (WifiOff icon + description) appears at the top of the scheduler, informing the user that schedules may not execute until the daemon is restored.
+      - **DiagnosticsDialog error handling**: Wrapped `fetchDiagnostics` in try/catch. On failure, shows error state (AlertTriangle icon + `diag_error` title + `diag_error_desc` description + error message) instead of leaving the spinner spinning indefinitely.
+      - **Toast consistency**: Added toast feedback to `AddToQueueDialog` (queue move, create-and-move) and `TaskPropertiesDialog` (save).
+      - **i18n**: Added 5 new keys (`daemon_bridge_degraded`, `sched_degraded`, `sched_degraded_desc`, `diag_error`, `diag_error_desc`) to en.ts/ar.ts. Synced to all 132 locales (1273 keys each).
+      - Branch: `feature/ui-004-degraded-states`
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/34
+      - Validation: CI pending
+      - Preflight: brace/paren/bracket balance verified on all 5 source files.
+    - Cycle 2026-07-11 (round 7 — ESLint fix for DiagnosticsDialog):
+      - **Root cause**: `eslint-disable-next-line react-hooks/set-state-in-effect` was placed before `useEffect(() => {` but the rule fires on `void fetchDiagnostics()` inside the callback. The directive only covers the next line, not nested calls.
+      - **Fix**: Moved the `eslint-disable-next-line` comment from line 32 (before useEffect) to line 34 (directly before `void fetchDiagnostics()`). 1 line changed.
+      - Branch: `feature/ui-004-degraded-states`
+      - Push: `6637011` pushed to feature branch at 2026-07-11
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/34
+      - Validation: CI pending
 
 ### UI-005 — Button & interaction polish pass
 

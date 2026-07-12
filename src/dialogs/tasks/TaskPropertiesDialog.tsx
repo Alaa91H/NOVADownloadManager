@@ -63,6 +63,7 @@ export const TaskPropertiesDialog: React.FC = () => {
       savePath,
       description,
     });
+    addToast('success', t('toast_success_title'), t('task_prop_toast_saved'));
     closeDialog();
   };
 

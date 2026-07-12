@@ -1,6 +1,6 @@
 /* src/dialogs/diagnostics/DiagnosticsDialog.tsx */
 import React, { useEffect, useRef, useState } from 'react';
-import { Cpu, HardDrive, RefreshCw, ShieldCheck } from 'lucide-react';
+import { Cpu, HardDrive, RefreshCw, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { tauriClient, DiagnosticData } from '../../api/tauriClient';
 import { useAppStore } from '../../state/appStore';
 import { DialogButton, Button } from '../../components/primitives';
@@ -9,17 +9,29 @@ export const DiagnosticsDialog: React.FC = () => {
   const { t } = useAppStore();
   const [data, setData] = useState<DiagnosticData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const cancelledRef = useRef(false);
 
   const fetchDiagnostics = async () => {
-    const result = await tauriClient.getDiagnostics();
-    if (cancelledRef.current) return;
-    setData(result);
-    setLoading(false);
+    try {
+      setError(null);
+      const result = await tauriClient.getDiagnostics();
+      if (cancelledRef.current) return;
+      setData(result);
+    } catch (err: unknown) {
+      if (cancelledRef.current) return;
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+    } finally {
+      if (!cancelledRef.current) {
+        setLoading(false);
+      }
+    }
   };
 
   useEffect(() => {
     cancelledRef.current = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch with cancellation ref; setState guarded by cancelledRef
     void fetchDiagnostics();
     return () => {
       cancelledRef.current = true;
@@ -50,6 +62,15 @@ export const DiagnosticsDialog: React.FC = () => {
         <div className="h-48 flex flex-col items-center justify-center gap-3">
           <span className="w-8 h-8 rounded-full border-4 border-[var(--accent-primary)] border-t-transparent animate-spin" />
           <span className="text-xs text-[var(--text-secondary)]">{t('diag_loading')}</span>
+        </div>
+      ) : error ? (
+        <div className="h-48 flex flex-col items-center justify-center gap-3">
+          <div className="p-3 rounded-full bg-rose-500/10">
+            <AlertTriangle className="w-8 h-8 text-rose-500" />
+          </div>
+          <h3 className="text-sm font-bold text-[var(--text-secondary)]">{t('diag_error')}</h3>
+          <p className="text-[11px] text-[var(--text-muted)] max-w-xs leading-relaxed">{t('diag_error_desc')}</p>
+          <span className="text-[10px] text-rose-400 font-mono mt-1">{error}</span>
         </div>
       ) : data ? (
         <div className="space-y-4 animate-in fade-in duration-150">
