@@ -6,6 +6,10 @@ ManifestDPIAware true
 ; https://github.com/tauri-apps/tauri/pull/10106
 ManifestDPIAwareness PerMonitorV2
 
+; Use the modern, high-clarity Windows UI font for every installer dialog
+; instead of the dated default (MS Shell Dlg / Tahoma).
+SetFont "Segoe UI" 9
+
 !if "{{compression}}" == "none"
   SetCompress off
 !else
