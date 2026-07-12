@@ -260,7 +260,7 @@ export interface DirectDownloadOptions {
 
 export interface DownloadSegment {
   id: number;
-  progress: number; // 0 to 100
+  progress: number; // 0.0 to 1.0 (fraction)
   downloadedBytes: number;
   totalBytes: number;
   active: boolean;

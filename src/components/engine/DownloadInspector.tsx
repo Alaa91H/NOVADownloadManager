@@ -195,7 +195,7 @@ export const DownloadInspector: React.FC<DownloadInspectorProps> = ({ task, onCl
               <SegmentVisualization
                 segments={task.segments.map((s) => ({
                   id: s.id,
-                  progress: s.progress / 100,
+                  progress: s.progress,
                   downloadedBytes: s.downloadedBytes,
                   totalBytes: s.totalBytes,
                   active: s.active,
@@ -230,7 +230,7 @@ export const DownloadInspector: React.FC<DownloadInspectorProps> = ({ task, onCl
               <SegmentVisualization
                 segments={task.segments.map((s) => ({
                   id: s.id,
-                  progress: s.progress / 100,
+                  progress: s.progress,
                   downloadedBytes: s.downloadedBytes,
                   totalBytes: s.totalBytes,
                   active: s.active,

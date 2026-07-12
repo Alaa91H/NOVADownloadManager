@@ -375,12 +375,12 @@ export const ActiveProgressDialog: React.FC = () => {
               >
                 <div
                   className="bg-[var(--accent-primary)] opacity-85 h-full absolute top-0 left-0 transition-all duration-300"
-                  style={{ width: `${String(seg.progress)}%` }}
+                  style={{ width: `${String(seg.progress * 100)}%` }}
                 />
-                {seg.active && seg.progress < 100 && (
+                {seg.active && seg.progress < 1 && (
                   <div
                     className="w-[1.5px] bg-[var(--danger)] h-full absolute top-0 animate-pulse"
-                    style={{ left: `${String(seg.progress)}%` }}
+                    style={{ left: `${String(seg.progress * 100)}%` }}
                   />
                 )}
               </div>
@@ -402,7 +402,9 @@ export const ActiveProgressDialog: React.FC = () => {
               <tbody>
                 {task.segments.map((seg) => {
                   const segTotal = seg.totalBytes || Math.round(task.sizeBytes / (task.segments.length || 8));
-                  const segDownloaded = Math.round((seg.progress / 100) * segTotal);
+                  // Prefer the real per-segment byte count; the progress field is
+                  // a 0..1 fraction, so only fall back to it when bytes are absent.
+                  const segDownloaded = seg.downloadedBytes || Math.round(seg.progress * segTotal);
                   return (
                     <tr
                       key={seg.id}
@@ -415,7 +417,7 @@ export const ActiveProgressDialog: React.FC = () => {
                         {formatBytes(segDownloaded)}
                       </td>
                       <td className="py-1 px-3 text-left pr-4 font-sans font-medium text-[var(--text-secondary)]">
-                        {seg.progress === 100 ? t('progress_complete') : seg.active ? t('progress_receiving') : t('progress_idle')}
+                        {seg.progress >= 1 ? t('progress_complete') : seg.active ? t('progress_receiving') : t('progress_idle')}
                       </td>
                     </tr>
                   );
