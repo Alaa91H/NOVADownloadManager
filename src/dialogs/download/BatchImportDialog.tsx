@@ -3,11 +3,12 @@ import React, { useState } from 'react';
 import { Layers, Clipboard, AlertCircle, Sliders } from 'lucide-react';
 import { useAppStore } from '../../state/appStore';
 import { DialogButton, Button, SelectField, TextField } from '../../components/primitives';
+import { DegradedBanner } from '../../components/primitives/DegradedBanner';
 import { readClipboardText } from '../../utils/clipboard';
 import { useEngineCapabilities } from '../../capabilities/EngineCapabilityContext';
 
 export const BatchImportDialog: React.FC = () => {
-  const { closeDialog, triggerBatchDownload, addToast, settings, queues, t } = useAppStore();
+  const { closeDialog, triggerBatchDownload, addToast, settings, queues, t, isDegradedMode } = useAppStore();
   const engineCapabilities = useEngineCapabilities();
   const [inputText, setInputText] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -90,6 +91,9 @@ export const BatchImportDialog: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {isDegradedMode && (
+        <DegradedBanner title={t('dialog_degraded_title')} description={t('dialog_degraded_desc')} />
+      )}
       <div className="flex items-center gap-2 p-3 bg-blue-500/10 border border-blue-500/20 text-[var(--text-secondary)] rounded-lg text-xs">
         <AlertCircle className="w-5 h-5 text-[var(--accent-primary)] shrink-0" />
         <p className="leading-relaxed">{t('batch_desc')}</p>

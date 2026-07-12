@@ -1349,4 +1349,8 @@ export const en: Record<string, string> = {
   toast_queue_created_moved_desc: 'Queue "${name}" was created and the file was moved into it.',
   settings_degraded_title: 'Daemon Unavailable',
   settings_degraded_desc: 'Some settings require the download daemon to be running.',
+  dialog_degraded_title: 'Daemon Unavailable',
+  dialog_degraded_desc: 'The download service is unreachable. Actions may fail until the connection is restored.',
+  queue_no_queues: 'No Queues Available',
+  queue_no_queues_desc: 'Create a queue first before adding tasks to it.',
 };
