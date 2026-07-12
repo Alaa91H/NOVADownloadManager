@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novadownloadmanager.app/contracts/extension-settings-response.schema.json",
+  "title": "NOVA Extension Settings Response",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "default": true,
+      "type": "boolean"
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "candidate.directUrl",
+              "candidate.torrent",
+              "candidate.magnet",
+              "candidate.hls",
+              "candidate.dash",
+              "task.add",
+              "task.addBatch",
+              "task.pause",
+              "task.resume",
+              "task.cancel",
+              "events.sse",
+              "events.websocket",
+              "settings.snapshot",
+              "page.extract",
+              "refreshAddress.candidate",
+              "refreshAddress.apply",
+              "stream.hls.detect",
+              "stream.hls.resolve",
+              "stream.hls.download",
+              "stream.dash.detect",
+              "stream.dash.resolve",
+              "stream.dash.download",
+              "stream.quality.select",
+              "stream.subtitles",
+              "stream.audioTracks",
+              "stream.refreshUrl"
+            ]
+          }
+        },
+        "engineCapabilities": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        },
+        "directOptionKeys": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "mediaOptionKeys": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "directProtocols": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "streamResolverReady": {
+          "default": false,
+          "type": "boolean"
+        },
+        "unsupportedCandidateMediaTypes": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sourceOfTruth": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "additionalProperties": {}
+    },
+    "settings": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "additionalProperties": false
+}
