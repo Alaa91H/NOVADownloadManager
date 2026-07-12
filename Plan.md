@@ -473,6 +473,7 @@ P26-07-07
       - **TaskTable CRC32 i18n**: Replaced hardcoded `'CRC32'` column header with `t('col_crc32')`.
       - **i18n**: Added 48 new translation keys to en.ts and ar.ts (toast_service_*, toast_daemon_*, toast_download_*, toast_engine_*, toast_queue_*, toast_props_*, toast_batch_*, toast_open_*, settings_degraded_*, col_crc32). Synced to all 132 locales (1321 keys each).
       - Branch: `feature/ui-004-store-i18n-error-state`
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/41
       - Preflight: brace/paren/bracket balance verified on all 7 changed source files.
 
 ### UI-005 — Button & interaction polish pass
