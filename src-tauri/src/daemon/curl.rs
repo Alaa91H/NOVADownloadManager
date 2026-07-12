@@ -1054,6 +1054,20 @@ fn apply_easy_options(
         easy.max_redirections(max.min(u32::MAX as u64) as u32)
             .map_err(|e| format!("Could not configure redirect limit: {e}"))?;
     }
+    // ── Default stall/connect guards ──
+    // Without these a connection to a slow or rate-limiting CDN/mirror (common
+    // with Google, VideoLAN, SourceForge) that accepts the socket but never
+    // sends data hangs forever with 0% progress. Abort such connections so the
+    // retry policy can recover instead of the task stalling indefinitely. Only
+    // applied when the user hasn't set their own values.
+    if direct_u64(opts, "connectTimeoutSec").is_none() {
+        let _ = easy.connect_timeout(Duration::from_secs(30));
+    }
+    if direct_u64(opts, "lowSpeedLimitBytes").is_none() && direct_u64(opts, "speedTimeSec").is_none()
+    {
+        let _ = easy.low_speed_limit(1);
+        let _ = easy.low_speed_time(Duration::from_secs(45));
+    }
     // ── Authentication ──
     if let Some(user) = direct_str(opts, "username") {
         easy.username(user)
@@ -1998,13 +2012,14 @@ fn run_segmented_libcurl(
 fn run_libcurl_download(
     state: &SharedState,
     id: &str,
-    plan: DirectDownloadPlan,
+    mut plan: DirectDownloadPlan,
     cancel: Arc<AtomicBool>,
 ) -> Result<u64, String> {
     let retry_policy = RetryPolicy::from_options(&plan.direct_options);
     let integrity = IntegrityValidator::new(IntegrityMetadata::from_expected_size(plan.total_size));
     let start_time = std::time::Instant::now();
     let mut last_error = String::new();
+    let started_segmented = plan.segmented;
     for attempt in 0..retry_policy.attempts {
         if cancel.load(Ordering::Acquire) {
             return Err("cancelled".to_string());
@@ -2071,6 +2086,27 @@ fn run_libcurl_download(
                     }
                 }
             }
+        }
+    }
+    // Guaranteed single-connection fallback: some hosts (Google, VideoLAN and
+    // SourceForge mirrors) accept only one range connection and stall the rest,
+    // so a segmented download that never succeeded gets one final single-stream
+    // attempt regardless of the configured retry count.
+    if started_segmented && !cancel.load(Ordering::Acquire) {
+        log::info!(
+            "Segmented download failed for task {}; final single-connection attempt",
+            id
+        );
+        plan.segmented = false;
+        match run_single_libcurl(state, id, &plan, cancel.clone()) {
+            Ok(size) => {
+                integrity.validate_size(size)?;
+                return Ok(size);
+            }
+            Err(error) if error == "cancelled" || cancel.load(Ordering::Acquire) => {
+                return Err("cancelled".to_string());
+            }
+            Err(error) => last_error = error,
         }
     }
     Err(last_error)
