@@ -1370,7 +1370,7 @@ async fn probe_url_uncached(
                     // Follow the meta-refresh URL with a new GET request
                     if let Ok(refreshed) = apply_probe_request_options(
                         client
-                            .get(&refreshed_url(refresh_url, &stage_final))
+                            .get(refreshed_url(refresh_url, &stage_final))
                             .header(reqwest::header::USER_AGENT, PROBE_USER_AGENT)
                             .header(reqwest::header::ACCEPT, "*/*")
                             .header(RANGE, "bytes=0-0")

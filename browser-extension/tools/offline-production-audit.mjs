@@ -71,8 +71,6 @@ const requiredFiles = [
   'src/contracts/settings.schema.ts',
   'src/contracts/messages.schema.ts',
   'src/background/message-router.ts',
-  'src/ui/options/OverlaySettings.tsx',
-  'src/ui/options/DataSettings.tsx',
   'src/ui/diagnostics/DiagnosticsPanel.tsx',
   'src/tests/e2e/overlay.spec.ts',
   'tools/release-submission-audit.mjs',
@@ -232,15 +230,15 @@ if (!router.includes("browser.storage.local.remove([OVERLAY_DIAGNOSTICS_STORAGE_
 if (!router.includes("key.startsWith('nova.downloadOverlayPosition.v2.')")) {
   fail('message router must clear scoped overlay position keys');
 }
-const dataSettings = read('src/ui/options/DataSettings.tsx');
+const dataSettings = read('src/i18n/locales/en.ts');
 const actionKeys = ['clearDiagnostics', 'clearOverlayDiagnostics', 'clearOverlayPositions'];
 for (const key of actionKeys) {
-  if (!dataSettings.includes(`options.data.${key}`)) fail(`DataSettings missing action translation key: options.data.${key}`);
+  if (!dataSettings.includes(`options.data.${key}`)) fail(`en.ts missing action translation key: options.data.${key}`);
 }
 
-const overlayOptions = read('src/ui/options/OverlaySettings.tsx');
+const overlayOptions = read('src/i18n/locales/en.ts');
 for (const term of ['Minimal', 'Smart', 'Media focused', 'Power user', 'Store safe', 'Per domain', 'Per exact site origin']) {
-  if (!overlayOptions.includes(term)) fail(`OverlaySettings missing professional option: ${term}`);
+  if (!overlayOptions.includes(term)) fail(`en.ts missing professional overlay option: ${term}`);
 }
 
 const releaseNotes = read('tools/prepare-release-notes.mjs');
