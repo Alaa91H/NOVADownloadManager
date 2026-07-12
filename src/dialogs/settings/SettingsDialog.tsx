@@ -98,11 +98,8 @@ export const SettingsDialog: React.FC = () => {
       theme: 'dark',
       density: 'dense',
       accent: 'blue',
-      sidebar: 'expanded',
       progress: 'bar',
       contrast: 'normal',
-      motion: 'enabled',
-      blur: 'enabled',
     };
     setLocalThemeSettings(defaultsTheme);
     // Directly apply all changes to the store instantly and silently

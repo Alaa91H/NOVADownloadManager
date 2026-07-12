@@ -35,16 +35,6 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
   const [headerKeyInput, setHeaderKeyInput] = useState('');
   const [headerValueInput, setHeaderValueInput] = useState('');
 
-  const [diagChecking, setDiagChecking] = useState(false);
-  const [diagResults, setDiagResults] = useState<
-    Array<{ id: string; label: string; status: 'pass' | 'warn' | 'fail' | 'idle' }>
-  >([
-    { id: 'health', label: t('settings_diag_health'), status: 'idle' },
-    { id: 'direct', label: t('settings_diag_direct'), status: 'idle' },
-    { id: 'media', label: t('settings_diag_media'), status: 'idle' },
-    { id: 'downloads', label: t('settings_diag_downloads'), status: 'idle' },
-    { id: 'diagnostics', label: t('settings_diag_system'), status: 'idle' },
-  ]);
   const [pinging, setPinging] = useState(false);
   const [pingLatency, setPingLatency] = useState<number | null>(null);
 
@@ -69,61 +59,6 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
       );
     } finally {
       setPinging(false);
-    }
-  };
-
-  const handleRunDiagnostics = async () => {
-    setDiagChecking(true);
-    setDiagResults((prev) => prev.map((r) => ({ ...r, status: 'idle' })));
-
-    const setCheckStatus = (id: string, status: 'pass' | 'warn' | 'fail') => {
-      setDiagResults((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
-    };
-
-    let anyFailure: boolean;
-    let anyWarning = false;
-
-    try {
-      const health = await novaClient.health();
-      setCheckStatus('health', health.status === 'connected' ? 'pass' : 'warn');
-      anyWarning = health.status !== 'connected';
-
-      const directReady = health.engines.curl.available;
-      const mediaReady = health.engines.ytdlp.available;
-      setCheckStatus('direct', directReady ? 'pass' : 'fail');
-      setCheckStatus('media', mediaReady ? 'pass' : 'warn');
-      anyFailure = !directReady;
-      anyWarning = anyWarning || !mediaReady;
-    } catch {
-      setCheckStatus('health', 'fail');
-      setCheckStatus('direct', 'fail');
-      setCheckStatus('media', 'fail');
-      anyFailure = true;
-    }
-
-    try {
-      await novaClient.listDownloads();
-      setCheckStatus('downloads', 'pass');
-    } catch {
-      setCheckStatus('downloads', 'fail');
-      anyFailure = true;
-    }
-
-    try {
-      await novaClient.diagnostics();
-      setCheckStatus('diagnostics', 'pass');
-    } catch {
-      setCheckStatus('diagnostics', 'fail');
-      anyFailure = true;
-    }
-
-    setDiagChecking(false);
-    if (anyFailure) {
-      onAddToast('error', t('settings_toast_diag_complete'), t('settings_toast_diag_unavail'));
-    } else if (anyWarning) {
-      onAddToast('warning', t('settings_toast_diag_complete'), t('settings_toast_diag_degraded'));
-    } else {
-      onAddToast('success', t('settings_toast_diag_complete'), t('settings_toast_diag_all_ok'));
     }
   };
 
@@ -173,13 +108,6 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
 
   const removeHeader = (idx: number) => {
     setHeaders((prev) => prev.filter((_, i) => i !== idx));
-  };
-
-  const statusClass = (status: 'pass' | 'warn' | 'fail' | 'idle') => {
-    if (status === 'pass') return 'bg-[var(--success-bg)] border-[var(--success-border)] text-[var(--success)]';
-    if (status === 'warn') return 'bg-[var(--warning-bg)] border-[var(--warning-border)] text-[var(--warning)]';
-    if (status === 'fail') return 'bg-[var(--danger-bg)] border-[var(--danger-border)] text-[var(--danger)]';
-    return 'bg-[var(--bg-hover)] border-[var(--border-color)] text-[var(--text-muted)]';
   };
 
   return (
@@ -241,37 +169,6 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
 
       {subTab === 'diagnostics' && (
         <div className="space-y-4 animate-in fade-in duration-150">
-          <div className="flex items-center gap-2 border-b border-[var(--border-color)] pb-2">
-            <Terminal className="w-4 h-4 text-[var(--info)]" />
-            <h3 className="text-xs font-extrabold text-[var(--info)]">{t('settings_diagnostics_checks')}</h3>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              void handleRunDiagnostics();
-            }}
-            disabled={diagChecking}
-            className="px-3 py-1.5 bg-[var(--info-bg)] border border-[var(--info-border)] text-[var(--info)] rounded text-xs font-bold hover:bg-[var(--info-bg)] transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50"
-          >
-            {diagChecking && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-            {t('settings_run_diagnostics')}
-          </button>
-          <div className="space-y-2">
-            {diagResults.map((result) => (
-              <div
-                key={result.id}
-                className="flex items-center justify-between bg-[var(--bg-hover)]/30 border border-[var(--border-color)] rounded-lg p-2.5"
-              >
-                <span className="text-xs text-[var(--text-primary)] font-semibold">{result.label}</span>
-                <span
-                  className={`border px-2 py-0.5 rounded text-[9px] font-bold uppercase ${statusClass(result.status)}`}
-                >
-                  {result.status === 'idle' ? t('settings_diag_pending') : result.status}
-                </span>
-              </div>
-            ))}
-          </div>
-
           {/* ── Engine Capability Breakdown ── */}
           <div className="border-t border-[var(--border-color)]/40 pt-3 mt-3">
             <div className="flex items-center justify-between">

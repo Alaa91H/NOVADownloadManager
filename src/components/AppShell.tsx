@@ -433,7 +433,7 @@ const AppShellInner: React.FC = () => {
     >
       {/* Visual Drag and Drop Overlay */}
       {isDraggingOver && (
-        <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-[var(--bg-app)]/85 backdrop-blur-md border-4 border-dashed border-[var(--accent-primary)] animate-in fade-in duration-200">
+        <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-[var(--bg-app)] border-4 border-dashed border-[var(--accent-primary)] animate-in fade-in duration-200">
           <div className="p-8 rounded-full bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] mb-4 animate-bounce">
             <Logo size={64} />
           </div>

@@ -206,7 +206,7 @@ export const TaskTable: React.FC = () => {
         <thead>
           <tr className="desktop-table-header sticky top-0 z-10 text-xs text-[var(--text-secondary)] border-b border-[var(--border-color)] whitespace-nowrap">
             <th
-              className="group/header px-1.5 py-2 text-center sticky ltr:left-0 rtl:right-0 z-20 bg-[var(--bg-app)]/80 backdrop-blur-md ltr:border-r rtl:border-l border-[var(--border-color)]"
+              className="group/header px-1.5 py-2 text-center sticky ltr:left-0 rtl:right-0 z-20 bg-[var(--bg-app)] ltr:border-r rtl:border-l border-[var(--border-color)]"
               style={{ width: '32px', minWidth: '32px', maxWidth: '32px' }}
             >
               <div className="flex items-center justify-center min-h-[1.5rem]">
@@ -331,7 +331,7 @@ export const TaskTable: React.FC = () => {
             })}
 
             <th
-              className="px-2 py-1 text-center sticky ltr:right-0 rtl:left-0 z-20 bg-[var(--bg-app)]/80 backdrop-blur-md ltr:border-l rtl:border-r border-[var(--border-color)]"
+              className="px-2 py-1 text-center sticky ltr:right-0 rtl:left-0 z-20 bg-[var(--bg-app)] ltr:border-l rtl:border-r border-[var(--border-color)]"
               style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}
             >
               <button
@@ -380,7 +380,7 @@ export const TaskTable: React.FC = () => {
                   } ${isChecked ? 'bg-[var(--accent-primary)]/5 border-r-2 border-r-[var(--accent-primary)]' : ''}`}
                 >
                   <td
-                    className="px-1.5 py-1 text-center sticky ltr:left-0 rtl:right-0 z-10 bg-[var(--bg-app)]/90 backdrop-blur-md ltr:border-r rtl:border-l border-[var(--border-color)]"
+                    className="px-1.5 py-1 text-center sticky ltr:left-0 rtl:right-0 z-10 bg-[var(--bg-app)] ltr:border-r rtl:border-l border-[var(--border-color)]"
                     style={{ width: '32px', minWidth: '32px', maxWidth: '32px' }}
                   >
                     <div className="flex items-center justify-center min-h-[1.5rem]">
@@ -595,7 +595,7 @@ export const TaskTable: React.FC = () => {
                   })}
 
                   <td
-                    className="px-2 py-1 text-center bg-[var(--bg-app)]/90 backdrop-blur-md sticky ltr:right-0 rtl:left-0 z-10 ltr:border-l rtl:border-r border-[var(--border-color)]"
+                    className="px-2 py-1 text-center bg-[var(--bg-app)] sticky ltr:right-0 rtl:left-0 z-10 ltr:border-l rtl:border-r border-[var(--border-color)]"
                     style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}
                   />
                 </tr>

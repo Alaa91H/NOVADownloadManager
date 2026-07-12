@@ -197,7 +197,7 @@ export const Modal: React.FC<ModalProps> = ({
   return (
     <div
       id={id ? `${id}-overlay` : undefined}
-      className="fixed inset-0 z-50 flex items-center justify-center p-2 overflow-y-auto pointer-events-none bg-black/40 backdrop-blur-sm modal-overlay"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 overflow-y-auto pointer-events-none bg-black/40 modal-overlay"
       role={role}
       aria-modal="true"
       aria-labelledby="modal-title"

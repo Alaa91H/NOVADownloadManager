@@ -310,11 +310,8 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       theme: 'system',
       density: 'compact',
       accent: 'blue',
-      sidebar: 'expanded',
       progress: 'bar',
       contrast: 'normal',
-      motion: 'enabled',
-      blur: 'enabled',
     };
     if (cached) {
       try {
@@ -599,11 +596,8 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     updateTheme();
     root.setAttribute('data-density', themeSettings.density);
     root.setAttribute('data-accent', themeSettings.accent);
-    root.setAttribute('data-sidebar', themeSettings.sidebar);
     root.setAttribute('data-progress', themeSettings.progress);
     root.setAttribute('data-contrast', themeSettings.contrast);
-    root.setAttribute('data-motion', themeSettings.motion);
-    root.setAttribute('data-blur', themeSettings.blur);
     root.setAttribute('dir', 'ltr');
     root.setAttribute('lang', settings.extra.language || 'en');
     if (themeSettings.theme === 'system') {

@@ -508,11 +508,8 @@ export interface AppThemeSettings {
   theme: AppTheme;
   density: 'compact' | 'normal' | 'dense';
   accent: 'blue' | 'emerald' | 'amber' | 'crimson' | 'violet';
-  sidebar: 'expanded' | 'collapsed';
   progress: 'bar' | 'circle' | 'percentage';
   contrast: 'normal' | 'high';
-  motion: 'enabled' | 'reduced';
-  blur: 'enabled' | 'disabled';
 }
 
 export interface DialogState {

@@ -42,11 +42,9 @@ body {
   background: var(--accent-border);
 }
 
-/* Glassmorphism & Acrylic Panels */
+/* Solid elevated panels (glass/blur effects removed) */
 .glass-panel {
-  background-color: var(--glass-bg);
-  backdrop-filter: blur(var(--blur-amount));
-  -webkit-backdrop-filter: blur(var(--blur-amount));
+  background-color: var(--bg-surface-elevated);
   border: 1px solid var(--glass-border);
   box-shadow: var(--shadow-md);
   transition: all var(--transition-speed) var(--transition-bezier);
@@ -216,29 +214,13 @@ body {
 }
 
 @keyframes modal-bg-in {
-  from { background-color: transparent; backdrop-filter: blur(0); }
-  to { background-color: var(--overlay-bg); backdrop-filter: blur(var(--blur-amount)); }
+  from { background-color: transparent; }
+  to { background-color: var(--overlay-bg); }
 }
 
 @keyframes modal-scale-in {
   from { opacity: 0; transform: scale(0.95); }
   to { opacity: 1; transform: scale(1); }
-}
-
-[data-motion='reduced'] .app-page {
-  animation: none;
-}
-
-[data-motion='reduced'] .modal-overlay,
-[data-motion='reduced'] .modal-content {
-  animation: none;
-}
-
-[data-motion='reduced'] .interactive-btn:hover:not(:disabled),
-[data-motion='reduced'] .toolbar-btn:hover:not(:disabled),
-[data-motion='reduced'] .interactive-btn:active:not(:disabled),
-[data-motion='reduced'] .toolbar-btn:active:not(:disabled) {
-  transform: none;
 }
 
 /* Toast slide-out animation */

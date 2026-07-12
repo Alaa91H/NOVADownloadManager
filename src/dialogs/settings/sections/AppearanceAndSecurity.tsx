@@ -1,7 +1,7 @@
 ﻿/* src/dialogs/settings/sections/AppearanceAndSecurity.tsx */
 import React from 'react';
 import type { AppThemeSettings, AppSettings, AppTheme } from '../../../types/desktop-ui.types';
-import { FormRow, Switch, SelectField, Checkbox } from '../../../components/primitives';
+import { SelectField, Checkbox } from '../../../components/primitives';
 import { Palette, Shield, Check, Monitor } from 'lucide-react';
 import { useAppStore } from '../../../state/appStore';
 import { InterfaceCustomization } from './InterfaceCustomization';
@@ -112,36 +112,6 @@ export const AppearanceAndSecurity: React.FC<Props> = ({
               ))}
             </div>
           </div>
-        </div>
-
-        <div className="bg-[var(--bg-hover)]/30 p-3.5 rounded-lg border border-[var(--border-color)] space-y-3">
-          <span className="text-[11px] font-extrabold text-[var(--text-secondary)] block border-b border-[var(--border-color)] pb-1 mb-1">
-            {t('settings_layout')}
-          </span>
-          <FormRow label={t('settings_sidebar_expanded')}>
-            <Switch
-              checked={themeSettings.sidebar === 'expanded'}
-              onChange={(checked) => {
-                updateThemeSetting('sidebar', checked ? 'expanded' : 'collapsed');
-              }}
-            />
-          </FormRow>
-          <FormRow label={t('settings_blur_glass')}>
-            <Switch
-              checked={themeSettings.blur === 'enabled'}
-              onChange={(checked) => {
-                updateThemeSetting('blur', checked ? 'enabled' : 'disabled');
-              }}
-            />
-          </FormRow>
-          <FormRow label={t('settings_reduced_motion')}>
-            <Switch
-              checked={themeSettings.motion === 'reduced'}
-              onChange={(checked) => {
-                updateThemeSetting('motion', checked ? 'reduced' : 'enabled');
-              }}
-            />
-          </FormRow>
         </div>
 
         <div className="grid grid-cols-1 gap-4">
