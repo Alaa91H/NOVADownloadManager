@@ -339,11 +339,6 @@ jobs:
             os: windows-11-arm
             bundle_targets: nsis
             vcpkg_triplet: arm64-windows-static
-          - platform: windows-x32
-            os: windows-latest
-            bundle_targets: nsis
-            vcpkg_triplet: x86-windows-static
-            rust_target: i686-pc-windows-msvc
           # ── Linux (deb: Debian/Ubuntu/Mint, rpm: Fedora/RHEL/openSUSE,
           #    AppImage: universal — Arch/Gentoo/anything) ──
           - platform: linux-x64
@@ -382,8 +377,6 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust_target || '' }}
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -517,7 +510,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          cargo check --manifest-path src-tauri/Cargo.toml ${{ matrix.rust_target && format('--target {0}', matrix.rust_target) || '' }} 2>&1 | tee check.log || {
+          cargo check --manifest-path src-tauri/Cargo.toml 2>&1 | tee check.log || {
             awk '/^error(\[|:)/{msg=$0} /^ *-->/{print "::error::" msg " @ " $0; fflush()}' check.log | head -10
             grep -E '^error' check.log | head -3 | sed 's/^/::error::/'
             exit 1
@@ -533,16 +526,15 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $bundle = "src-tauri\target\${{ matrix.rust_target && format('{0}\', matrix.rust_target) || '' }}release\bundle"
-          if (Test-Path $bundle) {
-            Remove-Item $bundle -Recurse -Force -Confirm:$false
+          if (Test-Path src-tauri\target\release\bundle) {
+            Remove-Item src-tauri\target\release\bundle -Recurse -Force -Confirm:$false
           }
 
       - name: Build Tauri installer
         shell: bash
         run: |
           set -o pipefail
-          pnpm run tauri:build ${{ matrix.rust_target && format('--target {0}', matrix.rust_target) || '' }} --bundles ${{ matrix.bundle_targets }} 2>&1 | tee tauri-build.log || {
+          pnpm run tauri:build --bundles ${{ matrix.bundle_targets }} 2>&1 | tee tauri-build.log || {
             grep -iE '(^|\s)(error|failed)' tauri-build.log | tail -10 | sed 's/^/::error::/'
             exit 1
           }
@@ -556,7 +548,7 @@ jobs:
         run: |
           $certPath = Join-Path $env:RUNNER_TEMP 'nova-signing-cert.pfx'
           [System.IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_CERT_BASE64))
-          $nsisDir = "src-tauri\target\${{ matrix.rust_target && format('{0}\', matrix.rust_target) || '' }}release\bundle\nsis"
+          $nsisDir = "src-tauri\target\release\bundle\nsis"
           $installers = Get-ChildItem -LiteralPath $nsisDir -File -Filter "*.exe" -ErrorAction SilentlyContinue
           foreach ($installer in $installers) {
             Write-Host "Signing $($installer.Name)..."
@@ -581,7 +573,7 @@ jobs:
         run: |
           $version = $env:BUILD_TAG -replace '^v', ''
           New-Item -ItemType Directory -Force release | Out-Null
-          $nsisDir = "src-tauri\target\${{ matrix.rust_target && format('{0}\', matrix.rust_target) || '' }}release\bundle\nsis"
+          $nsisDir = "src-tauri\target\release\bundle\nsis"
           if (Test-Path -LiteralPath $nsisDir) {
             Get-ChildItem -LiteralPath $nsisDir -File -Filter "*.exe" |
               Where-Object { $_.BaseName -like "*_${version}*" } |
