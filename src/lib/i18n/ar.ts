@@ -307,6 +307,8 @@ export const ar: Record<string, string> = {
   'degraded_mode_title': 'تم فقد اتصال الخدمة',
   'degraded_mode_desc': 'لا يمكن لـ NOVA الوصول إلى خدمة التنزيل المحلية. قد لا تظهر التنزيلات حتى يتم استعادة الاتصال.',
   'degraded_mode_retry': 'إعادة محاولة الاتصال',
+  'fetch_error_title': 'خطأ في قائمة المهام',
+  'fetch_error_desc': 'فشل تحميل قائمة المهام من الخدمة. تفاصيل الخطأ معروضة أدناه.',
   'app_name': 'مدير تنزيل NOVA',
   'nav_queues': 'تنزيل القوائم',
   'settings_general_system_title': 'إعدادات النظام العامة',

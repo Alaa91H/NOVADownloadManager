@@ -39,6 +39,7 @@ interface AppStoreContextType {
   toasts: ToastItem[];
   isLoading: boolean;
   isDegradedMode: boolean;
+  fetchError: string | null;
   isNotificationsMuted: boolean;
   setIsNotificationsMuted: (muted: boolean) => void;
   t: (key: string, params?: Record<string, string | number>) => string;
@@ -256,6 +257,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
   const hasSyncedDownloadsRef = useRef(false);
   const activeScheduleWindowsRef = useRef<Record<string, boolean>>({});
   const [isDegradedMode, setIsDegradedMode] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [isNotificationsMuted, setIsNotificationsMuted] = useState<boolean>(() => {
     const cached = localStorage.getItem('nova_notifications_muted');
     return cached === 'true';
@@ -466,6 +468,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     }) => {
       const status = info.status || 'connected';
       setIsDegradedMode(status === 'degraded');
+      setFetchError(null);
       const s = settingsRef.current;
       setBridge({
         status,
@@ -689,6 +692,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       }
 
       setTasks(mergeDaemonTasks(daemonTasks));
+      setFetchError(null);
       setIsDegradedMode(bridge.status === 'degraded');
     };
 
@@ -696,9 +700,10 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       try {
         const daemonTasks = await novaClient.listDownloads();
         applyDownloads(daemonTasks);
-      } catch {
+      } catch (err) {
         if (!cancelled && started) {
           setIsDegradedMode(true);
+          setFetchError(err instanceof Error ? err.message : String(err));
         }
       }
     };
@@ -854,6 +859,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       toasts,
       isLoading,
       isDegradedMode,
+      fetchError,
       isNotificationsMuted,
       setIsNotificationsMuted,
       t,
@@ -900,6 +906,7 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
       toasts,
       isLoading,
       isDegradedMode,
+      fetchError,
       isNotificationsMuted,
       t,
       activeProgressMinimizedToTaskbar,

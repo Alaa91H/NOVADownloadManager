@@ -307,6 +307,8 @@ export const it: Record<string, string> = {
   'degraded_mode_title': 'Daemon Connection Lost',
   'degraded_mode_desc': 'NOVA cannot reach the local download service. Downloads may not appear until the connection is restored.',
   'degraded_mode_retry': 'Retry Connection',
+  'fetch_error_title': 'Task List Error',
+  'fetch_error_desc': 'Failed to load the task list from the daemon. The error details are shown below.',
   'app_name': 'NOVA Gestore download',
   'nav_queues': 'Scarica elenchi',
   'settings_general_system_title': 'Impostazioni generali di sistema',
