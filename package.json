@@ -43,6 +43,7 @@
     "native-curl:build": "node scripts/build-native-curl.mjs",
     "native-curl:env": "node scripts/print-native-curl-env.mjs",
     "msix:build": "node scripts/build-msix.mjs",
+    "packaging:manifests": "node scripts/generate-package-manifests.mjs",
     "native-curl:verify": "node scripts/verify-native-curl.mjs",
     "audit:final": "node scripts/final-audit.mjs && node scripts/verify-capability-gating.mjs && node scripts/installer-lifecycle-audit.mjs && node scripts/verify-branding-assets.mjs && pnpm --filter nova-browser-extension verify:nova-sync && pnpm --filter nova-browser-extension audit:release",
     "audit:installer": "node scripts/installer-lifecycle-audit.mjs",

@@ -682,6 +682,17 @@ jobs:
           done
           ls -la
 
+      # Checkout to a subdir so the packaging script is available without
+      # clobbering the already-collected release/ and artifacts/ directories.
+      - name: Checkout packaging scripts
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          path: _repo
+
+      - name: Generate package manifests (winget / Scoop / Homebrew)
+        run: node _repo/scripts/generate-package-manifests.mjs "${GITHUB_REF_NAME#v}" release || true
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v3
         with:
@@ -690,7 +701,9 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
-          files: release/*
+          files: |
+            release/*
+            release/packaging/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
