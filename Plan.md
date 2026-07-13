@@ -1210,6 +1210,96 @@ P26-07-07
 
 ---
 
+## Newly Discovered Tasks (deep analysis pass — 2026-07-13)
+
+### FIX-015 — Add .catch() to connectDaemon promise chain in appStore.tsx
+
+- Status: `[ ] PLANNED`
+- Stream: FIX
+- Priority: P1
+- Impact: Unhandled promise rejection when connectDaemon() rejects; may cause silent failure during daemon reconnection
+- Plan: In `src/state/appStore.tsx` line 537, `void connectDaemon().then(() => { ... })` has no outer `.catch()`. If `connectDaemon()` itself rejects (not the inner try/catch), the rejection is unhandled. Add `.catch(() => {})` after the `.then()` chain, or wrap in try/catch inside the async IIFE.
+- Acceptance: No unhandled promise rejection from the connectDaemon call chain
+- Validation: CI Run tests gate
+
+### FIX-016 — Add noopener,noreferrer to remaining window.open calls
+
+- Status: `[ ] PLANNED`
+- Stream: FIX
+- Priority: P1
+- Impact: Security; 3 window.open calls lack noopener,noreferrer, enabling reverse tabnapping attacks
+- Plan: Add `'noopener,noreferrer'` third argument to:
+  1. `src/api/tauriClient.ts` line 421 — `window.open(urls[browser], '_blank')` (browser extension page; note: test at line 492 expects no flags, update test assertion too)
+  2. `src/components/Sidebar.tsx` line 300 — `window.open('https://arab-downloads.net/home', '_blank')`
+  3. `src/dialogs/tasks/UpdateLinkDialog.tsx` line 41 — `window.open(targetUrl, '_blank')` (already tracked by FIX-012 but not yet implemented)
+- Acceptance: All `window.open` calls include `noopener,noreferrer`; tauriClient test updated to expect flags
+- Validation: CI Run tests + TypeScript gates
+
+### FIX-017 — Translate hardcoded VPN/validation strings in tauriClient.ts
+
+- Status: `[ ] PLANNED`
+- Stream: FIX
+- Priority: P1
+- Impact: 14 hardcoded English VPN/validation messages in tauriClient.ts break i18n for non-English users
+- Plan: Add translation keys to en.ts/ar.ts for all 14 VPN-related strings in `src/api/tauriClient.ts` (lines 215-257, 429-431). Since tauriClient is not a React component, use `getTranslation()` directly from `src/lib/i18n/translations.ts`. Import `getTranslation` and resolve the current language from appStore or a stored locale.
+- Acceptance: All user-visible strings in tauriClient.ts use getTranslation(); i18n:validate passes
+- Validation: CI Validate translations + Run tests gates
+
+### TEST-005 — Add comprehensive tests for useTaskStore
+
+- Status: `[ ] PLANNED`
+- Stream: IMPROVE
+- Priority: P1
+- Impact: Core store with only 3 tests (mergeDaemonTasks helper); Zustand store actions (add, remove, update, select, clear) are untested
+- Plan: Extend `src/state/__tests__/useTaskStore.test.ts` with tests for all store actions: addTask, removeTask, updateTask, selectTask, clearSelection, setSelectedTasks, mergeDaemonTasks edge cases (duplicate IDs, empty arrays, status transitions). Test store selectors and derived state.
+- Acceptance: useTaskStore.test.ts has 15+ tests covering all store actions; all pass
+- Validation: CI Run tests gate
+
+### TEST-006 — Add tests for settings dialog (container + 8 sections)
+
+- Status: `[ ] PLANNED`
+- Stream: IMPROVE
+- Priority: P1
+- Impact: 9 untested files (SettingsDialog + 8 sections) represent a large untested subsystem
+- Plan: Write test files:
+  1. `src/dialogs/settings/__tests__/SettingsDialog.test.tsx` — tab navigation, settings save, dialog open/close, section routing
+  2. `src/dialogs/settings/sections/__tests__/GeneralAndDownloads.test.tsx` — form fields, default values, save behavior
+  3. `src/dialogs/settings/sections/__tests__/NetworkAndPerformance.test.tsx` — proxy fields, validation
+  Focus on render, user interactions, and i18n mock consistency. Cover at least the 3 most-used sections.
+- Acceptance: 3 test files pass; settings dialog rendering and basic interactions are covered
+- Validation: CI Run tests gate
+
+### TEST-007 — Add tests for UI primitives (EmptyState, ErrorState, LoadingSpinner, TableSkeleton, DegradedBanner)
+
+- Status: `[ ] PLANNED`
+- Stream: IMPROVE
+- Priority: P2
+- Impact: 5 newly added primitive components have zero test coverage
+- Plan: Create `src/components/__tests__/primitives-states.test.tsx` covering:
+  - EmptyState: renders icon, message, action button click
+  - ErrorState: renders icon, title, description, error message, retry button
+  - LoadingSpinner: renders with size prop
+  - TableSkeleton: renders correct number of rows/columns
+  - DegradedBanner: renders warning message
+- Acceptance: All 5 primitives render correctly with various props; all tests pass
+- Validation: CI Run tests gate
+
+### IMPROVE-007 — Add .catch() to fire-and-forget void promise expressions in appStore.tsx
+
+- Status: `[ ] PLANNED`
+- Stream: IMPROVE
+- Priority: P2
+- Impact: Prevents potential unhandled rejections from native notifications, file scan, and file open operations
+- Plan: Add `.catch(() => {})` to 4 fire-and-forget void promise calls in `src/state/appStore.tsx`:
+  1. Line 676: `void tauriClient.triggerNativeNotification(...)`
+  2. Line 680: `void tauriClient.scanDownloadedFile(...)`
+  3. Line 683: `void tauriClient.openDownloadedFile(...)`
+  4. Line 686: `void tauriClient.revealDownloadedFile(...)`
+- Acceptance: No unhandled promise rejections from fire-and-forget operations
+- Validation: CI Run tests gate
+
+---
+
 ## Blocked Tasks
 
 *None yet.*
