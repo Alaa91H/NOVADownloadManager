@@ -386,7 +386,7 @@ P26-07-07
 
 ### UI-004 — Consistent component states (loading, empty, error, offline)
 
-- Status: `[/] IN_PROGRESS`
+- Status: `[x] COMPLETED`
 - Priority: high
 - Type: refactor
 - Started: 2026-07-09
