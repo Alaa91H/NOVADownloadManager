@@ -506,6 +506,15 @@ P26-07-07
       - **Fix**: Added `import { act }` from `@testing-library/react` and inserted `await act(async () => {})` after the `waitFor` to flush all pending microtasks before clicking the button. 1 line added, 1 import added.
       - Branch: `feature/ui-004-dialog-degraded-banners`
       - Push: `26f74d1` pushed to feature branch at 2026-07-12
+    - Cycle 2026-07-12 (round 12 — Fetch error state for TaskTable/TaskCardList, SchedulerPanel fix):
+      - **appStore.tsx**: New `fetchError: string | null` state field set in `syncDownloads` catch block with error message, cleared on successful sync and on daemon reconnect, exposed in `AppStoreContextType` and provider value.
+      - **TaskTable.tsx**: New error state branch between loading and empty states using `ErrorState` primitive. Shows `AlertTriangle` icon, title/description, actual error message, and retry button.
+      - **TaskCardList.tsx**: Same error state branch for mobile parity with desktop table. Added `fetchError` prop.
+      - **SchedulerPanel.tsx**: Removed no-op `onClick: () => {}` from the unreachable `!selectedQueue` dead code guard.
+      - **i18n**: Added `fetch_error_title` and `fetch_error_desc` keys to en.ts, ar.ts, and all 131 non-English locales.
+      - Branch: `feature/ui-004-fetch-error-state`
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/45
+      - Preflight: brace/paren/bracket balance verified on all 4 source files.
 
 ### UI-005 — Button & interaction polish pass
 

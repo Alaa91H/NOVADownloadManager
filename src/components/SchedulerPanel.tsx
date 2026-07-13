@@ -139,7 +139,6 @@ export const SchedulerPanel: React.FC = () => {
         <ErrorState
           title={t('sched_no_queues')}
           description={t('sched_no_queues_desc')}
-          action={{ label: t('sched_add_queue'), onClick: () => {} }}
         />
       </div>
     );

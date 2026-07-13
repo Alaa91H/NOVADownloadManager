@@ -15,6 +15,7 @@ import {
   Download,
   SearchX,
   WifiOff,
+  AlertTriangle,
 } from 'lucide-react';
 import { useAppStore } from '../state/appStore';
 import { DownloadItem } from '../types/desktop-ui.types';
@@ -25,6 +26,7 @@ import TaskCardList from './TaskCardList';
 import ColumnConfigPanel from './ColumnConfigPanel';
 import { TableSkeleton } from './primitives/TableSkeleton';
 import { EmptyState } from './primitives/EmptyState';
+import { ErrorState } from './primitives/ErrorState';
 import { DegradedBanner } from './primitives/DegradedBanner';
 import { useColumnState } from '../hooks/useColumnState';
 import { useMultiSelection } from '../hooks/useMultiSelection';
@@ -60,6 +62,7 @@ export const TaskTable: React.FC = () => {
     t,
     isLoading,
     isDegradedMode,
+    fetchError,
   } = useAppStore();
   const caps = useEngineCapabilities();
 
@@ -470,6 +473,21 @@ export const TaskTable: React.FC = () => {
                 <TableSkeleton rows={8} columns={Math.min(visibleColsCount, 6)} label={t('table_loading_tasks')} />
               </td>
             </tr>
+          ) : fetchError ? (
+            <tr>
+              <td colSpan={visibleColsCount} className="px-4 py-16 text-center">
+                <ErrorState
+                  icon={AlertTriangle}
+                  title={t('fetch_error_title')}
+                  description={t('fetch_error_desc')}
+                  errorMessage={fetchError}
+                  action={{
+                    label: t('degraded_mode_retry'),
+                    onClick: () => { window.location.reload(); },
+                  }}
+                />
+              </td>
+            </tr>
           ) : isDegradedMode && tasks.length === 0 ? (
             <tr>
               <td colSpan={visibleColsCount} className="px-4 py-16 text-center">
@@ -791,6 +809,7 @@ export const TaskTable: React.FC = () => {
         t={t}
         isLoading={isLoading}
         isDegradedMode={isDegradedMode}
+        fetchError={fetchError}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
       />
