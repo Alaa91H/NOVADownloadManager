@@ -525,6 +525,15 @@ P26-07-07
       - **i18n**: Added 31 new keys to en.ts/ar.ts (grabber_*). Synced to all 132 locales via fix-i18n.mjs (1357 keys each).
       - Branch: `feat/ui-005-button-polish` (working branch)
       - Preflight: brace/paren balance verified on all 4 changed source files. No hardcoded strings remain in WebpageGrabberDialog.
+    - Cycle 2026-07-13 (round 13 CI repair — TS2305 + test failures):
+      - **Root cause (TypeScript)**: `AddDownloadDialog.tsx` and `WebpageGrabberDialog.tsx` imported `DegradedBanner` from `'../../components/primitives'` (barrel file `primitives.tsx`), but `DegradedBanner` only exists in `primitives/DegradedBanner.tsx`. TS2305: no exported member.
+      - **Fix (TypeScript)**: Changed both imports to direct path `'../../components/primitives/DegradedBanner'`.
+      - **Root cause (Tests)**: `WebpageGrabberDialog.test.tsx` mock `t()` only mapped `btn_cancel`, but the component now uses 29 `grabber_*` i18n keys. Tests searched for hardcoded English strings (e.g., `'Start Scraping'`, `'Webpages (HTML)'`) which were no longer rendered.
+      - **Fix (Tests)**: Added all 29 `grabber_*` key→English-value pairs to the mock `t()` map so assertions match rendered text.
+      - Branch: `feat/ui-005-button-polish`
+      - Push: `8fe088b` pushed to feature branch at 2026-07-13
+      - CI: pending (TypeScript + tests + build should now pass)
+      - Preflight: brace/paren/bracket balance verified on all 3 changed files.
 
 ### UI-005 — Button & interaction polish pass
 
