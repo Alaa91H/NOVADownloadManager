@@ -3,10 +3,11 @@ import React, { useState } from 'react';
 import { useAppStore } from '../../state/appStore';
 import { DownloadItem } from '../../types/desktop-ui.types';
 import { useEngineCapabilities } from '../../capabilities/EngineCapabilityContext';
+import { DegradedBanner } from '../../components/primitives/DegradedBanner';
 import { formatBytes } from '../../initialData';
 
 export const ActiveProgressDialog: React.FC = () => {
-  const { dialog, closeDialog, tasks, pauseTask, resumeTask, settings, updateSettings, t } = useAppStore();
+  const { dialog, closeDialog, tasks, pauseTask, resumeTask, settings, updateSettings, t, isDegradedMode } = useAppStore();
   const taskFromPayload = dialog.payload as DownloadItem;
   const task = tasks.find((t) => t.id === taskFromPayload.id) || taskFromPayload;
 
@@ -89,6 +90,9 @@ export const ActiveProgressDialog: React.FC = () => {
       className="space-y-3 font-sans text-xs text-[var(--text-primary)] select-none pb-1"
       style={{ direction: 'ltr' }}
     >
+      {isDegradedMode && (
+        <DegradedBanner title={t('dialog_degraded_title')} description={t('dialog_degraded_desc')} />
+      )}
       <div className="flex border-b border-[var(--border-color)] select-none pl-1" style={{ direction: 'ltr' }}>
         <button
           onClick={() => {
