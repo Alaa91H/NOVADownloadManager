@@ -81,7 +81,6 @@ export const AddDownloadDialog: React.FC = () => {
   const [forbidReuse, setForbidReuse] = useState(false);
   const [isFetchingInfo, setIsFetchingInfo] = useState(false);
   const [infoFetched, setInfoFetched] = useState(false);
-  const [resolvedDownloadUrl, setResolvedDownloadUrl] = useState('');
   const [probeNonce, setProbeNonce] = useState(0);
   const [detectedUrlType, setDetectedUrlType] = useState<'media' | 'download' | 'unknown'>('unknown');
   const latestUrlRef = useRef('');
@@ -212,10 +211,8 @@ export const AddDownloadDialog: React.FC = () => {
       setSizeBytes(0);
       setInfoFetched(false);
       setIsFetchingInfo(false);
-      setResolvedDownloadUrl('');
     } else {
       setIsFetchingInfo(true);
-      setResolvedDownloadUrl('');
     }
   }
 
@@ -259,11 +256,6 @@ export const AddDownloadDialog: React.FC = () => {
           setSizeBytes(probedSize);
           setProbeError(probedSize > 0 ? '' : 'The server did not report a file size.');
           setResumable(probed.resumable);
-          setResolvedDownloadUrl(
-            probed.finalUrl && probed.finalUrl.trim() && probed.finalUrl.trim() !== url.trim()
-              ? probed.finalUrl.trim()
-              : '',
-          );
           if (probed.supportsSegments === false) setConnections(1);
           if (!savePathEdited.current) setSavePath(buildSavePath(detectedType, detectedName));
           setInfoFetched(true);
@@ -283,7 +275,6 @@ export const AddDownloadDialog: React.FC = () => {
           setSizeBytes(0);
           setProbeError(message);
           setResumable(false);
-          setResolvedDownloadUrl('');
           if (!savePathEdited.current) setSavePath(buildSavePath(detectedType, detectedName));
           setInfoFetched(!!detectedName);
         } finally {
@@ -343,7 +334,6 @@ export const AddDownloadDialog: React.FC = () => {
     setProbeError('');
     setInfoFetched(false);
     setIsFetchingInfo(false);
-    setResolvedDownloadUrl('');
   };
 
   const cleanupSensitiveLink = (value: string) => {
@@ -371,10 +361,13 @@ export const AddDownloadDialog: React.FC = () => {
   };
 
   const handleSubmit = async (downloadImmediately: boolean) => {
+    // Always persist the original URL and let the download engine resolve the
+    // live target (following HTTP 3xx and HTML meta-refresh interstitials) at
+    // the start of every download and resume. Storing a pre-resolved mirror URL
+    // would bake in a time-limited token that goes stale on resume.
     const submittedUrl = url.trim();
-    const resolvedUrl = resolvedDownloadUrl.trim();
-    const downloadUrl = downloadImmediately && resolvedUrl ? resolvedUrl : submittedUrl;
-    const effectiveReferer = referer.trim() || (downloadUrl !== submittedUrl ? submittedUrl : '');
+    const downloadUrl = submittedUrl;
+    const effectiveReferer = referer.trim();
 
     const directBlock = engineCapabilities.directBlockedReason(submittedUrl);
     if (directBlock) {

@@ -945,7 +945,7 @@ fn fallback_file_name(url: &str) -> String {
 /// Parse HTML content for `<meta http-equiv="refresh" content="5;URL='...'">`
 /// patterns commonly used by mirrors that redirect via
 /// HTML rather than HTTP 3xx. Returns the redirected URL if found.
-fn parse_meta_refresh_url(html: &str) -> Option<String> {
+pub(crate) fn parse_meta_refresh_url(html: &str) -> Option<String> {
     let lower = html.to_ascii_lowercase();
     for tag_match in lower.match_indices("<meta") {
         let start = tag_match.0;
@@ -1008,7 +1008,7 @@ fn is_cloudflare_challenge(body: &str) -> bool {
 }
 
 /// Resolve a meta-refresh redirect URL relative to the page URL if needed.
-fn refreshed_url(refresh: String, page_url: &str) -> String {
+pub(crate) fn refreshed_url(refresh: String, page_url: &str) -> String {
     if refresh.starts_with("http://") || refresh.starts_with("https://") {
         refresh
     } else if let Some(base) = page_url.rsplit_once('/') {

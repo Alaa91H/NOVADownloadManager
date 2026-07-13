@@ -18,6 +18,7 @@ use crate::daemon::direct::{
     RetryPolicy, SegmentPlanner, SegmentRange as ByteRange,
 };
 use crate::daemon::engine_capabilities;
+use crate::daemon::routes::{parse_meta_refresh_url, refreshed_url};
 use crate::daemon::state::SharedState;
 use crate::daemon::types::{CreateDownloadBody, CurlJob, Segment, Task};
 use crate::daemon::utils::{
@@ -1800,52 +1801,105 @@ fn apply_easy_options<H: Handler>(
 
 /// A curl handler that discards the response body; used by the redirect/range
 /// probe so no data is written to disk.
-struct DiscardHandler;
-impl Handler for DiscardHandler {
+/// Captures the leading bytes of a response body so an HTML interstitial's
+/// `<head>` (where a `<meta http-equiv="refresh">` lives) can be inspected
+/// without downloading the whole page. Bounded to keep memory trivial.
+const HTML_HEAD_CAPTURE_LIMIT: usize = 64 * 1024;
+#[derive(Default)]
+struct HtmlHeadCapture {
+    body: Vec<u8>,
+}
+impl Handler for HtmlHeadCapture {
     fn write(&mut self, data: &[u8]) -> Result<usize, WriteError> {
+        if self.body.len() < HTML_HEAD_CAPTURE_LIMIT {
+            let remaining = HTML_HEAD_CAPTURE_LIMIT - self.body.len();
+            self.body
+                .extend_from_slice(&data[..data.len().min(remaining)]);
+        }
+        // Always report the full length as consumed so libcurl does not treat a
+        // short write as an error; the excess is simply not retained.
         Ok(data.len())
+    }
+}
+impl HtmlHeadCapture {
+    fn text(&self) -> String {
+        String::from_utf8_lossy(&self.body).into_owned()
     }
 }
 
 /// Resolve the real download target before segmenting.
 ///
-/// Follows redirects once with a tiny `Range: 0-0` GET so that (a) every
-/// parallel segment targets the same final URL/mirror instead of independently
+/// Follows redirects with a tiny `Range: 0-0` GET so that (a) every parallel
+/// segment targets the same final URL/mirror instead of independently
 /// re-resolving the original link — which breaks on hosts that pick a random
-/// mirror per request or chain CDN redirects —
-/// and (b) we only split the download when the server actually answers with
-/// `206 Partial Content`. Falls back to the original URL (assuming range
-/// support) if the probe cannot be performed.
+/// mirror per request or chain CDN redirects — and (b) we only split the
+/// download when the server actually answers with `206 Partial Content`.
+///
+/// Beyond libcurl's own HTTP 3xx following, this also transparently follows
+/// HTML `<meta http-equiv="refresh">` interstitials (used by VideoLAN,
+/// SourceForge and many mirror portals, which serve a "your download will start
+/// shortly" HTML page instead of an HTTP redirect). Without this the engine
+/// would download the interstitial HTML as the file — the classic "downloads a
+/// few KB then stops" failure. Falls back to the current URL (assuming range
+/// support) if a hop cannot be performed.
 fn resolve_effective_target(plan: &DirectDownloadPlan) -> (String, bool) {
-    let mut easy = Easy2::new(DiscardHandler);
-    if apply_easy_options(&mut easy, plan, Some((0, 0))).is_err() {
-        return (plan.url.clone(), true);
+    // Cap the number of HTML meta-refresh hops we chase to avoid loops.
+    const MAX_META_REFRESH_HOPS: usize = 5;
+    let mut current = plan.url.clone();
+
+    for _hop in 0..=MAX_META_REFRESH_HOPS {
+        let mut hop_plan = plan.clone();
+        hop_plan.url = current.clone();
+
+        let mut easy = Easy2::new(HtmlHeadCapture::default());
+        if apply_easy_options(&mut easy, &hop_plan, Some((0, 0))).is_err() {
+            return (current, true);
+        }
+        // Never let a wedged server delay the download start indefinitely.
+        let _ = easy.timeout(Duration::from_secs(30));
+        if easy.perform().is_err() {
+            return (current, true);
+        }
+
+        let code = easy.response_code().unwrap_or(0);
+        let effective = easy
+            .effective_url()
+            .ok()
+            .flatten()
+            .filter(|u| u.starts_with("http"))
+            .map(|u| u.to_string())
+            .unwrap_or_else(|| current.clone());
+        let is_html = easy
+            .content_type()
+            .ok()
+            .flatten()
+            .map(|ct| ct.to_ascii_lowercase().contains("text/html"))
+            .unwrap_or(false);
+
+        if is_html {
+            // An HTML body is an interstitial/challenge page, not the file. If it
+            // carries a meta-refresh target, follow it to the real download URL.
+            if let Some(refresh) = parse_meta_refresh_url(&easy.get_ref().text()) {
+                let next = refreshed_url(refresh, &effective);
+                if next.starts_with("http") && next != current && next != effective {
+                    log::info!("resolve: meta-refresh {} -> {}", current, next);
+                    current = next;
+                    continue;
+                }
+            }
+            // HTML with no actionable redirect (e.g. a bot challenge): keep the
+            // resolved URL but never split it into parallel ranges.
+            return (effective, false);
+        }
+
+        // Non-HTML response: this is the real file. 206 => the server honoured
+        // our Range header; a plain 200 means it ignored it and segmenting would
+        // corrupt the file.
+        return (effective, code == 206);
     }
-    // Never let a wedged server delay the download start indefinitely.
-    let _ = easy.timeout(Duration::from_secs(30));
-    if easy.perform().is_err() {
-        return (plan.url.clone(), true);
-    }
-    let code = easy.response_code().unwrap_or(0);
-    let effective = easy
-        .effective_url()
-        .ok()
-        .flatten()
-        .filter(|u| u.starts_with("http"))
-        .map(|u| u.to_string())
-        .unwrap_or_else(|| plan.url.clone());
-    // If the origin answered with an HTML document it returned a
-    // confirmation/challenge/interstitial page rather than the file, so never
-    // split it into parallel ranges.
-    let is_html = easy
-        .content_type()
-        .ok()
-        .flatten()
-        .map(|ct| ct.to_ascii_lowercase().contains("text/html"))
-        .unwrap_or(false);
-    // 206 => the server honoured our Range header; a plain 200 means it ignored
-    // it and segmenting would corrupt the file.
-    (effective, code == 206 && !is_html)
+
+    // Exhausted the hop budget without reaching a file; download single-stream.
+    (current, false)
 }
 
 fn create_easy_for_range(
@@ -2440,11 +2494,13 @@ fn run_libcurl_download(
     if plan.segmented && crate::daemon::direct::learned_host_ceiling(&plan.url) == Some(1) {
         plan.segmented = false;
     }
-    // Pin the final URL once so every parallel segment targets the same
-    // mirror/CDN, and only keep segmentation when the origin actually honours
-    // byte ranges (206). This is what makes redirect/mirror hosts download
-    // reliably. (aria2 feature request #192.)
-    if plan.segmented {
+    // Always pin the final URL once — following HTTP 3xx *and* HTML meta-refresh
+    // interstitials — so that (a) every parallel segment targets the same
+    // mirror/CDN and (b) even single-stream downloads fetch the real file rather
+    // than a "download will start shortly" HTML page. Segmentation is only kept
+    // when the origin actually honours byte ranges (206). This is what makes
+    // redirect/mirror hosts download reliably. (aria2 feature request #192.)
+    {
         let (effective_url, supports_range) = resolve_effective_target(&plan);
         if effective_url != plan.url {
             log::info!(
@@ -2455,7 +2511,7 @@ fn run_libcurl_download(
             );
             plan.url = effective_url;
         }
-        if !supports_range {
+        if plan.segmented && !supports_range {
             log::info!(
                 "Task {}: server does not honour byte ranges; using a single connection",
                 id
