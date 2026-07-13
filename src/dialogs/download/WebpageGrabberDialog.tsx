@@ -2,7 +2,8 @@
 import React, { useState } from 'react';
 import { Globe, FolderOpen, Layers, CheckSquare, Download, HelpCircle, FileText } from 'lucide-react';
 import { useAppStore } from '../../state/appStore';
-import { TextField, SelectField, Switch, Checkbox, DialogButton, DegradedBanner } from '../../components/primitives';
+import { TextField, SelectField, Switch, Checkbox, DialogButton } from '../../components/primitives';
+import { DegradedBanner } from '../../components/primitives/DegradedBanner';
 
 export const WebpageGrabberDialog: React.FC = () => {
   const { closeDialog, queues, settings, addToast, t, isDegradedMode } = useAppStore();

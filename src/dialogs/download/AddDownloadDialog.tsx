@@ -8,7 +8,8 @@ import { FileType } from '../../types/desktop-ui.types';
 import { detectUrlType } from '../../utils/urlDetector';
 import { clearClipboardIfTextMatches, readClipboardText } from '../../utils/clipboard';
 import { formatBytes } from '../../initialData';
-import { TextField, SelectField, Checkbox, DegradedBanner } from '../../components/primitives';
+import { TextField, SelectField, Checkbox } from '../../components/primitives';
+import { DegradedBanner } from '../../components/primitives/DegradedBanner';
 import { useEngineCapabilities } from '../../capabilities/EngineCapabilityContext';
 
 export const AddDownloadDialog: React.FC = () => {
