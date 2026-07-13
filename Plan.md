@@ -543,7 +543,8 @@ P26-07-07
       - **BatchImportDialog**: Replaced hardcoded `'Batch import'` description with `t('batch_import_desc')`.
       - **ActiveProgressDialog**: Replaced hardcoded `'Shutdown computer'` initial state with `() => t('prog_shutdown')` (matches option values). Replaced `'Unknown'` in `formatTime` with `t('prog_time_unknown')`.
       - **i18n**: Added 10 new keys to en.ts and ar.ts (`ytdl_unknown`, `ytdl_probe_failed`, `ytdl_playlist_probe_failed`, `ytdl_media_playlist`, `ytdl_media_download`, `ytdl_playlist`, `batch_import_desc`, `prog_time_unknown`, `sched_default_queue`). Synced to all 132 locales (1366 keys each).
-      - Branch: `feat/ui-004-dialog-offline-i18n`
+      - Branch: `feature/ui-004-dialog-offline-i18n`
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/48
       - Preflight: brace/paren/bracket balance verified on all 9 changed source files.
 
 ### UI-005 — Button & interaction polish pass
