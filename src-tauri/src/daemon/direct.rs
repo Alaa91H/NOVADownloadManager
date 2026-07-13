@@ -433,6 +433,18 @@ impl RetryPolicy {
 
     pub fn is_permanent_error(error: &str) -> bool {
         let lower = error.to_ascii_lowercase();
+        // Cloudflare / anti-bot challenges commonly return 403.  Do NOT
+        // treat those as permanent – a retry after a short backoff is
+        // the correct thing to do.
+        if (lower.contains("403") || lower.contains("forbidden"))
+            && (lower.contains("cloudflare")
+                || lower.contains("challenge")
+                || lower.contains("cf-")
+                || lower.contains("captcha")
+                || lower.contains("bot"))
+        {
+            return false;
+        }
         lower.contains("403")
             || lower.contains("401")
             || lower.contains("404")

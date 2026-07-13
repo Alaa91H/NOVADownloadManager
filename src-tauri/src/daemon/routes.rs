@@ -999,6 +999,62 @@ async fn resolve_direct_body_for_immediate_download(
         }
     }
 
+    // Propagate connection limits for known CDN hosts. Without this the
+    // frontend's default (8 connections) is used and Google/SourceForge/VideoLAN
+    // CDNs throttle or reject the extra connections causing stalls.
+    let resolved_url = final_url.as_str();
+    let host = resolved_url
+        .split("://")
+        .nth(1)
+        .and_then(|h| h.split('/').next())
+        .unwrap_or("");
+    let desired_connections: u32 = if host.contains("dl.google.com") || host.contains("google.com")
+    {
+        4
+    } else if host.contains("sourceforge.net") || host.contains("downloads.sourceforge.net") {
+        1
+    } else if host.contains("videolan.org") || host.contains("halifax.rwth-aachen.de") {
+        4
+    } else if host.contains("mega.nz") || host.contains("mega.co.nz") {
+        1
+    } else {
+        0
+    };
+    if desired_connections > 0 {
+        let current = body.connections.unwrap_or(0);
+        if current == 0 || current > desired_connections {
+            body.connections = Some(desired_connections);
+            log::info!(
+                "probe: capping connections for {} to {} (was {})",
+                host,
+                desired_connections,
+                current
+            );
+        }
+        // Also set the per_host option so libcurl Multi enforces it
+        if let Some(ref mut opts) = body.direct_options {
+            if !opts.contains_key("maxHostConnections") {
+                opts.insert(
+                    "maxHostConnections".to_string(),
+                    serde_json::json!(desired_connections),
+                );
+            }
+        }
+    }
+
+    // Ensure the original URL is set as the Referer so the CDN
+    // does not block the download for missing Referer header.
+    // SourceForge in particular requires this.
+    if body
+        .referer
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("")
+        .is_empty()
+    {
+        body.referer = Some(original_url.clone());
+    }
+
     body.url = Some(final_url);
 }
 
@@ -1094,6 +1150,8 @@ async fn probe_stage_head(
             let final_url = resp.url().to_string();
             if status < 400 {
                 let payload = probe_payload(url, &final_url, resp.headers(), status, "HEAD");
+                let ct = header_string(resp.headers(), "content-type");
+                let is_html = ct.contains("text/html");
                 let has_size = payload
                     .get("sizeBytes")
                     .and_then(|v| v.as_u64())
@@ -1103,7 +1161,10 @@ async fn probe_stage_head(
                     .get("supportsSegments")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
-                if has_size && (has_range || best_payload.is_none()) {
+                // HEAD on CDNs that return HTML redirect pages (meta-refresh,
+                // Cloudflare challenge) will have a bogus Content-Length for
+                // the HTML itself. Only accept when it is NOT an HTML response.
+                if has_size && (has_range || best_payload.is_none()) && !is_html {
                     *best_payload = Some(payload);
                 }
                 Some(final_url)
@@ -1162,6 +1223,15 @@ fn cache_probe_payload(state: &SharedState, url: &str, payload: &serde_json::Val
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if size == 0 || method.starts_with("fallback") {
+        return;
+    }
+    // Do not cache HTML redirect pages (meta-refresh, Cloudflare challenge)
+    // as they are not the actual file.
+    let ct = payload
+        .get("contentType")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if ct.contains("text/html") {
         return;
     }
     let get_str = |key: &str| {
@@ -1255,11 +1325,13 @@ async fn probe_url_uncached(
     {
         let status = resp.status().as_u16();
         let stage_final = resp.url().to_string();
+        let ct = header_string(resp.headers(), "content-type");
+        let is_html = ct.contains("text/html");
         if status == 206 || status == 416 {
             let payload = probe_payload(url, &stage_final, resp.headers(), status, "GET range=0-0");
             return Ok(Json(payload));
         }
-        if status < 400 {
+        if status < 400 && !is_html {
             let payload = probe_payload(
                 url,
                 &stage_final,
@@ -1284,6 +1356,12 @@ async fn probe_url_uncached(
                 resp.status().canonical_reason().unwrap_or("")
             );
         }
+        if is_html {
+            log::info!(
+                "probe GET range=0-0 {} -> HTML response (redirect page?), skipping to Stage 3b",
+                url
+            );
+        }
     }
 
     // ── Stage 3: GET bytes=0-1023 (larger range peek) ─────────────────────
@@ -1302,7 +1380,19 @@ async fn probe_url_uncached(
         {
             let status = resp.status().as_u16();
             let stage_final = resp.url().to_string();
-            if status == 206 || status < 400 {
+            let ct = header_string(resp.headers(), "content-type");
+            let is_html = ct.contains("text/html");
+            if status == 206 || status == 416 {
+                let payload = probe_payload(
+                    url,
+                    &stage_final,
+                    resp.headers(),
+                    status,
+                    "GET range=0-1023",
+                );
+                return Ok(Json(payload));
+            }
+            if status < 400 && !is_html {
                 let payload = probe_payload(
                     url,
                     &stage_final,
@@ -1321,6 +1411,12 @@ async fn probe_url_uncached(
                 if best_payload.is_none() {
                     best_payload = Some(payload);
                 }
+            }
+            if is_html {
+                log::info!(
+                    "probe GET range=0-1023 {} -> HTML response (redirect page?), skipping to Stage 3b",
+                    url
+                );
             }
         }
     }
@@ -1353,26 +1449,34 @@ async fn probe_url_uncached(
         let headers_snapshot = resp.headers().clone();
         let body_text = resp.text().await.unwrap_or_default();
         if status < 400 {
-            let payload = probe_payload(
-                url,
-                &stage_final,
-                &headers_snapshot,
-                status,
-                "GET (encoding)",
-            );
-            let has_size = payload
-                .get("sizeBytes")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0)
-                > 0;
-            if has_size {
-                return Ok(Json(payload));
+            let is_html = content_type.contains("text/html")
+                || body_text.trim_start().starts_with("<!DOCTYPE")
+                || body_text.trim_start().starts_with("<html");
+            // For non-HTML responses, return immediately if we have a size.
+            // For HTML responses (meta-refresh, Cloudflare challenge), fall
+            // through to the redirect/challenge handlers below.
+            if !is_html {
+                let payload = probe_payload(
+                    url,
+                    &stage_final,
+                    &headers_snapshot,
+                    status,
+                    "GET (encoding)",
+                );
+                let has_size = payload
+                    .get("sizeBytes")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0)
+                    > 0;
+                if has_size {
+                    return Ok(Json(payload));
+                }
+                if let Some(payload) = best_payload.take() {
+                    return Ok(Json(payload));
+                }
             }
             // If body is HTML, try to extract meta-refresh URL (VideoLAN pattern)
-            if content_type.contains("text/html")
-                || body_text.trim_start().starts_with("<!DOCTYPE")
-                || body_text.trim_start().starts_with("<html")
-            {
+            if is_html {
                 if let Some(refresh_url) = parse_meta_refresh_url(&body_text) {
                     log::info!("probe meta-refresh redirect for {}: {}", url, refresh_url);
                     // Follow the meta-refresh URL with a new GET request
