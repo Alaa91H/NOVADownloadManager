@@ -71,27 +71,27 @@ export const TopBar: React.FC = () => {
     </>
   );
 
-  const handleResumeAll = () => {
+  const handleResumeAll = async () => {
     const inactive = tasks.filter((t) => t.status === 'paused' || t.status === 'queued');
     if (inactive.length === 0) {
       addToast('info', t('topbar_resume_all_title'), t('topbar_resume_all_none'));
       return;
     }
-    inactive.forEach((t) => {
-      resumeTask(t.id);
-    });
+    for (const task of inactive) {
+      await resumeTask(task.id);
+    }
     addToast('success', t('topbar_resume_all_title'), t('topbar_resume_all_done', { count: inactive.length }));
   };
 
-  const handleStopAll = () => {
+  const handleStopAll = async () => {
     const active = tasks.filter((t) => t.status === 'downloading');
     if (active.length === 0) {
       addToast('info', t('topbar_stop_all_title'), t('topbar_stop_all_none'));
       return;
     }
-    active.forEach((t) => {
-      pauseTask(t.id);
-    });
+    for (const task of active) {
+      await pauseTask(task.id);
+    }
     addToast('warning', t('topbar_stop_all_title'), t('topbar_stop_all_done', { count: active.length }));
   };
 

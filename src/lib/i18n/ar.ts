@@ -1323,6 +1323,7 @@ export const ar: Record<string, string> = {
   'toast_queue_created_moved_desc': 'تم إنشاء قائمة الانتظار "${name}" وتم نقل الملف إليها.',
   'settings_degraded_title': 'العميل غير متاح',
   'settings_degraded_desc': 'بعض الإعدادات تتطلب تشغيل عميل التنزيل.',
+  'settings_loading': 'جارٍ تحميل الإعدادات…',
   'dialog_degraded_title': 'العميل غير متاح',
   'dialog_degraded_desc': 'خدمة التنزيل غير متاحة. قد تفشل الإجراءات حتى يتم استعادة الاتصال.',
   'queue_no_queues': 'لا توجد قوائم انتظار',
