@@ -1356,4 +1356,13 @@ export const ceb: Record<string, string> = {
   'grabber_toast_invalid_desc': 'Please enter a valid URL starting with http or https.',
   'grabber_toast_backend_title': 'Real backend required',
   'grabber_toast_backend_desc': 'Webpage mirroring is not connected to a real crawler backend yet. No task was created.',
+  'ytdl_unknown': 'Unknown',
+  'ytdl_probe_failed': 'Probe failed',
+  'ytdl_playlist_probe_failed': 'Playlist probe failed',
+  'ytdl_media_playlist': 'Media playlist',
+  'ytdl_media_download': 'Media download',
+  'ytdl_playlist': 'Playlist',
+  'batch_import_desc': 'Batch import',
+  'prog_time_unknown': 'Unknown',
+  'sched_default_queue': 'Main Download Queue',
 };

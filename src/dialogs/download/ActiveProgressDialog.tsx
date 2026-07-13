@@ -19,7 +19,7 @@ export const ActiveProgressDialog: React.FC = () => {
   const [disconnectOnComplete, setDisconnectOnComplete] = useState(false);
   const [exitOnComplete, setExitOnComplete] = useState(false);
   const [shutdownOnComplete, setShutdownOnComplete] = useState(false);
-  const [shutdownAction, setShutdownAction] = useState('Shutdown computer');
+  const [shutdownAction, setShutdownAction] = useState(() => t('prog_shutdown'));
   const [forceCloseProcesses, setForceCloseProcesses] = useState(false);
 
   const caps = useEngineCapabilities();
@@ -33,7 +33,7 @@ export const ActiveProgressDialog: React.FC = () => {
   const formatSpeed = (bytesPerSec: number) => `${formatBytes(bytesPerSec)}/s`;
 
   const formatTime = (seconds: number) => {
-    if (!seconds || seconds <= 0) return 'Unknown';
+    if (!seconds || seconds <= 0) return t('prog_time_unknown');
     if (seconds < 60) return `${String(seconds)}s`;
     const minutes = Math.floor(seconds / 60);
     const remaining = seconds % 60;

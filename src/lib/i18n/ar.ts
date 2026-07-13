@@ -1356,4 +1356,13 @@ export const ar: Record<string, string> = {
   'grabber_toast_invalid_desc': 'أدخل رابطًا صالحًا يبدأ بـ http أو https.',
   'grabber_toast_backend_title': 'الخادم مطلوب',
   'grabber_toast_backend_desc': 'نسخ صفحات الويب غير متصل بخادم استكشاف حقيقي بعد. لم يتم إنشاء أي مهمة.',
+  'ytdl_unknown': 'غير معروف',
+  'ytdl_probe_failed': 'فشل الاستكشاف',
+  'ytdl_playlist_probe_failed': 'فشل استكشاف قائمة التشغيل',
+  'ytdl_media_playlist': 'قائمة تشغيل الوسائط',
+  'ytdl_media_download': 'تنزيل الوسائط',
+  'ytdl_playlist': 'قائمة التشغيل',
+  'batch_import_desc': 'استيراد مجمّع',
+  'prog_time_unknown': 'غير معروف',
+  'sched_default_queue': 'قائمة التنزيل الرئيسية',
 };

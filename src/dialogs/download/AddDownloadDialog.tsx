@@ -209,7 +209,7 @@ export const AddDownloadDialog: React.FC = () => {
           setCategory(detectedType);
           const probedSize = Number.isFinite(probed.sizeBytes) && probed.sizeBytes > 0 ? probed.sizeBytes : 0;
           setSizeBytes(probedSize);
-          setProbeError(probedSize > 0 ? '' : 'The server did not report a file size.');
+          setProbeError(probedSize > 0 ? '' : t('add_dl_no_size'));
           setResumable(probed.resumable);
           if (probed.supportsSegments === false) setConnections(1);
           setSavePath(buildSavePath(detectedType, detectedName));
@@ -220,10 +220,10 @@ export const AddDownloadDialog: React.FC = () => {
           const detectedType = detectedName ? inferTypeFromName(detectedName) : 'other';
           const message =
             error instanceof Error && error.name === 'AbortError'
-              ? 'File size probe timed out. Retry after the server responds.'
+              ? t('add_dl_probe_timeout')
               : error instanceof Error && error.message
                 ? error.message
-                : 'File size unavailable for this link.';
+                : t('add_dl_probe_failed');
           setFileName(detectedName);
           setFileType(detectedType);
           setCategory(detectedType);

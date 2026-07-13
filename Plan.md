@@ -534,13 +534,24 @@ P26-07-07
       - Push: `8fe088b` pushed to feature branch at 2026-07-13
       - CI: pending (TypeScript + tests + build should now pass)
       - Preflight: brace/paren/bracket balance verified on all 3 changed files.
+    - Cycle 2026-07-13 (round 14 — Dialog DegradedBanner + remaining hardcoded i18n):
+      - **TaskPropertiesDialog**: Added `DegradedBanner` import, `isDegradedMode` from useAppStore. DegradedBanner shown at top when daemon unreachable.
+      - **UpdateLinkDialog**: Added `DegradedBanner` import, `isDegradedMode` from useAppStore. DegradedBanner shown at top when daemon unreachable.
+      - **SchedulerPanel**: Replaced hardcoded `'Main Download Queue'` fallback with `t('sched_default_queue')`.
+      - **AddDownloadDialog**: Replaced 3 hardcoded English probe error strings with existing i18n keys (`add_dl_no_size`, `add_dl_probe_timeout`, `add_dl_probe_failed`).
+      - **YoutubeDownloadDialog**: Replaced 6 hardcoded English strings with i18n keys: `'Unknown'` → `t('ytdl_unknown')` (updated `resolutionLabel` signature to accept `t`), `'Playlist probe failed'` → `t('ytdl_playlist_probe_failed')`, `'Probe failed'` → `t('ytdl_probe_failed')`, `'Media playlist'`/`'Media download'` → `t('ytdl_media_playlist')`/`t('ytdl_media_download')`, `'Playlist'` → `t('ytdl_playlist')`.
+      - **BatchImportDialog**: Replaced hardcoded `'Batch import'` description with `t('batch_import_desc')`.
+      - **ActiveProgressDialog**: Replaced hardcoded `'Shutdown computer'` initial state with `() => t('prog_shutdown')` (matches option values). Replaced `'Unknown'` in `formatTime` with `t('prog_time_unknown')`.
+      - **i18n**: Added 10 new keys to en.ts and ar.ts (`ytdl_unknown`, `ytdl_probe_failed`, `ytdl_playlist_probe_failed`, `ytdl_media_playlist`, `ytdl_media_download`, `ytdl_playlist`, `batch_import_desc`, `prog_time_unknown`, `sched_default_queue`). Synced to all 132 locales (1366 keys each).
+      - Branch: `feat/ui-004-dialog-offline-i18n`
+      - Preflight: brace/paren/bracket balance verified on all 9 changed source files.
 
 ### UI-005 — Button & interaction polish pass
 
-- Status: `[/] IN_PROGRESS`
+- Status: `[ ] PLANNED`
 - Priority: medium
 - Type: refactor
-- Started: 2026-07-13
+- Started: pending
 - Completed: pending
 - Objective:
   - Final polish pass: hover effects, focus states, transition animations, keyboard shortcuts, click feedback, consistent spacing.
