@@ -525,6 +525,13 @@ P26-07-07
       - Branch: `feature/ui-004-dialog-offline-statusbar-loading`
       - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/46
       - Preflight: brace/paren/bracket balance verified on all 5 source files.
+    - Cycle 2026-07-13 (round 15 — CI gate repair for tests):
+      - **Root cause (TopBar)**: `getByTitle('No engines available')` found 2 elements because TopBar renders dual markup (desktop + mobile). Same pattern as prior dual-render failures.
+      - **Fix (TopBar)**: Replaced `getByTitle` with `getAllByTitle` and asserted `length >= 1`, then used `disabledBtns[0]` for click assertion.
+      - **Root cause (ConfirmDialog)**: Tests expected hardcoded `'The download item was not found.'` but r14 translated the string to `t('confirm_item_not_found')`. Mock `t` maps in 2 test cases only had `btn_close`, so the key leaked through.
+      - **Fix (ConfirmDialog)**: Added `confirm_item_not_found: 'The download item was not found.'` to mock `t` maps in both "renders fallback when no task payload" and "handles payload without id gracefully" test cases.
+      - Push: `5861b23` pushed to feature branch at 2026-07-13
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/46
 
 ### UI-005 — Button & interaction polish pass
 
