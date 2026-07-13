@@ -518,10 +518,10 @@ P26-07-07
 
 ### UI-005 — Button & interaction polish pass
 
-- Status: `[ ] PLANNED`
+- Status: `[/] IN_PROGRESS`
 - Priority: medium
 - Type: refactor
-- Started: pending
+- Started: 2026-07-13
 - Completed: pending
 - Objective:
   - Final polish pass: hover effects, focus states, transition animations, keyboard shortcuts, click feedback, consistent spacing.
