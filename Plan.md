@@ -515,6 +515,16 @@ P26-07-07
       - Branch: `feature/ui-004-fetch-error-state`
       - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/45
       - Preflight: brace/paren/bracket balance verified on all 4 source files.
+    - Cycle 2026-07-13 (round 14 — Degraded banners for remaining 5 dialogs):
+      - **AddDownloadDialog**: Added `isDegradedMode` from `useAppStore`, `DegradedBanner` at top of return. Dialog calls `novaClient.probeDownload()` and `addTask()`.
+      - **BrowserIntegrationDialog**: Added `isDegradedMode` from `useAppStore`, `DegradedBanner` at top of return. Dialog calls `novaClient.configureBrowserExtension()`.
+      - **UpdateLinkDialog**: Added `isDegradedMode` from `useAppStore`, `DegradedBanner` at top of return. Dialog calls `updateTaskProperties()`.
+      - **ConfirmDialog**: Added `isDegradedMode` from `useAppStore`, `DegradedBanner` at top of return. Dialog calls `deleteTask()`. Replaced hardcoded English error string `'The download item was not found.'` with `t('confirm_item_not_found')`.
+      - **DiagnosticsDialog**: Added `isDegradedMode` from `useAppStore`, `DegradedBanner` at top of return. Dialog calls `tauriClient.getDiagnostics()`.
+      - **i18n**: Added `confirm_item_not_found` key to en.ts and ar.ts. Synced to all 131 non-English locales (1332 keys each, 650 issues fixed by `fix-i18n.mjs`).
+      - Branch: `feature/ui-004-dialog-offline-statusbar-loading`
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/46
+      - Preflight: brace/paren/bracket balance verified on all 5 source files.
 
 ### UI-005 — Button & interaction polish pass
 
