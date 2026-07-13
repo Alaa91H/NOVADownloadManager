@@ -8,11 +8,11 @@ import { FileType } from '../../types/desktop-ui.types';
 import { detectUrlType } from '../../utils/urlDetector';
 import { clearClipboardIfTextMatches, readClipboardText } from '../../utils/clipboard';
 import { formatBytes } from '../../initialData';
-import { TextField, SelectField, Checkbox } from '../../components/primitives';
+import { TextField, SelectField, Checkbox, DegradedBanner } from '../../components/primitives';
 import { useEngineCapabilities } from '../../capabilities/EngineCapabilityContext';
 
 export const AddDownloadDialog: React.FC = () => {
-  const { dialog, closeDialog, queues, settings, addTask, addToast, openDialog, t } = useAppStore();
+  const { dialog, closeDialog, queues, settings, addTask, addToast, openDialog, t, isDegradedMode } = useAppStore();
   const engineCapabilities = useEngineCapabilities();
 
   const buildConfiguredProxy = () => {
@@ -109,11 +109,16 @@ export const AddDownloadDialog: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
-    void tauriClient.getDownloadsDir().then((dir) => {
-      if (cancelled || !dir) return;
-      setDefaultDownloadsDir(dir);
-      setSavePath((prev) => prev || dir);
-    });
+    void tauriClient
+      .getDownloadsDir()
+      .then((dir) => {
+        if (cancelled || !dir) return;
+        setDefaultDownloadsDir(dir);
+        setSavePath((prev) => prev || dir);
+      })
+      .catch(() => {
+        /* native directory unavailable — user can type path manually */
+      });
     return () => {
       cancelled = true;
     };
@@ -410,6 +415,9 @@ export const AddDownloadDialog: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {isDegradedMode && (
+        <DegradedBanner title={t('dialog_degraded_title')} description={t('dialog_degraded_desc')} />
+      )}
       {!directEngineReady && (
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-[11px] text-red-200">
           {t('add_dl_direct_unavailable')}

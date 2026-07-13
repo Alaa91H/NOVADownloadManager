@@ -407,9 +407,13 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     const lang = settings.extra.language || 'en';
     if (isLanguageLoaded(lang)) return;
     let cancelled = false;
-    void loadLanguage(lang).then(() => {
-      if (!cancelled) setI18nRevision((revision) => revision + 1);
-    });
+    void loadLanguage(lang)
+      .then(() => {
+        if (!cancelled) setI18nRevision((revision) => revision + 1);
+      })
+      .catch(() => {
+        /* language file unavailable — UI stays on previously loaded locale */
+      });
     return () => {
       cancelled = true;
     };

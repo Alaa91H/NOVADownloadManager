@@ -29,9 +29,14 @@ export const BrowserIntegrationDialog: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
-    void tauriClient.getBrowserExtensionPaths().then((paths) => {
-      if (!cancelled) setExtensionPaths(paths);
-    });
+    void tauriClient
+      .getBrowserExtensionPaths()
+      .then((paths) => {
+        if (!cancelled) setExtensionPaths(paths);
+      })
+      .catch(() => {
+        /* extension paths unavailable — UI remains in checking state */
+      });
     return () => {
       cancelled = true;
     };

@@ -515,6 +515,16 @@ P26-07-07
       - Branch: `feature/ui-004-fetch-error-state`
       - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/45
       - Preflight: brace/paren/bracket balance verified on all 4 source files.
+    - Cycle 2026-07-13 (round 13 — Dialog degraded banners, WebpageGrabberDialog i18n, promise rejection fixes):
+      - **AddDownloadDialog degraded banner**: Added `isDegradedMode` from useAppStore. DegradedBanner shown at top when daemon unreachable. Import DegradedBanner from primitives.
+      - **WebpageGrabberDialog full i18n**: Replaced all 30+ hardcoded English strings with `t()` calls. Added 31 new translation keys to en.ts and ar.ts (grabber_*). Imported DegradedBanner. Added `isDegradedMode` from useAppStore. DegradedBanner shown at top when daemon unreachable.
+      - **Promise rejection hardening**: Added `.catch()` handlers to 3 fire-and-forget `.then()` calls:
+        - `AddDownloadDialog.tsx`: `getDownloadsDir().then()` — catch swallows silently (user can type path manually).
+        - `BrowserIntegrationDialog.tsx`: `getBrowserExtensionPaths().then()` — catch swallows silently (UI remains in checking state).
+        - `appStore.tsx`: `loadLanguage().then()` — catch swallows silently (UI stays on previously loaded locale).
+      - **i18n**: Added 31 new keys to en.ts/ar.ts (grabber_*). Synced to all 132 locales via fix-i18n.mjs (1357 keys each).
+      - Branch: `feat/ui-005-button-polish` (working branch)
+      - Preflight: brace/paren balance verified on all 4 changed source files. No hardcoded strings remain in WebpageGrabberDialog.
 
 ### UI-005 — Button & interaction polish pass
 
