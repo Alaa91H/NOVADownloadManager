@@ -546,6 +546,13 @@ P26-07-07
       - Branch: `feature/ui-004-dialog-offline-i18n`
       - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/48
       - Preflight: brace/paren/bracket balance verified on all 9 changed source files.
+    - Cycle 2026-07-13 (round 15 — SettingsPage loading state, TopBar batch handler serialization):
+      - **SettingsPage loading state**: Added `isLoading` guard — renders `LoadingSpinner` with i18n label while the app store initializes. Prevents rendering SettingsDialog before settings data is ready.
+      - **TopBar batch handlers**: Converted `handleResumeAll` and `handleStopAll` from `forEach` (fire-and-forget) to `for...of` with `await`. Batch operations now complete before showing the success toast.
+      - **i18n**: Added `settings_loading` key to en.ts, ar.ts, and all 132 locales (1367 keys each).
+      - Branch: `feature/ui-004-dialog-offline-i18n`
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/49
+      - Preflight: brace/paren/bracket balance verified on SettingsPage.tsx and TopBar.tsx.
 
 ### UI-005 — Button & interaction polish pass
 
