@@ -566,6 +566,7 @@ export const ar: Record<string, string> = {
   'dlg_media_downloader': 'تنزيل الوسائط',
   'confirm_remove_download': 'هل تريد إزالة هذا التنزيل من NOVA؟',
   'confirm_delete_disk': 'احذف أيضًا الملف الذي تم تنزيله من القرص',
+  'confirm_item_not_found': 'لم يتم العثور على عنصر التنزيل.',
   'pause': 'إيقاف مؤقت',
   'resume': 'استئناف',
   'properties': 'الخصائص',

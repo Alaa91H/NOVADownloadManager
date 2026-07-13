@@ -4,9 +4,10 @@ import { Cpu, HardDrive, RefreshCw, ShieldCheck, AlertTriangle } from 'lucide-re
 import { tauriClient, DiagnosticData } from '../../api/tauriClient';
 import { useAppStore } from '../../state/appStore';
 import { DialogButton, Button } from '../../components/primitives';
+import { DegradedBanner } from '../../components/primitives/DegradedBanner';
 
 export const DiagnosticsDialog: React.FC = () => {
-  const { t } = useAppStore();
+  const { t, isDegradedMode } = useAppStore();
   const [data, setData] = useState<DiagnosticData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +41,9 @@ export const DiagnosticsDialog: React.FC = () => {
 
   return (
     <div className="space-y-4 text-left" dir="ltr">
+      {isDegradedMode && (
+        <DegradedBanner title={t('dialog_degraded_title')} description={t('dialog_degraded_desc')} />
+      )}
       <div className="flex items-center justify-between border-b border-[var(--border-color)] pb-2">
         <p className="text-[11px] text-[var(--text-muted)]">
           {t('diag_refresh_desc')}

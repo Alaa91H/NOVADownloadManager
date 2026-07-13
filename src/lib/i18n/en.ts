@@ -570,6 +570,7 @@ export const en: Record<string, string> = {
   dlg_media_downloader: 'Media Downloader',
   confirm_remove_download: 'Remove this download from NOVA?',
   confirm_delete_disk: 'Also delete the downloaded file from disk',
+  confirm_item_not_found: 'The download item was not found.',
   pause: 'Pause',
   resume: 'Resume',
   properties: 'Properties',

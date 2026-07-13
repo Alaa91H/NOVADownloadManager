@@ -16,11 +16,12 @@ import { tauriClient } from '../../api/tauriClient';
 import { useAppStore } from '../../state/appStore';
 import { writeClipboardText } from '../../utils/clipboard';
 import { DialogButton, Button } from '../../components/primitives';
+import { DegradedBanner } from '../../components/primitives/DegradedBanner';
 
 const EXTENSION_RELEASES_URL = 'https://github.com/Alaa91H/NovaDownloadManager/releases/latest';
 
 export const BrowserIntegrationDialog: React.FC = () => {
-  const { closeDialog, settings, updateSettings, addToast, t } = useAppStore();
+  const { closeDialog, settings, updateSettings, addToast, t, isDegradedMode } = useAppStore();
   const [health, setHealth] = useState<BrowserExtensionHealth | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [extensionPaths, setExtensionPaths] = useState<{ devPath: string; resourcePath: string } | null>(null);
@@ -142,6 +143,9 @@ export const BrowserIntegrationDialog: React.FC = () => {
 
   return (
     <div className="space-y-4 text-left text-ui" dir="ltr">
+      {isDegradedMode && (
+        <DegradedBanner title={t('dialog_degraded_title')} description={t('dialog_degraded_desc')} />
+      )}
       <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-start border border-[var(--border-color)] rounded-lg bg-[var(--bg-hover)]/40 p-3">
         <div className="flex items-start gap-2.5">
           <ShieldCheck className="w-5 h-5 text-[var(--accent-primary)] shrink-0 mt-0.5" />

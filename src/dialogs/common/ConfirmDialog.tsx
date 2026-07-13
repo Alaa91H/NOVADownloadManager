@@ -3,10 +3,11 @@ import React, { useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { useAppStore } from '../../state/appStore';
 import { Checkbox, DialogButton } from '../../components/primitives';
+import { DegradedBanner } from '../../components/primitives/DegradedBanner';
 import { DownloadItem } from '../../types/desktop-ui.types';
 
 export const ConfirmDialog: React.FC = () => {
-  const { dialog, closeDialog, deleteTask, t } = useAppStore();
+  const { dialog, closeDialog, deleteTask, t, isDegradedMode } = useAppStore();
   const [deleteDisk, setDeleteDisk] = useState(false);
   const payload = dialog.payload;
   const task: DownloadItem | null =
@@ -20,7 +21,7 @@ export const ConfirmDialog: React.FC = () => {
   if (!task) {
     return (
       <div className="text-center p-4">
-        <p className="text-red-500 text-xs">The download item was not found.</p>
+        <p className="text-red-500 text-xs">{t('confirm_item_not_found')}</p>
         <DialogButton onClick={closeDialog} variant="secondary" className="mt-2">
           {t('btn_close')}
         </DialogButton>
@@ -35,6 +36,9 @@ export const ConfirmDialog: React.FC = () => {
 
   return (
     <div className="space-y-3.5">
+      {isDegradedMode && (
+        <DegradedBanner title={t('dialog_degraded_title')} description={t('dialog_degraded_desc')} />
+      )}
       <p className="text-xs text-[var(--text-primary)] font-medium leading-relaxed">{t('confirm_remove_download')}</p>
 
       <div className="space-y-2">
