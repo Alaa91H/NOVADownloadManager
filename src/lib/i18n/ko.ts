@@ -1207,4 +1207,8 @@ set_tab_direct_download: 'Direct Download',
   'progress_downloading_from': 'progress_downloading_from',
   'progress_eta': 'progress_eta',
   'progress_peak_speed': 'progress_peak_speed',
+  'settings_dns_test_run': 'Test',
+  'settings_dns_testing': 'Testing…',
+  'settings_dns_unreachable': 'Unreachable',
+  'modal_pop_out': 'Open in a separate window',
 };
