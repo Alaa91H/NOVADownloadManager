@@ -238,8 +238,23 @@ export const StatusBar: React.FC = () => {
           </button>
         )}
 
+        {caps.loading && (
+          <div className="flex items-center gap-1 ml-1" title={t('engine_caps_loading')}>
+            <span className="w-1.5 h-1.5 bg-[var(--text-muted)] rounded-full animate-pulse" />
+            <span className="text-[9px] text-[var(--text-muted)] whitespace-nowrap">{t('statusbar_engine_loading')}</span>
+          </div>
+        )}
+
         {!caps.loading && (
           <div className="flex items-center gap-0.5 ml-1">
+            {caps.error && (
+              <span
+                className="text-[9px] text-rose-400 font-bold whitespace-nowrap max-w-[120px] truncate"
+                title={caps.error}
+              >
+                {t('statusbar_engine_error')}
+              </span>
+            )}
             <button
               onClick={() => {
                 addToast(

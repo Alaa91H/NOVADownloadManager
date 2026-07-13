@@ -394,6 +394,15 @@ export const TopBar: React.FC = () => {
           </div>
         )}
 
+        {!caps.loading && caps.error && !isDegradedMode && (
+          <span
+            className="px-1.5 py-0.5 text-[9px] font-bold bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded whitespace-nowrap max-w-[160px] truncate cursor-default"
+            title={caps.error}
+          >
+            {t('topbar_engine_error')}
+          </span>
+        )}
+
         <div className="h-5 w-px bg-[var(--border-color)] mx-1 shrink-0" />
 
         {/* Action: Resume (Split Button) */}

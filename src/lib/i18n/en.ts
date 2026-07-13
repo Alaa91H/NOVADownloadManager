@@ -1355,4 +1355,7 @@ export const en: Record<string, string> = {
   dialog_degraded_desc: 'The download service is unreachable. Actions may fail until the connection is restored.',
   queue_no_queues: 'No Queues Available',
   queue_no_queues_desc: 'Create a queue first before adding tasks to it.',
+  statusbar_engine_loading: 'Engines…',
+  statusbar_engine_error: 'Engine error',
+  topbar_engine_error: 'Engine error',
 };

@@ -1327,4 +1327,7 @@ export const ar: Record<string, string> = {
   'dialog_degraded_desc': 'خدمة التنزيل غير متاحة. قد تفشل الإجراءات حتى يتم استعادة الاتصال.',
   'queue_no_queues': 'لا توجد قوائم انتظار',
   'queue_no_queues_desc': 'أنشئ قائمة انتظار أولاً قبل إضافة المهام إليها.',
+  'statusbar_engine_loading': 'المحركات…',
+  'statusbar_engine_error': 'خطأ في المحرك',
+  'topbar_engine_error': 'خطأ في المحرك',
 };

@@ -1323,4 +1323,7 @@ export const mi: Record<string, string> = {
   'toast_queue_created_moved_desc': 'Queue "${name}" was created and the file was moved into it.',
   'settings_degraded_title': 'Daemon Unavailable',
   'settings_degraded_desc': 'Some settings require the download daemon to be running.',
+  'statusbar_engine_loading': 'Engines…',
+  'statusbar_engine_error': 'Engine error',
+  'topbar_engine_error': 'Engine error',
 };
