@@ -20,6 +20,7 @@ import { novaClient, type YtDlpFormat, type YtDlpPlaylistEntry } from '../../api
 import { tauriClient } from '../../api/tauriClient';
 import { clearClipboardIfTextMatches } from '../../utils/clipboard';
 import { TextField, Switch, DialogButton } from '../../components/primitives';
+import { DegradedBanner } from '../../components/primitives/DegradedBanner';
 import { formatBytes } from '../../initialData';
 import { useEngineCapabilities } from '../../capabilities/EngineCapabilityContext';
 
@@ -64,7 +65,7 @@ function resolutionLabel(height: number | null): string {
 }
 
 export const YoutubeDownloadDialog: React.FC = () => {
-  const { dialog, closeDialog, settings, addTask, addToast, t } = useAppStore();
+  const { dialog, closeDialog, settings, addTask, addToast, t, isDegradedMode } = useAppStore();
   const engineCapabilities = useEngineCapabilities();
 
   const buildConfiguredProxy = () => {
@@ -527,6 +528,9 @@ export const YoutubeDownloadDialog: React.FC = () => {
 
   return (
     <div className="space-y-4 text-ui text-left" dir="ltr">
+      {isDegradedMode && (
+        <DegradedBanner title={t('dialog_degraded_title')} description={t('dialog_degraded_desc')} />
+      )}
       {!engineCapabilities.mediaReady && (
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-[11px] text-red-200">
           {t('ytdl_unavailable')}

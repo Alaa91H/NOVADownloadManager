@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const { storeRef, mockCloseDialog, mockUpdateSettings, mockAddToast, mockConfigureBrowserExtension, mockGetBrowserExtensionPaths, mockOpenInExplorer, mockOpenExternalUrl, mockOpenBrowserExtensions } = vi.hoisted(() => {
@@ -213,6 +213,7 @@ describe('BrowserIntegrationDialog', () => {
     await waitFor(() => {
       expect(mockGetBrowserExtensionPaths).toHaveBeenCalled();
     });
+    await act(async () => {});
     fireEvent.click(screen.getByText('Open Dev Folder'));
     await waitFor(() => {
       expect(mockOpenInExplorer).toHaveBeenCalledWith('/home/user/nova/extension');

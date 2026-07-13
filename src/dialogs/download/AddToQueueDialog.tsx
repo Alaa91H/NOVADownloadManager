@@ -1,12 +1,14 @@
 /* src/dialogs/download/AddToQueueDialog.tsx */
 import React, { useState } from 'react';
-import { ListPlus, Clock, ArrowRightLeft, FolderHeart, Plus } from 'lucide-react';
+import { ListPlus, Clock, ArrowRightLeft, FolderHeart, Plus, List } from 'lucide-react';
 import { useAppStore } from '../../state/appStore';
 import { TextField, DialogButton } from '../../components/primitives';
+import { DegradedBanner } from '../../components/primitives/DegradedBanner';
+import { EmptyState } from '../../components/primitives/EmptyState';
 import { DownloadItem } from '../../types/desktop-ui.types';
 
 export const AddToQueueDialog: React.FC = () => {
-  const { dialog, closeDialog, queues, moveTaskToQueue, createQueueAndMoveTask, addToast, t } = useAppStore();
+  const { dialog, closeDialog, queues, moveTaskToQueue, createQueueAndMoveTask, addToast, t, isDegradedMode } = useAppStore();
 
   const task = dialog.payload as DownloadItem;
   const [newQueueName, setNewQueueName] = useState('');
@@ -33,6 +35,9 @@ export const AddToQueueDialog: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {isDegradedMode && (
+        <DegradedBanner title={t('dialog_degraded_title')} description={t('dialog_degraded_desc')} />
+      )}
       <div className="flex gap-3 bg-[var(--bg-hover)] p-3 rounded-lg border border-[var(--border-color)]/30">
         <ArrowRightLeft className="w-5 h-5 text-indigo-500 shrink-0 mt-0.5" />
         <div className="text-xs space-y-1">
@@ -50,6 +55,13 @@ export const AddToQueueDialog: React.FC = () => {
 
       <div className="space-y-2">
         <span className="text-xs font-bold text-[var(--text-secondary)] block mb-1">{t('queue_available_queues')}</span>
+        {queues.length === 0 ? (
+          <EmptyState
+            icon={List}
+            title={t('queue_no_queues')}
+            description={t('queue_no_queues_desc')}
+          />
+        ) : (
         <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1">
           {queues.map((q) => {
             const isCurrent = task.queueId === q.id;
@@ -96,6 +108,7 @@ export const AddToQueueDialog: React.FC = () => {
             );
           })}
         </div>
+        )}
       </div>
 
       <div className="h-px bg-[var(--border-color)]/60 my-2" />
