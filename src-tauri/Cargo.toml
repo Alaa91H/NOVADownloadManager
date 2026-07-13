@@ -37,7 +37,7 @@ futures-core = "0.3"
 curl = { version = "0.4", default-features = false, features = ["ssl", "http2", "protocol-ftp", "ntlm"] }
 regex = "1"
 sha2 = "0.10"
-sha1 = "0.10"
+sha1 = "0.11"
 md-5 = "0.10"
 
 [profile.release]
