@@ -109,7 +109,10 @@ describe('ConfirmDialog', () => {
       closeDialog: mockCloseDialog,
       deleteTask: mockDeleteTask,
       t: (k: string) => {
-        const map: Record<string, string> = { btn_close: 'Close' };
+        const map: Record<string, string> = {
+          btn_close: 'Close',
+          confirm_item_not_found: 'The download item was not found.',
+        };
         return map[k] || k;
       },
     };
@@ -138,7 +141,10 @@ describe('ConfirmDialog', () => {
       closeDialog: mockCloseDialog,
       deleteTask: mockDeleteTask,
       t: (k: string) => {
-        const map: Record<string, string> = { btn_close: 'Close' };
+        const map: Record<string, string> = {
+          btn_close: 'Close',
+          confirm_item_not_found: 'The download item was not found.',
+        };
         return map[k] || k;
       },
     };

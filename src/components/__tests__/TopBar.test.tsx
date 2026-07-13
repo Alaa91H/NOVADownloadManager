@@ -387,7 +387,9 @@ describe('TopBar', () => {
     const addToast = vi.fn();
     mockStoreRef.current = makeStore({ addToast });
     render(<TopBar />);
-    const disabledBtn = screen.getByTitle('No engines available');
+    const disabledBtns = screen.getAllByTitle('No engines available');
+    expect(disabledBtns.length).toBeGreaterThanOrEqual(1);
+    const disabledBtn = disabledBtns[0];
     expect(disabledBtn).toBeDisabled();
     fireEvent.click(disabledBtn);
     expect(addToast).not.toHaveBeenCalled();
