@@ -44,7 +44,7 @@
 </p>
 
 <details>
-<summary><strong>📷 View Complete Screenshot Gallery (39 Images)</strong></summary>
+<summary><strong>📷 View Complete Screenshot Gallery (41 Images)</strong></summary>
 
 <br>
 
