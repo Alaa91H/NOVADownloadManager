@@ -105,13 +105,13 @@ export function SpeedGraph({ taskId, maxPoints = 60, height = 120, className = '
 
   return (
     <div className={`flex flex-col gap-1 ${className}`}>
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
+      <div className="flex items-center justify-between text-xs text-[var(--text-muted)]">
         <span>{formatSpeed(currentSpeed)}</span>
-        <span className="text-muted-foreground/60">Peak: {formatSpeed(peakSpeed)}</span>
+        <span className="text-[var(--text-muted)]/60">Peak: {formatSpeed(peakSpeed)}</span>
       </div>
       <canvas
         ref={canvasRef}
-        className="w-full rounded border border-border/50 bg-background/50"
+        className="w-full rounded border border-[var(--border-color)]/50 bg-[var(--bg-app)]/50"
         style={{ height }}
       />
     </div>

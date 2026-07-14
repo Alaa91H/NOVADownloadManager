@@ -48,7 +48,7 @@ opt-level = 3
 panic = "abort"
 debug = false
 incremental = false
-overflow-checks = false
+overflow-checks = true
 
 [profile.release.package."*"]
 opt-level = 3

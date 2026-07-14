@@ -657,7 +657,7 @@ export const TopBar: React.FC = () => {
             onChange={(e) => {
               setLocalSearchInput(e.target.value);
             }}
-            className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg py-1.5 pr-8 pl-3 text-xs focus:outline-none focus:border-[var(--accent-primary)] focus:ring-1 focus:ring-[var(--accent-primary)] text-[var(--text-primary)] font-medium"
+            className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg py-1.5 pr-8 pl-3 text-xs focus:outline-none focus:border-[var(--accent-primary)] focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)] text-[var(--text-primary)] font-medium"
           />
         </div>
       </div>

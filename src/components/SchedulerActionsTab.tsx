@@ -54,7 +54,7 @@ export const SchedulerActionsTab: React.FC<SchedulerActionsTabProps> = ({
             onChange={(e) => {
               onShutdownChange(e.target.checked);
             }}
-            className="w-4.5 h-4.5 text-[var(--accent-primary)] focus:ring-[var(--accent-primary)] cursor-pointer"
+            className="w-4.5 h-4.5 text-[var(--accent-primary)] focus-visible:ring-[var(--accent-primary)] cursor-pointer"
           />
         </label>
 
@@ -72,7 +72,7 @@ export const SchedulerActionsTab: React.FC<SchedulerActionsTabProps> = ({
             onChange={(e) => {
               onHangupChange(e.target.checked);
             }}
-            className="w-4.5 h-4.5 text-[var(--accent-primary)] focus:ring-[var(--accent-primary)] cursor-pointer"
+            className="w-4.5 h-4.5 text-[var(--accent-primary)] focus-visible:ring-[var(--accent-primary)] cursor-pointer"
           />
         </label>
 
@@ -90,7 +90,7 @@ export const SchedulerActionsTab: React.FC<SchedulerActionsTabProps> = ({
             onChange={(e) => {
               onExitChange(e.target.checked);
             }}
-            className="w-4.5 h-4.5 text-[var(--accent-primary)] focus:ring-[var(--accent-primary)] cursor-pointer"
+            className="w-4.5 h-4.5 text-[var(--accent-primary)] focus-visible:ring-[var(--accent-primary)] cursor-pointer"
           />
         </label>
 
@@ -108,7 +108,7 @@ export const SchedulerActionsTab: React.FC<SchedulerActionsTabProps> = ({
             onChange={(e) => {
               onChimeChange(e.target.checked);
             }}
-            className="w-4.5 h-4.5 text-[var(--accent-primary)] focus:ring-[var(--accent-primary)] cursor-pointer"
+            className="w-4.5 h-4.5 text-[var(--accent-primary)] focus-visible:ring-[var(--accent-primary)] cursor-pointer"
           />
         </label>
       </div>
@@ -128,7 +128,7 @@ export const SchedulerActionsTab: React.FC<SchedulerActionsTabProps> = ({
             onChange={(e) => {
               onWebhookEnableChange(e.target.checked);
             }}
-            className="w-4.5 h-4.5 text-[var(--accent-primary)] focus:ring-[var(--accent-primary)] cursor-pointer"
+            className="w-4.5 h-4.5 text-[var(--accent-primary)] focus-visible:ring-[var(--accent-primary)] cursor-pointer"
           />
         </label>
         {enableWebhook && (
@@ -138,7 +138,7 @@ export const SchedulerActionsTab: React.FC<SchedulerActionsTabProps> = ({
             onChange={(e) => {
               onWebhookUrlChange(e.target.value);
             }}
-            className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg px-3 py-2 text-xs font-mono text-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent-primary)]"
+            className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg px-3 py-2 text-xs font-mono text-[var(--text-secondary)] focus-visible:outline-none focus-visible:border-[var(--accent-primary)]"
           />
         )}
       </div>

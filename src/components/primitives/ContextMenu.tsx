@@ -117,7 +117,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, options, onClose
             onMouseEnter={() => {
               if (!opt.disabled) setActiveIndex(i);
             }}
-            className={`w-full text-left px-3 py-2 text-xs flex items-center gap-2 transition-colors cursor-pointer ${
+            className={`w-full text-left px-3 py-2 text-xs flex items-center gap-2 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)] focus-visible:ring-inset ${
               opt.danger
                 ? 'text-[var(--danger)] hover:bg-[var(--danger-bg)]'
                 : 'text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'

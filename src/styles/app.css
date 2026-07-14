@@ -292,22 +292,19 @@ body {
 
 /* Global Desktop-Style High-Density Dropdowns, Context Menus, and Popups */
 .context-menu,
-[class*='popup'],
-.fixed.z-50,
-.absolute.z-50 {
+.dropdown-menu,
+[class*='popup-menu'] {
   border-radius: var(--radius-xs) !important;
   padding: 2px !important;
   box-shadow: var(--shadow-lg) !important;
 }
 
-.fixed.z-50 button,
-.absolute.z-50 button,
 .context-menu button,
-[class*='popup'] button,
-.fixed.z-50 a,
-.absolute.z-50 a,
+.dropdown-menu button,
+[class*='popup-menu'] button,
 .context-menu a,
-[class*='popup'] a {
+.dropdown-menu a,
+[class*='popup-menu'] a {
   padding-top: 3.5px !important;
   padding-bottom: 3.5px !important;
   padding-left: 6px !important;
@@ -318,10 +315,9 @@ body {
   border-radius: var(--radius-xs) !important;
 }
 
-.fixed.z-50 button svg,
-.absolute.z-50 button svg,
 .context-menu button svg,
-[class*='popup'] button svg {
+.dropdown-menu button svg,
+[class*='popup-menu'] button svg {
   width: 11px !important;
   height: 11px !important;
 }

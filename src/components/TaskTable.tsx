@@ -220,7 +220,7 @@ export const TaskTable: React.FC = () => {
                       if (el) el.indeterminate = isSomeChecked;
                     }}
                     onChange={handleToggleCheckAll}
-                    className="rounded-none border-[var(--border-color)] text-[var(--accent-primary)] focus:ring-[var(--accent-primary)] cursor-pointer h-3.5 w-3.5"
+                    className="rounded-none border-[var(--border-color)] text-[var(--accent-primary)] focus-visible:ring-[var(--accent-primary)] cursor-pointer h-3.5 w-3.5"
                   />
                 </div>
                 <div

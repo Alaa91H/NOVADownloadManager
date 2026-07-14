@@ -34,7 +34,7 @@
 
   --text-primary: #fafafa;
   --text-secondary: #a1a1aa;
-  --text-muted: #52525b;
+  --text-muted: #71717a;
   --bg-hover: rgba(255, 255, 255, 0.04);
   --bg-selected: rgba(59, 130, 246, 0.12);
 
@@ -126,7 +126,7 @@
 
   --text-primary: #eef2ff;
   --text-secondary: #94a7c9;
-  --text-muted: #5b6c8f;
+  --text-muted: #7b8ca8;
   --bg-hover: rgba(96, 141, 235, 0.07);
   --bg-selected: rgba(59, 130, 246, 0.16);
 
@@ -203,8 +203,8 @@
   --border-color-hover: rgba(101, 84, 47, 0.28);
 
   --text-primary: #3b3223;
-  --text-secondary: #6f6350;
-  --text-muted: #96897a;
+  --text-secondary: #5a4e3c;
+  --text-muted: #7a6f62;
   --bg-hover: rgba(101, 84, 47, 0.05);
   --bg-selected: rgba(181, 137, 0, 0.12);
 
@@ -308,5 +308,20 @@
 /* Reduced Motion */
 [data-motion='reduced'] {
   --transition-speed: 0ms;
+}
+
+/* Respect OS-level motion preference */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition-speed: 0ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 

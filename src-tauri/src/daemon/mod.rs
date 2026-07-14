@@ -81,8 +81,8 @@ async fn auth_middleware(
     let exempt = path == "/api/health"
         || path == "/api/engines/capabilities"
         || path == "/v1/pair-auto"
+        || path == "/v1/ping"
         || path.starts_with("/api/engines/")
-        || path.starts_with("/v1/")
         || path == "/"
         || path.starts_with("/assets/")
         || path == "/index.html"
@@ -103,12 +103,16 @@ async fn auth_middleware(
     }
 
     // EventSource (SSE) cannot attach an Authorization header, so also accept the
-    // same token via a `token` query parameter for streaming endpoints.
-    if let Some(query) = request.uri().query() {
-        for pair in query.split('&') {
-            if let Some(token) = pair.strip_prefix("token=") {
-                if token == state.api_token {
-                    return Ok(next.run(request).await);
+    // same token via a `token` query parameter — but ONLY for SSE endpoints to
+    // minimize token exposure in URLs (query params appear in logs, Referer, etc.).
+    let is_sse_endpoint = path == "/api/downloads/events" || path == "/v1/events";
+    if is_sse_endpoint {
+        if let Some(query) = request.uri().query() {
+            for pair in query.split('&') {
+                if let Some(token) = pair.strip_prefix("token=") {
+                    if token == state.api_token {
+                        return Ok(next.run(request).await);
+                    }
                 }
             }
         }

@@ -172,11 +172,17 @@ fn open_file(path: String) -> Result<(), String> {
         return Err("The selected download path is not a file.".to_string());
     }
 
+    // Use canonicalized UNC path (\\?\...) to bypass cmd.exe shell parsing
+    // entirely, preventing shell metacharacter injection via crafted filenames.
+    let canonical = target
+        .canonicalize()
+        .map_err(|e| format!("Could not resolve file path: {e}"))?;
+    let unc_path = format!(r"\\?\{}", canonical.display());
+
     let mut launcher = Command::new("cmd");
     hide_command_window(&mut launcher);
     launcher
-        .args(["/C", "start", ""])
-        .arg(&target)
+        .args(["/C", "start", "", &unc_path])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -193,10 +199,17 @@ fn reveal_file(path: String) -> Result<(), String> {
     }
 
     if target.exists() && target.is_file() {
+        // Use canonicalized UNC path to bypass shell metacharacter injection.
+        let canonical = target
+            .canonicalize()
+            .map_err(|e| format!("Could not resolve file path: {e}"))?;
+        let unc_path = format!(r"\\?\{}", canonical.display());
+        let select_arg = format!("/select,{unc_path}");
+
         let mut launcher = Command::new("explorer.exe");
         hide_command_window(&mut launcher);
         launcher
-            .arg(format!("/select,{}", target.display()))
+            .arg(&select_arg)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())

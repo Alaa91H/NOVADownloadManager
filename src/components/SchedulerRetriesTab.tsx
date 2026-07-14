@@ -31,7 +31,7 @@ export const SchedulerRetriesTab: React.FC<SchedulerRetriesTabProps> = ({
             onChange={(e) => {
               onRetryCountChange(Number(e.target.value));
             }}
-            className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg pl-8 pr-3 py-2.5 text-xs focus:outline-none text-[var(--text-primary)] font-bold cursor-pointer shadow-sm"
+            className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg pl-8 pr-3 py-2.5 text-xs focus-visible:outline-none text-[var(--text-primary)] font-bold cursor-pointer shadow-sm"
           >
             <option value={1}>{t('sched_retry_attempt_one')}</option>
             <option value={3}>{t('sched_retry_attempt_n', { count: 3 })}</option>

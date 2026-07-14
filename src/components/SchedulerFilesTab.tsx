@@ -154,7 +154,7 @@ export const SchedulerFilesTab: React.FC<SchedulerFilesTabProps> = ({
           onChange={(e) => {
             onSearchChange(e.target.value);
           }}
-          className="w-full bg-transparent border-none text-xs text-[var(--text-primary)] focus:outline-none font-semibold"
+          className="w-full bg-transparent border-none text-xs text-[var(--text-primary)] focus-visible:outline-none font-semibold"
         />
         {searchQuery && (
           <button

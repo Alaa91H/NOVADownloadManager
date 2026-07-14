@@ -8,7 +8,6 @@ const PANEL_OPACITY_HOVER = 1;
 let panelHost: ShadowRoot | null = null;
 let panelEl: HTMLDivElement | null = null;
 let trackedElements = new WeakSet<Element>();
-let checkTimer: ReturnType<typeof setInterval> | null = null;
 let isDragging = false;
 let dragOffsetX = 0;
 let dragOffsetY = 0;
@@ -137,8 +136,8 @@ function ensurePanelHost(): ShadowRoot {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     .nova-panel {
       position: fixed;
-      bottom: 16px;
-      right: 16px;
+      top: 8px;
+      right: 8px;
       min-width: 280px;
       max-width: 420px;
       max-height: 60vh;
@@ -349,6 +348,25 @@ function setupDrag(el: HTMLDivElement): void {
   });
 }
 
+function positionPanelAtVideo(): void {
+  if (!panelEl || isDragging) return;
+  const videos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
+  let best: HTMLVideoElement | null = null;
+  let bestArea = 0;
+  for (const v of videos) {
+    const rect = v.getBoundingClientRect();
+    if (rect.width < 100 || rect.height < 60) continue;
+    const area = rect.width * rect.height;
+    if (area > bestArea) { bestArea = area; best = v; }
+  }
+  if (!best) return;
+  const r = best.getBoundingClientRect();
+  panelEl.style.left = '';
+  panelEl.style.bottom = '';
+  panelEl.style.top = `${Math.max(4, r.top + 8)}px`;
+  panelEl.style.right = `${Math.max(4, window.innerWidth - r.right + 8)}px`;
+}
+
 function renderPanel(): void {
   if (!panelEl) return;
   const isExpanded = panelEl.classList.contains('nova-panel-expanded');
@@ -439,18 +457,35 @@ function esc(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function panelCandidateToCandidate(c: PanelCandidate): Record<string, unknown> {
+  return {
+    id: c.id,
+    url: c.url,
+    pageUrl: location.href,
+    source: 'media-element' as const,
+    mediaType: (c.type === 'audio' ? 'audio' : 'video') as 'audio' | 'video',
+    mimeType: c.codec ? `${c.type}/${c.codec}` : undefined,
+    sizeBytes: c.sizeBytes,
+    width: c.width,
+    height: c.height,
+    durationSec: c.durationSec,
+    bitrate: undefined,
+    confidence: 85,
+  };
+}
+
 function sendCandidate(id: string): void {
   const c = currentCandidates.find((x) => x.id === id);
   if (!c) return;
-  void browser.runtime.sendMessage({ type: 'SEND_CANDIDATE', candidateId: c.id }).catch(() => {
+  void browser.runtime.sendMessage({ type: 'SEND_CANDIDATE', candidate: panelCandidateToCandidate(c) }).catch(() => {
     void browser.runtime.sendMessage({ type: 'CAPTURE_DOWNLOAD', payload: { url: c.url, source: 'floating-panel' } }).catch(() => {});
   });
 }
 
 function sendAllCandidates(): void {
-  const ids = currentCandidates.map((c) => c.id);
-  if (ids.length > 0) {
-    void browser.runtime.sendMessage({ type: 'SEND_BATCH', candidateIds: ids }).catch(() => {});
+  if (currentCandidates.length > 0) {
+    const candidates = currentCandidates.map(panelCandidateToCandidate);
+    void browser.runtime.sendMessage({ type: 'SEND_BATCH', candidates }).catch(() => {});
   }
 }
 
@@ -476,7 +511,10 @@ function updateCandidates(newCandidates: PanelCandidate[]): void {
     if (a.type !== b.type) return a.type === 'video' ? -1 : 1;
     return (b.height ?? 0) - (a.height ?? 0);
   });
-  if (panelEl) renderPanel();
+  if (panelEl) {
+    renderPanel();
+    positionPanelAtVideo();
+  }
 }
 
 function scanMediaElements(): void {
@@ -503,19 +541,18 @@ function listenForPageTapEvents(): void {
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
     const data = event.data;
-    if (!data || data.source !== 'nova-page-tap' || data.type !== 'PAGE_TAP_EVENT') return;
-    const ev = data.event;
-    if (!ev?.url) return;
-    const isAudio = ev.mediaHint === 'audio' || ev.mimeHint?.startsWith('audio');
+    if (!data || data.source !== 'nova-page-tap-v1' || data.type !== 'NOVA_PAGE_TAP_CANDIDATE') return;
+    if (!data.url) return;
+    const isAudio = data.mediaHint === 'audio' || data.mimeHint?.startsWith('audio');
     const candidate: PanelCandidate = {
-      id: `tap-${btoa(ev.url).slice(0, 20)}`,
-      url: ev.url,
-      quality: ev.qualityLabel || (ev.width && ev.height ? formatResolution(ev.width, ev.height) : undefined),
-      sizeBytes: ev.sizeBytes,
+      id: `tap-${btoa(data.url).slice(0, 20)}`,
+      url: data.url,
+      quality: data.qualityLabel || (data.width && data.height ? formatResolution(data.width, data.height) : undefined),
+      sizeBytes: data.sizeBytes,
       type: isAudio ? 'audio' : 'video',
-      width: ev.width,
-      height: ev.height,
-      durationSec: ev.durationSec,
+      width: data.width,
+      height: data.height,
+      durationSec: data.durationSec,
     };
     updateCandidates([candidate]);
   });
@@ -525,13 +562,18 @@ function init(): void {
   ensurePanelHost();
   scanMediaElements();
   listenForPageTapEvents();
-  checkTimer = setInterval(scanMediaElements, CHECK_INTERVAL_MS);
+  positionPanelAtVideo();
+  setInterval(scanMediaElements, CHECK_INTERVAL_MS);
+
+  window.addEventListener('scroll', () => positionPanelAtVideo(), { passive: true });
+  window.addEventListener('resize', () => positionPanelAtVideo(), { passive: true });
 
   const observer = new MutationObserver((mutations) => {
     for (const m of mutations) {
       for (const node of Array.from(m.addedNodes)) {
         if (node instanceof HTMLElement && (node.tagName === 'VIDEO' || node.tagName === 'AUDIO' || node.querySelector?.('video, audio'))) {
           scanMediaElements();
+          positionPanelAtVideo();
         }
       }
     }

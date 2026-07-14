@@ -469,7 +469,7 @@ export const SchedulerPanel: React.FC = () => {
               onChange={(e) => {
                 setNewQueueName(e.target.value);
               }}
-              className="bg-[var(--bg-input)] border border-[var(--border-color)] hover:border-[var(--border-color-hover)] focus:border-[var(--accent-primary)] rounded-md px-2 py-1 text-[11px] text-[var(--text-primary)] focus:outline-none focus:ring-0 font-semibold w-24 sm:w-28 transition-all h-7"
+              className="bg-[var(--bg-input)] border border-[var(--border-color)] hover:border-[var(--border-color-hover)] focus-visible:border-[var(--accent-primary)] rounded-md px-2 py-1 text-[11px] text-[var(--text-primary)] focus-visible:outline-none focus:ring-0 font-semibold w-24 sm:w-28 transition-all h-7"
             />
             <button
               onClick={handleCreateQueue}

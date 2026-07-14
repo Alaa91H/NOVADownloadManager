@@ -616,11 +616,23 @@ export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }
     }
   }, [themeSettings, settings.extra.language]);
 
-  // Effects: localStorage persistence
+  // Effects: localStorage persistence — debounced to avoid excessive writes
+  // during rapid state changes (e.g. slider drags). Sensitive credential
+  // fields are stripped to prevent plaintext secret exposure via localStorage.
   useEffect(() => {
-    localStorage.setItem('nova_settings_v1', JSON.stringify(settings));
-    localStorage.setItem('nova_theme_settings_v1', JSON.stringify(themeSettings));
-    localStorage.setItem('nova_notifications_muted', String(isNotificationsMuted));
+    const timer = setTimeout(() => {
+      const safeSettings = {
+        ...settings,
+        telegram: { ...settings.telegram, tgBotToken: '', tgChatId: '' },
+        proxy: { ...settings.proxy, proxyUser: '', proxyPass: '' },
+        smtp: { ...settings.smtp, smtpUser: '', smtpPass: '' },
+        browserPairingToken: '',
+      };
+      localStorage.setItem('nova_settings_v1', JSON.stringify(safeSettings));
+      localStorage.setItem('nova_theme_settings_v1', JSON.stringify(themeSettings));
+      localStorage.setItem('nova_notifications_muted', String(isNotificationsMuted));
+    }, 300);
+    return () => clearTimeout(timer);
   }, [settings, themeSettings, isNotificationsMuted]);
 
   // Effects: daemon connection + perpetual reconnection

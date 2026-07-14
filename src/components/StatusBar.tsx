@@ -592,7 +592,7 @@ export const StatusBar: React.FC = () => {
                       setManualSpeedInput(e.target.value);
                     }}
                     placeholder={manualSpeedUnit === 'KB' ? t('statusbar_speed_kb_ph') : t('statusbar_speed_mb_ph')}
-                    className="w-full bg-[var(--bg-surface)] border border-[var(--border-color)] rounded px-2 py-1 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-primary)] min-w-[70px]"
+                    className="w-full bg-[var(--bg-surface)] border border-[var(--border-color)] rounded px-2 py-1 text-xs text-[var(--text-primary)] font-mono focus-visible:outline-none focus-visible:border-[var(--accent-primary)] min-w-[70px]"
                     autoFocus
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {

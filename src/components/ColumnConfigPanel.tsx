@@ -78,7 +78,7 @@ const ColumnConfigPanel: React.FC<ColumnConfigPanelProps> = ({
                 onChange={() => {
                   if (colKey !== 'name') setVisibleCols((prev) => ({ ...prev, [colKey]: !prev[colKey] }));
                 }}
-                className="rounded border-[var(--border-color)] text-[var(--accent-primary)] focus:ring-[var(--accent-primary)] cursor-pointer disabled:opacity-40"
+                className="rounded border-[var(--border-color)] text-[var(--accent-primary)] focus-visible:ring-[var(--accent-primary)] cursor-pointer disabled:opacity-40"
               />
               {colKey !== 'name' && <GripVertical className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0" />}
               <span className="flex-1 truncate">{label}</span>

@@ -84,7 +84,11 @@ export const RuntimeMessageSchema = z.discriminatedUnion('type', [
     url: z.string().min(1).max(2048),
     filename: z.string().max(240).optional(),
     referrer: z.string().max(2048).optional(),
-    source: z.enum(['download-attribute', 'link-click', 'context-selection']),
+    source: z.enum([
+      'download-attribute', 'link-click', 'context-selection',
+      'programmatic-click', 'window-open', 'dynamic-download-attr',
+      'keyboard-enter', 'navigation-capture', 'floating-panel',
+    ]),
     tabId: z.number().int().optional(),
   }) }),
   z.object({ type: z.literal('CAPTURE_CONTEXT_MENU'), menuItemId: z.string(), pageUrl: z.string().optional(), linkUrl: z.string().optional(), srcUrl: z.string().optional(), selectionText: z.string().optional(), tabId: z.number().int().positive().optional() }),

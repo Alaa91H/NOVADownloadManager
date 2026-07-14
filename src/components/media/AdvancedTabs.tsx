@@ -203,7 +203,7 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
                 onChange={(e) => { onChange('mediaHeaders', e.target.value); }}
                 placeholder={'Header-Name: value'}
                 disabled={!supportsMediaOption('headers')}
-                className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-md text-[11px] font-mono text-left text-[var(--text-primary)] p-2 focus:outline-none focus:border-[var(--accent-primary)] resize-none disabled:opacity-40"
+                className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-md text-[11px] font-mono text-left text-[var(--text-primary)] p-2 focus-visible:outline-none focus:border-[var(--accent-primary)] resize-none disabled:opacity-40"
                 style={{ direction: 'ltr' }}
               />
             </div>
@@ -215,7 +215,7 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
                 onChange={(e) => { onChange('mediaCookies', e.target.value); }}
                 placeholder={'name=value  or  C:\\path\\cookies.txt'}
                 disabled={!supportsMediaOption('cookies')}
-                className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-md text-[11px] font-mono text-left text-[var(--text-primary)] p-2 focus:outline-none focus:border-[var(--accent-primary)] resize-none disabled:opacity-40"
+                className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-md text-[11px] font-mono text-left text-[var(--text-primary)] p-2 focus-visible:outline-none focus:border-[var(--accent-primary)] resize-none disabled:opacity-40"
                 style={{ direction: 'ltr' }}
               />
             </div>

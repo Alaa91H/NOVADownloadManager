@@ -62,7 +62,7 @@ export const SchedulerBasicTab: React.FC<SchedulerBasicTabProps> = ({
           onChange={(e) => {
             onNameChange(e.target.value);
           }}
-          className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg p-2.5 text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-primary)] font-bold shadow-sm"
+          className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg p-2.5 text-xs text-[var(--text-primary)] focus-visible:outline-none focus-visible:border-[var(--accent-primary)] focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)] font-bold shadow-sm"
         />
       </div>
 
@@ -78,8 +78,8 @@ export const SchedulerBasicTab: React.FC<SchedulerBasicTabProps> = ({
               }}
               className={`py-1.5 text-[10px] md:text-xs font-bold rounded-md cursor-pointer ${
                 smartScheduleType === type
-                  ? 'text-white font-extrabold bg-[var(--accent-primary)]/10'
-                  : 'text-[var(--text-muted)] hover:text-white bg-transparent'
+                  ? 'text-[var(--accent-primary)] font-extrabold bg-[var(--accent-primary)]/10'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] bg-transparent'
               }`}
               title={t(`sched_schedule_type_${type}_desc`)}
             >
@@ -103,7 +103,7 @@ export const SchedulerBasicTab: React.FC<SchedulerBasicTabProps> = ({
           onChange={(e) => {
             onScheduledChange(e.target.checked);
           }}
-          className="w-4.5 h-4.5 rounded text-[var(--accent-primary)] focus:ring-[var(--accent-primary)] cursor-pointer"
+          className="w-4.5 h-4.5 rounded text-[var(--accent-primary)] focus-visible:ring-[var(--accent-primary)] cursor-pointer"
         />
       </div>
 
@@ -129,8 +129,8 @@ export const SchedulerBasicTab: React.FC<SchedulerBasicTabProps> = ({
                       }}
                       className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${
                         active
-                          ? 'text-white font-extrabold bg-[var(--accent-primary)]/10 shadow-sm'
-                          : 'text-[var(--text-muted)] hover:text-white bg-transparent'
+                          ? 'text-[var(--accent-primary)] font-extrabold bg-[var(--accent-primary)]/10 shadow-sm'
+                          : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] bg-transparent'
                       }`}
                     >
                       {t(weekDayKeys[d])}
@@ -156,7 +156,7 @@ export const SchedulerBasicTab: React.FC<SchedulerBasicTabProps> = ({
           onChange={(e) => {
             onMaxActiveChange(Number(e.target.value));
           }}
-          className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg pl-8 pr-3 py-2.5 text-xs focus:outline-none text-[var(--text-primary)] font-bold cursor-pointer shadow-sm"
+          className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg pl-8 pr-3 py-2.5 text-xs focus-visible:outline-none text-[var(--text-primary)] font-bold cursor-pointer shadow-sm"
         >
           <option value={1}>{t('sched_concurrent_1')}</option>
           <option value={2}>{t('sched_concurrent_n', { count: 2 })}</option>

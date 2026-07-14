@@ -305,7 +305,7 @@ export const Sidebar: React.FC = () => {
             onChange={(e) => {
               updateThemeSettings('density', e.target.value);
             }}
-            className="bg-[var(--bg-input)] border border-[var(--border-color)] rounded text-[10px] px-1.5 py-0.5 focus:outline-none cursor-pointer text-[var(--text-primary)]"
+            className="bg-[var(--bg-input)] border border-[var(--border-color)] rounded text-[10px] px-1.5 py-0.5 focus-visible:outline-none cursor-pointer text-[var(--text-primary)]"
           >
             <option value="compact">{t('set_theme_density_compact')}</option>
             <option value="dense">{t('set_theme_density_comfortable')}</option>

@@ -1214,4 +1214,7 @@ export const en: Record<string, string> = {
   progress_peak_speed: 'Peak speed',
   sidebar_web_browser: 'Web Browser',
   sidebar_system_browser: 'System Web Browser',
+  col_elapsed: 'Elapsed',
+  progress_elapsed: 'Elapsed',
+  table_elapsed_label: 'Elapsed',
 };

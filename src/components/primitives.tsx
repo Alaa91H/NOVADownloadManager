@@ -105,6 +105,7 @@ export const IconButton: React.FC<IconButtonProps> = ({
   return (
     <button
       title={tooltip}
+      aria-label={tooltip}
       className={`interactive-btn flex items-center justify-center transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--bg-surface-elevated)] ${sizeStyles[size]} ${variantStyles[variant]} ${className}`}
       {...props}
     >
@@ -137,7 +138,7 @@ export const TextField: React.FC<TextFieldProps> = ({ label, error, icon: Icon, 
         {Icon && <Icon className="absolute right-2.5 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />}
         <input
           id={id}
-          className={`w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-md text-[var(--text-primary)] text-[11px] md:text-xs transition-all focus:border-[var(--accent-primary)] focus:ring-1 focus:ring-[var(--accent-primary)] focus:outline-none ${Icon ? 'pr-8 pl-2.5' : 'px-2.5'} py-1 md:py-1.25 ${error ? 'border-[var(--danger)] focus:border-[var(--danger)]' : ''} ${className}`}
+          className={`w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-md text-[var(--text-primary)] text-[11px] md:text-xs transition-all focus:border-[var(--accent-primary)] focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)] focus-visible:outline-none ${Icon ? 'pr-8 pl-2.5' : 'px-2.5'} py-1 md:py-1.25 ${error ? 'border-[var(--danger)] focus:border-[var(--danger)]' : ''} ${className}`}
           {...props}
         />
       </div>
@@ -193,16 +194,17 @@ export const Switch: React.FC<SwitchProps> = ({ checked, onChange, label, id }) 
       className={`inline-flex items-center justify-between gap-2.5 cursor-pointer select-none text-ui ${label ? 'w-full' : ''}`}
     >
       {label && <span className="text-[var(--text-secondary)] text-[11px] font-semibold">{label}</span>}
-      <div
-        onClick={() => {
-          onChange(!checked);
-        }}
-        className={`relative w-8 h-4.5 rounded-full transition-colors duration-200 ${checked ? 'bg-[var(--accent-primary)]' : 'bg-[var(--border-color-hover)]'}`}
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`relative w-8 h-4.5 rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--bg-surface-elevated)] ${checked ? 'bg-[var(--accent-primary)]' : 'bg-[var(--border-color-hover)]'}`}
       >
         <span
-          className={`absolute top-0.5 right-0.5 bg-white w-3.5 h-3.5 rounded-full transition-transform duration-200 shadow-sm ${checked ? '-translate-x-3.5' : 'translate-x-0'}`}
+          className={`absolute top-0.5 bg-white w-3.5 h-3.5 rounded-full transition-transform duration-200 shadow-sm ${checked ? 'right-0.5 -translate-x-3.5' : 'right-0.5 translate-x-0'}`}
         />
-      </div>
+      </button>
     </label>
   );
 };
@@ -223,7 +225,7 @@ export const Checkbox: React.FC<CheckboxProps> = ({ label, checked, onChange, id
         onChange={(e) => {
           onChange(e.target.checked);
         }}
-        className={`w-3.5 h-3.5 rounded border-[var(--border-color)] text-[var(--accent-primary)] bg-[var(--bg-input)] focus:ring-[var(--accent-primary)] focus:ring-offset-0 cursor-pointer ${className}`}
+        className={`w-3.5 h-3.5 rounded border-[var(--border-color)] text-[var(--accent-primary)] bg-[var(--bg-input)] focus-visible:ring-[var(--accent-primary)] focus-visible:ring-offset-0 cursor-pointer ${className}`}
         {...props}
       />
       <span className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-[11px] font-semibold">
@@ -279,7 +281,7 @@ export const Tabs: React.FC<TabsProps> = ({ options, activeId, onChange, id }) =
             onClick={() => {
               onChange(opt.id);
             }}
-            className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition-all cursor-pointer ${
+            className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--bg-surface-elevated)] ${
               isActive
                 ? 'bg-[var(--bg-surface-elevated)] text-[var(--accent-primary)] shadow-sm'
                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'

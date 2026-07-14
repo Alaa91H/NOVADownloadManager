@@ -35,7 +35,7 @@ export const SchedulerSpeedTab: React.FC<SchedulerSpeedTabProps> = ({
           onChange={(e) => {
             onLimitSpeedChange(e.target.checked);
           }}
-          className="w-4.5 h-4.5 rounded text-[var(--accent-primary)] focus:ring-[var(--accent-primary)] cursor-pointer"
+          className="w-4.5 h-4.5 rounded text-[var(--accent-primary)] focus-visible:ring-[var(--accent-primary)] cursor-pointer"
         />
       </div>
 
@@ -74,7 +74,7 @@ export const SchedulerSpeedTab: React.FC<SchedulerSpeedTabProps> = ({
           onChange={(e) => {
             onOneTimeLimitChange(e.target.checked);
           }}
-          className="w-4.5 h-4.5 rounded text-[var(--accent-primary)] focus:ring-[var(--accent-primary)] cursor-pointer"
+          className="w-4.5 h-4.5 rounded text-[var(--accent-primary)] focus-visible:ring-[var(--accent-primary)] cursor-pointer"
         />
       </div>
     </div>

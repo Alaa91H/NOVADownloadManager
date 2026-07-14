@@ -38,14 +38,14 @@ export function SegmentVisualization({ segments, className = '' }: SegmentVisual
         <span className="font-medium">
           {String(segments.length)} segment{segments.length !== 1 ? 's' : ''}
         </span>
-        <span className="text-muted-foreground">
+        <span className="text-[var(--text-muted)]">
           {(totalProgress * 100).toFixed(1)}% complete
         </span>
       </div>
 
-      <div className="relative h-2 w-full overflow-hidden rounded-full bg-secondary">
+      <div className="relative h-2 w-full overflow-hidden rounded-full bg-[var(--bg-hover)]">
         <div
-          className="h-full rounded-full bg-primary transition-all duration-300"
+          className="h-full rounded-full bg-[var(--accent-primary)] transition-all duration-300"
           style={{ width: `${String(totalProgress * 100)}%` }}
         />
       </div>
@@ -59,20 +59,20 @@ export function SegmentVisualization({ segments, className = '' }: SegmentVisual
                 ? seg.progress >= 1
                   ? 'bg-green-500/20 text-green-400'
                   : 'bg-blue-500/20 text-blue-400'
-                : 'bg-muted text-muted-foreground'
+                : 'bg-[var(--bg-hover)] text-[var(--text-muted)]'
             }`}
             title={`Segment ${String(seg.id)}: ${formatBytes(seg.downloadedBytes)} / ${formatBytes(seg.totalBytes)} (${formatSpeed(seg.speed)})`}
           >
             <span className="font-mono">{String(seg.id)}</span>
             <div
-              className="absolute bottom-0 left-0 h-0.5 bg-primary/60 transition-all"
+              className="absolute bottom-0 left-0 h-0.5 bg-[var(--accent-primary)]/60 transition-all"
               style={{ width: `${String(seg.progress * 100)}%` }}
             />
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11px] text-muted-foreground">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11px] text-[var(--text-muted)]">
         {segments.map((seg) => (
           <div key={seg.id} className="flex items-center justify-between">
             <span className="font-mono">#{String(seg.id)}</span>

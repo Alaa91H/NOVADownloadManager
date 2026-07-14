@@ -119,43 +119,43 @@ export const DownloadInspector: React.FC<DownloadInspectorProps> = ({ task, onCl
   ];
 
   return (
-    <div className="flex h-full flex-col border-l border-border bg-card">
-      <div className="flex items-center justify-between border-b border-border px-3 py-2">
+    <div className="flex h-full flex-col border-l border-[var(--border-color)] bg-[var(--bg-surface)]">
+      <div className="flex items-center justify-between border-b border-[var(--border-color)] px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          <HardDrive className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <HardDrive className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
           <h3 className="truncate text-sm font-semibold">{task.name}</h3>
         </div>
-        <button onClick={onClose} className="rounded p-1 hover:bg-muted">
+        <button onClick={onClose} className="rounded p-1 hover:bg-[var(--bg-hover)]">
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      <div className="border-b border-border px-3 py-2">
-        <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+      <div className="border-b border-[var(--border-color)] px-3 py-2">
+        <div className="mb-1 flex items-center justify-between text-xs text-[var(--text-muted)]">
           <span>{progress.toFixed(1)}%</span>
           <span>{formatBytes(task.downloadedBytes)} / {formatBytes(task.sizeBytes)}</span>
         </div>
-        <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+        <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-[var(--bg-hover)]">
           <div
-            className="h-full rounded-full bg-primary transition-all duration-300"
+            className="h-full rounded-full bg-[var(--accent-primary)] transition-all duration-300"
             style={{ width: `${String(Math.min(progress, 100))}%` }}
           />
         </div>
-        <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
+        <div className="mt-1 flex items-center justify-between text-[11px] text-[var(--text-muted)]">
           <span>{formatSpeed(task.speedBytesPerSec)}</span>
           <span>{formatDuration(task.timeLeftSeconds)} left</span>
         </div>
       </div>
 
-      <div className="flex border-b border-border">
+      <div className="flex border-b border-[var(--border-color)]">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => { setActiveTab(tab.id); }}
-            className={`flex flex-1 items-center justify-center gap-1.5 border-b-2 px-2 py-2 text-xs font-medium transition-colors ${
+            className={`flex flex-1 items-center justify-center gap-1.5 border-b-2 px-2 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] ${
               activeTab === tab.id
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
+                ? 'border-[var(--accent-primary)] text-[var(--accent-primary)]'
+                : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
             }`}
           >
             {tab.icon}
@@ -174,7 +174,7 @@ export const DownloadInspector: React.FC<DownloadInspectorProps> = ({ task, onCl
               onToggle={() => { toggleSection('connection'); }}
             />
             {expandedSections.connection && (
-              <div className="grid grid-cols-2 gap-2 rounded border border-border/50 p-2 text-xs">
+              <div className="grid grid-cols-2 gap-2 rounded border border-[var(--border-color)]/50 p-2 text-xs">
                 <InfoRow label="Engine" value={task.engine ?? 'auto'} />
                 <InfoRow label="Status" value={task.status} />
                 <InfoRow label="Connections" value={String(task.connections)} />
@@ -211,7 +211,7 @@ export const DownloadInspector: React.FC<DownloadInspectorProps> = ({ task, onCl
               onToggle={() => { toggleSection('meta'); }}
             />
             {expandedSections.meta && (
-              <div className="grid grid-cols-2 gap-2 rounded border border-border/50 p-2 text-xs">
+              <div className="grid grid-cols-2 gap-2 rounded border border-[var(--border-color)]/50 p-2 text-xs">
                 <InfoRow label="File type" value={task.fileType} />
                 <InfoRow label="Category" value={task.category} />
                 <InfoRow label="Added" value={new Date(task.dateAdded).toLocaleString()} />
@@ -238,7 +238,7 @@ export const DownloadInspector: React.FC<DownloadInspectorProps> = ({ task, onCl
                 }))}
               />
             ) : (
-              <p className="py-4 text-center text-xs text-muted-foreground">
+              <p className="py-4 text-center text-xs text-[var(--text-muted)]">
                 No segment data available for this download.
               </p>
             )}
@@ -248,18 +248,18 @@ export const DownloadInspector: React.FC<DownloadInspectorProps> = ({ task, onCl
         {activeTab === 'history' && (
           <div className="flex flex-col gap-1">
             {taskEvents.length === 0 && (
-              <p className="py-4 text-center text-xs text-muted-foreground">No events recorded yet.</p>
+              <p className="py-4 text-center text-xs text-[var(--text-muted)]">No events recorded yet.</p>
             )}
             {taskEvents.map((evt) => (
               <div
                 key={evt.id}
-                className="flex items-start gap-2 rounded border border-border/30 px-2 py-1.5 text-[11px]"
+                className="flex items-start gap-2 rounded border border-[var(--border-color)]/30 px-2 py-1.5 text-[11px]"
               >
-                <span className="shrink-0 font-mono text-muted-foreground">
+                <span className="shrink-0 font-mono text-[var(--text-muted)]">
                   {new Date(evt.timestamp_millis).toLocaleTimeString()}
                 </span>
                 <span className="font-medium">{typeof evt.event.type === 'string' ? evt.event.type : 'event'}</span>
-                <span className="truncate text-muted-foreground">
+                <span className="truncate text-[var(--text-muted)]">
                   {JSON.stringify(evt.event).slice(0, 120)}
                 </span>
               </div>
@@ -274,7 +274,7 @@ export const DownloadInspector: React.FC<DownloadInspectorProps> = ({ task, onCl
               value={verifyPath}
               onChange={(e) => { setVerifyPath(e.target.value); }}
               placeholder="File path to verify"
-              className="flex-1 rounded border border-border bg-background px-2 py-1.5 text-xs"
+              className="flex-1 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 text-xs"
             />
             <div className="flex gap-2">
               <input
@@ -282,12 +282,12 @@ export const DownloadInspector: React.FC<DownloadInspectorProps> = ({ task, onCl
                 value={expectedChecksum}
                 onChange={(e) => { setExpectedChecksum(e.target.value); }}
                 placeholder="Expected checksum (SHA-256, SHA-1, or MD5)"
-                className="flex-1 rounded border border-border bg-background px-2 py-1.5 text-xs"
+                className="flex-1 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 text-xs"
               />
               <button
                 onClick={() => { void handleVerifyChecksum(); }}
                 disabled={!expectedChecksum.trim() || !verifyPath.trim() || checksumResult.status === 'verifying'}
-                className="flex items-center gap-1 rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                className="flex items-center gap-1 rounded bg-[var(--accent-primary)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--accent-hover)] disabled:opacity-50"
               >
                 <RefreshCw
                   className={`h-3 w-3 ${checksumResult.status === 'verifying' ? 'animate-spin' : ''}`}
@@ -320,7 +320,7 @@ export const DownloadInspector: React.FC<DownloadInspectorProps> = ({ task, onCl
                 )}
               </div>
             )}
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[11px] text-[var(--text-muted)]">
               Paste the expected checksum hash to verify file integrity. The algorithm is auto-detected
               from the hash length.
             </p>
@@ -345,7 +345,7 @@ function SectionHeader({
   return (
     <button
       onClick={onToggle}
-      className="flex items-center gap-1.5 text-xs font-medium text-foreground hover:text-primary"
+      className="flex items-center gap-1.5 text-xs font-medium text-[var(--text-primary)] hover:text-[var(--accent-primary)]"
     >
       {icon}
       {title}
@@ -365,8 +365,8 @@ function InfoRow({
 }) {
   return (
     <div className={`flex flex-col gap-0.5 ${className}`}>
-      <span className="text-[10px] text-muted-foreground">{label}</span>
-      <span className="truncate font-mono text-foreground">{value || '--'}</span>
+      <span className="text-[10px] text-[var(--text-muted)]">{label}</span>
+      <span className="truncate font-mono text-[var(--text-primary)]">{value || '--'}</span>
     </div>
   );
 }

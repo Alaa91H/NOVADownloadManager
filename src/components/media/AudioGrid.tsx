@@ -76,7 +76,7 @@ export const AudioGrid: React.FC<AudioGridProps> = ({
         <select
           value={convertBitrate}
           onChange={(e) => { onBitrateChange(e.target.value); }}
-          className="flex-1 text-[11px] font-semibold bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg px-2 py-1 text-[var(--text-primary)] focus:outline-none cursor-pointer"
+          className="flex-1 text-[11px] font-semibold bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg px-2 py-1 text-[var(--text-primary)] focus-visible:outline-none cursor-pointer"
         >
           <option value="320k">320 kbps</option>
           <option value="256k">256 kbps</option>

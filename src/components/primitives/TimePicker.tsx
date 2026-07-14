@@ -42,7 +42,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({ label, value, onChange }
             onChange={(e) => {
               handleHourChange(Number(e.target.value));
             }}
-            className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg pl-6 pr-2.5 py-1.5 text-xs font-bold text-[var(--text-primary)] focus:outline-none cursor-pointer"
+            className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg pl-6 pr-2.5 py-1.5 text-xs font-bold text-[var(--text-primary)] focus-visible:outline-none cursor-pointer"
           >
             {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
               <option key={h} value={h}>
@@ -59,7 +59,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({ label, value, onChange }
             onChange={(e) => {
               handleMinuteChange(Number(e.target.value));
             }}
-            className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg pl-6 pr-2.5 py-1.5 text-xs font-bold text-[var(--text-primary)] focus:outline-none cursor-pointer"
+            className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg pl-6 pr-2.5 py-1.5 text-xs font-bold text-[var(--text-primary)] focus-visible:outline-none cursor-pointer"
           >
             {Array.from({ length: 60 }, (_, i) => i).map((m) => (
               <option key={m} value={m}>
@@ -79,8 +79,8 @@ export const TimePicker: React.FC<TimePickerProps> = ({ label, value, onChange }
               }}
               className={`px-3 py-1 text-[10px] font-bold rounded-md cursor-pointer ${
                 ampm === 'AM'
-                  ? 'text-white font-extrabold bg-transparent'
-                  : 'text-[var(--text-muted)] hover:text-white bg-transparent'
+                  ? 'text-[var(--accent-primary)] font-extrabold bg-transparent'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] bg-transparent'
               }`}
             >
               AM
@@ -92,8 +92,8 @@ export const TimePicker: React.FC<TimePickerProps> = ({ label, value, onChange }
               }}
               className={`px-3 py-1 text-[10px] font-bold rounded-md cursor-pointer ${
                 ampm === 'PM'
-                  ? 'text-white font-extrabold bg-transparent'
-                  : 'text-[var(--text-muted)] hover:text-white bg-transparent'
+                  ? 'text-[var(--accent-primary)] font-extrabold bg-transparent'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] bg-transparent'
               }`}
             >
               PM
