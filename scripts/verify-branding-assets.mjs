@@ -193,6 +193,7 @@ const artFiles = walk(ROOT)
 const allowedPrefixes = [
   'branding/source/',
   'public/',
+  'screenshots/',
   'src/assets/',
   'src-tauri/icons/',
   'src-tauri/windows/',
