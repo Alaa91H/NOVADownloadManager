@@ -21,8 +21,7 @@ pub(crate) fn register_routes(router: Router<SharedState>) -> Router<SharedState
     let router = engine::register_routes(router);
     let router = extension::register_routes(router);
     let router = probes::register_routes(router);
-    let router = diagnostics::register_routes(router);
-    router
+    diagnostics::register_routes(router)
 }
 
 #[cfg(test)]
