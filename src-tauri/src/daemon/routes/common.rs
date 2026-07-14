@@ -2,8 +2,8 @@ use axum::http::StatusCode;
 use axum::response::Json;
 use std::process::{Command, Output};
 
-use crate::daemon::utils::DEFAULT_USER_AGENT;
 use crate::daemon::utils::hide_command_window;
+use crate::daemon::utils::DEFAULT_USER_AGENT;
 
 pub(super) const PROBE_HEAD_TIMEOUT_SECS: u64 = 15;
 pub(super) const PROBE_RANGE_TIMEOUT_SECS: u64 = 20;

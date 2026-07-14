@@ -27,7 +27,9 @@ pub(crate) async fn create_curl_task(
     crate::daemon::utils::is_safe_target_url(&direct_url.normalized)?;
     let url = direct_url.normalized.as_str();
 
-    if let Err(integrity_error) = crate::daemon::engine_capabilities::validate_linked_libcurl_integrity() {
+    if let Err(integrity_error) =
+        crate::daemon::engine_capabilities::validate_linked_libcurl_integrity()
+    {
         log::warn!(
             "libcurl integrity discrepancy; continuing because per-download capabilities are validated separately: {integrity_error}"
         );
@@ -45,8 +47,10 @@ pub(crate) async fn create_curl_task(
 
     let (name, output_path) = destination_from_body(body, url);
     crate::daemon::direct::FileWriter::ensure_parent(&output_path)?;
-    let fail_with_body_supported = crate::daemon::engine_capabilities::curl_supports_flag("--fail-with-body");
-    let args = args::build_curl_args_with_capabilities(body, &output_path, fail_with_body_supported)?;
+    let fail_with_body_supported =
+        crate::daemon::engine_capabilities::curl_supports_flag("--fail-with-body");
+    let args =
+        args::build_curl_args_with_capabilities(body, &output_path, fail_with_body_supported)?;
     let id = Uuid::new_v4().to_string();
     let job = task_from_body(body, &id, name, &output_path, args, direct_options);
     let task = job.task.clone();
@@ -215,7 +219,11 @@ pub(crate) async fn resume_task(state: &SharedState, id: &str) -> Result<Task, S
     Err("Task not found".to_string())
 }
 
-pub(crate) async fn delete_task(state: &SharedState, id: &str, delete_files: bool) -> Result<(), String> {
+pub(crate) async fn delete_task(
+    state: &SharedState,
+    id: &str,
+    delete_files: bool,
+) -> Result<(), String> {
     {
         let mut jobs = lock_or_err!(state.media_jobs);
         if let Some(job) = jobs.remove(id) {
@@ -334,13 +342,13 @@ impl Extractor for CurlExtractor {
 mod tests {
     use super::*;
     use crate::daemon::types::CreateDownloadBody;
+    use ::curl::easy::Easy2;
+    use ::curl::multi::Multi;
     use std::io::Read;
     use std::io::Write;
     use std::net::TcpListener;
     use std::thread;
     use std::time::Duration;
-    use ::curl::easy::Easy2;
-    use ::curl::multi::Multi;
 
     fn base_body() -> CreateDownloadBody {
         CreateDownloadBody {

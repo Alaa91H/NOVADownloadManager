@@ -851,8 +851,14 @@ pub async fn handle_v1_stream_add(
 
 pub(crate) fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
     router
-        .route("/api/browser-extension/config", post(handle_browser_ext_config))
-        .route("/api/browser-extension/health", get(handle_browser_ext_health))
+        .route(
+            "/api/browser-extension/config",
+            post(handle_browser_ext_config),
+        )
+        .route(
+            "/api/browser-extension/health",
+            get(handle_browser_ext_health),
+        )
         .route("/v1/ping", get(handle_v1_ping))
         .route("/v1/pair/auto", post(handle_v1_pair_auto))
         .route("/v1/auth/check", post(handle_v1_auth_check))

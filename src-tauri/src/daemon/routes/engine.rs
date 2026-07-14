@@ -969,31 +969,91 @@ pub async fn handle_mirrors_enable_failover(
 pub(crate) fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
     router
         .route("/api/engines/capabilities", get(handle_engine_capabilities))
-        .route("/api/engine/events", get(handle_engine_events).delete(handle_engine_events_clear))
-        .route("/api/engine/events/{task_id}", get(handle_engine_events_for_task))
+        .route(
+            "/api/engine/events",
+            get(handle_engine_events).delete(handle_engine_events_clear),
+        )
+        .route(
+            "/api/engine/events/{task_id}",
+            get(handle_engine_events_for_task),
+        )
         .route("/api/engine/adaptive/{task_id}", get(handle_adaptive_get))
         .route("/api/engine/segments/{task_id}", get(handle_segments_get))
-        .route("/api/engine/retry-policy", get(handle_retry_policy_get).post(handle_retry_policy_set))
-        .route("/api/engine/cache", get(handle_metadata_cache_stats).delete(handle_metadata_cache_clear))
-        .route("/api/engine/queue", get(handle_queue_list).post(handle_queue_set_priority))
-        .route("/api/engine/bandwidth", get(handle_bandwidth_get).post(handle_bandwidth_set))
-        .route("/api/engine/rate-limit", get(handle_rate_limit_get).post(handle_rate_limit_set))
-        .route("/api/engine/profiles", get(handle_profiles_list).post(handle_profiles_set_active))
-        .route("/api/engine/profiles/custom", post(handle_profiles_add_custom))
-        .route("/api/engine/profiles/{id}", get(handle_profiles_get).delete(handle_profiles_delete))
-        .route("/api/engine/rules", get(handle_rules_list).post(handle_rules_add))
+        .route(
+            "/api/engine/retry-policy",
+            get(handle_retry_policy_get).post(handle_retry_policy_set),
+        )
+        .route(
+            "/api/engine/cache",
+            get(handle_metadata_cache_stats).delete(handle_metadata_cache_clear),
+        )
+        .route(
+            "/api/engine/queue",
+            get(handle_queue_list).post(handle_queue_set_priority),
+        )
+        .route(
+            "/api/engine/bandwidth",
+            get(handle_bandwidth_get).post(handle_bandwidth_set),
+        )
+        .route(
+            "/api/engine/rate-limit",
+            get(handle_rate_limit_get).post(handle_rate_limit_set),
+        )
+        .route(
+            "/api/engine/profiles",
+            get(handle_profiles_list).post(handle_profiles_set_active),
+        )
+        .route(
+            "/api/engine/profiles/custom",
+            post(handle_profiles_add_custom),
+        )
+        .route(
+            "/api/engine/profiles/{id}",
+            get(handle_profiles_get).delete(handle_profiles_delete),
+        )
+        .route(
+            "/api/engine/rules",
+            get(handle_rules_list).post(handle_rules_add),
+        )
         .route("/api/engine/rules/{id}", delete(handle_rules_delete))
-        .route("/api/engine/scheduler", get(handle_scheduler_list).post(handle_scheduler_add))
-        .route("/api/engine/scheduler/update", post(handle_scheduler_update))
-        .route("/api/engine/scheduler/{id}", delete(handle_scheduler_delete))
+        .route(
+            "/api/engine/scheduler",
+            get(handle_scheduler_list).post(handle_scheduler_add),
+        )
+        .route(
+            "/api/engine/scheduler/update",
+            post(handle_scheduler_update),
+        )
+        .route(
+            "/api/engine/scheduler/{id}",
+            delete(handle_scheduler_delete),
+        )
         .route("/api/engine/checksum", post(handle_checksum_verify))
-        .route("/api/engine/mirrors", get(handle_mirrors_list).post(handle_mirrors_add))
+        .route(
+            "/api/engine/mirrors",
+            get(handle_mirrors_list).post(handle_mirrors_add),
+        )
         .route("/api/engine/mirrors/set", post(handle_mirrors_set))
-        .route("/api/engine/mirrors/failover", post(handle_mirrors_failover))
-        .route("/api/engine/mirrors/enable-failover", post(handle_mirrors_enable_failover))
-        .route("/api/plugins", get(handle_plugins_list).post(handle_plugins_register))
-        .route("/api/plugins/{id}", get(handle_plugins_get).delete(handle_plugins_unregister))
+        .route(
+            "/api/engine/mirrors/failover",
+            post(handle_mirrors_failover),
+        )
+        .route(
+            "/api/engine/mirrors/enable-failover",
+            post(handle_mirrors_enable_failover),
+        )
+        .route(
+            "/api/plugins",
+            get(handle_plugins_list).post(handle_plugins_register),
+        )
+        .route(
+            "/api/plugins/{id}",
+            get(handle_plugins_get).delete(handle_plugins_unregister),
+        )
         .route("/api/plugins/{id}/enable", post(handle_plugins_enable))
         .route("/api/plugins/{id}/disable", post(handle_plugins_disable))
-        .route("/api/plugins/{id}/settings", post(handle_plugins_update_settings))
+        .route(
+            "/api/plugins/{id}/settings",
+            post(handle_plugins_update_settings),
+        )
 }

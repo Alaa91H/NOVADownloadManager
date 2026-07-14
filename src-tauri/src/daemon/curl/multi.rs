@@ -132,7 +132,10 @@ impl MultiSocketRuntime {
     }
 }
 
-pub(crate) fn configure_multi_limits(multi: &mut Multi, limits: ConnectionLimits) -> Result<(), String> {
+pub(crate) fn configure_multi_limits(
+    multi: &mut Multi,
+    limits: ConnectionLimits,
+) -> Result<(), String> {
     multi
         .set_max_total_connections(limits.total)
         .map_err(|e| format!("Could not configure total libcurl connections: {e}"))?;

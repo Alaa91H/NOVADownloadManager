@@ -41,18 +41,27 @@ pub(crate) fn direct_str<'a>(
 }
 
 #[inline]
-pub(crate) fn direct_bool(direct_options: &HashMap<String, serde_json::Value>, key: &str) -> Option<bool> {
+pub(crate) fn direct_bool(
+    direct_options: &HashMap<String, serde_json::Value>,
+    key: &str,
+) -> Option<bool> {
     direct_options.get(key).and_then(|v| v.as_bool())
 }
 
 #[inline]
-pub(crate) fn direct_u64(direct_options: &HashMap<String, serde_json::Value>, key: &str) -> Option<u64> {
+pub(crate) fn direct_u64(
+    direct_options: &HashMap<String, serde_json::Value>,
+    key: &str,
+) -> Option<u64> {
     direct_options
         .get(key)
         .and_then(|v| v.as_u64().or_else(|| v.as_f64().map(|n| n.max(0.0) as u64)))
 }
 
-pub(crate) fn direct_array(direct_options: &HashMap<String, serde_json::Value>, key: &str) -> Vec<String> {
+pub(crate) fn direct_array(
+    direct_options: &HashMap<String, serde_json::Value>,
+    key: &str,
+) -> Vec<String> {
     direct_options
         .get(key)
         .and_then(|v| v.as_array())

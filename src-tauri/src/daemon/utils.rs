@@ -1028,7 +1028,8 @@ mod tests {
 
     #[test]
     fn meta_refresh_basic() {
-        let html = r#"<meta http-equiv="refresh" content="5;URL='https://example.com/dl/file.zip'">"#;
+        let html =
+            r#"<meta http-equiv="refresh" content="5;URL='https://example.com/dl/file.zip'">"#;
         assert_eq!(
             parse_meta_refresh_url(html),
             Some("https://example.com/dl/file.zip".to_string())
@@ -1046,8 +1047,7 @@ mod tests {
 
     #[test]
     fn meta_refresh_entities() {
-        let html =
-            r#"<meta http-equiv="refresh" content="0;URL=a.cgi?x=1&amp;y=2">"#;
+        let html = r#"<meta http-equiv="refresh" content="0;URL=a.cgi?x=1&amp;y=2">"#;
         assert_eq!(
             parse_meta_refresh_url(html),
             Some("a.cgi?x=1&y=2".to_string())
@@ -1074,7 +1074,10 @@ mod tests {
     #[test]
     fn refreshed_url_absolute() {
         assert_eq!(
-            refreshed_url("https://example.com/redir".into(), "https://example.com/page"),
+            refreshed_url(
+                "https://example.com/redir".into(),
+                "https://example.com/page"
+            ),
             "https://example.com/redir"
         );
     }

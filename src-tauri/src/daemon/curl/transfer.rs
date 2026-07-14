@@ -9,8 +9,8 @@ use ::curl::multi::Multi;
 
 use super::*;
 use crate::daemon::direct::{
-    ConnectionLimits, EventLoopMode, FileWriter, IntegrityMetadata,
-    IntegrityValidator, RetryPolicy, SegmentPlanner, SegmentRange as ByteRange,
+    ConnectionLimits, EventLoopMode, FileWriter, IntegrityMetadata, IntegrityValidator,
+    RetryPolicy, SegmentPlanner, SegmentRange as ByteRange,
 };
 use crate::daemon::state::SharedState;
 use crate::daemon::types::{CurlJob, Segment};
@@ -154,7 +154,11 @@ pub(crate) fn plan_from_job(job: &CurlJob) -> DirectDownloadPlan {
     }
 }
 
-pub(crate) fn split_ranges(total_size: u64, connections: u32, output_path: &Path) -> Vec<ByteRange> {
+pub(crate) fn split_ranges(
+    total_size: u64,
+    connections: u32,
+    output_path: &Path,
+) -> Vec<ByteRange> {
     SegmentPlanner::new(MAX_DIRECT_CONNECTIONS).plan(total_size, connections, output_path)
 }
 
@@ -203,7 +207,9 @@ fn resolve_effective_target(plan: &DirectDownloadPlan) -> (String, bool) {
             .unwrap_or(false);
 
         if is_html {
-            if let Some(refresh) = crate::daemon::utils::parse_meta_refresh_url(&easy.get_ref().text()) {
+            if let Some(refresh) =
+                crate::daemon::utils::parse_meta_refresh_url(&easy.get_ref().text())
+            {
                 let next = crate::daemon::utils::refreshed_url(refresh, &effective);
                 if next.starts_with("http") && next != current && next != effective {
                     log::info!("resolve: meta-refresh {} -> {}", current, next);
@@ -983,7 +989,12 @@ fn run_libcurl_download(
     Err(last_error)
 }
 
-pub(crate) fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, generation: u64) {
+pub(crate) fn mark_curl_task_finished(
+    state: &SharedState,
+    id: &str,
+    final_size: u64,
+    generation: u64,
+) {
     state.priority_queue.stop_download(id);
     let mut jobs = lock_or_err!(state.curl_jobs);
     if let Some(job) = jobs.get_mut(id) {

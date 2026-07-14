@@ -1,8 +1,8 @@
 mod args;
 mod easy_config;
 mod multi;
-mod transfer;
 mod task_api;
+mod transfer;
 
 pub(crate) use args::build_curl_args;
 pub(crate) use easy_config::init_download_ssl;
@@ -13,17 +13,15 @@ pub(crate) use task_api::{
 pub(crate) use transfer::start_curl_process;
 
 pub(super) use args::{
-    destination_from_body, direct_array, direct_bool, direct_str, direct_u64, safe_value,
-    requested_connections,
+    destination_from_body, direct_array, direct_bool, direct_str, direct_u64,
+    requested_connections, safe_value,
 };
 pub(super) use easy_config::{apply_easy_options, create_easy_for_range, HtmlHeadCapture};
 pub(super) use multi::{
     configure_multi_limits, drive_multi_socket, drive_multi_wait_perform, MultiSocketRuntime,
 };
 #[allow(unused_imports)]
-pub(super) use transfer::{
-    remove_stale_parts_for, split_ranges, task_from_body,
-};
+pub(super) use transfer::{remove_stale_parts_for, split_ranges, task_from_body};
 
 use std::collections::HashMap;
 use std::path::PathBuf;

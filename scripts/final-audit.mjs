@@ -115,12 +115,12 @@ requireContains('.github/workflows/ci.yml', 'pnpm --filter nova-browser-extensio
 requireContains('src-tauri/Cargo.toml', 'curl = { version = "0.4"', 'Rust libcurl binding');
 requireContains('src-tauri/src/daemon/engine_capabilities.rs', 'validate_linked_libcurl_integrity', 'runtime libcurl integrity check');
 requireContains('src-tauri/src/daemon/engine_capabilities.rs', 'directProtocols', 'linked libcurl protocol export');
-requireContains('src-tauri/src/daemon/curl.rs', 'run_segmented_libcurl', 'libcurl multi segmented engine');
-requireContains('src-tauri/src/daemon/curl.rs', 'run_generation', 'pause/resume generation guard');
+requireContains('src-tauri/src/daemon/curl/transfer.rs', 'run_segmented_libcurl', 'libcurl multi segmented engine');
+requireContains('src-tauri/src/daemon/curl/transfer.rs', 'run_generation', 'pause/resume generation guard');
 requireContains('src-tauri/src/native_host.rs', 'run_native_messaging_host', 'native messaging host proxy');
 requireContains('src-tauri/src/main.rs', 'is_native_messaging_launch', 'native messaging launch gate');
-requireContains('src-tauri/src/daemon/mod.rs', '/v1/stream/add', 'browser stream add route');
-requireContains('src-tauri/src/daemon/routes.rs', 'streamResolverReady', 'stream capability export');
+requireContains('src-tauri/src/daemon/routes/extension.rs', '/v1/stream/add', 'browser stream add route');
+requireContains('src-tauri/src/daemon/routes/engine.rs', 'streamResolverReady', 'stream capability export');
 requireContains('browser-extension/src/contracts/capabilities.schema.ts', 'directProtocols', 'extension direct protocol gating');
 requireContains('browser-extension/src/contracts/messages.schema.ts', 'selectedQuality: StreamQualitySchema.optional()', 'quality object bridge message');
 requireContains('browser-extension/src/background/message-router.ts', 'selectedQualityFromUi', 'quality object handoff');
@@ -155,7 +155,7 @@ requireContains('src-tauri/windows/installer-template.nsi', 'VIAddVersionKey "Co
 
 // Maximum performance release profile
 requireContains('src-tauri/Cargo.toml', 'lto = "fat"', 'release fat LTO');
-requireContains('src-tauri/Cargo.toml', 'overflow-checks = false', 'release overflow checks disabled');
+requireContains('src-tauri/Cargo.toml', 'overflow-checks = true', 'release overflow checks enabled for safety');
 requireContains('src-tauri/Cargo.toml', '[profile.release.package."*"]', 'release package-level optimization');
 
 const workflow = read('.github/workflows/ci.yml');

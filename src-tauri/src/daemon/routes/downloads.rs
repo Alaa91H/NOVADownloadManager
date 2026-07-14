@@ -733,7 +733,10 @@ pub async fn handle_captures_pending(State(state): State<SharedState>) -> Json<s
 pub(crate) fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
     router
         .route("/api/health", get(handle_health))
-        .route("/api/downloads", get(handle_list_downloads).post(handle_create_download))
+        .route(
+            "/api/downloads",
+            get(handle_list_downloads).post(handle_create_download),
+        )
         .route("/api/downloads/events", get(handle_download_events))
         .route("/api/downloads/{id}/pause", post(handle_pause_task))
         .route("/api/downloads/{id}/resume", post(handle_resume_task))

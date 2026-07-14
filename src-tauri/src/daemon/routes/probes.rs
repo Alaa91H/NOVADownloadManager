@@ -826,6 +826,9 @@ pub(crate) fn register_routes(router: Router<SharedState>) -> Router<SharedState
     router
         .route("/api/probe", get(handle_probe).post(handle_probe_post))
         .route("/api/ytdlp/probe", get(handle_ytdlp_probe))
-        .route("/api/ytdlp/probe-playlist", get(handle_ytdlp_probe_playlist))
+        .route(
+            "/api/ytdlp/probe-playlist",
+            get(handle_ytdlp_probe_playlist),
+        )
         .route("/api/ytdlp/ffmpeg", get(handle_ytdlp_ffmpeg))
 }

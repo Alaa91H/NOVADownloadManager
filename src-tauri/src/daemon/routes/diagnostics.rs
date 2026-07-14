@@ -233,6 +233,8 @@ pub async fn handle_post_diagnostics(
 }
 
 pub(crate) fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
-    router
-        .route("/api/diagnostics", get(handle_diagnostics).post(handle_post_diagnostics))
+    router.route(
+        "/api/diagnostics",
+        get(handle_diagnostics).post(handle_post_diagnostics),
+    )
 }

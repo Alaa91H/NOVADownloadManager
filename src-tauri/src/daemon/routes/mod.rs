@@ -1,12 +1,12 @@
 pub(crate) mod common;
+pub(crate) mod diagnostics;
 pub(crate) mod downloads;
 pub(crate) mod engine;
 pub(crate) mod extension;
 pub(crate) mod probes;
-pub(crate) mod diagnostics;
 
-use axum::Router;
 use crate::daemon::state::SharedState;
+use axum::Router;
 
 pub(crate) use self::downloads::{
     handle_pause_task, handle_resume_task, load_initial_torrent_config,

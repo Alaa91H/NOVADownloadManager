@@ -108,9 +108,15 @@ pub fn start_persistence_loop(state: SharedState) {
         loop {
             let has_active = {
                 let snap = lock_or_err!(state.task_snapshot);
-                snap.values().any(|t| t.status == "downloading" || t.status == "pausing" || t.status == "stopping")
+                snap.values().any(|t| {
+                    t.status == "downloading" || t.status == "pausing" || t.status == "stopping"
+                })
             };
-            let interval = if has_active { ACTIVE_SECS } else { BASELINE_SECS };
+            let interval = if has_active {
+                ACTIVE_SECS
+            } else {
+                BASELINE_SECS
+            };
 
             tokio::time::sleep(Duration::from_secs(interval)).await;
             if state.persist_dirty.swap(false, Ordering::Relaxed) {

@@ -96,7 +96,7 @@ requireContains('src-tauri/windows/installer-template.nsi', '"NoRepair" "0"', 'r
 
 // Maximum performance release profile
 requireContains('src-tauri/Cargo.toml', 'lto = "fat"', 'release fat LTO');
-requireContains('src-tauri/Cargo.toml', 'overflow-checks = false', 'release overflow checks disabled');
+requireContains('src-tauri/Cargo.toml', 'overflow-checks = true', 'release overflow checks enabled for safety');
 requireContains('src-tauri/Cargo.toml', '[profile.release.package."*"]', 'release package-level optimization');
 
 if (fail.length) {
