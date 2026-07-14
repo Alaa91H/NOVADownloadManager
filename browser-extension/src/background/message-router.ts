@@ -281,7 +281,7 @@ async function updateSettings(partial: Record<string, unknown>): Promise<unknown
   });
   if (next.capture.aggressiveMode) await assertAggressiveAllSitesAccess();
   await settingsStore.set(next);
-  if (next.capture.aggressiveMode || next.capture.network) catchAndLog(registerNetworkObserver(), 'message-router:register-network-observer');
+  if (next.capture.aggressiveMode || next.capture.network) catchAndLog(Promise.resolve(registerNetworkObserver()), 'message-router:register-network-observer');
   if (next.capture.aggressiveMode || next.capture.downloads) registerDownloadInterceptor();
   return next;
 }
@@ -323,7 +323,7 @@ async function importSettings(settings: unknown): Promise<unknown> {
   const parsed = result.data;
   if (parsed.capture.aggressiveMode) await assertAggressiveAllSitesAccess();
   await settingsStore.set(parsed);
-  if (parsed.capture.aggressiveMode || parsed.capture.network) catchAndLog(registerNetworkObserver(), 'message-router:register-network-observer-import');
+  if (parsed.capture.aggressiveMode || parsed.capture.network) catchAndLog(Promise.resolve(registerNetworkObserver()), 'message-router:register-network-observer-import');
   if (parsed.capture.aggressiveMode || parsed.capture.downloads) registerDownloadInterceptor();
   return parsed;
 }
