@@ -11,7 +11,7 @@ import type {
   ToolbarButtonId,
 } from '../../../types/desktop-ui.types';
 import { Button, Checkbox, SelectField, Switch, TextField } from '../../../components/primitives';
-import { useAppStore } from '../../../state/appStore';
+import { useToastActions, useI18n } from '../../../store/selectors';
 import { playAppSound } from '../../../utils/sound';
 
 interface Props {
@@ -103,7 +103,8 @@ const soundOptions = [
 ];
 
 export const InterfaceCustomization: React.FC<Props> = ({ settings, updateSetting }) => {
-  const { t, addToast } = useAppStore();
+  const t = useI18n();
+  const { addToast } = useToastActions();
   const [customLabel, setCustomLabel] = useState('');
   const [customAction, setCustomAction] = useState<CustomButtonAction>('addDownload');
   const [customIcon, setCustomIcon] = useState<CustomButtonIcon>('plus');

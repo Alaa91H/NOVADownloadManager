@@ -1,7 +1,7 @@
 ﻿import React from 'react';
 import { Sliders } from 'lucide-react';
 import { SpeedLimitInput } from './SpeedLimitInput';
-import { useAppStore } from '../state/appStore';
+import { useI18n } from '../store/selectors';
 
 interface SchedulerSpeedTabProps {
   limitSpeed: boolean;
@@ -20,7 +20,7 @@ export const SchedulerSpeedTab: React.FC<SchedulerSpeedTabProps> = ({
   oneTimeLimit,
   onOneTimeLimitChange,
 }) => {
-  const { t } = useAppStore();
+  const t = useI18n();
 
   return (
     <div className="space-y-4">

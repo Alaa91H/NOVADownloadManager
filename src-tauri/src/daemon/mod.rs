@@ -12,7 +12,7 @@ pub mod types;
 pub mod utils;
 pub mod ytdlp;
 
-use axum::routing::{delete, get, post};
+use axum::routing::get;
 use axum::Router;
 use reqwest::Client as HttpClient;
 use std::collections::HashMap;
@@ -22,35 +22,9 @@ use std::time::Instant;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
-use crate::daemon::routes::{
-    handle_adaptive_get, handle_bandwidth_get, handle_bandwidth_set, handle_browser_ext_config,
-    handle_browser_ext_health, handle_captures, handle_captures_pending, handle_checksum_verify,
-    handle_create_download, handle_delete_task, handle_diagnostics, handle_download_events,
-    handle_engine_capabilities, handle_engine_events, handle_engine_events_clear,
-    handle_engine_events_for_task, handle_health, handle_list_downloads,
-    handle_metadata_cache_clear, handle_metadata_cache_stats, handle_mirrors_add,
-    handle_mirrors_enable_failover, handle_mirrors_failover, handle_mirrors_list,
-    handle_mirrors_set, handle_pause_task, handle_plugins_disable, handle_plugins_enable,
-    handle_plugins_get, handle_plugins_list, handle_plugins_register, handle_plugins_unregister,
-    handle_plugins_update_settings, handle_post_diagnostics, handle_probe, handle_probe_post,
-    handle_profiles_add_custom, handle_profiles_delete, handle_profiles_get, handle_profiles_list,
-    handle_profiles_set_active, handle_queue_list, handle_queue_set_priority,
-    handle_rate_limit_get, handle_rate_limit_set, handle_resume_task, handle_retry_policy_get,
-    handle_retry_policy_set, handle_rules_add, handle_rules_delete, handle_rules_list,
-    handle_scheduler_add, handle_scheduler_delete, handle_scheduler_list, handle_scheduler_update,
-    handle_segments_get, handle_torrent_config, handle_v1_add, handle_v1_auth_check,
-    handle_v1_cancel_task_body, handle_v1_cancel_task_path, handle_v1_events,
-    handle_v1_extension_settings, handle_v1_list_tasks, handle_v1_pair_auto,
-    handle_v1_pause_task_body, handle_v1_pause_task_path, handle_v1_ping,
-    handle_v1_resume_task_body, handle_v1_resume_task_path, handle_v1_stream_add,
-    handle_v1_stream_resolve, handle_ytdlp_ffmpeg, handle_ytdlp_probe, handle_ytdlp_probe_playlist,
-};
 use crate::daemon::state::{AppState, SharedState};
 use crate::daemon::static_files::{serve_asset, serve_index, serve_spa_fallback};
-use crate::daemon::telegram::{
-    handle_telegram_config, handle_telegram_send_file, handle_telegram_test,
-    handle_telegram_update_config, start_telegram_bot,
-};
+use crate::daemon::telegram::start_telegram_bot;
 use crate::daemon::types::{CreateDownloadBody, CurlJob, MediaJob, TelegramConfig};
 
 use crate::daemon::engine::extractor::{ExtractorRegistry, SharedExtractorRegistry};
@@ -259,147 +233,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
 
             start_telegram_bot(state.clone());
 
-            let app = Router::new()
-                .route("/api/health", get(handle_health))
-                .route("/api/engines/capabilities", get(handle_engine_capabilities))
-                .route(
-                    "/api/downloads",
-                    get(handle_list_downloads).post(handle_create_download),
-                )
-                .route("/api/downloads/events", get(handle_download_events))
-                .route("/api/downloads/{id}/pause", post(handle_pause_task))
-                .route("/api/downloads/{id}/resume", post(handle_resume_task))
-                .route("/api/downloads/{id}", delete(handle_delete_task))
-                .route("/api/torrents/config", post(handle_torrent_config))
-                .route("/api/probe", get(handle_probe).post(handle_probe_post))
-                .route("/api/ytdlp/probe", get(handle_ytdlp_probe))
-                .route(
-                    "/api/ytdlp/probe-playlist",
-                    get(handle_ytdlp_probe_playlist),
-                )
-                .route("/api/ytdlp/ffmpeg", get(handle_ytdlp_ffmpeg))
-                .route(
-                    "/api/telegram/config",
-                    get(handle_telegram_config).post(handle_telegram_update_config),
-                )
-                .route("/api/telegram/test", post(handle_telegram_test))
-                .route("/api/telegram/send-file", post(handle_telegram_send_file))
-                .route(
-                    "/api/diagnostics",
-                    get(handle_diagnostics).post(handle_post_diagnostics),
-                )
-                .route(
-                    "/api/browser-extension/config",
-                    post(handle_browser_ext_config),
-                )
-                .route(
-                    "/api/browser-extension/health",
-                    get(handle_browser_ext_health),
-                )
-                .route("/captures", post(handle_captures))
-                .route("/captures/pending", get(handle_captures_pending))
-                .route("/v1/ping", get(handle_v1_ping))
-                .route("/v1/pair/auto", post(handle_v1_pair_auto))
-                .route("/v1/auth/check", post(handle_v1_auth_check))
-                .route("/v1/extension-settings", get(handle_v1_extension_settings))
-                .route("/v1/events", get(handle_v1_events))
-                .route("/v1/tasks", get(handle_v1_list_tasks))
-                .route("/v1/task/pause", post(handle_v1_pause_task_body))
-                .route("/v1/task/resume", post(handle_v1_resume_task_body))
-                .route("/v1/task/cancel", post(handle_v1_cancel_task_body))
-                .route("/v1/tasks/{id}/pause", post(handle_v1_pause_task_path))
-                .route("/v1/tasks/{id}/resume", post(handle_v1_resume_task_path))
-                .route("/v1/tasks/{id}/cancel", post(handle_v1_cancel_task_path))
-                .route("/v1/add", post(handle_v1_add))
-                .route("/v1/stream/resolve", post(handle_v1_stream_resolve))
-                .route("/v1/stream/add", post(handle_v1_stream_add))
-                .route(
-                    "/api/engine/events",
-                    get(handle_engine_events).delete(handle_engine_events_clear),
-                )
-                .route(
-                    "/api/engine/events/{task_id}",
-                    get(handle_engine_events_for_task),
-                )
-                .route("/api/engine/adaptive/{task_id}", get(handle_adaptive_get))
-                .route("/api/engine/segments/{task_id}", get(handle_segments_get))
-                .route(
-                    "/api/engine/retry-policy",
-                    get(handle_retry_policy_get).post(handle_retry_policy_set),
-                )
-                .route(
-                    "/api/engine/cache",
-                    get(handle_metadata_cache_stats).delete(handle_metadata_cache_clear),
-                )
-                .route(
-                    "/api/engine/queue",
-                    get(handle_queue_list).post(handle_queue_set_priority),
-                )
-                .route(
-                    "/api/engine/bandwidth",
-                    get(handle_bandwidth_get).post(handle_bandwidth_set),
-                )
-                .route(
-                    "/api/engine/rate-limit",
-                    get(handle_rate_limit_get).post(handle_rate_limit_set),
-                )
-                .route(
-                    "/api/engine/profiles",
-                    get(handle_profiles_list).post(handle_profiles_set_active),
-                )
-                .route(
-                    "/api/engine/profiles/custom",
-                    post(handle_profiles_add_custom),
-                )
-                .route(
-                    "/api/engine/profiles/{id}",
-                    get(handle_profiles_get).delete(handle_profiles_delete),
-                )
-                .route(
-                    "/api/engine/rules",
-                    get(handle_rules_list).post(handle_rules_add),
-                )
-                .route("/api/engine/rules/{id}", delete(handle_rules_delete))
-                .route(
-                    "/api/engine/scheduler",
-                    get(handle_scheduler_list).post(handle_scheduler_add),
-                )
-                .route(
-                    "/api/engine/scheduler/update",
-                    post(handle_scheduler_update),
-                )
-                .route(
-                    "/api/engine/scheduler/{id}",
-                    delete(handle_scheduler_delete),
-                )
-                .route("/api/engine/checksum", post(handle_checksum_verify))
-                .route(
-                    "/api/engine/mirrors",
-                    get(handle_mirrors_list).post(handle_mirrors_add),
-                )
-                .route("/api/engine/mirrors/set", post(handle_mirrors_set))
-                .route(
-                    "/api/engine/mirrors/failover",
-                    post(handle_mirrors_failover),
-                )
-                .route(
-                    "/api/engine/mirrors/enable-failover",
-                    post(handle_mirrors_enable_failover),
-                )
-                .route(
-                    "/api/plugins",
-                    get(handle_plugins_list).post(handle_plugins_register),
-                )
-                .route(
-                    "/api/plugins/{id}",
-                    get(handle_plugins_get).delete(handle_plugins_unregister),
-                )
-                .route("/api/plugins/{id}/enable", post(handle_plugins_enable))
-                .route("/api/plugins/{id}/disable", post(handle_plugins_disable))
-                .route(
-                    "/api/plugins/{id}/settings",
-                    post(handle_plugins_update_settings),
-                )
+            let app = crate::daemon::routes::register_routes(Router::new())
                 .route("/", get(serve_index))
                 .route("/assets/{*path}", get(serve_asset))
                 .route("/{*path}", get(serve_spa_fallback))

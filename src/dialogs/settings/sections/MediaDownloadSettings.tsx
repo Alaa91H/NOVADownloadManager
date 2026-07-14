@@ -4,7 +4,7 @@ import type { AppSettings } from '../../../types/desktop-ui.types';
 import { TextField, SelectField, Checkbox } from '../../../components/primitives';
 import { Video, Film, FileText, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { WORLD_LANGUAGES } from '../../../lib/languages';
-import { useAppStore } from '../../../state/appStore';
+import { useI18n } from '../../../store/selectors';
 import { novaClient } from '../../../api/novaClient';
 
 interface Props {
@@ -14,7 +14,7 @@ interface Props {
 }
 
 export const MediaDownloadSettings: React.FC<Props> = ({ settings, updateSetting, onAddToast }) => {
-  const { t } = useAppStore();
+  const t = useI18n();
   const [ffmpegStatus, setFfmpegStatus] = useState<'idle' | 'detecting' | 'found' | 'not_found'>('idle');
   const [ffmpegVersion, setFfmpegVersion] = useState('');
 

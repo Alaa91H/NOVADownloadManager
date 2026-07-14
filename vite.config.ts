@@ -38,6 +38,7 @@ export default defineConfig(() => {
         output: {
           manualChunks: {
             vendor: ['react', 'react-dom'],
+            zustand: ['zustand'],
             ui: ['lucide-react'],
           },
         },

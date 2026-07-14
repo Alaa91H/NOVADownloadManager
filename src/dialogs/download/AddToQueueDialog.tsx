@@ -1,12 +1,17 @@
 ﻿/* src/dialogs/download/AddToQueueDialog.tsx */
 import React, { useState } from 'react';
 import { ListPlus, Clock, ArrowRightLeft, FolderHeart, Plus } from 'lucide-react';
-import { useAppStore } from '../../state/appStore';
+import { useDialogData, useDialogActions, useQueueData, useQueueActions, useToastActions, useI18n } from '../../store/selectors';
 import { TextField, DialogButton } from '../../components/primitives';
 import type { DownloadItem } from '../../types/desktop-ui.types';
 
 export const AddToQueueDialog: React.FC = () => {
-  const { dialog, closeDialog, queues, moveTaskToQueue, createQueueAndMoveTask, addToast, t } = useAppStore();
+  const dialog = useDialogData();
+  const { closeDialog } = useDialogActions();
+  const queues = useQueueData();
+  const { moveTaskToQueue, createQueueAndMoveTask } = useQueueActions();
+  const { addToast } = useToastActions();
+  const t = useI18n();
 
   const task = dialog.payload as DownloadItem;
   const [newQueueName, setNewQueueName] = useState('');

@@ -1,33 +1,42 @@
 /* src/dialogs/DialogRoot.tsx */
-import React from 'react';
-import { useAppStore } from '../state/appStore';
+import React, { lazy, Suspense } from 'react';
+import { useDialogData, useDialogActions } from '../store/selectors';
+import { useTaskData } from '../store/selectors';
+import { useI18n } from '../store/selectors';
 import { Modal } from './Modal';
 
-// Sub-dialogs imports
-import { AddDownloadDialog } from './download/AddDownloadDialog';
-import { BatchImportDialog } from './download/BatchImportDialog';
-import { DiagnosticsDialog } from './diagnostics/DiagnosticsDialog';
-import { TaskPropertiesDialog } from './tasks/TaskPropertiesDialog';
-import { ActiveProgressDialog } from './download/ActiveProgressDialog';
-import { AboutDialog } from './system/AboutDialog';
-import { BrowserIntegrationDialog } from './integration/BrowserIntegrationDialog';
-import { ConfirmDialog } from './common/ConfirmDialog';
-import { UpdateLinkDialog } from './tasks/UpdateLinkDialog';
-import { AddToQueueDialog } from './download/AddToQueueDialog';
-import { WebpageGrabberDialog } from './download/WebpageGrabberDialog';
-import { GenericConfirmDialog } from './common/GenericConfirmDialog';
+const AddDownloadDialog = lazy(() => import('./download/AddDownloadDialog').then((m) => ({ default: m.AddDownloadDialog })));
+const BatchImportDialog = lazy(() => import('./download/BatchImportDialog').then((m) => ({ default: m.BatchImportDialog })));
+const DiagnosticsDialog = lazy(() => import('./diagnostics/DiagnosticsDialog').then((m) => ({ default: m.DiagnosticsDialog })));
+const TaskPropertiesDialog = lazy(() => import('./tasks/TaskPropertiesDialog').then((m) => ({ default: m.TaskPropertiesDialog })));
+const ActiveProgressDialog = lazy(() => import('./download/ActiveProgressDialog').then((m) => ({ default: m.ActiveProgressDialog })));
+const AboutDialog = lazy(() => import('./system/AboutDialog').then((m) => ({ default: m.AboutDialog })));
+const BrowserIntegrationDialog = lazy(() => import('./integration/BrowserIntegrationDialog').then((m) => ({ default: m.BrowserIntegrationDialog })));
+const ConfirmDialog = lazy(() => import('./common/ConfirmDialog').then((m) => ({ default: m.ConfirmDialog })));
+const UpdateLinkDialog = lazy(() => import('./tasks/UpdateLinkDialog').then((m) => ({ default: m.UpdateLinkDialog })));
+const AddToQueueDialog = lazy(() => import('./download/AddToQueueDialog').then((m) => ({ default: m.AddToQueueDialog })));
+const WebpageGrabberDialog = lazy(() => import('./download/WebpageGrabberDialog').then((m) => ({ default: m.WebpageGrabberDialog })));
+const GenericConfirmDialog = lazy(() => import('./common/GenericConfirmDialog').then((m) => ({ default: m.GenericConfirmDialog })));
+
+const DialogFallback = () => (
+  <div className="flex items-center justify-center py-12">
+    <div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" />
+  </div>
+);
 
 export default function DialogRoot() {
-  const { dialog, closeDialog, tasks, t } = useAppStore();
+  const { active, payload } = useDialogData();
+  const { closeDialog } = useDialogActions();
+  const tasks = useTaskData();
+  const t = useI18n();
 
-  if (!dialog.active) return null;
+  if (!active) return null;
 
-  // Render correct title, size and component based on router state
   let title: string;
   let size: 'sm' | 'md' | 'lg' | 'xl' | 'full';
   let childComponent: React.ReactNode;
 
-  switch (dialog.active) {
+  switch (active) {
     case 'addDownload':
       title = t('action_add');
       size = 'lg';
@@ -63,24 +72,23 @@ export default function DialogRoot() {
       size = 'md';
       childComponent = <AddToQueueDialog />;
       break;
-    case 'activeProgress':
-      {
-        const taskPayload = dialog.payload as
-          { id?: string; name?: string; sizeBytes?: number; downloadedBytes?: number } | undefined;
-        const currentTask = tasks.find((t) => t.id === taskPayload?.id) || taskPayload;
-        if (currentTask) {
-          const progressPercent =
-            currentTask.sizeBytes && currentTask.sizeBytes > 0
-              ? Math.round(((currentTask.downloadedBytes || 0) / currentTask.sizeBytes) * 100)
-              : 0;
-          title = `${String(progressPercent)}%-${currentTask.name || ''}`;
-        } else {
-          title = t('nav_properties');
-        }
+    case 'activeProgress': {
+      const taskPayload = payload as
+        { id?: string; name?: string; sizeBytes?: number; downloadedBytes?: number } | undefined;
+      const currentTask = tasks.find((t) => t.id === taskPayload?.id) || taskPayload;
+      if (currentTask) {
+        const progressPercent =
+          currentTask.sizeBytes && currentTask.sizeBytes > 0
+            ? Math.round(((currentTask.downloadedBytes || 0) / currentTask.sizeBytes) * 100)
+            : 0;
+        title = `${String(progressPercent)}%-${currentTask.name || ''}`;
+      } else {
+        title = t('nav_properties');
       }
       size = 'lg';
       childComponent = <ActiveProgressDialog />;
       break;
+    }
     case 'about':
       title = t('nav_about');
       size = 'md';
@@ -107,14 +115,16 @@ export default function DialogRoot() {
 
   return (
     <Modal
-      isOpen={!!dialog.active}
+      isOpen={!!active}
       onClose={closeDialog}
       title={title}
       size={size}
-      id={dialog.active === 'activeProgress' ? 'active-progress-modal' : undefined}
-      preventLightDismiss={dialog.active === 'activeProgress'}
+      id={active === 'activeProgress' ? 'active-progress-modal' : undefined}
+      preventLightDismiss={active === 'activeProgress'}
     >
-      {childComponent}
+      <Suspense fallback={<DialogFallback />}>
+        {childComponent}
+      </Suspense>
     </Modal>
   );
 }

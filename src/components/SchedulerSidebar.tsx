@@ -1,6 +1,6 @@
 import React from 'react';
 import { Folder, Calendar, Sliders, Bell, RefreshCw } from 'lucide-react';
-import { useAppStore } from '../state/appStore';
+import { useI18n } from '../store/selectors';
 
 type TabId = 'files' | 'basic' | 'speed' | 'actions' | 'retries';
 
@@ -19,7 +19,7 @@ const tabs: { id: TabId; icon: React.ElementType; labelKey: string }[] = [
 ];
 
 export const SchedulerSidebar: React.FC<SchedulerSidebarProps> = ({ activeTab, onChange, fileCount }) => {
-  const { t } = useAppStore();
+  const t = useI18n();
 
   return (
     <div className="w-52 shrink-0 border-r border-[var(--border-color)] pr-2 overflow-y-auto scrollbar-none select-none flex flex-col gap-1.5">

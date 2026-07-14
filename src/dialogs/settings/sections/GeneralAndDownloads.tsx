@@ -4,7 +4,7 @@ import type { AppSettings } from '../../../types/desktop-ui.types';
 import { Switch, SelectField, Checkbox, Button } from '../../../components/primitives';
 import { Settings, Folder, RefreshCw, AlertTriangle, Play, FileText, Volume2 } from 'lucide-react';
 import { WORLD_LANGUAGES } from '../../../lib/languages';
-import { useAppStore } from '../../../state/appStore';
+import { useToastActions, useI18n } from '../../../store/selectors';
 import { tauriClient, type UpdateCheckResult } from '../../../api/tauriClient';
 
 interface Props {
@@ -22,7 +22,8 @@ export const GeneralAndDownloads: React.FC<Props> = ({
   onResetDaemonTab,
   onResetAll,
 }) => {
-  const { addToast, t } = useAppStore();
+  const { addToast } = useToastActions();
+  const t = useI18n();
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
   // Placeholder showing the expected default path (resolved on mount)

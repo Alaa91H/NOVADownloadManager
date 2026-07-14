@@ -15,13 +15,30 @@ import {
   CheckCircle,
   RefreshCw,
 } from 'lucide-react';
-import { useAppStore } from '../state/appStore';
+import {
+  useTaskData,
+  useNavigationData,
+  useNavigationActions,
+  useBridgeData,
+  useThemeData,
+  useSettingsActions,
+  useDialogActions,
+  useDialogData,
+  useI18n,
+} from '../store/selectors';
 import type { AppThemeSettings } from '../types/desktop-ui.types';
 import { Logo } from './Logo';
 
 export const Sidebar: React.FC = () => {
-  const { tasks, workspaceView, setWorkspaceView, bridge, themeSettings, updateThemeSettings, openDialog, dialog, t } =
-    useAppStore();
+  const tasks = useTaskData();
+  const { workspaceView } = useNavigationData();
+  const { setWorkspaceView } = useNavigationActions();
+  const bridge = useBridgeData();
+  const themeSettings = useThemeData();
+  const { updateThemeSettings } = useSettingsActions();
+  const { openDialog } = useDialogActions();
+  const dialog = useDialogData();
+  const t = useI18n();
 
   const handleFilterClick = (view: typeof workspaceView) => {
     if (view === 'scheduler') {

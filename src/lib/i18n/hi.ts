@@ -1217,4 +1217,6 @@ set_tab_direct_download: 'Direct Download',
   'settings_dns_testing': 'Testing…',
   'settings_dns_unreachable': 'Unreachable',
   'modal_pop_out': 'Open in a separate window',
-};
+  'col_elapsed': 'Elapsed',
+  'progress_elapsed': 'Elapsed',
+  'table_elapsed_label': 'Elapsed',};

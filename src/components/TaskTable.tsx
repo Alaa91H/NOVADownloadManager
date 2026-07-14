@@ -12,7 +12,17 @@ import {
   Play as ResumeIcon,
   Send,
 } from 'lucide-react';
-import { useAppStore } from '../state/appStore';
+import {
+  useTaskData,
+  useTaskSelectors,
+  useTaskActions,
+  useSettingsData,
+  useToastActions,
+  useDialogActions,
+  useSearchQuery,
+  useNavigationData,
+  useI18n,
+} from '../store/selectors';
 import type { DownloadItem } from '../types/desktop-ui.types';
 import { StatusPill } from './primitives';
 import type { ContextMenuOption } from './primitives/ContextMenu';
@@ -36,22 +46,15 @@ import {
 import { novaClient } from '../api/novaClient';
 
 export const TaskTable: React.FC = () => {
-  const {
-    tasks,
-    selectedTaskId,
-    setSelectedTaskId,
-    searchQuery,
-    workspaceView,
-    pauseTask,
-    resumeTask,
-    deleteTask,
-    openTaskFile,
-    openTaskLocation,
-    openDialog,
-    settings,
-    addToast,
-    t,
-  } = useAppStore();
+  const tasks = useTaskData();
+  const { selectedTaskId } = useTaskSelectors();
+  const { setSelectedTaskId, pauseTask, resumeTask, deleteTask, openTaskFile, openTaskLocation } = useTaskActions();
+  const { searchQuery } = useSearchQuery();
+  const { workspaceView } = useNavigationData();
+  const { openDialog } = useDialogActions();
+  const settings = useSettingsData();
+  const { addToast } = useToastActions();
+  const t = useI18n();
 
   const {
     colWidths,
@@ -103,7 +106,7 @@ export const TaskTable: React.FC = () => {
         label: t('topbar_stop'),
         icon: <Square className="w-3.5 h-3.5" />,
         onClick: () => {
-          pauseTask(task.id);
+          void pauseTask(task.id);
         },
       });
     }
@@ -113,7 +116,7 @@ export const TaskTable: React.FC = () => {
         label: task.status === 'error' ? t('menu_retry_download') : t('resume'),
         icon: <ResumeIcon className="w-3.5 h-3.5" />,
         onClick: () => {
-          resumeTask(task.id);
+          void resumeTask(task.id);
         },
       });
     }
@@ -621,8 +624,8 @@ export const TaskTable: React.FC = () => {
         tasks={sortedTasks}
         checkedTaskIds={checkedTaskIds}
         handleToggleCheckTask={handleToggleCheckTask}
-        pauseTask={pauseTask}
-        resumeTask={resumeTask}
+        pauseTask={(id: string) => { void pauseTask(id); }}
+        resumeTask={(id: string) => { void resumeTask(id); }}
         openTaskFile={openTaskFile}
         openTaskLocation={openTaskLocation}
         openDialog={openDialog}

@@ -1,11 +1,12 @@
 ﻿/* src/dialogs/system/AboutDialog.tsx */
 import React from 'react';
 import { Download, CheckCircle, Shield } from 'lucide-react';
-import { useAppStore } from '../../state/appStore';
+import { useDialogActions, useBridgeData } from '../../store/selectors';
 import { DialogButton } from '../../components/primitives';
 
 export const AboutDialog: React.FC = () => {
-  const { closeDialog, bridge } = useAppStore();
+  const { closeDialog } = useDialogActions();
+  const bridge = useBridgeData();
 
   return (
     <div className="text-center space-y-5 py-2">

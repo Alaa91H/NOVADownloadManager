@@ -93,13 +93,28 @@ pub fn save_now(state: &AppState) {
 }
 
 /// Periodically flush the download state to disk whenever something changed.
+///
+/// Uses an adaptive checkpoint interval:
+///   - **60 s** baseline when the system is idle (no active downloads).
+///   - **5 s** when one or more downloads are running, so crash recovery
+///     loses at most 5 s of progress.
+///   - The dirty flag still gates actual writes — the interval only controls
+///     how often we *check*.
 pub fn start_persistence_loop(state: SharedState) {
     tokio::spawn(async move {
+        const BASELINE_SECS: u64 = 60;
+        const ACTIVE_SECS: u64 = 5;
+
         loop {
-            tokio::time::sleep(Duration::from_secs(3)).await;
+            let has_active = {
+                let snap = lock_or_err!(state.task_snapshot);
+                snap.values().any(|t| t.status == "downloading" || t.status == "pausing" || t.status == "stopping")
+            };
+            let interval = if has_active { ACTIVE_SECS } else { BASELINE_SECS };
+
+            tokio::time::sleep(Duration::from_secs(interval)).await;
             if state.persist_dirty.swap(false, Ordering::Relaxed) {
                 let state = state.clone();
-                // File IO is small but keep it off the async executor.
                 let _ = tokio::task::spawn_blocking(move || save(&state)).await;
             }
         }

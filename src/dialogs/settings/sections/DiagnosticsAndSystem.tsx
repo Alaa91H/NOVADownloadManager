@@ -3,7 +3,7 @@ import React, { useState, useRef } from 'react';
 import type { AppSettings } from '../../../types/desktop-ui.types';
 import { FormRow, Switch, TextField, SelectField } from '../../../components/primitives';
 import { Activity, Database, RefreshCw, Terminal, AlertTriangle, Cpu, Shield, Zap, Globe, Plus, Trash2 } from 'lucide-react';
-import { useAppStore } from '../../../state/appStore';
+import { useBridgeData, useSettingsActions, useI18n } from '../../../store/selectors';
 import { novaClient } from '../../../api/novaClient';
 import { useEngineCapabilities } from '../../../capabilities/EngineCapabilityContext';
 
@@ -23,7 +23,9 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
   onFactoryReset,
   activeSubTab,
 }) => {
-  const { t, bridge, updateSettings } = useAppStore();
+  const t = useI18n();
+  const bridge = useBridgeData();
+  const { updateSettings } = useSettingsActions();
   const subTab = activeSubTab || 'bridge';
   const engineCapabilities = useEngineCapabilities();
   const fileInputRef = useRef<HTMLInputElement>(null);

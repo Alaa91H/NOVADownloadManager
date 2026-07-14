@@ -1,6 +1,6 @@
 ﻿import React from 'react';
 import { CheckCircle2 } from 'lucide-react';
-import { useAppStore } from '../state/appStore';
+import { useI18n } from '../store/selectors';
 
 interface SchedulerRetriesTabProps {
   retryCount: number;
@@ -15,7 +15,7 @@ export const SchedulerRetriesTab: React.FC<SchedulerRetriesTabProps> = ({
   retryDelay,
   onRetryDelayChange,
 }) => {
-  const { t } = useAppStore();
+  const t = useI18n();
 
   return (
     <div className="space-y-4">

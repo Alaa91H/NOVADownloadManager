@@ -1,13 +1,13 @@
 ﻿/* src/pages/SchedulerPage.tsx */
 import React from 'react';
 import { Clock } from 'lucide-react';
-import { useAppStore } from '../state/appStore';
+import { useI18n } from '../store/selectors';
 import { PageHeader } from './PageHeader';
 import { SchedulerPanel } from '../components/SchedulerPanel';
 
 /** Full-page Download Lists / Scheduler view (replaces the old floating dialog). */
 export const SchedulerPage: React.FC = () => {
-  const { t } = useAppStore();
+  const t = useI18n();
 
   return (
     <div className="app-page flex-1 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-app)]">

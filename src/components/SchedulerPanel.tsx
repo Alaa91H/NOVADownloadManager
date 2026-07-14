@@ -1,7 +1,14 @@
 ﻿/* src/components/SchedulerPanel.tsx */
 import React, { useState, useCallback } from 'react';
 import { Play, Square, Plus, Trash2, AlertCircle, CheckCircle2, GripVertical } from 'lucide-react';
-import { useAppStore } from '../state/appStore';
+import {
+  useTaskData,
+  useQueueData,
+  useQueueActions,
+  useTaskActions,
+  useToastActions,
+  useI18n,
+} from '../store/selectors';
 import { Button } from './primitives';
 import { DndContext, closestCenter, DragOverlay, type DragStartEvent, type DragEndEvent } from '@dnd-kit/core';
 import {
@@ -32,7 +39,7 @@ interface SortableQueueItemProps {
 }
 
 const SortableQueueItem: React.FC<SortableQueueItemProps> = ({ id, name, isSelected, onSelect, taskCount, onDropTask }) => {
-  const { t } = useAppStore();
+  const t = useI18n();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const [isDragOver, setIsDragOver] = React.useState(false);
 
@@ -102,8 +109,12 @@ const inferScheduleType = (queue: {
 };
 
 export const SchedulerPanel: React.FC = () => {
-  const { tasks, queues, updateQueue, resumeTask, pauseTask, addToast, addQueue, deleteQueue, removeTaskFromQueue, moveTaskToQueue, reorderQueues, snapshotForUndo, undoLast, t } =
-    useAppStore();
+  const tasks = useTaskData();
+  const queues = useQueueData();
+  const { updateQueue, addQueue, deleteQueue, removeTaskFromQueue, moveTaskToQueue, reorderQueues, snapshotForUndo, undoLast } = useQueueActions();
+  const { resumeTask, pauseTask } = useTaskActions();
+  const { addToast } = useToastActions();
+  const t = useI18n();
 
   const [selectedQueueId, setSelectedQueueId] = useState<string>('main');
   const [prevQueuesCount, setPrevQueuesCount] = useState(queues.length);
@@ -288,7 +299,7 @@ export const SchedulerPanel: React.FC = () => {
       return;
     }
     toStart.forEach((t) => {
-      resumeTask(t.id);
+      void resumeTask(t.id);
     });
     addToast('success', t('sched_toast_started_title'), t('sched_toast_started_desc', { name }));
   };
@@ -300,7 +311,7 @@ export const SchedulerPanel: React.FC = () => {
       return;
     }
     activeTasks.forEach((t) => {
-      pauseTask(t.id);
+      void pauseTask(t.id);
     });
     addToast('warning', t('sched_toast_stopped_title'), t('sched_toast_stopped_desc', { name }));
   };

@@ -1,6 +1,6 @@
 import React from 'react';
 import { TimePicker } from './primitives/TimePicker';
-import { useAppStore } from '../state/appStore';
+import { useI18n } from '../store/selectors';
 
 type ScheduleType = 'once' | 'daily' | 'custom';
 
@@ -49,7 +49,7 @@ export const SchedulerBasicTab: React.FC<SchedulerBasicTabProps> = ({
   maxActive,
   onMaxActiveChange,
 }) => {
-  const { t } = useAppStore();
+  const t = useI18n();
   const selectedDayNames = days.map((day) => t(weekDayKeys[day])).join(', ');
 
   return (

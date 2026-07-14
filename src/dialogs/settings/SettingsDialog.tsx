@@ -1,7 +1,7 @@
 ﻿/* src/dialogs/settings/SettingsDialog.tsx */
 import React, { useState } from 'react';
 import { Settings, Sliders, Cpu, Globe, Bell, Palette, Search, ChevronDown, ChevronUp, X, Download, Video, Activity } from 'lucide-react';
-import { useAppStore } from '../../state/appStore';
+import { useDialogData, useSettingsData, useSettingsActions, useThemeData, useToastActions, useI18n } from '../../store/selectors';
 import type { AppSettings, AppThemeSettings } from '../../types/desktop-ui.types';
 import { initialSettings } from '../../initialData';
 import { playAppSound } from '../../utils/sound';
@@ -36,7 +36,12 @@ const isSettingsPayload = (payload: unknown): payload is SettingsDialogPayload =
   Boolean(payload && typeof payload === 'object');
 
 export const SettingsDialog: React.FC = () => {
-  const { dialog, settings, updateSettings, themeSettings, updateThemeSettings, addToast, t } = useAppStore();
+  const dialog = useDialogData();
+  const settings = useSettingsData();
+  const { updateSettings, updateThemeSettings } = useSettingsActions();
+  const themeSettings = useThemeData();
+  const { addToast } = useToastActions();
+  const t = useI18n();
   const payload = isSettingsPayload(dialog.payload) ? dialog.payload : {};
   // Local state for atomic transactions
   const [localSettings, setLocalSettings] = useState<AppSettings>(structuredClone(settings));

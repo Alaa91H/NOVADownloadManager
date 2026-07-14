@@ -4,7 +4,7 @@ import type { AppSettings } from '../../../types/desktop-ui.types';
 import { FormRow, Switch, TextField, Checkbox } from '../../../components/primitives';
 import { Bot, Link, Mail, Plus, Send, Trash2, Zap } from 'lucide-react';
 import { novaClient } from '../../../api/novaClient';
-import { useAppStore } from '../../../state/appStore';
+import { useI18n } from '../../../store/selectors';
 
 interface Props {
   settings: AppSettings;
@@ -20,7 +20,7 @@ export const IntegrationsAndAutomation: React.FC<Props> = ({
   onAddToast,
   activeSubTab = 'telegram',
 }) => {
-  const { t } = useAppStore();
+  const t = useI18n();
   const [webhooks, setWebhooks] = useState<Array<{ id: string; url: string; event: string; active: boolean }>>([]);
   const [webhookUrl, setWebhookUrl] = useState(settings.extra.webhookUrl || '');
   const [telegramStatus, setTelegramStatus] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle');

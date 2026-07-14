@@ -1,6 +1,17 @@
 /* src/components/StatusBar.tsx */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useAppStore } from '../state/appStore';
+import {
+  useTaskData,
+  useTaskSelectors,
+  useSettingsData,
+  useSettingsActions,
+  useToastActions,
+  useDialogActions,
+  useNotificationsData,
+  useIsDegraded,
+  useMinimizedProgress,
+  useI18n,
+} from '../store/selectors';
 import { formatBytes } from '../initialData';
 import { formatSpeed } from '../utils/formatUtils';
 import {
@@ -19,20 +30,16 @@ import {
 import { novaClient, type BrowserExtensionHealth } from '../api/novaClient';
 
 export const StatusBar: React.FC = () => {
-  const {
-    tasks,
-    selectedTaskId,
-    settings,
-    updateSettings,
-    addToast,
-    openDialog,
-    isNotificationsMuted,
-    setIsNotificationsMuted,
-    isDegradedMode,
-    activeProgressMinimizedToTaskbar,
-    minimizedProgressTask,
-    t,
-  } = useAppStore();
+  const tasks = useTaskData();
+  const { selectedTaskId } = useTaskSelectors();
+  const settings = useSettingsData();
+  const { updateSettings } = useSettingsActions();
+  const { addToast } = useToastActions();
+  const { openDialog } = useDialogActions();
+  const { isNotificationsMuted, setIsNotificationsMuted } = useNotificationsData();
+  const isDegradedMode = useIsDegraded();
+  const { activeProgressMinimizedToTaskbar, minimizedProgressTask } = useMinimizedProgress();
+  const t = useI18n();
 
   const minimizedRealTask = useMemo(
     () => (minimizedProgressTask ? tasks.find((t) => t.id === minimizedProgressTask.id) || minimizedProgressTask : null),

@@ -1,12 +1,16 @@
 ﻿/* src/dialogs/download/WebpageGrabberDialog.tsx */
 import React, { useState } from 'react';
 import { Globe, FolderOpen, Layers, CheckSquare, Download, HelpCircle, FileText } from 'lucide-react';
-import { useAppStore } from '../../state/appStore';
+import { useDialogActions, useQueueData, useSettingsData, useToastActions, useI18n } from '../../store/selectors';
 import { novaClient } from '../../api/novaClient';
 import { TextField, SelectField, Switch, Checkbox, DialogButton } from '../../components/primitives';
 
 export const WebpageGrabberDialog: React.FC = () => {
-  const { closeDialog, queues, settings, addToast, t } = useAppStore();
+  const { closeDialog } = useDialogActions();
+  const queues = useQueueData();
+  const settings = useSettingsData();
+  const { addToast } = useToastActions();
+  const t = useI18n();
   const [url, setUrl] = useState('');
   const [savePath, setSavePath] = useState(
     settings.saveAndCategories.categoryFolders.document || settings.saveAndCategories.defaultFolder || '',

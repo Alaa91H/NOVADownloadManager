@@ -16,29 +16,34 @@ import {
   Bell,
   Send,
 } from 'lucide-react';
-import { useAppStore } from '../state/appStore';
+import {
+  useTaskData,
+  useTaskSelectors,
+  useTaskActions,
+  useSettingsData,
+  useSettingsActions,
+  useDialogActions,
+  useToastActions,
+  useSearchQuery,
+  useNotificationsData,
+  useI18n,
+} from '../store/selectors';
 import type { CustomButtonAction, CustomButtonIcon, ToolbarButtonId } from '../types/desktop-ui.types';
 import { novaClient } from '../api/novaClient';
 
 type DropdownId = 'newDownload' | 'resume' | 'stop' | 'delete' | null;
 
 export const TopBar: React.FC = () => {
-  const {
-    selectedTaskId,
-    tasks,
-    pauseTask,
-    resumeTask,
-    deleteTask,
-    searchQuery,
-    setSearchQuery,
-    openDialog,
-    addToast,
-    settings,
-    updateSettings,
-    isNotificationsMuted,
-    setIsNotificationsMuted,
-    t,
-  } = useAppStore();
+  const { selectedTaskId } = useTaskSelectors();
+  const tasks = useTaskData();
+  const { pauseTask, resumeTask, deleteTask } = useTaskActions();
+  const { searchQuery, setSearchQuery } = useSearchQuery();
+  const { openDialog } = useDialogActions();
+  const { addToast } = useToastActions();
+  const settings = useSettingsData();
+  const { updateSettings } = useSettingsActions();
+  const { isNotificationsMuted, setIsNotificationsMuted } = useNotificationsData();
+  const t = useI18n();
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId);
 
@@ -74,7 +79,7 @@ export const TopBar: React.FC = () => {
       return;
     }
     inactive.forEach((t) => {
-      resumeTask(t.id);
+      void resumeTask(t.id);
     });
     addToast('success', t('topbar_resume_all_title'), t('topbar_resume_all_done', { count: inactive.length }));
   };
@@ -86,7 +91,7 @@ export const TopBar: React.FC = () => {
       return;
     }
     active.forEach((t) => {
-      pauseTask(t.id);
+      void pauseTask(t.id);
     });
     addToast('warning', t('topbar_stop_all_title'), t('topbar_stop_all_done', { count: active.length }));
   };
@@ -372,7 +377,7 @@ export const TopBar: React.FC = () => {
               <button
                 onClick={() => {
                   if (canResumeSelected && selectedTaskId) {
-                    resumeTask(selectedTaskId);
+                    void resumeTask(selectedTaskId);
                   } else {
                     handleResumeAll();
                   }
@@ -408,7 +413,7 @@ export const TopBar: React.FC = () => {
                 <div className="absolute top-full left-0 mt-1.5 w-52 bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded-lg shadow-xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100 flex flex-col gap-0.5">
                   <button
                     onClick={() => {
-                      if (canResumeSelected && selectedTaskId) resumeTask(selectedTaskId);
+                      if (canResumeSelected && selectedTaskId) void resumeTask(selectedTaskId);
                       closeDropdown();
                     }}
                     disabled={!canResumeSelected}
@@ -440,7 +445,7 @@ export const TopBar: React.FC = () => {
               <button
                 onClick={() => {
                   if (canStopSelected && selectedTaskId) {
-                    pauseTask(selectedTaskId);
+                    void pauseTask(selectedTaskId);
                   } else {
                     handleStopAll();
                   }
@@ -476,7 +481,7 @@ export const TopBar: React.FC = () => {
                 <div className="absolute top-full left-0 mt-1.5 w-52 bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded-lg shadow-xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100 flex flex-col gap-0.5">
                   <button
                     onClick={() => {
-                      if (canStopSelected && selectedTaskId) pauseTask(selectedTaskId);
+                      if (canStopSelected && selectedTaskId) void pauseTask(selectedTaskId);
                       closeDropdown();
                     }}
                     disabled={!canStopSelected}

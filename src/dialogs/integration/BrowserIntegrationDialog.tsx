@@ -13,14 +13,18 @@ import {
 } from 'lucide-react';
 import { novaClient, type BrowserExtensionHealth } from '../../api/novaClient';
 import { tauriClient } from '../../api/tauriClient';
-import { useAppStore } from '../../state/appStore';
+import { useDialogActions, useSettingsData, useSettingsActions, useToastActions, useI18n } from '../../store/selectors';
 import { writeClipboardText } from '../../utils/clipboard';
 import { DialogButton, Button } from '../../components/primitives';
 
 const EXTENSION_RELEASES_URL = 'https://github.com/Alaa91H/NovaDownloadManager/releases/latest';
 
 export const BrowserIntegrationDialog: React.FC = () => {
-  const { closeDialog, settings, updateSettings, addToast, t } = useAppStore();
+  const { closeDialog } = useDialogActions();
+  const settings = useSettingsData();
+  const { updateSettings } = useSettingsActions();
+  const { addToast } = useToastActions();
+  const t = useI18n();
   const [health, setHealth] = useState<BrowserExtensionHealth | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [extensionPaths, setExtensionPaths] = useState<{ devPath: string; resourcePath: string } | null>(null);

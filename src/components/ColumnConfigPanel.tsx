@@ -1,6 +1,6 @@
 import React from 'react';
 import { GripVertical } from 'lucide-react';
-import { useAppStore } from '../state/appStore';
+import { useI18n } from '../store/selectors';
 
 const colKeyToTKey: Record<string, string> = {
   name: 'col_name',
@@ -39,7 +39,7 @@ const ColumnConfigPanel: React.FC<ColumnConfigPanelProps> = ({
   handleCustomizeDrop,
   handleCustomizeDragEnd,
 }) => {
-  const { t } = useAppStore();
+  const t = useI18n();
   return (
     <div className="absolute left-3 top-10 z-[100] w-64 p-3 bg-[var(--bg-surface-elevated)] border border-[var(--border-color)] rounded-lg shadow-xl space-y-2 animate-in fade-in duration-100">
       <div className="border-b border-[var(--border-color)] pb-1.5 mb-1">

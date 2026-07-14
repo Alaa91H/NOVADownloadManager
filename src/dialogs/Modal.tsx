@@ -5,7 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { ExternalLink, X } from 'lucide-react';
 import { Logo } from '../components/Logo';
-import { useAppStore } from '../state/appStore';
+import { useDialogData, useMinimizedProgress, useI18n } from '../store/selectors';
 import { type DownloadItem } from '../types/desktop-ui.types';
 
 interface ModalProps {
@@ -29,13 +29,15 @@ export const Modal: React.FC<ModalProps> = ({
   id,
   preventLightDismiss = false,
 }) => {
-  const { dialog, minimizeActiveProgressToTaskbar, t } = useAppStore();
+  const { payload: dialogPayload } = useDialogData();
+  const { minimizeActiveProgressToTaskbar } = useMinimizedProgress();
+  const t = useI18n();
   const modalRef = useRef<HTMLDivElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
 
   const handleMinimizeToTaskbar = () => {
     if (id === 'active-progress-modal') {
-      const task = dialog.payload as DownloadItem | null;
+      const task = dialogPayload as DownloadItem | null;
       if (task) {
         if (isTauri()) {
           // Minimize to the OS taskbar (keeping the app icon and its download
@@ -53,7 +55,7 @@ export const Modal: React.FC<ModalProps> = ({
   // outside the main app frame. A single window per task is reused if it exists.
   const handlePopOut = () => {
     if (id !== 'active-progress-modal' || !isTauri()) return;
-    const task = dialog.payload as DownloadItem | null;
+    const task = dialogPayload as DownloadItem | null;
     if (!task) return;
     const label = `progress-${task.id.replace(/[^a-zA-Z0-9_-]/g, '')}`;
     void (async () => {

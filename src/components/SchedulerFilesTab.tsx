@@ -13,7 +13,7 @@ import {
 import type { DownloadItem } from '../types/desktop-ui.types';
 import type { ContextMenuOption } from './primitives/ContextMenu';
 import { ContextMenu } from './primitives/ContextMenu';
-import { useAppStore } from '../state/appStore';
+import { useDialogActions, useI18n } from '../store/selectors';
 import { formatBytes } from '../initialData';
 
 const QUEUE_TASK_DRAG_TYPE = 'application/x-nova-queue-task';
@@ -51,7 +51,8 @@ export const SchedulerFilesTab: React.FC<SchedulerFilesTabProps> = ({
   onMoveToEdge,
   onReorder,
 }) => {
-  const { t, openDialog } = useAppStore();
+  const t = useI18n();
+  const { openDialog } = useDialogActions();
 
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);

@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import type { AppSettings } from '../../../types/desktop-ui.types';
 import { FormRow, Switch, TextField } from '../../../components/primitives';
 import { Puzzle, RefreshCw, Eye, EyeOff } from 'lucide-react';
-import { useAppStore } from '../../../state/appStore';
+import { useDialogActions, useI18n } from '../../../store/selectors';
 import { novaClient } from '../../../api/novaClient';
 
 interface Props {
@@ -19,7 +19,8 @@ const generatePairingToken = () => {
 };
 
 export const BrowserAndIntegration: React.FC<Props> = ({ settings, updateSetting, onAddToast }) => {
-  const { t, openDialog } = useAppStore();
+  const t = useI18n();
+  const { openDialog } = useDialogActions();
   const [showPairingToken, setShowPairingToken] = useState(false);
   const [isPairing, setIsPairing] = useState(false);
   const ignoreSites = settings.extra.ignoreSites;

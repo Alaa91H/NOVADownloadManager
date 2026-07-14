@@ -5,7 +5,7 @@ import { FormRow, Switch, TextField, SelectField, Checkbox } from '../../../comp
 import { Globe, RefreshCw, ShieldCheck, Gauge } from 'lucide-react';
 import { SpeedLimitInput } from '../../../components/SpeedLimitInput';
 import { tauriClient } from '../../../api/tauriClient';
-import { useAppStore } from '../../../state/appStore';
+import { useI18n } from '../../../store/selectors';
 
 /** DoH resolver IPs probed (over TCP 443) to report reachability + latency. */
 const DNS_ENDPOINTS: Record<string, string> = {
@@ -31,7 +31,7 @@ interface Props {
 }
 
 export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting, onAddToast }) => {
-  const { t } = useAppStore();
+  const t = useI18n();
   const [proxyTestStatus, setProxyTestStatus] = useState<'idle' | 'testing' | 'pass' | 'fail'>('idle');
   const [proxyErrorMessage, setProxyErrorMessage] = useState('');
   const [dnsResults, setDnsResults] = useState<Record<string, DnsProbe | undefined>>({});

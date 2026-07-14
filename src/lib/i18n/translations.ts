@@ -3,7 +3,7 @@ import { en } from './en';
 export type Language = 'en' | 'ar' | 'bg' | 'bn' | 'cs' | 'da' | 'de' | 'el' | 'es' | 'fa' | 'fi' | 'fr' | 'he' | 'hi' | 'hu' | 'id' | 'it' | 'ja' | 'ko' | 'ms' | 'nl' | 'no' | 'pl' | 'pt' | 'ro' | 'ru' | 'sk' | 'sv' | 'th' | 'tr' | 'uk' | 'ur' | 'vi' | 'zh' | 'zh-TW';
 
 const loaders: Record<Language, () => Promise<Record<string, unknown>>> = {
-  'en': () => import('./en'),
+  'en': () => Promise.resolve({ en }),
   'ar': () => import('./ar'),
   'bg': () => import('./bg'),
   'bn': () => import('./bn'),

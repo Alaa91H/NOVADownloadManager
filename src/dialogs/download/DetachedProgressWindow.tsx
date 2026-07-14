@@ -1,11 +1,12 @@
 /* src/dialogs/download/DetachedProgressWindow.tsx */
-import React, { useEffect } from 'react';
+import React, { useEffect, lazy, Suspense } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Minus, X } from 'lucide-react';
-import { useAppStore } from '../../state/appStore';
+import { useTaskData, useBridgeData, useI18n } from '../../store/selectors';
 import { Logo } from '../../components/Logo';
-import { ActiveProgressDialog } from './ActiveProgressDialog';
+
+const ActiveProgressDialog = lazy(() => import('./ActiveProgressDialog').then((m) => ({ default: m.ActiveProgressDialog })));
 
 /**
  * Full-window host for a single download's live progress, shown in a separate
@@ -14,7 +15,9 @@ import { ActiveProgressDialog } from './ActiveProgressDialog';
  * same daemon connection the primary window uses.
  */
 export const DetachedProgressWindow: React.FC<{ taskId: string }> = ({ taskId }) => {
-  const { tasks, bridge, t } = useAppStore();
+  const tasks = useTaskData();
+  const bridge = useBridgeData();
+  const t = useI18n();
   const task = tasks.find((tt) => tt.id === taskId);
 
   const minimize = () => {
@@ -74,7 +77,9 @@ export const DetachedProgressWindow: React.FC<{ taskId: string }> = ({ taskId })
             <p className="text-xs">{t('shell_connecting')}</p>
           </div>
         ) : task ? (
-          <ActiveProgressDialog taskId={taskId} />
+          <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" /></div>}>
+            <ActiveProgressDialog taskId={taskId} />
+          </Suspense>
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-2">
             <p className="text-xs text-[var(--danger)]">{t('task_no_selection')}</p>

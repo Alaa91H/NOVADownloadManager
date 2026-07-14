@@ -1,6 +1,6 @@
 ﻿/* src/dialogs/download/ActiveProgressDialog.tsx */
 import React, { useState, useMemo } from 'react';
-import { useAppStore } from '../../state/appStore';
+import { useDialogData, useTaskData, useTaskActions, useSettingsData, useSettingsActions, useI18n } from '../../store/selectors';
 import type { DownloadItem, DownloadSegment } from '../../types/desktop-ui.types';
 import { formatBytes } from '../../initialData';
 import { formatSpeed, formatElapsed } from '../../utils/formatUtils';
@@ -203,7 +203,12 @@ const SegmentCard: React.FC<{
 SegmentCard.displayName = 'SegmentCard';
 
 export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) => {
-  const { dialog, tasks, pauseTask, resumeTask, settings, updateSettings, t } = useAppStore();
+  const dialog = useDialogData();
+  const tasks = useTaskData();
+  const { pauseTask, resumeTask } = useTaskActions();
+  const settings = useSettingsData();
+  const { updateSettings } = useSettingsActions();
+  const t = useI18n();
   const taskFromPayload = dialog.payload as DownloadItem | null | undefined;
   // An explicit taskId (detached window) wins; otherwise fall back to the
   // dialog payload, then to any actively downloading task.
@@ -605,14 +610,14 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
         <div className="flex items-center gap-2">
           {isDownloading ? (
             <button
-              onClick={() => { pauseTask(task.id); }}
+              onClick={() => { void pauseTask(task.id); }}
               className="px-6 py-1.5 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] active:scale-95 text-white text-[11px] font-bold rounded-lg shadow-sm transition-all cursor-pointer min-w-[80px]"
             >
               {t('topbar_stop')}
             </button>
           ) : task.status === 'paused' || task.status === 'error' ? (
             <button
-              onClick={() => { resumeTask(task.id); }}
+              onClick={() => { void resumeTask(task.id); }}
               className="px-6 py-1.5 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] active:scale-95 text-white text-[11px] font-bold rounded-lg shadow-sm transition-all cursor-pointer min-w-[80px]"
             >
               {t('progress_resume_btn')}

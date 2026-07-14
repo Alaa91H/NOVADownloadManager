@@ -1211,4 +1211,6 @@ set_tab_direct_download: 'Direct Download',
   settings_import_success_msg: 'Settings were imported and applied successfully.',
   settings_import_error: 'Import Error',
   settings_import_error_msg: 'Could not parse the selected JSON file.',
-};
+  'col_elapsed': 'Elapsed',
+  'progress_elapsed': 'Elapsed',
+  'table_elapsed_label': 'Elapsed',};

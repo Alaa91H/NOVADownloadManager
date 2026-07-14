@@ -476,6 +476,75 @@ pub fn is_strong_etag(etag: &str) -> bool {
     !etag.trim().starts_with("W/")
 }
 
+// ── HTML meta-refresh helpers (moved from routes.rs to break circular dependency) ──
+
+/// Parse HTML content for `<meta http-equiv="refresh" content="5;URL='...'">`
+/// patterns commonly used by mirrors that redirect via
+/// HTML rather than HTTP 3xx. Returns the redirected URL if found.
+pub(crate) fn parse_meta_refresh_url(html: &str) -> Option<String> {
+    let lower = html.to_ascii_lowercase();
+    for tag_match in lower.match_indices("<meta") {
+        let start = tag_match.0;
+        let Some(end) = lower[start..].find('>') else {
+            continue;
+        };
+        let tag_lower = &lower[start..start + end + 1];
+        let tag_orig = &html[start..start + end + 1];
+        if !(tag_lower.contains("http-equiv") && tag_lower.contains("refresh")) {
+            continue;
+        }
+        // `content="<delay>; url=<target>"` — find the URL and delimit it at the
+        // matching/closing quote, whitespace or the end of the tag. Handles both
+        // quoted (`url='...'`) and bare (`url=...`) forms.
+        let Some(pos) = tag_lower.rfind("url=") else {
+            continue;
+        };
+        let after = tag_orig[pos + 4..].trim_start();
+        let (opening_quote, body) = match after.chars().next() {
+            Some(q @ ('\'' | '"')) => (Some(q), &after[q.len_utf8()..]),
+            _ => (None, after),
+        };
+        let end_idx = body
+            .find(|c: char| {
+                c == '>' || c.is_whitespace() || c == '"' || c == '\'' || Some(c) == opening_quote
+            })
+            .unwrap_or(body.len());
+        let raw = body[..end_idx].trim();
+        if !raw.is_empty() {
+            // Meta-refresh URLs are HTML-escaped (e.g. `&amp;` in query strings).
+            return Some(decode_html_entities(raw));
+        }
+    }
+    None
+}
+
+/// Decode the small set of HTML entities that appear in redirect/link URLs.
+pub(crate) fn decode_html_entities(s: &str) -> String {
+    s.replace("&amp;", "&")
+        .replace("&#38;", "&")
+        .replace("&#x26;", "&")
+        .replace("&#x3d;", "=")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+}
+
+/// Resolve a meta-refresh redirect URL relative to the page URL if needed.
+pub(crate) fn refreshed_url(refresh: String, page_url: &str) -> String {
+    if refresh.starts_with("http://") || refresh.starts_with("https://") {
+        refresh
+    } else if let Some(base) = page_url.rsplit_once('/') {
+        format!(
+            "{}/{}",
+            base.0.trim_end_matches('/'),
+            refresh.trim_start_matches('/')
+        )
+    } else {
+        refresh
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -953,5 +1022,78 @@ mod tests {
         // "Wed, 21 Oct 2015 07:28:00 EST" should be rejected — IMF-fixdate
         // requires GMT (RFC 9110 §15.5.3).
         assert!(parse_retry_after_date("Wed, 21 Oct 2015 07:28:00 EST").is_none());
+    }
+
+    // ── parse_meta_refresh_url ───────────────────────────────────────────
+
+    #[test]
+    fn meta_refresh_basic() {
+        let html = r#"<meta http-equiv="refresh" content="5;URL='https://example.com/dl/file.zip'">"#;
+        assert_eq!(
+            parse_meta_refresh_url(html),
+            Some("https://example.com/dl/file.zip".to_string())
+        );
+    }
+
+    #[test]
+    fn meta_refresh_bare_url() {
+        let html = r#"<META HTTP-EQUIV="refresh" CONTENT="0;URL=https://example.com/redir">"#;
+        assert_eq!(
+            parse_meta_refresh_url(html),
+            Some("https://example.com/redir".to_string())
+        );
+    }
+
+    #[test]
+    fn meta_refresh_entities() {
+        let html =
+            r#"<meta http-equiv="refresh" content="0;URL=a.cgi?x=1&amp;y=2">"#;
+        assert_eq!(
+            parse_meta_refresh_url(html),
+            Some("a.cgi?x=1&y=2".to_string())
+        );
+    }
+
+    #[test]
+    fn meta_refresh_none() {
+        assert!(parse_meta_refresh_url("<html><head></head></html>").is_none());
+    }
+
+    // ── decode_html_entities ─────────────────────────────────────────────
+
+    #[test]
+    fn decode_entities() {
+        assert_eq!(decode_html_entities("a&amp;b"), "a&b");
+        assert_eq!(decode_html_entities("&#38;x"), "&x");
+        assert_eq!(decode_html_entities("&#x26;x"), "&x");
+        assert_eq!(decode_html_entities("a&amp; b=&#39;c&#39;"), "a& b='c'");
+    }
+
+    // ── refreshed_url ────────────────────────────────────────────────────
+
+    #[test]
+    fn refreshed_url_absolute() {
+        assert_eq!(
+            refreshed_url("https://example.com/redir".into(), "https://example.com/page"),
+            "https://example.com/redir"
+        );
+    }
+
+    #[test]
+    fn refreshed_url_relative() {
+        assert_eq!(
+            refreshed_url("file.zip".into(), "https://example.com/dl/page"),
+            "https://example.com/dl/file.zip"
+        );
+    }
+
+    #[test]
+    fn refreshed_url_leading_slash() {
+        // Leading-slash paths are joined relative to the base directory, not root.
+        // "dl/" + "file.zip" => "dl/file.zip"
+        assert_eq!(
+            refreshed_url("/file.zip".into(), "https://example.com/dl/page"),
+            "https://example.com/dl/file.zip"
+        );
     }
 }

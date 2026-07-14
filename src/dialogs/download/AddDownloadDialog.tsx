@@ -1,7 +1,7 @@
 ﻿/* src/dialogs/download/AddDownloadDialog.tsx */
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { Video, ArrowRight, RefreshCw, Link } from 'lucide-react';
-import { useAppStore } from '../../state/appStore';
+import { useDialogData, useDialogActions, useQueueData, useSettingsData, useTaskActions, useToastActions, useI18n } from '../../store/selectors';
 import { tauriClient } from '../../api/tauriClient';
 import { novaClient } from '../../api/novaClient';
 import type { FileType } from '../../types/desktop-ui.types';
@@ -13,7 +13,13 @@ import { TextField, SelectField, Checkbox } from '../../components/primitives';
 import { useEngineCapabilities } from '../../capabilities/EngineCapabilityContext';
 
 export const AddDownloadDialog: React.FC = () => {
-  const { dialog, closeDialog, queues, settings, addTask, addToast, openDialog, t } = useAppStore();
+  const dialog = useDialogData();
+  const { closeDialog, openDialog } = useDialogActions();
+  const queues = useQueueData();
+  const settings = useSettingsData();
+  const { addTask } = useTaskActions();
+  const { addToast } = useToastActions();
+  const t = useI18n();
   const engineCapabilities = useEngineCapabilities();
 
   const buildConfiguredProxy = () => {

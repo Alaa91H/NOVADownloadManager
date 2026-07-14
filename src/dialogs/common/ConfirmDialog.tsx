@@ -1,12 +1,15 @@
 ﻿/* src/dialogs/common/ConfirmDialog.tsx */
 import React, { useState } from 'react';
 import { Trash2 } from 'lucide-react';
-import { useAppStore } from '../../state/appStore';
+import { useDialogData, useDialogActions, useTaskActions, useI18n } from '../../store/selectors';
 import { Checkbox, DialogButton } from '../../components/primitives';
 import type { DownloadItem } from '../../types/desktop-ui.types';
 
 export const ConfirmDialog: React.FC = () => {
-  const { dialog, closeDialog, deleteTask, t } = useAppStore();
+  const dialog = useDialogData();
+  const { closeDialog } = useDialogActions();
+  const { deleteTask } = useTaskActions();
+  const t = useI18n();
   const [deleteDisk, setDeleteDisk] = useState(false);
   const payload = dialog.payload;
   const task: DownloadItem | null =

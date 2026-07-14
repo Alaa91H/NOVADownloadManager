@@ -1,11 +1,13 @@
 ﻿/* src/dialogs/common/GenericConfirmDialog.tsx */
 import React from 'react';
 import { AlertTriangle, CheckCircle, Info } from 'lucide-react';
-import { useAppStore } from '../../state/appStore';
+import { useDialogData, useDialogActions, useI18n } from '../../store/selectors';
 import { DialogButton } from '../../components/primitives';
 
 export const GenericConfirmDialog: React.FC = () => {
-  const { dialog, closeDialog, t } = useAppStore();
+  const dialog = useDialogData();
+  const { closeDialog } = useDialogActions();
+  const t = useI18n();
   const {
     message,
     onConfirm,

@@ -3,7 +3,7 @@ import React from 'react';
 import type { AppThemeSettings, AppSettings, AppTheme } from '../../../types/desktop-ui.types';
 import { SelectField, Checkbox } from '../../../components/primitives';
 import { Palette, Shield, Check, Monitor } from 'lucide-react';
-import { useAppStore } from '../../../state/appStore';
+import { useI18n } from '../../../store/selectors';
 import { InterfaceCustomization } from './InterfaceCustomization';
 
 // Swatch colors give a faithful mini-preview of each theme without applying it.
@@ -30,7 +30,7 @@ export const AppearanceAndSecurity: React.FC<Props> = ({
   updateThemeSetting,
   updateSetting,
 }) => {
-  const { t } = useAppStore();
+  const t = useI18n();
 
   return (
     <div className="space-y-6 text-left animate-in fade-in duration-200">

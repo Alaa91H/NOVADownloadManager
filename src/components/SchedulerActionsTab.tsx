@@ -1,6 +1,6 @@
 ﻿import React from 'react';
 import { Server, Shield, ShieldAlert, Volume2, Globe } from 'lucide-react';
-import { useAppStore } from '../state/appStore';
+import { useI18n } from '../store/selectors';
 
 interface SchedulerActionsTabProps {
   shutdownOnComplete: boolean;
@@ -31,7 +31,7 @@ export const SchedulerActionsTab: React.FC<SchedulerActionsTabProps> = ({
   webhookUrl,
   onWebhookUrlChange,
 }) => {
-  const { t } = useAppStore();
+  const t = useI18n();
 
   return (
     <div className="space-y-4">

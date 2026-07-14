@@ -1,12 +1,16 @@
 ﻿/* src/dialogs/tasks/UpdateLinkDialog.tsx */
 import React, { useState } from 'react';
 import { Globe, Link2, AlertCircle, FileEdit, ArrowRight } from 'lucide-react';
-import { useAppStore } from '../../state/appStore';
+import { useDialogData, useDialogActions, useTaskActions, useToastActions, useI18n } from '../../store/selectors';
 import { TextField, DialogButton } from '../../components/primitives';
 import type { DownloadItem } from '../../types/desktop-ui.types';
 
 export const UpdateLinkDialog: React.FC = () => {
-  const { dialog, closeDialog, updateTaskProperties, addToast, t } = useAppStore();
+  const dialog = useDialogData();
+  const { closeDialog } = useDialogActions();
+  const { updateTaskProperties } = useTaskActions();
+  const { addToast } = useToastActions();
+  const t = useI18n();
 
   const task = dialog.payload as DownloadItem | undefined;
   const [mode, setMode] = useState<'browser' | 'manual'>('browser');

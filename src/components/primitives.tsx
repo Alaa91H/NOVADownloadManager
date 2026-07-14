@@ -2,7 +2,7 @@
 import type { ReactNode } from 'react';
 import React from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { useAppStore } from '../state/appStore';
+import { useI18n } from '../store/selectors';
 import type { DownloadStatus } from '../types/desktop-ui.types';
 
 // --- Card primitive ---
@@ -198,7 +198,7 @@ export const Switch: React.FC<SwitchProps> = ({ checked, onChange, label, id }) 
         type="button"
         role="switch"
         aria-checked={checked}
-        onClick={() => onChange(!checked)}
+        onClick={() => { onChange(!checked); }}
         className={`relative w-8 h-4.5 rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--bg-surface-elevated)] ${checked ? 'bg-[var(--accent-primary)]' : 'bg-[var(--border-color-hover)]'}`}
       >
         <span
@@ -304,7 +304,7 @@ interface StatusPillProps {
   status: DownloadStatus;
 }
 const StatusPillInner: React.FC<StatusPillProps> = ({ status }) => {
-  const { t } = useAppStore();
+  const t = useI18n();
   const meta: Record<DownloadStatus, { bg: string; key: string }> = {
     downloading: { bg: 'bg-[var(--info-bg)] text-[var(--info)] border-[var(--info-border)]', key: 'status_downloading' },
     completed: { bg: 'bg-[var(--success-bg)] text-[var(--success)] border-[var(--success-border)]', key: 'status_completed' },

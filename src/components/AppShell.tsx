@@ -1,14 +1,29 @@
 ﻿/* src/components/AppShell.tsx */
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, lazy, Suspense } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow, ProgressBarStatus } from '@tauri-apps/api/window';
-import { useAppStore } from '../state/appStore';
+import {
+  useTaskData,
+  useTaskSelectors,
+  useTaskActions,
+  useSettingsData,
+  useSettingsActions,
+  useBridgeData,
+  useDialogData,
+  useDialogActions,
+  useToastData,
+  useToastActions,
+  useNavigationData,
+  useNavigationActions,
+  useNotificationsData,
+  useI18n,
+} from '../store/selectors';
 import { TopBar } from './TopBar';
 import { TaskTable } from './TaskTable';
 import { StatusBar } from './StatusBar';
-import { SettingsPage } from '../pages/SettingsPage';
-import { SchedulerPage } from '../pages/SchedulerPage';
-import { MediaDownloadPage } from '../pages/MediaDownloadPage';
+const SettingsPage = lazy(() => import('../pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const SchedulerPage = lazy(() => import('../pages/SchedulerPage').then((m) => ({ default: m.SchedulerPage })));
+const MediaDownloadPage = lazy(() => import('../pages/MediaDownloadPage').then((m) => ({ default: m.MediaDownloadPage })));
 import DialogRoot from '../dialogs/DialogRoot';
 import { AlertCircle, CheckCircle, Info, X, RefreshCw, Minus, Square, Copy } from 'lucide-react';
 import { Logo } from './Logo';
@@ -52,26 +67,20 @@ export const AppShell: React.FC = () => {
 };
 
 const AppShellInner: React.FC = () => {
-  const {
-    toasts,
-    removeToast,
-    openDialog,
-    addToast,
-    bridge,
-    settings,
-    updateSettings,
-    dialog,
-    activePage,
-    setActivePage,
-    tasks,
-    selectedTaskId,
-    pauseTask,
-    resumeTask,
-    deleteTask,
-    isNotificationsMuted,
-    setIsNotificationsMuted,
-    t,
-  } = useAppStore();
+  const toasts = useToastData();
+  const { removeToast, addToast } = useToastActions();
+  const { openDialog } = useDialogActions();
+  const bridge = useBridgeData();
+  const settings = useSettingsData();
+  const { updateSettings } = useSettingsActions();
+  const dialog = useDialogData();
+  const { activePage } = useNavigationData();
+  const { setActivePage } = useNavigationActions();
+  const tasks = useTaskData();
+  const { selectedTaskId } = useTaskSelectors();
+  const { pauseTask, resumeTask, deleteTask } = useTaskActions();
+  const { isNotificationsMuted, setIsNotificationsMuted } = useNotificationsData();
+  const t = useI18n();
 
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [connectTimer, setConnectTimer] = useState(0);
@@ -232,7 +241,7 @@ const AppShellInner: React.FC = () => {
         return;
       }
       active.forEach((task) => {
-        pauseTask(task.id);
+        void pauseTask(task.id);
       });
       addToast('warning', t('topbar_stop_all_title'), t('topbar_stop_all_done', { count: active.length }));
     };
@@ -244,7 +253,7 @@ const AppShellInner: React.FC = () => {
         return;
       }
       inactive.forEach((task) => {
-        resumeTask(task.id);
+        void resumeTask(task.id);
       });
       addToast('success', t('topbar_resume_all_title'), t('topbar_resume_all_done', { count: inactive.length }));
     };
@@ -280,7 +289,7 @@ const AppShellInner: React.FC = () => {
             selectedTask &&
             (selectedTask.status === 'paused' || selectedTask.status === 'queued' || selectedTask.status === 'error')
           ) {
-            resumeTask(selectedTask.id);
+            void resumeTask(selectedTask.id);
           }
           break;
         case 'resumeAll':
@@ -288,7 +297,7 @@ const AppShellInner: React.FC = () => {
           break;
         case 'stopSelected':
           if (selectedTask?.status === 'downloading') {
-            pauseTask(selectedTask.id);
+            void pauseTask(selectedTask.id);
           }
           break;
         case 'stopAll':
@@ -537,11 +546,17 @@ const AppShellInner: React.FC = () => {
         {/* 2. Main Workspace Layout — downloads view or a full page (settings / lists) */}
         <div className="flex-1 flex flex-col h-full overflow-hidden">
           {activePage === 'settings' ? (
-            <SettingsPage />
+            <Suspense fallback={<div className="flex-1 flex items-center justify-center"><div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" /></div>}>
+              <SettingsPage />
+            </Suspense>
           ) : activePage === 'scheduler' ? (
-            <SchedulerPage />
+            <Suspense fallback={<div className="flex-1 flex items-center justify-center"><div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" /></div>}>
+              <SchedulerPage />
+            </Suspense>
           ) : activePage === 'mediaDownload' ? (
-            <MediaDownloadPage />
+            <Suspense fallback={<div className="flex-1 flex items-center justify-center"><div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" /></div>}>
+              <MediaDownloadPage />
+            </Suspense>
           ) : (
             <>
               {/* Top bar toolbar */}

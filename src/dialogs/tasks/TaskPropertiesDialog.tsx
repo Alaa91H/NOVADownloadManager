@@ -1,7 +1,7 @@
 ﻿/* src/dialogs/tasks/TaskPropertiesDialog.tsx */
 import React, { useState } from 'react';
 import { HardDrive } from 'lucide-react';
-import { useAppStore } from '../../state/appStore';
+import { useDialogData, useDialogActions, useTaskActions, useToastActions, useI18n } from '../../store/selectors';
 import { tauriClient } from '../../api/tauriClient';
 import { TextField, SelectField, Checkbox, DialogButton, Button } from '../../components/primitives';
 import type { FileType, DownloadItem } from '../../types/desktop-ui.types';
@@ -9,7 +9,11 @@ import { formatBytes } from '../../initialData';
 import { useEngineCapabilities } from '../../capabilities/EngineCapabilityContext';
 
 export const TaskPropertiesDialog: React.FC = () => {
-  const { dialog, closeDialog, updateTaskProperties, addToast, t } = useAppStore();
+  const dialog = useDialogData();
+  const { closeDialog } = useDialogActions();
+  const { updateTaskProperties } = useTaskActions();
+  const { addToast } = useToastActions();
+  const t = useI18n();
   const engineCapabilities = useEngineCapabilities();
   const task = dialog.payload as DownloadItem | undefined;
 

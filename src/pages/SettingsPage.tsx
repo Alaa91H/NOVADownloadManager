@@ -1,13 +1,13 @@
 /* src/pages/SettingsPage.tsx */
 import React from 'react';
 import { Settings } from 'lucide-react';
-import { useAppStore } from '../state/appStore';
+import { useI18n } from '../store/selectors';
 import { PageHeader } from './PageHeader';
 import { SettingsDialog } from '../dialogs/settings/SettingsDialog';
 
 /** Full-page Settings view (replaces the old floating settings dialog). */
 export const SettingsPage: React.FC = () => {
-  const { t } = useAppStore();
+  const t = useI18n();
 
   return (
     <div className="app-page flex-1 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-app)]">

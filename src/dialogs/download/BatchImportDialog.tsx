@@ -1,13 +1,18 @@
 ﻿/* src/dialogs/download/BatchImportDialog.tsx */
 import React, { useState } from 'react';
 import { Layers, Clipboard, AlertCircle, Sliders } from 'lucide-react';
-import { useAppStore } from '../../state/appStore';
+import { useDialogActions, useTaskActions, useToastActions, useSettingsData, useQueueData, useI18n } from '../../store/selectors';
 import { DialogButton, Button, SelectField, TextField } from '../../components/primitives';
 import { readClipboardText } from '../../utils/clipboard';
 import { useEngineCapabilities } from '../../capabilities/EngineCapabilityContext';
 
 export const BatchImportDialog: React.FC = () => {
-  const { closeDialog, triggerBatchDownload, addToast, settings, queues, t } = useAppStore();
+  const { closeDialog } = useDialogActions();
+  const { triggerBatchDownload } = useTaskActions();
+  const { addToast } = useToastActions();
+  const settings = useSettingsData();
+  const queues = useQueueData();
+  const t = useI18n();
   const engineCapabilities = useEngineCapabilities();
   const [inputText, setInputText] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);

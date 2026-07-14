@@ -20,7 +20,7 @@ import {
   ChevronRight,
   FileText,
 } from 'lucide-react';
-import { useAppStore } from '../state/appStore';
+import { useDialogData, useDialogActions, useSettingsData, useTaskActions, useToastActions, useNavigationActions, useI18n } from '../store/selectors';
 import { novaClient, type MediaFormat, type MediaPlaylistEntry } from '../api/novaClient';
 import { tauriClient } from '../api/tauriClient';
 import { clearClipboardIfTextMatches } from '../utils/clipboard';
@@ -37,7 +37,13 @@ import { PlaylistBrowser } from '../components/media/PlaylistBrowser';
 /* ═══════════════════════════════════ main component ════════════════════════════════════ */
 
 export const MediaDownloadPage: React.FC = () => {
-  const { dialog, closeDialog, settings, addTask, addToast, t, setActivePage } = useAppStore();
+  const dialog = useDialogData();
+  const { closeDialog } = useDialogActions();
+  const settings = useSettingsData();
+  const { addTask } = useTaskActions();
+  const { addToast } = useToastActions();
+  const { setActivePage } = useNavigationActions();
+  const t = useI18n();
   const engineCapabilities = useEngineCapabilities();
 
   /* ── proxy helper ── */

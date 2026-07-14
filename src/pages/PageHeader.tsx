@@ -1,7 +1,7 @@
 /* src/pages/PageHeader.tsx */
 import React from 'react';
 import { ArrowLeft } from 'lucide-react';
-import { useAppStore } from '../state/appStore';
+import { useNavigationActions, useI18n } from '../store/selectors';
 
 interface PageHeaderProps {
   icon: React.ReactNode;
@@ -15,7 +15,8 @@ interface PageHeaderProps {
  * Renders a back button styled exactly like the download toolbar buttons.
  */
 export const PageHeader: React.FC<PageHeaderProps> = ({ icon, title, subtitle, actions }) => {
-  const { setActivePage, t } = useAppStore();
+  const { setActivePage } = useNavigationActions();
+  const t = useI18n();
 
   return (
     <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-[var(--border-color)] bg-[var(--bg-sidebar)] shrink-0 select-none">
