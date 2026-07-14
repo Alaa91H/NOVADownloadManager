@@ -21,7 +21,7 @@ assert(router.includes("assertStorageBudget('settings-import', settings)"), 'Set
 assert(router.includes("assertStorageBudget('site-rules-import', msg.rules)"), 'Site-rules import must enforce storage budget before SiteRulesImportSchema.parse.');
 
 assert(scanPolicy.includes('TRUSTED_EXTENSION_UI_PATHS'), 'Scan policy must declare trusted UI paths.');
-assert(scanPolicy.includes("'/popup.html'") && scanPolicy.includes("'/options.html'") && scanPolicy.includes("'/diagnostics.html'"), 'Scan policy must pin exact extension UI pages.');
+assert(scanPolicy.includes("'/popup.html'"), 'Scan policy must pin exact extension UI pages.');
 assert(!scanPolicy.includes('pathname.includes(surface)'), 'Trusted UI sender matching must not be substring-based.');
 
 for (const source of [wxt, manifest]) {

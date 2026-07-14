@@ -102,6 +102,7 @@ export class YoutubeAdapter extends PlatformAdapter {
     this.extractPlayerResponseAlt(content.html, results);
     this.extractItagUrls(content.html, results);
     this.extractVideoInfoFromHtml(content.html, results);
+    this.extractPlaylistItems(content.html, results);
     this.extractFromLinks(content.links, results);
 
     return results;
@@ -328,6 +329,32 @@ export class YoutubeAdapter extends PlatformAdapter {
       if (!r.metadata) r.metadata = {};
       if (!r.metadata.videoId) r.metadata.videoId = videoId;
       if (title && !r.metadata.title) r.metadata.title = title;
+    }
+  }
+
+  private extractPlaylistItems(html: string, results: PlatformMediaResult[]): void {
+    const playlistVideoIdRe = /"playlistVideoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/g;
+    const titleRe = /"title"\s*:\s*\{\s*"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"([^"]+)"/;
+    const seenVideoIds = new Set(results.map((r) => r.metadata?.videoId).filter(Boolean));
+    const playlistVideoIds = new Set<string>();
+    for (const match of html.matchAll(playlistVideoIdRe)) {
+      const vid = match[1];
+      if (vid && !seenVideoIds.has(vid)) playlistVideoIds.add(vid);
+    }
+    if (playlistVideoIds.size === 0) return;
+    const titleMatch = html.match(titleRe);
+    const playlistTitle = titleMatch?.[1];
+    for (const vid of playlistVideoIds) {
+      const watchUrl = `${PROTOCOL}://www.youtube.com/watch?v=${vid}`;
+      if (!results.some((r) => r.url === watchUrl)) {
+        results.push({
+          url: watchUrl,
+          type: 'video',
+          originalUrl: watchUrl,
+          confidenceDelta: 15,
+          metadata: { videoId: vid, source: 'playlist', title: playlistTitle ?? '' },
+        });
+      }
     }
   }
 

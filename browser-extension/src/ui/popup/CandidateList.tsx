@@ -1,30 +1,20 @@
 import React from 'react';
 import { Candidate } from '../../contracts/candidate.schema';
-import { formatBytes } from '../../utils/text';
 import { redactString } from '../../security/redaction';
 import { useI18n } from '../../i18n/react';
 import type { TranslateFunction } from '../../i18n';
 import { safeDisplayUrl } from '../../utils/url';
 import { handoffPolicyDecision } from '../../security/handoff-policy';
 import { explainCandidate, confidenceLevelOf } from '../../pipeline/evidence';
+import { qualityBadge, formatBitrate, formatDuration, formatFileSize, codecDisplayName, formatContainer } from '../../pipeline/quality-detector';
 import DetailGrid from '../components/DetailGrid';
-import QualitySelector from './QualitySelector';
 
 function quality(candidate: Candidate, t: TranslateFunction): string {
   if (candidate.width && candidate.height) return `${candidate.width}×${candidate.height}`;
   const bestVariant = candidate.variants?.slice().sort((a, b) => (b.height ?? 0) - (a.height ?? 0))[0];
   if (bestVariant?.width && bestVariant.height) return `${bestVariant.width}×${bestVariant.height}`;
-  if (candidate.bitrate) return `${Math.round(candidate.bitrate / 1000)} kbps`;
+  if (candidate.bitrate) return formatBitrate(candidate.bitrate) ?? `${Math.round(candidate.bitrate / 1000)} kbps`;
   return t('candidate.quality.unknown');
-}
-
-function duration(value?: number): string | undefined {
-  if (!value || !Number.isFinite(value)) return undefined;
-  const total = Math.round(value);
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const seconds = total % 60;
-  return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}` : `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
 function confidenceLabel(confidence: number, t: TranslateFunction): { label: string; tone: 'success' | 'warning' | 'danger' | 'info' } {
@@ -59,7 +49,55 @@ function evidenceSummary(candidate: Candidate): string[] {
   });
 }
 
-export function CandidateList({ candidates, selected, onToggle, onStreamSent, showHandoffWarnings = true, isCandidateSupported = () => true, unsupportedReason }: { candidates: Candidate[]; selected: Set<string>; onToggle(id: string): void; onStreamSent?: () => void; showHandoffWarnings?: boolean; isCandidateSupported?: (candidate: Candidate) => boolean; unsupportedReason?: (candidate: Candidate) => string | undefined }) {
+function mediaIcon(type: Candidate['mediaType']): string {
+  switch (type) {
+    case 'video': return '▶';
+    case 'audio': return '♫';
+    case 'image': return '◆';
+    case 'document': return '📄';
+    case 'archive': return '📦';
+    case 'manifest': return '📺';
+    case 'torrent':
+    case 'magnet': return '🧲';
+    case 'app': return '⚙';
+    default: return '•';
+  }
+}
+
+function QualityBadge({ candidate }: { candidate: Candidate }) {
+  const badge = qualityBadge(candidate.width, candidate.height);
+  if (!badge.label) return null;
+  return (
+    <span className="nova-quality-badge" style={{ '--badge-color': badge.color } as React.CSSProperties}>
+      {badge.label}
+    </span>
+  );
+}
+
+function SizeDisplay({ candidate }: { candidate: Candidate }) {
+  const text = candidate.sizeBytes ? formatFileSize(candidate.sizeBytes) : null;
+  return <span className="nova-candidate-size">{text || '—'}</span>;
+}
+
+function DurationDisplay({ candidate }: { candidate: Candidate }) {
+  const text = formatDuration(candidate.durationSec);
+  if (!text) return null;
+  return <span className="nova-candidate-duration">{text}</span>;
+}
+
+function CodecDisplay({ candidate }: { candidate: Candidate }) {
+  const codecText = codecDisplayName(candidate.codecs);
+  if (!codecText) return null;
+  return <span className="nova-candidate-codec">{codecText}</span>;
+}
+
+function ContainerBadge({ candidate }: { candidate: Candidate }) {
+  const container = formatContainer(candidate.extension);
+  if (!container) return null;
+  return <span className="nova-container-badge">{container}</span>;
+}
+
+export function CandidateList({ candidates, selected, onToggle, isCandidateSupported = () => true, unsupportedReason }: { candidates: Candidate[]; selected: Set<string>; onToggle(id: string): void; isCandidateSupported?: (candidate: Candidate) => boolean; unsupportedReason?: (candidate: Candidate) => string | undefined }) {
   const { t } = useI18n();
   if (candidates.length === 0) return <div className="nova-empty">
     <strong>{t('candidate.empty.title')}</strong>
@@ -79,27 +117,28 @@ export function CandidateList({ candidates, selected, onToggle, onStreamSent, sh
         <label className="nova-candidate-select">
           <input type="checkbox" disabled={!handoff.allowed || !runtimeSupported} checked={handoff.allowed && runtimeSupported && selected.has(candidate.id)} onChange={() => onToggle(candidate.id)} aria-label={t('candidate.select', { title: candidateTitle })} />
         </label>
+        <div className="nova-candidate-icon" data-type={candidate.mediaType}>{mediaIcon(candidate.mediaType)}</div>
         <div className="nova-candidate-body">
           <div className="nova-candidate-heading">
             <strong className="nova-candidate-title" title={candidateTitle}>{candidateTitle}</strong>
-            <span className="nova-pill" data-tone={confidence.tone}>{confidence.label} · {candidate.confidence}</span>
           </div>
           <span className="nova-candidate-url" title={compactUrl(candidate.url)}>{compactUrl(candidate.url)}</span>
           <span className="nova-candidate-meta" aria-label={t('candidate.summary')}>
-            <span className="nova-pill" data-tone="info">{candidate.mediaType}</span>
-            <span className="nova-pill">{candidate.extension ?? candidate.mimeType ?? t('candidate.type.unknown')}</span>
-            <span className="nova-pill">{candidate.sizeBytes ? formatBytes(candidate.sizeBytes) : t('candidate.size.unknown')}</span>
-            <span className="nova-pill">{quality(candidate, t)}</span>
-            {duration(candidate.durationSec) ? <span className="nova-pill">{duration(candidate.durationSec)}</span> : null}
+            <QualityBadge candidate={candidate} />
+            <ContainerBadge candidate={candidate} />
+            <CodecDisplay candidate={candidate} />
+            <SizeDisplay candidate={candidate} />
+            <DurationDisplay candidate={candidate} />
+            <span className="nova-pill" data-tone={confidence.tone} data-confidence>{confidence.label}</span>
           </span>
           {variantsText || subtitlesText ? <span className="nova-candidate-meta">
             {variantsText ? <span className="nova-pill">{variantsText}</span> : null}
             {subtitlesText ? <span className="nova-pill">{subtitlesText}</span> : null}
           </span> : null}
           {runtimeSupported && (candidate.source === 'hls-manifest' || candidate.source === 'dash-manifest' || candidate.mediaType === 'manifest')
-            ? <QualitySelector candidate={candidate} onSent={onStreamSent} />
+            ? <span className="nova-pill nova-pill-manifest">Manifest</span>
             : null}
-          {showHandoffWarnings && blockedReason ? <div className="nova-inline-warning">{t('candidate.notHandoffable', { reason: blockedReason })}</div> : null}{/* Not directly handoffable */}
+          {blockedReason ? <div className="nova-inline-warning">{t('candidate.notHandoffable', { reason: blockedReason })}</div> : null}{/* Not directly handoffable */}
           <details className="nova-candidate-details">
             <summary>{t('candidate.details')}</summary>{/* Details and evidence */}
             {evidenceSummary(candidate).length > 0 ? <div className="nova-evidence-list" aria-label={t('candidate.evidence.aria')}>
@@ -111,13 +150,17 @@ export function CandidateList({ candidates, selected, onToggle, onStreamSent, sh
               { label: t('candidate.detail.confidence'), value: confidenceLevelOf(candidate.confidence) },
               { label: t('candidate.detail.filename'), value: candidate.filename },
               { label: t('candidate.detail.mime'), value: candidate.mimeType },
+              { label: t('candidate.detail.codecs'), value: candidate.codecs?.join(', ') },
+              { label: t('candidate.detail.size'), value: candidate.sizeBytes ? formatFileSize(candidate.sizeBytes) : undefined },
+              { label: t('candidate.detail.bitrate'), value: candidate.bitrate ? formatBitrate(candidate.bitrate) : undefined },
+              { label: t('candidate.detail.duration'), value: formatDuration(candidate.durationSec) },
+              { label: t('candidate.detail.resolution'), value: candidate.width && candidate.height ? `${candidate.width}×${candidate.height}` : undefined },
               { label: t('candidate.detail.finalUrl'), value: compactUrl(candidate.finalUrl) },
               { label: t('candidate.detail.pageUrl'), value: compactUrl(candidate.pageUrl) },
               { label: t('candidate.detail.referrer'), value: compactUrl(candidate.referrer) },
               { label: t('candidate.detail.range'), value: candidate.headers?.acceptRanges },
               { label: t('candidate.detail.etag'), value: candidate.headers?.etag ? redactString(candidate.headers.etag) : undefined },
               { label: t('candidate.detail.lastModified'), value: candidate.headers?.lastModified },
-              { label: t('candidate.detail.codecs'), value: candidate.codecs?.join(', ') },
             ]} />
             {candidate.variants?.length ? <div className="nova-detail-note">{t('candidate.bestVariant', { quality: quality(candidate, t), count: candidate.variants.length })}</div> : null}
             {candidate.subtitles?.length ? <div className="nova-detail-note">{t('candidate.subtitleTracks', { tracks: candidate.subtitles.map((track) => track.label ?? track.language ?? track.format ?? 'track').slice(0, 6).join(', ') })}</div> : null}

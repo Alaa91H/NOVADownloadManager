@@ -9,7 +9,6 @@ const packageJson = JSON.parse(await read('package.json')) as { scripts?: Record
 const scripts = packageJson.scripts ?? {};
 const playwrightConfig = await read('playwright.config.ts');
 const e2eSpec = await read('src/tests/e2e/popup.spec.ts');
-const overlayE2eSpec = await read('src/tests/e2e/overlay.spec.ts');
 const workflow = await read('../docs/extension/ci-templates/legacy-extension-ci.yml');
 
 assert(
@@ -56,22 +55,6 @@ for (const term of [
 }
 
 for (const term of [
-  'NOVA floating overlay real content smoke',
-  'startOverlayFixtureServer',
-  'video controls src=',
-  'chromium.launchPersistentContext',
-  'NOVA_RUN_REAL_EXTENSION_E2E',
-  '#nova-video-download-overlay-host',
-  '.nova-video-download-trigger',
-  '.nova-video-download-actions',
-  '.nova-video-download-label',
-  '#nova-candidate-picker-host',
-  '.nova-picker-send',
-]) {
-  assert(overlayE2eSpec.includes(term), `E2E overlay content smoke test is missing ${term}.`);
-}
-
-for (const term of [
   'browser-e2e',
   "install-playwright: 'true'",
   'Download unpacked browser builds',
@@ -98,5 +81,5 @@ assert(
 );
 
 console.log(
-  'E2E readiness check passed: popup and floating overlay Playwright smoke coverage are wired to source, package scripts, and CI.',
+  'E2E readiness check passed: popup Playwright smoke coverage is wired to source, package scripts, and CI.',
 );

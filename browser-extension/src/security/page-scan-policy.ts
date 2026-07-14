@@ -11,8 +11,8 @@ export type RuntimeMessageSenderLike = {
 const SCAN_WINDOW_MS = 60_000;
 const scanTimestampsByTab = new Map<number, number[]>();
 
-const TRUSTED_EXTENSION_UI_SURFACE_NAMES = ['popup', 'options', 'diagnostics'];
-// Exact trusted UI paths: '/popup.html', '/options.html', '/diagnostics.html'.
+const TRUSTED_EXTENSION_UI_SURFACE_NAMES = ['popup'];
+// Exact trusted UI paths: '/popup.html'.
 const TRUSTED_EXTENSION_UI_PATHS = new Set(TRUSTED_EXTENSION_UI_SURFACE_NAMES.map((surface) => `/${surface}.html`));
 
 export function isExtensionUiSender(sender: RuntimeMessageSenderLike | undefined): boolean {
@@ -42,25 +42,9 @@ export function assertUserActivatedScan(sender: RuntimeMessageSenderLike | undef
       code: 'PERMISSION_MISSING',
       message: 'User-activated page scanning is only accepted from extension UI surfaces.',
       retryable: false,
-      repairHint: 'Use the extension popup, options page, diagnostics page, context menu, or keyboard command.',
+      repairHint: 'Use the extension popup, context menu, or keyboard command.',
     });
   }
-}
-
-// Overlay scan is the only scan path accepted from an in-page content script.
-// It must originate from a real tab; the resolved tab id is then used to bind
-// the scan, so the page cannot target any other tab.
-export function assertOverlayScanSender(sender: RuntimeMessageSenderLike | undefined): number {
-  const tabId = sender?.tab?.id;
-  if (typeof tabId !== 'number' || !Number.isInteger(tabId) || tabId <= 0) {
-    throw new NovaExtensionError({
-      code: 'PERMISSION_MISSING',
-      message: 'Overlay scan requires an originating tab.',
-      retryable: false,
-      repairHint: 'Trigger the scan from the in-page NOVA overlay button.',
-    });
-  }
-  return tabId;
 }
 
 export function assertScanRateLimit(tabId: number, now = Date.now(), profile: ScanBudgetProfile = 'standard'): void {

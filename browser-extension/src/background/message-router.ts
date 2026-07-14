@@ -3,7 +3,7 @@ import { bridgeManager } from '../bridge/bridge-manager';
 import { CandidatePipeline } from '../capture/candidate-pipeline';
 import { RuntimeMessage, RuntimeMessageSchema, SiteRulesImportSchema } from '../contracts/messages.schema';
 import { AGGRESSIVE_MAX_SCAN_HTML_CHARS, AGGRESSIVE_MAX_SCAN_JSON_LD_ITEMS, AGGRESSIVE_MAX_SCAN_JSON_LD_SCRIPT_CHARS, AGGRESSIVE_MAX_SCAN_JSON_LD_TOTAL_CHARS, AGGRESSIVE_MAX_SCAN_LINKS, AGGRESSIVE_MAX_SCAN_MEDIA, AGGRESSIVE_MAX_SCAN_OPEN_GRAPH, AGGRESSIVE_MAX_SCAN_REQUESTS_PER_TAB_PER_MINUTE, IDEMPOTENCY_SCHEMA_VERSION, MAX_CANDIDATES_PER_TAB, MAX_CANDIDATE_CACHE_BYTES_PER_TAB, MAX_DIAGNOSTICS_EXPORT_BYTES, MAX_EVENT_MESSAGE_BYTES, MAX_EVENT_PARSE_ERRORS_PER_CONNECTION, MAX_HANDOFF_CANDIDATES, MAX_HANDOFF_PAYLOAD_BYTES, MAX_HTTP_REQUEST_PAYLOAD_BYTES, MAX_HTTP_RESPONSE_BYTES, MAX_NATIVE_MESSAGE_BYTES, MAX_OUTBOX_JOBS, MAX_SCAN_HTML_CHARS, MAX_SCAN_JSON_LD_ITEMS, MAX_SCAN_JSON_LD_SCRIPT_CHARS, MAX_SCAN_JSON_LD_TOTAL_CHARS, MAX_SCAN_LINKS, MAX_SCAN_MEDIA, MAX_SCAN_OPEN_GRAPH, MAX_SCAN_REQUESTS_PER_TAB_PER_MINUTE, MAX_SETTINGS_IMPORT_BYTES, MAX_SITE_RULES, MAX_SITE_RULES_IMPORT_BYTES, MAX_SSE_BUFFER_BYTES, MAX_RUNTIME_MESSAGE_BYTES, MAX_TASK_ID_CHARS, OUTBOX_DEAD_LETTER_RETENTION_DAYS, OUTBOX_SENT_RETENTION_DAYS } from '../contracts/limits';
-import { migrateSettingsInput, SettingsSchema, type Settings } from '../contracts/settings.schema';
+import { migrateSettingsInput, SettingsSchema } from '../contracts/settings.schema';
 import type { Candidate } from '../contracts/candidate.schema';
 import { ListTasksResponseSchema } from '../contracts/runtime-response.schema';
 import { classifyByUrl, mediaTypeFromMime } from '../pipeline/mime-detector';
@@ -20,11 +20,10 @@ import { SiteRulesStore } from '../storage/site-rules-store';
 import { TokenStore } from '../storage/token-store';
 import { NovaExtensionError, toNovaExtensionError } from '../core/error-classification';
 import { redact } from '../security/redaction';
-import { handoffPolicyDecision } from '../security/handoff-policy';
 import { updateBadge } from './badge';
 import { getActiveTabId, scanTab } from './tab-scanner';
 import { platformRegistry } from '../platforms/platform-registry';
-import { assertScanRateLimit, assertUserActivatedScan, assertOverlayScanSender, RuntimeMessageSenderLike } from '../security/page-scan-policy';
+import { assertScanRateLimit, assertUserActivatedScan, RuntimeMessageSenderLike } from '../security/page-scan-policy';
 import { assertRuntimeMessageAllowed } from '../security/runtime-message-policy';
 import { assertStorageBudget } from '../security/storage-budget';
 import { catchAndLog } from '../core/safe-catch';
@@ -33,7 +32,7 @@ import { registerNetworkObserver } from './network-observer';
 import { registerDownloadInterceptor, handleManualCapture } from './download-interceptor';
 import { AGGRESSIVE_CAPTURE_PERMISSION_BUNDLE } from '../profiles/aggressive-capture-profile';
 import { enforceAggressivePermissions, getAggressivePermissionIntegrity } from '../profiles/aggressive-permission-enforcer';
-import { analyzeOverlayCandidates, isSmartVideoPage, prepareSmartVideoCandidates, mergeLiveOverlayCandidateSet, buildOverlayScanMessage, mediaTypeFromPageTapHint, buildPageTapFilename, OverlayScanContentLike } from './overlay-candidate-analyzer';
+import { mediaTypeFromPageTapHint, buildPageTapFilename } from './page-tap-utils';
 
 const cache = new CandidateCache();
 const pipeline = new CandidatePipeline();
@@ -42,7 +41,6 @@ const settingsStore = new SettingsStore();
 const siteRulesStore = new SiteRulesStore();
 const permissionPolicy = new PermissionPolicy();
 const migrationStore = new MigrationStore();
-const OVERLAY_DIAGNOSTICS_STORAGE_KEY = 'nova.downloadOverlayDiagnostics.v1';
 
 
 
@@ -71,11 +69,9 @@ async function dispatchMessage(msg: RuntimeMessage, sender?: RuntimeMessageSende
     case 'SCAN_PAGE':
       return scanCurrentPage(msg.tabId, Boolean(msg.userActivated), sender);
     case 'OVERLAY_SCAN_PAGE':
-      return overlayScanPage(sender);
     case 'OVERLAY_REFRESH_CANDIDATES':
-      return overlayRefreshCandidates(sender);
     case 'OVERLAY_SEND_SELECTED':
-      return overlaySendSelected(sender, msg.candidateIds);
+      return { ok: false, error: 'Overlay UI is disabled. Use the popup to manage captures.' };
     case 'PAGE_TAP_CANDIDATES_FOUND':
       return handlePageTapCandidates(msg.events, sender);
     case 'CAPTURE_DOWNLOAD':
@@ -140,6 +136,8 @@ async function dispatchMessage(msg: RuntimeMessage, sender?: RuntimeMessageSende
       return bridgeManager.listTasks().then((tasks) => ListTasksResponseSchema.parse({ ok: true, tasks }));
     case 'OPEN_NOVA':
       return openNova();
+    case 'WAKE_UP_DESKTOP':
+      return bridgeManager.wakeUpDesktop();
   }
 }
 
@@ -266,145 +264,6 @@ async function handlePageTapCandidates(
 }
 
 
-async function overlayScanPage(sender?: RuntimeMessageSenderLike): Promise<unknown> {
-  const tabId = assertOverlayScanSender(sender);
-  const settings = await settingsStore.get();
-  const scanProfile = settings.capture.aggressiveMode ? 'aggressive' : 'standard';
-  assertScanRateLimit(tabId, Date.now(), scanProfile);
-  const content = await scanTab(tabId, scanProfile);
-  const scannedCandidates = await pipeline.run({ tabId, pageUrl: content.url, content, userActivated: true });
-  const cachedCandidates = await cache.merge(tabId, scannedCandidates, { notify: false, reason: 'overlay-scan-dom' });
-  const candidates = mergeLiveOverlayCandidateSet(cachedCandidates, scannedCandidates);
-  return buildOverlayPickerResponse(tabId, settings, candidates, {
-    content,
-    capturedAt: content.capturedAt,
-    diagnosticKey: 'lastScan',
-    source: 'scan',
-    scanProfile,
-  });
-}
-
-async function overlayRefreshCandidates(sender?: RuntimeMessageSenderLike): Promise<unknown> {
-  const tabId = assertOverlayScanSender(sender);
-  const settings = await settingsStore.get();
-  const candidates = await cache.get(tabId);
-  return buildOverlayPickerResponse(tabId, settings, candidates, {
-    content: { url: sender?.url },
-    capturedAt: new Date().toISOString(),
-    diagnosticKey: 'lastRefresh',
-    source: 'cache-refresh',
-    scanProfile: 'cache-only',
-  });
-}
-
-type OverlayPickerResponseOptions = {
-  content: OverlayScanContentLike;
-  capturedAt?: string;
-  diagnosticKey: 'lastScan' | 'lastRefresh';
-  source: 'scan' | 'cache-refresh';
-  scanProfile: string;
-};
-
-// Regression guard for source-inspection tests: scan diagnostics are still recorded
-// as writeOverlayDiagnostics({ lastScan: ... }); cache-only picker refreshes use lastRefresh.
-async function buildOverlayPickerResponse(
-  tabId: number,
-  settings: Settings,
-  candidates: Candidate[],
-  options: OverlayPickerResponseOptions,
-): Promise<unknown> {
-  const capturedAt = options.capturedAt ?? new Date().toISOString();
-  const smartVideoMode = Boolean(
-    settings.overlay.smartVideoOnlyOnVideoPages && isSmartVideoPage(options.content, candidates),
-  );
-  const overlayAnalysis = analyzeOverlayCandidates(candidates, settings, smartVideoMode);
-  const accepted = smartVideoMode
-    ? prepareSmartVideoCandidates(overlayAnalysis.accepted, options.content.title)
-    : overlayAnalysis.accepted;
-  const handoffableCandidates = accepted.filter((candidate) => handoffPolicyDecision(candidate).allowed);
-  const nonHandoffable = Math.max(0, accepted.length - handoffableCandidates.length);
-  const pickerSourceCandidates = handoffableCandidates;
-  const pickerLimit = smartVideoMode
-    ? Math.min(settings.overlay.maxPickerItems, settings.overlay.smartVideoMaxItems)
-    : settings.overlay.maxPickerItems;
-  const clipped = Math.max(0, pickerSourceCandidates.length - pickerLimit);
-  const pickerCandidates = pickerSourceCandidates.slice(0, pickerLimit);
-  const cachedIds = new Set(candidates.map((candidate) => candidate.id));
-  const hasUnpersistedPickerCandidate = pickerCandidates.some((candidate) => !cachedIds.has(candidate.id));
-  if (hasUnpersistedPickerCandidate) {
-    await cache.set(tabId, mergeLiveOverlayCandidateSet(candidates, pickerCandidates));
-  }
-  const diagnostics = {
-    capturedAt,
-    scanProfile: options.scanProfile,
-    source: options.source,
-    smartVideoMode,
-    totalCandidates: candidates.length,
-    visibleCandidates: pickerCandidates.length,
-    overlayFilteredOut: Math.max(0, candidates.length - overlayAnalysis.accepted.length),
-    nonHandoffable,
-    clipped,
-    pickerLimit,
-    filterReasons: overlayAnalysis.filterReasons,
-  };
-  await writeOverlayDiagnostics({ [options.diagnosticKey]: diagnostics });
-  return {
-    ok: true,
-    candidates: pickerCandidates,
-    totalCandidates: candidates.length,
-    filteredOut: Math.max(0, candidates.length - pickerCandidates.length),
-    overlayFilteredOut: diagnostics.overlayFilteredOut,
-    nonHandoffable,
-    clipped,
-    smartVideoMode,
-    filterReasons: overlayAnalysis.filterReasons,
-    message: buildOverlayScanMessage(
-      candidates.length,
-      pickerCandidates.length,
-      diagnostics.overlayFilteredOut,
-      nonHandoffable,
-      clipped,
-      smartVideoMode,
-    ),
-    capturedAt,
-    cacheOnly: options.source === 'cache-refresh',
-  };
-}
-
-// OVERLAY_SEND_SELECTED: send the user's chosen candidates (by id) from the in-page picker.
-// Bound to sender.tab.id: candidates are read from that tab's cache and filtered by the trusted
-// handoff policy, so the page can only hand off what it actually captured, and never a
-// non-handoffable (e.g. blob:/DRM) URL.
-async function overlaySendSelected(sender: RuntimeMessageSenderLike | undefined, candidateIds: string[]): Promise<unknown> {
-  const tabId = assertOverlayScanSender(sender);
-  const candidates = await cache.get(tabId);
-  const wanted = new Set(candidateIds);
-  const chosen = candidates.filter((c) => wanted.has(c.id) && handoffPolicyDecision(c).allowed).slice(0, MAX_HANDOFF_CANDIDATES);
-  if (chosen.length === 0) {
-    await writeOverlayDiagnostics({ lastSend: { sentAt: new Date().toISOString(), requested: candidateIds.length, sent: 0, failed: true, reason: 'no-handoffable-selection' } });
-    throw new NovaExtensionError({ code: 'VALIDATION_FAILED', message: 'None of the selected candidates are handoffable for this tab.', retryable: false });
-  }
-  await bridgeManager.sendBatch(chosen).then(async () => { await maybeOpenNova(); });
-  await writeOverlayDiagnostics({ lastSend: { sentAt: new Date().toISOString(), requested: candidateIds.length, sent: chosen.length, failed: false } });
-  return { ok: true, sent: chosen.length };
-}
-
-
-
-
-
-async function writeOverlayDiagnostics(patch: Record<string, unknown>): Promise<void> {
-  try {
-    const current = await browser.storage.local.get(OVERLAY_DIAGNOSTICS_STORAGE_KEY);
-    const existing = current[OVERLAY_DIAGNOSTICS_STORAGE_KEY];
-    const safeExisting = existing && typeof existing === 'object' ? existing as Record<string, unknown> : {};
-    await browser.storage.local.set({ [OVERLAY_DIAGNOSTICS_STORAGE_KEY]: { ...safeExisting, ...patch, updatedAt: new Date().toISOString() } });
-  } catch {
-    // Diagnostics are best effort and must never block user-triggered scanning or sending.
-  }
-}
-
-
 async function clearCandidates(tabId?: number): Promise<{ ok: true }> {
   const activeTabId = await getActiveTabId(tabId);
   await cache.clear(activeTabId);
@@ -419,8 +278,6 @@ async function updateSettings(partial: Record<string, unknown>): Promise<unknown
     ...current,
     ...migratedPartial,
     capture: { ...current.capture, ...(typeof migratedPartial.capture === 'object' && migratedPartial.capture ? migratedPartial.capture : {}) },
-    overlay: { ...current.overlay, ...(typeof migratedPartial.overlay === 'object' && migratedPartial.overlay ? migratedPartial.overlay : {}) },
-    popup: { ...current.popup, ...(typeof migratedPartial.popup === 'object' && migratedPartial.popup ? migratedPartial.popup : {}) },
   });
   if (next.capture.aggressiveMode) await assertAggressiveAllSitesAccess();
   await settingsStore.set(next);
@@ -472,8 +329,9 @@ async function importSettings(settings: unknown): Promise<unknown> {
 }
 
 async function diagnostics(): Promise<unknown> {
-  const [base, siteRules, browserInfo, storageMigration, aggressiveIntegrity, settings, overlayPositions, overlayRuntime] = await Promise.all([bridgeManager.getDiagnostics(), siteRulesStore.list(), getBrowserInfo(), migrationStore.status(), getAggressivePermissionIntegrity(), settingsStore.get(), overlayPositionDiagnostics(), overlayRuntimeDiagnostics()]);
+  const [base, siteRules, browserInfo, storageMigration, aggressiveIntegrity] = await Promise.all([bridgeManager.getDiagnostics(), siteRulesStore.list(), getBrowserInfo(), migrationStore.status(), getAggressivePermissionIntegrity()]);
   const manifest = browser.runtime.getManifest();
+  const settings = await settingsStore.get();
   const diagnosticPayload = permissionPolicy.diagnostics({
     ...base,
     extension: {
@@ -485,27 +343,6 @@ async function diagnostics(): Promise<unknown> {
     browser: browserInfo,
     storageMigration,
     activeSiteRules: siteRules.filter((rule) => rule.enabled).length,
-    overlay: {
-      enabled: settings.overlay.enabled,
-      preset: settings.overlay.preset,
-      defaultPosition: settings.overlay.defaultPosition,
-      positionScope: settings.overlay.positionScope,
-      openDirection: settings.overlay.openDirection,
-      showOnlyWhenCandidates: settings.overlay.showOnlyWhenCandidates,
-      hideWhenFiltersRejectAll: settings.overlay.hideWhenFiltersRejectAll,
-      minConfidence: settings.overlay.minConfidence,
-      minFileSizeMB: settings.overlay.minFileSizeMB,
-      maxFileSizeMB: settings.overlay.maxFileSizeMB,
-      smartVideoOnlyOnVideoPages: settings.overlay.smartVideoOnlyOnVideoPages,
-      smartVideoMaxItems: settings.overlay.smartVideoMaxItems,
-      smartVideoContinuousRefresh: settings.overlay.smartVideoContinuousRefresh,
-      smartVideoRefreshMs: settings.overlay.smartVideoRefreshMs,
-      mediaTypes: settings.overlay.mediaTypes,
-      extensionAllowlistCount: settings.overlay.extensionsAllowlist.length,
-      extensionBlocklistCount: settings.overlay.extensionsBlocklist.length,
-      savedPositions: overlayPositions,
-      runtime: overlayRuntime,
-    },
     securityPolicy: {
       handoff: { maxCandidates: MAX_HANDOFF_CANDIDATES, maxPayloadBytes: MAX_HANDOFF_PAYLOAD_BYTES },
       localStorage: { maxCandidatesPerTab: MAX_CANDIDATES_PER_TAB, maxCandidateCacheBytesPerTab: MAX_CANDIDATE_CACHE_BYTES_PER_TAB, maxSettingsImportBytes: MAX_SETTINGS_IMPORT_BYTES, maxSiteRulesImportBytes: MAX_SITE_RULES_IMPORT_BYTES, maxDiagnosticsExportBytes: MAX_DIAGNOSTICS_EXPORT_BYTES },
@@ -549,31 +386,6 @@ async function diagnostics(): Promise<unknown> {
   return diagnosticPayload;
 }
 
-async function overlayPositionDiagnostics(): Promise<Record<string, number | boolean>> {
-  try {
-    const all = await browser.storage.local.get(null);
-    const keys = Object.keys(all);
-    const scoped = keys.filter((key) => key.startsWith('nova.downloadOverlayPosition.v2.')).length;
-    return {
-      legacyGlobalPresent: Object.prototype.hasOwnProperty.call(all, 'nova.videoOverlayPosition.v1'),
-      scopedPositions: scoped,
-      totalPositions: scoped + (Object.prototype.hasOwnProperty.call(all, 'nova.videoOverlayPosition.v1') ? 1 : 0),
-    };
-  } catch {
-    return { legacyGlobalPresent: false, scopedPositions: 0, totalPositions: 0 };
-  }
-}
-
-async function overlayRuntimeDiagnostics(): Promise<Record<string, unknown>> {
-  try {
-    const stored = await browser.storage.local.get(OVERLAY_DIAGNOSTICS_STORAGE_KEY);
-    const value = stored[OVERLAY_DIAGNOSTICS_STORAGE_KEY];
-    return value && typeof value === 'object' ? redact(value) as Record<string, unknown> : {};
-  } catch {
-    return {};
-  }
-}
-
 async function getBrowserInfo(): Promise<Record<string, unknown>> {
   const runtimeWithInfo = browser.runtime as typeof browser.runtime & { getBrowserInfo?: () => Promise<unknown> };
   if (typeof runtimeWithInfo.getBrowserInfo === 'function') {
@@ -587,30 +399,14 @@ async function clearLocalData(
   scope:
     | 'candidate-cache'
     | 'diagnostics'
-    | 'overlay-diagnostics'
-    | 'overlay-positions'
     | 'outbox-terminal'
     | 'all-local',
 ): Promise<{ ok: true }> {
   if (scope === 'candidate-cache' || scope === 'all-local') await cache.clearAll();
   if (scope === 'outbox-terminal') await outbox.clearTerminal();
 
-  const all =
-    scope === 'overlay-positions' || scope === 'diagnostics' || scope === 'all-local'
-      ? await catchAndLog(browser.storage.local.get(null), 'clear-local-data') ?? {}
-      : {};
-  const overlayPositionKeys = Object.keys(all).filter(
-    (key) => key === 'nova.videoOverlayPosition.v1' || key.startsWith('nova.downloadOverlayPosition.v2.'),
-  );
-
-  if (scope === 'diagnostics' || scope === 'overlay-diagnostics' || scope === 'all-local') {
-    await browser.storage.local.remove([OVERLAY_DIAGNOSTICS_STORAGE_KEY, 'nova.diagnostics']);
-  }
-
-  if (scope === 'overlay-positions' || scope === 'all-local') {
-    await browser.storage.local.remove(
-      overlayPositionKeys.length > 0 ? overlayPositionKeys : ['nova.videoOverlayPosition.v1'],
-    );
+  if (scope === 'diagnostics' || scope === 'all-local') {
+    await browser.storage.local.remove(['nova.diagnostics']);
   }
 
   if (scope === 'all-local') {

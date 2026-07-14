@@ -14,8 +14,6 @@ const SETTINGS_KEY = 'nova.settings';
 const BRIDGE_STATE_KEY = 'nova.bridgeState';
 const TOKEN_KEY = 'nova.pairToken';
 const OVERLAY_POSITION_KEY = 'nova.videoOverlayPosition.v1';
-const DOWNLOAD_OVERLAY_POSITION_PREFIX = 'nova.downloadOverlayPosition.v2.';
-const OVERLAY_DIAGNOSTICS_KEY = 'nova.downloadOverlayDiagnostics.v1';
 const DIAGNOSTICS_KEY = 'nova.diagnostics';
 const CURRENT_STORAGE_SCHEMA_VERSION = 4;
 const SiteRulesArraySchema = SiteRuleSchema.array().max(MAX_SITE_RULES);
@@ -29,8 +27,6 @@ const LEGACY_CANDIDATE_CACHE_PREFIX = legacyKey('candidateCache.');
 const LEGACY_SITE_RULES_KEY = legacyKey('siteRules');
 const LEGACY_TOKEN_KEY = legacyKey('pairToken');
 const LEGACY_OVERLAY_POSITION_KEY = legacyKey('videoOverlayPosition.v1');
-const LEGACY_DOWNLOAD_OVERLAY_POSITION_PREFIX = legacyKey('downloadOverlayPosition.v2.');
-const LEGACY_OVERLAY_DIAGNOSTICS_KEY = legacyKey('downloadOverlayDiagnostics.v1');
 const LEGACY_DIAGNOSTICS_KEY = legacyKey('diagnostics');
 const legacyOpenAfterSendKey = (): string => `open${legacyPascalProductToken()}AfterSend`;
 
@@ -108,7 +104,6 @@ export class MigrationStore {
     stageLegacyCopy(snapshot, updates, removeKeys, repairedKeys, CANDIDATE_INDEX_KEY, LEGACY_CANDIDATE_INDEX_KEY);
     stageLegacyCopy(snapshot, updates, removeKeys, repairedKeys, TOKEN_KEY, LEGACY_TOKEN_KEY);
     stageLegacyCopy(snapshot, updates, removeKeys, repairedKeys, OVERLAY_POSITION_KEY, LEGACY_OVERLAY_POSITION_KEY);
-    stageLegacyCopy(snapshot, updates, removeKeys, repairedKeys, OVERLAY_DIAGNOSTICS_KEY, LEGACY_OVERLAY_DIAGNOSTICS_KEY);
     stageLegacyCopy(snapshot, updates, removeKeys, repairedKeys, DIAGNOSTICS_KEY, LEGACY_DIAGNOSTICS_KEY);
     if (snapshot[LEGACY_SCHEMA_VERSION_KEY] !== undefined) removeKeys.push(LEGACY_SCHEMA_VERSION_KEY);
     if (snapshot[LEGACY_MIGRATED_AT_KEY] !== undefined) removeKeys.push(LEGACY_MIGRATED_AT_KEY);
@@ -116,11 +111,6 @@ export class MigrationStore {
     for (const [key, value] of Object.entries(snapshot)) {
       if (key.startsWith(LEGACY_CANDIDATE_CACHE_PREFIX)) {
         const nextKey = `nova.candidateCache.${key.slice(LEGACY_CANDIDATE_CACHE_PREFIX.length)}`;
-        if (snapshot[nextKey] === undefined) updates[nextKey] = value;
-        removeKeys.push(key);
-      }
-      if (key.startsWith(LEGACY_DOWNLOAD_OVERLAY_POSITION_PREFIX)) {
-        const nextKey = `${DOWNLOAD_OVERLAY_POSITION_PREFIX}${key.slice(LEGACY_DOWNLOAD_OVERLAY_POSITION_PREFIX.length)}`;
         if (snapshot[nextKey] === undefined) updates[nextKey] = value;
         removeKeys.push(key);
       }

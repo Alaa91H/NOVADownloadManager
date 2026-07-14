@@ -99,7 +99,7 @@ export const RuntimeMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('UPDATE_SETTINGS'), settings: SettingsSchema.partial().passthrough() }),
   z.object({ type: z.literal('EXPORT_SETTINGS') }),
   z.object({ type: z.literal('IMPORT_SETTINGS'), settings: z.unknown() }),
-  z.object({ type: z.literal('CLEAR_LOCAL_DATA'), scope: z.enum(['candidate-cache', 'diagnostics', 'overlay-diagnostics', 'overlay-positions', 'outbox-terminal', 'all-local']).default('candidate-cache') }),
+  z.object({ type: z.literal('CLEAR_LOCAL_DATA'), scope: z.enum(['candidate-cache', 'diagnostics', 'outbox-terminal', 'all-local']).default('candidate-cache') }),
   z.object({ type: z.literal('GET_SITE_RULES') }),
   z.object({ type: z.literal('UPSERT_SITE_RULE'), rule: SiteRuleSchema }),
   z.object({ type: z.literal('DELETE_SITE_RULE'), id: z.string().min(1) }),
@@ -112,6 +112,7 @@ export const RuntimeMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('CANCEL_TASK'), taskId: z.string().trim().min(1).max(MAX_TASK_ID_CHARS) }),
   z.object({ type: z.literal('LIST_TASKS') }),
   z.object({ type: z.literal('OPEN_NOVA') }),
+  z.object({ type: z.literal('WAKE_UP_DESKTOP') }),
 ]);
 
 export type RuntimeMessage = z.infer<typeof RuntimeMessageSchema>;

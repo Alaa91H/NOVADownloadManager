@@ -1949,8 +1949,6 @@
           "enum": [
             "candidate-cache",
             "diagnostics",
-            "overlay-diagnostics",
-            "overlay-positions",
             "outbox-terminal",
             "all-local"
           ]

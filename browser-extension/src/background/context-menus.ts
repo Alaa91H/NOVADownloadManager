@@ -15,7 +15,6 @@ const menus: Array<{ id: string; title: string; contexts: MenuContext[] }> = [
   { id: 'download-with-nova', title: 'Download with NOVA', contexts: ['link', 'video', 'audio', 'image'] },
   { id: 'download-selected-links', title: 'Download selected links with NOVA', contexts: ['selection'] },
   { id: 'scan-page', title: 'Scan page for downloadable media', contexts: ['page', 'video', 'audio'] },
-  { id: 'diagnostics', title: 'Connection diagnostics', contexts: ['page', 'action'] },
 ];
 
 export function registerContextMenus(): void {
@@ -31,10 +30,6 @@ export function registerContextMenus(): void {
 }
 
 async function handleContextClick(info: Menus.OnClickData, tabId?: number): Promise<void> {
-  if (info.menuItemId === 'diagnostics') {
-    await browser.tabs.create({ url: browser.runtime.getURL('diagnostics.html') });
-    return;
-  }
   const pipeline = new CandidatePipeline();
   const cache = new CandidateCache();
   if (info.menuItemId === 'scan-page') {

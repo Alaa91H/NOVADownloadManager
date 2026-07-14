@@ -15,7 +15,23 @@ import {
   MAX_SCAN_MEDIA,
   MAX_SCAN_OPEN_GRAPH,
 } from '../contracts/limits';
-import { EMBEDDED_ATTR_MEDIA_RE, type LinkTag } from './overlay-types';
+
+type LinkTag =
+  | 'a'
+  | 'video'
+  | 'audio'
+  | 'source'
+  | 'img'
+  | 'iframe'
+  | 'embed'
+  | 'object'
+  | 'track'
+  | 'meta'
+  | 'script'
+  | 'unknown';
+
+const EMBEDDED_ATTR_MEDIA_RE =
+  /(?:https?:)?\\?\/\\?\/[^"'<>\s]+?\.(?:m3u8|mpd|mp4|m4v|webm|mkv|mov|avi|flv|mp3|m4a|aac|flac|wav|ogg|opus|zip|rar|7z|tar|gz|bz2|xz|exe|msi|dmg|pkg|appimage|deb|rpm|iso|img|apk|xapk|pdf|epub|mobi|doc|docx|xls|xlsx|ppt|pptx|torrent)(?:[?#][^"'<>\s]*)?|(?:\.{0,2}\/|\/)[^"'<>\s]+?\.(?:m3u8|mpd|mp4|m4v|webm|mkv|mov|avi|flv|mp3|m4a|aac|flac|wav|ogg|opus|zip|rar|7z|tar|gz|bz2|xz|exe|msi|dmg|pkg|appimage|deb|rpm|iso|img|apk|xapk|pdf|epub|mobi|doc|docx|xls|xlsx|ppt|pptx|torrent)(?:[?#][^"'<>\s]*)?/gi;
 
 function normalizeTag(value: string): LinkTag {
   const tag = value.toLowerCase();

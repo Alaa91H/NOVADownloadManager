@@ -49,7 +49,7 @@ export function assertHandoffPayloadBudget(candidates: Candidate[]): void {
           code: 'VALIDATION_FAILED',
           message: 'Candidate URL is too large for safe local handoff.',
           retryable: false,
-          repairHint: 'Open diagnostics and copy a redacted report if this keeps happening.',
+          repairHint: 'Report this issue if it keeps happening.',
         });
       }
     }

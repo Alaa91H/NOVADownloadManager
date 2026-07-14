@@ -28,7 +28,6 @@ const required = [
   'wxt.config.ts',
   '../pnpm-lock.yaml',
   'playwright.config.ts',
-  'src/tests/e2e/overlay.spec.ts',
   'tools/store-readiness-check.ts',
   'tools/e2e-readiness-check.ts',
   'tools/production-guard.ts',
@@ -60,42 +59,6 @@ function assertFileIncludes(path, term, label = path) {
 function assertFilesInclude(paths, term, label) {
   const content = paths.map((path) => readFileSync(path, 'utf8')).join('\n');
   if (!content.includes(term)) fail(`${label} term missing: ${term}`);
-}
-
-const overlayRuntimeTerms = [
-  'destroyVideoOverlayHost',
-  'PICKER_DESTROY_EVENT',
-  'writeOverlayClientDiagnostics',
-  'observer-paused',
-  'destroyCandidatePickerHost',
-  'sendBtn.disabled = selected === 0',
-];
-for (const term of overlayRuntimeTerms) {
-  assertFilesInclude(
-    [
-      'src/content/scanner.ts',
-      'src/content/overlay-ui.ts',
-      'src/content/overlay-install.ts',
-      'src/content/overlay-position.ts',
-      'src/content/overlay-types.ts',
-    ],
-    term,
-    'floating overlay runtime hardening',
-  );
-}
-
-const overlaySettingsTerms = [
-  'maxPickerItems',
-  'defaultPickerSelection',
-  'autoHideWhenIdle',
-  'keyboardNudgePx',
-];
-for (const term of overlaySettingsTerms) {
-  assertFileIncludes('src/contracts/settings.schema.ts', term, 'floating overlay settings schema');
-}
-
-for (const term of ['settings.overlay.maxPickerItems', 'filteredOut', 'handoffableCandidates']) {
-  assertFileIncludes('src/background/message-router.ts', term, 'floating overlay background filtering');
 }
 
 const result = spawnSync(process.execPath, ['--version'], { encoding: 'utf8' });

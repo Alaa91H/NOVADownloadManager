@@ -437,6 +437,30 @@ export class BridgeManager implements BridgeGateway {
     return this.autoConnect();
   }
 
+  async wakeUpDesktop(): Promise<BridgeState> {
+    await this.setState({ status: 'booting', canSend: false, lastError: undefined });
+    try {
+      const nativeAvailable = await this.tm.native.isAvailable();
+      if (!nativeAvailable) {
+        await this.setState({
+          status: 'offline',
+          canSend: false,
+          lastError: bridgeError('DAEMON_UNAVAILABLE', 'Desktop application is not installed or not responding.', false, 'Install the desktop application and ensure it is running.'),
+        });
+        return this.state;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      return this.autoConnect();
+    } catch {
+      await this.setState({
+        status: 'offline',
+        canSend: false,
+        lastError: bridgeError('DAEMON_UNAVAILABLE', 'Desktop application is not installed or not responding.', false, 'Install the desktop application and ensure it is running.'),
+      });
+      return this.state;
+    }
+  }
+
   async shutdown(): Promise<void> {
     if (this.eventResubscribeTimer !== undefined) {
       clearTimeout(this.eventResubscribeTimer);

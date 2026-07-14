@@ -21,11 +21,8 @@ requireIncludes('src/content/page-tap-main.ts', 'patchedCreateObjectURL', 'blob 
 requireIncludes('src/content/page-tap-main.ts', 'PerformanceObserver', 'performance resource observation');
 requireIncludes('src/content/scan-page.ts', 'application/ld+json', 'JSON-LD scanning');
 requireIncludes('src/content/page-tap-main.ts', 'ytInitialPlayerResponse', 'player config global scanning');
-requireIncludes('src/content/overlay-types.ts', 'NOISE_DOMAIN_PATTERNS', 'noise filtering');
-requireIncludes('src/content/overlay-install.ts', 'durationchange', 'video metadata change monitoring');
-requireIncludes('src/content/overlay-install.ts', 'ratechange', 'video rate change monitoring');
-requireIncludes('src/content/overlay-detect.ts', 'data-m3u8-url', 'adaptive data-* attribute scanning');
-requireIncludes('src/content/overlay-ui.ts', 'nova-video-download-popover', 'smart overlay UI');
+requireIncludes('src/content/page-tap-main.ts', 'durationchange', 'video metadata change monitoring');
+requireIncludes('src/content/scan-page.ts', 'data-m3u8-url', 'adaptive data-* attribute scanning');
 requireIncludes('src/capture/hls-capture.ts', 'm3u8', 'HLS capture');
 requireIncludes('src/capture/dash-capture.ts', 'mpd', 'DASH capture');
 requireIncludes('src/capture/torrent-magnet-capture.ts', 'magnet', 'torrent/magnet detection');

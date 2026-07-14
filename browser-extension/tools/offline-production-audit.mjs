@@ -176,69 +176,9 @@ for (const term of ['production preflight', 'runPreflight()', 'Executed-check sc
   if (!signoff.includes(term)) fail(`tools/final-production-signoff.mjs final signoff gate term missing: ${term}`);
 }
 
-const overlayRuntime = [
-  read('src/content/scanner.ts'),
-  read('src/content/overlay-ui.ts'),
-  read('src/content/overlay-install.ts'),
-  read('src/content/overlay-position.ts'),
-  read('src/content/overlay-types.ts'),
-].join('\n');
-const scannerTerms = [
-  'destroyVideoOverlayHost',
-  'destroyCandidatePickerHost',
-  'writeOverlayClientDiagnostics',
-  'mutationScanCount > 160',
-  'relayScanCount > 120',
-  'state: \'observer-paused\'',
-  'sendBtn.disabled = selected === 0',
-  'window.removeEventListener(\'resize\', keepPickerInViewport)',
-  'keyboardNudgePx',
-  'nova.downloadOverlayPosition.v2',
-  'nova.downloadOverlayDiagnostics.v1',
-];
-for (const term of scannerTerms) {
-  if (!overlayRuntime.includes(term)) fail(`content overlay floating hardening term missing: ${term}`);
-}
-const overlayPosition = read('src/content/overlay-position.ts');
-const diagnosticsWriter = overlayPosition.split('async function writeOverlayClientDiagnostics', 2)[1]?.split('function overlayRectSnapshot', 1)[0] ?? '';
-for (const forbidden of ['location.href', 'document.cookie', 'localStorage', 'sessionStorage']) {
-  if (diagnosticsWriter.includes(forbidden)) fail(`overlay client diagnostics must not read ${forbidden}`);
-}
-
-const settingsSchema = read('src/contracts/settings.schema.ts');
-for (const term of [
-  'OverlayPositionScopeSchema',
-  'OverlayPresetSchema',
-  'OverlayPickerSelectionSchema',
-  'hideWhenFiltersRejectAll',
-  'maxPickerItems',
-  'defaultPickerSelection',
-  'autoHideWhenIdle',
-  'keyboardNudgePx',
-]) {
-  if (!settingsSchema.includes(term)) fail(`settings schema overlay term missing: ${term}`);
-}
-
-const messages = read('src/contracts/messages.schema.ts');
-for (const scope of ['diagnostics', 'overlay-diagnostics', 'overlay-positions']) {
-  if (!messages.includes(`'${scope}'`)) fail(`CLEAR_LOCAL_DATA schema missing scope ${scope}`);
-}
-const router = read('src/background/message-router.ts');
-if (!router.includes("browser.storage.local.remove([OVERLAY_DIAGNOSTICS_STORAGE_KEY, 'nova.diagnostics'])")) {
-  fail('message router must clear overlay and legacy diagnostics together');
-}
-if (!router.includes("key.startsWith('nova.downloadOverlayPosition.v2.')")) {
-  fail('message router must clear scoped overlay position keys');
-}
 const dataSettings = read('src/i18n/locales/en.ts');
-const actionKeys = ['clearDiagnostics', 'clearOverlayDiagnostics', 'clearOverlayPositions'];
-for (const key of actionKeys) {
-  if (!dataSettings.includes(`options.data.${key}`)) fail(`en.ts missing action translation key: options.data.${key}`);
-}
-
-const overlayOptions = read('src/i18n/locales/en.ts');
-for (const term of ['Minimal', 'Smart', 'Media focused', 'Power user', 'Store safe', 'Per domain', 'Per exact site origin']) {
-  if (!overlayOptions.includes(term)) fail(`en.ts missing professional overlay option: ${term}`);
+for (const key of ['candidate.detail.size', 'candidate.detail.bitrate', 'candidate.detail.duration', 'candidate.detail.resolution']) {
+  if (!dataSettings.includes(key)) fail(`en.ts missing candidate detail translation key: ${key}`);
 }
 
 const releaseNotes = read('tools/prepare-release-notes.mjs');

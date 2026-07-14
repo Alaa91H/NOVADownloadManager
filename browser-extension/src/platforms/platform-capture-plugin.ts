@@ -92,6 +92,8 @@ export class PlatformCapturePlugin implements CapturePlugin {
     adapter: PlatformAdapter,
     baseConfidence: number,
   ): Candidate | null {
+    const contentLengthStr = mr.metadata?.contentLength;
+    const sizeBytes = contentLengthStr ? parseInt(contentLengthStr, 10) : undefined;
     const partial = {
       id: crypto.randomUUID(),
       url: mr.url,
@@ -103,6 +105,7 @@ export class PlatformCapturePlugin implements CapturePlugin {
       width: mr.width,
       height: mr.height,
       durationSec: mr.duration,
+      sizeBytes: Number.isFinite(sizeBytes) && sizeBytes! > 0 ? sizeBytes : undefined,
       confidence: baseConfidence,
       createdAt: context.now ?? new Date().toISOString(),
       metadata: { ...(mr.metadata ?? {}), platform: adapter.id },

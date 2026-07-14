@@ -37,7 +37,19 @@ async function boot(): Promise<void> {
   const settings = await new SettingsStore().get();
   if (settings.enabled && settings.autoConnect) {
     const state = await bridgeManager.autoConnect();
-    if (!state.canSend && state.lastError?.retryable && state.retryAfterMs) await scheduleReconnect(state.retryAfterMs);
+    if (!state.canSend && state.lastError?.retryable) {
+      await scheduleReconnect(state.retryAfterMs ?? 5_000);
+    }
+    if (!state.canSend && state.status === 'offline') {
+      const wakeState = await bridgeManager.wakeUpDesktop();
+      if (wakeState.canSend) {
+        await updateBadge(bridgeManager.getState());
+        return;
+      }
+      if (wakeState.lastError?.retryable) {
+        await scheduleReconnect(wakeState.retryAfterMs ?? 10_000);
+      }
+    }
   }
   await updateBadge(bridgeManager.getState());
 }

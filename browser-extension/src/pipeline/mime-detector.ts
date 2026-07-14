@@ -4,13 +4,37 @@ import { extensionOf } from '../utils/url';
 type MediaType = Candidate['mediaType'];
 
 const extMap: Record<string, MediaType> = {
-  zip: 'archive', rar: 'archive', '7z': 'archive', tar: 'archive', gz: 'archive', bz2: 'archive', xz: 'archive', zst: 'archive', cab: 'archive',
-  exe: 'app', msi: 'app', dmg: 'app', pkg: 'app', appimage: 'app', deb: 'app', rpm: 'app', iso: 'app', img: 'app', crx: 'app',
-  pdf: 'document', epub: 'document', mobi: 'document', doc: 'document', docx: 'document', xls: 'document', xlsx: 'document', ppt: 'document', pptx: 'document', csv: 'document', txt: 'document',
-  mp4: 'video', mkv: 'video', webm: 'video', avi: 'video', mov: 'video', m4v: 'video', flv: 'video', mpeg: 'video', mpg: 'video', '3gp': 'video', '3g2': 'video', ogv: 'video', ts: 'video', m2ts: 'video',
-  mp3: 'audio', wav: 'audio', flac: 'audio', m4a: 'audio', ogg: 'audio', opus: 'audio', aac: 'audio', wma: 'audio', aiff: 'audio', aif: 'audio',
-  jpg: 'image', jpeg: 'image', png: 'image', webp: 'image', gif: 'image', svg: 'image', avif: 'image',
-  apk: 'app', xapk: 'app', m3u8: 'manifest', m3u: 'manifest', mpd: 'manifest', torrent: 'torrent', magnet: 'magnet',
+  // Video
+  mp4: 'video', m4v: 'video', webm: 'video', mkv: 'video', mov: 'video', avi: 'video',
+  flv: 'video', wmv: 'video', vob: 'video', ogv: 'video', ogm: 'video',
+  '3gp': 'video', '3g2': 'video', ts: 'video', m2ts: 'video', mts: 'video',
+  mpeg: 'video', mpg: 'video', divx: 'video', f4v: 'video', rm: 'video', rmvb: 'video',
+  asf: 'video', m4p: 'video',
+  // Audio
+  mp3: 'audio', m4a: 'audio', aac: 'audio', flac: 'audio', wav: 'audio',
+  ogg: 'audio', opus: 'audio', wma: 'audio', aiff: 'audio', aif: 'audio',
+  ape: 'audio', alac: 'audio', mid: 'audio', midi: 'audio',
+  // Image
+  jpg: 'image', jpeg: 'image', png: 'image', webp: 'image', gif: 'image',
+  svg: 'image', avif: 'image', heic: 'image', heif: 'image', bmp: 'image',
+  tiff: 'image', tif: 'image', ico: 'image', raw: 'image', cr2: 'image',
+  nef: 'image', arw: 'image',
+  // Manifest
+  m3u8: 'manifest', m3u: 'manifest', mpd: 'manifest',
+  // Archive
+  zip: 'archive', rar: 'archive', '7z': 'archive', tar: 'archive', gz: 'archive',
+  bz2: 'archive', xz: 'archive', zst: 'archive', cab: 'archive', dmg: 'archive',
+  // App
+  exe: 'app', msi: 'app', pkg: 'app', appimage: 'app', deb: 'app', rpm: 'app',
+  iso: 'app', img: 'app', crx: 'app', apk: 'app', xapk: 'app', app: 'app', msix: 'app',
+  // Document
+  pdf: 'document', epub: 'document', mobi: 'document', doc: 'document', docx: 'document',
+  xls: 'document', xlsx: 'document', ppt: 'document', pptx: 'document',
+  csv: 'document', txt: 'document', rtf: 'document', odt: 'document', ods: 'document', odp: 'document',
+  // Torrent
+  torrent: 'torrent', magnet: 'magnet',
+  // Subtitle
+  srt: 'other', ass: 'other', ssa: 'other', vtt: 'other', sub: 'other', idx: 'other',
 };
 
 export function classifyByUrl(url: string): MediaType {
