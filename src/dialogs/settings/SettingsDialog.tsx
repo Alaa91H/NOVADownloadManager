@@ -15,6 +15,7 @@ import { AppearanceAndSecurity } from './sections/AppearanceAndSecurity';
 import { DiagnosticsAndSystem } from './sections/DiagnosticsAndSystem';
 import { DirectDownloadSettings } from './sections/DirectDownloadSettings';
 import { MediaDownloadSettings } from './sections/MediaDownloadSettings';
+import { EngineManagement } from './sections/EngineManagement';
 
 type SettingsTabId =
   | 'general'
@@ -24,7 +25,7 @@ type SettingsTabId =
   | 'integrations_automation'
   | 'appearance_security'
   | 'diagnostics_system';
-type EnginesSubTab = 'direct' | 'media';
+type EnginesSubTab = 'direct' | 'media' | 'engineManagement';
 type AutomationSubTab = 'telegram' | 'webhooks' | 'smtp' | 'rules';
 type DiagnosticsSubTab = 'bridge' | 'diagnostics' | 'backup' | 'advanced';
 type SettingsDialogPayload = {
@@ -155,6 +156,12 @@ export const SettingsDialog: React.FC = () => {
       'quality',
       'format',
       'subtitle',
+      'download',
+      'verify',
+      'update',
+      'plugin',
+      'manager',
+      'binary',
     ],
     network: ['network', 'proxy', 'connection', 'dns', 'ip', 'speed', 'bandwidth', 'threads', 'limits', 'performance'],
     integration: ['browser', 'extension', 'integrate', 'capture', 'token', 'cookies', 'history', 'filter', 'monitor'],
@@ -245,6 +252,7 @@ export const SettingsDialog: React.FC = () => {
       subItems: [
         { id: 'direct', label: t('set_tab_direct_download'), icon: Download },
         { id: 'media', label: t('set_tab_media_download'), icon: Video },
+        { id: 'engineManagement', label: 'Engine Manager', icon: Cpu },
       ],
     },
     { id: 'network' as const, label: t('set_tab_network'), desc: t('set_tab_network_desc'), icon: Globe },
@@ -491,6 +499,10 @@ export const SettingsDialog: React.FC = () => {
 
           {activeTab === 'engines' && enginesSubTab === 'media' && (
             <MediaDownloadSettings settings={localSettings} updateSetting={updateLocalSetting} onAddToast={addToast} />
+          )}
+
+          {activeTab === 'engines' && enginesSubTab === 'engineManagement' && (
+            <EngineManagement />
           )}
 
           {activeTab === 'network' && (

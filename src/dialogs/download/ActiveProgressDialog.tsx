@@ -5,115 +5,6 @@ import type { DownloadItem, DownloadSegment } from '../../types/desktop-ui.types
 import { formatBytes } from '../../initialData';
 import { formatSpeed, formatElapsed } from '../../utils/formatUtils';
 
-const SEGMENT_COLORS = [
-  'from-blue-500 to-blue-400',
-  'from-emerald-500 to-emerald-400',
-  'from-violet-500 to-violet-400',
-  'from-amber-500 to-amber-400',
-  'from-rose-500 to-rose-400',
-  'from-cyan-500 to-cyan-400',
-  'from-fuchsia-500 to-fuchsia-400',
-  'from-lime-500 to-lime-400',
-  'from-sky-500 to-sky-400',
-  'from-orange-500 to-orange-400',
-  'from-teal-500 to-teal-400',
-  'from-indigo-500 to-indigo-400',
-  'from-pink-500 to-pink-400',
-  'from-red-500 to-red-400',
-  'from-yellow-500 to-yellow-400',
-  'from-slate-500 to-slate-400',
-  'from-purple-500 to-purple-400',
-  'from-zinc-500 to-zinc-400',
-  'from-stone-500 to-stone-400',
-  'from-neutral-500 to-neutral-400',
-  'from-sky-600 to-cyan-400',
-  'from-rose-600 to-pink-400',
-  'from-emerald-600 to-teal-400',
-  'from-violet-600 to-purple-400',
-  'from-amber-600 to-yellow-400',
-  'from-red-600 to-orange-400',
-  'from-blue-600 to-indigo-400',
-  'from-green-600 to-lime-400',
-  'from-fuchsia-600 to-pink-400',
-  'from-orange-600 to-red-400',
-  'from-cyan-600 to-blue-400',
-  'from-indigo-600 to-violet-400',
-];
-
-const SEGMENT_BG_COLORS = [
-  'bg-blue-500/20',
-  'bg-emerald-500/20',
-  'bg-violet-500/20',
-  'bg-amber-500/20',
-  'bg-rose-500/20',
-  'bg-cyan-500/20',
-  'bg-fuchsia-500/20',
-  'bg-lime-500/20',
-  'bg-sky-500/20',
-  'bg-orange-500/20',
-  'bg-teal-500/20',
-  'bg-indigo-500/20',
-  'bg-pink-500/20',
-  'bg-red-500/20',
-  'bg-yellow-500/20',
-  'bg-slate-500/20',
-  'bg-purple-500/20',
-  'bg-zinc-500/20',
-  'bg-stone-500/20',
-  'bg-neutral-500/20',
-  'bg-sky-600/20',
-  'bg-rose-600/20',
-  'bg-emerald-600/20',
-  'bg-violet-600/20',
-  'bg-amber-600/20',
-  'bg-red-600/20',
-  'bg-blue-600/20',
-  'bg-green-600/20',
-  'bg-fuchsia-600/20',
-  'bg-orange-600/20',
-  'bg-cyan-600/20',
-  'bg-indigo-600/20',
-];
-
-const SEGMENT_TEXT_COLORS = [
-  'text-blue-400',
-  'text-emerald-400',
-  'text-violet-400',
-  'text-amber-400',
-  'text-rose-400',
-  'text-cyan-400',
-  'text-fuchsia-400',
-  'text-lime-400',
-  'text-sky-400',
-  'text-orange-400',
-  'text-teal-400',
-  'text-indigo-400',
-  'text-pink-400',
-  'text-red-400',
-  'text-yellow-400',
-  'text-slate-400',
-  'text-purple-400',
-  'text-zinc-400',
-  'text-stone-400',
-  'text-neutral-400',
-  'text-sky-500',
-  'text-rose-500',
-  'text-emerald-500',
-  'text-violet-500',
-  'text-amber-500',
-  'text-red-500',
-  'text-blue-500',
-  'text-green-500',
-  'text-fuchsia-500',
-  'text-orange-500',
-  'text-cyan-500',
-  'text-indigo-500',
-];
-
-const getSegmentColor = (index: number) => SEGMENT_COLORS[index % SEGMENT_COLORS.length];
-const getSegmentBg = (index: number) => SEGMENT_BG_COLORS[index % SEGMENT_BG_COLORS.length];
-const getSegmentText = (index: number) => SEGMENT_TEXT_COLORS[index % SEGMENT_TEXT_COLORS.length];
-
 const SegmentCard: React.FC<{
   seg: DownloadSegment;
   index: number;
@@ -121,11 +12,8 @@ const SegmentCard: React.FC<{
   segDownloaded: number;
   isActive: boolean;
   t: (key: string) => string;
-}> = React.memo(({ seg, index, segTotal, segDownloaded, isActive, t }) => {
+}> = React.memo(({ seg, segTotal, segDownloaded, isActive, t }) => {
   const segPercent = segTotal > 0 ? Math.round((segDownloaded / segTotal) * 100) : 0;
-  const colorClass = getSegmentText(index);
-  const bgClass = getSegmentBg(index);
-  const gradientClass = getSegmentColor(index);
 
   return (
     <div
@@ -133,7 +21,7 @@ const SegmentCard: React.FC<{
         isActive
           ? `border-[var(--border-color)] bg-[var(--bg-surface-elevated)] shadow-md`
           : seg.progress >= 1
-            ? 'border-green-500/30 bg-green-500/5'
+            ? 'border-[var(--success)]/30 bg-[var(--success)]/5'
             : 'border-[var(--border-color)] bg-[var(--bg-input)] opacity-70'
       }`}
     >
@@ -145,8 +33,8 @@ const SegmentCard: React.FC<{
         <div className="flex flex-col items-center justify-center min-w-[40px]">
           <div
             className={`w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-bold font-mono ${
-              isActive ? bgClass : 'bg-[var(--bg-input)]'
-            } ${isActive ? colorClass : 'text-[var(--text-secondary)]'}`}
+              isActive ? 'bg-[var(--accent-primary)]/15 text-[var(--accent-primary)]' : 'bg-[var(--bg-input)] text-[var(--text-secondary)]'
+            }`}
           >
             {seg.id}
           </div>
@@ -157,7 +45,7 @@ const SegmentCard: React.FC<{
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between mb-1.5">
-            <span className={`text-[11px] font-bold ${isActive ? colorClass : 'text-[var(--text-secondary)]'}`}>
+            <span className={`text-[11px] font-bold ${isActive ? 'text-[var(--accent-primary)]' : 'text-[var(--text-secondary)]'}`}>
               {seg.progress >= 1 ? t('progress_complete') : seg.active ? t('progress_receiving') : t('progress_idle')}
             </span>
             <span className="text-[10px] font-mono text-[var(--text-muted)]">
@@ -168,13 +56,13 @@ const SegmentCard: React.FC<{
           <div className="relative h-2 w-full bg-[var(--bg-input)] rounded-full overflow-hidden border border-[var(--border-color)]/50">
             {isActive && seg.progress < 1 ? (
               <div
-                className={`absolute top-0 bottom-0 left-0 bg-gradient-to-r ${gradientClass} rounded-full transition-all duration-300 shadow-[0_0_6px_rgba(var(--accent-primary-rgb,59,130,246),0.4)]`}
+                className="absolute top-0 bottom-0 left-0 bg-[var(--accent-primary)] rounded-full transition-all duration-300"
                 style={{ width: `${String(segPercent)}%` }}
               />
             ) : (
               <div
                 className={`absolute top-0 bottom-0 left-0 rounded-full transition-all duration-300 ${
-                  seg.progress >= 1 ? 'bg-emerald-500/70' : 'bg-[var(--text-secondary)]/30'
+                  seg.progress >= 1 ? 'bg-[var(--success)]/70' : 'bg-[var(--text-secondary)]/30'
                 }`}
                 style={{ width: `${String(segPercent)}%` }}
               />
@@ -190,7 +78,7 @@ const SegmentCard: React.FC<{
           <div className="flex items-center justify-between mt-1">
             <span className="text-[10px] font-mono text-[var(--text-muted)]">{segPercent}%</span>
             {isActive && seg.speed > 0 && (
-              <span className={`text-[10px] font-mono font-bold ${colorClass}`}>
+              <span className="text-[10px] font-mono font-bold text-[var(--accent-primary)]">
                 {formatSpeed(seg.speed)}
               </span>
             )}
@@ -319,9 +207,8 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
           className="w-full h-6 bg-[var(--bg-input)] border border-[var(--border-color)] flex rounded-lg overflow-hidden select-none shadow-inner"
           style={{ direction: 'ltr' }}
         >
-          {task.segments.map((seg, idx) => {
+          {task.segments.map((seg) => {
             const segPercent = Math.round(seg.progress * 100);
-            const gradientClass = getSegmentColor(idx);
             return (
               <div
                 key={seg.id}
@@ -332,9 +219,9 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
                   <div
                     className={`h-full absolute top-0 left-0 transition-all duration-300 ${
                       seg.active && seg.progress < 1
-                        ? `bg-gradient-to-r ${gradientClass} opacity-90`
+                        ? 'bg-[var(--accent-primary)] opacity-90'
                         : seg.progress >= 1
-                          ? 'bg-emerald-500/60'
+                          ? 'bg-[var(--success)]/60'
                           : 'bg-[var(--text-secondary)]/25'
                     }`}
                     style={{ width: `${String(segPercent)}%` }}
@@ -359,7 +246,7 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
             {t('progress_receiving')} ({activeSegments.length})
           </span>
           <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-sm bg-emerald-500/60" />
+            <span className="w-2 h-2 rounded-sm bg-[var(--success)]/60" />
             {t('progress_complete')} ({completedSegments.length})
           </span>
           <span className="flex items-center gap-1">
@@ -373,8 +260,8 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
       {isDownloading && (
         <div className="flex items-center gap-2 px-3 py-2 bg-[var(--bg-surface-elevated)] border border-[var(--border-color)] rounded-lg">
           <div className="flex items-center gap-1.5">
-            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-[10px] font-bold text-emerald-400">{t('progress_active_connections')}</span>
+            <div className="w-1.5 h-1.5 rounded-full bg-[var(--accent-primary)] animate-pulse" />
+            <span className="text-[10px] font-bold text-[var(--accent-primary)]">{t('progress_active_connections')}</span>
           </div>
           <div className="h-3 w-px bg-[var(--border-color)]" />
           <span className="text-[10px] font-mono font-bold text-[var(--accent-primary)]">

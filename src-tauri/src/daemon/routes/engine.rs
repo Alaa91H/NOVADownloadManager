@@ -966,9 +966,226 @@ pub async fn handle_mirrors_enable_failover(
     }
 }
 
+async fn handle_engine_download(
+    State(state): State<SharedState>,
+    Json(body): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    let engine = body.get("engine").and_then(|v| v.as_str()).unwrap_or("");
+
+    let bin_dir = std::path::Path::new(&state.resource_dir).join("bin");
+    if !bin_dir.exists() {
+        if let Err(e) = std::fs::create_dir_all(&bin_dir) {
+            return Json(serde_json::json!({
+                "ok": false,
+                "error": format!("Could not create bin directory: {e}")
+            }));
+        }
+    }
+
+    let (url, dest): (String, std::path::PathBuf) = match engine {
+        "ytdlp" | "yt-dlp" => {
+            let url = if cfg!(windows) {
+                "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+            } else {
+                "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+            };
+            (
+                url.to_string(),
+                bin_dir.join(if cfg!(windows) {
+                    "yt-dlp.exe"
+                } else {
+                    "yt-dlp"
+                }),
+            )
+        }
+        "ffmpeg" => {
+            return Json(serde_json::json!({
+                "ok": false,
+                "error": "FFmpeg cannot be auto-downloaded. Please provide a path in Settings > Media Download > FFmpeg Binary Path, or install it via your system package manager."
+            }));
+        }
+        _ => {
+            return Json(serde_json::json!({
+                "ok": false,
+                "error": format!("Unknown engine: {engine}")
+            }));
+        }
+    };
+
+    match state.http_client.get(&url).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            let bytes = match resp.bytes().await {
+                Ok(b) => b,
+                Err(e) => {
+                    return Json(serde_json::json!({
+                        "ok": false,
+                        "error": format!("Failed to read response: {e}")
+                    }));
+                }
+            };
+            if let Err(e) = std::fs::write(&dest, &bytes) {
+                return Json(serde_json::json!({
+                    "ok": false,
+                    "error": format!("Failed to write binary: {e}")
+                }));
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Ok(mut perms) = std::fs::metadata(&dest).map(|m| m.permissions()) {
+                    perms.set_mode(0o755);
+                    let _ = std::fs::set_permissions(&dest, perms);
+                }
+            }
+            let version = std::process::Command::new(&dest)
+                .arg("--version")
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default();
+
+            if let Ok(mut cache) = state.engine_capabilities_cache.write() {
+                *cache = None;
+            }
+
+            Json(serde_json::json!({
+                "ok": true,
+                "engine": engine,
+                "path": dest.display().to_string(),
+                "version": version,
+            }))
+        }
+        Ok(resp) => Json(serde_json::json!({
+            "ok": false,
+            "error": format!("HTTP {} from download URL", resp.status())
+        })),
+        Err(e) => Json(serde_json::json!({
+            "ok": false,
+            "error": format!("Download failed: {e}")
+        })),
+    }
+}
+
+async fn handle_engine_verify(
+    State(state): State<SharedState>,
+    Json(body): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    let engine = body.get("engine").and_then(|v| v.as_str()).unwrap_or("");
+
+    let bin_path = match engine {
+        "ytdlp" | "yt-dlp" => &state.ytdlp_bin,
+        "ffmpeg" => &state.ffmpeg_bin,
+        _ => {
+            return Json(serde_json::json!({
+                "ok": false,
+                "error": format!("Unknown engine: {engine}")
+            }));
+        }
+    };
+
+    let exists = std::path::Path::new(bin_path).exists();
+    if !exists {
+        return Json(serde_json::json!({
+            "ok": false,
+            "available": false,
+            "error": "Binary not found"
+        }));
+    }
+
+    let version = std::process::Command::new(bin_path)
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+
+    Json(serde_json::json!({
+        "ok": true,
+        "available": true,
+        "engine": engine,
+        "path": bin_path,
+        "version": version,
+    }))
+}
+
+async fn handle_engine_latest_version(
+    State(state): State<SharedState>,
+    Json(body): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    let engine = body.get("engine").and_then(|v| v.as_str()).unwrap_or("");
+
+    let api_url = match engine {
+        "ytdlp" | "yt-dlp" => "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest",
+        "ffmpeg" => {
+            return Json(serde_json::json!({
+                "ok": true,
+                "engine": "ffmpeg",
+                "latestVersion": "system",
+                "note": "FFmpeg version depends on your system installation. Use your package manager to update."
+            }));
+        }
+        _ => {
+            return Json(serde_json::json!({
+                "ok": false,
+                "error": format!("Unknown engine: {engine}")
+            }));
+        }
+    };
+
+    match state.http_client.get(api_url).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            let json: serde_json::Value = match resp.json().await {
+                Ok(v) => v,
+                Err(e) => {
+                    return Json(serde_json::json!({
+                        "ok": false,
+                        "error": format!("Failed to parse response: {e}")
+                    }));
+                }
+            };
+            let latest = json
+                .get("tag_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let current = std::process::Command::new(&state.ytdlp_bin)
+                .arg("--version")
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default();
+
+            Json(serde_json::json!({
+                "ok": true,
+                "engine": engine,
+                "latestVersion": latest,
+                "currentVersion": current,
+                "updateAvailable": latest != current && !current.is_empty(),
+            }))
+        }
+        Ok(resp) => Json(serde_json::json!({
+            "ok": false,
+            "error": format!("HTTP {} from GitHub API", resp.status())
+        })),
+        Err(e) => Json(serde_json::json!({
+            "ok": false,
+            "error": format!("Request failed: {e}")
+        })),
+    }
+}
+
 pub(crate) fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
     router
         .route("/api/engines/capabilities", get(handle_engine_capabilities))
+        .route("/api/engines/download", post(handle_engine_download))
+        .route("/api/engines/verify", post(handle_engine_verify))
+        .route(
+            "/api/engines/latest-version",
+            post(handle_engine_latest_version),
+        )
         .route(
             "/api/engine/events",
             get(handle_engine_events).delete(handle_engine_events_clear),

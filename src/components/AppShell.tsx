@@ -24,6 +24,8 @@ import { StatusBar } from './StatusBar';
 const SettingsPage = lazy(() => import('../pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 const SchedulerPage = lazy(() => import('../pages/SchedulerPage').then((m) => ({ default: m.SchedulerPage })));
 const MediaDownloadPage = lazy(() => import('../pages/MediaDownloadPage').then((m) => ({ default: m.MediaDownloadPage })));
+const WebpageGrabberPage = lazy(() => import('../pages/WebpageGrabberPage').then((m) => ({ default: m.WebpageGrabberPage })));
+const BatchImportPage = lazy(() => import('../pages/BatchImportPage').then((m) => ({ default: m.BatchImportPage })));
 import DialogRoot from '../dialogs/DialogRoot';
 import { AlertCircle, CheckCircle, Info, X, RefreshCw, Minus, Square, Copy } from 'lucide-react';
 import { Logo } from './Logo';
@@ -556,6 +558,14 @@ const AppShellInner: React.FC = () => {
           ) : activePage === 'mediaDownload' ? (
             <Suspense fallback={<div className="flex-1 flex items-center justify-center"><div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" /></div>}>
               <MediaDownloadPage />
+            </Suspense>
+          ) : activePage === 'webpageGrabber' ? (
+            <Suspense fallback={<div className="flex-1 flex items-center justify-center"><div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" /></div>}>
+              <WebpageGrabberPage />
+            </Suspense>
+          ) : activePage === 'batchImport' ? (
+            <Suspense fallback={<div className="flex-1 flex items-center justify-center"><div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" /></div>}>
+              <BatchImportPage />
             </Suspense>
           ) : (
             <>

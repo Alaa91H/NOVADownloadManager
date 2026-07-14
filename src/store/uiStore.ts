@@ -58,9 +58,10 @@ export const uiStore = create<UIState>()((set, get) => ({
       get().setActivePage(active);
       return;
     }
-    if (active === 'mediaDownload') {
+    if (active === 'mediaDownload' || active === 'webpageGrabber' || active === 'batchDownload') {
+      const page = active === 'batchDownload' ? 'batchImport' : active;
       set({ dialog: { active: null, payload } });
-      get().setActivePage('mediaDownload');
+      get().setActivePage(page);
       return;
     }
     if (active === 'activeProgress') {
@@ -71,7 +72,8 @@ export const uiStore = create<UIState>()((set, get) => ({
 
   closeDialog: () => {
     set({ activeProgressMinimizedToTaskbar: false, minimizedProgressTask: null, dialog: { active: null } });
-    if (get().activePage === 'mediaDownload') {
+    const page = get().activePage;
+    if (page === 'mediaDownload' || page === 'webpageGrabber' || page === 'batchImport') {
       get().setActivePage('downloads');
     }
   },

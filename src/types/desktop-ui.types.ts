@@ -502,7 +502,7 @@ export interface AppSettings {
 
 export type AppTheme = 'dark' | 'light' | 'system' | 'midnight' | 'graphite' | 'nord' | 'solar';
 
-export type AppPage = 'downloads' | 'settings' | 'scheduler' | 'mediaDownload';
+export type AppPage = 'downloads' | 'settings' | 'scheduler' | 'mediaDownload' | 'webpageGrabber' | 'batchImport';
 
 export interface AppThemeSettings {
   theme: AppTheme;

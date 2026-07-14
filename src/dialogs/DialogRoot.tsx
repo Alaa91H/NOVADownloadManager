@@ -6,7 +6,6 @@ import { useI18n } from '../store/selectors';
 import { Modal } from './Modal';
 
 const AddDownloadDialog = lazy(() => import('./download/AddDownloadDialog').then((m) => ({ default: m.AddDownloadDialog })));
-const BatchImportDialog = lazy(() => import('./download/BatchImportDialog').then((m) => ({ default: m.BatchImportDialog })));
 const DiagnosticsDialog = lazy(() => import('./diagnostics/DiagnosticsDialog').then((m) => ({ default: m.DiagnosticsDialog })));
 const TaskPropertiesDialog = lazy(() => import('./tasks/TaskPropertiesDialog').then((m) => ({ default: m.TaskPropertiesDialog })));
 const ActiveProgressDialog = lazy(() => import('./download/ActiveProgressDialog').then((m) => ({ default: m.ActiveProgressDialog })));
@@ -15,7 +14,6 @@ const BrowserIntegrationDialog = lazy(() => import('./integration/BrowserIntegra
 const ConfirmDialog = lazy(() => import('./common/ConfirmDialog').then((m) => ({ default: m.ConfirmDialog })));
 const UpdateLinkDialog = lazy(() => import('./tasks/UpdateLinkDialog').then((m) => ({ default: m.UpdateLinkDialog })));
 const AddToQueueDialog = lazy(() => import('./download/AddToQueueDialog').then((m) => ({ default: m.AddToQueueDialog })));
-const WebpageGrabberDialog = lazy(() => import('./download/WebpageGrabberDialog').then((m) => ({ default: m.WebpageGrabberDialog })));
 const GenericConfirmDialog = lazy(() => import('./common/GenericConfirmDialog').then((m) => ({ default: m.GenericConfirmDialog })));
 
 const DialogFallback = () => (
@@ -41,16 +39,6 @@ export default function DialogRoot() {
       title = t('action_add');
       size = 'lg';
       childComponent = <AddDownloadDialog />;
-      break;
-    case 'webpageGrabber':
-      title = t('dlg_webpage_grabber');
-      size = 'lg';
-      childComponent = <WebpageGrabberDialog />;
-      break;
-    case 'batchDownload':
-      title = t('action_add_batch');
-      size = 'lg';
-      childComponent = <BatchImportDialog />;
       break;
     case 'diagnostics':
       title = t('nav_diagnostics');

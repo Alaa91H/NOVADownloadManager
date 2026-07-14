@@ -184,6 +184,30 @@ export const novaClient = {
     return request<unknown>('/api/engines/capabilities', undefined, 8000);
   },
 
+  async downloadEngine(engine: 'ytdlp' | 'ffmpeg'): Promise<{ ok: boolean; engine: string; path?: string; version?: string; error?: string }> {
+    return request('/api/engines/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ engine }),
+    }, 120000);
+  },
+
+  async verifyEngine(engine: 'ytdlp' | 'ffmpeg'): Promise<{ ok: boolean; available: boolean; engine: string; path?: string; version?: string; error?: string }> {
+    return request('/api/engines/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ engine }),
+    }, 10000);
+  },
+
+  async checkEngineLatestVersion(engine: 'ytdlp' | 'ffmpeg'): Promise<{ ok: boolean; engine: string; latestVersion: string; currentVersion?: string; updateAvailable?: boolean; error?: string }> {
+    return request('/api/engines/latest-version', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ engine }),
+    }, 15000);
+  },
+
   async diagnostics(): Promise<DiagnosticData> {
     return request<DiagnosticData>('/api/diagnostics', undefined, 50000);
   },
