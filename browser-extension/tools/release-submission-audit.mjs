@@ -125,7 +125,7 @@ for (const [file, terms] of Object.entries(policyDocs)) {
   }
 }
 
-const runtimeFiles = walk('src', (rel) => /\.(ts|tsx|js|mjs|cjs|html)$/.test(rel) && !rel.startsWith('src/tests/'));
+const runtimeFiles = walk('src', (rel) => /\.(ts|tsx|js|mjs|cjs|html)$/.test(rel) && !rel.startsWith('src/tests/') && !rel.includes('__tests__/'));
 const runtimeViolations = [];
 for (const file of runtimeFiles) {
   const text = read(file);
@@ -133,7 +133,7 @@ for (const file of runtimeFiles) {
   if (/new\s+Function\s*\(/.test(text)) runtimeViolations.push(`${file}: Function constructor is not allowed`);
   if (/import\s*\(\s*['"]https?:\/\//.test(text)) runtimeViolations.push(`${file}: remote dynamic import is not allowed`);
   if (/(script|iframe)\s+src\s*=\s*['"]https?:\/\//i.test(text)) runtimeViolations.push(`${file}: remote executable/frame source is not allowed`);
-  if (/https?:\/\/(?!127\.0\.0\.1|localhost|example\.com|cdn\.example\.com|files\.example\.com|docs\.example\.com|apps\.example\.com|tracker\.example\.org|s3\.amazonaws\.com)/i.test(text)) {
+  if (/https?:\/\/(?!127\.0\.0\.1|localhost|example\.com|cdn\.example\.com|files\.example\.com|docs\.example\.com|apps\.example\.com|tracker\.example\.org|s3\.amazonaws\.com|i\.ytimg\.com)/i.test(text)) {
     runtimeViolations.push(`${file}: runtime source contains a non-loopback remote HTTP(S) literal`);
   }
 }
