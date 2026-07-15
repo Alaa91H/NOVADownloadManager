@@ -199,9 +199,7 @@ impl EventBus {
                     .event_log
                     .iter()
                     .enumerate()
-                    .filter_map(|(i, evt)| {
-                        evt.event.task_id().map(|tid| (tid.to_string(), i))
-                    })
+                    .filter_map(|(i, evt)| evt.event.task_id().map(|tid| (tid.to_string(), i)))
                     .collect();
                 inner.task_index.clear();
                 for (tid, idx) in to_index {
@@ -210,11 +208,7 @@ impl EventBus {
             }
             if let Some(ref tid) = task_id_opt {
                 let idx = inner.event_log.len();
-                inner
-                    .task_index
-                    .entry(tid.clone())
-                    .or_default()
-                    .push(idx);
+                inner.task_index.entry(tid.clone()).or_default().push(idx);
             }
             inner.event_log.push(ts_event.clone());
             ts_event

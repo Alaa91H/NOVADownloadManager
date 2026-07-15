@@ -76,7 +76,11 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         curl_args,
         telegram_last_update_id,
         scheduler_rules: state.scheduler.rules(),
-        stats: state.download_stats.lock().map(|s| s.clone()).unwrap_or_default(),
+        stats: state
+            .download_stats
+            .lock()
+            .map(|s| s.clone())
+            .unwrap_or_default(),
     }
 }
 
@@ -228,11 +232,10 @@ mod tests {
         let dir_str = dir.display().to_string();
 
         let state = test_state(&dir_str);
-        state
-            .task_snapshot
-            .lock()
-            .unwrap()
-            .insert("g1".to_string(), sample_task("g1", "libcurl-multi", "downloading"));
+        state.task_snapshot.lock().unwrap().insert(
+            "g1".to_string(),
+            sample_task("g1", "libcurl-multi", "downloading"),
+        );
         state
             .task_snapshot
             .lock()

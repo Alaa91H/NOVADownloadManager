@@ -878,13 +878,11 @@ pub(crate) fn create_easy_for_range_ext(
         .open(path)
         .map_err(|e| format!("Could not open segment output file: {e}"))?;
     if let Some(size) = preallocate_bytes {
-        let current = file
-            .metadata()
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let current = file.metadata().map(|m| m.len()).unwrap_or(0);
         if current == 0 && size > 0 {
-            file.set_len(size)
-                .map_err(|e| format!("Could not preallocate segment file (disk may be full): {e}"))?;
+            file.set_len(size).map_err(|e| {
+                format!("Could not preallocate segment file (disk may be full): {e}")
+            })?;
         }
     }
     let mut easy = Easy2::new(SegmentWriter {

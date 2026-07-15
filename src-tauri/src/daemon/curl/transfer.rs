@@ -430,7 +430,14 @@ fn run_single_libcurl(
     } else {
         None
     };
-    let easy = create_easy_for_range_ext(plan, &plan.output_path, progress, None, task_limit_bps, preallocate)?;
+    let easy = create_easy_for_range_ext(
+        plan,
+        &plan.output_path,
+        progress,
+        None,
+        task_limit_bps,
+        preallocate,
+    )?;
     let mut multi = Multi::new();
     configure_multi_limits(
         &mut multi,
@@ -620,11 +627,7 @@ fn run_segmented_libcurl(
         let progress = Arc::new(AtomicU64::new(0));
         let seg_capture = Arc::new(Mutex::new(ResponseCapture::default()));
         seg_captures.push(seg_capture.clone());
-        let preallocate = if existing == 0 {
-            Some(expected)
-        } else {
-            None
-        };
+        let preallocate = if existing == 0 { Some(expected) } else { None };
         let easy = create_easy_for_range_ext(
             plan,
             &range.path,

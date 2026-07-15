@@ -663,7 +663,11 @@ pub async fn handle_captures_pending(State(state): State<SharedState>) -> Json<s
 }
 
 pub async fn handle_stats(State(state): State<SharedState>) -> Json<serde_json::Value> {
-    let stats = state.download_stats.lock().map(|s| s.clone()).unwrap_or_default();
+    let stats = state
+        .download_stats
+        .lock()
+        .map(|s| s.clone())
+        .unwrap_or_default();
     let active = {
         let snap = lock_or_err!(state.task_snapshot);
         snap.values().filter(|t| t.status == "downloading").count()

@@ -509,7 +509,10 @@ pub fn run() {
                     break;
                 }
                 if std::time::Instant::now() > deadline {
-                    log::warn!("Daemon port {} still not available after 2s; starting anyway", default_port);
+                    log::warn!(
+                        "Daemon port {} still not available after 2s; starting anyway",
+                        default_port
+                    );
                     break;
                 }
                 std::thread::sleep(Duration::from_millis(50));

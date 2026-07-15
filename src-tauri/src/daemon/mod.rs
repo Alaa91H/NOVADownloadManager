@@ -329,7 +329,8 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 {
                     let mut curl = lock_or_err!(shutdown_state.curl_jobs);
                     for job in curl.values_mut() {
-                        job.cancel_token.store(true, std::sync::atomic::Ordering::Release);
+                        job.cancel_token
+                            .store(true, std::sync::atomic::Ordering::Release);
                         job.task.status = "paused".to_string();
                         job.task.engine_status = Some("shutdown".to_string());
                     }
@@ -428,8 +429,7 @@ fn restore_persisted_tasks(
             }
         } else if task.engine == "curl"
             || task.engine == "libcurl-multi"
-            || (task.engine != "yt-dlp"
-                && task.url.starts_with("http://"))
+            || (task.engine != "yt-dlp" && task.url.starts_with("http://"))
         {
             task.engine = "libcurl-multi".to_string();
             task.engine_id = task.id.clone();
@@ -487,7 +487,10 @@ fn restore_persisted_tasks(
         } else {
             task.status = "error".to_string();
             task.engine_status = Some("unsupported-engine".to_string());
-            task.error_message = Some("This download used a removed engine. Re-add it with the libcurl engine.".to_string());
+            task.error_message = Some(
+                "This download used a removed engine. Re-add it with the libcurl engine."
+                    .to_string(),
+            );
             task.speed_bytes_per_sec = 0;
         }
 
