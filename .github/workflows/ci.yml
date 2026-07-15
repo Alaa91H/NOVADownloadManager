@@ -127,7 +127,18 @@ jobs:
 
       - name: Audit Rust dependencies for known vulnerabilities
         working-directory: src-tauri
-        run: cargo audit --config .cargo/audit.toml
+        run: |
+          # Write audit config to CARGO_HOME so cargo audit picks it up
+          cat > "$CARGO_HOME/audit.toml" << 'EOF'
+          [advisories]
+          ignore = [
+            # RUSTSEC-2024-0370: proc-macro-error is unmaintained (INFO/Unmaintained).
+            # Transitive dep from glib-macros/gtk3-macros via tauri. No patched version.
+            # Compile-time only, zero runtime exposure. Remove when upstream tauri drops it.
+            "RUSTSEC-2024-0370",
+          ]
+          EOF
+          cargo audit
 
       - name: Cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml
