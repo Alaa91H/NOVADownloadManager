@@ -1227,4 +1227,8 @@ set_tab_direct_download: 'Direct Download',
   'modal_pop_out': 'Open in a separate window',
   'col_elapsed': 'Elapsed',
   'progress_elapsed': 'Elapsed',
-  'table_elapsed_label': 'Elapsed',};
+  'table_elapsed_label': 'Elapsed',
+  'media_quality_disabled_for_audio': 'Video quality disabled in audio-only mode.',
+  'media_quality_requires_ytdlp': 'Video quality options require yt-dlp to be available.',
+  'media_audio_requires_ytdlp': 'Audio options require yt-dlp to probe the media.',
+};
