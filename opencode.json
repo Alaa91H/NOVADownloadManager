@@ -1,0 +1,62 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "opencode/big-pickle",
+  "small_model": "opencode/big-pickle",
+  "default_agent": "build",
+  "autoupdate": true,
+  "snapshot": false,
+  "instructions": ["AGENTS.md", "CONSTITUTION.md"],
+  "permission": {
+    "edit": "allow",
+    "bash": "allow",
+    "read": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "list": "allow",
+    "webfetch": "allow",
+    "websearch": "allow",
+    "todowrite": "allow",
+    "skill": "allow",
+    "task": "allow",
+    "question": "deny",
+    "external_directory": "ask"
+  },
+  "agent": {
+    "build": {
+      "mode": "primary",
+      "model": "opencode/big-pickle",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "webfetch": "allow",
+        "websearch": "allow",
+        "todowrite": "allow",
+        "skill": "allow",
+        "task": "allow",
+        "question": "deny"
+      }
+    },
+    "plan": {
+      "mode": "primary",
+      "model": "opencode/big-pickle",
+      "permission": {
+        "edit": "deny",
+        "bash": "deny",
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "webfetch": "allow",
+        "websearch": "allow",
+        "todowrite": "allow",
+        "skill": "allow",
+        "task": "deny",
+        "question": "deny"
+      }
+    }
+  }
+}
