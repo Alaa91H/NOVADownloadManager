@@ -128,6 +128,8 @@ jobs:
       - name: Audit Rust dependencies for known vulnerabilities
         run: |
           cargo audit --manifest-path src-tauri/Cargo.toml \
+            --deny=vulnerability \
+            --deny=unsound \
             --ignore RUSTSEC-2024-0370
 
       - name: Cargo check
