@@ -25,6 +25,10 @@ concurrency:
 
 permissions: {}
 
+defaults:
+  run:
+    shell: bash
+
 env:
   NODE_VERSION: '24'
   RUST_BACKTRACE: '1'
