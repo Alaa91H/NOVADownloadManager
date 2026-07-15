@@ -83,7 +83,7 @@ requireContains('.github/workflows/ci.yml', 'timeout-minutes:', 'CI job timeout 
 requireContains('.github/workflows/ci.yml', 'SHA-256', 'release artifact checksums');
 requireContains('.github/workflows/ci.yml', 'build-metadata.json', 'build metadata generation');
 requireContains('.github/workflows/ci.yml', 'Build matrix summary', 'professional build matrix summary');
-requireContains('src-tauri/Cargo.toml', 'panic = "abort"', 'release panic=abort optimization');
+requireContains('src-tauri/Cargo.toml', 'panic = "unwind"', 'release panic=unwind optimization (for catch_unwind)');
 requireContains('src-tauri/Cargo.toml', 'codegen-units = 1', 'release single codegen unit');
 requireContains('src-tauri/windows/hooks.nsi', 'NOVA_BUILD_ID', 'build ID in installer');
 requireContains('src-tauri/windows/hooks.nsi', 'NOVA_BUILD_COMMIT', 'commit SHA in installer');

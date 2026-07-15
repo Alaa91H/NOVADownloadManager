@@ -95,7 +95,8 @@ function trackDownload(downloadId: number, filename: string): void {
 
 function initDownloadCompletionListener(): void {
   if (!browser.downloads?.onChanged) return;
-  browser.downloads.onChanged.addListener((delta) => {
+  try {
+    browser.downloads.onChanged.addListener((delta) => {
     if (delta.state?.current === 'complete' && typeof delta.id === 'number') {
       const filename = TRACKED_DOWNLOADS.get(delta.id);
       if (filename) {
@@ -122,6 +123,7 @@ function initDownloadCompletionListener(): void {
       }
     }
   });
+  } catch { /* fake-browser does not implement downloads.onChanged.addListener */ }
 }
 
 void initDownloadCompletionListener();

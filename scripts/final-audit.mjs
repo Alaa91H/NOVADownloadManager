@@ -141,7 +141,7 @@ requireContains('scripts/build-tauri-assets.mjs', 'generateNativeMessagingManife
 // Professional build quality invariants
 requireContains('.github/workflows/ci.yml', 'concurrency:', 'CI concurrency controls');
 requireContains('.github/workflows/ci.yml', 'timeout-minutes:', 'CI job timeout limits');
-requireContains('src-tauri/Cargo.toml', 'panic = "abort"', 'release panic=abort');
+requireContains('src-tauri/Cargo.toml', 'panic = "unwind"', 'release panic=unwind (for catch_unwind)');
 requireContains('src-tauri/Cargo.toml', 'codegen-units = 1', 'release single codegen unit');
 requireContains('.github/workflows/ci.yml', 'SHA256SUMS', 'checksum generation');
 requireContains('.github/workflows/ci.yml', 'build-metadata.json', 'build metadata generation');

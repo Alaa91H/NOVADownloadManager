@@ -93,13 +93,13 @@ export function registerDownloadInterceptor(): void {
   if (interceptorReady) return;
   interceptorReady = true;
 
-  if (browser.downloads?.onCreated) {
+  if (browser.downloads?.onCreated?.addListener) {
     browser.downloads.onCreated.addListener((item) => {
       catchAndIgnore(handleDownload(item), 'download-interceptor');
     });
   }
 
-  if (browser.downloads?.onChanged) {
+  if (browser.downloads?.onChanged?.addListener) {
     browser.downloads.onChanged.addListener((delta) => {
       catchAndIgnore(handleChange(delta), 'download-interceptor:change');
     });

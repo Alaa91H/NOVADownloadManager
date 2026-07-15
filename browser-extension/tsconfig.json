@@ -8,5 +8,6 @@
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
     "types": ["node", "webextension-polyfill"]
-  }
+  },
+  "exclude": ["src/**/__tests__/**"]
 }
