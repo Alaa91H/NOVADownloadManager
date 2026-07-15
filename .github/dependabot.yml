@@ -1,0 +1,177 @@
+# Dependabot configuration for NOVA Download Manager.
+#
+# Four ecosystems are monitored:
+#   1. npm (root)           — desktop React UI, Vite, Tailwind, Tauri CLI
+#   2. npm (browser-ext)    — WXT, Zod, Dexie, content-script libraries
+#   3. Cargo (src-tauri)    — Rust daemon, curl, tokio, axum, reqwest
+#   4. GitHub Actions       — CI workflows, release, auto-merge
+#
+# Groups batch related updates into a single PR to reduce noise.
+# Schedule: every Monday at 06:00 Berlin time (offset by 20 min per ecosystem).
+
+version: 2
+updates:
+  # ── Root desktop UI (npm) ──────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 8
+    versioning-strategy: "increase-if-necessary"
+    rebase-strategy: "auto"
+    labels:
+      - "dependencies"
+      - "frontend"
+    commit-message:
+      prefix: "deps(ui)"
+      include: "scope"
+    groups:
+      react-ecosystem:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react*"
+      tauri-plugins:
+        patterns:
+          - "@tauri-apps/*"
+      ui-library:
+        patterns:
+          - "lucide-react"
+          - "clsx"
+          - "tailwindcss"
+          - "@tailwindcss/*"
+      build-tooling:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "vitest"
+          - "@vitest/*"
+          - "typescript"
+          - "tsx"
+      lint-format:
+        patterns:
+          - "eslint*"
+          - "@eslint/*"
+          - "typescript-eslint"
+          - "prettier"
+          - "eslint-config-prettier"
+          - "eslint-plugin-react-hooks"
+      testing:
+        patterns:
+          - "@testing-library/*"
+          - "jsdom"
+
+  # ── Browser extension (npm) ────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/browser-extension"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:20"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 8
+    versioning-strategy: "increase-if-necessary"
+    rebase-strategy: "auto"
+    labels:
+      - "dependencies"
+      - "browser-extension"
+    commit-message:
+      prefix: "deps(extension)"
+      include: "scope"
+    groups:
+      extension-runtime:
+        patterns:
+          - "@wxt-dev/*"
+          - "wxt"
+          - "webextension-polyfill"
+          - "dexie"
+          - "idb-keyval"
+          - "zod"
+      media-parsers:
+        patterns:
+          - "m3u8-parser"
+          - "mpd-parser"
+      extension-react:
+        patterns:
+          - "react"
+          - "react-dom"
+      extension-quality:
+        patterns:
+          - "typescript"
+          - "vitest"
+          - "@vitest/*"
+          - "eslint"
+          - "@typescript-eslint/*"
+          - "@playwright/*"
+          - "playwright"
+          - "tsx"
+          - "prettier"
+          - "cross-env"
+
+  # ── Rust daemon (Cargo) ────────────────────────────────────
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:40"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 8
+    rebase-strategy: "auto"
+    labels:
+      - "dependencies"
+      - "rust"
+      - "engine"
+    commit-message:
+      prefix: "deps(rust)"
+      include: "scope"
+    groups:
+      tauri-framework:
+        patterns:
+          - "tauri"
+          - "tauri-*"
+          - "tauri-plugin-*"
+      http-stack:
+        patterns:
+          - "reqwest"
+          - "axum"
+          - "tower-http"
+          - "tokio"
+          - "tokio-util"
+      curl-engine:
+        patterns:
+          - "curl"
+          - "curl-sys"
+      serialization:
+        patterns:
+          - "serde"
+          - "serde_json"
+          - "chrono"
+          - "uuid"
+
+  # ── GitHub Actions ─────────────────────────────────────────
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 5
+    rebase-strategy: "auto"
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "deps(ci)"
+      include: "scope"
+    groups:
+      ci-actions:
+        patterns:
+          - "actions/*"
+          - "pnpm/action-setup"
+          - "dtolnay/rust-toolchain"
+          - "softprops/action-gh-release"

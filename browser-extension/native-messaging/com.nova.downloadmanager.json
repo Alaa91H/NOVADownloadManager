@@ -1,0 +1,12 @@
+{
+  "name": "com.nova.downloadmanager",
+  "description": "NOVA Download Manager Native Messaging Host",
+  "path": "__NOVA_NATIVE_HOST_PATH__",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://__CHROMIUM_EXTENSION_ID__/"
+  ],
+  "allowed_extensions": [
+    "nova-browser-extension@novabrowserextension.app"
+  ]
+}

@@ -1,0 +1,9 @@
+# NOVA native engine build defaults.
+# The production CI builds the latest stable curl/curl source into vendor/native/curl/*
+# and exports PKG_CONFIG_PATH to that prefix before Cargo runs. These defaults make
+# Cargo prefer static native dependencies when such a prefix is present, while still
+# allowing development builds to fall back to the system/vendored curl-sys behavior.
+[env]
+PKG_CONFIG_ALL_STATIC = "1"
+PKG_CONFIG_ALLOW_CROSS = "1"
+NOVA_LIBCURL_LINK_MODE = { value = "static-ci-or-dev-fallback", force = false }
