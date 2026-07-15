@@ -189,3 +189,11 @@ Desktop.ini
 # ──────────────────────────────────────────────────────
 Plan.md
 metadata.json
+
+# ──────────────────────────────────────────────────────
+# OpenCode configuration (project-specific)
+# ──────────────────────────────────────────────────────
+.opencode/node_modules/
+.opencode/package.json
+.opencode/package-lock.json
+.opencode/bun.lock

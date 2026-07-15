@@ -1,3 +1,173 @@
 {
-  "$schema": "https://opencode.ai/config.json"
+  "$schema": "https://opencode.ai/config.json",
+  "username": "nova-maintainer",
+  "model": "anthropic/claude-sonnet-4-6",
+  "small_model": "anthropic/claude-sonnet-4-6",
+  "default_agent": "build",
+  "logLevel": "INFO",
+  "share": "disabled",
+  "autoupdate": true,
+  "snapshot": true,
+  "instructions": ["AGENTS.md", "docs/architecture/PROJECT_STRUCTURE.md", "docs/architecture/CAPABILITY_GATING.md"],
+
+  "skills": {
+    "paths": [".opencode/skills"]
+  },
+
+  "references": {
+    "docs": {
+      "path": "docs",
+      "description": "Project documentation including architecture, extension docs, and maintenance guides"
+    },
+    "scripts": {
+      "path": "scripts",
+      "description": "Build, audit, native-curl, and release helper scripts"
+    }
+  },
+
+  "agent": {
+    "build": {
+      "description": "Primary agent for implementation, code editing, and file operations",
+      "mode": "primary",
+      "model": "anthropic/claude-sonnet-4-6",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow"
+      }
+    },
+    "plan": {
+      "description": "Planning and analysis agent for architecture review and task decomposition",
+      "mode": "primary",
+      "model": "anthropic/claude-sonnet-4-6",
+      "permission": {
+        "edit": "deny",
+        "bash": "ask"
+      }
+    },
+    "security-auditor": {
+      "description": "Reviews code for security vulnerabilities, injection risks, and capability gating violations",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6",
+      "permission": {
+        "edit": "deny",
+        "bash": "ask"
+      }
+    },
+    "docs-writer": {
+      "description": "Writes and maintains project documentation, architecture guides, and changelogs",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6",
+      "permission": {
+        "edit": "allow",
+        "bash": "deny"
+      }
+    },
+    "test-runner": {
+      "description": "Runs tests, analyzes coverage, and identifies untested code paths",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6",
+      "permission": {
+        "edit": "deny",
+        "bash": "allow"
+      }
+    },
+    "release-manager": {
+      "description": "Manages release workflows, version bumps, and changelog generation",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow"
+      }
+    }
+  },
+
+  "command": {
+    "review": {
+      "description": "Perform a comprehensive code review of the specified files or recent changes",
+      "agent": "build",
+      "template": "Perform a thorough code review of the following code. Focus on:\n1. Security vulnerabilities and injection risks\n2. Capability gating violations (UI controls must match engine capabilities)\n3. TypeScript type safety and error handling\n4. Performance implications\n5. Code style consistency with the existing codebase\n\nAnalyze: $ARGUMENTS"
+    },
+    "security": {
+      "description": "Run a security audit on the specified code or project area",
+      "agent": "security-auditor",
+      "template": "Conduct a security audit of the specified code. Check for:\n1. Command/argument injection vulnerabilities\n2. Path traversal or arbitrary file write risks\n3. Loopback bridge authentication issues\n4. Capability gating bypass attempts\n5. Sensitive data exposure\n\nAudit target: $ARGUMENTS"
+    },
+    "arch": {
+      "description": "Analyze architecture and provide improvement recommendations",
+      "agent": "plan",
+      "template": "Analyze the architecture of the specified component or feature. Consider:\n1. Alignment with project structure (docs/architecture/PROJECT_STRUCTURE.md)\n2. Centralization policy compliance\n3. Separation of concerns\n4. Dependency management\n5. Scalability and maintainability\n\nAnalyze: $ARGUMENTS"
+    },
+    "test": {
+      "description": "Generate tests for the specified component or function",
+      "agent": "test-runner",
+      "template": "Generate comprehensive tests for the specified code. Include:\n1. Unit tests for core functionality\n2. Edge cases and error scenarios\n3. Integration points with engine capabilities\n4. Mocking of external dependencies (Tauri API, daemon)\n\nTarget: $ARGUMENTS"
+    },
+    "release": {
+      "description": "Prepare a release (version bump, changelog, validation)",
+      "agent": "release-manager",
+      "template": "Prepare a release for version $ARGUMENTS. Steps:\n1. Validate version format (X.Y.Z or X.Y.Z-prerelease)\n2. Update package.json and tauri.conf.json\n3. Generate changelog from recent commits\n4. Run final audit checks\n5. Prepare release artifacts"
+    },
+    "i18n": {
+      "description": "Validate and sync internationalization files",
+      "agent": "build",
+      "template": "Validate and synchronize internationalization files. Run:\n1. pnpm run i18n:sync\n2. pnpm run i18n:validate\n3. Check for missing translation keys\n4. Verify translation completeness\n\nTarget: $ARGUMENTS"
+    },
+    "extension": {
+      "description": "Work on the browser extension component",
+      "agent": "build",
+      "template": "Perform browser extension operations. Check:\n1. Typecheck: pnpm --filter nova-browser-extension typecheck\n2. Verify offline capabilities: pnpm --filter nova-browser-extension verify:offline\n3. Build package: pnpm run extension:package\n4. Verify Nova sync: pnpm --filter nova-browser-extension verify:nova-sync\n\nTask: $ARGUMENTS"
+    },
+    "cleanup": {
+      "description": "Identify and remove unused code, dependencies, and files",
+      "agent": "build",
+      "template": "Analyze the codebase for unused code, dependencies, and files. Check:\n1. Unused imports and variables\n2. Dead code paths\n3. Deprecated dependencies\n4. Files not referenced anywhere\n5. Generate cleanup recommendations\n\nScope: $ARGUMENTS"
+    }
+  },
+
+  "mcp": {
+    "playwright": {
+      "type": "local",
+      "command": ["npx", "-y", "@playwright/mcp"],
+      "enabled": true,
+      "env": {
+        "BROWSER": "chromium"
+      }
+    }
+  },
+
+  "permission": {
+    "edit": "allow",
+    "bash": {
+      "git *": "allow",
+      "pnpm *": "allow",
+      "node *": "allow",
+      "cargo *": "allow",
+      "rm -rf node_modules": "ask",
+      "*": "ask"
+    },
+    "external_directory": {
+      "~/projects/*": "allow",
+      "~/.config/opencode/*": "allow",
+      "*": "ask"
+    }
+  },
+
+  "formatter": true,
+  "lsp": true,
+
+  "experimental": {
+    "primary_tools": ["edit", "bash"],
+    "mcp_timeout": 60000
+  },
+
+  "tool_output": {
+    "max_lines": 300,
+    "max_bytes": 16384
+  },
+
+  "compaction": {
+    "auto": true,
+    "tail_turns": 20
+  }
 }
