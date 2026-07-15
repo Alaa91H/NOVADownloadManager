@@ -3,10 +3,11 @@ import React, { useState } from 'react';
 import { Globe, Link2, AlertCircle, FileEdit, ArrowRight } from 'lucide-react';
 import { useAppStore } from '../../state/appStore';
 import { TextField, DialogButton } from '../../components/primitives';
+import { DegradedBanner } from '../../components/primitives/DegradedBanner';
 import { DownloadItem } from '../../types/desktop-ui.types';
 
 export const UpdateLinkDialog: React.FC = () => {
-  const { dialog, closeDialog, updateTaskProperties, addToast, t } = useAppStore();
+  const { dialog, closeDialog, updateTaskProperties, addToast, t, isDegradedMode } = useAppStore();
 
   const task = dialog.payload as DownloadItem | undefined;
   const [mode, setMode] = useState<'browser' | 'manual'>('browser');
@@ -44,6 +45,9 @@ export const UpdateLinkDialog: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {isDegradedMode && (
+        <DegradedBanner title={t('dialog_degraded_title')} description={t('dialog_degraded_desc')} />
+      )}
       <div className="flex gap-3 bg-[var(--bg-hover)] p-3 rounded-lg border border-[var(--border-color)]/30">
         <AlertCircle className="w-5 h-5 text-indigo-500 shrink-0 mt-0.5" />
         <div className="text-xs space-y-1">

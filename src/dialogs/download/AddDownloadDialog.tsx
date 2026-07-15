@@ -9,10 +9,11 @@ import { detectUrlType } from '../../utils/urlDetector';
 import { clearClipboardIfTextMatches, readClipboardText } from '../../utils/clipboard';
 import { formatBytes } from '../../initialData';
 import { TextField, SelectField, Checkbox } from '../../components/primitives';
+import { DegradedBanner } from '../../components/primitives/DegradedBanner';
 import { useEngineCapabilities } from '../../capabilities/EngineCapabilityContext';
 
 export const AddDownloadDialog: React.FC = () => {
-  const { dialog, closeDialog, queues, settings, addTask, addToast, openDialog, t } = useAppStore();
+  const { dialog, closeDialog, queues, settings, addTask, addToast, openDialog, t, isDegradedMode } = useAppStore();
   const engineCapabilities = useEngineCapabilities();
 
   const buildConfiguredProxy = () => {
@@ -109,11 +110,16 @@ export const AddDownloadDialog: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
-    void tauriClient.getDownloadsDir().then((dir) => {
-      if (cancelled || !dir) return;
-      setDefaultDownloadsDir(dir);
-      setSavePath((prev) => prev || dir);
-    });
+    void tauriClient
+      .getDownloadsDir()
+      .then((dir) => {
+        if (cancelled || !dir) return;
+        setDefaultDownloadsDir(dir);
+        setSavePath((prev) => prev || dir);
+      })
+      .catch(() => {
+        /* native directory unavailable — user can type path manually */
+      });
     return () => {
       cancelled = true;
     };
@@ -203,7 +209,7 @@ export const AddDownloadDialog: React.FC = () => {
           setCategory(detectedType);
           const probedSize = Number.isFinite(probed.sizeBytes) && probed.sizeBytes > 0 ? probed.sizeBytes : 0;
           setSizeBytes(probedSize);
-          setProbeError(probedSize > 0 ? '' : 'The server did not report a file size.');
+          setProbeError(probedSize > 0 ? '' : t('add_dl_no_size'));
           setResumable(probed.resumable);
           if (probed.supportsSegments === false) setConnections(1);
           setSavePath(buildSavePath(detectedType, detectedName));
@@ -214,10 +220,10 @@ export const AddDownloadDialog: React.FC = () => {
           const detectedType = detectedName ? inferTypeFromName(detectedName) : 'other';
           const message =
             error instanceof Error && error.name === 'AbortError'
-              ? 'File size probe timed out. Retry after the server responds.'
+              ? t('add_dl_probe_timeout')
               : error instanceof Error && error.message
                 ? error.message
-                : 'File size unavailable for this link.';
+                : t('add_dl_probe_failed');
           setFileName(detectedName);
           setFileType(detectedType);
           setCategory(detectedType);
@@ -410,6 +416,9 @@ export const AddDownloadDialog: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {isDegradedMode && (
+        <DegradedBanner title={t('dialog_degraded_title')} description={t('dialog_degraded_desc')} />
+      )}
       {!directEngineReady && (
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-[11px] text-red-200">
           {t('add_dl_direct_unavailable')}

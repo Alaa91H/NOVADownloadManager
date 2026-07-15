@@ -515,6 +515,37 @@ P26-07-07
       - Branch: `feature/ui-004-fetch-error-state`
       - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/45
       - Preflight: brace/paren/bracket balance verified on all 4 source files.
+    - Cycle 2026-07-13 (round 13 — Dialog degraded banners, WebpageGrabberDialog i18n, promise rejection fixes):
+      - **AddDownloadDialog degraded banner**: Added `isDegradedMode` from useAppStore. DegradedBanner shown at top when daemon unreachable. Import DegradedBanner from primitives.
+      - **WebpageGrabberDialog full i18n**: Replaced all 30+ hardcoded English strings with `t()` calls. Added 31 new translation keys to en.ts and ar.ts (grabber_*). Imported DegradedBanner. Added `isDegradedMode` from useAppStore. DegradedBanner shown at top when daemon unreachable.
+      - **Promise rejection hardening**: Added `.catch()` handlers to 3 fire-and-forget `.then()` calls:
+        - `AddDownloadDialog.tsx`: `getDownloadsDir().then()` — catch swallows silently (user can type path manually).
+        - `BrowserIntegrationDialog.tsx`: `getBrowserExtensionPaths().then()` — catch swallows silently (UI remains in checking state).
+        - `appStore.tsx`: `loadLanguage().then()` — catch swallows silently (UI stays on previously loaded locale).
+      - **i18n**: Added 31 new keys to en.ts/ar.ts (grabber_*). Synced to all 132 locales via fix-i18n.mjs (1357 keys each).
+      - Branch: `feat/ui-005-button-polish` (working branch)
+      - Preflight: brace/paren balance verified on all 4 changed source files. No hardcoded strings remain in WebpageGrabberDialog.
+    - Cycle 2026-07-13 (round 13 CI repair — TS2305 + test failures):
+      - **Root cause (TypeScript)**: `AddDownloadDialog.tsx` and `WebpageGrabberDialog.tsx` imported `DegradedBanner` from `'../../components/primitives'` (barrel file `primitives.tsx`), but `DegradedBanner` only exists in `primitives/DegradedBanner.tsx`. TS2305: no exported member.
+      - **Fix (TypeScript)**: Changed both imports to direct path `'../../components/primitives/DegradedBanner'`.
+      - **Root cause (Tests)**: `WebpageGrabberDialog.test.tsx` mock `t()` only mapped `btn_cancel`, but the component now uses 29 `grabber_*` i18n keys. Tests searched for hardcoded English strings (e.g., `'Start Scraping'`, `'Webpages (HTML)'`) which were no longer rendered.
+      - **Fix (Tests)**: Added all 29 `grabber_*` key→English-value pairs to the mock `t()` map so assertions match rendered text.
+      - Branch: `feat/ui-005-button-polish`
+      - Push: `8fe088b` pushed to feature branch at 2026-07-13
+      - CI: pending (TypeScript + tests + build should now pass)
+      - Preflight: brace/paren/bracket balance verified on all 3 changed files.
+    - Cycle 2026-07-13 (round 14 — Dialog DegradedBanner + remaining hardcoded i18n):
+      - **TaskPropertiesDialog**: Added `DegradedBanner` import, `isDegradedMode` from useAppStore. DegradedBanner shown at top when daemon unreachable.
+      - **UpdateLinkDialog**: Added `DegradedBanner` import, `isDegradedMode` from useAppStore. DegradedBanner shown at top when daemon unreachable.
+      - **SchedulerPanel**: Replaced hardcoded `'Main Download Queue'` fallback with `t('sched_default_queue')`.
+      - **AddDownloadDialog**: Replaced 3 hardcoded English probe error strings with existing i18n keys (`add_dl_no_size`, `add_dl_probe_timeout`, `add_dl_probe_failed`).
+      - **YoutubeDownloadDialog**: Replaced 6 hardcoded English strings with i18n keys: `'Unknown'` → `t('ytdl_unknown')` (updated `resolutionLabel` signature to accept `t`), `'Playlist probe failed'` → `t('ytdl_playlist_probe_failed')`, `'Probe failed'` → `t('ytdl_probe_failed')`, `'Media playlist'`/`'Media download'` → `t('ytdl_media_playlist')`/`t('ytdl_media_download')`, `'Playlist'` → `t('ytdl_playlist')`.
+      - **BatchImportDialog**: Replaced hardcoded `'Batch import'` description with `t('batch_import_desc')`.
+      - **ActiveProgressDialog**: Replaced hardcoded `'Shutdown computer'` initial state with `() => t('prog_shutdown')` (matches option values). Replaced `'Unknown'` in `formatTime` with `t('prog_time_unknown')`.
+      - **i18n**: Added 10 new keys to en.ts and ar.ts (`ytdl_unknown`, `ytdl_probe_failed`, `ytdl_playlist_probe_failed`, `ytdl_media_playlist`, `ytdl_media_download`, `ytdl_playlist`, `batch_import_desc`, `prog_time_unknown`, `sched_default_queue`). Synced to all 132 locales (1366 keys each).
+      - Branch: `feature/ui-004-dialog-offline-i18n`
+      - PR: https://github.com/Alaa91H/NOVADownloadManager/pull/48
+      - Preflight: brace/paren/bracket balance verified on all 9 changed source files.
 
 ### UI-005 — Button & interaction polish pass
 
@@ -1176,6 +1207,96 @@ P26-07-07
   5. `AppShell.tsx` (560 lines) → extract ToastRenderer, KeyboardHandler, DragDropOverlay
 - Acceptance: No single component exceeds 300 lines; `tsc --noEmit` clean; all existing tests pass
 - Validation: CI TypeScript + Run tests gates
+
+---
+
+## Newly Discovered Tasks (deep analysis pass — 2026-07-13)
+
+### FIX-015 — Add .catch() to connectDaemon promise chain in appStore.tsx
+
+- Status: `[ ] PLANNED`
+- Stream: FIX
+- Priority: P1
+- Impact: Unhandled promise rejection when connectDaemon() rejects; may cause silent failure during daemon reconnection
+- Plan: In `src/state/appStore.tsx` line 537, `void connectDaemon().then(() => { ... })` has no outer `.catch()`. If `connectDaemon()` itself rejects (not the inner try/catch), the rejection is unhandled. Add `.catch(() => {})` after the `.then()` chain, or wrap in try/catch inside the async IIFE.
+- Acceptance: No unhandled promise rejection from the connectDaemon call chain
+- Validation: CI Run tests gate
+
+### FIX-016 — Add noopener,noreferrer to remaining window.open calls
+
+- Status: `[ ] PLANNED`
+- Stream: FIX
+- Priority: P1
+- Impact: Security; 3 window.open calls lack noopener,noreferrer, enabling reverse tabnapping attacks
+- Plan: Add `'noopener,noreferrer'` third argument to:
+  1. `src/api/tauriClient.ts` line 421 — `window.open(urls[browser], '_blank')` (browser extension page; note: test at line 492 expects no flags, update test assertion too)
+  2. `src/components/Sidebar.tsx` line 300 — `window.open('https://arab-downloads.net/home', '_blank')`
+  3. `src/dialogs/tasks/UpdateLinkDialog.tsx` line 41 — `window.open(targetUrl, '_blank')` (already tracked by FIX-012 but not yet implemented)
+- Acceptance: All `window.open` calls include `noopener,noreferrer`; tauriClient test updated to expect flags
+- Validation: CI Run tests + TypeScript gates
+
+### FIX-017 — Translate hardcoded VPN/validation strings in tauriClient.ts
+
+- Status: `[ ] PLANNED`
+- Stream: FIX
+- Priority: P1
+- Impact: 14 hardcoded English VPN/validation messages in tauriClient.ts break i18n for non-English users
+- Plan: Add translation keys to en.ts/ar.ts for all 14 VPN-related strings in `src/api/tauriClient.ts` (lines 215-257, 429-431). Since tauriClient is not a React component, use `getTranslation()` directly from `src/lib/i18n/translations.ts`. Import `getTranslation` and resolve the current language from appStore or a stored locale.
+- Acceptance: All user-visible strings in tauriClient.ts use getTranslation(); i18n:validate passes
+- Validation: CI Validate translations + Run tests gates
+
+### TEST-005 — Add comprehensive tests for useTaskStore
+
+- Status: `[ ] PLANNED`
+- Stream: IMPROVE
+- Priority: P1
+- Impact: Core store with only 3 tests (mergeDaemonTasks helper); Zustand store actions (add, remove, update, select, clear) are untested
+- Plan: Extend `src/state/__tests__/useTaskStore.test.ts` with tests for all store actions: addTask, removeTask, updateTask, selectTask, clearSelection, setSelectedTasks, mergeDaemonTasks edge cases (duplicate IDs, empty arrays, status transitions). Test store selectors and derived state.
+- Acceptance: useTaskStore.test.ts has 15+ tests covering all store actions; all pass
+- Validation: CI Run tests gate
+
+### TEST-006 — Add tests for settings dialog (container + 8 sections)
+
+- Status: `[ ] PLANNED`
+- Stream: IMPROVE
+- Priority: P1
+- Impact: 9 untested files (SettingsDialog + 8 sections) represent a large untested subsystem
+- Plan: Write test files:
+  1. `src/dialogs/settings/__tests__/SettingsDialog.test.tsx` — tab navigation, settings save, dialog open/close, section routing
+  2. `src/dialogs/settings/sections/__tests__/GeneralAndDownloads.test.tsx` — form fields, default values, save behavior
+  3. `src/dialogs/settings/sections/__tests__/NetworkAndPerformance.test.tsx` — proxy fields, validation
+  Focus on render, user interactions, and i18n mock consistency. Cover at least the 3 most-used sections.
+- Acceptance: 3 test files pass; settings dialog rendering and basic interactions are covered
+- Validation: CI Run tests gate
+
+### TEST-007 — Add tests for UI primitives (EmptyState, ErrorState, LoadingSpinner, TableSkeleton, DegradedBanner)
+
+- Status: `[ ] PLANNED`
+- Stream: IMPROVE
+- Priority: P2
+- Impact: 5 newly added primitive components have zero test coverage
+- Plan: Create `src/components/__tests__/primitives-states.test.tsx` covering:
+  - EmptyState: renders icon, message, action button click
+  - ErrorState: renders icon, title, description, error message, retry button
+  - LoadingSpinner: renders with size prop
+  - TableSkeleton: renders correct number of rows/columns
+  - DegradedBanner: renders warning message
+- Acceptance: All 5 primitives render correctly with various props; all tests pass
+- Validation: CI Run tests gate
+
+### IMPROVE-007 — Add .catch() to fire-and-forget void promise expressions in appStore.tsx
+
+- Status: `[ ] PLANNED`
+- Stream: IMPROVE
+- Priority: P2
+- Impact: Prevents potential unhandled rejections from native notifications, file scan, and file open operations
+- Plan: Add `.catch(() => {})` to 4 fire-and-forget void promise calls in `src/state/appStore.tsx`:
+  1. Line 676: `void tauriClient.triggerNativeNotification(...)`
+  2. Line 680: `void tauriClient.scanDownloadedFile(...)`
+  3. Line 683: `void tauriClient.openDownloadedFile(...)`
+  4. Line 686: `void tauriClient.revealDownloadedFile(...)`
+- Acceptance: No unhandled promise rejections from fire-and-forget operations
+- Validation: CI Run tests gate
 
 ---
 

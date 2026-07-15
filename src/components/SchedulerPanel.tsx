@@ -50,7 +50,7 @@ export const SchedulerPanel: React.FC = () => {
     ? queues.find((q) => q.id === selectedQueueId) || queues[0]
     : undefined;
 
-  const [name, setName] = useState(selectedQueue?.name || 'Main Download Queue');
+  const [name, setName] = useState(selectedQueue?.name || t('sched_default_queue'));
   const [startTime, setStartTime] = useState(selectedQueue?.startTime || '02:00');
   const [endTime, setEndTime] = useState(selectedQueue?.endTime || '08:00');
   const [days, setDays] = useState<number[]>(selectedQueue?.days || []);

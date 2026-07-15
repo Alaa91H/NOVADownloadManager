@@ -72,7 +72,7 @@ export const BatchImportDialog: React.FC = () => {
       queueId,
       connections: supportsSegmentedDownloads ? connections : 1,
       saveDirectory: saveDirectory.trim() || undefined,
-      description: 'Batch import',
+      description: t('batch_import_desc'),
       directOptions,
     });
     closeDialog();

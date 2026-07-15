@@ -51,8 +51,8 @@ function bestVideoFormat(formats: YtDlpFormat[], heightLimit?: number): YtDlpFor
   return candidates[0];
 }
 
-function resolutionLabel(height: number | null): string {
-  if (!height) return 'Unknown';
+function resolutionLabel(height: number | null, t: (key: string) => string): string {
+  if (!height) return t('ytdl_unknown');
   if (height >= 4320) return '8K';
   if (height >= 2160) return '4K';
   if (height >= 1440) return '2K';
@@ -189,7 +189,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
           setPlaylistResult(result);
           setSelectedPlaylistItems(new Set(result.entries.map((e) => e.index)));
         } catch (e) {
-          setPlaylistError(e instanceof Error ? e.message : 'Playlist probe failed');
+          setPlaylistError(e instanceof Error ? e.message : t('ytdl_playlist_probe_failed'));
           setPlaylistResult(null);
         } finally {
           setIsProbingPlaylist(false);
@@ -208,7 +208,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
             if (best && best.height) setQuality(`${String(best.height)}p`);
           }
         } catch (e) {
-          setProbeError(e instanceof Error ? e.message : 'Probe failed');
+          setProbeError(e instanceof Error ? e.message : t('ytdl_probe_failed'));
           setProbeResult(null);
         } finally {
           setIsProbing(false);
@@ -372,7 +372,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
 
     const task = await addTask(
       {
-        name: isPlaylist ? playlistResult?.title || 'Media playlist' : probeResult?.title || 'Media download',
+        name: isPlaylist ? playlistResult?.title || t('ytdl_media_playlist') : probeResult?.title || t('ytdl_media_download'),
         url: submittedUrl,
         sizeBytes: selectedFormatSize,
         fileType,
@@ -442,7 +442,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
       const codec = fmt.vcodec.split('.')[0] || '';
       options.push({
         value: `${String(fmt.height)}p`,
-        label: `${resolutionLabel(fmt.height)} ${fpsLabel} - ${fmt.ext.toUpperCase()} ${fmt.formatNote || ''}${fileSize ? ` [${formatBytes(fileSize)}]` : ''}`,
+        label: `${resolutionLabel(fmt.height, t)} ${fpsLabel} - ${fmt.ext.toUpperCase()} ${fmt.formatNote || ''}${fileSize ? ` [${formatBytes(fileSize)}]` : ''}`,
         size: fileSize ? formatBytes(fileSize) : '',
         sizeBytes: fileSize,
         needsFfmpeg: !hasAudio,
@@ -613,7 +613,7 @@ export const YoutubeDownloadDialog: React.FC = () => {
             <div className="flex items-center justify-between p-2.5 border-b border-[var(--border-color)]/20">
               <div className="flex items-center gap-2">
                 <ListMusic className="w-4 h-4 text-sky-400" />
-                <span className="text-xs font-bold text-slate-200 truncate">{playlistResult.title || 'Playlist'}</span>
+                <span className="text-xs font-bold text-slate-200 truncate">{playlistResult.title || t('ytdl_playlist')}</span>
                 <span className="text-[10px] text-slate-500">({playlistResult.entries.length} videos)</span>
               </div>
               <button

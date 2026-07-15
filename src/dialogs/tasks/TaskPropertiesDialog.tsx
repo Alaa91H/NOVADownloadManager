@@ -7,9 +7,10 @@ import { TextField, SelectField, Checkbox, DialogButton, Button } from '../../co
 import { FileType, DownloadItem } from '../../types/desktop-ui.types';
 import { formatBytes } from '../../initialData';
 import { useEngineCapabilities } from '../../capabilities/EngineCapabilityContext';
+import { DegradedBanner } from '../../components/primitives/DegradedBanner';
 
 export const TaskPropertiesDialog: React.FC = () => {
-  const { dialog, closeDialog, updateTaskProperties, addToast, t } = useAppStore();
+  const { dialog, closeDialog, updateTaskProperties, addToast, t, isDegradedMode } = useAppStore();
   const engineCapabilities = useEngineCapabilities();
   const task = dialog.payload as DownloadItem | undefined;
 
@@ -88,6 +89,9 @@ export const TaskPropertiesDialog: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {isDegradedMode && (
+        <DegradedBanner title={t('dialog_degraded_title')} description={t('dialog_degraded_desc')} />
+      )}
       <div className="grid grid-cols-2 gap-3 bg-[var(--bg-hover)] p-3 border border-[var(--border-color)] rounded-lg">
         <div className="flex flex-col">
           <span className="text-[10px] text-[var(--text-muted)]">{t('task_prop_file_size')}</span>
