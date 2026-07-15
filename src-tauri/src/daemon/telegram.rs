@@ -114,6 +114,35 @@ async fn telegram_send_message(
         .unwrap_or(false)
 }
 
+async fn telegram_send_message_with_keyboard(
+    client: &reqwest::Client,
+    api_base: &str,
+    token: &str,
+    chat_id: i64,
+    text: &str,
+) -> bool {
+    let url = telegram_api_url(api_base, token, "sendMessage");
+    client
+        .post(&url)
+        .json(&serde_json::json!({
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "reply_markup": {
+                "keyboard": [
+                    [{"text": "📋 Downloads"}, {"text": "➕ Add URL"}],
+                    [{"text": "❓ Help"}]
+                ],
+                "resize_keyboard": true,
+                "one_time_keyboard": false
+            }
+        }))
+        .send()
+        .await
+        .map(|r| r.status().is_success())
+        .unwrap_or(false)
+}
+
 fn blocking_client() -> Option<&'static reqwest::blocking::Client> {
     static CLIENT: OnceLock<Option<reqwest::blocking::Client>> = OnceLock::new();
     CLIENT
@@ -148,6 +177,40 @@ pub fn send_telegram_msg_blocking_with_api(
             "chat_id": chat_id,
             "text": text,
             "parse_mode": "HTML",
+        }))
+        .send()
+        .map(|r| r.status().is_success())
+        .unwrap_or(false)
+}
+
+fn send_telegram_msg_with_keyboard_blocking(
+    api_base: &str,
+    token: &str,
+    chat_id: i64,
+    text: &str,
+) -> bool {
+    let client = match blocking_client() {
+        Some(c) => c,
+        None => {
+            log::error!("Cannot send Telegram message: HTTP client not available");
+            return false;
+        }
+    };
+    let url = telegram_api_url(api_base, token, "sendMessage");
+    client
+        .post(&url)
+        .json(&serde_json::json!({
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "reply_markup": {
+                "keyboard": [
+                    [{"text": "📋 Downloads"}, {"text": "➕ Add URL"}],
+                    [{"text": "❓ Help"}]
+                ],
+                "resize_keyboard": true,
+                "one_time_keyboard": false
+            }
         }))
         .send()
         .map(|r| r.status().is_success())
@@ -231,193 +294,275 @@ fn handle_telegram_command(
     rt: &tokio::runtime::Runtime,
 ) {
     let text = text.trim();
-    if text.starts_with('/') {
-        let parts: Vec<&str> = text.splitn(2, ' ').collect();
-        let cmd = parts[0];
-        let arg = parts.get(1).copied().unwrap_or("");
 
-        match cmd {
-            "/start" | "/help" => {
-                let help = "NOVA Bot Commands:\n".to_string()
-                    + "/list - List all downloads\n"
-                    + "/add <url> - Add download\n"
-                    + "/pause <id> - Pause download\n"
-                    + "/resume <id> - Resume download\n"
-                    + "/delete <id> - Delete download\n"
-                    + "/help - Show this help";
-                send_telegram_msg_blocking_with_api(api_base, token, chat_id, &help);
+    match text {
+        "📋 Downloads" => {
+            let tasks = rt.block_on(list_all_tasks(state));
+            if tasks.is_empty() {
+                send_telegram_msg_blocking_with_api(api_base, token, chat_id, "No downloads.");
+            } else {
+                let mut msg = format!("Downloads ({})\n\n", tasks.len());
+                for t in tasks.iter().take(20) {
+                    let icon = match t.status.as_str() {
+                        "downloading" => "⬇\u{fe0f}",
+                        "completed" => "✅",
+                        "paused" => "⏸\u{fe0f}",
+                        "queued" => "⏳",
+                        _ => "❌",
+                    };
+                    let pct = if t.size_bytes > 0 {
+                        (t.downloaded_bytes as f64 / t.size_bytes as f64 * 100.0) as u64
+                    } else {
+                        0
+                    };
+                    msg.push_str(&format!(
+                        "{} <code>{}</code> - {} ({}%)\n",
+                        icon,
+                        &t.id[..t.id.len().min(8)],
+                        t.name,
+                        pct
+                    ));
+                }
+                if tasks.len() > 20 {
+                    msg.push_str(&format!("\n... and {} more", tasks.len() - 20));
+                }
+                send_telegram_msg_blocking_with_api(api_base, token, chat_id, &msg);
             }
-            "/list" => {
-                let tasks = rt.block_on(list_all_tasks(state));
-                if tasks.is_empty() {
-                    send_telegram_msg_blocking_with_api(api_base, token, chat_id, "No downloads.");
-                } else {
-                    let mut msg = format!("Downloads ({})\n\n", tasks.len());
-                    for t in tasks.iter().take(20) {
-                        let icon = match t.status.as_str() {
-                            "downloading" => "⬇\u{fe0f}",
-                            "completed" => "✅",
-                            "paused" => "⏸\u{fe0f}",
-                            "queued" => "⏳",
-                            _ => "❌",
-                        };
-                        let pct = if t.size_bytes > 0 {
-                            (t.downloaded_bytes as f64 / t.size_bytes as f64 * 100.0) as u64
-                        } else {
-                            0
-                        };
-                        msg.push_str(&format!(
-                            "{} <code>{}</code> - {} ({}%)\n",
-                            icon,
-                            &t.id[..t.id.len().min(8)],
-                            t.name,
-                            pct
-                        ));
-                    }
-                    if tasks.len() > 20 {
-                        msg.push_str(&format!("\n... and {} more", tasks.len() - 20));
-                    }
-                    send_telegram_msg_blocking_with_api(api_base, token, chat_id, &msg);
+        }
+        "➕ Add URL" => {
+            send_telegram_msg_blocking_with_api(
+                api_base,
+                token,
+                chat_id,
+                "Send the download URL like this:\n/add <url>",
+            );
+        }
+        "❓ Help" => {
+            let help = "NOVA Bot Commands:\n".to_string()
+                + "/list - List all downloads\n"
+                + "/add <url> - Add download\n"
+                + "/pause <id> - Pause download\n"
+                + "/resume <id> - Resume download\n"
+                + "/delete <id> - Delete download\n"
+                + "/help - Show this help\n\n"
+                + "Use the buttons below for quick access!";
+            send_telegram_msg_with_keyboard_blocking(api_base, token, chat_id, &help);
+        }
+        _ if text.starts_with('/') => {
+            let parts: Vec<&str> = text.splitn(2, ' ').collect();
+            let cmd = parts[0];
+            let arg = parts.get(1).copied().unwrap_or("");
+
+            match cmd {
+                "/start" | "/help" => {
+                    let help = "NOVA Bot Commands:\n".to_string()
+                        + "/list - List all downloads\n"
+                        + "/add <url> - Add download\n"
+                        + "/pause <id> - Pause download\n"
+                        + "/resume <id> - Resume download\n"
+                        + "/delete <id> - Delete download\n"
+                        + "/help - Show this help\n\n"
+                        + "Use the buttons below for quick access!";
+                    send_telegram_msg_with_keyboard_blocking(api_base, token, chat_id, &help);
                 }
-            }
-            "/add" => {
-                if arg.is_empty() {
-                    send_telegram_msg_blocking_with_api(
-                        api_base,
-                        token,
-                        chat_id,
-                        "Usage: /add <url>",
-                    );
-                    return;
-                }
-                if let Err(e) = crate::daemon::utils::is_safe_target_url(arg) {
-                    send_telegram_msg_blocking_with_api(
-                        api_base,
-                        token,
-                        chat_id,
-                        &format!("Blocked: {}", e),
-                    );
-                    return;
-                }
-                let body = CreateDownloadBody {
-                    url: Some(arg.to_string()),
-                    name: None,
-                    file_type: None,
-                    size_bytes: None,
-                    category: None,
-                    queue_id: None,
-                    connections: None,
-                    resumable: None,
-                    save_path: None,
-                    description: None,
-                    referer: None,
-                    start_immediately: Some(true),
-                    direct_options: None,
-                    media_options: None,
-                };
-                match rt.block_on(crate::daemon::curl::create_curl_task(state, &body)) {
-                    Ok(task) => {
+                "/list" => {
+                    let tasks = rt.block_on(list_all_tasks(state));
+                    if tasks.is_empty() {
                         send_telegram_msg_blocking_with_api(
                             api_base,
                             token,
                             chat_id,
-                            &format!("Added: {}", task.name),
+                            "No downloads.",
                         );
+                    } else {
+                        let mut msg = format!("Downloads ({})\n\n", tasks.len());
+                        for t in tasks.iter().take(20) {
+                            let icon = match t.status.as_str() {
+                                "downloading" => "⬇\u{fe0f}",
+                                "completed" => "✅",
+                                "paused" => "⏸\u{fe0f}",
+                                "queued" => "⏳",
+                                _ => "❌",
+                            };
+                            let pct = if t.size_bytes > 0 {
+                                (t.downloaded_bytes as f64 / t.size_bytes as f64 * 100.0) as u64
+                            } else {
+                                0
+                            };
+                            msg.push_str(&format!(
+                                "{} <code>{}</code> - {} ({}%)\n",
+                                icon,
+                                &t.id[..t.id.len().min(8)],
+                                t.name,
+                                pct
+                            ));
+                        }
+                        if tasks.len() > 20 {
+                            msg.push_str(&format!("\n... and {} more", tasks.len() - 20));
+                        }
+                        send_telegram_msg_blocking_with_api(api_base, token, chat_id, &msg);
                     }
-                    Err(e) => {
+                }
+                "/add" => {
+                    if arg.is_empty() {
                         send_telegram_msg_blocking_with_api(
                             api_base,
                             token,
                             chat_id,
-                            &format!("Failed: {}", e),
+                            "Usage: /add <url>",
                         );
+                        return;
                     }
-                }
-            }
-            "/pause" | "/resume" | "/delete" => {
-                if arg.is_empty() {
-                    send_telegram_msg_blocking_with_api(
-                        api_base,
-                        token,
-                        chat_id,
-                        &format!("Usage: {} <id>", cmd),
-                    );
-                    return;
-                }
-                match cmd {
-                    "/pause" => {
-                        let result = rt.block_on(async {
-                            handle_pause_task(State(state.clone()), AxumPath(arg.to_string())).await
-                        });
-                        let _ = match result {
-                            Ok(_) => send_telegram_msg_blocking_with_api(
+                    if let Err(e) = crate::daemon::utils::is_safe_target_url(arg) {
+                        send_telegram_msg_blocking_with_api(
+                            api_base,
+                            token,
+                            chat_id,
+                            &format!("Blocked: {}", e),
+                        );
+                        return;
+                    }
+                    let body = CreateDownloadBody {
+                        url: Some(arg.to_string()),
+                        name: None,
+                        file_type: None,
+                        size_bytes: None,
+                        category: None,
+                        queue_id: None,
+                        connections: None,
+                        resumable: None,
+                        save_path: None,
+                        description: None,
+                        referer: None,
+                        start_immediately: Some(true),
+                        direct_options: None,
+                        media_options: None,
+                    };
+                    match rt.block_on(crate::daemon::curl::create_curl_task(state, &body)) {
+                        Ok(task) => {
+                            send_telegram_msg_blocking_with_api(
                                 api_base,
                                 token,
                                 chat_id,
-                                &format!("Paused: {}", arg),
-                            ),
-                            Err(e) => send_telegram_msg_blocking_with_api(
+                                &format!("Added: {}", task.name),
+                            );
+                        }
+                        Err(e) => {
+                            send_telegram_msg_blocking_with_api(
                                 api_base,
                                 token,
                                 chat_id,
-                                e.1 .0
-                                    .get("error")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("unknown"),
-                            ),
-                        };
+                                &format!("Failed: {}", e),
+                            );
+                        }
                     }
-                    "/resume" => {
-                        let result = rt.block_on(async {
-                            handle_resume_task(State(state.clone()), AxumPath(arg.to_string()))
+                }
+                "/pause" | "/resume" | "/delete" => {
+                    if arg.is_empty() {
+                        send_telegram_msg_blocking_with_api(
+                            api_base,
+                            token,
+                            chat_id,
+                            &format!("Usage: {} <id>", cmd),
+                        );
+                        return;
+                    }
+                    match cmd {
+                        "/pause" => {
+                            let result = rt.block_on(async {
+                                handle_pause_task(State(state.clone()), AxumPath(arg.to_string()))
+                                    .await
+                            });
+                            let _ = match result {
+                                Ok(_) => send_telegram_msg_blocking_with_api(
+                                    api_base,
+                                    token,
+                                    chat_id,
+                                    &format!("Paused: {}", arg),
+                                ),
+                                Err(e) => send_telegram_msg_blocking_with_api(
+                                    api_base,
+                                    token,
+                                    chat_id,
+                                    e.1 .0
+                                        .get("error")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("unknown"),
+                                ),
+                            };
+                        }
+                        "/resume" => {
+                            let result = rt.block_on(async {
+                                handle_resume_task(
+                                    State(state.clone()),
+                                    AxumPath(arg.to_string()),
+                                )
                                 .await
-                        });
-                        let _ = match result {
-                            Ok(_) => send_telegram_msg_blocking_with_api(
-                                api_base,
-                                token,
-                                chat_id,
-                                &format!("Resumed: {}", arg),
-                            ),
-                            Err(e) => send_telegram_msg_blocking_with_api(
-                                api_base,
-                                token,
-                                chat_id,
-                                e.1 .0
-                                    .get("error")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("unknown"),
-                            ),
-                        };
+                            });
+                            let _ = match result {
+                                Ok(_) => send_telegram_msg_blocking_with_api(
+                                    api_base,
+                                    token,
+                                    chat_id,
+                                    &format!("Resumed: {}", arg),
+                                ),
+                                Err(e) => send_telegram_msg_blocking_with_api(
+                                    api_base,
+                                    token,
+                                    chat_id,
+                                    e.1 .0
+                                        .get("error")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("unknown"),
+                                ),
+                            };
+                        }
+                        "/delete" => {
+                            let result =
+                                rt.block_on(async { delete_task(state, arg, false).await });
+                            let _ = match result {
+                                Ok(_) => send_telegram_msg_blocking_with_api(
+                                    api_base,
+                                    token,
+                                    chat_id,
+                                    &format!("Removed from list: {}", arg),
+                                ),
+                                Err(e) => {
+                                    send_telegram_msg_blocking_with_api(
+                                        api_base,
+                                        token,
+                                        chat_id,
+                                        &e,
+                                    )
+                                }
+                            };
+                        }
+                        _ => {}
                     }
-                    "/delete" => {
-                        let result = rt.block_on(async { delete_task(state, arg, false).await });
-                        let _ = match result {
-                            Ok(_) => send_telegram_msg_blocking_with_api(
-                                api_base,
-                                token,
-                                chat_id,
-                                &format!("Removed from list: {}", arg),
-                            ),
-                            Err(e) => {
-                                send_telegram_msg_blocking_with_api(api_base, token, chat_id, &e)
-                            }
-                        };
-                    }
-                    _ => {}
+                }
+                _ => {
+                    send_telegram_msg_blocking_with_api(
+                        api_base,
+                        token,
+                        chat_id,
+                        &format!(
+                            "Unknown command: {}\nUse /help for available commands.",
+                            cmd
+                        ),
+                    );
                 }
             }
-            _ => {
-                send_telegram_msg_blocking_with_api(
-                    api_base,
-                    token,
-                    chat_id,
-                    &format!(
-                        "Unknown command: {}\nUse /help for available commands.",
-                        cmd
-                    ),
-                );
-            }
+        }
+        _ => {
+            send_telegram_msg_blocking_with_api(
+                api_base,
+                token,
+                chat_id,
+                &format!(
+                    "Unknown command: {}\nUse /help for available commands.",
+                    text
+                ),
+            );
         }
     }
 }
