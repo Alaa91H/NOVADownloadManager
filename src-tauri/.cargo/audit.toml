@@ -1,0 +1,10 @@
+[advisories]
+ignore = [
+    # proc-macro-error is unmaintained (RUSTSEC-2024-0370).
+    # Type: INFO/Unmaintained — not a security vulnerability.
+    # It is a transitive dependency pulled in by glib-macros and gtk3-macros
+    # (via tauri/gtk upstream). No patched version exists; cannot be removed
+    # without upstream changes. Compile-time only, no runtime exposure.
+    # https://rustsec.org/advisories/RUSTSEC-2024-0370
+    "RUSTSEC-2024-0370",
+]
