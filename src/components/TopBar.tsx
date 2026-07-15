@@ -1,5 +1,5 @@
 ﻿/* src/components/TopBar.tsx */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   Plus,
   Layers,
@@ -28,6 +28,7 @@ import {
   useNotificationsData,
   useI18n,
 } from '../store/selectors';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 import type { CustomButtonAction, CustomButtonIcon, ToolbarButtonId } from '../types/desktop-ui.types';
 import { novaClient } from '../api/novaClient';
 
@@ -133,8 +134,16 @@ export const TopBar: React.FC = () => {
   };
 
   const toggleSpeedLimiter = () => {
-    const updated = structuredClone(settings);
-    updated.connection.speedLimiter.enabled = !updated.connection.speedLimiter.enabled;
+    const updated = {
+      ...settings,
+      connection: {
+        ...settings.connection,
+        speedLimiter: {
+          ...settings.connection.speedLimiter,
+          enabled: !settings.connection.speedLimiter.enabled,
+        },
+      },
+    };
     updateSettings(updated);
   };
 
@@ -264,19 +273,11 @@ export const TopBar: React.FC = () => {
     setOpenDropdown((prev) => (prev === id ? null : id));
   };
 
-  const closeDropdown = () => {
+  const closeDropdown = useCallback(() => {
     setOpenDropdown(null);
-  };
+  }, []);
 
-  // Close dropdowns on Escape key
-  React.useEffect(() => {
-    if (!openDropdown) return;
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeDropdown();
-    };
-    window.addEventListener('keydown', handleEscape);
-    return () => { window.removeEventListener('keydown', handleEscape); };
-  }, [openDropdown]);
+  useEscapeKey(!!openDropdown, closeDropdown);
 
   return (
     <header className="bg-[var(--bg-sidebar)] border-b border-[var(--border-color)] p-2 flex flex-nowrap items-center justify-between gap-3 select-none text-ui shrink-0 relative z-30">

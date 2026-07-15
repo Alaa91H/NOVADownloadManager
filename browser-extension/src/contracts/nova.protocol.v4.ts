@@ -126,7 +126,7 @@ export const StreamQualitySchema = z.object({
   codecs: z.string().optional(),
   label: z.string().optional(),
   formatId: z.string().optional(),
-  // IDM-style per-quality details (provided by NOVA when it resolves the manifest):
+  // Per-quality details (provided by NOVA when it resolves the manifest):
   estimatedSizeBytes: z.number().int().nonnegative().optional(),
   container: z.string().optional(),   // e.g. 'mp4', 'webm', 'ts'
   fps: z.number().positive().optional(),
@@ -154,3 +154,45 @@ export const StreamAddRequestSchema = z.object({
   selectedQuality: StreamQualitySchema.optional(),
   source: z.literal('nova-extension'),
 });
+
+export const YtdlpFormatSchema = z.object({
+  url: z.string().url(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  bandwidth: z.number().int().positive().optional(),
+  codecs: z.string().optional(),
+  label: z.string().optional(),
+  formatId: z.string().optional(),
+  container: z.string().optional(),
+  fps: z.number().positive().optional(),
+  hasAudio: z.boolean().optional(),
+  hasVideo: z.boolean().optional(),
+  estimatedSizeBytes: z.number().int().nonnegative().optional(),
+  filesize: z.number().int().nonnegative().optional(),
+  tbr: z.number().optional(),
+  abr: z.number().optional(),
+  vbr: z.number().optional(),
+  ext: z.string().optional(),
+  format: z.string().optional(),
+  formatNote: z.string().optional(),
+  resolution: z.string().optional(),
+  vcodec: z.string().optional(),
+  acodec: z.string().optional(),
+});
+export type YtdlpFormat = z.infer<typeof YtdlpFormatSchema>;
+
+export const YtdlpProbeResponseSchema = z.object({
+  id: z.string().optional(),
+  title: z.string().optional(),
+  duration: z.number().optional(),
+  durationString: z.string().optional(),
+  thumbnail: z.string().optional(),
+  webpageUrl: z.string().optional(),
+  formats: z.array(YtdlpFormatSchema).default([]),
+  uploader: z.string().optional(),
+  uploadDate: z.string().optional(),
+  description: z.string().optional(),
+  viewCount: z.number().optional(),
+  likeCount: z.number().optional(),
+}).passthrough();
+export type YtdlpProbeResponse = z.infer<typeof YtdlpProbeResponseSchema>;

@@ -1,5 +1,5 @@
 /* src/components/StatusBar.tsx */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   useTaskData,
   useTaskSelectors,
@@ -28,6 +28,7 @@ import {
   Clipboard,
 } from 'lucide-react';
 import { novaClient, type BrowserExtensionHealth } from '../api/novaClient';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 export const StatusBar: React.FC = () => {
   const tasks = useTaskData();
@@ -87,25 +88,11 @@ export const StatusBar: React.FC = () => {
     };
   }, [isAnyBrowserEnabled, settings.general.integrateWithBrowsers]);
 
-  // Close speed limiter menu on Escape
-  useEffect(() => {
-    if (!speedMenuVisible) return;
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSpeedMenuVisible(false);
-    };
-    window.addEventListener('keydown', handleEscape);
-    return () => { window.removeEventListener('keydown', handleEscape); };
-  }, [speedMenuVisible]);
+  const closeSpeedMenu = useCallback(() => { setSpeedMenuVisible(false); }, []);
+  const closeTelegramMenu = useCallback(() => { setTelegramMenuVisible(false); }, []);
 
-  // Close telegram menu on Escape
-  useEffect(() => {
-    if (!telegramMenuVisible) return;
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setTelegramMenuVisible(false);
-    };
-    window.addEventListener('keydown', handleEscape);
-    return () => { window.removeEventListener('keydown', handleEscape); };
-  }, [telegramMenuVisible]);
+  useEscapeKey(speedMenuVisible, closeSpeedMenu);
+  useEscapeKey(telegramMenuVisible, closeTelegramMenu);
 
   // Derive 3-state browser icon color:
   // Green: enabled + health reports paired+enabled
@@ -169,8 +156,10 @@ export const StatusBar: React.FC = () => {
   };
 
   const toggleTelegramEnabled = () => {
-    const updated = structuredClone(settings);
-    updated.extra.tgEnabled = !updated.extra.tgEnabled;
+    const updated = {
+      ...settings,
+      extra: { ...settings.extra, tgEnabled: !settings.extra.tgEnabled },
+    };
     updateSettings(updated);
     setTelegramMenuVisible(false);
   };
@@ -352,8 +341,10 @@ export const StatusBar: React.FC = () => {
         {statusVisible('clipboard') && (
           <button
             onClick={() => {
-              const updated = structuredClone(settings);
-              updated.general.monitorClipboard = !updated.general.monitorClipboard;
+              const updated = {
+                ...settings,
+                general: { ...settings.general, monitorClipboard: !settings.general.monitorClipboard },
+              };
               updateSettings(updated);
             }}
             className={`p-1.5 hover:bg-[var(--bg-hover)] rounded transition-all cursor-pointer flex items-center justify-center ${
@@ -669,9 +660,17 @@ export const StatusBar: React.FC = () => {
                       const val = parseFloat(manualSpeedInput);
                       if (!isNaN(val) && val > 0) {
                         const speedKbs = manualSpeedUnit === 'MB' ? Math.round(val * 1024) : Math.round(val);
-                        const updated = structuredClone(settings);
-                        updated.connection.speedLimiter.enabled = true;
-                        updated.connection.speedLimiter.maxSpeedKbs = speedKbs;
+                        const updated = {
+                          ...settings,
+                          connection: {
+                            ...settings.connection,
+                            speedLimiter: {
+                              ...settings.connection.speedLimiter,
+                              enabled: true,
+                              maxSpeedKbs: speedKbs,
+                            },
+                          },
+                        };
                         updateSettings(updated);
                       }
                       setShowManualInput(false);

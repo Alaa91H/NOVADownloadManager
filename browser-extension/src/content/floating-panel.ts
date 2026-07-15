@@ -1,17 +1,102 @@
 import browser from 'webextension-polyfill';
 
 const HOST_ID = 'nova-media-panel-host';
-const CHECK_INTERVAL_MS = 2000;
+const CHECK_INTERVAL_MS = 2500;
 const PANEL_OPACITY_DEFAULT = 0.35;
 const PANEL_OPACITY_HOVER = 1;
 
 let panelHost: ShadowRoot | null = null;
 let panelEl: HTMLDivElement | null = null;
+let overlayBtn: HTMLButtonElement | null = null;
 let trackedElements = new WeakSet<Element>();
 let isDragging = false;
 let dragOffsetX = 0;
 let dragOffsetY = 0;
 let currentCandidates: PanelCandidate[] = [];
+let savedPosition: { top: string; right: string; left: string; bottom: string } | null = null;
+let emptyScanCount = 0;
+let panelVisible = false;
+
+// --- ITAG quality map (same as youtube-adapter.ts for consistency) ---
+const ITAG_QUALITY: Record<number, { quality: string; fps?: number; hdr?: boolean; ext?: string }> = {
+  5: { quality: '144p', ext: 'flv' }, 6: { quality: '240p', ext: 'flv' },
+  18: { quality: '360p', ext: 'mp4' }, 22: { quality: '720p', ext: 'mp4' },
+  35: { quality: '480p', ext: 'flv' }, 37: { quality: '1080p', ext: 'mp4' },
+  38: { quality: '3072p', ext: 'mp4' }, 43: { quality: '360p', ext: 'webm' },
+  44: { quality: '480p', ext: 'webm' }, 45: { quality: '720p', ext: 'webm' },
+  46: { quality: '1080p', ext: 'webm' }, 91: { quality: '144p', ext: 'mp4' },
+  92: { quality: '240p', ext: 'mp4' }, 93: { quality: '360p', ext: 'mp4' },
+  94: { quality: '480p', ext: 'mp4' }, 95: { quality: '720p', ext: 'mp4' },
+  96: { quality: '1080p', ext: 'mp4' }, 133: { quality: '240p', ext: 'mp4' },
+  134: { quality: '360p', ext: 'mp4' }, 135: { quality: '480p', ext: 'mp4' },
+  136: { quality: '720p', ext: 'mp4' }, 137: { quality: '1080p', ext: 'mp4' },
+  138: { quality: '2160p', ext: 'mp4' }, 160: { quality: '144p', ext: 'mp4' },
+  242: { quality: '240p', ext: 'webm' }, 243: { quality: '360p', ext: 'webm' },
+  244: { quality: '480p', ext: 'webm' }, 247: { quality: '720p', ext: 'webm' },
+  248: { quality: '1080p', ext: 'webm' }, 264: { quality: '1440p', ext: 'mp4' },
+  266: { quality: '2160p', ext: 'mp4' }, 271: { quality: '1440p', ext: 'webm' },
+  272: { quality: '2160p', ext: 'webm' }, 278: { quality: '144p', ext: 'webm' },
+  298: { quality: '720p60', fps: 60, ext: 'mp4' },
+  299: { quality: '1080p60', fps: 60, ext: 'mp4' },
+  302: { quality: '720p60', fps: 60, ext: 'webm' },
+  303: { quality: '1080p60', fps: 60, ext: 'webm' },
+  308: { quality: '1440p60', fps: 60, ext: 'webm' },
+  313: { quality: '2160p', ext: 'webm' },
+  315: { quality: '2160p60', fps: 60, ext: 'webm' },
+  394: { quality: '144p', ext: 'mp4' }, 395: { quality: '240p', ext: 'mp4' },
+  396: { quality: '360p', ext: 'mp4' }, 397: { quality: '480p', ext: 'mp4' },
+  398: { quality: '720p', ext: 'mp4' }, 399: { quality: '1080p', ext: 'mp4' },
+  400: { quality: '1440p', ext: 'mp4' }, 401: { quality: '2160p', ext: 'mp4' },
+  402: { quality: '4320p', ext: 'mp4' },
+  571: { quality: '384kbps', ext: 'm4a' },
+  597: { quality: '480p', ext: 'ts' }, 598: { quality: '720p', ext: 'ts' },
+  599: { quality: '1080p', ext: 'ts' }, 600: { quality: '1440p', ext: 'ts' },
+  601: { quality: '2160p', ext: 'ts' },
+  602: { quality: '144p', ext: 'mp4' }, 603: { quality: '240p', ext: 'mp4' },
+  604: { quality: '360p', ext: 'mp4' }, 605: { quality: '480p', ext: 'mp4' },
+  606: { quality: '720p', ext: 'mp4' }, 607: { quality: '1080p', ext: 'mp4' },
+  608: { quality: '1440p', ext: 'mp4' }, 609: { quality: '2160p', ext: 'mp4' },
+  610: { quality: '4320p', ext: 'mp4' },
+  611: { quality: '1080p60', fps: 60, ext: 'mp4' },
+  612: { quality: '720p60', fps: 60, ext: 'mp4' },
+  613: { quality: '2160p60', fps: 60, ext: 'mp4' },
+  614: { quality: '1080p60 HDR', fps: 60, hdr: true, ext: 'mp4' },
+  615: { quality: '2160p60 HDR', fps: 60, hdr: true, ext: 'mp4' },
+  616: { quality: '1440p60', fps: 60, ext: 'mp4' },
+  617: { quality: '1440p60 HDR', fps: 60, hdr: true, ext: 'mp4' },
+  618: { quality: '1080p60 HDR', fps: 60, hdr: true, ext: 'mp4' },
+  619: { quality: '2160p60 HDR', fps: 60, hdr: true, ext: 'mp4' },
+  620: { quality: '4320p60', fps: 60, ext: 'mp4' },
+  621: { quality: '4320p60 HDR', fps: 60, hdr: true, ext: 'mp4' },
+  625: { quality: '144p', ext: 'mp4' }, 626: { quality: '240p', ext: 'mp4' },
+  627: { quality: '360p', ext: 'mp4' }, 628: { quality: '480p', ext: 'mp4' },
+  629: { quality: '720p', ext: 'mp4' }, 630: { quality: '1080p', ext: 'mp4' },
+  631: { quality: '1440p', ext: 'mp4' }, 632: { quality: '2160p', ext: 'mp4' },
+  643: { quality: '144p', ext: 'mp4' }, 644: { quality: '240p', ext: 'mp4' },
+  645: { quality: '360p', ext: 'mp4' }, 646: { quality: '480p', ext: 'mp4' },
+  647: { quality: '720p', ext: 'mp4' }, 648: { quality: '1080p', ext: 'mp4' },
+  649: { quality: '1440p', ext: 'mp4' }, 650: { quality: '2160p', ext: 'mp4' },
+  651: { quality: '4320p', ext: 'mp4' },
+  652: { quality: '144p HDR', hdr: true, ext: 'mp4' },
+  653: { quality: '240p HDR', hdr: true, ext: 'mp4' },
+  654: { quality: '360p HDR', hdr: true, ext: 'mp4' },
+  655: { quality: '480p HDR', hdr: true, ext: 'mp4' },
+  656: { quality: '720p HDR', hdr: true, ext: 'mp4' },
+  657: { quality: '1080p HDR', hdr: true, ext: 'mp4' },
+  658: { quality: '1440p HDR', hdr: true, ext: 'mp4' },
+  659: { quality: '2160p HDR', hdr: true, ext: 'mp4' },
+  // Audio
+  139: { quality: '48kbps', ext: 'm4a' }, 140: { quality: '128kbps', ext: 'm4a' },
+  141: { quality: '256kbps', ext: 'm4a' },
+  171: { quality: '128kbps', ext: 'ogg' }, 172: { quality: '256kbps', ext: 'ogg' },
+  249: { quality: '48kbps', ext: 'opus' }, 250: { quality: '64kbps', ext: 'opus' },
+  251: { quality: '160kbps', ext: 'opus' },
+  633: { quality: '48kbps', ext: 'opus' }, 634: { quality: '64kbps', ext: 'opus' },
+  635: { quality: '96kbps', ext: 'opus' }, 636: { quality: '128kbps', ext: 'opus' },
+  637: { quality: '160kbps', ext: 'm4a' }, 638: { quality: '160kbps', ext: 'opus' },
+  639: { quality: '192kbps', ext: 'opus' }, 640: { quality: '256kbps', ext: 'm4a' },
+  641: { quality: '256kbps', ext: 'opus' }, 642: { quality: '320kbps', ext: 'opus' },
+};
 
 type PanelCandidate = {
   id: string;
@@ -24,14 +109,19 @@ type PanelCandidate = {
   width?: number;
   height?: number;
   durationSec?: number;
+  fps?: number;
+  hdr?: boolean;
+  bitrate?: number;
 };
+
+// --- Formatting helpers ---
 
 function formatSize(bytes?: number): string {
   if (!bytes || bytes <= 0) return '';
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)}GB`;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 function formatDuration(sec?: number): string {
@@ -43,17 +133,56 @@ function formatDuration(sec?: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-function formatResolution(w?: number, h?: number): string {
-  if (!w || !h) return '';
-  if (h >= 2160) return '4K';
-  if (h >= 1440) return '1440p';
-  if (h >= 1080) return '1080p';
-  if (h >= 720) return '720p';
-  if (h >= 480) return '480p';
-  if (h >= 360) return '360p';
-  if (h >= 240) return '240p';
-  return `${h}p`;
+function resText(w?: number, h?: number): string {
+  if (!w || !h) return '—';
+  return `${w}×${h}`;
 }
+
+function qualityColor(h?: number): string {
+  if (!h) return '#a1a1aa';
+  if (h >= 4320) return '#a855f7';
+  if (h >= 2160) return '#a855f7';
+  if (h >= 1440) return '#3b82f6';
+  if (h >= 1080) return '#22c55e';
+  if (h >= 720) return '#22c55e';
+  if (h >= 480) return '#f59e0b';
+  if (h >= 360) return '#f59e0b';
+  return '#ef4444';
+}
+
+function codecShort(codec?: string): string {
+  if (!codec) return '';
+  const c = codec.toLowerCase();
+  if (c.includes('av01')) return 'AV1';
+  if (c.includes('hev') || c.includes('hvc')) return 'H.265';
+  if (c.includes('avc')) return 'H.264';
+  if (c.includes('vp9') || c.includes('vp09')) return 'VP9';
+  if (c.includes('vp8')) return 'VP8';
+  if (c.includes('opus')) return 'Opus';
+  if (c.includes('mp4a') || c.includes('aac')) return 'AAC';
+  if (c.includes('vorbis')) return 'Vorbis';
+  return codec.split('.')[0]?.slice(0, 12) || codec;
+}
+
+function estSize(item: PanelCandidate, durationSec?: number): string {
+  if (item.sizeBytes && item.sizeBytes > 0) return formatSize(item.sizeBytes);
+  if (item.bitrate && durationSec) {
+    return `~${formatSize(Math.round((item.bitrate * durationSec) / 8))}`;
+  }
+  return '';
+}
+
+function formatExt(fmt?: string): string {
+  if (!fmt) return '';
+  const f = fmt.toLowerCase();
+  const map: Record<string, string> = {
+    mp4: 'MP4', webm: 'WebM', m4a: 'M4A', mkv: 'MKV', flv: 'FLV',
+    '3gp': '3GP', ts: 'TS', ogg: 'OGG',
+  };
+  return map[f] || f.toUpperCase();
+}
+
+// --- Core logic ---
 
 function getMediaInfo(el: HTMLVideoElement | HTMLAudioElement): PanelCandidate | null {
   const src = el.currentSrc || el.src;
@@ -66,13 +195,24 @@ function getMediaInfo(el: HTMLVideoElement | HTMLAudioElement): PanelCandidate |
   return {
     id: `media-${btoa(src).slice(0, 20)}`,
     url: src,
-    quality: formatResolution(w, h),
+    quality: w && h ? qualFromHeight(h) : undefined,
     type: isVideo ? 'video' : 'audio',
-    width: w,
-    height: h,
-    durationSec: dur,
+    width: w || undefined,
+    height: h || undefined,
+    durationSec: dur || undefined,
     format: fmt,
   };
+}
+
+function qualFromHeight(h: number): string {
+  if (h >= 4320) return '4320p';
+  if (h >= 2160) return '4K';
+  if (h >= 1440) return '1440p';
+  if (h >= 1080) return '1080p';
+  if (h >= 720) return '720p';
+  if (h >= 480) return '480p';
+  if (h >= 360) return '360p';
+  return `${h}p`;
 }
 
 function extractFormat(url: string): string {
@@ -80,19 +220,30 @@ function extractFormat(url: string): string {
     const pathname = new URL(url).pathname;
     const ext = pathname.split('.').pop()?.split('?')[0]?.toLowerCase();
     if (ext) return ext;
-  } catch {}
+  } catch { /* invalid URL - use heuristic */ }
   if (url.includes('.m3u8') || url.includes('mime=audio') || url.includes('mime=video')) return 'mp4';
   return '';
 }
 
-function collectFromPlayerConfig(): PanelCandidate[] {
+function collectFromPlayerConfig(): { candidates: PanelCandidate[]; title?: string; thumbnail?: string; durationSec?: number } {
   const results: PanelCandidate[] = [];
+  let title: string | undefined;
+  let thumbnail: string | undefined;
+  let durationSec: number | undefined;
   try {
     const w = window as unknown as Record<string, unknown>;
-    const playerResponse = (w.ytInitialPlayerResponse ?? w.ytcfg) as Record<string, unknown> | undefined;
-    if (!playerResponse) return results;
+    const playerResponse = (w.ytInitialPlayerResponse) as Record<string, unknown> | undefined;
+    if (!playerResponse) return { candidates: results };
+    const vd = playerResponse.videoDetails as Record<string, unknown> | undefined;
+    if (vd) {
+      title = vd.title as string | undefined;
+      const thumbnails = (vd.thumbnail as Record<string, unknown>)?.thumbnails as Array<Record<string, unknown>> | undefined;
+      const thumbUrl = thumbnails?.[thumbnails.length - 1]?.url as string | undefined;
+      thumbnail = thumbUrl || `https://i.ytimg.com/vi/${vd.videoId}/hqdefault.jpg`;
+      durationSec = parseInt(vd.lengthSeconds as string, 10) || undefined;
+    }
     const streamingData = (playerResponse as Record<string, unknown>).streamingData as Record<string, unknown> | undefined;
-    if (!streamingData) return results;
+    if (!streamingData) return { candidates: results, title, thumbnail, durationSec };
     const formats = [
       ...((streamingData.formats ?? []) as Array<Record<string, unknown>>),
       ...((streamingData.adaptiveFormats ?? []) as Array<Record<string, unknown>>),
@@ -102,25 +253,54 @@ function collectFromPlayerConfig(): PanelCandidate[] {
       if (!url) continue;
       const mime = (fmt.mimeType as string) || '';
       const isAudio = mime.startsWith('audio');
-      const w2 = fmt.width as number | undefined;
-      const h2 = fmt.height as number | undefined;
+      const h = fmt.height as number | undefined;
+      const w = fmt.width as number | undefined;
       const contentLength = fmt.contentLength ? parseInt(fmt.contentLength as string, 10) : undefined;
       const codecMatch = mime.match(/codecs="([^"]+)"/);
+      const itag = fmt.itag as number | undefined;
+      const fps = fmt.fps as number | undefined;
+      const bitrate = fmt.bitrate as number | undefined;
+      const qualityLabel = fmt.qualityLabel as string | undefined;
+      const container = mime.split(';')[0]?.split('/')[1] || (itag !== undefined ? ITAG_QUALITY[itag]?.ext : undefined) || 'mp4';
+
+      let quality: string | undefined;
+      let finalFps: number | undefined;
+      let hdr = false;
+      if (qualityLabel) {
+        quality = qualityLabel;
+        finalFps = fps;
+      } else if (itag !== undefined && ITAG_QUALITY[itag]) {
+        const entry = ITAG_QUALITY[itag]!;
+        quality = entry.quality;
+        finalFps = entry.fps || fps;
+        hdr = entry.hdr || false;
+      } else if (h && !isAudio) {
+        quality = qualFromHeight(h);
+        finalFps = fps;
+      } else if (bitrate) {
+        quality = `${Math.round(bitrate / 1000)} kbps`;
+      }
+
       results.push({
-        id: `cfg-${btoa(url).slice(0, 20)}`,
+        id: `cfg-${itag ?? btoa(url).slice(0, 16)}`,
         url,
-        quality: fmt.qualityLabel as string || formatResolution(w2, h2),
+        quality,
         sizeBytes: Number.isFinite(contentLength) ? contentLength : undefined,
         codec: codecMatch?.[1],
-        format: mime.split(';')[0]?.split('/')[1] || 'mp4',
+        format: container,
         type: isAudio ? 'audio' : 'video',
-        width: w2,
-        height: h2,
+        width: w,
+        height: h,
+        fps: finalFps,
+        hdr,
+        bitrate,
       });
     }
-  } catch {}
-  return results;
+  } catch { /* player config parse failure */ }
+  return { candidates: results, title, thumbnail, durationSec };
 }
+
+// --- Shadow DOM Panel ---
 
 function ensurePanelHost(): ShadowRoot {
   if (panelHost && panelHost.host.isConnected) return panelHost;
@@ -138,49 +318,43 @@ function ensurePanelHost(): ShadowRoot {
       position: fixed;
       top: 8px;
       right: 8px;
-      min-width: 280px;
-      max-width: 420px;
-      max-height: 60vh;
-      background: rgba(10, 10, 15, 0.88);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 10px;
+      min-width: 380px;
+      max-width: 520px;
+      max-height: 70vh;
+      background: rgba(8, 8, 14, 0.92);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 12px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-size: 12px;
+      font-size: 11px;
       color: #e4e4e7;
       overflow: hidden;
       pointer-events: auto;
-      transition: opacity 0.3s ease, transform 0.3s ease;
+      transition: opacity 0.35s ease, box-shadow 0.35s ease;
       opacity: ${PANEL_OPACITY_DEFAULT};
-      box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6);
       user-select: none;
     }
-    .nova-panel:hover, .nova-panel.nova-panel-active {
+    .nova-panel:hover, .nova-panel.nova-panel-expanded {
       opacity: ${PANEL_OPACITY_HOVER};
-    }
-    .nova-panel.nova-panel-expanded {
-      opacity: ${PANEL_OPACITY_HOVER};
+      box-shadow: 0 8px 36px rgba(59, 130, 246, 0.15), 0 8px 32px rgba(0,0,0,0.6);
     }
     .nova-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 8px 12px;
+      padding: 10px 14px;
       cursor: move;
       border-bottom: 1px solid rgba(255,255,255,0.06);
-      background: rgba(255,255,255,0.03);
+      background: rgba(255,255,255,0.02);
     }
-    .nova-header-badge {
+    .nova-header-left {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
     }
-    .nova-header-icon {
-      width: 16px;
-      height: 16px;
-      fill: #3b82f6;
-    }
+    .nova-header-icon { width: 18px; height: 18px; fill: #3b82f6; }
     .nova-header-title {
       font-size: 11px;
       font-weight: 600;
@@ -192,10 +366,10 @@ function ensurePanelHost(): ShadowRoot {
       background: #3b82f6;
       color: #fff;
       border-radius: 10px;
-      padding: 1px 7px;
+      padding: 1px 8px;
       font-size: 10px;
       font-weight: 700;
-      min-width: 18px;
+      min-width: 20px;
       text-align: center;
     }
     .nova-header-toggle {
@@ -203,112 +377,201 @@ function ensurePanelHost(): ShadowRoot {
       border: none;
       color: #71717a;
       cursor: pointer;
-      padding: 2px;
-      font-size: 14px;
+      padding: 3px 5px;
+      font-size: 13px;
       line-height: 1;
+      border-radius: 4px;
     }
-    .nova-header-toggle:hover { color: #e4e4e7; }
-    .nova-list {
-      overflow-y: auto;
-      max-height: 50vh;
-      scrollbar-width: thin;
-      scrollbar-color: rgba(255,255,255,0.1) transparent;
-    }
-    .nova-list::-webkit-scrollbar { width: 4px; }
-    .nova-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
-    .nova-item {
+    .nova-header-toggle:hover { color: #e4e4e7; background: rgba(255,255,255,0.06); }
+    .nova-body { overflow-y: auto; max-height: 55vh; }
+    .nova-body::-webkit-scrollbar { width: 4px; }
+    .nova-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+    .nova-video-info {
       display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 12px;
+      gap: 10px;
+      padding: 10px 14px;
       border-bottom: 1px solid rgba(255,255,255,0.04);
-      cursor: pointer;
-      transition: background 0.15s;
+      background: rgba(255,255,255,0.015);
     }
-    .nova-item:hover { background: rgba(59, 130, 246, 0.1); }
-    .nova-item:last-child { border-bottom: none; }
-    .nova-item-icon {
-      width: 14px;
-      height: 14px;
+    .nova-thumb {
+      width: 88px;
+      height: 50px;
+      border-radius: 6px;
+      object-fit: cover;
       flex-shrink: 0;
-      fill: #3b82f6;
+      background: rgba(255,255,255,0.05);
     }
-    .nova-item-icon.nova-audio { fill: #a855f7; }
-    .nova-item-info {
-      flex: 1;
-      min-width: 0;
+    .nova-video-meta { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .nova-video-title {
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1.3;
+      color: #fafafa;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+    .nova-video-sub {
+      font-size: 9px;
+      color: #71717a;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .nova-section-label {
+      font-size: 9px;
+      font-weight: 600;
+      color: #71717a;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 8px 14px 4px;
       display: flex;
       align-items: center;
       gap: 6px;
-      flex-wrap: nowrap;
-      overflow: hidden;
     }
-    .nova-item-tag {
+    .nova-section-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+    .nova-q-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10px;
+    }
+    .nova-q-table thead th {
+      text-align: left;
+      font-weight: 500;
+      color: #52525b;
+      font-size: 8px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      padding: 4px 8px 4px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      background: rgba(255,255,255,0.015);
+    }
+    .nova-q-table thead th:last-child { text-align: center; padding-right: 14px; }
+    .nova-q-table tbody td {
+      padding: 5px 8px 5px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+      vertical-align: middle;
+      color: #d4d4d8;
+      transition: background 0.12s;
+    }
+    .nova-q-table tbody tr:hover { background: rgba(59, 130, 246, 0.06); }
+    .nova-q-table tbody tr:last-child td { border-bottom: none; }
+    .nova-q-table tbody td:last-child { text-align: center; padding-right: 14px; }
+    .nova-q-badge {
       display: inline-flex;
       align-items: center;
-      padding: 1px 5px;
-      border-radius: 3px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 9px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+    .nova-q-hdr { color: #f59e0b; margin-right: 2px; font-size: 7px; }
+    .nova-q-fps { display: inline-block; font-size: 8px; font-weight: 600; color: #22c55e; margin-left: 3px; }
+    .nova-q-codec { font-size: 9px; color: #c084fc; font-weight: 500; }
+    .nova-q-send {
       font-size: 10px;
       font-weight: 600;
-      white-space: nowrap;
+      padding: 3px 10px;
+      border-radius: 5px;
+      border: 1px solid rgba(59, 130, 246, 0.4);
       background: rgba(59, 130, 246, 0.15);
       color: #93c5fd;
-    }
-    .nova-item-tag.nova-audio { background: rgba(168, 85, 247, 0.15); color: #c4b5fd; }
-    .nova-item-tag.nova-size { background: rgba(255,255,255,0.06); color: #a1a1aa; }
-    .nova-item-tag.nova-dur { background: rgba(255,255,255,0.06); color: #a1a1aa; }
-    .nova-item-tag.nova-codec { background: rgba(255,255,255,0.04); color: #71717a; font-size: 9px; }
-    .nova-item-sep { color: #3f3f46; font-size: 9px; flex-shrink: 0; }
-    .nova-item-dl {
-      flex-shrink: 0;
-      width: 24px;
-      height: 24px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 5px;
-      background: #3b82f6;
-      color: #fff;
-      border: none;
       cursor: pointer;
-      font-size: 12px;
-      transition: background 0.15s;
+      transition: all 0.15s;
     }
-    .nova-item-dl:hover { background: #2563eb; }
+    .nova-q-send:hover { background: rgba(59, 130, 246, 0.3); border-color: #3b82f6; color: #fff; }
+    .nova-q-send[data-sent="true"] {
+      background: rgba(34, 197, 94, 0.15);
+      border-color: rgba(34, 197, 94, 0.4);
+      color: #4ade80;
+    }
+    .nova-footer {
+      display: flex;
+      gap: 8px;
+      padding: 10px 14px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      background: rgba(255,255,255,0.015);
+    }
+    .nova-btn {
+      flex: 1;
+      padding: 7px 12px;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.15s;
+    }
+    .nova-btn-best {
+      background: rgba(59, 130, 246, 0.15);
+      border-color: rgba(59, 130, 246, 0.4);
+      color: #93c5fd;
+    }
+    .nova-btn-best:hover { background: rgba(59, 130, 246, 0.3); border-color: #3b82f6; color: #fff; }
+    .nova-btn-scan {
+      background: rgba(255,255,255,0.04);
+      border-color: rgba(255,255,255,0.08);
+      color: #a1a1aa;
+    }
+    .nova-btn-scan:hover { background: rgba(255,255,255,0.08); color: #e4e4e7; }
+    .nova-btn-send-all {
+      background: #3b82f6;
+      border-color: #3b82f6;
+      color: #fff;
+    }
+    .nova-btn-send-all:hover { background: #2563eb; }
     .nova-empty {
-      padding: 16px 12px;
+      padding: 24px 16px;
       text-align: center;
       color: #52525b;
       font-size: 11px;
     }
-    .nova-actions {
-      display: flex;
-      gap: 6px;
-      padding: 8px 12px;
-      border-top: 1px solid rgba(255,255,255,0.06);
-    }
-    .nova-btn {
-      flex: 1;
-      padding: 6px 10px;
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 5px;
-      background: rgba(255,255,255,0.05);
-      color: #e4e4e7;
-      font-size: 11px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background 0.15s;
-      text-align: center;
-    }
-    .nova-btn:hover { background: rgba(255,255,255,0.1); }
-    .nova-btn-primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
-    .nova-btn-primary:hover { background: #2563eb; }
   `;
   panelHost.appendChild(style);
 
   panelEl = document.createElement('div');
   panelEl.className = 'nova-panel';
   panelHost.appendChild(panelEl);
+
+  // Video overlay download button
+  overlayBtn = document.createElement('button');
+  overlayBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
+  overlayBtn.style.cssText = `
+    position: fixed;
+    z-index: 2147483646;
+    display: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    border: 2px solid rgba(59,130,246,0.7);
+    background: rgba(8,8,18,0.92);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color: #3b82f6;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+    padding: 0;
+  `;
+  overlayBtn.title = 'Download best quality — click arrow for all qualities';
+  overlayBtn.addEventListener('mouseenter', () => {
+    if (overlayBtn) overlayBtn.style.transform = 'scale(1.1)';
+  });
+  overlayBtn.addEventListener('mouseleave', () => {
+    if (overlayBtn) overlayBtn.style.transform = 'scale(1)';
+  });
+  overlayBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    downloadBestOrShowPanel();
+  });
+  panelHost.appendChild(overlayBtn);
 
   setupDrag(panelEl);
   renderPanel();
@@ -317,18 +580,22 @@ function ensurePanelHost(): ShadowRoot {
 }
 
 function setupDrag(el: HTMLDivElement): void {
-  const header = el.querySelector('.nova-header') as HTMLElement | null;
-  if (!header) return;
-
-  header.addEventListener('mousedown', (e) => {
-    if ((e.target as HTMLElement).closest('.nova-header-toggle')) return;
+  const handler = (e: MouseEvent) => {
+    const header = el.querySelector('.nova-header');
+    if (!header || !(e.target instanceof Element)) return;
+    if (e.target.closest('.nova-header-toggle, .nova-q-send, .nova-btn, button')) return;
+    if (!header.contains(e.target) && e.target !== header) return;
     isDragging = true;
     const rect = el.getBoundingClientRect();
     dragOffsetX = e.clientX - rect.left;
     dragOffsetY = e.clientY - rect.top;
     el.style.transition = 'none';
     e.preventDefault();
-  });
+  };
+  const header = el.querySelector('.nova-header') as HTMLElement | null;
+  if (header) {
+    header.addEventListener('mousedown', handler);
+  }
 
   document.addEventListener('mousemove', (e) => {
     if (!isDragging || !panelEl) return;
@@ -338,6 +605,7 @@ function setupDrag(el: HTMLDivElement): void {
     panelEl.style.bottom = 'auto';
     panelEl.style.left = `${x}px`;
     panelEl.style.top = `${y}px`;
+    savedPosition = { top: panelEl.style.top, right: panelEl.style.right, left: panelEl.style.left, bottom: panelEl.style.bottom };
   });
 
   document.addEventListener('mouseup', () => {
@@ -349,7 +617,7 @@ function setupDrag(el: HTMLDivElement): void {
 }
 
 function positionPanelAtVideo(): void {
-  if (!panelEl || isDragging) return;
+  if (!panelEl || isDragging || savedPosition) return;
   const videos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
   let best: HTMLVideoElement | null = null;
   let bestArea = 0;
@@ -367,59 +635,148 @@ function positionPanelAtVideo(): void {
   panelEl.style.right = `${Math.max(4, window.innerWidth - r.right + 8)}px`;
 }
 
+// --- Store video metadata ---
+let videoMeta: { title?: string; thumbnail?: string; durationSec?: number } = {};
+
 function renderPanel(): void {
   if (!panelEl) return;
+
+  if (currentCandidates.length === 0 && emptyScanCount >= 3) {
+    if (panelVisible) {
+      panelEl.style.opacity = '0';
+      panelEl.style.pointerEvents = 'none';
+      panelVisible = false;
+    }
+    return;
+  }
+
+  if (currentCandidates.length > 0 && !panelVisible) {
+    panelEl.style.opacity = `${PANEL_OPACITY_DEFAULT}`;
+    panelEl.style.pointerEvents = 'auto';
+    panelVisible = true;
+    // Brief pulse animation on first show
+    panelEl.style.transition = 'opacity 0.15s ease, box-shadow 0.2s ease';
+    panelEl.style.boxShadow = '0 8px 36px rgba(59, 130, 246, 0.3), 0 8px 32px rgba(0,0,0,0.6)';
+    setTimeout(() => {
+      if (panelEl) {
+        panelEl.style.boxShadow = '0 8px 32px rgba(0,0,0,0.6)';
+        panelEl.style.transition = 'opacity 0.35s ease, box-shadow 0.35s ease';
+      }
+    }, 400);
+  }
+
   const isExpanded = panelEl.classList.contains('nova-panel-expanded');
-  const items = isExpanded ? currentCandidates : currentCandidates.slice(0, 3);
+
+  const videos = currentCandidates.filter((c) => c.type === 'video' && c.height);
+  const mergedVideos = currentCandidates.filter((c) => c.type === 'video' && !c.height && !c.width);
+  const audios = currentCandidates.filter((c) => c.type === 'audio');
+
+  const sortedVideos = [...videos].sort((a, b) => (b.height ?? 0) - (a.height ?? 0));
+  const sortedAudios = [...audios].sort((a, b) => (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0) || (b.bitrate ?? 0) - (a.bitrate ?? 0));
+
+  // Unified sorted list: videos first (by height), then audio (by bitrate)
+  const allSorted: PanelCandidate[] = [
+    ...sortedVideos,
+    ...mergedVideos,
+    ...sortedAudios,
+  ];
+
+  const totalFormats = videos.length + mergedVideos.length + audios.length;
+  const displayItems = isExpanded ? allSorted : allSorted.slice(0, 8);
 
   let html = `
     <div class="nova-header">
-      <div class="nova-header-badge">
-        <svg class="nova-header-icon" viewBox="0 0 16 16"><path d="M4 3a2 2 0 00-2 2v6a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2H4zm2.5 5.5L11 8l-4.5 2.5V8.5z"/></svg>
-        <span class="nova-header-title">Media</span>
-        ${currentCandidates.length > 0 ? `<span class="nova-header-count">${currentCandidates.length}</span>` : ''}
+      <div class="nova-header-left">
+        <svg class="nova-header-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/><path d="M3 5h2v14H3z" opacity="0.5"/></svg>
+        <span class="nova-header-title">Qualities</span>
+        <span class="nova-header-count">${currentCandidates.length}</span>
+        ${videos.length > 0 ? `<span style="font-size:9px;color:#93c5fd;margin-left:2px">V:${videos.length}</span>` : ''}
+        ${audios.length > 0 ? `<span style="font-size:9px;color:#c084fc;margin-left:2px">A:${audios.length}</span>` : ''}
       </div>
-      <button class="nova-header-toggle" data-action="toggle">${isExpanded ? '&#9650;' : '&#9660;'}</button>
+      <button class="nova-header-toggle" data-action="toggle">${isExpanded ? '\u25B2' : '\u25BC'}</button>
     </div>
   `;
 
-  if (items.length === 0) {
-    html += `<div class="nova-empty">Scanning for media...</div>`;
+  if (currentCandidates.length === 0) {
+    html += '<div class="nova-empty">Scanning media...</div>';
   } else {
-    html += '<div class="nova-list">';
-    for (const c of items) {
-      const icon = c.type === 'audio'
-        ? '<svg class="nova-item-icon nova-audio" viewBox="0 0 16 16"><path d="M6 3v7.5a2.5 2.5 0 102 2.45V6.5h3V3H6z"/></svg>'
-        : '<svg class="nova-item-icon" viewBox="0 0 16 16"><path d="M4 3a2 2 0 00-2 2v6a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2H4zm2.5 5.5L11 8l-4.5 2.5V8.5z"/></svg>';
-      const tags: string[] = [];
-      if (c.quality) tags.push(`<span class="nova-item-tag${c.type === 'audio' ? ' nova-audio' : ''}">${esc(c.quality)}</span>`);
-      if (c.codec) tags.push(`<span class="nova-item-tag nova-codec">${esc(c.codec.split('.')[0] ?? c.codec)}</span>`);
-      if (c.sizeBytes && c.sizeBytes > 0) tags.push(`<span class="nova-item-tag nova-size">${esc(formatSize(c.sizeBytes))}</span>`);
-      if (c.durationSec) tags.push(`<span class="nova-item-tag nova-dur">${esc(formatDuration(c.durationSec))}</span>`);
-      if (c.format) tags.push(`<span class="nova-item-tag nova-size">${esc(c.format.toUpperCase())}</span>`);
+    html += '<div class="nova-body">';
 
+    // Video info header
+    if (videoMeta.title || videoMeta.thumbnail) {
       html += `
-        <div class="nova-item" data-action="send" data-id="${esc(c.id)}">
-          ${icon}
-          <div class="nova-item-info">${tags.join('<span class="nova-item-sep">&middot;</span>')}</div>
-          <button class="nova-item-dl" data-action="send" data-id="${esc(c.id)}" title="Send">&#8595;</button>
+        <div class="nova-video-info">
+          ${videoMeta.thumbnail ? `<img class="nova-thumb" src="${esc(videoMeta.thumbnail)}" alt="" />` : ''}
+          <div class="nova-video-meta">
+            ${videoMeta.title ? `<div class="nova-video-title">${esc(videoMeta.title)}</div>` : ''}
+            <div class="nova-video-sub">
+              <span>${totalFormats} formats</span>
+              ${videoMeta.durationSec ? `<span>${formatDuration(videoMeta.durationSec)}</span>` : ''}
+            </div>
+          </div>
         </div>
       `;
     }
+
+    // Unified format table
+    html += `
+      <table class="nova-q-table">
+        <thead><tr>
+          <th>Quality</th>
+          <th>Resolution</th>
+          <th>Codec</th>
+          <th>FPS</th>
+          <th>Container</th>
+          <th>Size</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+    `;
+    for (const c of displayItems) {
+      const isAudio = c.type === 'audio';
+      const isQuick = !c.height && !c.width && c.type === 'video';
+      const color = isAudio ? '#c084fc' : qualityColor(c.height);
+      const bg = isAudio ? '#a855f722' : `${color}22`;
+      const border = isAudio ? '#a855f744' : `${color}44`;
+      const sizeStr = c.sizeBytes ? formatSize(c.sizeBytes) : estSize(c, videoMeta.durationSec);
+      const containerFmt = formatExt(c.format);
+      html += `
+        <tr>
+          <td>
+            <span class="nova-q-badge" style="background:${bg};color:${color};border:1px solid ${border}">
+              ${isAudio ? '<span class="nova-q-hdr" style="color:#c084fc">♫ </span>' : ''}${c.hdr && !isAudio ? '<span class="nova-q-hdr">HDR</span>' : ''}${isQuick ? (c.quality || 'Video') : (c.quality || '?')}
+            </span>
+            ${c.fps && c.fps >= 50 && !isAudio ? `<span class="nova-q-fps">${c.fps}fps</span>` : ''}
+          </td>
+          <td style="color:#a1a1aa">${isAudio ? (c.quality || 'Audio') : resText(c.width, c.height)}</td>
+          <td><span class="nova-q-codec">${codecShort(c.codec)}</span></td>
+          <td style="color:#a1a1aa">${c.fps ? `${c.fps}fps` : '—'}</td>
+          <td style="color:#a1a1aa;font-size:9px">${containerFmt || '—'}</td>
+          <td style="color:#a1a1aa;font-variant-numeric:tabular-nums">${sizeStr || '—'}</td>
+          <td><button class="nova-q-send" data-action="send" data-id="${esc(c.id)}">Download</button></td>
+        </tr>
+      `;
+    }
+    if (!isExpanded && allSorted.length > 8) {
+      html += `<tr><td colspan="7" style="text-align:center;color:#52525b;padding:6px">+${allSorted.length - 8} more... (expand to view)</td></tr>`;
+    }
+    html += '</tbody></table>';
+
     html += '</div>';
   }
 
-  if (currentCandidates.length > 0) {
-    html += `
-      <div class="nova-actions">
-        <button class="nova-btn nova-btn-primary" data-action="send-all">Send All</button>
-        <button class="nova-btn" data-action="scan">Scan</button>
-      </div>
-    `;
-  }
+  // Footer with action buttons
+  html += `
+    <div class="nova-footer">
+      <button class="nova-btn nova-btn-best" data-action="send-best">Best Quality</button>
+      <button class="nova-btn nova-btn-send-all" data-action="send-all">Download All</button>
+      <button class="nova-btn nova-btn-scan" data-action="scan">Rescan</button>
+    </div>
+  `;
 
   panelEl.innerHTML = html;
 
+  // Bind events
   panelEl.querySelectorAll('[data-action="toggle"]').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -432,29 +789,43 @@ function renderPanel(): void {
     el.addEventListener('click', (e) => {
       e.stopPropagation();
       const id = (el as HTMLElement).dataset.id;
-      if (id) sendCandidate(id);
+      if (id) {
+        markSent(el as HTMLElement);
+        sendCandidate(id);
+      }
     });
   });
 
-  const sendAllBtn = panelEl.querySelector('[data-action="send-all"]');
-  if (sendAllBtn) {
-    sendAllBtn.addEventListener('click', (e) => {
+  panelEl.querySelectorAll('[data-action="send-best"]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sendBestQuality();
+    });
+  });
+
+  panelEl.querySelectorAll('[data-action="send-all"]').forEach((el) => {
+    el.addEventListener('click', (e) => {
       e.stopPropagation();
       sendAllCandidates();
     });
-  }
+  });
 
-  const scanBtn = panelEl.querySelector('[data-action="scan"]');
-  if (scanBtn) {
-    scanBtn.addEventListener('click', (e) => {
+  panelEl.querySelectorAll('[data-action="scan"]').forEach((el) => {
+    el.addEventListener('click', (e) => {
       e.stopPropagation();
       scanCurrentTab();
     });
-  }
+  });
 }
 
 function esc(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function markSent(el: HTMLElement): void {
+  el.setAttribute('data-sent', 'true');
+  el.textContent = 'Done';
+  el.setAttribute('disabled', 'true');
 }
 
 function panelCandidateToCandidate(c: PanelCandidate): Record<string, unknown> {
@@ -469,7 +840,7 @@ function panelCandidateToCandidate(c: PanelCandidate): Record<string, unknown> {
     width: c.width,
     height: c.height,
     durationSec: c.durationSec,
-    bitrate: undefined,
+    bitrate: c.bitrate,
     confidence: 85,
   };
 }
@@ -477,15 +848,42 @@ function panelCandidateToCandidate(c: PanelCandidate): Record<string, unknown> {
 function sendCandidate(id: string): void {
   const c = currentCandidates.find((x) => x.id === id);
   if (!c) return;
-  void browser.runtime.sendMessage({ type: 'SEND_CANDIDATE', candidate: panelCandidateToCandidate(c) }).catch(() => {
-    void browser.runtime.sendMessage({ type: 'CAPTURE_DOWNLOAD', payload: { url: c.url, source: 'floating-panel' } }).catch(() => {});
+  const isManifest = c.url.includes('.m3u8') || c.url.includes('.mpd');
+  if (isManifest) {
+    void browser.runtime.sendMessage({ type: 'SEND_CANDIDATE', candidate: panelCandidateToCandidate(c) }).catch(() => {});
+    return;
+  }
+  // Direct browser download
+  void browser.runtime.sendMessage({ type: 'DOWNLOAD_DIRECT', url: c.url }).catch(() => {
+    void browser.runtime.sendMessage({ type: 'CAPTURE_DOWNLOAD', payload: { url: c.url, source: 'floating-panel' as const } }).catch(() => {});
   });
+}
+
+function sendBestQuality(): void {
+  const videos = currentCandidates
+    .filter((c) => c.type === 'video')
+    .sort((a, b) => (b.height ?? 0) - (a.height ?? 0));
+  if (videos.length > 0) {
+    sendCandidate(videos[0]!.id);
+    return;
+  }
+  const audios = currentCandidates
+    .filter((c) => c.type === 'audio')
+    .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0));
+  if (audios.length > 0) {
+    sendCandidate(audios[0]!.id);
+  }
 }
 
 function sendAllCandidates(): void {
   if (currentCandidates.length > 0) {
-    const candidates = currentCandidates.map(panelCandidateToCandidate);
-    void browser.runtime.sendMessage({ type: 'SEND_BATCH', candidates }).catch(() => {});
+    for (const c of currentCandidates) {
+      if (/\.(m3u8|mpd)$/i.test(c.url)) {
+        void browser.runtime.sendMessage({ type: 'SEND_CANDIDATE', candidate: panelCandidateToCandidate(c) }).catch(() => {});
+      } else {
+        void browser.runtime.sendMessage({ type: 'DOWNLOAD_DIRECT', url: c.url }).catch(() => {});
+      }
+    }
   }
 }
 
@@ -495,21 +893,26 @@ function scanCurrentTab(): void {
 
 function updateCandidates(newCandidates: PanelCandidate[]): void {
   const existingIds = new Set(currentCandidates.map((c) => c.id));
+  let added = 0;
   for (const nc of newCandidates) {
     if (!existingIds.has(nc.id)) {
       currentCandidates.push(nc);
+      added++;
     } else {
       const existing = currentCandidates.find((c) => c.id === nc.id);
       if (existing) {
         if (nc.sizeBytes && !existing.sizeBytes) existing.sizeBytes = nc.sizeBytes;
         if (nc.codec && !existing.codec) existing.codec = nc.codec;
         if (nc.quality && !existing.quality) existing.quality = nc.quality;
+        if (nc.fps && !existing.fps) existing.fps = nc.fps;
+        if (nc.bitrate && !existing.bitrate) existing.bitrate = nc.bitrate;
       }
     }
   }
+  if (added > 0) emptyScanCount = 0;
   currentCandidates.sort((a, b) => {
-    if (a.type !== b.type) return a.type === 'video' ? -1 : 1;
-    return (b.height ?? 0) - (a.height ?? 0);
+    if ((b.height ?? 0) !== (a.height ?? 0)) return (b.height ?? 0) - (a.height ?? 0);
+    return (b.type === 'video' ? 1 : 0) - (a.type === 'video' ? 1 : 0);
   });
   if (panelEl) {
     renderPanel();
@@ -532,9 +935,17 @@ function scanMediaElements(): void {
       }, { once: true });
     }
   }
-  const playerCandidates = collectFromPlayerConfig();
-  candidates.push(...playerCandidates);
-  if (candidates.length > 0) updateCandidates(candidates);
+  const playerResult = collectFromPlayerConfig();
+  if (playerResult.title) videoMeta.title = playerResult.title;
+  if (playerResult.thumbnail) videoMeta.thumbnail = playerResult.thumbnail;
+  if (playerResult.durationSec) videoMeta.durationSec = playerResult.durationSec;
+  candidates.push(...playerResult.candidates);
+  if (candidates.length > 0) {
+    updateCandidates(candidates);
+  } else {
+    emptyScanCount++;
+    if (panelEl && panelVisible && emptyScanCount >= 3) renderPanel();
+  }
 }
 
 function listenForPageTapEvents(): void {
@@ -547,7 +958,7 @@ function listenForPageTapEvents(): void {
     const candidate: PanelCandidate = {
       id: `tap-${btoa(data.url).slice(0, 20)}`,
       url: data.url,
-      quality: data.qualityLabel || (data.width && data.height ? formatResolution(data.width, data.height) : undefined),
+      quality: data.qualityLabel || (data.width && data.height ? qualFromHeight(data.height) : undefined),
       sizeBytes: data.sizeBytes,
       type: isAudio ? 'audio' : 'video',
       width: data.width,
@@ -558,12 +969,50 @@ function listenForPageTapEvents(): void {
   });
 }
 
+function positionOverlayOnVideo(video: HTMLVideoElement): void {
+  if (!overlayBtn) return;
+  const r = video.getBoundingClientRect();
+  if (r.width < 100 || r.height < 60) return;
+  overlayBtn.style.display = 'flex';
+  overlayBtn.style.left = `${r.right - 44}px`;
+  overlayBtn.style.top = `${r.top + 8}px`;
+}
+
+function downloadBestOrShowPanel(): void {
+  if (currentCandidates.length === 0) return;
+  const best = currentCandidates
+    .filter((c) => c.type === 'video')
+    .sort((a, b) => (b.height ?? 0) - (a.height ?? 0))[0]
+    || currentCandidates
+    .filter((c) => c.type === 'audio')
+    .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
+  if (best) {
+    sendCandidate(best.id);
+  }
+}
+
+
 function init(): void {
   ensurePanelHost();
   scanMediaElements();
   listenForPageTapEvents();
   positionPanelAtVideo();
   setInterval(scanMediaElements, CHECK_INTERVAL_MS);
+
+  // Track video hover for overlay button
+  document.addEventListener('mouseover', (e) => {
+    const video = (e.target as HTMLElement)?.closest?.('video') as HTMLVideoElement | null;
+    if (video && video.videoWidth > 100) {
+      positionOverlayOnVideo(video);
+    }
+  }, true);
+
+  document.addEventListener('mouseout', (e) => {
+    const video = (e.target as HTMLElement)?.closest?.('video') as HTMLVideoElement | null;
+    if (video && overlayBtn) {
+      overlayBtn.style.display = 'none';
+    }
+  }, true);
 
   window.addEventListener('scroll', () => positionPanelAtVideo(), { passive: true });
   window.addEventListener('resize', () => positionPanelAtVideo(), { passive: true });

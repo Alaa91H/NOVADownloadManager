@@ -1274,7 +1274,6 @@ pub fn ytdlp_status_with_context(ytdlp_bin: &str, ffmpeg_available: bool) -> Val
             "plugins": false
         },
         "supportedExternalDownloaders": external_downloaders,
-        "blockedExternalDownloaders": ["aria2", "aria2c"],
         "supportedMediaOptionKeys": sorted_vec(supported_keys),
         "unsupportedMediaOptionKeys": sorted_vec(unsupported_keys)
     })
@@ -1651,10 +1650,6 @@ pub fn validate_ytdlp_media_options(
             "ffmpeg" if ffmpeg_ok => {}
             "ffmpeg" => unsupported
                 .push("externalDownloader=ffmpeg requires an available ffmpeg binary".to_string()),
-            "aria2" | "aria2c" => unsupported.push(
-                "aria2/aria2c is intentionally blocked because the legacy engine was removed"
-                    .to_string(),
-            ),
             "httpie" => {
                 if !(flags.contains("--downloader") || flags.contains("--external-downloader")) {
                     unsupported.push(

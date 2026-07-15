@@ -81,7 +81,6 @@ pub(crate) fn task_from_body(
             .to_string(),
         ),
         error_message: None,
-        torrent_metadata: None,
     };
     CurlJob {
         task,
@@ -230,18 +229,17 @@ fn update_curl_task_progress(
     state: &SharedState,
     id: &str,
     total_size: u64,
-    ranges: &[(ByteRange, Arc<AtomicU64>)],
+    ranges: &[(ByteRange, Arc<AtomicU64>, u64)],
     last_total: &mut u64,
     last_tick: &mut Instant,
 ) {
-    let downloaded = if ranges.is_empty() {
-        0
-    } else {
-        ranges
-            .iter()
-            .map(|(range, _progress)| FileWriter::current_size(&range.path).min(part_size(range)))
-            .sum()
-    };
+    let downloaded: u64 = ranges
+        .iter()
+        .map(|(range, progress, initial)| {
+            let on_disk = *initial + progress.load(Ordering::Relaxed);
+            on_disk.min(part_size(range))
+        })
+        .sum();
     let now = Instant::now();
     let elapsed = now.duration_since(*last_tick).as_secs_f64().max(0.001);
     let speed = downloaded.saturating_sub(*last_total) as f64 / elapsed;
@@ -273,9 +271,9 @@ fn update_curl_task_progress(
             job.segment_prev_bytes.resize(ranges.len(), 0);
         }
         let mut segment_speeds: Vec<u64> = Vec::with_capacity(ranges.len());
-        for (i, (range, _)) in ranges.iter().enumerate() {
+        for (i, (range, progress, initial)) in ranges.iter().enumerate() {
             let seg_total = part_size(range);
-            let seg_downloaded = FileWriter::current_size(&range.path).min(seg_total);
+            let seg_downloaded = (*initial + progress.load(Ordering::Relaxed)).min(seg_total);
             let prev = job.segment_prev_bytes[i];
             let seg_speed = if seg_downloaded > prev {
                 (seg_downloaded - prev) as f64 / elapsed
@@ -288,9 +286,9 @@ fn update_curl_task_progress(
         job.task.segments = ranges
             .iter()
             .enumerate()
-            .map(|(i, (range, _progress))| {
+            .map(|(i, (range, progress, initial))| {
                 let seg_total = part_size(range);
-                let seg_downloaded = FileWriter::current_size(&range.path).min(seg_total);
+                let seg_downloaded = (*initial + progress.load(Ordering::Relaxed)).min(seg_total);
                 Segment {
                     id: range.index as u32,
                     progress: if seg_total > 0 {
@@ -427,7 +425,12 @@ fn run_single_libcurl(
     } else {
         None
     };
-    let easy = create_easy_for_range(plan, &plan.output_path, progress, None, task_limit_bps)?;
+    let preallocate = if resume_existing == 0 && plan.total_size > 0 {
+        Some(plan.total_size)
+    } else {
+        None
+    };
+    let easy = create_easy_for_range_ext(plan, &plan.output_path, progress, None, task_limit_bps, preallocate)?;
     let mut multi = Multi::new();
     configure_multi_limits(
         &mut multi,
@@ -569,7 +572,7 @@ fn run_segmented_libcurl(
         );
     }
 
-    let mut active: Vec<(ByteRange, Arc<AtomicU64>)> = Vec::new();
+    let mut active: Vec<(ByteRange, Arc<AtomicU64>, u64)> = Vec::new();
     let mut multi = Multi::new();
     configure_multi_limits(
         &mut multi,
@@ -610,14 +613,19 @@ fn run_segmented_libcurl(
             actual
         };
         if existing >= expected {
-            active.push((range, Arc::new(AtomicU64::new(0))));
+            active.push((range, Arc::new(AtomicU64::new(0)), expected));
             continue;
         }
         let start = range.start + existing;
         let progress = Arc::new(AtomicU64::new(0));
         let seg_capture = Arc::new(Mutex::new(ResponseCapture::default()));
         seg_captures.push(seg_capture.clone());
-        let easy = create_easy_for_range(
+        let preallocate = if existing == 0 {
+            Some(expected)
+        } else {
+            None
+        };
+        let easy = create_easy_for_range_ext(
             plan,
             &range.path,
             SegmentProgress {
@@ -629,12 +637,13 @@ fn run_segmented_libcurl(
             },
             Some((start, range.end)),
             per_segment_limit_bps,
+            preallocate,
         )?;
         let handle = multi
             .add2(easy)
             .map_err(|e| format!("Could not add segment {}: {e}", range.index))?;
         handles.push(handle);
-        active.push((range, progress));
+        active.push((range, progress, existing));
     }
 
     if handles.is_empty() {
@@ -643,14 +652,14 @@ fn run_segmented_libcurl(
 
     let mut last_total: u64 = active
         .iter()
-        .map(|(r, _p)| FileWriter::current_size(&r.path).min(part_size(r)))
+        .map(|(r, p, initial)| (*initial + p.load(Ordering::Relaxed)).min(part_size(r)))
         .sum();
     let mut last_tick = Instant::now();
     let mut prev_seg_bytes: Vec<u64> = vec![0; active.len()];
     let mut tick = || {
         let now = Instant::now();
         let elapsed = now.duration_since(last_tick).as_secs_f64().max(0.001);
-        for (i, (_range, progress)) in active.iter().enumerate() {
+        for (i, (_range, progress, _initial)) in active.iter().enumerate() {
             let seg_downloaded = progress.load(Ordering::Relaxed);
             let seg_speed = if seg_downloaded > prev_seg_bytes[i] {
                 ((seg_downloaded - prev_seg_bytes[i]) as f64 / elapsed) as u64
@@ -996,6 +1005,12 @@ pub(crate) fn mark_curl_task_finished(
     generation: u64,
 ) {
     state.priority_queue.stop_download(id);
+    {
+        if let Ok(mut stats) = state.download_stats.lock() {
+            stats.total_completed += 1;
+            stats.total_downloaded_bytes += final_size;
+        }
+    }
     let mut jobs = lock_or_err!(state.curl_jobs);
     if let Some(job) = jobs.get_mut(id) {
         if job.run_generation.load(Ordering::Relaxed) != generation {
@@ -1033,6 +1048,9 @@ pub(crate) fn mark_curl_task_failed(
 ) {
     if !cancelled {
         state.priority_queue.stop_download(id);
+        if let Ok(mut stats) = state.download_stats.lock() {
+            stats.total_failed += 1;
+        }
     }
     let mut jobs = lock_or_err!(state.curl_jobs);
     if let Some(job) = jobs.get_mut(id) {
@@ -1103,16 +1121,31 @@ pub(crate) fn start_curl_process(state: &SharedState, id: &str) {
             id2,
             generation
         );
-        let result = run_libcurl_download(&state2, &id2, plan.clone(), cancel.clone());
+        let remove_on_error = plan.remove_on_error;
+        let output_path = plan.output_path.clone();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            run_libcurl_download(&state2, &id2, plan, cancel.clone())
+        }));
         match result {
-            Ok(final_size) => mark_curl_task_finished(&state2, &id2, final_size, generation),
-            Err(error) => {
+            Ok(Ok(final_size)) => mark_curl_task_finished(&state2, &id2, final_size, generation),
+            Ok(Err(error)) => {
                 let cancelled = cancel.load(Ordering::Relaxed) || error == "cancelled";
-                if !cancelled && plan.remove_on_error {
-                    let _ = std::fs::remove_file(&plan.output_path);
-                    remove_stale_parts_for(&plan.output_path);
+                if !cancelled && remove_on_error {
+                    let _ = std::fs::remove_file(&output_path);
+                    remove_stale_parts_for(&output_path);
                 }
                 mark_curl_task_failed(&state2, &id2, error, cancelled, generation);
+            }
+            Err(panic_info) => {
+                let msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                    format!("Worker thread panicked: {}", s)
+                } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                    format!("Worker thread panicked: {}", s)
+                } else {
+                    "Worker thread panicked with unknown payload".to_string()
+                };
+                log::error!("{} (task: {})", msg, id2);
+                mark_curl_task_failed(&state2, &id2, msg, false, generation);
             }
         }
     });

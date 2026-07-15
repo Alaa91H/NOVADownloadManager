@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { ArrowLeft, Globe, FolderOpen, Layers, CheckSquare, Download, HelpCircle, FileText } from 'lucide-react';
 import { useDialogActions, useDialogData, useQueueData, useSettingsData, useToastActions, useNavigationActions, useI18n } from '../store/selectors';
 import { novaClient } from '../api/novaClient';
+import { tauriClient } from '../api/tauriClient';
 import { TextField, SelectField, Switch, Checkbox } from '../components/primitives';
 
 export const WebpageGrabberPage: React.FC = () => {
@@ -78,6 +79,8 @@ export const WebpageGrabberPage: React.FC = () => {
     }
   };
 
+  const validPreviewUrl = url.trim().startsWith('http');
+
   return (
     <div className="app-page flex-1 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-app)]" dir="ltr">
 
@@ -106,32 +109,20 @@ export const WebpageGrabberPage: React.FC = () => {
       </div>
 
       {/* BODY */}
-      <div className="flex-1 min-h-0 overflow-y-auto p-4">
-        <div className="max-w-2xl mx-auto space-y-5">
+      <div className="flex-1 min-h-0 overflow-hidden flex">
+        <div className="w-[44%] flex flex-col min-h-0 border-r border-[var(--border-color)]/50">
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 scrollbar-thin">
+            <div className="bg-[var(--accent-primary)]/10 border border-[var(--accent-primary)]/20 rounded-lg p-3 text-xs leading-relaxed text-[var(--text-primary)]">
+              <p className="font-semibold flex items-center gap-1.5 text-[var(--accent-primary)] mb-1">
+                <Globe className="w-4 h-4" />
+                {t('grabber_banner_title')}
+              </p>
+              <p className="text-[11px] text-[var(--text-muted)]">
+                {t('grabber_banner_desc')}
+              </p>
+            </div>
 
-          <div className="bg-[var(--accent-primary)]/10 border border-[var(--accent-primary)]/20 rounded-lg p-3 text-xs leading-relaxed text-[var(--text-primary)]">
-            <p className="font-semibold flex items-center gap-1.5 text-[var(--accent-primary)] mb-1">
-              <Globe className="w-4 h-4" />
-              {t('grabber_banner_title')}
-            </p>
-            <p className="text-[11px] text-[var(--text-muted)]">
-              {t('grabber_banner_desc')}
-            </p>
-          </div>
-
-          <div className="space-y-4">
-            <TextField
-              label={t('grabber_url_label')}
-              value={url}
-              onChange={(e) => {
-                setUrl(e.target.value);
-              }}
-              placeholder=""
-              icon={Globe}
-              id="grabber-url"
-            />
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-4">
               <TextField
                 label={t('grabber_save_dir')}
                 value={savePath}
@@ -139,6 +130,10 @@ export const WebpageGrabberPage: React.FC = () => {
                   setSavePath(e.target.value);
                 }}
                 icon={FolderOpen}
+                onIconClick={async () => {
+                  const picked = await tauriClient.showDirectoryPicker(savePath || undefined);
+                  if (picked) setSavePath(picked);
+                }}
                 id="grabber-path"
               />
 
@@ -151,131 +146,160 @@ export const WebpageGrabberPage: React.FC = () => {
                 options={queues.map((q) => ({ value: q.id, label: q.name }))}
                 id="grabber-queue"
               />
-            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-[var(--border-color)]/50 pt-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-extrabold text-[var(--text-primary)] flex items-center gap-1">
-                  <Layers className="w-3.5 h-3.5 text-[var(--info)]" />
-                  {t('grabber_depth_label')}
-                </label>
-                <select
-                  value={depth}
-                  onChange={(e) => {
-                    setDepth(Number(e.target.value));
-                  }}
-                  className="w-full text-xs font-semibold bg-[var(--bg-input)] border border-[var(--border-color)] hover:border-[var(--border-color-hover)] rounded-lg p-2.5 text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-primary)]"
-                  id="grabber-depth"
-                >
-                  <option value={1}>{t('grabber_depth_1')}</option>
-                  <option value={2}>{t('grabber_depth_2')}</option>
-                  <option value={3}>{t('grabber_depth_3')}</option>
-                  <option value={4}>{t('grabber_depth_4')}</option>
-                </select>
+              <div className="space-y-4 border-t border-[var(--border-color)]/50 pt-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-extrabold text-[var(--text-primary)] flex items-center gap-1">
+                    <Layers className="w-3.5 h-3.5 text-[var(--info)]" />
+                    {t('grabber_depth_label')}
+                  </label>
+                  <select
+                    value={depth}
+                    onChange={(e) => {
+                      setDepth(Number(e.target.value));
+                    }}
+                    className="w-full text-xs font-semibold bg-[var(--bg-input)] border border-[var(--border-color)] hover:border-[var(--border-color-hover)] rounded-lg p-2.5 text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-primary)]"
+                    id="grabber-depth"
+                  >
+                    <option value={1}>{t('grabber_depth_1')}</option>
+                    <option value={2}>{t('grabber_depth_2')}</option>
+                    <option value={3}>{t('grabber_depth_3')}</option>
+                    <option value={4}>{t('grabber_depth_4')}</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-extrabold text-[var(--text-primary)] flex items-center gap-1">
+                    <FileText className="w-3.5 h-3.5 text-[var(--success)]" />
+                    {t('grabber_format_label')}
+                  </label>
+                  <select
+                    value={saveFormat}
+                    onChange={(e) => {
+                      setSaveFormat(e.target.value as 'single' | 'folder' | 'text');
+                    }}
+                    className="w-full text-xs font-semibold bg-[var(--bg-input)] border border-[var(--border-color)] hover:border-[var(--border-color-hover)] rounded-lg p-2.5 text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-primary)]"
+                    id="grabber-format"
+                  >
+                    <option value="single">{t('grabber_format_single')}</option>
+                    <option value="folder">{t('grabber_format_folder')}</option>
+                    <option value="text">{t('grabber_format_text')}</option>
+                  </select>
+                </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-extrabold text-[var(--text-primary)] flex items-center gap-1">
-                  <FileText className="w-3.5 h-3.5 text-[var(--success)]" />
-                  {t('grabber_format_label')}
-                </label>
-                <select
-                  value={saveFormat}
-                  onChange={(e) => {
-                    setSaveFormat(e.target.value as 'single' | 'folder' | 'text');
-                  }}
-                  className="w-full text-xs font-semibold bg-[var(--bg-input)] border border-[var(--border-color)] hover:border-[var(--border-color-hover)] rounded-lg p-2.5 text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-primary)]"
-                  id="grabber-format"
-                >
-                  <option value="single">{t('grabber_format_single')}</option>
-                  <option value="folder">{t('grabber_format_folder')}</option>
-                  <option value="text">{t('grabber_format_text')}</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="space-y-2 border-t border-[var(--border-color)]/50 pt-3">
-              <span className="text-xs font-extrabold text-[var(--text-primary)] flex items-center gap-1">
-                <CheckSquare className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
-                {t('grabber_filter_label')}
-              </span>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3 bg-[var(--bg-hover)]/30 border border-[var(--border-color)]/40 rounded-lg">
-                <Checkbox
-                  label={t('grabber_filter_pages')}
-                  checked={filters.pages}
-                  onChange={(val) => {
-                    setFilters((prev) => ({ ...prev, pages: val }));
-                  }}
-                  id="filter-pages"
-                />
-                <Checkbox
-                  label={t('grabber_filter_styles')}
-                  checked={filters.styles}
-                  onChange={(val) => {
-                    setFilters((prev) => ({ ...prev, styles: val }));
-                  }}
-                  id="filter-styles"
-                />
-                <Checkbox
-                  label={t('grabber_filter_images')}
-                  checked={filters.images}
-                  onChange={(val) => {
-                    setFilters((prev) => ({ ...prev, images: val }));
-                  }}
-                  id="filter-images"
-                />
-                <Checkbox
-                  label={t('grabber_filter_docs')}
-                  checked={filters.documents}
-                  onChange={(val) => {
-                    setFilters((prev) => ({ ...prev, documents: val }));
-                  }}
-                  id="filter-documents"
-                />
-                <Checkbox
-                  label={t('grabber_filter_media')}
-                  checked={filters.media}
-                  onChange={(val) => {
-                    setFilters((prev) => ({ ...prev, media: val }));
-                  }}
-                  id="filter-media"
-                />
-                <Checkbox
-                  label={t('grabber_filter_others')}
-                  checked={filters.others}
-                  onChange={(val) => {
-                    setFilters((prev) => ({ ...prev, others: val }));
-                  }}
-                  id="filter-others"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-3.5 border-t border-[var(--border-color)]/50 pt-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Switch
-                  label={t('grabber_follow_external')}
-                  checked={followOuterDomains}
-                  onChange={setFollowOuterDomains}
-                  id="grabber-domains"
-                />
-                <Switch
-                  label={t('grabber_overwrite')}
-                  checked={overwriteExisting}
-                  onChange={setOverwriteExisting}
-                  id="grabber-overwrite"
-                />
+              <div className="space-y-4 border-t border-[var(--border-color)]/50 pt-3">
+                <span className="text-xs font-extrabold text-[var(--text-primary)] flex items-center gap-1">
+                  <CheckSquare className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
+                  {t('grabber_filter_label')}
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3 bg-[var(--bg-hover)]/30 border border-[var(--border-color)]/40 rounded-lg">
+                  <Checkbox
+                    label={t('grabber_filter_pages')}
+                    checked={filters.pages}
+                    onChange={(val) => {
+                      setFilters((prev) => ({ ...prev, pages: val }));
+                    }}
+                    id="filter-pages"
+                  />
+                  <Checkbox
+                    label={t('grabber_filter_styles')}
+                    checked={filters.styles}
+                    onChange={(val) => {
+                      setFilters((prev) => ({ ...prev, styles: val }));
+                    }}
+                    id="filter-styles"
+                  />
+                  <Checkbox
+                    label={t('grabber_filter_images')}
+                    checked={filters.images}
+                    onChange={(val) => {
+                      setFilters((prev) => ({ ...prev, images: val }));
+                    }}
+                    id="filter-images"
+                  />
+                  <Checkbox
+                    label={t('grabber_filter_docs')}
+                    checked={filters.documents}
+                    onChange={(val) => {
+                      setFilters((prev) => ({ ...prev, documents: val }));
+                    }}
+                    id="filter-documents"
+                  />
+                  <Checkbox
+                    label={t('grabber_filter_media')}
+                    checked={filters.media}
+                    onChange={(val) => {
+                      setFilters((prev) => ({ ...prev, media: val }));
+                    }}
+                    id="filter-media"
+                  />
+                  <Checkbox
+                    label={t('grabber_filter_others')}
+                    checked={filters.others}
+                    onChange={(val) => {
+                      setFilters((prev) => ({ ...prev, others: val }));
+                    }}
+                    id="filter-others"
+                  />
+                </div>
               </div>
 
-              <div className="flex items-center gap-3 bg-[var(--bg-hover)]/20 p-2.5 rounded-lg border border-[var(--border-color)]/20">
-                <HelpCircle className="w-4 h-4 text-[var(--info)] shrink-0" />
-                <div className="text-[10px] text-[var(--text-muted)] leading-normal">
-                  {t('grabber_notice')}
+              <div className="space-y-3.5 border-t border-[var(--border-color)]/50 pt-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Switch
+                    label={t('grabber_follow_external')}
+                    checked={followOuterDomains}
+                    onChange={setFollowOuterDomains}
+                    id="grabber-domains"
+                  />
+                  <Switch
+                    label={t('grabber_overwrite')}
+                    checked={overwriteExisting}
+                    onChange={setOverwriteExisting}
+                    id="grabber-overwrite"
+                  />
+                </div>
+
+                <div className="flex items-center gap-3 bg-[var(--bg-hover)]/20 p-2.5 rounded-lg border border-[var(--border-color)]/20">
+                  <HelpCircle className="w-4 h-4 text-[var(--info)] shrink-0" />
+                  <div className="text-[10px] text-[var(--text-muted)] leading-normal">
+                    {t('grabber_notice')}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
+        </div>
 
+        <div className="w-[56%] flex flex-col min-h-0">
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 scrollbar-thin">
+            <TextField
+              label={t('grabber_url_label')}
+              value={url}
+              onChange={(e) => {
+                setUrl(e.target.value);
+              }}
+              placeholder=""
+              icon={Globe}
+              id="grabber-url"
+            />
+
+            <div className="rounded-xl border border-[var(--border-color)] overflow-hidden min-h-[28rem] bg-[var(--bg-hover)]">
+              {validPreviewUrl ? (
+                <iframe
+                  title="Webpage Preview"
+                  src={url.trim()}
+                  className="w-full h-full"
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center p-4 text-[13px] text-[var(--text-secondary)]">
+                  {t('grabber_preview_placeholder')}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

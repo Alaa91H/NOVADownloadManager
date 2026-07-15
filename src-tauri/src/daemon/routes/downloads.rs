@@ -19,7 +19,7 @@ use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
 use crate::daemon::engine::rules::RuleAction;
 use crate::daemon::state::SharedState;
 use crate::daemon::telegram::telegram_notify;
-use crate::daemon::types::{CreateDownloadBody, Task, TorrentConfigBody};
+use crate::daemon::types::{CreateDownloadBody, Task};
 use crate::daemon::ytdlp::create_ytdlp_task;
 use crate::lock_or_err;
 
@@ -60,15 +60,15 @@ pub async fn handle_download_events(
             interval.tick().await;
             let tasks = list_all_tasks(&state).await;
 
-            // Every 40 ticks (~10 seconds), send a full sync so the frontend can
+            // Every 240 ticks (~60 seconds), send a full sync so the frontend can
             // reconcile any missed events or ghost entries.
             full_sync_counter += 1;
-            if full_sync_counter >= 40 {
+            if full_sync_counter >= 240 {
                 full_sync_counter = 0;
                 let payload = serde_json::to_string(&tasks).unwrap_or_else(|_| "[]".to_string());
                 last_snapshots.clear();
                 for t in &tasks {
-                    last_snapshots.insert(t.id.clone(), 0); // store id as "I exist" marker
+                    last_snapshots.insert(t.id.clone(), 0);
                 }
                 yield Ok::<Event, Infallible>(Event::default().event("downloads").data(payload));
                 continue;
@@ -362,74 +362,6 @@ pub async fn handle_delete_task(
             log::error!("Delete task failed: {}", e);
             daemon_error(e)
         })
-}
-
-fn save_torrent_config(state: &SharedState) {
-    {
-        let tc = lock_or_err!(state.torrent_config);
-        let path = std::path::Path::new(&state.data_dir).join("torrent-config.json");
-        match serde_json::to_string_pretty(&*tc) {
-            Ok(payload) => {
-                if let Err(e) = std::fs::write(&path, &payload) {
-                    log::error!("Failed to write torrent config: {e}");
-                }
-            }
-            Err(e) => log::error!("Failed to serialize torrent config: {e}"),
-        }
-    }
-}
-
-pub fn load_initial_torrent_config(data_dir: &str) -> TorrentConfigBody {
-    let path = std::path::Path::new(data_dir).join("torrent-config.json");
-    if let Ok(raw) = std::fs::read_to_string(&path) {
-        serde_json::from_str(&raw).unwrap_or_default()
-    } else {
-        TorrentConfigBody {
-            dht: Some(true),
-            pex: Some(true),
-            encryption: Some(true),
-            listen_port: Some(6881),
-            max_peers: Some(100),
-            seeding: Some(true),
-            ratio_limit: Some(2.0),
-            upload_speed: Some(0),
-        }
-    }
-}
-
-pub async fn handle_torrent_config(
-    State(state): State<SharedState>,
-    Json(body): Json<TorrentConfigBody>,
-) -> Json<serde_json::Value> {
-    {
-        let mut tc = lock_or_err!(state.torrent_config);
-        if let Some(v) = body.dht {
-            tc.dht = Some(v);
-        }
-        if let Some(v) = body.pex {
-            tc.pex = Some(v);
-        }
-        if let Some(v) = body.encryption {
-            tc.encryption = Some(v);
-        }
-        if let Some(v) = body.listen_port {
-            tc.listen_port = Some(v);
-        }
-        if let Some(v) = body.max_peers {
-            tc.max_peers = Some(v);
-        }
-        if let Some(v) = body.seeding {
-            tc.seeding = Some(v);
-        }
-        if let Some(v) = body.ratio_limit {
-            tc.ratio_limit = Some(v);
-        }
-        if let Some(v) = body.upload_speed {
-            tc.upload_speed = Some(v);
-        }
-    }
-    save_torrent_config(&state);
-    Json(serde_json::json!({"ok": true, "saved": true}))
 }
 
 fn json_non_empty_str<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
@@ -730,6 +662,21 @@ pub async fn handle_captures_pending(State(state): State<SharedState>) -> Json<s
     Json(serde_json::json!({"ok": true, "captures": pending}))
 }
 
+pub async fn handle_stats(State(state): State<SharedState>) -> Json<serde_json::Value> {
+    let stats = state.download_stats.lock().map(|s| s.clone()).unwrap_or_default();
+    let active = {
+        let snap = lock_or_err!(state.task_snapshot);
+        snap.values().filter(|t| t.status == "downloading").count()
+    };
+    Json(serde_json::json!({
+        "totalCompleted": stats.total_completed,
+        "totalFailed": stats.total_failed,
+        "totalDownloadedBytes": stats.total_downloaded_bytes,
+        "activeDownloads": active,
+        "sessionStartedAt": stats.session_started_at,
+    }))
+}
+
 pub(crate) fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
     router
         .route("/api/health", get(handle_health))
@@ -741,7 +688,7 @@ pub(crate) fn register_routes(router: Router<SharedState>) -> Router<SharedState
         .route("/api/downloads/{id}/pause", post(handle_pause_task))
         .route("/api/downloads/{id}/resume", post(handle_resume_task))
         .route("/api/downloads/{id}", delete(handle_delete_task))
-        .route("/api/torrents/config", post(handle_torrent_config))
+        .route("/api/stats", get(handle_stats))
         .route("/captures", post(handle_captures))
         .route("/captures/pending", get(handle_captures_pending))
 }

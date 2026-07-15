@@ -119,7 +119,7 @@ describe('quality selector — send response interpretation', () => {
   });
 });
 
-describe('quality selector — IDM-style column formatting', () => {
+describe('quality selector — column formatting', () => {
   function codecShort(codecs?: string): string | undefined {
     if (!codecs) return undefined;
     const c = codecs.toLowerCase();

@@ -41,6 +41,15 @@ export const RuntimeMessageSchema = z.discriminatedUnion('type', [
     selectedQualityUrl: z.string().optional(),
     selectedQuality: StreamQualitySchema.optional(),
   }),
+  z.object({
+    type: z.literal('PROBE_YTDLP'),
+    url: z.string().url(),
+  }),
+  z.object({
+    type: z.literal('DOWNLOAD_DIRECT'),
+    url: z.string().url(),
+    filename: z.string().optional(),
+  }),
   // PAGE_TAP_CANDIDATES_FOUND is sent by page-tap-bridge (isolated content script) after
   // receiving, validating, and deduplicating postMessage events from page-tap-main (MAIN world).
   z.object({

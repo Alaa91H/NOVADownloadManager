@@ -21,11 +21,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::limit::RequestBodyLimitLayer;
 
 use crate::daemon::state::{AppState, SharedState};
 use crate::daemon::static_files::{serve_asset, serve_index, serve_spa_fallback};
 use crate::daemon::telegram::start_telegram_bot;
 use crate::daemon::types::{CreateDownloadBody, CurlJob, MediaJob, TelegramConfig};
+use crate::lock_or_err;
 
 use crate::daemon::engine::extractor::{ExtractorRegistry, SharedExtractorRegistry};
 
@@ -168,9 +170,6 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 persist_dirty: std::sync::atomic::AtomicBool::new(false),
                 telegram_config: Mutex::new(TelegramConfig::default()),
                 telegram_last_update_id: Mutex::new(restored.telegram_last_update_id),
-                torrent_config: Mutex::new(crate::daemon::routes::load_initial_torrent_config(
-                    &data_dir,
-                )),
                 http_client: HttpClient::builder()
                     .pool_idle_timeout(std::time::Duration::from_secs(90))
                     .pool_max_idle_per_host(4)
@@ -203,17 +202,22 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 mirror_managers: Mutex::new(HashMap::new()),
                 extractor_registry,
                 api_token: shared_api_token(),
+                download_stats: Mutex::new({
+                    let mut s = restored.stats.clone();
+                    s.session_started_at = Some(chrono::Utc::now().to_rfc3339());
+                    s
+                }),
             };
 
             let state = Arc::new(state);
 
             log::debug!("Daemon started with API auth enabled");
 
-            // Mirror every engine event into the daemon log so the events are
-            // captured by file logging alongside the in-memory event log.
-            state.event_bus.subscribe(|event| {
-                log::debug!("engine event #{}: {:?}", event.id, event.event);
-            });
+            if log::log_enabled!(log::Level::Debug) {
+                state.event_bus.subscribe(|event| {
+                    log::debug!("engine event #{}: {:?}", event.id, event.event);
+                });
+            }
 
             // Periodic smart-scheduler evaluation: applies time-window and
             // bandwidth-triggered rules (pause/start/limit/notify) for real.
@@ -226,6 +230,11 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     crate::daemon::routes::run_scheduler_tick(&scheduler_state).await;
                 }
             });
+
+            // Restore persisted scheduler rules.
+            for rule in &restored.scheduler_rules {
+                state.scheduler.add_rule(rule.clone());
+            }
 
             crate::daemon::routes::record_daemon_start();
             restore_persisted_tasks(&state, restored);
@@ -280,7 +289,8 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                             axum::http::header::ACCEPT,
                         ]),
                 )
-                .layer(CompressionLayer::new());
+                .layer(CompressionLayer::new())
+                .layer(RequestBodyLimitLayer::new(32 * 1024 * 1024));
 
             let addr = format!("127.0.0.1:{}", port);
             log::info!("NOVA daemon starting on {}", addr);
@@ -315,7 +325,27 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
             let shutdown_state = state.clone();
             let shutdown_signal = async move {
                 let _ = tokio::signal::ctrl_c().await;
-                log::info!("Shutdown signal received; flushing state...");
+                log::info!("Shutdown signal received; pausing active downloads...");
+                {
+                    let mut curl = lock_or_err!(shutdown_state.curl_jobs);
+                    for job in curl.values_mut() {
+                        job.cancel_token.store(true, std::sync::atomic::Ordering::Release);
+                        job.task.status = "paused".to_string();
+                        job.task.engine_status = Some("shutdown".to_string());
+                    }
+                }
+                {
+                    let mut media = lock_or_err!(shutdown_state.media_jobs);
+                    for job in media.values_mut() {
+                        if let Some(pid) = job.child {
+                            crate::daemon::utils::kill_process(pid);
+                        }
+                        job.task.status = "paused".to_string();
+                        job.task.engine_status = Some("shutdown".to_string());
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                log::info!("Flushing state...");
                 crate::daemon::persist::save_now(&shutdown_state);
                 log::info!("State saved; shutting down daemon.");
             };
@@ -398,9 +428,8 @@ fn restore_persisted_tasks(
             }
         } else if task.engine == "curl"
             || task.engine == "libcurl-multi"
-            || (task.engine == "aria2"
-                && task.torrent_metadata.is_none()
-                && (task.url.starts_with("http://") || task.url.starts_with("https://")))
+            || (task.engine != "yt-dlp"
+                && task.url.starts_with("http://"))
         {
             task.engine = "libcurl-multi".to_string();
             task.engine_id = task.id.clone();
@@ -455,10 +484,10 @@ fn restore_persisted_tasks(
                     },
                 );
             }
-        } else if task.engine == "aria2" {
+        } else {
             task.status = "error".to_string();
-            task.engine_status = Some("legacy-engine-removed".to_string());
-            task.error_message = Some("The legacy aria2 engine has been removed. Re-add this torrent/magnet with a dedicated torrent engine when available.".to_string());
+            task.engine_status = Some("unsupported-engine".to_string());
+            task.error_message = Some("This download used a removed engine. Re-add it with the libcurl engine.".to_string());
             task.speed_bytes_per_sec = 0;
         }
 

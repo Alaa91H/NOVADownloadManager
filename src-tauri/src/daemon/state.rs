@@ -4,6 +4,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
+use crate::daemon::persist::DownloadStats;
+
 use crate::daemon::engine::adaptive_connections::AdaptiveConnectionManager;
 use crate::daemon::engine::bandwidth::BandwidthManager;
 use crate::daemon::engine::dynamic_segments::DynamicSegmentScheduler;
@@ -18,7 +20,7 @@ use crate::daemon::engine::retry::RetryPolicy;
 use crate::daemon::engine::retry::RetryState;
 use crate::daemon::engine::rules::DownloadRuleEngine;
 use crate::daemon::engine::scheduler::SmartScheduler;
-use crate::daemon::types::{CurlJob, MediaJob, Task, TelegramConfig, TorrentConfigBody};
+use crate::daemon::types::{CurlJob, MediaJob, Task, TelegramConfig};
 
 /// Live engine-side tracking for one running download: adaptive connection
 /// tuning plus (for segmented transfers) dynamic segment accounting.
@@ -35,7 +37,6 @@ pub struct AppState {
     pub curl_jobs: Mutex<HashMap<String, CurlJob>>,
     pub task_snapshot: Mutex<HashMap<String, Task>>,
     pub persist_dirty: AtomicBool,
-    pub torrent_config: Mutex<TorrentConfigBody>,
     pub telegram_config: Mutex<TelegramConfig>,
     pub http_client: HttpClient,
     pub resource_dir: String,
@@ -61,6 +62,8 @@ pub struct AppState {
     pub extractor_registry: SharedExtractorRegistry,
     /// Bearer token for API authentication. Generated at daemon start.
     pub api_token: String,
+    /// Accumulated download statistics persisted across sessions.
+    pub download_stats: Mutex<DownloadStats>,
 }
 
 impl AppState {

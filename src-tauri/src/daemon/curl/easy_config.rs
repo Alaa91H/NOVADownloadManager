@@ -858,12 +858,13 @@ pub(crate) fn apply_easy_options<H: Handler>(
     Ok(())
 }
 
-pub(crate) fn create_easy_for_range(
+pub(crate) fn create_easy_for_range_ext(
     plan: &DirectDownloadPlan,
     path: &Path,
     progress: SegmentProgress,
     range: Option<(u64, u64)>,
     bandwidth_limit: Option<u64>,
+    preallocate_bytes: Option<u64>,
 ) -> Result<Easy2<SegmentWriter>, String> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
@@ -876,6 +877,16 @@ pub(crate) fn create_easy_for_range(
         .append(true)
         .open(path)
         .map_err(|e| format!("Could not open segment output file: {e}"))?;
+    if let Some(size) = preallocate_bytes {
+        let current = file
+            .metadata()
+            .map(|m| m.len())
+            .unwrap_or(0);
+        if current == 0 && size > 0 {
+            file.set_len(size)
+                .map_err(|e| format!("Could not preallocate segment file (disk may be full): {e}"))?;
+        }
+    }
     let mut easy = Easy2::new(SegmentWriter {
         file,
         progress,

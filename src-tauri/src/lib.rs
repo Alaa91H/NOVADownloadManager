@@ -502,9 +502,18 @@ pub fn run() {
         )
         .setup(|app| {
             kill_old_daemon();
-            // Brief pause to let background kill thread release ports.
-            std::thread::sleep(Duration::from_millis(600));
             let default_port = requested_daemon_port();
+            let deadline = std::time::Instant::now() + Duration::from_millis(2000);
+            loop {
+                if is_loopback_port_available(default_port) {
+                    break;
+                }
+                if std::time::Instant::now() > deadline {
+                    log::warn!("Daemon port {} still not available after 2s; starting anyway", default_port);
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
             let startup_port = find_available_daemon_port(default_port);
             let default_url = daemon_url_for_port(startup_port);
             app.manage(DaemonUrl(Mutex::new(default_url)));

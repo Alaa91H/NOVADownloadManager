@@ -32,6 +32,7 @@ export function bestVideoFormat(formats: MediaFormat[], heightLimit?: number): M
 export function resolutionLabel(height: number | null): string {
   if (!height) return 'Unknown';
   if (height >= 4320) return '8K';
+  if (height >= 2880) return '2.8K';
   if (height >= 2160) return '4K';
   if (height >= 1440) return '2K';
   if (height >= 1080) return '1080p';

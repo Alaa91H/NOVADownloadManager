@@ -19,6 +19,18 @@ pub struct PersistedState {
     pub curl_args: HashMap<String, Vec<String>>,
     #[serde(default)]
     pub telegram_last_update_id: i64,
+    #[serde(default)]
+    pub scheduler_rules: Vec<crate::daemon::engine::scheduler::SchedulerRule>,
+    #[serde(default)]
+    pub stats: DownloadStats,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct DownloadStats {
+    pub total_downloaded_bytes: u64,
+    pub total_completed: u64,
+    pub total_failed: u64,
+    pub session_started_at: Option<String>,
 }
 
 pub fn state_file_path(data_dir: &str) -> PathBuf {
@@ -63,6 +75,8 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         media_args,
         curl_args,
         telegram_last_update_id,
+        scheduler_rules: state.scheduler.rules(),
+        stats: state.download_stats.lock().map(|s| s.clone()).unwrap_or_default(),
     }
 }
 
@@ -130,7 +144,7 @@ pub fn start_persistence_loop(state: SharedState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::daemon::types::{CurlJob, MediaJob, Segment, TelegramConfig, TorrentConfigBody};
+    use crate::daemon::types::{CurlJob, MediaJob, Segment, TelegramConfig};
     use std::sync::atomic::{AtomicBool, AtomicU64};
     use std::sync::{Arc, Mutex, RwLock};
     use std::time::Instant;
@@ -167,7 +181,6 @@ mod tests {
             engine_id: id.to_string(),
             engine_status: None,
             error_message: None,
-            torrent_metadata: None,
         }
     }
 
@@ -177,16 +190,6 @@ mod tests {
             curl_jobs: Mutex::new(HashMap::new()),
             task_snapshot: Mutex::new(HashMap::new()),
             persist_dirty: AtomicBool::new(false),
-            torrent_config: Mutex::new(TorrentConfigBody {
-                dht: None,
-                pex: None,
-                encryption: None,
-                listen_port: None,
-                max_peers: None,
-                seeding: None,
-                ratio_limit: None,
-                upload_speed: None,
-            }),
             telegram_config: Mutex::new(TelegramConfig::default()),
             http_client: reqwest::Client::new(),
             resource_dir: String::new(),
@@ -214,6 +217,7 @@ mod tests {
                 crate::daemon::engine::extractor::ExtractorRegistry::new(),
             ),
             api_token: String::new(),
+            download_stats: Mutex::new(DownloadStats::default()),
         }
     }
 
@@ -228,7 +232,7 @@ mod tests {
             .task_snapshot
             .lock()
             .unwrap()
-            .insert("g1".to_string(), sample_task("g1", "aria2", "downloading"));
+            .insert("g1".to_string(), sample_task("g1", "libcurl-multi", "downloading"));
         state
             .task_snapshot
             .lock()

@@ -17,9 +17,12 @@ import {
   StreamResolveRequestSchema,
   StreamResolveResponseSchema,
   StreamAddRequestSchema,
+  YtdlpProbeResponseSchema,
+  NOVA_PROTOCOL_VERSION,
   type StreamResolveResponse,
   type StreamManifestCandidate,
   type AddTaskResponse,
+  type YtdlpProbeResponse,
 } from '../contracts/nova.protocol.v4';
 import { Candidate } from '../contracts/candidate.schema';
 import { NovaEvent } from '../contracts/events.schema';
@@ -98,7 +101,7 @@ export class BridgeManager implements BridgeGateway {
         return this.state;
       }
 
-      if (ping.protocolVersion < ping.minimumSupportedProtocolVersion || ping.minimumSupportedProtocolVersion > 4) {
+      if (ping.protocolVersion < ping.minimumSupportedProtocolVersion || ping.minimumSupportedProtocolVersion > NOVA_PROTOCOL_VERSION) {
         await this.setState({
           status: 'protocolMismatch',
           protocolVersion: ping.protocolVersion,
@@ -266,6 +269,16 @@ export class BridgeManager implements BridgeGateway {
     this.caps.registry.require(cap);
     const request = StreamAddRequestSchema.parse({ idempotencyKey, manifest, selectedQuality, source: 'nova-extension' });
     return this.authenticatedHttp('/v1/stream/add', request, AddTaskResponseSchema, 'POST');
+  }
+
+  async probeYtdlp(url: string): Promise<YtdlpProbeResponse> {
+    await this.ensureReadyToSend();
+    return this.authenticatedHttp<YtdlpProbeResponse>(
+      `/api/ytdlp/probe?url=${encodeURIComponent(url)}`,
+      undefined,
+      YtdlpProbeResponseSchema,
+      'GET',
+    );
   }
 
   async sendCandidateNow(candidate: Candidate, idempotencyKey: string) {

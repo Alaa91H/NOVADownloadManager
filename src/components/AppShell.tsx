@@ -79,6 +79,10 @@ const AppShellInner: React.FC = () => {
   const { activePage } = useNavigationData();
   const { setActivePage } = useNavigationActions();
   const tasks = useTaskData();
+  const tasksRef = useRef(tasks);
+  useEffect(() => {
+    tasksRef.current = tasks;
+  });
   const { selectedTaskId } = useTaskSelectors();
   const { pauseTask, resumeTask, deleteTask } = useTaskActions();
   const { isNotificationsMuted, setIsNotificationsMuted } = useNotificationsData();
@@ -92,15 +96,12 @@ const AppShellInner: React.FC = () => {
   const clipboardPrimed = useRef(false);
   const lastClipboardOpenedAt = useRef(0);
 
-  // Reset the elapsed counter when leaving the connecting state, adjusting
-  // during render; the effect only drives the ticking interval.
-  const [prevBridgeStatus, setPrevBridgeStatus] = useState(bridge.status);
-  if (prevBridgeStatus !== bridge.status) {
-    setPrevBridgeStatus(bridge.status);
+  useEffect(() => {
     if (bridge.status !== 'connecting') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setConnectTimer(0);
     }
-  }
+  }, [bridge.status]);
 
   useEffect(() => {
     if (bridge.status !== 'connecting') {
@@ -237,7 +238,7 @@ const AppShellInner: React.FC = () => {
       .filter(([, shortcut]) => shortcut.length > 0);
 
     const stopAll = () => {
-      const active = tasks.filter((task) => task.status === 'downloading');
+      const active = tasksRef.current.filter((task) => task.status === 'downloading');
       if (active.length === 0) {
         addToast('info', t('topbar_stop_all_title'), t('topbar_stop_all_none'));
         return;
@@ -249,7 +250,7 @@ const AppShellInner: React.FC = () => {
     };
 
     const resumeAll = () => {
-      const inactive = tasks.filter((task) => task.status === 'paused' || task.status === 'queued');
+      const inactive = tasksRef.current.filter((task) => task.status === 'paused' || task.status === 'queued');
       if (inactive.length === 0) {
         addToast('info', t('topbar_resume_all_title'), t('topbar_resume_all_none'));
         return;
@@ -269,7 +270,7 @@ const AppShellInner: React.FC = () => {
       if (isEditableTarget(event.target) && action !== 'focusSearch') return;
       event.preventDefault();
 
-      const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null;
+      const selectedTask = selectedTaskId ? tasksRef.current.find((task) => task.id === selectedTaskId) : null;
       switch (action) {
         case 'addDownload':
           openDialog('addDownload');
@@ -315,7 +316,7 @@ const AppShellInner: React.FC = () => {
             message: t('topbar_delete_completed_confirm'),
             isDanger: true,
             onConfirm: () => {
-              tasks
+              tasksRef.current
                 .filter((task) => task.status === 'completed')
                 .forEach((task) => {
                   void deleteTask(task.id, false);
@@ -333,8 +334,16 @@ const AppShellInner: React.FC = () => {
           setIsNotificationsMuted(!isNotificationsMuted);
           break;
         case 'toggleSpeedLimiter': {
-          const updated = structuredClone(settings);
-          updated.connection.speedLimiter.enabled = !updated.connection.speedLimiter.enabled;
+          const updated = {
+            ...settings,
+            connection: {
+              ...settings.connection,
+              speedLimiter: {
+                ...settings.connection.speedLimiter,
+                enabled: !settings.connection.speedLimiter.enabled,
+              },
+            },
+          };
           updateSettings(updated);
           break;
         }
@@ -358,7 +367,6 @@ const AppShellInner: React.FC = () => {
     setIsNotificationsMuted,
     settings,
     t,
-    tasks,
     updateSettings,
   ]);
 
@@ -589,7 +597,7 @@ const AppShellInner: React.FC = () => {
 
       {/* 4. Responsive Toast Notification HUD */}
       <div
-        className="fixed bottom-12 right-4 z-50 flex flex-col gap-2 max-w-sm select-none"
+        className="fixed bottom-8 right-4 z-50 flex flex-col gap-2 max-w-sm select-none items-end"
         style={{ direction: 'ltr' }}
         role="status"
         aria-live="polite"
@@ -597,7 +605,7 @@ const AppShellInner: React.FC = () => {
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className="glass-panel bg-[var(--bg-surface-elevated)] border border-[var(--border-color)] p-3 rounded-lg shadow-xl flex items-start gap-3 animate-in slide-in-from-right duration-200"
+            className="glass-panel bg-[var(--bg-surface-elevated)] border border-[var(--border-color)] p-3 rounded-lg shadow-xl flex items-start gap-3 animate-in slide-in-from-bottom duration-200"
           >
             {getToastIcon(toast.type)}
             <div className="flex-1 space-y-0.5 text-left">

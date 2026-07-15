@@ -4,7 +4,6 @@ import { CandidatePipeline } from '../capture/candidate-pipeline';
 import { RuntimeMessage, RuntimeMessageSchema, SiteRulesImportSchema } from '../contracts/messages.schema';
 import { AGGRESSIVE_MAX_SCAN_HTML_CHARS, AGGRESSIVE_MAX_SCAN_JSON_LD_ITEMS, AGGRESSIVE_MAX_SCAN_JSON_LD_SCRIPT_CHARS, AGGRESSIVE_MAX_SCAN_JSON_LD_TOTAL_CHARS, AGGRESSIVE_MAX_SCAN_LINKS, AGGRESSIVE_MAX_SCAN_MEDIA, AGGRESSIVE_MAX_SCAN_OPEN_GRAPH, AGGRESSIVE_MAX_SCAN_REQUESTS_PER_TAB_PER_MINUTE, IDEMPOTENCY_SCHEMA_VERSION, MAX_CANDIDATES_PER_TAB, MAX_CANDIDATE_CACHE_BYTES_PER_TAB, MAX_DIAGNOSTICS_EXPORT_BYTES, MAX_EVENT_MESSAGE_BYTES, MAX_EVENT_PARSE_ERRORS_PER_CONNECTION, MAX_HANDOFF_CANDIDATES, MAX_HANDOFF_PAYLOAD_BYTES, MAX_HTTP_REQUEST_PAYLOAD_BYTES, MAX_HTTP_RESPONSE_BYTES, MAX_NATIVE_MESSAGE_BYTES, MAX_OUTBOX_JOBS, MAX_SCAN_HTML_CHARS, MAX_SCAN_JSON_LD_ITEMS, MAX_SCAN_JSON_LD_SCRIPT_CHARS, MAX_SCAN_JSON_LD_TOTAL_CHARS, MAX_SCAN_LINKS, MAX_SCAN_MEDIA, MAX_SCAN_OPEN_GRAPH, MAX_SCAN_REQUESTS_PER_TAB_PER_MINUTE, MAX_SETTINGS_IMPORT_BYTES, MAX_SITE_RULES, MAX_SITE_RULES_IMPORT_BYTES, MAX_SSE_BUFFER_BYTES, MAX_RUNTIME_MESSAGE_BYTES, MAX_TASK_ID_CHARS, OUTBOX_DEAD_LETTER_RETENTION_DAYS, OUTBOX_SENT_RETENTION_DAYS } from '../contracts/limits';
 import { migrateSettingsInput, SettingsSchema } from '../contracts/settings.schema';
-import type { Candidate } from '../contracts/candidate.schema';
 import { ListTasksResponseSchema } from '../contracts/runtime-response.schema';
 import { classifyByUrl, mediaTypeFromMime } from '../pipeline/mime-detector';
 import { extensionOf } from '../utils/url';
@@ -55,6 +54,78 @@ browser.runtime.onMessage.addListener((raw: unknown, sender: RuntimeMessageSende
   return dispatchMessage(parsed.data, sender).catch((error) => normalizeRouterError(error));
 });
 
+async function directDownload(url: string, filename?: string): Promise<{ ok: boolean; downloadId?: number }> {
+  try {
+    const cleanFilename = filename?.replace(/[/\\:*?"<>|]/g, '_').trim();
+    const downloadId = await browser.downloads.download({
+      url,
+      saveAs: false,
+      conflictAction: 'uniquify',
+      filename: cleanFilename || undefined,
+    });
+    if (downloadId !== undefined) {
+      const displayName = cleanFilename || filename || url;
+      trackDownload(downloadId, displayName);
+      void notifyDownloadStarted(displayName);
+    }
+    return { ok: true, downloadId };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'unknown error';
+    throw new Error(`Download failed: ${message}`, { cause: error });
+  }
+}
+
+async function notifyDownloadStarted(name: string): Promise<void> {
+  try {
+    const shortName = name.length > 60 ? name.slice(0, 57) + '...' : name;
+    void browser.notifications.create(`dl-${Date.now()}`, {
+      type: 'basic',
+      iconUrl: browser.runtime.getURL('icons/icon-48.png'),
+      title: 'Download Started',
+      message: shortName,
+    });
+  } catch { /* notifications may be disabled */ }
+}
+
+const TRACKED_DOWNLOADS = new Map<number, string>();
+
+function trackDownload(downloadId: number, filename: string): void {
+  TRACKED_DOWNLOADS.set(downloadId, filename);
+}
+
+function initDownloadCompletionListener(): void {
+  if (!browser.downloads?.onChanged) return;
+  browser.downloads.onChanged.addListener((delta) => {
+    if (delta.state?.current === 'complete' && typeof delta.id === 'number') {
+      const filename = TRACKED_DOWNLOADS.get(delta.id);
+      if (filename) {
+        TRACKED_DOWNLOADS.delete(delta.id);
+        const shortName = filename.length > 60 ? filename.slice(0, 57) + '...' : filename;
+        void browser.notifications.create(`dl-complete-${delta.id}`, {
+          type: 'basic',
+          iconUrl: browser.runtime.getURL('icons/icon-48.png'),
+          title: 'Download Complete',
+          message: shortName,
+        });
+      }
+    } else if (delta.state?.current === 'interrupted' && typeof delta.id === 'number') {
+      const filename = TRACKED_DOWNLOADS.get(delta.id);
+      if (filename) {
+        TRACKED_DOWNLOADS.delete(delta.id);
+        const shortName = filename.length > 60 ? filename.slice(0, 57) + '...' : filename;
+        void browser.notifications.create(`dl-failed-${delta.id}`, {
+          type: 'basic',
+          iconUrl: browser.runtime.getURL('icons/icon-48.png'),
+          title: 'Download Failed',
+          message: shortName,
+        });
+      }
+    }
+  });
+}
+
+void initDownloadCompletionListener();
+
 async function dispatchMessage(msg: RuntimeMessage, sender?: RuntimeMessageSenderLike): Promise<unknown> {
   assertRuntimeMessageAllowed(msg, sender);
   switch (msg.type) {
@@ -94,6 +165,10 @@ async function dispatchMessage(msg: RuntimeMessage, sender?: RuntimeMessageSende
       return bridgeManager.resolveStream({ manifestType: msg.manifestType, url: msg.url, pageUrl: msg.pageUrl });
     case 'SEND_STREAM':
       return sendStream(msg.candidateId, msg.selectedQualityUrl, msg.selectedQuality);
+    case 'PROBE_YTDLP':
+      return bridgeManager.probeYtdlp(msg.url);
+    case 'DOWNLOAD_DIRECT':
+      return directDownload(msg.url, msg.filename);
     case 'GET_OUTBOX_STATUS':
       return outbox.counts();
     case 'RUN_OUTBOX_RETRY':

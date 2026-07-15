@@ -191,16 +191,6 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
           <span className="text-[11px] font-bold text-[var(--text-secondary)]">{t('progress_overall_progress')}</span>
           <div className="flex items-center gap-2">
             <span className="text-[11px] font-bold font-mono text-[var(--accent-primary)]">{progressPercent}%</span>
-            <button
-              type="button"
-              onClick={() => {
-                setDetailsCollapsed((v) => !v);
-              }}
-              className="px-1.5 h-4 flex items-center justify-center rounded text-[9px] font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors cursor-pointer leading-none"
-              title={detailsCollapsed ? t('progress_show_details') : t('progress_hide_details')}
-            >
-              {detailsCollapsed ? '▸' : '▾'}
-            </button>
           </div>
         </div>
         <div
@@ -280,7 +270,7 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
 
       {!detailsCollapsed && (
         <>
-      <div className="flex border-b border-[var(--border-color)] select-none pl-1" style={{ direction: 'ltr' }}>
+      <div className="flex border-b border-[var(--border-color)] select-none pl-1 mt-1" style={{ direction: 'ltr' }}>
         <button
           onClick={() => { setActiveTab('status'); }}
           className={tabClass('status')}
@@ -493,28 +483,52 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
         </>
       )}
 
-      <div className="flex items-center justify-between pt-1" style={{ direction: 'ltr' }}>
-        <div className="flex items-center gap-2">
-          {isDownloading ? (
-            <button
-              onClick={() => { void pauseTask(task.id); }}
-              className="px-6 py-1.5 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] active:scale-95 text-white text-[11px] font-bold rounded-lg shadow-sm transition-all cursor-pointer min-w-[80px]"
-            >
-              {t('topbar_stop')}
-            </button>
-          ) : task.status === 'paused' || task.status === 'error' ? (
-            <button
-              onClick={() => { void resumeTask(task.id); }}
-              className="px-6 py-1.5 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] active:scale-95 text-white text-[11px] font-bold rounded-lg shadow-sm transition-all cursor-pointer min-w-[80px]"
-            >
-              {t('progress_resume_btn')}
-            </button>
-          ) : (
-            <div className="px-6 py-1.5 bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-muted)] text-[11px] font-bold select-none min-w-[80px] text-center rounded-lg">
-              {t('progress_finished')}
-            </div>
-          )}
-        </div>
+      {/* Bottom action row: Stop on left, Show Details on right */}
+      <div className="flex items-center justify-between pt-2 border-t border-[var(--border-color)]/60 mt-1" style={{ direction: 'ltr' }}>
+        {/* Primary action: Stop / Resume / Finished */}
+        {isDownloading ? (
+          <button
+            onClick={() => { void pauseTask(task.id); }}
+            className="px-6 py-1.5 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] active:scale-95 text-white text-[11px] font-bold rounded-lg shadow-sm transition-all cursor-pointer min-w-[80px]"
+          >
+            {t('topbar_stop')}
+          </button>
+        ) : task.status === 'paused' || task.status === 'error' ? (
+          <button
+            onClick={() => { void resumeTask(task.id); }}
+            className="px-6 py-1.5 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] active:scale-95 text-white text-[11px] font-bold rounded-lg shadow-sm transition-all cursor-pointer min-w-[80px]"
+          >
+            {t('progress_resume_btn')}
+          </button>
+        ) : (
+          <div className="px-6 py-1.5 bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-muted)] text-[11px] font-bold select-none min-w-[80px] text-center rounded-lg">
+            {t('progress_finished')}
+          </div>
+        )}
+
+        {/* Show / Hide details — next to the Stop button, clearly visible */}
+        <button
+          onClick={() => { setDetailsCollapsed((v) => !v); }}
+          className={`flex items-center gap-1.5 px-4 py-1.5 text-[11px] font-bold rounded-lg border transition-all duration-150 cursor-pointer ${
+            detailsCollapsed
+              ? 'bg-[var(--bg-surface-elevated)] border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--accent-primary)]/60 hover:text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/5'
+              : 'bg-[var(--accent-primary)]/10 border-[var(--accent-primary)]/50 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/20'
+          }`}
+          title={detailsCollapsed ? t('progress_show_details') : t('progress_hide_details')}
+        >
+          <svg
+            className={`w-3 h-3 transition-transform duration-200 ${detailsCollapsed ? '' : 'rotate-180'}`}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+          {detailsCollapsed ? t('progress_show_details') : t('progress_hide_details')}
+        </button>
       </div>
     </div>
   );

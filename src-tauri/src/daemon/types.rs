@@ -5,19 +5,6 @@ use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(Clone, Serialize, Deserialize)]
-#[allow(non_snake_case)]
-pub struct TorrentMetadata {
-    pub infoHash: String,
-    pub mode: String,
-    pub numPeers: u32,
-    pub numSeeders: u32,
-    pub uploadSpeed: u64,
-    pub uploadLength: u64,
-    pub seeder: bool,
-    pub seedRatio: f64,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
 pub struct Task {
     pub id: String,
     pub name: String,
@@ -54,8 +41,6 @@ pub struct Task {
     pub engine_status: Option<String>,
     #[serde(rename = "errorMessage")]
     pub error_message: Option<String>,
-    #[serde(rename = "torrentMetadata")]
-    pub torrent_metadata: Option<TorrentMetadata>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -230,22 +215,6 @@ pub struct CreateDownloadBody {
     pub direct_options: Option<HashMap<String, serde_json::Value>>,
     #[serde(rename = "mediaOptions")]
     pub media_options: Option<MediaDownloadOptions>,
-}
-
-#[derive(Clone, Default, Deserialize, Serialize)]
-pub struct TorrentConfigBody {
-    pub dht: Option<bool>,
-    pub pex: Option<bool>,
-    pub encryption: Option<bool>,
-    #[serde(rename = "listenPort")]
-    pub listen_port: Option<u16>,
-    #[serde(rename = "maxPeers")]
-    pub max_peers: Option<u32>,
-    pub seeding: Option<bool>,
-    #[serde(rename = "ratioLimit")]
-    pub ratio_limit: Option<f64>,
-    #[serde(rename = "uploadSpeed")]
-    pub upload_speed: Option<u32>,
 }
 
 fn default_telegram_api_base() -> String {

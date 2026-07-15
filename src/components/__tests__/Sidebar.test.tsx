@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => false }));
 
 vi.mock('../../store/selectors', () => ({
-  useTaskData: () => [],
+  useSidebarCounts: () => ({}),
   useNavigationData: () => ({ activePage: 'downloads', workspaceView: 'all' }),
   useNavigationActions: () => ({ setActivePage: vi.fn(), setWorkspaceView: vi.fn() }),
   useBridgeData: () => ({ status: 'disconnected', version: '', pid: 0, speedLimit: null }),

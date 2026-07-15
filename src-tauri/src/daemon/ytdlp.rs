@@ -186,63 +186,89 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                 let state2 = state.clone();
                 let id2 = id.to_string();
                 std::thread::spawn(move || {
-                    if let Some(r) = stdout {
-                        let reader = BufReader::new(r);
-                        for line in reader.lines().map_while(Result::ok) {
-                            if !line.is_empty() {
-                                update_ytdlp_progress(&state2, &id2, &line);
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        if let Some(r) = stdout {
+                            let reader = BufReader::new(r);
+                            for line in reader.lines().map_while(Result::ok) {
+                                if !line.is_empty() {
+                                    update_ytdlp_progress(&state2, &id2, &line);
+                                }
                             }
                         }
-                    }
-                    if let Some(e) = stderr {
-                        let reader = BufReader::new(e);
-                        for line in reader.lines().map_while(Result::ok) {
-                            if !line.is_empty() {
-                                log::debug!("yt-dlp [{}]: {}", id2, line);
+                        if let Some(e) = stderr {
+                            let reader = BufReader::new(e);
+                            for line in reader.lines().map_while(Result::ok) {
+                                if !line.is_empty() {
+                                    log::debug!("yt-dlp [{}]: {}", id2, line);
+                                }
                             }
                         }
-                    }
 
-                    let status = child.wait().ok();
-                    let mut notif = String::new();
-                    {
+                        let status = child.wait().ok();
+                        let mut notif = String::new();
+                        {
+                            let mut jobs = lock_or_err!(state2.media_jobs);
+                            if let Some(current) = jobs.get_mut(&id2) {
+                                let task_name = current.task.name.clone();
+                                if status.is_some_and(|s| s.success()) {
+                                    current.task.status = "completed".to_string();
+                                    current.task.downloaded_bytes = current.task.size_bytes;
+                                    current.task.speed_bytes_per_sec = 0;
+                                    current.task.time_left_seconds = 0;
+                                    current.task.engine_status = Some("complete".to_string());
+                                    notif = format!("Download completed: {}", task_name);
+                                    if let Ok(mut stats) = state2.download_stats.lock() {
+                                        stats.total_completed += 1;
+                                        stats.total_downloaded_bytes += current.task.size_bytes;
+                                    }
+                                } else if current.task.status != "paused" {
+                                    current.task.status = "error".to_string();
+                                    current.task.speed_bytes_per_sec = 0;
+                                    current.task.engine_status = Some(format!(
+                                        "exit-{}",
+                                        status.map_or(-1, |s| s.code().unwrap_or(-1))
+                                    ));
+                                    notif = format!("Download failed: {}", task_name);
+                                    if let Ok(mut stats) = state2.download_stats.lock() {
+                                        stats.total_failed += 1;
+                                    }
+                                }
+                            }
+                        }
+                        state2.mark_dirty();
+                        if !notif.is_empty() {
+                            let (token, enabled, chat_id, api_base) = {
+                                let cfg = lock_or_err!(state2.telegram_config);
+                                (
+                                    cfg.token.clone(),
+                                    cfg.enabled,
+                                    cfg.chat_id,
+                                    cfg.api_base.clone(),
+                                )
+                            };
+                            if enabled && !token.is_empty() && chat_id != 0 {
+                                crate::daemon::telegram::send_telegram_msg_blocking_with_api(
+                                    &api_base, &token, chat_id, &notif,
+                                );
+                            }
+                        }
+                    }));
+                    if let Err(panic_info) = result {
+                        let msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                            format!("yt-dlp worker panicked: {}", s)
+                        } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                            format!("yt-dlp worker panicked: {}", s)
+                        } else {
+                            "yt-dlp worker panicked with unknown payload".to_string()
+                        };
+                        log::error!("{} (task: {})", msg, id2);
                         let mut jobs = lock_or_err!(state2.media_jobs);
                         if let Some(current) = jobs.get_mut(&id2) {
-                            let task_name = current.task.name.clone();
-                            if status.is_some_and(|s| s.success()) {
-                                current.task.status = "completed".to_string();
-                                current.task.downloaded_bytes = current.task.size_bytes;
-                                current.task.speed_bytes_per_sec = 0;
-                                current.task.time_left_seconds = 0;
-                                current.task.engine_status = Some("complete".to_string());
-                                notif = format!("Download completed: {}", task_name);
-                            } else if current.task.status != "paused" {
-                                current.task.status = "error".to_string();
-                                current.task.speed_bytes_per_sec = 0;
-                                current.task.engine_status = Some(format!(
-                                    "exit-{}",
-                                    status.map_or(-1, |s| s.code().unwrap_or(-1))
-                                ));
-                                notif = format!("Download failed: {}", task_name);
-                            }
+                            current.task.status = "error".to_string();
+                            current.task.engine_status = Some("worker-panicked".to_string());
+                            current.task.error_message = Some(msg);
                         }
-                    }
-                    state2.mark_dirty();
-                    if !notif.is_empty() {
-                        let (token, enabled, chat_id, api_base) = {
-                            let cfg = lock_or_err!(state2.telegram_config);
-                            (
-                                cfg.token.clone(),
-                                cfg.enabled,
-                                cfg.chat_id,
-                                cfg.api_base.clone(),
-                            )
-                        };
-                        if enabled && !token.is_empty() && chat_id != 0 {
-                            crate::daemon::telegram::send_telegram_msg_blocking_with_api(
-                                &api_base, &token, chat_id, &notif,
-                            );
-                        }
+                        state2.mark_dirty();
                     }
                 });
                 let mut jobs = lock_or_err!(state.media_jobs);
@@ -684,9 +710,6 @@ pub(crate) fn build_ytdlp_args_with_engines(
                     return Err("The curl external downloader binary is no longer bundled. Use 'native' for yt-dlp's built-in HTTP client, or 'ffmpeg' for media processing.".to_string());
                 }
                 "ffmpeg" | "httpie" | "wget" | "axel" => external_downloader.to_string(),
-                "aria2c" | "aria2" => {
-                    return Err("The legacy aria2 external downloader is intentionally disabled. Use curl for direct HTTP(S)/FTP or add a dedicated torrent engine.".to_string());
-                }
                 other => {
                     return Err(format!(
                         "Unsupported external downloader '{}'. Allowed values: native, curl, ffmpeg, httpie, wget, axel.",
@@ -883,7 +906,6 @@ pub async fn create_ytdlp_task(
         engine_id: id.clone(),
         engine_status: Some(if should_start { "starting" } else { "queued" }.to_string()),
         error_message: None,
-        torrent_metadata: None,
     };
 
     lock_or_err!(state.media_jobs).insert(

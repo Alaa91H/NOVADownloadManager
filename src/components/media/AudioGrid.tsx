@@ -38,12 +38,14 @@ export const AudioGrid: React.FC<AudioGridProps> = ({
     <div className="grid grid-cols-2 gap-1.5">
       {options.map((opt) => {
         const isSelected = audioFormat === opt.value;
+        const disabled = !!(opt.needsFfmpeg && !ffmpegEnabled);
         return (
           <button
             key={opt.value}
             type="button"
-            onClick={() => { onAudioFormatChange(opt.value); }}
-            className={`p-3 rounded-xl border transition-all cursor-pointer text-left ${
+            onClick={() => { if (disabled) return; onAudioFormatChange(opt.value); }}
+            disabled={disabled}
+            className={`p-3 rounded-xl border transition-all ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} text-left ${
               isSelected
                 ? 'bg-[var(--accent-primary)]/8 border-[var(--accent-primary)]/30 shadow-[0_0_10px_-3px_rgba(168,85,247,0.2)]'
                 : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30 hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)]/40'

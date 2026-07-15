@@ -511,7 +511,7 @@ export const AddDownloadDialog: React.FC = () => {
   const canSubmitDownload = Boolean(url.trim()) && !isFetchingInfo && directEngineReady;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 max-w-full overflow-auto">
       {!directEngineReady && (
         <div className="rounded-lg border border-[var(--danger-border)] bg-[var(--danger-bg)] p-2 text-[11px] text-[var(--text-primary)]">
           {t('add_dl_direct_engine_error')}

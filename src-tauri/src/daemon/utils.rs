@@ -31,23 +31,7 @@ macro_rules! lock_or_err {
         }
     };
     ($mutex:expr) => {
-        match $mutex.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                log::warn!(
-                    "Mutex poisoned at {}:{}, recovering (previous holder may have panicked): {}",
-                    file!(),
-                    line!(),
-                    poisoned
-                );
-                #[cfg(debug_assertions)]
-                log::debug!(
-                    "Poison backtrace: {}",
-                    std::backtrace::Backtrace::force_capture()
-                );
-                poisoned.into_inner()
-            }
-        }
+        lock_or_err!($mutex, ())
     };
 }
 

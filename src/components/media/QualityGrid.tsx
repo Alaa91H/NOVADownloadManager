@@ -27,6 +27,8 @@ interface QualityGridProps {
   selectedFormatSize: number;
   requiresFfmpeg: boolean;
   ffmpegAvailable: boolean | null;
+  mediaReady?: boolean;
+  onOpenEnginesSettings?: () => void;
 }
 
 export const QualityGrid: React.FC<QualityGridProps> = ({
@@ -37,8 +39,29 @@ export const QualityGrid: React.FC<QualityGridProps> = ({
   selectedFormatSize,
   requiresFfmpeg,
   ffmpegAvailable,
+  mediaReady = true,
+  onOpenEnginesSettings,
 }) => (
   <div className="space-y-2">
+    {!mediaReady && (
+      <div className="flex items-center justify-between bg-[var(--danger-bg)]/5 border border-[var(--danger-border)] text-[var(--danger)] px-3 py-2 rounded-lg">
+        <div className="flex items-center gap-2">
+          <Info className="w-4 h-4" />
+          <div className="text-[11px]">
+            yt-dlp is not available — media probing and some formats are disabled.
+          </div>
+        </div>
+        <div>
+          <button
+            type="button"
+            onClick={() => onOpenEnginesSettings?.()}
+            className="px-2 py-1 text-[11px] bg-[var(--accent-primary)] text-white rounded-md"
+          >
+            Configure
+          </button>
+        </div>
+      </div>
+    )}
     <div className="flex items-center justify-between">
       <span className="text-xs font-extrabold text-[var(--text-primary)] flex items-center gap-1.5">
         <LayoutGrid className="w-3.5 h-3.5 text-[var(--danger)]" />
@@ -56,16 +79,17 @@ export const QualityGrid: React.FC<QualityGridProps> = ({
       {options.map((opt) => {
         const isSelected = quality === opt.value;
         const badgeColor = resolutionBadgeColor(opt.height);
+        const needsFfmpegButMissing = !!(opt.needsFfmpeg && ffmpegAvailable === false);
         return (
           <button
             key={opt.value}
             type="button"
             onClick={() => { onQualityChange(opt.value); }}
-            className={`w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all cursor-pointer text-left ${
+            className={`w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all ${
               isSelected
                 ? 'bg-[var(--danger)]/8 border-[var(--danger-border)] shadow-[0_0_10px_-3px_rgba(239,68,68,0.25)]'
                 : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30 hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)]/40'
-            }`}
+            } text-left`}
           >
             {opt.value === 'best' ? (
               <span className="w-[52px] text-center text-[10px] font-extrabold text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 rounded-lg py-1 shrink-0">
@@ -112,6 +136,9 @@ export const QualityGrid: React.FC<QualityGridProps> = ({
             )}
 
             {isSelected && <CheckCircle2 className="w-4 h-4 text-[var(--danger)] shrink-0" />}
+            {needsFfmpegButMissing && (
+              <span className="text-[9px] text-[var(--warning)] font-bold block ml-2">Needs FFmpeg</span>
+            )}
           </button>
         );
       })}

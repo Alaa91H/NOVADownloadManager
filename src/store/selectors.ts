@@ -1,6 +1,6 @@
 import { useStore } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { taskStore } from './taskStore';
 import { queueStore } from './queueStore';
 import { settingsStore } from './settingsStore';
@@ -13,19 +13,34 @@ export function useTaskData() {
 }
 
 export function useTaskSelectors() {
+  const selectedTaskId = useStore(uiStore, (s) => s.selectedTaskId);
+  return { selectedTaskId };
+}
+
+export function useSelectedTask() {
   const tasks = useStore(taskStore, (s) => s.tasks);
   const selectedTaskId = useStore(uiStore, (s) => s.selectedTaskId);
-  const selectedTask = tasks.find((t) => t.id === selectedTaskId) ?? null;
-  const activeCount = tasks.filter((t) => t.status === 'downloading').length;
-  const queuedCount = tasks.filter((t) => t.status === 'queued').length;
-  const completedCount = tasks.filter((t) => t.status === 'completed').length;
-  const pausedCount = tasks.filter((t) => t.status === 'paused').length;
-  const errorCount = tasks.filter((t) => t.status === 'error').length;
-  return { tasks, selectedTaskId, selectedTask, activeCount, queuedCount, completedCount, pausedCount, errorCount };
+  return tasks.find((t) => t.id === selectedTaskId) ?? null;
+}
+
+export function useTaskCounts() {
+  return useStore(taskStore, useShallow((s) => {
+    let active = 0, queued = 0, completed = 0, paused = 0, error = 0;
+    for (const t of s.tasks) {
+      switch (t.status) {
+        case 'downloading': active++; break;
+        case 'queued': queued++; break;
+        case 'completed': completed++; break;
+        case 'paused': paused++; break;
+        case 'error': error++; break;
+      }
+    }
+    return { activeCount: active, queuedCount: queued, completedCount: completed, pausedCount: paused, errorCount: error } as const;
+  }));
 }
 
 export function useTaskActions() {
-  return {
+  return useMemo(() => ({
     setSelectedTaskId: uiStore.getState().setSelectedTaskId,
     addTask: taskStore.getState().addTask,
     pauseTask: taskStore.getState().pauseTask,
@@ -35,7 +50,7 @@ export function useTaskActions() {
     openTaskLocation: taskStore.getState().openTaskLocation,
     updateTaskProperties: taskStore.getState().updateTaskProperties,
     triggerBatchDownload: taskStore.getState().triggerBatchDownload,
-  };
+  }), []);
 }
 
 export function useQueueData() {
@@ -43,7 +58,7 @@ export function useQueueData() {
 }
 
 export function useQueueActions() {
-  return {
+  return useMemo(() => ({
     updateQueue: queueStore.getState().updateQueue,
     addQueue: queueStore.getState().addQueue,
     deleteQueue: queueStore.getState().deleteQueue,
@@ -53,7 +68,7 @@ export function useQueueActions() {
     reorderQueues: queueStore.getState().reorderQueues,
     snapshotForUndo: queueStore.getState().snapshotForUndo,
     undoLast: queueStore.getState().undoLast,
-  };
+  }), []);
 }
 
 export function useSettingsData() {
@@ -61,10 +76,10 @@ export function useSettingsData() {
 }
 
 export function useSettingsActions() {
-  return {
+  return useMemo(() => ({
     updateSettings: settingsStore.getState().updateSettings,
     updateThemeSettings: settingsStore.getState().updateThemeSettings,
-  };
+  }), []);
 }
 
 export function useThemeData() {
@@ -89,10 +104,10 @@ export function useDialogData() {
 }
 
 export function useDialogActions() {
-  return {
+  return useMemo(() => ({
     openDialog: uiStore.getState().openDialog,
     closeDialog: uiStore.getState().closeDialog,
-  };
+  }), []);
 }
 
 export function useToastData() {
@@ -100,10 +115,10 @@ export function useToastData() {
 }
 
 export function useToastActions() {
-  return {
+  return useMemo(() => ({
     addToast: uiStore.getState().addToast,
     removeToast: uiStore.getState().removeToast,
-  };
+  }), []);
 }
 
 export function useNavigationData() {
@@ -113,31 +128,46 @@ export function useNavigationData() {
 }
 
 export function useNavigationActions() {
-  return {
+  return useMemo(() => ({
     setActivePage: uiStore.getState().setActivePage,
     setWorkspaceView: uiStore.getState().setWorkspaceView,
-  };
+  }), []);
 }
 
 export function useSearchQuery() {
   const searchQuery = useStore(uiStore, (s) => s.searchQuery);
-  const setSearchQuery = uiStore.getState().setSearchQuery;
-  return { searchQuery, setSearchQuery };
+  const setSearchQuery = useMemo(() => uiStore.getState().setSearchQuery, []);
+  return useMemo(() => ({ searchQuery, setSearchQuery }), [searchQuery, setSearchQuery]);
 }
 
 export function useNotificationsData() {
   const isNotificationsMuted = useStore(uiStore, (s) => s.isNotificationsMuted);
-  const setIsNotificationsMuted = uiStore.getState().setIsNotificationsMuted;
-  return { isNotificationsMuted, setIsNotificationsMuted };
+  const setIsNotificationsMuted = useMemo(() => uiStore.getState().setIsNotificationsMuted, []);
+  return useMemo(() => ({ isNotificationsMuted, setIsNotificationsMuted }), [isNotificationsMuted, setIsNotificationsMuted]);
 }
 
 export function useMinimizedProgress() {
   const activeProgressMinimizedToTaskbar = useStore(uiStore, (s) => s.activeProgressMinimizedToTaskbar);
   const minimizedProgressTask = useStore(uiStore, (s) => s.minimizedProgressTask);
-  const minimizeActiveProgressToTaskbar = uiStore.getState().minimizeActiveProgressToTaskbar;
-  const setActiveProgressMinimizedToTaskbar = uiStore.getState().setActiveProgressMinimizedToTaskbar;
-  const setMinimizedProgressTask = uiStore.getState().setMinimizedProgressTask;
-  return { activeProgressMinimizedToTaskbar, minimizedProgressTask, minimizeActiveProgressToTaskbar, setActiveProgressMinimizedToTaskbar, setMinimizedProgressTask };
+  const actions = useMemo(() => ({
+    minimizeActiveProgressToTaskbar: uiStore.getState().minimizeActiveProgressToTaskbar,
+    setActiveProgressMinimizedToTaskbar: uiStore.getState().setActiveProgressMinimizedToTaskbar,
+    setMinimizedProgressTask: uiStore.getState().setMinimizedProgressTask,
+  }), []);
+  return { activeProgressMinimizedToTaskbar, minimizedProgressTask, ...actions };
+}
+
+export function useSidebarCounts() {
+  return useStore(taskStore, useShallow((s) => {
+    const counts: Record<string, number> = { all: s.tasks.length };
+    for (const t of s.tasks) {
+      if (t.status !== 'completed') counts['unfinished'] = (counts['unfinished'] || 0) + 1;
+      if (t.status === 'completed') counts['finished'] = (counts['finished'] || 0) + 1;
+      if (t.status === 'queued') counts['queued'] = (counts['queued'] || 0) + 1;
+      counts[t.fileType] = (counts[t.fileType] || 0) + 1;
+    }
+    return counts;
+  }));
 }
 
 export function useI18n() {

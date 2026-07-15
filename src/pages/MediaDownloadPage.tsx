@@ -18,9 +18,10 @@ import {
   Film,
   Radio,
   ChevronRight,
+  LayoutGrid,
   FileText,
 } from 'lucide-react';
-import { useDialogData, useDialogActions, useSettingsData, useTaskActions, useToastActions, useNavigationActions, useI18n } from '../store/selectors';
+import { useDialogData, useDialogActions, useSettingsData, useSettingsActions, useTaskActions, useToastActions, useNavigationActions, useI18n } from '../store/selectors';
 import { novaClient, type MediaFormat, type MediaPlaylistEntry } from '../api/novaClient';
 import { tauriClient } from '../api/tauriClient';
 import { clearClipboardIfTextMatches } from '../utils/clipboard';
@@ -38,50 +39,29 @@ import { PlaylistBrowser } from '../components/media/PlaylistBrowser';
 
 export const MediaDownloadPage: React.FC = () => {
   const dialog = useDialogData();
-  const { closeDialog } = useDialogActions();
+  const { openDialog, closeDialog } = useDialogActions();
   const settings = useSettingsData();
+  const { updateSettings } = useSettingsActions();
   const { addTask } = useTaskActions();
   const { addToast } = useToastActions();
   const { setActivePage } = useNavigationActions();
   const t = useI18n();
   const engineCapabilities = useEngineCapabilities();
 
-  /* ── proxy helper ── */
-  const buildConfiguredProxy = () => {
-    const vpnProxy =
-      settings.extra.vpnEnabled && settings.extra.vpnMode === 'proxy' ? settings.extra.vpnProxyUrl.trim() : '';
-    if (vpnProxy) return vpnProxy;
-    if (!settings.connection.enableProxy || !settings.connection.proxyHost) return '';
-    const port = settings.connection.proxyPort ? `:${settings.connection.proxyPort}` : '';
-    return `http://${settings.connection.proxyHost}${port}`;
-  };
-
-  const configuredSourceAddress =
-    settings.extra.vpnEnabled && settings.extra.vpnMode === 'bind' ? settings.extra.vpnBindAddress.trim() : '';
-
-  /* ── primary state ── */
-  const [url, setUrl] = useState(() => (typeof dialog.payload === 'string' ? dialog.payload : ''));
-  const [savePath, setSavePath] = useState(
-    settings.saveAndCategories.categoryFolders.video || settings.saveAndCategories.defaultFolder || '',
-  );
-  const [targetType, setTargetType] = useState<'video' | 'playlist'>('video');
+  // Local UI state
+  const [url, setUrl] = useState<string>(() => (typeof dialog.payload === 'string' ? dialog.payload : ''));
+  const [targetType, _setTargetType] = useState<'video' | 'playlist'>('video');
   const [saveMode, setSaveMode] = useState<'video' | 'audio'>('video');
-  const [quality, setQuality] = useState<string>(
-    settings.extra.videoQuality === 'ask' ? 'best' : settings.extra.videoQuality || 'best',
-  );
-  const [audioFormat, setAudioFormat] = useState<string>('mp3');
-  const [selectedQueue] = useState('main');
+  const [savePath, setSavePath] = useState<string>(settings.saveAndCategories.defaultFolder || '');
+  const [selectedQueue, _setSelectedQueue] = useState<string>('main');
+  const [quality, setQuality] = useState<string>(settings.extra?.videoQuality || 'best');
+  const [audioFormat, setAudioFormat] = useState<string>('m4a');
+  const [ffmpegEnabled, setFfmpegEnabled] = useState<boolean>(settings.extra?.ffmpegAutoMerge ?? false);
+  const [convertBitrate, setConvertBitrate] = useState<string>((settings.extra as any)?.convertBitrate || '320k');
+  const [outputTemplate, setOutputTemplate] = useState<string>(((settings.extra as any)?.defaultOutputTemplate as string) || '%(title)s.%(ext)s');
 
-  /* ── ffmpeg & processing ── */
-  const [ffmpegEnabled, setFfmpegEnabled] = useState(true);
-  const [convertBitrate, setConvertBitrate] = useState<string>('320k');
-
-  /* ── output ── */
-  const [outputTemplate, setOutputTemplate] = useState('%(title)s.%(ext)s');
-
-  /* ── advanced state (managed via AdvancedTabs onChange) ── */
   const [advancedState, setAdvancedState] = useState<AdvancedState>({
-    downloadSubtitles: settings.extra.downloadSubtitles || false,
+    downloadSubtitles: false,
     autoSubtitles: false,
     embedSubtitles: false,
     writeThumbnail: false,
@@ -89,30 +69,33 @@ export const MediaDownloadPage: React.FC = () => {
     writeInfoJson: false,
     writeDescription: false,
     splitChapters: false,
-    subtitleLanguages: settings.extra.subtitleLanguage || '',
+    subtitleLanguages: '',
     formatSelectorOverride: '',
     formatSort: '',
     downloadSections: '',
     matchFilter: '',
     remuxFormat: '',
     sponsorBlock: '',
-    mediaProxy: buildConfiguredProxy(),
+    mediaProxy: '',
     cookiesFromBrowser: '',
-    mediaUserAgent: settings.extra.userAgent || '',
+    mediaUserAgent: '',
     mediaReferer: '',
     mediaHeaders: '',
     mediaCookies: '',
     rateLimitKbs: 0,
-    retries: 10,
-    fragmentRetries: 10,
-    concurrentFragments: 4,
+    retries: 0,
+    fragmentRetries: 0,
+    concurrentFragments: 0,
     sleepIntervalSec: 0,
     maxSleepIntervalSec: 0,
   });
 
-  const handleAdvancedChange = useCallback(<K extends keyof AdvancedState>(key: K, value: AdvancedState[K]) => {
+  const handleAdvancedChange = <K extends keyof AdvancedState>(key: K, value: AdvancedState[K]) => {
     setAdvancedState((prev) => ({ ...prev, [key]: value }));
-  }, []);
+  };
+
+  const configuredSourceAddress =
+    settings.extra.vpnEnabled && settings.extra.vpnMode === 'bind' ? settings.extra.vpnBindAddress.trim() : '';
 
   /* ── probe state ── */
   const [probeResult, setProbeResult] = useState<{
@@ -137,6 +120,13 @@ export const MediaDownloadPage: React.FC = () => {
 
   /* ── UI state ── */
   const [advancedTab, setAdvancedTab] = useState<AdvancedTab>('subtitles');
+
+  // Accordion state: only one left-side panel open at a time
+  const [openPanel, setOpenPanel] = useState<'mode' | 'quality' | 'audio' | 'output' | 'advanced' | null>('mode');
+
+  const togglePanel = (id: 'mode' | 'quality' | 'audio' | 'output' | 'advanced') => {
+    setOpenPanel((prev) => (prev === id ? null : id));
+  };
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const latestUrlRef = useRef('');
@@ -238,6 +228,8 @@ export const MediaDownloadPage: React.FC = () => {
 
   /* ── computed values ── */
   const isProbingAny = isProbing || isProbingPlaylist;
+  const ytDlpReady = engineCapabilities.mediaReady;
+  const ffmpegReady = engineCapabilities.postProcessingReady;
 
   const requiresFfmpeg = (() => {
     if (!probeResult || saveMode === 'audio') return true;
@@ -266,7 +258,27 @@ export const MediaDownloadPage: React.FC = () => {
       hasAudio: false,
       tbr: 0,
     });
-    if (!probeResult || saveMode !== 'video') return opts;
+    // If we don't have probe results yet, still expose common quality choices
+    if (!probeResult || saveMode !== 'video') {
+      const fallbackHeights = [4320, 2880, 2160, 1440, 1080, 720, 480, 360, 240, 144];
+      for (const h of fallbackHeights) {
+        opts.push({
+          value: `${h}p`,
+          label: resolutionLabel(h),
+          size: '',
+          sizeBytes: 0,
+          needsFfmpeg: true,
+          codecInfo: '',
+          height: h,
+          fps: 0,
+          ext: '',
+          formatNote: '',
+          hasAudio: false,
+          tbr: 0,
+        });
+      }
+      return opts;
+    }
     const sorted = [...probeResult.formats]
       .filter((f) => f.vcodec && f.vcodec !== 'none' && f.height != null && f.height > 0)
       .sort((a, b) => (b.height || 0) - (a.height || 0));
@@ -355,6 +367,21 @@ export const MediaDownloadPage: React.FC = () => {
   })();
 
   /* ── handlers ── */
+  /* Persist chosen quality to settings so the user's preference is remembered */
+  useEffect(() => {
+    // Avoid updating during initial mount if settings already match
+    try {
+      const current = settings.extra?.videoQuality || 'best';
+      if (current === quality) return;
+      const updated = structuredClone(settings) as any;
+      if (!updated.extra) updated.extra = {};
+      updated.extra.videoQuality = quality;
+      updateSettings(updated);
+    } catch (e) {
+      const updated = { ...settings, extra: { ...(settings.extra || {}), videoQuality: quality } };
+      updateSettings(updated);
+    }
+  }, [quality]);
   const handleTemplatePreset = (preset: string) => { setOutputTemplate(preset); };
 
   const clearSensitiveDialogState = () => {
@@ -573,51 +600,275 @@ export const MediaDownloadPage: React.FC = () => {
         </div>
       )}
 
-      {/* ───────────────────── URL BAR ───────────────────── */}
-      <div className="shrink-0 px-4 pt-3 pb-2 space-y-1">
-        <div className="flex items-center gap-2.5 px-3 py-2.5 bg-[var(--bg-input)] border border-[var(--border-color)] rounded-xl focus-within:border-[var(--accent-primary)] transition-colors">
-          {isProbingAny ? (
-            <Loader2 className="w-4 h-4 text-[var(--accent-primary)] animate-spin shrink-0" />
-          ) : (
-            <Globe className="w-4 h-4 text-[var(--text-muted)] shrink-0" />
-          )}
-          <input
-            type="text"
-            value={url}
-            onChange={(e) => { setUrl(e.target.value); }}
-            placeholder={t('media_url_placeholder')}
-            className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none font-mono"
-            style={{ direction: 'ltr' }}
-            id="page-url"
-          />
-          {isProbingAny && (
-            <span className="text-[10px] text-[var(--text-secondary)] shrink-0 font-medium">
-              {isProbingPlaylist ? t('media_fetching_playlist') : t('media_probing_formats')}
-            </span>
-          )}
-        </div>
-        {probeError && (
-          <p className="flex items-center gap-1.5 text-[11px] text-[var(--danger)] px-1">
-            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-            {probeError}
-          </p>
-        )}
-        {playlistError && (
-          <p className="flex items-center gap-1.5 text-[11px] text-[var(--danger)] px-1">
-            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-            {playlistError}
-          </p>
-        )}
-      </div>
-
       {/* ───────────────────── BODY: TWO COLUMNS ───────────────────── */}
       <div className="flex-1 min-h-0 overflow-hidden flex">
 
         {/* ═══════════ LEFT PANEL 55% ═══════════ */}
         <div className="w-[55%] flex flex-col min-h-0 border-r border-[var(--border-color)]/50">
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 scrollbar-thin">
+            <div className="space-y-3">
+              {/* Save Directory */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-extrabold text-[var(--text-primary)] flex items-center gap-1.5">
+                  <FolderOpen className="w-3.5 h-3.5 text-[var(--warning)]" />
+                  {t('media_save_directory')}
+                </label>
+                <TextField
+                  label=""
+                  value={savePath}
+                  onChange={(e) => { setSavePath(e.target.value); }}
+                  placeholder="D:\\Downloads\\Videos"
+                  icon={FolderOpen}
+                  onIconClick={async () => {
+                    const picked = await tauriClient.showDirectoryPicker(savePath || undefined);
+                    if (picked) setSavePath(picked);
+                  }}
+                  id="page-path"
+                />
+              </div>
 
-            {/* Video Info Card */}
+              <EngineStatusBar
+                engineCapabilities={engineCapabilities}
+                ffmpegAvailable={ffmpegAvailable}
+                ffmpegEnabled={ffmpegEnabled}
+                onFfmpegEnabledChange={setFfmpegEnabled}
+              />
+
+              <div className={`p-3 rounded-xl border ${openPanel === 'advanced' ? 'border-[var(--info-border)] bg-[var(--info-bg)]/6' : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30'}`}>
+                <button
+                  type="button"
+                  className="w-full text-left flex items-center justify-between"
+                  onClick={() => togglePanel('advanced')}
+                >
+                  <div className="flex items-center gap-2">
+                    <Settings2 className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+                    <span className="text-sm font-extrabold text-[var(--text-primary)]">{t('media_advanced_options')}</span>
+                  </div>
+                  <ChevronRight className={`w-4 h-4 transition-transform ${openPanel === 'advanced' ? 'rotate-90' : ''}`} />
+                </button>
+                {openPanel === 'advanced' && (
+                  <div className="mt-3 space-y-1.5">
+                    <AdvancedTabs
+                      advancedTab={advancedTab}
+                      onTabChange={setAdvancedTab}
+                      state={advancedState}
+                      onChange={handleAdvancedChange}
+                      supportsMediaOption={engineCapabilities.supportsMediaOption}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Left: Collapsible option panels */}
+              <div className="space-y-3">
+                {/* Mode Toggle Panel */}
+                <div className={`p-3 rounded-xl border ${openPanel === 'mode' ? 'border-[var(--danger-border)] bg-[var(--danger-bg)]/6' : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30'}`}>
+                  <button type="button" className="w-full text-left flex items-center justify-between" onClick={() => togglePanel('mode')}>
+                    <div className="flex items-center gap-2">
+                      <Video className="w-4 h-4" />
+                      <span className="text-sm font-extrabold text-[var(--text-primary)]">{t('media_mode')}</span>
+                    </div>
+                    <ChevronRight className={`w-4 h-4 transition-transform ${openPanel === 'mode' ? 'rotate-90' : ''}`} />
+                  </button>
+                  {openPanel === 'mode' && (
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSaveMode('video');
+                          setSavePath(
+                            settings.saveAndCategories.categoryFolders.video ||
+                              settings.saveAndCategories.defaultFolder || '',
+                          );
+                        }}
+                        className={`p-3 rounded-xl border text-xs font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                          saveMode === 'video'
+                            ? 'bg-[var(--danger-bg)] border-[var(--danger-border)] text-[var(--danger)] shadow-[0_0_16px_-4px_var(--danger-bg)]'
+                            : 'bg-transparent border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:border-[var(--border-color-hover)]'
+                        }`}
+                      >
+                        <Video className="w-4 h-4" />
+                        {t('media_video_audio')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSaveMode('audio');
+                          setSavePath(
+                            settings.saveAndCategories.categoryFolders.audio ||
+                              settings.saveAndCategories.defaultFolder || '',
+                          );
+                        }}
+                        className={`p-3 rounded-xl border text-xs font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                          saveMode === 'audio'
+                            ? 'bg-[var(--accent-light)] border-[var(--accent-border)] text-[var(--accent-primary)] shadow-[0_0_16px_-4px_var(--accent-glow)]'
+                            : 'bg-transparent border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:border-[var(--border-color-hover)]'
+                        }`}
+                      >
+                        <Music className="w-4 h-4" />
+                        {t('media_audio_only')}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Quality Panel */}
+                <div className={`p-3 rounded-xl border ${openPanel === 'quality' ? 'border-[var(--danger-border)] bg-[var(--danger-bg)]/6' : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30'}`}>
+                  <button
+                    type="button"
+                    className={`w-full text-left flex items-center justify-between ${saveMode === 'audio' || !ytDlpReady ? 'cursor-not-allowed opacity-80' : ''}`}
+                    onClick={() => {
+                      if (saveMode === 'audio' || !ytDlpReady) return;
+                      togglePanel('quality');
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <LayoutGrid className="w-4 h-4" />
+                      <span className="text-sm font-extrabold text-[var(--text-primary)]">Video Quality</span>
+                    </div>
+                    <ChevronRight className={`w-4 h-4 transition-transform ${openPanel === 'quality' ? 'rotate-90' : ''}`} />
+                  </button>
+                  {openPanel === 'quality' && (
+                    <div className="mt-3">
+                      {saveMode === 'audio' ? (
+                        <div className="rounded-xl border border-[var(--border-color)]/30 bg-[var(--bg-hover)]/50 p-3 text-[12px] text-[var(--text-muted)]">
+                          {t('media_quality_disabled_for_audio')}
+                        </div>
+                      ) : !ytDlpReady ? (
+                        <div className="rounded-xl border border-[var(--border-color)]/30 bg-[var(--bg-hover)]/50 p-3 text-[12px] text-[var(--text-muted)]">
+                          {t('media_quality_requires_ytdlp')}
+                        </div>
+                      ) : (
+                        <QualityGrid
+                          options={dynamicQualityOptions}
+                          quality={quality}
+                          onQualityChange={(q) => { setQuality(q); }}
+                          selectedFormat={selectedFormat}
+                          selectedFormatSize={selectedFormatSize}
+                          requiresFfmpeg={requiresFfmpeg}
+                          ffmpegAvailable={ffmpegAvailable}
+                          mediaReady={engineCapabilities.mediaReady}
+                          onOpenEnginesSettings={() => openDialog('settings')}
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
+                {/* Audio Panel */}
+                <div className={`p-3 rounded-xl border ${openPanel === 'audio' ? 'border-[var(--accent-border)] bg-[var(--accent-light)]/6' : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30'}`}>
+                  <button type="button" className="w-full text-left flex items-center justify-between" onClick={() => togglePanel('audio')}>
+                    <div className="flex items-center gap-2">
+                      <ListMusic className="w-4 h-4" />
+                      <span className="text-sm font-extrabold text-[var(--text-primary)]">Audio Format</span>
+                    </div>
+                    <ChevronRight className={`w-4 h-4 transition-transform ${openPanel === 'audio' ? 'rotate-90' : ''}`} />
+                  </button>
+                  {openPanel === 'audio' && (
+                    <div className="mt-3">
+                      {!ytDlpReady ? (
+                        <div className="rounded-xl border border-[var(--border-color)]/30 bg-[var(--bg-hover)]/50 p-3 text-[12px] text-[var(--text-muted)]">
+                          {t('media_audio_requires_ytdlp')}
+                        </div>
+                      ) : (
+                        <AudioGrid
+                          options={dynamicAudioOptions}
+                          audioFormat={audioFormat}
+                          onAudioFormatChange={setAudioFormat}
+                          ffmpegEnabled={ffmpegEnabled}
+                          convertBitrate={convertBitrate}
+                          onBitrateChange={setConvertBitrate}
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Output / Naming Panel */}
+                <div className={`p-3 rounded-xl border ${openPanel === 'output' ? 'border-[var(--info-border)] bg-[var(--info-bg)]/6' : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30'}`}>
+                  <button type="button" className="w-full text-left flex items-center justify-between" onClick={() => togglePanel('output')}>
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-4 h-4" />
+                      <span className="text-sm font-extrabold text-[var(--text-primary)]">Output Naming</span>
+                    </div>
+                    <ChevronRight className={`w-4 h-4 transition-transform ${openPanel === 'output' ? 'rotate-90' : ''}`} />
+                  </button>
+                  {openPanel === 'output' && (
+                    <div className="mt-3">
+                      <div className="flex gap-1 mb-2">
+                        {[
+                          { preset: '%(title)s.%(ext)s', label: t('media_preset_title') },
+                          { preset: '%(uploader)s - %(title)s.%(ext)s', label: t('media_preset_artist') },
+                          { preset: '%(playlist_index)s - %(title)s.%(ext)s', label: t('media_preset_index') },
+                        ].map((p) => (
+                          <button
+                            key={p.preset}
+                            type="button"
+                            onClick={() => { handleTemplatePreset(p.preset); }}
+                            className={`text-[9px] px-1.5 py-0.5 rounded-md transition-all cursor-pointer ${
+                              outputTemplate === p.preset
+                                ? 'bg-[var(--info-bg)] text-[var(--info)] border border-[var(--info-border)]'
+                                : 'bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-secondary)] border border-transparent'
+                            }`}
+                          >
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
+                      <TextField
+                        label=""
+                        value={outputTemplate}
+                        onChange={(e) => { setOutputTemplate(e.target.value); }}
+                        placeholder="%(title)s.%(ext)s"
+                        className="font-mono"
+                        id="page-template"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ═══════════ RIGHT PANEL 45% ═══════════ */}
+        <div className="w-[45%] flex flex-col min-h-0">
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 scrollbar-thin">
+            <div className="shrink-0 px-4 pt-3 pb-2 space-y-1">
+              <div className="flex items-center gap-2.5 px-3 py-2.5 bg-[var(--bg-input)] border border-[var(--border-color)] rounded-xl focus-within:border-[var(--accent-primary)] transition-colors">
+                {isProbingAny ? (
+                  <Loader2 className="w-4 h-4 text-[var(--accent-primary)] animate-spin shrink-0" />
+                ) : (
+                  <Globe className="w-4 h-4 text-[var(--text-muted)] shrink-0" />
+                )}
+                <input
+                  type="text"
+                  value={url}
+                  onChange={(e) => { setUrl(e.target.value); }}
+                  placeholder={t('media_url_placeholder')}
+                  className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none font-mono"
+                  style={{ direction: 'ltr' }}
+                  id="page-url"
+                />
+                {isProbingAny && (
+                  <span className="text-[10px] text-[var(--text-secondary)] shrink-0 font-medium">
+                    {isProbingPlaylist ? t('media_fetching_playlist') : t('media_probing_formats')}
+                  </span>
+                )}
+              </div>
+              {probeError && (
+                <p className="flex items-center gap-1.5 text-[11px] text-[var(--danger)] px-1">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  {probeError}
+                </p>
+              )}
+              {playlistError && (
+                <p className="flex items-center gap-1.5 text-[11px] text-[var(--danger)] px-1">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  {playlistError}
+                </p>
+              )}
+            </div>
+
             {!isPlaylistUrl && probeResult && (
               <div className="bg-[var(--bg-hover)]/40 border border-[var(--border-color)]/30 rounded-xl p-3">
                 <div className="flex items-start gap-3">
@@ -650,7 +901,6 @@ export const MediaDownloadPage: React.FC = () => {
               </div>
             )}
 
-            {/* Playlist fetching indicator */}
             {isPlaylistUrl && isProbingPlaylist && (
               <div className="flex items-center justify-center gap-2 py-10 text-[var(--text-secondary)] text-sm">
                 <Loader2 className="w-4 h-4 animate-spin text-[var(--info)]" />
@@ -658,189 +908,22 @@ export const MediaDownloadPage: React.FC = () => {
               </div>
             )}
 
-            {/* Mode Toggle */}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setSaveMode('video');
-                  setSavePath(
-                    settings.saveAndCategories.categoryFolders.video ||
-                      settings.saveAndCategories.defaultFolder || '',
-                  );
-                }}
-                className={`p-3 rounded-xl border text-xs font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                  saveMode === 'video'
-                    ? 'bg-[var(--danger-bg)] border-[var(--danger-border)] text-[var(--danger)] shadow-[0_0_16px_-4px_var(--danger-bg)]'
-                    : 'bg-transparent border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:border-[var(--border-color-hover)]'
-                }`}
-              >
-                <Video className="w-4 h-4" />
-                {t('media_video_audio')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSaveMode('audio');
-                  setSavePath(
-                    settings.saveAndCategories.categoryFolders.audio ||
-                      settings.saveAndCategories.defaultFolder || '',
-                  );
-                }}
-                className={`p-3 rounded-xl border text-xs font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                  saveMode === 'audio'
-                    ? 'bg-[var(--accent-light)] border-[var(--accent-border)] text-[var(--accent-primary)] shadow-[0_0_16px_-4px_var(--accent-glow)]'
-                    : 'bg-transparent border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:border-[var(--border-color-hover)]'
-                }`}
-              >
-                <Music className="w-4 h-4" />
-                {t('media_audio_only')}
-              </button>
-            </div>
-
-            {/* Quality Grid */}
-            {saveMode === 'video' && (
-              <QualityGrid
-                options={dynamicQualityOptions}
-                quality={quality}
-                onQualityChange={setQuality}
-                selectedFormat={selectedFormat}
-                selectedFormatSize={selectedFormatSize}
-                requiresFfmpeg={requiresFfmpeg}
-                ffmpegAvailable={ffmpegAvailable}
-              />
-            )}
-
-            {/* Audio Format Grid */}
-            {saveMode === 'audio' && (
-              <AudioGrid
-                options={dynamicAudioOptions}
-                audioFormat={audioFormat}
-                onAudioFormatChange={setAudioFormat}
-                ffmpegEnabled={ffmpegEnabled}
-                convertBitrate={convertBitrate}
-                onBitrateChange={setConvertBitrate}
-              />
-            )}
-
-            {/* Playlist Browser */}
             {isPlaylistUrl && playlistResult && (
               <PlaylistBrowser
                 playlistResult={playlistResult}
                 selectAllPlaylist={selectAllPlaylist}
-                onSelectAllChange={setSelectAllPlaylist}
+                onSelectAllChange={(v) => setSelectAllPlaylist(v)}
                 selectedItems={selectedPlaylistItems}
                 onSelectedItemsChange={setSelectedPlaylistItems}
               />
             )}
-          </div>
-        </div>
 
-        {/* ═══════════ RIGHT PANEL 45% ═══════════ */}
-        <div className="w-[45%] flex flex-col min-h-0">
-          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 scrollbar-thin">
-
-            {/* Save Directory */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-extrabold text-[var(--text-primary)] flex items-center gap-1.5">
-                <FolderOpen className="w-3.5 h-3.5 text-[var(--warning)]" />
-                {t('media_save_directory')}
-              </label>
-              <TextField
-                label=""
-                value={savePath}
-                onChange={(e) => { setSavePath(e.target.value); }}
-                placeholder="D:\Downloads\Videos"
-                icon={FolderOpen}
-                id="page-path"
-              />
-            </div>
-
-            {/* Output Naming */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-extrabold text-[var(--text-primary)] flex items-center gap-1.5">
-                  <FileText className="w-3.5 h-3.5 text-[var(--info)]" />
-                  {t('media_output_naming')}
-                </label>
-                <div className="flex gap-1">
-                  {[
-                    { preset: '%(title)s.%(ext)s', label: t('media_preset_title') },
-                    { preset: '%(uploader)s - %(title)s.%(ext)s', label: t('media_preset_artist') },
-                    { preset: '%(playlist_index)s - %(title)s.%(ext)s', label: t('media_preset_index') },
-                  ].map((p) => (
-                    <button
-                      key={p.preset}
-                      type="button"
-                      onClick={() => { handleTemplatePreset(p.preset); }}
-                      className={`text-[9px] px-1.5 py-0.5 rounded-md transition-all cursor-pointer ${
-                        outputTemplate === p.preset
-                          ? 'bg-[var(--info-bg)] text-[var(--info)] border border-[var(--info-border)]'
-                          : 'bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-secondary)] border border-transparent'
-                      }`}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <TextField
-                label=""
-                value={outputTemplate}
-                onChange={(e) => { setOutputTemplate(e.target.value); }}
-                placeholder="%(title)s.%(ext)s"
-                className="font-mono"
-                id="page-template"
-              />
-            </div>
-
-            {/* Target Type — only when playlist URL */}
-            {isPlaylistUrl && (
-              <div className="flex items-center gap-2.5 p-2.5 bg-[var(--bg-hover)]/20 rounded-xl border border-[var(--border-color)]/30">
-                <ListMusic className="w-3.5 h-3.5 text-[var(--info)] shrink-0" />
-                <label className="text-[11px] font-bold text-[var(--text-secondary)] shrink-0">{t('media_target')}</label>
-                <select
-                  value={targetType}
-                  onChange={(e) => { setTargetType(e.target.value as 'video' | 'playlist'); }}
-                  className="flex-1 text-[11px] font-semibold bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg px-2 py-1.5 text-[var(--text-primary)] focus:outline-none cursor-pointer"
-                >
-                  <option value="video">{t('media_single_video')}</option>
-                  <option value="playlist">{t('media_full_playlist')}</option>
-                </select>
-              </div>
-            )}
-
-            {/* Playlist size estimate */}
             {isPlaylistUrl && playlistResult && totalSize > 0 && (
               <div className="flex items-center justify-between text-[10px] text-[var(--text-muted)] px-1">
                 <span>{t('media_per_file')} {selectedFormatSize > 0 ? formatBytes(selectedFormatSize) : '—'}</span>
                 <span className="text-[var(--info)] font-semibold">{t('media_est_total')} {formatBytes(totalSize)}</span>
               </div>
             )}
-
-            {/* Engine Status Bar */}
-            <EngineStatusBar
-              engineCapabilities={engineCapabilities}
-              ffmpegAvailable={ffmpegAvailable}
-              ffmpegEnabled={ffmpegEnabled}
-              onFfmpegEnabledChange={setFfmpegEnabled}
-            />
-
-            {/* Advanced Options Tabs */}
-            <div className="space-y-1.5">
-              <span className="text-xs font-extrabold text-[var(--text-primary)] flex items-center gap-1.5">
-                <Settings2 className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-                {t('media_advanced_options')}
-              </span>
-              <AdvancedTabs
-                advancedTab={advancedTab}
-                onTabChange={setAdvancedTab}
-                state={advancedState}
-                onChange={handleAdvancedChange}
-                supportsMediaOption={engineCapabilities.supportsMediaOption}
-              />
-            </div>
-
           </div>
         </div>
       </div>

@@ -284,12 +284,13 @@ where
             }
         }
 
-        if wait_fds.is_empty() || ready_count == 0 {
+        if ready_count > 0 && dispatched > 0 {
+        } else if wait_fds.is_empty() || ready_count == 0 {
             running = multi
                 .timeout()
                 .map_err(|e| format!("libcurl multi timeout action failed: {e}"))?;
             runtime.drain_updates(multi)?;
-        } else if dispatched == 0 {
+        } else {
             for (idx, interest) in interests.iter().enumerate() {
                 let mut events = Events::new();
                 events.input(interest.input);

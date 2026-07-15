@@ -124,9 +124,10 @@ interface TextFieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
   icon?: LucideIcon;
+  onIconClick?: () => void;
   id?: string;
 }
-export const TextField: React.FC<TextFieldProps> = ({ label, error, icon: Icon, id, className = '', ...props }) => {
+export const TextField: React.FC<TextFieldProps> = ({ label, error, icon: Icon, onIconClick, id, className = '', ...props }) => {
   return (
     <div className="flex flex-col gap-0.5 w-full text-ui">
       {label && (
@@ -135,10 +136,22 @@ export const TextField: React.FC<TextFieldProps> = ({ label, error, icon: Icon, 
         </label>
       )}
       <div className="relative flex items-center">
-        {Icon && <Icon className="absolute right-2.5 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />}
+        {Icon && (
+          onIconClick ? (
+            <button
+              type="button"
+              onClick={onIconClick}
+              className="absolute right-2.5 flex h-8 w-8 items-center justify-center text-[var(--text-muted)] focus:outline-none"
+            >
+              <Icon className="w-3.5 h-3.5" />
+            </button>
+          ) : (
+            <Icon className="absolute right-2.5 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />
+          )
+        )}
         <input
           id={id}
-          className={`w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-md text-[var(--text-primary)] text-[11px] md:text-xs transition-all focus:border-[var(--accent-primary)] focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)] focus-visible:outline-none ${Icon ? 'pr-8 pl-2.5' : 'px-2.5'} py-1 md:py-1.25 ${error ? 'border-[var(--danger)] focus:border-[var(--danger)]' : ''} ${className}`}
+          className={`w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-md text-[var(--text-primary)] text-[11px] md:text-xs transition-all focus:border-[var(--accent-primary)] focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)] focus-visible:outline-none ${Icon ? 'pr-10 pl-2.5' : 'px-2.5'} py-1 md:py-1.25 ${error ? 'border-[var(--danger)] focus:border-[var(--danger)]' : ''} ${className}`}
           {...props}
         />
       </div>
@@ -186,19 +199,24 @@ interface SwitchProps {
   onChange: (checked: boolean) => void;
   label?: string;
   id?: string;
+  disabled?: boolean;
 }
-export const Switch: React.FC<SwitchProps> = ({ checked, onChange, label, id }) => {
+export const Switch: React.FC<SwitchProps> = ({ checked, onChange, label, id, disabled = false }) => {
   return (
     <label
       id={id}
-      className={`inline-flex items-center justify-between gap-2.5 cursor-pointer select-none text-ui ${label ? 'w-full' : ''}`}
+      className={`inline-flex items-center justify-between gap-2.5 ${disabled ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'} select-none text-ui ${label ? 'w-full' : ''}`}
     >
       {label && <span className="text-[var(--text-secondary)] text-[11px] font-semibold">{label}</span>}
       <button
         type="button"
         role="switch"
         aria-checked={checked}
-        onClick={() => { onChange(!checked); }}
+        onClick={() => {
+          if (disabled) return;
+          onChange(!checked);
+        }}
+        disabled={disabled}
         className={`relative w-8 h-4.5 rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--bg-surface-elevated)] ${checked ? 'bg-[var(--accent-primary)]' : 'bg-[var(--border-color-hover)]'}`}
       >
         <span

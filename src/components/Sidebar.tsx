@@ -16,7 +16,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import {
-  useTaskData,
+  useSidebarCounts,
   useNavigationData,
   useNavigationActions,
   useBridgeData,
@@ -30,7 +30,7 @@ import type { AppThemeSettings } from '../types/desktop-ui.types';
 import { Logo } from './Logo';
 
 export const Sidebar: React.FC = () => {
-  const tasks = useTaskData();
+  const taskCounts = useSidebarCounts();
   const { workspaceView } = useNavigationData();
   const { setWorkspaceView } = useNavigationActions();
   const bridge = useBridgeData();
@@ -48,16 +48,6 @@ export const Sidebar: React.FC = () => {
     }
   };
 
-  const taskCounts = React.useMemo(() => {
-    const counts: Record<string, number> = { all: tasks.length };
-    for (const t of tasks) {
-      if (t.status !== 'completed') counts['unfinished'] = (counts['unfinished'] || 0) + 1;
-      if (t.status === 'completed') counts['finished'] = (counts['finished'] || 0) + 1;
-      if (t.status === 'queued') counts['queued'] = (counts['queued'] || 0) + 1;
-      counts[t.fileType] = (counts[t.fileType] || 0) + 1;
-    }
-    return counts;
-  }, [tasks]);
   const getTaskCount = (filter: string) => taskCounts[filter] || 0;
 
   // Accent colors list

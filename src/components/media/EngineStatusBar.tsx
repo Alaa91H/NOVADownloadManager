@@ -57,12 +57,13 @@ export const EngineStatusBar: React.FC<EngineStatusBarProps> = ({
 
     {/* FFmpeg toggle */}
     <div className="flex items-center gap-1.5 shrink-0">
-      <span className="text-[9px] text-[var(--text-muted)]">Use FFmpeg</span>
+      <span className="text-[9px] text-[var(--text-muted)]">FFmpeg Plugin</span>
       <Switch
         label=""
-        checked={ffmpegEnabled && !!ffmpegAvailable}
+        checked={ffmpegEnabled && ffmpegAvailable === true}
         onChange={onFfmpegEnabledChange}
         id="page-ffmpeg"
+        disabled={ffmpegAvailable !== true}
       />
     </div>
   </div>

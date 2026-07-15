@@ -8,9 +8,7 @@ pub(crate) mod probes;
 use crate::daemon::state::SharedState;
 use axum::Router;
 
-pub(crate) use self::downloads::{
-    handle_pause_task, handle_resume_task, load_initial_torrent_config,
-};
+pub(crate) use self::downloads::{handle_pause_task, handle_resume_task};
 
 pub(crate) use self::engine::run_scheduler_tick;
 

@@ -16,7 +16,7 @@ pub(super) use args::{
     destination_from_body, direct_array, direct_bool, direct_str, direct_u64,
     requested_connections, safe_value,
 };
-pub(super) use easy_config::{apply_easy_options, create_easy_for_range, HtmlHeadCapture};
+pub(super) use easy_config::{apply_easy_options, create_easy_for_range_ext, HtmlHeadCapture};
 pub(super) use multi::{
     configure_multi_limits, drive_multi_socket, drive_multi_wait_perform, MultiSocketRuntime,
 };

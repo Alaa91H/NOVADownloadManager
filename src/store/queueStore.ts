@@ -7,9 +7,9 @@ import { uiStore } from './uiStore';
 const allScheduleDays = [0, 1, 2, 3, 4, 5, 6];
 const normalizeScheduleDays = (days: unknown): number[] => {
   if (!Array.isArray(days)) return allScheduleDays;
-  return days.filter((d): d is number => typeof d === 'number' && Number.isInteger(d) && d >= 0 && d <= 6 && days.indexOf(d) === d).sort().length > 0
-    ? days.filter((d): d is number => typeof d === 'number' && Number.isInteger(d) && d >= 0 && d <= 6 && days.indexOf(d) === d).sort()
-    : allScheduleDays;
+  const valid = days.filter((d): d is number => typeof d === 'number' && Number.isInteger(d) && d >= 0 && d <= 6);
+  const unique = valid.filter((d, i, arr) => arr.indexOf(d) === i).sort((a, b) => a - b);
+  return unique.length > 0 ? unique : allScheduleDays;
 };
 const inferScheduleType = (q: Partial<Queue>, days: number[]): Queue['scheduleType'] => {
   if (q.scheduleType === 'once' || q.scheduleType === 'daily' || q.scheduleType === 'custom') return q.scheduleType;

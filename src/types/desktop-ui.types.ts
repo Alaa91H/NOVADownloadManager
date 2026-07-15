@@ -293,16 +293,6 @@ export interface DownloadItem {
   errorMessage?: string;
   mediaOptions?: MediaDownloadOptions;
   directOptions?: DirectDownloadOptions;
-  torrentMetadata?: {
-    infoHash: string;
-    mode: string;
-    numPeers: number;
-    numSeeders: number;
-    uploadSpeed: number;
-    uploadLength: number;
-    seeder: boolean;
-    seedRatio: number;
-  };
 }
 
 export interface Queue {

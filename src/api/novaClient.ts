@@ -150,6 +150,17 @@ type CreateDownloadPayload = Omit<
 let _apiBase: string | undefined;
 let _authToken: string | undefined;
 
+// Development override: allow setting a bearer token through Vite env
+// (useful when running the daemon separately without Tauri).
+try {
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore - import.meta.env is available at build time
+  const devToken = (import.meta.env.VITE_NOVA_API_TOKEN as string | undefined) || undefined;
+  if (devToken) _authToken = devToken;
+} catch {
+  // ignore when import.meta is not available in some test environments
+}
+
 /** Set the bearer token the daemon expects on non-exempt API routes. */
 export function setAuthToken(token: string): void {
   _authToken = token || undefined;

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -110,12 +111,38 @@ pub struct TimestampedEvent {
     pub timestamp_millis: u128,
 }
 
+impl EngineEvent {
+    fn task_id(&self) -> Option<&str> {
+        match self {
+            EngineEvent::DownloadStarted { task_id, .. }
+            | EngineEvent::DownloadProgress { task_id, .. }
+            | EngineEvent::DownloadComplete { task_id, .. }
+            | EngineEvent::DownloadFailed { task_id, .. }
+            | EngineEvent::DownloadPaused { task_id, .. }
+            | EngineEvent::DownloadResumed { task_id, .. }
+            | EngineEvent::DownloadCancelled { task_id, .. }
+            | EngineEvent::SegmentStolen { task_id, .. }
+            | EngineEvent::ConnectionsAdjusted { task_id, .. }
+            | EngineEvent::RetryScheduled { task_id, .. }
+            | EngineEvent::ChecksumVerified { task_id, .. }
+            | EngineEvent::MirrorFound { task_id, .. }
+            | EngineEvent::SpeedChanged { task_id, .. }
+            | EngineEvent::QueueChanged { task_id, .. }
+            | EngineEvent::BandwidthAllocated { task_id, .. }
+            | EngineEvent::SchedulerTriggered { task_id, .. }
+            | EngineEvent::RuleApplied { task_id, .. }
+            | EngineEvent::ProfileSwitched { task_id, .. } => Some(task_id),
+        }
+    }
+}
+
 /// Callback invoked synchronously for every published engine event.
 type Subscriber = Arc<dyn Fn(&TimestampedEvent) + Send + Sync>;
 
 struct EventBusInner {
     subscribers: Vec<Subscriber>,
     event_log: Vec<TimestampedEvent>,
+    task_index: HashMap<String, Vec<usize>>,
     next_id: AtomicU64,
     max_log_size: usize,
 }
@@ -131,6 +158,7 @@ impl EventBus {
             inner: Arc::new(Mutex::new(EventBusInner {
                 subscribers: Vec::new(),
                 event_log: Vec::new(),
+                task_index: HashMap::new(),
                 next_id: AtomicU64::new(1),
                 max_log_size: 10_000,
             })),
@@ -142,6 +170,7 @@ impl EventBus {
             inner: Arc::new(Mutex::new(EventBusInner {
                 subscribers: Vec::new(),
                 event_log: Vec::new(),
+                task_index: HashMap::new(),
                 next_id: AtomicU64::new(1),
                 max_log_size,
             })),
@@ -149,7 +178,8 @@ impl EventBus {
     }
 
     pub fn publish(&self, event: EngineEvent) {
-        let (ts_event, subscriber_clone) = {
+        let task_id_opt = event.task_id().map(|s| s.to_string());
+        let ts_event = {
             let mut inner = match self.inner.lock() {
                 Ok(g) => g,
                 Err(_) => return,
@@ -165,11 +195,35 @@ impl EventBus {
             if inner.event_log.len() >= inner.max_log_size {
                 let drain_count = inner.max_log_size / 4;
                 inner.event_log.drain(..drain_count);
+                let to_index: Vec<(String, usize)> = inner
+                    .event_log
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, evt)| {
+                        evt.event.task_id().map(|tid| (tid.to_string(), i))
+                    })
+                    .collect();
+                inner.task_index.clear();
+                for (tid, idx) in to_index {
+                    inner.task_index.entry(tid).or_default().push(idx);
+                }
+            }
+            if let Some(ref tid) = task_id_opt {
+                let idx = inner.event_log.len();
+                inner
+                    .task_index
+                    .entry(tid.clone())
+                    .or_default()
+                    .push(idx);
             }
             inner.event_log.push(ts_event.clone());
-            let subscriber_clone = inner.subscribers.clone();
-            (ts_event, subscriber_clone)
+            ts_event
         };
+        let subscriber_clone = self
+            .inner
+            .lock()
+            .map(|inner| inner.subscribers.clone())
+            .unwrap_or_default();
         for sub in &subscriber_clone {
             sub(&ts_event);
         }
@@ -199,33 +253,16 @@ impl EventBus {
         self.inner
             .lock()
             .map(|inner| {
-                inner
-                    .event_log
-                    .iter()
-                    .rev()
-                    .filter(|e| match &e.event {
-                        EngineEvent::DownloadStarted { task_id: id, .. }
-                        | EngineEvent::DownloadProgress { task_id: id, .. }
-                        | EngineEvent::DownloadComplete { task_id: id, .. }
-                        | EngineEvent::DownloadFailed { task_id: id, .. }
-                        | EngineEvent::DownloadPaused { task_id: id, .. }
-                        | EngineEvent::DownloadResumed { task_id: id, .. }
-                        | EngineEvent::DownloadCancelled { task_id: id, .. }
-                        | EngineEvent::SegmentStolen { task_id: id, .. }
-                        | EngineEvent::ConnectionsAdjusted { task_id: id, .. }
-                        | EngineEvent::RetryScheduled { task_id: id, .. }
-                        | EngineEvent::ChecksumVerified { task_id: id, .. }
-                        | EngineEvent::MirrorFound { task_id: id, .. }
-                        | EngineEvent::SpeedChanged { task_id: id, .. }
-                        | EngineEvent::QueueChanged { task_id: id, .. }
-                        | EngineEvent::BandwidthAllocated { task_id: id, .. }
-                        | EngineEvent::SchedulerTriggered { task_id: id, .. }
-                        | EngineEvent::RuleApplied { task_id: id, .. }
-                        | EngineEvent::ProfileSwitched { task_id: id, .. } => id == task_id,
-                    })
-                    .take(count)
-                    .cloned()
-                    .collect()
+                if let Some(indices) = inner.task_index.get(task_id) {
+                    let start = indices.len().saturating_sub(count);
+                    indices[start..]
+                        .iter()
+                        .rev()
+                        .filter_map(|&idx| inner.event_log.get(idx).cloned())
+                        .collect()
+                } else {
+                    Vec::new()
+                }
             })
             .unwrap_or_default()
     }
@@ -233,6 +270,7 @@ impl EventBus {
     pub fn clear_log(&self) {
         if let Ok(mut inner) = self.inner.lock() {
             inner.event_log.clear();
+            inner.task_index.clear();
         }
     }
 

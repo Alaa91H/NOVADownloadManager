@@ -76,6 +76,7 @@ export const TaskTable: React.FC = () => {
     handleCustomizeDrop,
     handleCustomizeDragEnd,
     draggingCustomizeCol,
+    setColOrder,
   } = useColumnState();
 
   const { sortBy, sortOrder, sortedTasks, handleSort } = useTaskSortFilter(tasks, searchQuery, workspaceView);
@@ -290,11 +291,17 @@ export const TaskTable: React.FC = () => {
               return (
                 <th
                   key={colKey}
-                  draggable="true"
+                  draggable={true}
                   onDragStart={(e) => {
+                    // Don't start column reorder from the resize handle
+                    if ((e.target as HTMLElement).closest('.cursor-col-resize')) {
+                      e.preventDefault();
+                      return;
+                    }
                     handleDragStart(e, colKey);
                   }}
                   onDragOver={(e) => {
+                    e.preventDefault();
                     e.dataTransfer.dropEffect = 'move';
                     handleDragOver(e, colKey);
                   }}
@@ -303,13 +310,16 @@ export const TaskTable: React.FC = () => {
                   }}
                   onDragEnd={handleDragEnd}
                   onClick={() => {
-                    handleSort(sortField);
+                    // Only sort if we weren't dragging
+                    if (!draggingCol) handleSort(sortField);
                   }}
                   title={t('table_customize_columns')}
                   className={`group/col-header px-3 py-2 cursor-grab active:cursor-grabbing hover:bg-[var(--bg-hover)] select-none relative font-bold border-r border-[var(--border-color)]/20 transition-all text-[var(--text-secondary)] ${getColAlign(colKey)} ${
                     draggingCol === colKey
-                      ? 'opacity-35 bg-[var(--bg-hover)] border-dashed border-[var(--accent-primary)]'
-                      : ''
+                      ? 'opacity-30 bg-[var(--bg-hover)] border-dashed border-[var(--accent-primary)] scale-95'
+                      : draggingCol && draggingCol !== colKey
+                        ? 'hover:border-l-2 hover:border-l-[var(--accent-primary)]'
+                        : ''
                   }`}
                   style={{ width: colWidths[colKey] || 100 }}
                 >
@@ -334,7 +344,7 @@ export const TaskTable: React.FC = () => {
             })}
 
             <th
-              className="px-2 py-1 text-center sticky ltr:right-0 rtl:left-0 z-20 bg-[var(--bg-app)] ltr:border-l rtl:border-r border-[var(--border-color)]"
+              className="px-2 py-1 text-center sticky ltr:right-0 rtl:left-0 z-20 bg-[var(--bg-app)] ltr:border-l rtl:border-r border-[var(--border-color)] relative"
               style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}
             >
               <button
@@ -342,11 +352,32 @@ export const TaskTable: React.FC = () => {
                   e.stopPropagation();
                   setShowColConfig(!showColConfig);
                 }}
-                className="p-1 hover:bg-[var(--bg-hover)] rounded-none text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all cursor-pointer inline-flex items-center justify-center"
+                className={`p-1 rounded transition-all cursor-pointer inline-flex items-center justify-center ${
+                  showColConfig
+                    ? 'bg-[var(--accent-primary)]/15 text-[var(--accent-primary)]'
+                    : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
                 title={t('table_customize_columns')}
               >
-                <Sliders className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
+                <Sliders className="w-3.5 h-3.5" />
               </button>
+
+              {/* Column Config Panel — anchored to this button */}
+              {showColConfig && (
+                <div ref={colConfigRef} className="absolute top-full ltr:right-0 rtl:left-0 z-30 mt-1">
+                  <ColumnConfigPanel
+                    colOrder={colOrder}
+                    visibleCols={visibleCols}
+                    draggingCustomizeCol={draggingCustomizeCol}
+                    setVisibleCols={setVisibleCols}
+                    setColOrder={setColOrder}
+                    handleCustomizeDragStart={handleCustomizeDragStart}
+                    handleCustomizeDragOver={handleCustomizeDragOver}
+                    handleCustomizeDrop={handleCustomizeDrop}
+                    handleCustomizeDragEnd={handleCustomizeDragEnd}
+                  />
+                </div>
+              )}
             </th>
           </tr>
         </thead>
@@ -632,21 +663,7 @@ export const TaskTable: React.FC = () => {
         t={t}
       />
 
-      {/* Column Config Panel */}
-      {showColConfig && (
-        <div ref={colConfigRef}>
-          <ColumnConfigPanel
-            colOrder={colOrder}
-            visibleCols={visibleCols}
-            draggingCustomizeCol={draggingCustomizeCol}
-            setVisibleCols={setVisibleCols}
-            handleCustomizeDragStart={handleCustomizeDragStart}
-            handleCustomizeDragOver={handleCustomizeDragOver}
-            handleCustomizeDrop={handleCustomizeDrop}
-            handleCustomizeDragEnd={handleCustomizeDragEnd}
-          />
-        </div>
-      )}
+      {/* Column Config Panel is now anchored inside the header <th> button */}
     </div>
   );
 };
