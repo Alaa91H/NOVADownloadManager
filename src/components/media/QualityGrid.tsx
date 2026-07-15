@@ -79,7 +79,7 @@ export const QualityGrid: React.FC<QualityGridProps> = ({
       {options.map((opt) => {
         const isSelected = quality === opt.value;
         const badgeColor = resolutionBadgeColor(opt.height);
-        const needsFfmpegButMissing = !!(opt.needsFfmpeg && ffmpegAvailable === false);
+        const needsFfmpegButMissing = opt.needsFfmpeg && ffmpegAvailable === false;
         return (
           <button
             key={opt.value}

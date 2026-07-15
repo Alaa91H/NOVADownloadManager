@@ -28,6 +28,7 @@ import { clearClipboardIfTextMatches } from '../utils/clipboard';
 import { TextField } from '../components/primitives';
 import { formatBytes } from '../initialData';
 import { useEngineCapabilities } from '../capabilities/EngineCapabilityContext';
+import type { AppSettings } from '../types/desktop-ui.types';
 import { formatDuration, bestVideoFormat, resolutionLabel, type AdvancedTab } from '../components/media/mediaHelpers';
 import { EngineStatusBar } from '../components/media/EngineStatusBar';
 import { AdvancedTabs, type AdvancedState } from '../components/media/AdvancedTabs';
@@ -54,11 +55,11 @@ export const MediaDownloadPage: React.FC = () => {
   const [saveMode, setSaveMode] = useState<'video' | 'audio'>('video');
   const [savePath, setSavePath] = useState<string>(settings.saveAndCategories.defaultFolder || '');
   const [selectedQueue, _setSelectedQueue] = useState<string>('main');
-  const [quality, setQuality] = useState<string>(settings.extra?.videoQuality || 'best');
+  const [quality, setQuality] = useState<string>(settings.extra.videoQuality || 'best');
   const [audioFormat, setAudioFormat] = useState<string>('m4a');
-  const [ffmpegEnabled, setFfmpegEnabled] = useState<boolean>(settings.extra?.ffmpegAutoMerge ?? false);
-  const [convertBitrate, setConvertBitrate] = useState<string>((settings.extra as any)?.convertBitrate || '320k');
-  const [outputTemplate, setOutputTemplate] = useState<string>(((settings.extra as any)?.defaultOutputTemplate as string) || '%(title)s.%(ext)s');
+  const [ffmpegEnabled, setFfmpegEnabled] = useState<boolean>(settings.extra.ffmpegAutoMerge || false);
+  const [convertBitrate, setConvertBitrate] = useState<string>((settings.extra as Record<string, unknown>).convertBitrate as string || '320k');
+  const [outputTemplate, setOutputTemplate] = useState<string>((settings.extra as Record<string, unknown>).defaultOutputTemplate as string || '%(title)s.%(ext)s');
 
   const [advancedState, setAdvancedState] = useState<AdvancedState>({
     downloadSubtitles: false,
@@ -229,7 +230,7 @@ export const MediaDownloadPage: React.FC = () => {
   /* ── computed values ── */
   const isProbingAny = isProbing || isProbingPlaylist;
   const ytDlpReady = engineCapabilities.mediaReady;
-  const ffmpegReady = engineCapabilities.postProcessingReady;
+  const _ffmpegReady = engineCapabilities.postProcessingReady;
 
   const requiresFfmpeg = (() => {
     if (!probeResult || saveMode === 'audio') return true;
@@ -263,7 +264,7 @@ export const MediaDownloadPage: React.FC = () => {
       const fallbackHeights = [4320, 2880, 2160, 1440, 1080, 720, 480, 360, 240, 144];
       for (const h of fallbackHeights) {
         opts.push({
-          value: `${h}p`,
+          value: `${String(h)}p`,
           label: resolutionLabel(h),
           size: '',
           sizeBytes: 0,
@@ -371,17 +372,15 @@ export const MediaDownloadPage: React.FC = () => {
   useEffect(() => {
     // Avoid updating during initial mount if settings already match
     try {
-      const current = settings.extra?.videoQuality || 'best';
+      const current = settings.extra.videoQuality || 'best';
       if (current === quality) return;
-      const updated = structuredClone(settings) as any;
-      if (!updated.extra) updated.extra = {};
-      updated.extra.videoQuality = quality;
+      const updated: AppSettings = { ...settings, extra: { ...settings.extra, videoQuality: quality } };
       updateSettings(updated);
-    } catch (e) {
-      const updated = { ...settings, extra: { ...(settings.extra || {}), videoQuality: quality } };
+    } catch {
+      const updated: AppSettings = { ...settings, extra: { ...settings.extra, videoQuality: quality } };
       updateSettings(updated);
     }
-  }, [quality]);
+  }, [quality, settings, updateSettings]);
   const handleTemplatePreset = (preset: string) => { setOutputTemplate(preset); };
 
   const clearSensitiveDialogState = () => {
@@ -619,9 +618,11 @@ export const MediaDownloadPage: React.FC = () => {
                   onChange={(e) => { setSavePath(e.target.value); }}
                   placeholder="D:\\Downloads\\Videos"
                   icon={FolderOpen}
-                  onIconClick={async () => {
-                    const picked = await tauriClient.showDirectoryPicker(savePath || undefined);
-                    if (picked) setSavePath(picked);
+                  onIconClick={() => {
+                    void (async () => {
+                      const picked = await tauriClient.showDirectoryPicker(savePath || undefined);
+                      if (picked) setSavePath(picked);
+                    })();
                   }}
                   id="page-path"
                 />
@@ -638,7 +639,7 @@ export const MediaDownloadPage: React.FC = () => {
                 <button
                   type="button"
                   className="w-full text-left flex items-center justify-between"
-                  onClick={() => togglePanel('advanced')}
+                  onClick={() => { togglePanel('advanced'); }}
                 >
                   <div className="flex items-center gap-2">
                     <Settings2 className="w-3.5 h-3.5 text-[var(--text-muted)]" />
@@ -663,7 +664,7 @@ export const MediaDownloadPage: React.FC = () => {
               <div className="space-y-3">
                 {/* Mode Toggle Panel */}
                 <div className={`p-3 rounded-xl border ${openPanel === 'mode' ? 'border-[var(--danger-border)] bg-[var(--danger-bg)]/6' : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30'}`}>
-                  <button type="button" className="w-full text-left flex items-center justify-between" onClick={() => togglePanel('mode')}>
+                  <button type="button" className="w-full text-left flex items-center justify-between" onClick={() => { togglePanel('mode'); }}>
                     <div className="flex items-center gap-2">
                       <Video className="w-4 h-4" />
                       <span className="text-sm font-extrabold text-[var(--text-primary)]">{t('media_mode')}</span>
@@ -748,7 +749,7 @@ export const MediaDownloadPage: React.FC = () => {
                           requiresFfmpeg={requiresFfmpeg}
                           ffmpegAvailable={ffmpegAvailable}
                           mediaReady={engineCapabilities.mediaReady}
-                          onOpenEnginesSettings={() => openDialog('settings')}
+                          onOpenEnginesSettings={() => { openDialog('settings'); }}
                         />
                       )}
                     </div>
@@ -756,7 +757,7 @@ export const MediaDownloadPage: React.FC = () => {
                 </div>
                 {/* Audio Panel */}
                 <div className={`p-3 rounded-xl border ${openPanel === 'audio' ? 'border-[var(--accent-border)] bg-[var(--accent-light)]/6' : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30'}`}>
-                  <button type="button" className="w-full text-left flex items-center justify-between" onClick={() => togglePanel('audio')}>
+                  <button type="button" className="w-full text-left flex items-center justify-between" onClick={() => { togglePanel('audio'); }}>
                     <div className="flex items-center gap-2">
                       <ListMusic className="w-4 h-4" />
                       <span className="text-sm font-extrabold text-[var(--text-primary)]">Audio Format</span>
@@ -785,7 +786,7 @@ export const MediaDownloadPage: React.FC = () => {
 
                 {/* Output / Naming Panel */}
                 <div className={`p-3 rounded-xl border ${openPanel === 'output' ? 'border-[var(--info-border)] bg-[var(--info-bg)]/6' : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30'}`}>
-                  <button type="button" className="w-full text-left flex items-center justify-between" onClick={() => togglePanel('output')}>
+                  <button type="button" className="w-full text-left flex items-center justify-between" onClick={() => { togglePanel('output'); }}>
                     <div className="flex items-center gap-2">
                       <FileText className="w-4 h-4" />
                       <span className="text-sm font-extrabold text-[var(--text-primary)]">Output Naming</span>
@@ -912,7 +913,7 @@ export const MediaDownloadPage: React.FC = () => {
               <PlaylistBrowser
                 playlistResult={playlistResult}
                 selectAllPlaylist={selectAllPlaylist}
-                onSelectAllChange={(v) => setSelectAllPlaylist(v)}
+                onSelectAllChange={(v) => { setSelectAllPlaylist(v); }}
                 selectedItems={selectedPlaylistItems}
                 onSelectedItemsChange={setSelectedPlaylistItems}
               />

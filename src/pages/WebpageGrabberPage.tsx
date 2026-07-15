@@ -130,9 +130,11 @@ export const WebpageGrabberPage: React.FC = () => {
                   setSavePath(e.target.value);
                 }}
                 icon={FolderOpen}
-                onIconClick={async () => {
-                  const picked = await tauriClient.showDirectoryPicker(savePath || undefined);
-                  if (picked) setSavePath(picked);
+                onIconClick={() => {
+                  void (async () => {
+                    const picked = await tauriClient.showDirectoryPicker(savePath || undefined);
+                    if (picked) setSavePath(picked);
+                  })();
                 }}
                 id="grabber-path"
               />

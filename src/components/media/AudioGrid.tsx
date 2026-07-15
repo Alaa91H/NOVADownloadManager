@@ -38,7 +38,7 @@ export const AudioGrid: React.FC<AudioGridProps> = ({
     <div className="grid grid-cols-2 gap-1.5">
       {options.map((opt) => {
         const isSelected = audioFormat === opt.value;
-        const disabled = !!(opt.needsFfmpeg && !ffmpegEnabled);
+        const disabled = opt.needsFfmpeg && !ffmpegEnabled;
         return (
           <button
             key={opt.value}
