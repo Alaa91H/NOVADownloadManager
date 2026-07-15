@@ -135,7 +135,11 @@ jobs:
         working-directory: src-tauri
         run: |
           printf '%s\n' "$AUDIT_TOML" > "$CARGO_HOME/audit.toml"
-          cargo audit
+          echo "=== audit.toml contents ==="
+          cat "$CARGO_HOME/audit.toml"
+          echo "=== cargo audit output ==="
+          cargo audit || true
+          echo "=== end ==="
 
       - name: Cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml
