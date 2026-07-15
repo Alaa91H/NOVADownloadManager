@@ -1,0 +1,10 @@
+[advisories]
+ignore = [
+    # proc-macro-error is unmaintained (INFO advisory, not a security vulnerability).
+    # It is a transitive dependency pulled in by glib-macros and gtk3-macros (via tauri/gtk),
+    # which we cannot remove or update directly. There is no patched version available.
+    # The crate itself poses no runtime security risk — it is a compile-time proc-macro utility.
+    # Tracked for removal once upstream tauri/gtk dependencies drop it.
+    # See: https://rustsec.org/advisories/RUSTSEC-2024-0370
+    "RUSTSEC-2024-0370",
+]

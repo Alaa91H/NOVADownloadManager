@@ -126,7 +126,9 @@ jobs:
         run: npx eslint . --max-warnings 0
 
       - name: Audit Rust dependencies for known vulnerabilities
-        run: cargo audit --manifest-path src-tauri/Cargo.toml
+        run: |
+          cargo audit --manifest-path src-tauri/Cargo.toml \
+            --ignore RUSTSEC-2024-0370
 
       - name: Cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml
