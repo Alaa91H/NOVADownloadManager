@@ -127,7 +127,7 @@ jobs:
 
       - name: Audit Rust dependencies for known vulnerabilities
         working-directory: src-tauri
-        run: cargo audit
+        run: cargo audit --config .cargo/audit.toml
 
       - name: Cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml
