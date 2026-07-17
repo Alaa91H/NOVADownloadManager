@@ -61,7 +61,7 @@ export function AnalyzeResultPanel({ result, onDownload, busy }: AnalyzeResultPa
     setSelectedFormat(f.formatId || f.url);
   }
 
-  function handleBestDownload(): {
+  function handleBestDownload() {
     const best = videoFormats[0] ?? result.formats[0];
     if (best) handleDownload(best);
   }
