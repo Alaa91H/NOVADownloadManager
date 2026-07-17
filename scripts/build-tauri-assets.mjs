@@ -7,8 +7,6 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const RESOURCE_DIR = join(ROOT, 'src-tauri', 'resources');
 const RESOURCE_BIN_DIR = join(RESOURCE_DIR, 'bin');
 const CURL_BINARY = process.platform === 'win32' ? 'curl.exe' : 'curl';
-const YTDLP_BINARY = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
-const FFMPEG_BINARY = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
 const NATIVE_CURL_MANIFEST = 'native-curl-manifest.json';
 const NATIVE_HOST_NAME = 'com.nova.downloadmanager';
 const NATIVE_MESSAGING_DIR = join(RESOURCE_DIR, 'native-messaging');
@@ -127,15 +125,6 @@ function copyLegalNotices() {
   console.log('[tauri-assets] Staged LICENSE and THIRD_PARTY_NOTICES.md into installer resources');
 }
 
-function ensureMediaEngine() {
-  const ytdlpSource = join(ROOT, 'bin', YTDLP_BINARY);
-  if (existsSync(ytdlpSource) || process.env.NOVA_SKIP_MEDIA_ENGINE_FETCH === '1') {
-    return;
-  }
-  console.log('[tauri-assets] yt-dlp is missing; fetching media engine before staging resources...');
-  run(process.execPath, [join(ROOT, 'scripts', 'fetch-engines.mjs'), '--media-only'], 'Fetch media engine');
-}
-
 async function main() {
   mkdirSync(RESOURCE_BIN_DIR, { recursive: true });
 
@@ -143,16 +132,15 @@ async function main() {
   run(process.execPath, [join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js'), 'build'], 'Vite build');
 
   copyLegalNotices();
-  ensureMediaEngine();
 
   // Daemon is now compiled into the Tauri binary (Rust/axum) — no Node.js bundling needed.
+  // yt-dlp and ffmpeg are external plugins discovered at runtime from PATH or
+  // user-configured paths. They are NOT bundled in the installer.
 
-  console.log('[tauri-assets] Copying download engines...');
+  console.log('[tauri-assets] Preparing resources...');
   // The direct engine is the statically linked libcurl compiled into the Tauri
   // binary, so the standalone curl(.exe) tool is redundant and no longer bundled.
   rmSync(join(RESOURCE_BIN_DIR, CURL_BINARY), { force: true });
-  copyIfExists(join(ROOT, 'bin', YTDLP_BINARY), join(RESOURCE_BIN_DIR, YTDLP_BINARY));
-  copyIfExists(join(ROOT, 'bin', FFMPEG_BINARY), join(RESOURCE_BIN_DIR, FFMPEG_BINARY));
   copyIfExists(join(ROOT, 'bin', NATIVE_CURL_MANIFEST), join(RESOURCE_DIR, NATIVE_CURL_MANIFEST));
   rmSync(join(RESOURCE_BIN_DIR, 'aria2c.exe'), { force: true });
 
@@ -168,8 +156,8 @@ async function main() {
     version: process.env.VITE_APP_VERSION || process.env.BUILD_TAG || process.env.GITHUB_REF_NAME || stampedVersion,
     files: {
       directEngine: existsSync(join(RESOURCE_DIR, NATIVE_CURL_MANIFEST)) ? 'static-libcurl' : 'cargo-fallback',
-      mediaEngine: existsSync(join(RESOURCE_BIN_DIR, YTDLP_BINARY)) ? 'yt-dlp' : false,
-      postProcessor: existsSync(join(RESOURCE_BIN_DIR, FFMPEG_BINARY)) ? 'ffmpeg' : false,
+      mediaEngine: false,
+      postProcessor: false,
       nativeLibcurl: existsSync(join(RESOURCE_DIR, NATIVE_CURL_MANIFEST))
         ? 'static-ci-built-libcurl'
         : 'cargo-fallback',

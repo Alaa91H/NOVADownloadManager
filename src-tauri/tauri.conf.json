@@ -62,8 +62,7 @@
           "libssh2-1",
           "libnghttp2-14",
           "libbrotli1",
-          "libzstd1",
-          "ffmpeg"
+          "libzstd1"
         ],
         "section": "net",
         "priority": "optional"
@@ -82,8 +81,7 @@
           "libssh2",
           "nghttp2",
           "brotli",
-          "zstd",
-          "ffmpeg"
+          "zstd"
         ]
       }
     },

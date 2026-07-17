@@ -79,10 +79,9 @@ fn is_executable_path(path: &std::path::Path) -> bool {
 }
 
 fn which_exists(name: &str) -> bool {
-    if let Ok(output) = std::process::Command::new(if cfg!(windows) { "where" } else { "which" })
-        .arg(name)
-        .output()
-    {
+    let mut cmd = std::process::Command::new(if cfg!(windows) { "where" } else { "which" });
+    crate::daemon::utils::hide_command_window(&mut cmd);
+    if let Ok(output) = cmd.arg(name).output() {
         output.status.success() && !output.stdout.is_empty()
     } else {
         false

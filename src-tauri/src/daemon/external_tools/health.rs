@@ -1,4 +1,5 @@
 use super::types::{ExternalTool, ToolId, ToolStatus};
+use crate::daemon::utils::hide_command_window;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -77,6 +78,7 @@ fn run_version_check(tool: &dyn ExternalTool, path: &std::path::Path) -> Result<
 
     let mut cmd = Command::new(path);
     cmd.args(args);
+    hide_command_window(&mut cmd);
 
     let output = cmd
         .output()

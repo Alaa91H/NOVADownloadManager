@@ -25,17 +25,6 @@ const ENGINE_SOURCES = {
     env: 'NOVA_CURL',
     source: 'https://github.com/curl/curl',
   },
-  'yt-dlp': {
-    repo: 'yt-dlp/yt-dlp',
-    binary: process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp',
-    env: 'NOVA_YTDLP',
-    source: 'https://github.com/yt-dlp/yt-dlp',
-  },
-  ffmpeg: {
-    binary: process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg',
-    env: 'NOVA_FFMPEG',
-    source: 'https://ffmpeg.org/',
-  },
 };
 
 function githubApiHeaders() {
@@ -356,80 +345,6 @@ async function fetchCurl() {
   return { engine: 'curl', version: normalizeCurlTag(tag), tag, path: dest, source: source.source };
 }
 
-async function fetchYtDlp() {
-  const source = ENGINE_SOURCES['yt-dlp'];
-  const dest = join(BIN_DIR, source.binary);
-  const envCopied = copyEnvBinary('yt-dlp', source, 'external');
-  if (envCopied) return envCopied;
-
-  if (existsSync(dest) && process.env.NOVA_FORCE_FETCH !== '1') {
-    const version =
-      spawnSync(dest, ['--version'], { windowsHide: true, encoding: 'utf8' }).stdout?.trim() || 'existing';
-    console.log(`[fetch] yt-dlp already present (${version})`);
-    return { engine: 'yt-dlp', version, path: dest, source: source.source };
-  }
-
-  console.log('[fetch] yt-dlp: downloading latest executable...');
-  const directUrl =
-    process.platform === 'win32'
-      ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
-      : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
-  await downloadFile(directUrl, dest);
-  if (process.platform !== 'win32') {
-    run('chmod', ['+x', dest], 'Mark yt-dlp executable');
-  }
-  const version = spawnSync(dest, ['--version'], { windowsHide: true, encoding: 'utf8' }).stdout?.trim() || 'latest';
-  return { engine: 'yt-dlp', version, path: dest, source: source.source };
-}
-
-async function fetchFfmpegOptional() {
-  const source = ENGINE_SOURCES.ffmpeg;
-  const envCopied = copyEnvBinary('ffmpeg', source, 'external');
-  if (envCopied) return envCopied;
-  const dest = join(BIN_DIR, source.binary);
-
-  if (existsSync(dest) && process.env.NOVA_FORCE_FETCH !== '1') {
-    const versionText =
-      spawnSync(dest, ['-version'], { windowsHide: true, encoding: 'utf8' }).stdout?.split(/\r?\n/)[0] || 'existing';
-    console.log(`[fetch] ffmpeg already present (${versionText})`);
-    return {
-      engine: 'ffmpeg',
-      version: versionText.replace(/^ffmpeg version\s+/i, '').split(/\s+/)[0],
-      path: dest,
-      source: dest,
-    };
-  }
-
-  if (process.env.NOVA_BUNDLE_SYSTEM_FFMPEG === '1') {
-    const systemPath = commandPath('ffmpeg');
-    if (systemPath && existsSync(systemPath)) {
-      copyFileSync(systemPath, dest);
-      if (process.platform !== 'win32') {
-        run('chmod', ['+x', dest], 'Mark ffmpeg executable');
-      }
-      const versionText =
-        spawnSync(dest, ['-version'], { windowsHide: true, encoding: 'utf8' }).stdout?.split(/\r?\n/)[0] || 'system';
-      return {
-        engine: 'ffmpeg',
-        version: versionText.replace(/^ffmpeg version\s+/i, '').split(/\s+/)[0],
-        path: dest,
-        source: systemPath,
-      };
-    }
-  }
-
-  if (process.env.NOVA_REQUIRE_FFMPEG === '1') {
-    throw new Error(
-      'FFmpeg is required for production media post-processing. Set NOVA_FFMPEG to a vetted ffmpeg binary or set NOVA_BUNDLE_SYSTEM_FFMPEG=1 after installing ffmpeg.',
-    );
-  }
-
-  console.log(
-    '[fetch] ffmpeg: not bundled. Set NOVA_FFMPEG to a vetted ffmpeg binary, or set NOVA_BUNDLE_SYSTEM_FFMPEG=1 to copy system ffmpeg.',
-  );
-  return { engine: 'ffmpeg', version: 'system-or-missing', path: '', source: source.source, optional: true };
-}
-
 function safeReadManifest() {
   try {
     return JSON.parse(readFileSync(MANIFEST_PATH, 'utf8'));
@@ -440,10 +355,9 @@ function safeReadManifest() {
 
 async function main() {
   mkdirSync(BIN_DIR, { recursive: true });
-  const mediaOnly = process.argv.includes('--media-only') || process.env.NOVA_MEDIA_ENGINES_ONLY === '1';
-  const manifest = mediaOnly ? safeReadManifest() || {} : {};
+  const manifest = {};
   const results = [];
-  const fetchers = mediaOnly ? [fetchYtDlp, fetchFfmpegOptional] : [fetchCurl, fetchYtDlp, fetchFfmpegOptional];
+  const fetchers = [fetchCurl];
 
   for (const fetcher of fetchers) {
     const result = await fetcher();

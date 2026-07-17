@@ -1,4 +1,5 @@
 use super::types::ProcessSpec;
+use crate::daemon::utils::hide_command_window;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -23,6 +24,7 @@ pub fn run_tool(
     cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
+    hide_command_window(&mut cmd);
 
     if let Some(dir) = working_dir {
         cmd.current_dir(dir);

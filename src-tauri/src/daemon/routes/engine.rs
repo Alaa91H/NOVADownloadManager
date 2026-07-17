@@ -15,6 +15,7 @@ use crate::daemon::engine::retry::RetryPolicy;
 use crate::daemon::engine::rules::DownloadRule;
 use crate::daemon::engine::scheduler::{SchedulerAction, SchedulerRule};
 use crate::daemon::state::SharedState;
+use crate::daemon::utils::hide_command_window;
 use crate::lock_or_err;
 
 pub async fn handle_engine_capabilities(
@@ -1038,7 +1039,9 @@ async fn handle_engine_download(
                     let _ = std::fs::set_permissions(&dest, perms);
                 }
             }
-            let version = std::process::Command::new(&dest)
+            let mut version_cmd = std::process::Command::new(&dest);
+            hide_command_window(&mut version_cmd);
+            let version = version_cmd
                 .arg("--version")
                 .output()
                 .ok()
@@ -1094,7 +1097,9 @@ async fn handle_engine_verify(
         }));
     }
 
-    let version = std::process::Command::new(bin_path)
+    let mut verify_cmd = std::process::Command::new(bin_path);
+    hide_command_window(&mut verify_cmd);
+    let version = verify_cmd
         .arg("--version")
         .output()
         .ok()
@@ -1151,7 +1156,9 @@ async fn handle_engine_latest_version(
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown")
                 .to_string();
-            let current = std::process::Command::new(&state.ytdlp_bin)
+            let mut current_cmd = std::process::Command::new(&state.ytdlp_bin);
+            hide_command_window(&mut current_cmd);
+            let current = current_cmd
                 .arg("--version")
                 .output()
                 .ok()
