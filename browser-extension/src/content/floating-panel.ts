@@ -2,7 +2,7 @@ import browser from 'webextension-polyfill';
 
 const HOST_ID = 'nova-media-panel-host';
 const CHECK_INTERVAL_MS = 2500;
-const PANEL_OPACITY_DEFAULT = 0.35;
+const PANEL_OPACITY_DEFAULT = 1;
 const PANEL_OPACITY_HOVER = 1;
 
 let panelHost: ShadowRoot | null = null;
@@ -353,9 +353,7 @@ function ensurePanelHost(): ShadowRoot {
       min-width: 220px;
       max-width: 520px;
       max-height: 70vh;
-      background: rgba(8, 8, 14, 0.92);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
+      background: rgba(8, 8, 14, 1);
       border: 1px solid rgba(255,255,255,0.10);
       border-radius: 12px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -614,9 +612,7 @@ function ensurePanelHost(): ShadowRoot {
       bottom: 24px;
       left: 50%;
       transform: translateX(-50%) translateY(20px);
-      background: rgba(8, 8, 14, 0.95);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
+      background: rgba(8, 8, 14, 1);
       border: 1px solid rgba(34, 197, 94, 0.4);
       border-radius: 8px;
       padding: 8px 16px;
