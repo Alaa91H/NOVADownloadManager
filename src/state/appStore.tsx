@@ -454,7 +454,7 @@ function EffectsProvider({ children }: { children: ReactNode }) {
     const today = new Date().toISOString().slice(0, 10);
     if (localStorage.getItem('nova_last_unsigned_update_check') === today) return;
     localStorage.setItem('nova_last_unsigned_update_check', today);
-    void tauriClient.checkUnsignedUpdate().then((result) => {
+    void tauriClient.checkTauriUpdate().then((result: { hasUpdate: boolean; latestVersion: string }) => {
       if (result.hasUpdate) {
         uiStore.getState().addToast('info', 'Update available', `A new version (${result.latestVersion}) is available.`);
       }

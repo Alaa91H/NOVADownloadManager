@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { novaClient } from '../api/novaClient';
 
 export interface CapabilityCheck {
@@ -16,28 +16,33 @@ export function useToolCapability(capabilityId: string): CapabilityCheck {
     loading: true,
   });
 
-  const check = useCallback(async () => {
-    try {
-      const result = await novaClient.checkToolCapability(capabilityId);
-      setState({
-        available: result.available,
-        toolId: result.toolId,
-        requiresMessage: result.requiresMessage || '',
-        loading: false,
-      });
-    } catch {
-      setState({
-        available: false,
-        toolId: '',
-        requiresMessage: `Failed to check capability: ${capabilityId}`,
-        loading: false,
-      });
-    }
-  }, [capabilityId]);
-
   useEffect(() => {
-    check();
-  }, [check]);
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const result = await novaClient.checkToolCapability(capabilityId);
+        if (!cancelled) {
+          setState({
+            available: result.available,
+            toolId: result.toolId,
+            requiresMessage: result.requiresMessage || '',
+            loading: false,
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setState({
+            available: false,
+            toolId: '',
+            requiresMessage: `Failed to check capability: ${capabilityId}`,
+            loading: false,
+          });
+        }
+      }
+    };
+    void run();
+    return () => { cancelled = true; };
+  }, [capabilityId]);
 
   return state;
 }
@@ -46,6 +51,7 @@ export function useMultipleCapabilities(capabilityIds: string[]): Record<string,
   const [states, setStates] = useState<Record<string, CapabilityCheck>>({});
 
   useEffect(() => {
+    let cancelled = false;
     const load = async () => {
       const results: Record<string, CapabilityCheck> = {};
       await Promise.all(
@@ -68,10 +74,13 @@ export function useMultipleCapabilities(capabilityIds: string[]): Record<string,
           }
         }),
       );
-      setStates(results);
+      if (!cancelled) {
+        setStates(results);
+      }
     };
-    load();
-  }, [capabilityIds.join(',')]);
+    void load();
+    return () => { cancelled = true; };
+  }, [capabilityIds]);
 
   return states;
 }

@@ -1,6 +1,23 @@
 import { vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 
+// localStorage mock — Node 26 without --localstorage-file leaves
+// globalThis.localStorage undefined; jsdom should provide it but the
+// shim sometimes leaks.  Always install a working in-memory polyfill.
+const storage = new Map<string, string>();
+Object.defineProperty(globalThis, 'localStorage', {
+  value: {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => { storage.set(key, value); },
+    removeItem: (key: string) => { storage.delete(key); },
+    clear: () => { storage.clear(); },
+    get length() { return storage.size; },
+    key: (index: number) => [...storage.keys()][index] ?? null,
+  },
+  writable: true,
+  configurable: true,
+});
+
 // Match media
 Object.defineProperty(window, 'matchMedia', {
   value: vi.fn().mockImplementation((query: string) => ({

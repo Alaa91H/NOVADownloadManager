@@ -5,7 +5,7 @@ import { Switch, SelectField, Checkbox, Button } from '../../../components/primi
 import { Settings, Folder, RefreshCw, AlertTriangle, Play, FileText, Volume2 } from 'lucide-react';
 import { WORLD_LANGUAGES } from '../../../lib/languages';
 import { useToastActions, useI18n } from '../../../store/selectors';
-import { tauriClient, type UpdateCheckResult } from '../../../api/tauriClient';
+import { tauriClient } from '../../../api/tauriClient';
 
 interface Props {
   settings: AppSettings;
@@ -224,8 +224,8 @@ export const GeneralAndDownloads: React.FC<Props> = ({
                   size="md"
                 >
                   {updateDownloading 
-                    ? (updateProgress ? `Downloading... ${Math.round((updateProgress.downloaded / updateProgress.total) * 100)}%` : 'Downloading...')
-                    : t('settings_install_update', 'Install Update')}
+                    ? (updateProgress ? `Downloading... ${String(Math.round((updateProgress.downloaded / updateProgress.total) * 100))}%` : 'Downloading...')
+                    : t('settings_install_update')}
                 </Button>
               )}
             </div>

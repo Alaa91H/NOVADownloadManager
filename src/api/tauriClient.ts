@@ -83,7 +83,7 @@ function normalizeVersion(version: string): number[] {
     .map((part) => (Number.isFinite(part) ? part : 0));
 }
 
-function isVersionGreater(latest: string, current: string): boolean {
+function _isVersionGreater(latest: string, current: string): boolean {
   const latestParts = normalizeVersion(latest);
   const currentParts = normalizeVersion(current);
   const length = Math.max(latestParts.length, currentParts.length, 3);
@@ -96,7 +96,7 @@ function isVersionGreater(latest: string, current: string): boolean {
   return false;
 }
 
-function installerAssetUrl(assets: unknown[], fallbackUrl: string): string {
+function _installerAssetUrl(assets: unknown[], fallbackUrl: string): string {
   const candidates = assets
     .map((asset) => (asset && typeof asset === 'object' ? (asset as Record<string, unknown>) : null))
     .filter((asset): asset is Record<string, unknown> => Boolean(asset))

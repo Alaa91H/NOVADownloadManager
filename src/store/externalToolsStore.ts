@@ -53,7 +53,21 @@ export const useExternalToolsStore = create<ExternalToolsStore>((set, get) => ({
     set({ loading: true });
     try {
       const data = await novaClient.listExternalTools();
-      set({ tools: data.tools || [], loading: false, lastRefresh: Date.now() });
+      const tools: ExternalToolState[] = data.tools.map((t) => ({
+        ...t,
+        description: '',
+        customPath: false,
+        installedByApp: false,
+        updateAvailable: false,
+        latestVersion: undefined,
+        isInstalling: false,
+        isUpdating: false,
+        isUninstalling: false,
+        downloadUrl: undefined,
+        sourceUrl: undefined,
+        sourceName: undefined,
+      }));
+      set({ tools, loading: false, lastRefresh: Date.now() });
     } catch {
       set({ loading: false });
     }

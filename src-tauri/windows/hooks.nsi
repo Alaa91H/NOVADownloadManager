@@ -179,6 +179,7 @@
   WriteRegStr SHCTX "${NOVA_UNINSTALL_KEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr SHCTX "${NOVA_UNINSTALL_KEY}" "UninstallString" '"$INSTDIR\uninstall.exe"'
   WriteRegStr SHCTX "${NOVA_UNINSTALL_KEY}" "QuietUninstallString" '"$INSTDIR\uninstall.exe" /S'
+  WriteRegStr SHCTX "${NOVA_UNINSTALL_KEY}" "ModifyPath" '"$INSTDIR\uninstall.exe"'
   WriteRegDWORD SHCTX "${NOVA_UNINSTALL_KEY}" "NoModify" 1
   WriteRegDWORD SHCTX "${NOVA_UNINSTALL_KEY}" "NoRepair" 0
 !macroend
@@ -196,6 +197,16 @@
   Delete "$SMPROGRAMS\Nova Download Manager\Uninstall NOVA.lnk"
   RMDir /r "$INSTDIR"
   RMDir /r "$SMPROGRAMS\Nova Download Manager"
+!macroend
+
+!macro NovaCacheMaintenanceInstaller
+  ; Cache the current installer so repairs can run offline without re-downloading.
+  ; The cached copy lives under ProgramData and is replaced on each upgrade.
+  StrCpy $0 "$PROGRAMDATA\NOVA\cache"
+  CreateDirectory "$0"
+  IfFileExists "$EXEDIR\${_FILE}" 0 nova_skip_cache
+    CopyFiles "$EXEDIR\${_FILE}" "$0\installer.exe"
+  nova_skip_cache:
 !macroend
 
 !macro NSIS_HOOK_PREINSTALL
