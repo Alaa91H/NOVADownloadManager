@@ -1,0 +1,1101 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+    tags:
+      - 'v*.*.*'
+  workflow_call:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 1.0.0 or 1.0.0-beta.1)'
+        required: false
+        default: ''
+      changelog:
+        description: 'Release notes (optional, auto-generated from commits if empty)'
+        required: false
+        default: ''
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  NODE_VERSION: '24'
+  RUST_BACKTRACE: '1'
+  NPM_CONFIG_AUDIT: 'true'
+  NPM_CONFIG_FUND: 'false'
+  NO_UPDATE_NOTIFIER: '1'
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Dependency Review (PR only)
+  # ─────────────────────────────────────────────────────────────────────────
+  dependency-review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Enforce dependency review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: moderate
+          comment-summary-in-pr: always
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Lint & Typecheck
+  # ─────────────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint & typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libcurl4-openssl-dev \
+            libbrotli-dev \
+            libzstd-dev \
+            libnghttp2-dev \
+            libssh2-1-dev \
+            pkg-config
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript typecheck
+        run: npx tsc --noEmit
+
+      - name: ESLint
+        run: npx eslint . --max-warnings 0
+
+      - name: Audit Rust dependencies for known vulnerabilities
+        env:
+          AUDIT_TOML: |
+            [advisories]
+            ignore = [
+              "RUSTSEC-2024-0370",
+            ]
+        working-directory: src-tauri
+        run: |
+          printf '%s\n' "$AUDIT_TOML" > "$CARGO_HOME/audit.toml"
+          echo "=== audit.toml contents ==="
+          cat "$CARGO_HOME/audit.toml"
+          echo "=== cargo audit output ==="
+          cargo audit || true
+          echo "=== end ==="
+
+      - name: Cargo check
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Clippy (lib + bin, zero warnings)
+        id: clippy
+        env:
+          CARGO_TERM_COLOR: never
+        run: |
+          set +e
+          cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings 2>&1 | tee clippy.log
+          CLIPPY_EXIT=${PIPESTATUS[0]}
+          set -eo pipefail
+          if [ "$CLIPPY_EXIT" -ne 0 ]; then
+            { echo "## Clippy (lib+bin) failed"; echo '```'; cat clippy.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            grep -E '^(error|thread)' clippy.log | head -20 | sed 's/^/::error::/'
+            exit 1
+          fi
+
+      - name: Clippy (tests, diagnostic)
+        id: clippy_tests
+        continue-on-error: true
+        env:
+          CARGO_TERM_COLOR: never
+        run: |
+          set +e
+          cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings 2>&1 | tee clippy-tests.log
+          CLIPPY_EXIT=${PIPESTATUS[0]}
+          set -eo pipefail
+          if [ "$CLIPPY_EXIT" -ne 0 ]; then
+            { echo "## Clippy (tests) failed"; echo '```'; cat clippy-tests.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            grep -E '^(error|thread)' clippy-tests.log | head -20 | sed 's/^/::error::/'
+            exit 1
+          fi
+
+      - name: Upload clippy diagnostic logs
+        if: always() && (steps.clippy.outcome == 'failure' || steps.clippy_tests.outcome == 'failure')
+        uses: actions/upload-artifact@v7
+        with:
+          name: clippy-logs
+          path: clippy*.log
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Rust formatting check
+        run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Validate Frontend & Translations
+  # ─────────────────────────────────────────────────────────────────────────
+  validate:
+    name: Validate frontend
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Final source audit
+        id: audit_final
+        continue-on-error: true
+        run: pnpm run audit:final
+
+      - name: Browser extension typecheck
+        id: ext_typecheck
+        continue-on-error: true
+        run: pnpm --filter nova-browser-extension typecheck
+
+      - name: Browser extension release checks
+        id: ext_release_checks
+        continue-on-error: true
+        run: pnpm --filter nova-browser-extension verify:offline
+
+      - name: Browser extension production build
+        id: ext_build
+        continue-on-error: true
+        run: pnpm run extension:package
+
+      - name: Synchronize translation indexes
+        id: i18n_sync
+        continue-on-error: true
+        run: pnpm run i18n:sync
+
+      - name: Validate translations
+        id: i18n_validate
+        continue-on-error: true
+        run: pnpm run i18n:validate
+
+      - name: TypeScript check
+        id: ts_check
+        continue-on-error: true
+        run: pnpm run lint
+
+      - name: ESLint
+        id: eslint
+        continue-on-error: true
+        run: pnpm run lint:eslint
+
+      - name: Run tests
+        id: tests
+        continue-on-error: true
+        run: pnpm test
+
+      - name: Frontend production build
+        id: fe_build
+        continue-on-error: true
+        run: pnpm run build
+
+      - name: Summarize validation gates
+        if: always()
+        shell: pwsh
+        run: |
+          $gates = @(
+            @{ Name = 'Final source audit';                Outcome = '${{ steps.audit_final.outcome }}' },
+            @{ Name = 'Browser extension typecheck';       Outcome = '${{ steps.ext_typecheck.outcome }}' },
+            @{ Name = 'Browser extension release checks';  Outcome = '${{ steps.ext_release_checks.outcome }}' },
+            @{ Name = 'Browser extension production build'; Outcome = '${{ steps.ext_build.outcome }}' },
+            @{ Name = 'Synchronize translation indexes';   Outcome = '${{ steps.i18n_sync.outcome }}' },
+            @{ Name = 'Validate translations';             Outcome = '${{ steps.i18n_validate.outcome }}' },
+            @{ Name = 'TypeScript check';                  Outcome = '${{ steps.ts_check.outcome }}' },
+            @{ Name = 'ESLint';                            Outcome = '${{ steps.eslint.outcome }}' },
+            @{ Name = 'Run tests';                         Outcome = '${{ steps.tests.outcome }}' },
+            @{ Name = 'Frontend production build';         Outcome = '${{ steps.fe_build.outcome }}' }
+          )
+          "## Validation gates" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| Gate | Result |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| --- | --- |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          $failed = @()
+          foreach ($gate in $gates) {
+            switch ($gate.Outcome) {
+              'success' { $icon = 'PASS' }
+              'failure' { $icon = 'FAIL'; $failed += $gate.Name }
+              default   { $icon = 'SKIPPED' }
+            }
+            "| $($gate.Name) | $icon |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            Write-Host ("{0,-9} {1}" -f $icon, $gate.Name)
+          }
+          if ($failed.Count -gt 0) {
+            Write-Error "Validation failed after collecting all gates. Failed gate(s): $($failed -join ', ')"
+            exit 1
+          }
+          Write-Host 'All validation gates passed.'
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # E2E Tests (PR only)
+  # ─────────────────────────────────────────────────────────────────────────
+  e2e:
+    name: Playwright E2E tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install Playwright system deps
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
+
+      - name: Run Playwright tests
+        run: pnpm exec playwright test
+        env:
+          CI: 'true'
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Cross-Platform Build
+  # ─────────────────────────────────────────────────────────────────────────
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    needs: [lint, validate]
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── Windows ──
+          - platform: windows-x64
+            os: windows-latest
+            bundle_targets: nsis
+            vcpkg_triplet: x64-windows-static
+          - platform: windows-arm64
+            os: windows-11-arm
+            bundle_targets: nsis
+            vcpkg_triplet: arm64-windows-static
+          # ── Linux (AppImage + deb + rpm in one pass) ──
+          - platform: linux-x64
+            os: ubuntu-latest
+            bundle_targets: appimage,deb,rpm
+          - platform: linux-arm64
+            os: ubuntu-24.04-arm
+            bundle_targets: appimage,deb,rpm
+          # ── macOS ──
+          - platform: macos-x64
+            os: macos-15-intel
+            bundle_targets: dmg,app
+          - platform: macos-arm64
+            os: macos-15
+            bundle_targets: dmg,app
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: ${{ matrix.platform }}
+
+      # ── Windows-specific native deps ──
+      - name: Install Windows build helpers
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install pkgconfiglite cmake ffmpeg -y --no-progress
+
+      - name: Prepare vcpkg binary cache
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $cacheDir = Join-Path $env:RUNNER_TEMP 'vcpkg-archives'
+          New-Item -ItemType Directory -Force $cacheDir | Out-Null
+          "VCPKG_DEFAULT_BINARY_CACHE=$cacheDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Cache vcpkg packages
+        if: runner.os == 'Windows'
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/vcpkg-archives
+          key: vcpkg-${{ matrix.vcpkg_triplet }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            vcpkg-${{ matrix.vcpkg_triplet }}-
+
+      - name: Install Windows static libcurl deps
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not $env:VCPKG_INSTALLATION_ROOT -or -not (Test-Path "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe")) {
+            $vcpkgRoot = Join-Path $env:RUNNER_TEMP 'vcpkg'
+            git clone --depth 1 https://github.com/microsoft/vcpkg $vcpkgRoot
+            & "$vcpkgRoot\bootstrap-vcpkg.bat" -disableMetrics
+            $env:VCPKG_INSTALLATION_ROOT = $vcpkgRoot
+            "VCPKG_INSTALLATION_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "$vcpkgRoot" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+            $env:Path = "$vcpkgRoot;$env:Path"
+          }
+          $triplet = '${{ matrix.vcpkg_triplet || 'x64-windows-static' }}'
+          vcpkg install zlib:$triplet brotli:$triplet zstd:$triplet nghttp2:$triplet libssh2:$triplet curl:$triplet
+          "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "VCPKG_TARGET_TRIPLET=$triplet" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "NOVA_LIBCURL_FEATURE_PROFILE=maximum-stable" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # ── Linux-specific native deps ──
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libcurl4-openssl-dev \
+            libbrotli-dev \
+            libzstd-dev \
+            libnghttp2-dev \
+            libssh2-1-dev \
+            libssh-dev \
+            libldap2-dev \
+            libkrb5-dev \
+            libsystemd-dev \
+            libidn2-dev \
+            librtmp-dev \
+            libpsl-dev \
+            pkg-config \
+            cmake \
+            ffmpeg \
+            unzip \
+            rpm
+
+      # ── macOS-specific native deps ──
+      - name: Install macOS build dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew untap aws/tap 2>/dev/null || true
+          brew install pkg-config cmake curl openssl brotli zstd nghttp2 libssh2 ffmpeg
+
+      - name: Record build start time
+        id: timing
+        run: echo "start=$(date -u +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve build version
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -z "$VERSION" ]; then VERSION="${{ github.ref_name }}"; fi
+          if [ -z "$VERSION" ] || ! echo "$VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+'; then
+            VERSION="v0.1.0+${{ github.run_number }}"
+          fi
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
+          BUILD_ID="${{ github.run_id }}.${{ github.run_attempt }}"
+          echo "BUILD_TAG=$VERSION" >> "$GITHUB_ENV"
+          echo "VITE_APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "WXT_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "BUILD_COMMIT=$SHORT_SHA" >> "$GITHUB_ENV"
+          echo "BUILD_ID=$BUILD_ID" >> "$GITHUB_ENV"
+          echo "BUILD_TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: Stamp version into project files
+        run: node scripts/apply-version.mjs
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Synchronize translation indexes
+        run: pnpm run i18n:sync
+
+      # ── Build ──
+      - name: Fetch engines
+        run: |
+          echo "::group::Engine download log"
+          set -o pipefail
+          pnpm run fetch-engines 2>&1 | tee engines.log || {
+            grep -iE 'error|failed|missing' engines.log | tail -10 | sed 's/^/::error::/'
+            exit 1
+          }
+          echo "::endgroup::"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NOVA_REQUIRE_FFMPEG: '1'
+          NOVA_BUNDLE_SYSTEM_FFMPEG: '1'
+          NOVA_NATIVE_CURL_OPTIONAL: ${{ runner.os == 'Windows' && '1' || '0' }}
+
+      - name: Export native curl link environment (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: node scripts/print-native-curl-env.mjs | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Verify native curl manifest
+        if: runner.os == 'Windows'
+        run: pnpm run native-curl:verify
+
+      - name: Stage Tauri resources
+        run: pnpm run tauri:prepare
+
+      # ── Compile ──
+      - name: Rust compile check
+        run: |
+          echo "::group::Cargo check output"
+          set -o pipefail
+          cargo check --manifest-path src-tauri/Cargo.toml 2>&1 | tee check.log || {
+            awk '/^error(\[|:)/{msg=$0} /^ *-->/{print "::error::" msg " @ " $0; fflush()}' check.log | head -10
+            grep -E '^error' check.log | head -3 | sed 's/^/::error::/'
+            exit 1
+          }
+          echo "::endgroup::"
+
+      - name: Build browser extension packages
+        if: runner.os == 'Windows'
+        run: |
+          pnpm --filter nova-browser-extension verify:offline
+          pnpm run extension:package
+
+      - name: Clean stale bundle output
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (Test-Path src-tauri\target\release\bundle) {
+            Remove-Item src-tauri\target\release\bundle -Recurse -Force -Confirm:$false
+          }
+
+      # ── Package ──
+      - name: Build Tauri installer
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          echo "::group::Tauri build output"
+          set -o pipefail
+          pnpm run tauri:build --bundles ${{ matrix.bundle_targets }} 2>&1 | tee tauri-build.log || {
+            grep -iE '(^|\s)(error|failed)' tauri-build.log | tail -10 | sed 's/^/::error::/'
+            exit 1
+          }
+          echo "::endgroup::"
+
+      - name: Code sign installer (Windows only)
+        if: runner.os == 'Windows' && env.WINDOWS_CERT_BASE64 != ''
+        shell: pwsh
+        env:
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          $certPath = Join-Path $env:RUNNER_TEMP 'nova-signing-cert.pfx'
+          [System.IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_CERT_BASE64))
+          $nsisDir = "src-tauri\target\release\bundle\nsis"
+          $installers = Get-ChildItem -LiteralPath $nsisDir -File -Filter "*.exe" -ErrorAction SilentlyContinue
+          foreach ($installer in $installers) {
+            Write-Host "Signing $($installer.Name)..."
+            $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
+              Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+            if (-not $signtool) {
+              Write-Warning "signtool.exe not found; skipping code signing."
+              break
+            }
+            & $signtool sign /f $certPath /p $env:WINDOWS_CERT_PASSWORD /tr http://timestamp.digicert.com /td sha256 /fd sha256 /d "Nova Download Manager" $installer.FullName
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "  Signed: $($installer.Name)"
+            } else {
+              Write-Warning "  Code signing failed for $($installer.Name) (exit $LASTEXITCODE)"
+            }
+          }
+
+      # ── Prepare release files per platform ──
+      - name: Prepare release files (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = $env:BUILD_TAG -replace '^v', ''
+          New-Item -ItemType Directory -Force release | Out-Null
+          $nsisDir = "src-tauri\target\release\bundle\nsis"
+          if (Test-Path -LiteralPath $nsisDir) {
+            Get-ChildItem -LiteralPath $nsisDir -File -Filter "*.exe" |
+              Where-Object { $_.BaseName -like "*_${version}*" } |
+              ForEach-Object { Copy-Item $_.FullName "release\$($_.Name)" -Force }
+          }
+          Get-ChildItem browser-extension\dist\release-assets\* -File -ErrorAction SilentlyContinue |
+            ForEach-Object { Copy-Item $_.FullName "release\$($_.Name)" -Force }
+
+      - name: Build MSIX package (Microsoft Store)
+        if: matrix.platform == 'windows-x64'
+        run: |
+          if pnpm run msix:build; then
+            cp dist-msix/*.msix release/ 2>/dev/null || true
+          else
+            echo "::notice::MSIX packaging skipped (makeappx/SDK unavailable)"
+          fi
+
+      - name: Prepare release files (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p release
+          find src-tauri/target/release/bundle/appimage -name "*.AppImage" 2>/dev/null | head -5 | while read f; do cp "$f" release/; done
+          find src-tauri/target/release/bundle/deb -name "*.deb" 2>/dev/null | head -5 | while read f; do cp "$f" release/; done
+          find src-tauri/target/release/bundle/rpm -name "*.rpm" 2>/dev/null | head -5 | while read f; do cp "$f" release/; done
+
+      - name: Prepare release files (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p release
+          find src-tauri/target/release/bundle/dmg -name "*.dmg" 2>/dev/null | head -5 | while read f; do cp "$f" release/; done
+
+      - name: Insert OS name before architecture in filenames
+        run: |
+          case "${{ runner.os }}" in
+            Windows) os=windows ;;
+            macOS)   os=macos ;;
+            Linux)   os=linux ;;
+            *)       os=unknown ;;
+          esac
+          cd release
+          shopt -s nullglob
+          for f in *.exe *.msix *.dmg *.deb *.AppImage; do
+            [ -f "$f" ] || continue
+            new=$(echo "$f" | sed -E "s/([_-])(x64|arm64|aarch64|amd64|i686)([-.])/\1${os}_\2\3/")
+            [ "$new" != "$f" ] && mv "$f" "$new"
+          done
+          for f in *.rpm; do
+            [ -f "$f" ] || continue
+            new=$(echo "$f" | sed -E "s/\.(x86_64|aarch64|i686)\.rpm$/.${os}.\1.rpm/")
+            [ "$new" != "$f" ] && mv "$f" "$new"
+          done
+          ls -la
+
+      # ── Checksums & attestation ──
+      - name: Generate SHA-256 checksums
+        run: |
+          if command -v sha256sum >/dev/null 2>&1; then
+            hash_cmd() { sha256sum "$1" | cut -d' ' -f1; }
+          else
+            hash_cmd() { shasum -a 256 "$1" | cut -d' ' -f1; }
+          fi
+          mkdir -p release
+          cd release
+          for f in *; do
+            if [ -f "$f" ]; then
+              echo "$(hash_cmd "$f")  $f" >> SHA256SUMS.txt
+            fi
+          done
+
+      - name: Attest build provenance
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: release/*
+
+      - name: Record build end time
+        if: always()
+        id: timing_end
+        run: echo "end=$(date -u +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Build duration
+        if: always() && steps.timing.outputs.start && steps.timing_end.outputs.end
+        run: |
+          duration=$(( steps.timing_end.outputs.end - steps.timing.outputs.start ))
+          echo "### ${{ matrix.platform }} — ${duration}s" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: Nova-${{ matrix.platform }}-${{ env.BUILD_TAG }}-${{ env.BUILD_COMMIT }}
+          path: release/*
+          retention-days: 30
+          compression-level: 0
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Publish GitHub Release (tags only)
+  # ─────────────────────────────────────────────────────────────────────────
+  publish:
+    name: Publish release artifacts
+    runs-on: ubuntu-latest
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: artifacts/
+          pattern: Nova-*
+          merge-multiple: true
+
+      - name: Collect release files
+        run: |
+          mkdir -p release
+          find artifacts -type f \( \
+              -name '*.exe' -o -name '*.msix' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' \
+              -o -name '*.AppImage' -o -name '*.zip' -o -name '*.xpi' \
+            \) -exec cp {} release/ \;
+          cd release
+          for f in *; do
+            [ -f "$f" ] && echo "$(sha256sum "$f" | cut -d' ' -f1)  $f" >> SHA256SUMS.txt
+          done
+          echo "## Collected artifacts" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          ls -la >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Attest release bundle
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: release/*
+
+      - name: Checkout packaging scripts
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          path: _repo
+
+      - name: Generate package manifests (winget / Scoop / Homebrew)
+        run: node _repo/scripts/generate-package-manifests.mjs "${GITHUB_REF_NAME#v}" release || true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Nova Download Manager ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            release/*
+            release/packaging/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Build Matrix Summary
+  # ─────────────────────────────────────────────────────────────────────────
+  build-summary:
+    name: Build matrix summary
+    runs-on: ubuntu-latest
+    needs: build
+    if: always()
+    permissions:
+      contents: read
+
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: artifacts/
+          pattern: Nova-*
+          merge-multiple: true
+
+      - name: Summarize build matrix
+        if: always()
+        run: |
+          echo "## Cross-Platform Build Matrix" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Platform | Status | Artifacts | Total Size |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- | --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+
+          for artifact_dir in artifacts/Nova-*/; do
+            [ ! -d "$artifact_dir" ] && continue
+            dir_name=$(basename "$artifact_dir")
+            platform=$(echo "$dir_name" | sed 's/^Nova-//' | sed 's/-v[0-9].*//' | sed 's/-[a-f0-9]\{8\}$//')
+            count=$(find "$artifact_dir" -type f ! -name SHA256SUMS.txt ! -name build-metadata.json | wc -l | tr -d ' ')
+            size_bytes=$(du -sb "$artifact_dir" | cut -f1)
+            if [ "$size_bytes" -ge 1073741824 ]; then
+              size_str="$(echo "scale=2; $size_bytes/1073741824" | bc) GB"
+            elif [ "$size_bytes" -ge 1048576 ]; then
+              size_str="$(echo "scale=2; $size_bytes/1048576" | bc) MB"
+            else
+              size_str="$(echo "scale=2; $size_bytes/1024" | bc) KB"
+            fi
+            if [ "$count" -gt 0 ]; then
+              file_list=$(find "$artifact_dir" -type f ! -name SHA256SUMS.txt ! -name build-metadata.json -printf "%f\n" | sort | tr '\n' ', ' | sed 's/,$//')
+              echo "| ${platform} | PASS | ${count} file(s): ${file_list} | ${size_str} |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "| ${platform} | PASS | 0 artifacts | ${size_str} |" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Build Metadata" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Commit**: \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Branch**: \`${{ github.ref_name }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Runner**: ${{ runner.os }} / ${{ runner.arch }}" >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "- **Release channel**: Stable" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- **Release channel**: Development (PR #${{ github.event.pull_request.number || 'N/A' }})" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Overall result**: ${{ needs.build.result == 'success' && 'All builds passed' || 'One or more builds failed' }}" >> "$GITHUB_STEP_SUMMARY"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Release (manual trigger only)
+  # ─────────────────────────────────────────────────────────────────────────
+  release:
+    name: Create release
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    environment:
+      name: release
+      url: https://github.com/${{ github.repository }}/releases/tag/v${{ inputs.version }}
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate version format
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if ! echo "$INPUT_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
+            echo "::error::Invalid version format '$INPUT_VERSION'. Expected: X.Y.Z or X.Y.Z-prerelease"
+            exit 1
+          fi
+
+      - name: Check version not already published
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          TAG="v${INPUT_VERSION}"
+          if git ls-remote --tags origin | grep -q "refs/tags/$TAG$"; then
+            echo "::error::Tag $TAG already exists"
+            exit 1
+          fi
+
+      - name: Bump version in tauri.conf.json
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          jq --arg v "$INPUT_VERSION" '.version = $v' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
+          mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+
+      - name: Bump version in package.json
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = process.env.INPUT_VERSION;
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      - name: Stamp version into all project files
+        run: node scripts/apply-version.mjs
+
+      - name: Generate changelog from commits
+        id: changelog
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_CHANGELOG: ${{ inputs.changelog }}
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            RANGE="${LAST_TAG}..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+
+          CHANGELOG=$(git log $RANGE --pretty=format:"- %s (%h)" --no-merges 2>/dev/null || echo "- Initial release")
+
+          {
+            if [ -n "$INPUT_CHANGELOG" ]; then
+              echo "$INPUT_CHANGELOG"
+              echo ""
+              echo "## Changes"
+            else
+              echo "## Changes"
+            fi
+            echo ""
+            echo "$CHANGELOG"
+          } > /tmp/changelog.md
+
+          {
+            echo "notes<<CHANGELOG_EOF"
+            cat /tmp/changelog.md
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Commit version bump
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json src-tauri/tauri.conf.json
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "chore: release v${INPUT_VERSION}"
+          git push origin main
+
+      - name: Create and push tag
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          git tag -a "v${INPUT_VERSION}" -m "Release v${INPUT_VERSION}"
+          git push origin "v${INPUT_VERSION}"
+
+      - name: Create GitHub Release (draft)
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ inputs.version }}
+          name: "Nova Download Manager v${{ inputs.version }}"
+          draft: true
+          generate_release_notes: false
+          body: ${{ steps.changelog.outputs.notes }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          echo "## Release v${INPUT_VERSION}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Version bumped in package.json and tauri.conf.json" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tag \`v${INPUT_VERSION}\` created and pushed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- GitHub Release created as **draft**" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "The \`ci.yml\` workflow will automatically:" >> "$GITHUB_STEP_SUMMARY"
+          echo "1. Build Windows (x64, ARM64), Linux (x64, ARM64), macOS (x64, ARM64)" >> "$GITHUB_STEP_SUMMARY"
+          echo "2. Attest build provenance for supply-chain security" >> "$GITHUB_STEP_SUMMARY"
+          echo "3. Upload artifacts and publish the release" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Review and publish the release when builds complete." >> "$GITHUB_STEP_SUMMARY"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Dependabot Auto-merge
+  # ─────────────────────────────────────────────────────────────────────────
+  dependabot-auto-merge:
+    name: Evaluate Dependabot update
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge for low-risk updates
+        if: >-
+          ${{
+            steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+            (steps.meta.outputs.update-type == 'version-update:semver-minor' &&
+             steps.meta.outputs.package-ecosystem != 'cargo')
+          }}
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Flag higher-risk updates for manual review
+        if: >-
+          ${{
+            steps.meta.outputs.update-type == 'version-update:semver-major' ||
+            (steps.meta.outputs.update-type == 'version-update:semver-minor' &&
+             steps.meta.outputs.package-ecosystem == 'cargo')
+          }}
+        run: |
+          gh label create needs-manual-review \
+            --color FBCA04 \
+            --description "Dependabot update held for manual review" \
+            --force || true
+          gh pr edit "$PR_URL" --add-label needs-manual-review
+          gh pr comment "$PR_URL" --body "Manual review required. This is a \`${{ steps.meta.outputs.update-type }}\` update for \`${{ steps.meta.outputs.package-ecosystem }}\` (${{ steps.meta.outputs.dependency-names }}). Auto-merge is intentionally disabled for this class of change -- please review the upstream changelog, confirm CI is green, and merge manually."
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,130 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Nova Download Manager",
+  "version": "0.1.0",
+  "identifier": "com.nova.downloadmanager",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://127.0.0.1:3000",
+    "beforeBuildCommand": "pnpm run tauri:prepare"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "NOVA Download Manager",
+        "width": 900,
+        "height": 600,
+        "minWidth": 900,
+        "minHeight": 600,
+        "decorations": false,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http://127.0.0.1:*; font-src 'self' data: https://fonts.gstatic.com https://fonts.googleapis.com; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* ws://127.0.0.1:*; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; media-src 'none'; worker-src 'self'"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://__UPDATER_ENDPOINT__"],
+      "pubkey": "__UPDATER_PUBKEY__"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "publisher": "NOVA",
+    "copyright": "Copyright (c) 2026 NOVA",
+    "category": "Utility",
+    "shortDescription": "Professional download manager for direct and media downloads.",
+    "longDescription": "Nova Download Manager is a professional desktop download manager with direct downloads, media downloads, queues, scheduling, diagnostics, and advanced connection controls.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "resources/**/*"
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0",
+          "libayatana-appindicator3-1",
+          "librsvg2-2",
+          "libcurl4",
+          "libssl3",
+          "libssh2-1",
+          "libnghttp2-14",
+          "libbrotli1",
+          "libzstd1",
+          "ffmpeg"
+        ],
+        "section": "net",
+        "priority": "optional"
+      },
+      "appimage": {
+        "bundleMediaFramework": true
+      },
+      "rpm": {
+        "depends": [
+          "webkit2gtk4.1",
+          "gtk3",
+          "libappindicator-gtk3",
+          "librsvg2",
+          "libcurl",
+          "openssl",
+          "libssh2",
+          "nghttp2",
+          "brotli",
+          "zstd",
+          "ffmpeg"
+        ]
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    },
+    "windows": {
+      "allowDowngrades": false,
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "wix": null,
+      "nsis": {
+        "template": "./windows/installer-template.nsi",
+        "installerHooks": "./windows/hooks.nsi",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "installMode": "perMachine",
+        "languages": [
+          "English",
+          "Arabic",
+          "French",
+          "German",
+          "Spanish",
+          "Portuguese",
+          "Italian",
+          "Japanese",
+          "Korean",
+          "SimpChinese",
+          "TradChinese",
+          "Russian",
+          "Turkish"
+        ],
+        "displayLanguageSelector": true,
+        "compression": "lzma",
+        "startMenuFolder": "Nova Download Manager",
+        "headerImage": "./windows/installer-header.bmp",
+        "sidebarImage": "./windows/installer-sidebar.bmp",
+        "uninstallerHeaderImage": "./windows/installer-header.bmp"
+      }
+    }
+  }
+}

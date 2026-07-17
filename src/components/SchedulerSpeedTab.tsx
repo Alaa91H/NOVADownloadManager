@@ -1,0 +1,82 @@
+﻿import React from 'react';
+import { Sliders } from 'lucide-react';
+import { SpeedLimitInput } from './SpeedLimitInput';
+import { useI18n } from '../store/selectors';
+
+interface SchedulerSpeedTabProps {
+  limitSpeed: boolean;
+  onLimitSpeedChange: (v: boolean) => void;
+  speedLimitKbs: number;
+  onSpeedLimitChange: (v: number) => void;
+  oneTimeLimit: boolean;
+  onOneTimeLimitChange: (v: boolean) => void;
+}
+
+export const SchedulerSpeedTab: React.FC<SchedulerSpeedTabProps> = ({
+  limitSpeed,
+  onLimitSpeedChange,
+  speedLimitKbs,
+  onSpeedLimitChange,
+  oneTimeLimit,
+  onOneTimeLimitChange,
+}) => {
+  const t = useI18n();
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between bg-[var(--bg-hover)]/40 p-3 rounded-lg border border-[var(--border-color)] shadow-sm">
+        <div className="flex flex-col text-right">
+          <span className="text-xs md:text-sm font-bold text-[var(--text-primary)]">{t('sched_speed_limiter')}</span>
+          <span className="text-[10px] text-[var(--text-muted)]">{t('sched_speed_limiter_desc')}</span>
+        </div>
+        <input
+          type="checkbox"
+          checked={limitSpeed}
+          onChange={(e) => {
+            onLimitSpeedChange(e.target.checked);
+          }}
+          className="w-4.5 h-4.5 rounded text-[var(--accent-primary)] focus-visible:ring-[var(--accent-primary)] cursor-pointer"
+        />
+      </div>
+
+      {limitSpeed && (
+        <div className="p-4 bg-[var(--bg-input)]/40 border border-[var(--border-color)] rounded-xl space-y-4 shadow-inner">
+          <div className="space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <span className="text-xs text-[var(--text-secondary)] font-bold">{t('sched_set_max_speed')}</span>
+              <div dir="ltr">
+                <SpeedLimitInput
+                  maxSpeedKbs={speedLimitKbs}
+                  onChange={(v) => {
+                    onSpeedLimitChange(v);
+                  }}
+                  compact={false}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5 text-xs text-[var(--text-secondary)] leading-relaxed bg-[var(--warning)]/5 border border-[var(--warning)]/10 p-3 rounded-lg">
+            <Sliders className="w-4 h-4 text-[var(--warning)] shrink-0" />
+            <span>{t('sched_speed_limit_note')}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between bg-[var(--bg-hover)]/40 p-3 rounded-lg border border-[var(--border-color)] shadow-sm">
+        <div className="flex flex-col text-right">
+          <span className="text-xs md:text-sm font-bold text-[var(--text-primary)]">{t('sched_one_time_speed')}</span>
+          <span className="text-[10px] text-[var(--text-muted)]">{t('sched_one_time_speed_desc')}</span>
+        </div>
+        <input
+          type="checkbox"
+          checked={oneTimeLimit}
+          onChange={(e) => {
+            onOneTimeLimitChange(e.target.checked);
+          }}
+          className="w-4.5 h-4.5 rounded text-[var(--accent-primary)] focus-visible:ring-[var(--accent-primary)] cursor-pointer"
+        />
+      </div>
+    </div>
+  );
+};
