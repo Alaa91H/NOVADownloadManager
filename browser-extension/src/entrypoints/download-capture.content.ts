@@ -72,7 +72,9 @@ export default defineContentScript({
       if (setting) isNovaEnabled = setting.enabled !== false;
     }).catch(() => {});
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic event guard wrapper
     function guard(fn: (...args: any[]) => void): (...args: any[]) => void {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (...args: any[]) => { if (isNovaEnabled) fn(...args); };
     }
 
@@ -251,8 +253,6 @@ export default defineContentScript({
 
     // ── 8. NAVIGATE-TO-BLOB: Intercept navigation to blob: URLs ────────
     // Some sites do location.href = createObjectURL(blob)
-    const OriginalAssign2 = window.location.assign;
-    const OriginalReplace2 = window.location.replace;
     try {
       const locProto2 = Object.getPrototypeOf(window.location) as Location;
       const origAssign2 = locProto2.assign.bind(window.location);

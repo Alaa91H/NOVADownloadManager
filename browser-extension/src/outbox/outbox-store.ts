@@ -1,7 +1,6 @@
 import Dexie, { Table } from 'dexie';
 import { MAX_OUTBOX_JOBS, OUTBOX_DEAD_LETTER_RETENTION_DAYS, OUTBOX_SENT_RETENTION_DAYS } from '../contracts/limits';
 import { NovaExtensionError } from '../core/error-classification';
-import { legacyStoragePrefix } from '../core/legacy-names';
 import { HandoffJob } from './handoff-job';
 
 class OutboxDb extends Dexie {
@@ -14,39 +13,10 @@ class OutboxDb extends Dexie {
   }
 }
 
-const LEGACY_OUTBOX_DB_NAME = `${legacyStoragePrefix()}-outbox`;
-
-class LegacyOutboxDb extends Dexie {
-  jobs!: Table<HandoffJob, string>;
-
-  constructor() {
-    super(LEGACY_OUTBOX_DB_NAME);
-    this.version(1).stores({ jobs: 'id,status,nextRetryAt,idempotencyKey,updatedAt' });
-    this.version(2).stores({ jobs: 'id,status,nextRetryAt,idempotencyKey,updatedAt,leaseExpiresAt' });
-  }
-}
-
-async function migrateLegacyOutbox(db: OutboxDb): Promise<void> {
-  if (!(await Dexie.exists(LEGACY_OUTBOX_DB_NAME))) return;
-  const existingJobs = await db.jobs.count();
-  const legacy = new LegacyOutboxDb();
-  try {
-    const jobs = await legacy.jobs.toArray();
-    if (existingJobs === 0 && jobs.length > 0) await db.jobs.bulkPut(jobs);
-    await legacy.delete();
-  } finally {
-    legacy.close();
-  }
-}
-
 export class OutboxStore {
   private readonly db = new OutboxDb();
-  private migration?: Promise<void>;
 
-  private async ready(): Promise<void> {
-    this.migration ??= migrateLegacyOutbox(this.db);
-    await this.migration;
-  }
+  private async ready(): Promise<void> {}
 
   async add(job: HandoffJob): Promise<void> {
     await this.addIfAbsent(job);

@@ -27,7 +27,7 @@ requireContains('src/capabilities/EngineCapabilityContext.tsx', 'supportsStreamC
 
 const desktopScreens = [
   ['src/dialogs/download/AddDownloadDialog.tsx', ['useEngineCapabilities', 'sanitizeDirectOptions', 'directBlockedReason']],
-  ['src/dialogs/download/BatchImportDialog.tsx', ['useEngineCapabilities', 'supportsDirectProtocol', 'sanitizeDirectOptions']],
+  ['src/pages/BatchImportPage.tsx', ['useEngineCapabilities', 'supportsDirectProtocol', 'sanitizeDirectOptions']],
   ['src/dialogs/tasks/TaskPropertiesDialog.tsx', ['useEngineCapabilities', 'supportsDirectOption']],
 ];
 for (const [file, needles] of desktopScreens) {

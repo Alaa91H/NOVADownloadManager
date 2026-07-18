@@ -20,7 +20,7 @@ function startKeepAlive(): void {
   }, 15000);
 }
 
-function stopKeepAlive(): void {
+function _stopKeepAlive(): void {
   if (keepAliveInterval) {
     clearInterval(keepAliveInterval);
     keepAliveInterval = undefined;

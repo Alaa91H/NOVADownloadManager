@@ -3,7 +3,7 @@ import { bridgeManager } from '../bridge/bridge-manager';
 import { CandidatePipeline } from '../capture/candidate-pipeline';
 import { RuntimeMessage, RuntimeMessageSchema, SiteRulesImportSchema } from '../contracts/messages.schema';
 import { AGGRESSIVE_MAX_SCAN_HTML_CHARS, AGGRESSIVE_MAX_SCAN_JSON_LD_ITEMS, AGGRESSIVE_MAX_SCAN_JSON_LD_SCRIPT_CHARS, AGGRESSIVE_MAX_SCAN_JSON_LD_TOTAL_CHARS, AGGRESSIVE_MAX_SCAN_LINKS, AGGRESSIVE_MAX_SCAN_MEDIA, AGGRESSIVE_MAX_SCAN_OPEN_GRAPH, AGGRESSIVE_MAX_SCAN_REQUESTS_PER_TAB_PER_MINUTE, IDEMPOTENCY_SCHEMA_VERSION, MAX_CANDIDATES_PER_TAB, MAX_CANDIDATE_CACHE_BYTES_PER_TAB, MAX_DIAGNOSTICS_EXPORT_BYTES, MAX_EVENT_MESSAGE_BYTES, MAX_EVENT_PARSE_ERRORS_PER_CONNECTION, MAX_HANDOFF_CANDIDATES, MAX_HANDOFF_PAYLOAD_BYTES, MAX_HTTP_REQUEST_PAYLOAD_BYTES, MAX_HTTP_RESPONSE_BYTES, MAX_NATIVE_MESSAGE_BYTES, MAX_OUTBOX_JOBS, MAX_SCAN_HTML_CHARS, MAX_SCAN_JSON_LD_ITEMS, MAX_SCAN_JSON_LD_SCRIPT_CHARS, MAX_SCAN_JSON_LD_TOTAL_CHARS, MAX_SCAN_LINKS, MAX_SCAN_MEDIA, MAX_SCAN_OPEN_GRAPH, MAX_SCAN_REQUESTS_PER_TAB_PER_MINUTE, MAX_SETTINGS_IMPORT_BYTES, MAX_SITE_RULES, MAX_SITE_RULES_IMPORT_BYTES, MAX_SSE_BUFFER_BYTES, MAX_RUNTIME_MESSAGE_BYTES, MAX_TASK_ID_CHARS, OUTBOX_DEAD_LETTER_RETENTION_DAYS, OUTBOX_SENT_RETENTION_DAYS } from '../contracts/limits';
-import { migrateSettingsInput, SettingsSchema } from '../contracts/settings.schema';
+import { SettingsSchema } from '../contracts/settings.schema';
 import { ListTasksResponseSchema } from '../contracts/runtime-response.schema';
 import { classifyByUrl, mediaTypeFromMime } from '../pipeline/mime-detector';
 import { extensionOf } from '../utils/url';
@@ -350,13 +350,12 @@ async function clearCandidates(tabId?: number): Promise<{ ok: true }> {
 }
 
 async function updateSettings(partial: Record<string, unknown>): Promise<unknown> {
-  const migratedPartial = migrateSettingsInput(partial) as Record<string, unknown>;
-  assertStorageBudget('settings-import', migratedPartial);
+  assertStorageBudget('settings-import', partial);
   const current = await settingsStore.get();
   const next = SettingsSchema.parse({
     ...current,
-    ...migratedPartial,
-    capture: { ...current.capture, ...(typeof migratedPartial.capture === 'object' && migratedPartial.capture ? migratedPartial.capture : {}) },
+    ...partial,
+    capture: { ...current.capture, ...(typeof partial.capture === 'object' && partial.capture ? partial.capture : {}) },
   });
   if (next.capture.aggressiveMode) await assertAggressiveAllSitesAccess();
   await settingsStore.set(next);
@@ -385,11 +384,10 @@ async function exportSettings(): Promise<unknown> {
 }
 
 async function importSettings(settings: unknown): Promise<unknown> {
-  const migratedSettings = migrateSettingsInput(settings);
-  assertStorageBudget('settings-import', migratedSettings);
+  assertStorageBudget('settings-import', settings);
   // Imports come from user-supplied JSON, so validate defensively and surface a
   // clean VALIDATION_FAILED error instead of letting a raw ZodError propagate.
-  const result = SettingsSchema.safeParse(migratedSettings);
+  const result = SettingsSchema.safeParse(settings);
   if (!result.success) {
     throw new NovaExtensionError({
       code: 'VALIDATION_FAILED',

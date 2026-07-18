@@ -97,7 +97,7 @@ describe('BridgeManager (loopback HTTP reachable)', () => {
   it('reports connected when loopback HTTP is reachable even if Native Messaging is missing', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn((input: RequestInfo | URL) => {
+      vi.fn((input: string | URL) => {
         const url = String(input);
         if (url.endsWith('/v1/ping')) {
           return Promise.resolve(

@@ -226,7 +226,6 @@ export function PopupApp() {
       await scan({ quiet: true });
       setAutoScanned(true);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot on first open
   }, [autoScanned, busy]);
 
   useEffect(() => {
@@ -282,14 +281,6 @@ export function PopupApp() {
     } finally {
       setBusy(false);
       void refresh(false);
-    }
-  }
-
-  /** Download → expand panel and show captured videos (rescan if empty). */
-  async function handleDownloadExpand(): Promise<void> {
-    setExpanded(true);
-    if (videoCandidates.length === 0) {
-      await scan();
     }
   }
 
@@ -370,18 +361,6 @@ export function PopupApp() {
       setBusy(false);
       void refresh(false);
     }
-  }
-
-  /** Download all → expand, then send/download every handoffable video. */
-  async function handleDownloadAll(): Promise<void> {
-    setExpanded(true);
-    let list = videoCandidates;
-    if (list.length === 0) {
-      const found = await scan();
-      list = found.filter(isVideoCand);
-    }
-    if (list.length === 0) return;
-    await sendAll(list);
   }
 
   async function sendSelected(): Promise<void> {

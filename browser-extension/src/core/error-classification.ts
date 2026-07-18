@@ -1,7 +1,4 @@
 import { ErrorCode, ErrorCodeSchema } from '../contracts/errors.schema';
-import { legacyUpperProductToken } from './legacy-names';
-
-const legacyNotRunningCode = (): string => `${legacyUpperProductToken()}_NOT_RUNNING`;
 
 export type ErrorLikeBody = {
   code?: unknown;
@@ -51,8 +48,7 @@ export function defaultRetryable(code: ErrorCode, status?: number): boolean {
 export function parseErrorBody(body: unknown, status?: number): { code: ErrorCode; message: string; retryable: boolean; repairHint?: string; details?: unknown } {
   const record = body && typeof body === 'object' ? body as ErrorLikeBody : {};
   const rawCode = typeof record.code === 'string' ? record.code : typeof record.errorCode === 'string' ? record.errorCode : undefined;
-  const normalizedCode = rawCode === legacyNotRunningCode() ? 'NOVA_NOT_RUNNING' : rawCode;
-  const parsedCode = ErrorCodeSchema.safeParse(normalizedCode);
+  const parsedCode = ErrorCodeSchema.safeParse(rawCode);
   const code = parsedCode.success ? parsedCode.data : errorCodeFromStatus(status);
   const nestedError = record.error;
   const nestedMessage = nestedError && typeof nestedError === 'object' && 'message' in nestedError ? (nestedError as { message?: unknown }).message : undefined;

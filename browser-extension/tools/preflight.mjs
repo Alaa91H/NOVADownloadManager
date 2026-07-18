@@ -51,16 +51,6 @@ for (const term of [
   if (!storePolicy.includes(term)) fail(`store permission policy term missing: ${term}`);
 }
 
-function assertFileIncludes(path, term, label = path) {
-  const content = readFileSync(path, 'utf8');
-  if (!content.includes(term)) fail(`${label} term missing: ${term}`);
-}
-
-function assertFilesInclude(paths, term, label) {
-  const content = paths.map((path) => readFileSync(path, 'utf8')).join('\n');
-  if (!content.includes(term)) fail(`${label} term missing: ${term}`);
-}
-
 const result = spawnSync(process.execPath, ['--version'], { encoding: 'utf8' });
 if (result.status !== 0) fail('Node executable health check failed.');
 console.log(`Production preflight passed on ${process.version}.`);

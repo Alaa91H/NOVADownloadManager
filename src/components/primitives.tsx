@@ -5,25 +5,6 @@ import type { LucideIcon } from 'lucide-react';
 import { useI18n } from '../store/selectors';
 import type { DownloadStatus } from '../types/desktop-ui.types';
 
-// --- Card primitive ---
-interface CardProps {
-  children: ReactNode;
-  className?: string;
-  id?: string;
-  onClick?: () => void;
-}
-export const Card: React.FC<CardProps> = ({ children, className = '', id, onClick }) => {
-  return (
-    <div
-      id={id}
-      onClick={onClick}
-      className={`acrylic-card density-p ${onClick ? 'cursor-pointer select-none active:scale-[0.99]' : ''} ${className}`}
-    >
-      {children}
-    </div>
-  );
-};
-
 // --- Button Primitives ---
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
@@ -69,47 +50,6 @@ export const Button: React.FC<ButtonProps> = ({
     >
       {Icon && <Icon className="w-3.5 h-3.5" />}
       <span>{children}</span>
-    </button>
-  );
-};
-
-// --- IconButton ---
-interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  icon: LucideIcon;
-  size?: 'sm' | 'md' | 'lg';
-  variant?: 'primary' | 'secondary' | 'ghost';
-  tooltip?: string;
-}
-export const IconButton: React.FC<IconButtonProps> = ({
-  icon: Icon,
-  size = 'md',
-  variant = 'ghost',
-  tooltip,
-  className = '',
-  ...props
-}) => {
-  const sizeStyles = {
-    sm: 'p-0.5 rounded-sm',
-    md: 'p-1 md:p-1.5 rounded-md',
-    lg: 'p-2 rounded-lg',
-  };
-
-  const variantStyles = {
-    primary:
-      'bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-hover)] border border-[var(--accent-border)] shadow-sm',
-    secondary:
-      'bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-[var(--border-color-hover)] border border-[var(--border-color)]',
-    ghost: 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]',
-  };
-
-  return (
-    <button
-      title={tooltip}
-      aria-label={tooltip}
-      className={`interactive-btn flex items-center justify-center transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--bg-surface-elevated)] ${sizeStyles[size]} ${variantStyles[variant]} ${className}`}
-      {...props}
-    >
-      <Icon className="w-3.5 h-3.5 md:w-4 md:h-4" />
     </button>
   );
 };
@@ -272,51 +212,6 @@ export const FormRow: React.FC<FormRowProps> = ({ label, children, id }) => {
   );
 };
 
-// --- Tabs ---
-interface TabOption {
-  id: string;
-  label: string;
-  icon?: LucideIcon;
-}
-interface TabsProps {
-  options: TabOption[];
-  activeId: string;
-  onChange: (id: string) => void;
-  id?: string;
-}
-export const Tabs: React.FC<TabsProps> = ({ options, activeId, onChange, id }) => {
-  return (
-    <div
-      id={id}
-      className="flex gap-1 bg-[var(--bg-hover)] p-1 rounded-lg border border-[var(--border-color)] overflow-x-auto"
-    >
-      {options.map((opt) => {
-        const Icon = opt.icon;
-        const isActive = opt.id === activeId;
-        return (
-          <button
-            key={opt.id}
-            onClick={() => {
-              onChange(opt.id);
-            }}
-            className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--bg-surface-elevated)] ${
-              isActive
-                ? 'bg-[var(--bg-surface-elevated)] text-[var(--accent-primary)] shadow-sm'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
-            }`}
-          >
-            {Icon && <Icon className="w-3.5 h-3.5" />}
-            <span>{opt.label}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
-};
-
-// --- SegmentedControl ---
-export const SegmentedControl = Tabs;
-
 // --- StatusPill ---
 interface StatusPillProps {
   status: DownloadStatus;
@@ -345,29 +240,3 @@ const StatusPillInner: React.FC<StatusPillProps> = ({ status }) => {
 };
 
 export const StatusPill = React.memo(StatusPillInner);
-
-// --- ProgressBar ---
-interface ProgressBarProps {
-  progress: number;
-  speedText?: string;
-  showText?: boolean;
-}
-export const ProgressBar: React.FC<ProgressBarProps> = ({ progress, speedText, showText = true }) => {
-  const boundedProgress = Math.max(0, Math.min(100, progress));
-  return (
-    <div className="w-full flex flex-col gap-1 text-ui">
-      <div className="relative w-full h-2 md:h-2.5 bg-[var(--progress-track)] rounded-full overflow-hidden border border-[var(--border-color)]">
-        <div
-          className="absolute top-0 bottom-0 left-auto right-0 bg-[var(--accent-primary)] accent-glow rounded-full transition-all duration-300"
-          style={{ width: `${String(boundedProgress)}%` }}
-        />
-      </div>
-      {showText && (
-        <div className="flex justify-between items-center text-[10px] text-[var(--text-muted)]">
-          <span>{boundedProgress}%</span>
-          {speedText && <span className="font-mono text-left">{speedText}</span>}
-        </div>
-      )}
-    </div>
-  );
-};

@@ -74,46 +74,6 @@ async function getBuildVersion(): Promise<string> {
   }
 }
 
-function normalizeVersion(version: string): number[] {
-  return version
-    .replace(/^v/i, '')
-    .split(/[+-]/, 1)[0]
-    .split('.')
-    .map((part) => Number.parseInt(part, 10))
-    .map((part) => (Number.isFinite(part) ? part : 0));
-}
-
-function _isVersionGreater(latest: string, current: string): boolean {
-  const latestParts = normalizeVersion(latest);
-  const currentParts = normalizeVersion(current);
-  const length = Math.max(latestParts.length, currentParts.length, 3);
-  for (let index = 0; index < length; index += 1) {
-    const latestPart = latestParts[index] || 0;
-    const currentPart = currentParts[index] || 0;
-    if (latestPart > currentPart) return true;
-    if (latestPart < currentPart) return false;
-  }
-  return false;
-}
-
-function _installerAssetUrl(assets: unknown[], fallbackUrl: string): string {
-  const candidates = assets
-    .map((asset) => (asset && typeof asset === 'object' ? (asset as Record<string, unknown>) : null))
-    .filter((asset): asset is Record<string, unknown> => Boolean(asset))
-    .map((asset) => ({
-      name: typeof asset.name === 'string' ? asset.name.toLowerCase() : '',
-      url: typeof asset.browser_download_url === 'string' ? asset.browser_download_url : '',
-    }))
-    .filter((asset) => asset.url);
-
-  return (
-    candidates.find((asset) => asset.name.includes('setup') && asset.name.endsWith('.exe'))?.url ||
-    candidates.find((asset) => asset.name.endsWith('.exe'))?.url ||
-    candidates.find((asset) => asset.name.endsWith('.msi'))?.url ||
-    fallbackUrl
-  );
-}
-
 function parseProxyEndpoint(proxyUrl: string): { host: string; port: number } | null {
   try {
     const parsed = new URL(proxyUrl);

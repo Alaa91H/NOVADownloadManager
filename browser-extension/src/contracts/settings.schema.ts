@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { legacyPascalProductToken } from '../core/legacy-names';
 
 export const MediaTypeFilterSchema = z.enum(['video', 'audio', 'image', 'document', 'archive', 'app', 'torrent', 'magnet', 'manifest', 'other']);
 
@@ -25,21 +24,6 @@ export const CaptureSettingsSchema = z.object({
 
 export const CaptureProfileSchema = z.enum(['store-safe', 'smart', 'aggressive', 'power-user', 'enterprise']);
 export type CaptureProfile = z.infer<typeof CaptureProfileSchema>;
-
-function legacyOpenAfterSendKey(): string {
-  return `open${legacyPascalProductToken()}AfterSend`;
-}
-
-export function migrateSettingsInput(value: unknown): unknown {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-  const next: Record<string, unknown> = { ...(value as Record<string, unknown>) };
-  const openAfterSendKey = legacyOpenAfterSendKey();
-  if (next.openNovaAfterSend === undefined && next[openAfterSendKey] !== undefined) {
-    next.openNovaAfterSend = next[openAfterSendKey];
-  }
-  delete next[openAfterSendKey];
-  return next;
-}
 
 export const SettingsSchema = z.object({
   enabled: z.boolean().default(true),

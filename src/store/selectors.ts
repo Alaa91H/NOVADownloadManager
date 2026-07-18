@@ -17,28 +17,6 @@ export function useTaskSelectors() {
   return { selectedTaskId };
 }
 
-export function useSelectedTask() {
-  const tasks = useStore(taskStore, (s) => s.tasks);
-  const selectedTaskId = useStore(uiStore, (s) => s.selectedTaskId);
-  return tasks.find((t) => t.id === selectedTaskId) ?? null;
-}
-
-export function useTaskCounts() {
-  return useStore(taskStore, useShallow((s) => {
-    let active = 0, queued = 0, completed = 0, paused = 0, error = 0;
-    for (const t of s.tasks) {
-      switch (t.status) {
-        case 'downloading': active++; break;
-        case 'queued': queued++; break;
-        case 'completed': completed++; break;
-        case 'paused': paused++; break;
-        case 'error': error++; break;
-      }
-    }
-    return { activeCount: active, queuedCount: queued, completedCount: completed, pausedCount: paused, errorCount: error } as const;
-  }));
-}
-
 export function useTaskActions() {
   return useMemo(() => ({
     setSelectedTaskId: uiStore.getState().setSelectedTaskId,

@@ -3,19 +3,6 @@ import { Logger } from './logger';
 const log = new Logger('safe-catch');
 
 /**
- * Wraps an async function so that errors are logged instead of becoming
- * unhandled promise rejections. Useful for event listeners that must not throw.
- */
-export function safeCatch(context: string, fn: () => Promise<unknown>): () => void {
-  return () => {
-    fn().catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      log.warn(`Caught in "${context}": ${message}`, error);
-    });
-  };
-}
-
-/**
  * Awaits a promise and returns `undefined` on rejection (error is logged).
  * Use when the caller can tolerate a silent skip.
  */

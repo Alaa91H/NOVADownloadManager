@@ -108,8 +108,6 @@
   Delete "$INSTDIR\aria2.conf"
   Delete "$INSTDIR\resources\bin\aria2c.exe"
   Delete "$INSTDIR\resources\aria2c.exe"
-  Delete "$INSTDIR\resources\native-messaging\com.nova.browserextension.json"
-  Delete "$INSTDIR\resources\native-messaging\com.apex.downloadmanager.json"
   RMDir /r "$INSTDIR\.wxt"
   RMDir /r "$INSTDIR\.output"
   RMDir /r "$INSTDIR\dist"

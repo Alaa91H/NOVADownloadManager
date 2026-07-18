@@ -80,7 +80,6 @@ function estimateDurationFromUrl(url?: string): number | undefined {
     const val = parseFloat(durationMatch[1]);
     if (Number.isFinite(val) && val > 0 && val < 86400) return val;
   }
-  const timeMatch = url.match(/(?:start|end|t)[=:](\d+)/i);
   return undefined;
 }
 

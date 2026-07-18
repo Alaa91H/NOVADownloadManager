@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { useTaskData, useTaskSelectors, useSelectedTask, useTaskCounts, useTaskActions, useQueueData, useQueueActions, useSettingsData, useThemeData, useBridgeData, useIsDegraded, useDialogData, useToastData, useNavigationData, useSearchQuery, useNotificationsData, useMinimizedProgress, useI18n } from '../selectors';
+import { useTaskData, useTaskSelectors, useTaskActions, useQueueData, useQueueActions, useSettingsData, useThemeData, useBridgeData, useIsDegraded, useDialogData, useToastData, useNavigationData, useSearchQuery, useNotificationsData, useMinimizedProgress, useI18n } from '../selectors';
 import { taskStore } from '../taskStore';
 import { settingsStore } from '../settingsStore';
 import { bridgeStore } from '../bridgeStore';
@@ -57,24 +57,6 @@ describe('selectors', () => {
     it('returns selectedTaskId', () => {
       const { result } = renderHook(() => useTaskSelectors());
       expect(result.current.selectedTaskId).toBe('t1');
-    });
-  });
-
-  describe('useSelectedTask', () => {
-    it('returns the selected task', () => {
-      const { result } = renderHook(() => useSelectedTask());
-      expect(result.current?.id).toBe('t1');
-    });
-  });
-
-  describe('useTaskCounts', () => {
-    it('computes derived counts in single pass', () => {
-      const { result } = renderHook(() => useTaskCounts());
-      expect(result.current.activeCount).toBe(1);
-      expect(result.current.queuedCount).toBe(1);
-      expect(result.current.completedCount).toBe(1);
-      expect(result.current.pausedCount).toBe(0);
-      expect(result.current.errorCount).toBe(0);
     });
   });
 

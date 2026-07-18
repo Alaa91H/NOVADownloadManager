@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { AnalyzeFormat, AnalyzeResponse } from '../../contracts/nova.protocol.v4';
 import { formatFileSize } from '../../pipeline/quality-detector';
-import { Download, Loader2, AlertCircle } from 'lucide-react';
-import { runtimeRequest, messageFromError } from '../runtime-request';
+import { Download, AlertCircle } from 'lucide-react';
 
 function formatDuration(sec?: number): string {
   if (!sec || !Number.isFinite(sec) || sec <= 0) return '';
@@ -47,8 +46,6 @@ export function AnalyzeResultPanel({ result, onDownload, busy }: AnalyzeResultPa
   const [selectedFormat, setSelectedFormat] = useState<string | null>(null);
 
   const videoFormats = result.formats.filter((f) => f.hasVideo);
-  const audioFormats = result.formats.filter((f) => f.hasAudio && !f.hasVideo);
-  const otherFormats = result.formats.filter((f) => !f.hasVideo && !f.hasAudio);
 
   function handleDownload(f: AnalyzeFormat): void {
     const title = (result.title || 'download').replace(/[/\\:*?"<>|]/g, '_').trim().slice(0, 100);
