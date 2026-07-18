@@ -271,11 +271,21 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                         state2.mark_dirty();
                     }
                 });
-                let mut jobs = lock_or_err!(state.media_jobs);
-                if let Some(j) = jobs.get_mut(id) {
-                    j.child = Some(child_pid);
-                    j.task.status = "downloading".to_string();
-                    j.task.engine_status = Some("running".to_string());
+                let task_data;
+                {
+                    let mut jobs = lock_or_err!(state.media_jobs);
+                    if let Some(j) = jobs.get_mut(id) {
+                        j.child = Some(child_pid);
+                        j.task.status = "downloading".to_string();
+                        j.task.engine_status = Some("running".to_string());
+                    }
+                    task_data = jobs.get(id).map(|j| j.task.clone());
+                }
+                state.mark_dirty();
+                if let Some(task_data) = task_data {
+                    if let Ok(mut snapshot) = state.task_snapshot.lock() {
+                        snapshot.insert(id.to_string(), task_data);
+                    }
                 }
             }
             Err(e) => {
@@ -387,6 +397,15 @@ pub fn update_ytdlp_progress(state: &SharedState, id: &str, text: &str) {
                     }
                 }
             }
+        }
+    }
+
+    let task_data = jobs.get(id).map(|j| j.task.clone());
+    drop(jobs);
+    state.mark_dirty();
+    if let Some(task_data) = task_data {
+        if let Ok(mut snapshot) = state.task_snapshot.lock() {
+            snapshot.insert(id.to_string(), task_data);
         }
     }
 }
