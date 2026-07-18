@@ -350,12 +350,12 @@ function ensurePanelHost(): ShadowRoot {
       position: fixed;
       top: 8px;
       right: 8px;
-      min-width: 220px;
+      min-width: 200px;
       max-width: 520px;
       max-height: 70vh;
       background: rgba(8, 8, 14, 1);
       border: 1px solid rgba(255,255,255,0.10);
-      border-radius: 12px;
+      border-radius: 10px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       font-size: 11px;
       color: #e4e4e7;
@@ -372,34 +372,24 @@ function ensurePanelHost(): ShadowRoot {
     }
     .nova-panel.nova-panel-expanded {
       opacity: ${PANEL_OPACITY_HOVER};
-      min-width: 380px;
+      min-width: 340px;
       box-shadow: 0 8px 36px rgba(59, 130, 246, 0.15), 0 8px 32px rgba(0,0,0,0.6);
     }
     .nova-compact {
       display: flex;
       align-items: center;
-      gap: 6px;
-      padding: 8px 10px;
+      gap: 4px;
+      padding: 5px 6px;
       cursor: move;
-    }
-    .nova-compact-icon { width: 16px; height: 16px; fill: #3b82f6; flex-shrink: 0; }
-    .nova-compact-label {
-      font-size: 11px;
-      font-weight: 600;
-      color: #a1a1aa;
-      flex: 1;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
     .nova-compact-count {
       background: #3b82f6;
       color: #fff;
       border-radius: 8px;
-      padding: 1px 6px;
+      padding: 1px 5px;
       font-size: 9px;
       font-weight: 700;
-      min-width: 16px;
+      min-width: 14px;
       text-align: center;
       flex-shrink: 0;
     }
@@ -407,9 +397,9 @@ function ensurePanelHost(): ShadowRoot {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 4px;
-      padding: 5px 12px;
-      border-radius: 6px;
+      gap: 3px;
+      padding: 4px 8px;
+      border-radius: 5px;
       border: 1px solid rgba(59, 130, 246, 0.4);
       background: rgba(59, 130, 246, 0.15);
       color: #93c5fd;
@@ -421,14 +411,33 @@ function ensurePanelHost(): ShadowRoot {
       white-space: nowrap;
     }
     .nova-compact-btn:hover { background: rgba(59, 130, 246, 0.3); border-color: #3b82f6; color: #fff; }
-    .nova-compact-btn svg { width: 12px; height: 12px; }
+    .nova-compact-btn svg { width: 11px; height: 11px; }
+    .nova-compact-btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      padding: 4px 8px;
+      border-radius: 5px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.04);
+      color: #a1a1aa;
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+    .nova-compact-btn-secondary:hover { background: rgba(255,255,255,0.08); color: #e4e4e7; }
+    .nova-compact-btn-secondary svg { width: 11px; height: 11px; }
     .nova-close-btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 22px;
-      height: 22px;
-      border-radius: 5px;
+      width: 20px;
+      height: 20px;
+      border-radius: 4px;
       border: 1px solid rgba(255,255,255,0.08);
       background: rgba(255,255,255,0.04);
       color: #71717a;
@@ -436,57 +445,25 @@ function ensurePanelHost(): ShadowRoot {
       transition: all 0.15s;
       flex-shrink: 0;
       padding: 0;
-      font-size: 12px;
+      font-size: 11px;
       line-height: 1;
     }
     .nova-close-btn:hover { color: #ef4444; background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.3); }
-    .nova-close-btn svg { width: 12px; height: 12px; }
-    .nova-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 10px 14px;
-      cursor: move;
-      border-bottom: 1px solid rgba(255,255,255,0.06);
-      background: rgba(255,255,255,0.02);
-    }
-    .nova-header-left {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .nova-header-icon { width: 18px; height: 18px; fill: #3b82f6; }
-    .nova-header-title {
-      font-size: 11px;
-      font-weight: 600;
-      color: #a1a1aa;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .nova-header-count {
-      background: #3b82f6;
-      color: #fff;
-      border-radius: 10px;
-      padding: 1px 8px;
-      font-size: 10px;
-      font-weight: 700;
-      min-width: 20px;
-      text-align: center;
-    }
+    .nova-close-btn svg { width: 11px; height: 11px; }
     .nova-body { overflow-y: auto; max-height: 55vh; }
     .nova-body::-webkit-scrollbar { width: 4px; }
     .nova-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
     .nova-video-info {
       display: flex;
-      gap: 10px;
-      padding: 10px 14px;
+      gap: 8px;
+      padding: 8px 10px;
       border-bottom: 1px solid rgba(255,255,255,0.04);
       background: rgba(255,255,255,0.015);
     }
     .nova-thumb {
-      width: 88px;
-      height: 50px;
-      border-radius: 6px;
+      width: 72px;
+      height: 40px;
+      border-radius: 4px;
       object-fit: cover;
       flex-shrink: 0;
       background: rgba(255,255,255,0.05);
@@ -521,13 +498,13 @@ function ensurePanelHost(): ShadowRoot {
       font-size: 8px;
       text-transform: uppercase;
       letter-spacing: .04em;
-      padding: 4px 8px 4px 14px;
+      padding: 3px 6px 3px 10px;
       border-bottom: 1px solid rgba(255,255,255,0.06);
       background: rgba(255,255,255,0.015);
     }
-    .nova-q-table thead th:last-child { text-align: center; padding-right: 14px; }
+    .nova-q-table thead th:last-child { text-align: center; padding-right: 10px; }
     .nova-q-table tbody td {
-      padding: 5px 8px 5px 14px;
+      padding: 4px 6px 4px 10px;
       border-bottom: 1px solid rgba(255,255,255,0.03);
       vertical-align: middle;
       color: #d4d4d8;
@@ -535,7 +512,7 @@ function ensurePanelHost(): ShadowRoot {
     }
     .nova-q-table tbody tr:hover { background: rgba(59, 130, 246, 0.06); }
     .nova-q-table tbody tr:last-child td { border-bottom: none; }
-    .nova-q-table tbody td:last-child { text-align: center; padding-right: 14px; }
+    .nova-q-table tbody td:last-child { text-align: center; padding-right: 10px; }
     .nova-q-badge {
       display: inline-flex;
       align-items: center;
@@ -567,16 +544,16 @@ function ensurePanelHost(): ShadowRoot {
     }
     .nova-footer {
       display: flex;
-      gap: 8px;
-      padding: 10px 14px;
+      gap: 6px;
+      padding: 8px 10px;
       border-top: 1px solid rgba(255,255,255,0.06);
       background: rgba(255,255,255,0.015);
     }
     .nova-btn {
       flex: 1;
-      padding: 7px 12px;
+      padding: 6px 10px;
       border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 6px;
+      border-radius: 5px;
       font-size: 10px;
       font-weight: 600;
       cursor: pointer;
@@ -741,12 +718,18 @@ function renderPanel(): void {
 
     panelEl.innerHTML = `
       <div class="nova-compact" data-drag="header">
-        <svg class="nova-compact-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/><path d="M3 5h2v14H3z" opacity="0.5"/></svg>
-        <span class="nova-compact-label">NOVA</span>
         ${countLabel ? `<span class="nova-compact-count">${esc(countLabel)}</span>` : ''}
         <button class="nova-compact-btn" data-action="expand">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Download
+        </button>
+        <button class="nova-compact-btn-secondary" data-action="send-best">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          Best
+        </button>
+        <button class="nova-compact-btn-secondary" data-action="scan">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+          Rescan
         </button>
         <button class="nova-close-btn" data-action="close" title="Close">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -776,6 +759,20 @@ function renderPanel(): void {
       });
     });
 
+    panelEl.querySelectorAll('[data-action="send-best"]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        sendBestQuality();
+      });
+    });
+
+    panelEl.querySelectorAll('[data-action="scan"]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        scanCurrentTab();
+      });
+    });
+
     return;
   }
 
@@ -791,14 +788,7 @@ function renderPanel(): void {
   const totalFormats = videos.length + mergedVideos.length + audios.length;
 
   let html = `
-    <div class="nova-header">
-      <div class="nova-header-left">
-        <svg class="nova-header-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/><path d="M3 5h2v14H3z" opacity="0.5"/></svg>
-        <span class="nova-header-title">Qualities</span>
-        <span class="nova-header-count">${currentCandidates.length}</span>
-        ${videos.length > 0 ? `<span style="font-size:9px;color:#93c5fd;margin-left:2px">V:${videos.length}</span>` : ''}
-        ${audios.length > 0 ? `<span style="font-size:9px;color:#c084fc;margin-left:2px">A:${audios.length}</span>` : ''}
-      </div>
+    <div class="nova-header" style="justify-content:flex-end;">
       <button class="nova-close-btn" data-action="collapse" title="Collapse">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>

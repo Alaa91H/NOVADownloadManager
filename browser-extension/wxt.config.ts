@@ -75,8 +75,6 @@ export default defineConfig({
     'build:manifestGenerated'(_wxt, manifest) {
       if (manifest.action) {
         manifest.action.default_title = '__MSG_extensionActionTitle__';
-        // Video capture popup — always wired for toolbar icon clicks.
-        manifest.action.default_popup = 'popup.html';
       }
     },
   },
@@ -122,7 +120,6 @@ export default defineConfig({
       ],
       action: {
         default_title: '__MSG_extensionActionTitle__',
-        default_popup: 'popup.html',
         default_icon: {
           16: 'icons/icon-16.png',
           32: 'icons/icon-32.png',

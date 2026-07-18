@@ -1,5 +1,6 @@
 use std::fs::{File, OpenOptions};
 use std::io::Write;
+use std::os::raw::c_long;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::OnceLock;
@@ -14,6 +15,66 @@ use super::*;
 use crate::daemon::direct::FileWriter;
 use crate::daemon::utils::DEFAULT_USER_AGENT;
 use sha2::Digest;
+
+// Raw FFI constants for curl options not wrapped by the curl crate.
+// CURLOPTTYPE_OBJECTPOINT == CURLOPTTYPE_STRINGPOINT == 10_000
+const CURLOPT_PRE_PROXY: curl_sys::CURLoption = curl_sys::CURLOPTTYPE_OBJECTPOINT + 262;
+const CURLOPT_NETRC_FILE: curl_sys::CURLoption = curl_sys::CURLOPTTYPE_OBJECTPOINT + 118;
+const CURLOPT_TLS13_CIPHERS: curl_sys::CURLoption = curl_sys::CURLOPTTYPE_OBJECTPOINT + 276;
+const CURLOPT_FTP_CREATE_MISSING_DIRS: curl_sys::CURLoption =
+    curl_sys::CURLOPTTYPE_LONG + 110;
+const CURLOPT_PROTOCOLS_STR: curl_sys::CURLoption = curl_sys::CURLOPTTYPE_OBJECTPOINT + 318;
+const CURLOPT_REDIR_PROTOCOLS_STR: curl_sys::CURLoption =
+    curl_sys::CURLOPTTYPE_OBJECTPOINT + 319;
+const CURLOPT_DNS_INTERFACE: curl_sys::CURLoption = curl_sys::CURLOPTTYPE_OBJECTPOINT + 221;
+
+unsafe fn raw_setopt_str(
+    easy_ptr: *mut curl_sys::CURL,
+    option: curl_sys::CURLoption,
+    value: &str,
+) -> Result<(), String> {
+    let c_val =
+        std::ffi::CString::new(value).map_err(|e| format!("Could not convert option to CString: {e}"))?;
+    let code = unsafe { curl_sys::curl_easy_setopt(easy_ptr, option, c_val.as_ptr()) };
+    if code == curl_sys::CURLE_OK {
+        Ok(())
+    } else {
+        Err(format!("libcurl rejected option (code {})", code))
+    }
+}
+
+unsafe fn raw_setopt_long(
+    easy_ptr: *mut curl_sys::CURL,
+    option: curl_sys::CURLoption,
+    value: c_long,
+) -> Result<(), String> {
+    let code = unsafe { curl_sys::curl_easy_setopt(easy_ptr, option, value) };
+    if code == curl_sys::CURLE_OK {
+        Ok(())
+    } else {
+        Err(format!("libcurl rejected option (code {})", code))
+    }
+}
+
+fn parse_rate_to_bytes(rate_str: &str) -> Option<u64> {
+    let trimmed = rate_str.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let (num_str, multiplier) = if let Some(s) = trimmed.strip_suffix(['T', 't']) {
+        (s, 1024u64.pow(4))
+    } else if let Some(s) = trimmed.strip_suffix(['G', 'g']) {
+        (s, 1024u64.pow(3))
+    } else if let Some(s) = trimmed.strip_suffix(['M', 'm']) {
+        (s, 1024u64.pow(2))
+    } else if let Some(s) = trimmed.strip_suffix(['K', 'k']) {
+        (s, 1024)
+    } else {
+        (trimmed, 1)
+    };
+    let num: f64 = num_str.trim().parse().ok()?;
+    Some((num * multiplier as f64) as u64)
+}
 
 pub(crate) struct SegmentWriter {
     pub(super) file: File,
@@ -281,6 +342,12 @@ pub(crate) fn apply_easy_options<H: Handler>(
         easy.proxy(proxy)
             .map_err(|e| format!("Could not configure proxy: {e}"))?;
     }
+    if let Some(pre_proxy) = plan.config.str_("preProxy") {
+        unsafe {
+            raw_setopt_str(easy.raw(), CURLOPT_PRE_PROXY, pre_proxy)
+                .map_err(|e| format!("Could not configure pre-proxy: {e}"))?;
+        }
+    }
     if let Some(no_proxy) = plan.config.str_("noproxy") {
         easy.noproxy(no_proxy)
             .map_err(|e| format!("Could not configure noproxy: {e}"))?;
@@ -336,6 +403,24 @@ pub(crate) fn apply_easy_options<H: Handler>(
         easy.dns_servers(dns)
             .map_err(|e| format!("Could not configure DNS servers: {e}"))?;
     }
+    if let Some(dns_iface) = plan.config.str_("dnsInterface") {
+        unsafe {
+            raw_setopt_str(easy.raw(), CURLOPT_DNS_INTERFACE, dns_iface)
+                .map_err(|e| format!("Could not configure DNS interface: {e}"))?;
+        }
+    }
+    if let Some(proto) = plan.config.str_("proto") {
+        unsafe {
+            raw_setopt_str(easy.raw(), CURLOPT_PROTOCOLS_STR, proto)
+                .map_err(|e| format!("Could not configure allowed protocols: {e}"))?;
+        }
+    }
+    if let Some(proto_redir) = plan.config.str_("protoRedir") {
+        unsafe {
+            raw_setopt_str(easy.raw(), CURLOPT_REDIR_PROTOCOLS_STR, proto_redir)
+                .map_err(|e| format!("Could not configure redirect protocols: {e}"))?;
+        }
+    }
     if let Some(sec) = plan.config.u64_("dnsCacheTimeoutSec") {
         easy.dns_cache_timeout(Duration::from_secs(sec))
             .map_err(|e| format!("Could not configure DNS cache timeout: {e}"))?;
@@ -364,6 +449,11 @@ pub(crate) fn apply_easy_options<H: Handler>(
     {
         easy.max_recv_speed(speed)
             .map_err(|e| format!("Could not configure speed limit: {e}"))?;
+    } else if let Some(rate_str) = plan.config.str_("rate") {
+        if let Some(rate_bytes) = parse_rate_to_bytes(rate_str) {
+            easy.max_recv_speed(rate_bytes)
+                .map_err(|e| format!("Could not configure rate limit: {e}"))?;
+        }
     }
     if let Some(limit) = plan.config.u64_("lowSpeedLimitBytes").filter(|v| *v > 0) {
         easy.low_speed_limit(limit.min(u32::MAX as u64) as u32)
@@ -449,6 +539,12 @@ pub(crate) fn apply_easy_options<H: Handler>(
         easy.netrc(NetRc::Optional)
             .map_err(|e| format!("Could not configure netrc-optional: {e}"))?;
     }
+    if let Some(netrc_file) = plan.config.str_("netrcFile") {
+        unsafe {
+            raw_setopt_str(easy.raw(), CURLOPT_NETRC_FILE, netrc_file)
+                .map_err(|e| format!("Could not configure netrc file: {e}"))?;
+        }
+    }
     if let Some(cert) = plan.config.str_("cert") {
         easy.ssl_cert(cert)
             .map_err(|e| format!("Could not configure SSL certificate: {e}"))?;
@@ -472,6 +568,12 @@ pub(crate) fn apply_easy_options<H: Handler>(
     if let Some(ciphers) = plan.config.str_("ciphers") {
         easy.ssl_cipher_list(ciphers)
             .map_err(|e| format!("Could not configure TLS cipher list: {e}"))?;
+    }
+    if let Some(tls13_ciphers) = plan.config.str_("tls13Ciphers") {
+        unsafe {
+            raw_setopt_str(easy.raw(), CURLOPT_TLS13_CIPHERS, tls13_ciphers)
+                .map_err(|e| format!("Could not configure TLS 1.3 ciphers: {e}"))?;
+        }
     }
     if let Some(tls_max) = plan.config.str_("tlsMax") {
         let lower = tls_max.to_ascii_lowercase();
@@ -568,6 +670,12 @@ pub(crate) fn apply_easy_options<H: Handler>(
     if plan.config.bool_("pathAsIs") == Some(true) {
         easy.path_as_is(true)
             .map_err(|e| format!("Could not enable path-as-is: {e}"))?;
+    }
+    if plan.config.bool_("ftpCreateDirs") == Some(true) {
+        unsafe {
+            raw_setopt_long(easy.raw(), CURLOPT_FTP_CREATE_MISSING_DIRS, 1)
+                .map_err(|e| format!("Could not enable FTP create dirs: {e}"))?;
+        }
     }
     if let Some(keepalive_sec) = plan.config.u64_("keepaliveTimeSec").filter(|v| *v > 0) {
         let dur = Duration::from_secs(keepalive_sec);

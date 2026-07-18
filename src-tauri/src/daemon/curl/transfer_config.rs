@@ -43,6 +43,7 @@ fn opt_str_vec(map: &HashMap<String, Value>, key: &str) -> Vec<String> {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct CurlTransferConfig {
     pub proxy: Option<String>,
+    pub pre_proxy: Option<String>,
     pub noproxy: Option<String>,
     pub source_address: Option<String>,
     pub user_agent: Option<String>,
@@ -55,10 +56,12 @@ pub struct CurlTransferConfig {
     pub auth_type: Option<String>,
     pub oauth2_bearer: Option<String>,
     pub netrc: Option<String>,
+    pub netrc_file: Option<String>,
     pub netrc_optional: bool,
     pub unrestricted_auth: bool,
     pub speed_limit_kbs: Option<u64>,
     pub speed_limit_bytes: Option<u64>,
+    pub rate: Option<String>,
     pub low_speed_limit_bytes: Option<u64>,
     pub speed_time_sec: Option<u64>,
     pub timeout_sec: Option<u64>,
@@ -89,6 +92,7 @@ pub struct CurlTransferConfig {
     pub pass: Option<String>,
     pub pinned_pub_key: Option<String>,
     pub ciphers: Option<String>,
+    pub tls13_ciphers: Option<String>,
     pub tls_min: Option<String>,
     pub tls_max: Option<String>,
     pub ssl_reqd: bool,
@@ -118,7 +122,10 @@ pub struct CurlTransferConfig {
     pub doh_ssl_verify_peer: Option<bool>,
     pub doh_ssl_verify_host: Option<bool>,
     pub dns_servers: Option<String>,
+    pub dns_interface: Option<String>,
     pub dns_cache_timeout_sec: Option<u64>,
+    pub proto: Option<String>,
+    pub proto_redir: Option<String>,
     pub resolve: Vec<String>,
     pub connect_to: Vec<String>,
     pub local_port_range: Option<String>,
@@ -126,6 +133,7 @@ pub struct CurlTransferConfig {
     pub keepalive_time_sec: Option<u64>,
     pub path_as_is: bool,
     pub globoff: bool,
+    pub ftp_create_dirs: bool,
     pub fresh_connect: bool,
     pub forbid_reuse: bool,
     pub max_age_conn: Option<u64>,
@@ -148,6 +156,7 @@ pub struct CurlTransferConfig {
     pub retry_delay_sec: Option<u64>,
     pub retry_max_time_sec: Option<u64>,
     pub retry_all_errors: Option<bool>,
+    pub retry_conn_refused: bool,
     pub retry_max_delay_sec: Option<u64>,
     pub retry_jitter: Option<bool>,
     pub backoff_multiplier: Option<f64>,
@@ -168,6 +177,7 @@ impl CurlTransferConfig {
     pub fn str_(&self, key: &str) -> Option<&str> {
         match key {
             "proxy" => self.proxy.as_deref(),
+            "preProxy" => self.pre_proxy.as_deref(),
             "noproxy" => self.noproxy.as_deref(),
             "sourceAddress" => self.source_address.as_deref(),
             "interface" => self.source_address.as_deref(),
@@ -181,10 +191,12 @@ impl CurlTransferConfig {
             "authType" => self.auth_type.as_deref(),
             "oauth2Bearer" => self.oauth2_bearer.as_deref(),
             "netrc" => self.netrc.as_deref(),
+            "netrcFile" => self.netrc_file.as_deref(),
             "httpVersion" => self.http_version.as_deref(),
             "requestMethod" => self.request_method.as_deref(),
             "data" => self.data.as_deref(),
             "range" => self.range.as_deref(),
+            "rate" => self.rate.as_deref(),
             "caCert" => self.ca_cert.as_deref(),
             "caPath" => self.ca_path.as_deref(),
             "cert" => self.cert.as_deref(),
@@ -194,6 +206,7 @@ impl CurlTransferConfig {
             "pass" => self.pass.as_deref(),
             "pinnedPubKey" => self.pinned_pub_key.as_deref(),
             "ciphers" => self.ciphers.as_deref(),
+            "tls13Ciphers" => self.tls13_ciphers.as_deref(),
             "tlsMin" => self.tls_min.as_deref(),
             "tlsMax" => self.tls_max.as_deref(),
             "sslOptions" => self.ssl_options.as_deref(),
@@ -216,7 +229,10 @@ impl CurlTransferConfig {
             "ipResolve" => self.ip_resolve.as_deref(),
             "dohUrl" => self.doh_url.as_deref(),
             "dnsServers" => self.dns_servers.as_deref(),
+            "dnsInterface" => self.dns_interface.as_deref(),
             "localPortRange" => self.local_port_range.as_deref(),
+            "proto" => self.proto.as_deref(),
+            "protoRedir" => self.proto_redir.as_deref(),
             "timeCond" => self.time_cond.as_deref(),
             "etagSave" => self.etag_save.as_deref(),
             "etagCompare" => self.etag_compare.as_deref(),
@@ -246,10 +262,12 @@ impl CurlTransferConfig {
             "tcpNoDelay" => Some(self.tcp_no_delay),
             "pathAsIs" => Some(self.path_as_is),
             "globoff" => Some(self.globoff),
+            "ftpCreateDirs" => Some(self.ftp_create_dirs),
             "freshConnect" => Some(self.fresh_connect),
             "forbidReuse" => Some(self.forbid_reuse),
             "skipExisting" => Some(self.skip_existing),
             "removeOnError" => Some(self.remove_on_error),
+            "retryConnRefused" => Some(self.retry_conn_refused),
             "segmented" => Some(self.segmented),
             "forceSingleConnection" => Some(self.force_single_connection),
             "sslSessionIdCache" => self.ssl_session_id_cache,
@@ -454,6 +472,7 @@ impl CurlTransferConfig {
             };
         }
         insert_str!("proxy", self.proxy.as_ref());
+        insert_str!("preProxy", self.pre_proxy.as_ref());
         insert_str!("noproxy", self.noproxy.as_ref());
         insert_str!("sourceAddress", self.source_address.as_ref());
         insert_str!("userAgent", self.user_agent.as_ref());
@@ -466,10 +485,12 @@ impl CurlTransferConfig {
         insert_str!("authType", self.auth_type.as_ref());
         insert_str!("oauth2Bearer", self.oauth2_bearer.as_ref());
         insert_str!("netrc", self.netrc.as_ref());
+        insert_str!("netrcFile", self.netrc_file.as_ref());
         insert_bool!("netrcOptional", self.netrc_optional);
         insert_bool!("unrestrictedAuth", self.unrestricted_auth);
         insert_u64!("speedLimitKbs", self.speed_limit_kbs);
         insert_u64!("speedLimitBytes", self.speed_limit_bytes);
+        insert_str!("rate", self.rate.as_ref());
         insert_u64!("lowSpeedLimitBytes", self.low_speed_limit_bytes);
         insert_u64!("speedTimeSec", self.speed_time_sec);
         insert_u64!("timeoutSec", self.timeout_sec);
@@ -500,6 +521,7 @@ impl CurlTransferConfig {
         insert_str!("pass", self.pass.as_ref());
         insert_str!("pinnedPubKey", self.pinned_pub_key.as_ref());
         insert_str!("ciphers", self.ciphers.as_ref());
+        insert_str!("tls13Ciphers", self.tls13_ciphers.as_ref());
         insert_str!("tlsMin", self.tls_min.as_ref());
         insert_str!("tlsMax", self.tls_max.as_ref());
         insert_bool!("sslReqd", self.ssl_reqd);
@@ -529,7 +551,10 @@ impl CurlTransferConfig {
         insert_opt_bool!("dohSslVerifyPeer", self.doh_ssl_verify_peer);
         insert_opt_bool!("dohSslVerifyHost", self.doh_ssl_verify_host);
         insert_str!("dnsServers", self.dns_servers.as_ref());
+        insert_str!("dnsInterface", self.dns_interface.as_ref());
         insert_u64!("dnsCacheTimeoutSec", self.dns_cache_timeout_sec);
+        insert_str!("proto", self.proto.as_ref());
+        insert_str!("protoRedir", self.proto_redir.as_ref());
         insert_array!("resolve", self.resolve);
         insert_array!("connectTo", self.connect_to);
         insert_str!("localPortRange", self.local_port_range.as_ref());
@@ -537,6 +562,7 @@ impl CurlTransferConfig {
         insert_u64!("keepaliveTimeSec", self.keepalive_time_sec);
         insert_bool!("pathAsIs", self.path_as_is);
         insert_bool!("globoff", self.globoff);
+        insert_bool!("ftpCreateDirs", self.ftp_create_dirs);
         insert_bool!("freshConnect", self.fresh_connect);
         insert_bool!("forbidReuse", self.forbid_reuse);
         insert_u64!("maxAgeConn", self.max_age_conn);
@@ -558,6 +584,7 @@ impl CurlTransferConfig {
         insert_u64!("retryDelaySec", self.retry_delay_sec);
         insert_u64!("retryMaxTimeSec", self.retry_max_time_sec);
         insert_opt_bool!("retryAllErrors", self.retry_all_errors);
+        insert_bool!("retryConnRefused", self.retry_conn_refused);
         insert_u64!("retryMaxDelaySec", self.retry_max_delay_sec);
         insert_opt_bool!("retryJitter", self.retry_jitter);
         insert_f64!("backoffMultiplier", self.backoff_multiplier);
@@ -584,6 +611,7 @@ impl From<&HashMap<String, Value>> for CurlTransferConfig {
     fn from(map: &HashMap<String, Value>) -> Self {
         Self {
             proxy: opt_str(map, "proxy"),
+            pre_proxy: opt_str(map, "preProxy"),
             noproxy: opt_str(map, "noproxy"),
             source_address: opt_str(map, "sourceAddress").or_else(|| opt_str(map, "interface")),
             user_agent: opt_str(map, "userAgent"),
@@ -596,10 +624,12 @@ impl From<&HashMap<String, Value>> for CurlTransferConfig {
             auth_type: opt_str(map, "authType"),
             oauth2_bearer: opt_str(map, "oauth2Bearer"),
             netrc: opt_str(map, "netrc"),
+            netrc_file: opt_str(map, "netrcFile"),
             netrc_optional: opt_bool(map, "netrcOptional").unwrap_or(false),
             unrestricted_auth: opt_bool(map, "unrestrictedAuth").unwrap_or(false),
             speed_limit_kbs: opt_u64(map, "speedLimitKbs"),
             speed_limit_bytes: opt_u64(map, "speedLimitBytes"),
+            rate: opt_str(map, "rate"),
             low_speed_limit_bytes: opt_u64(map, "lowSpeedLimitBytes"),
             speed_time_sec: opt_u64(map, "speedTimeSec"),
             timeout_sec: opt_u64(map, "timeoutSec"),
@@ -630,6 +660,7 @@ impl From<&HashMap<String, Value>> for CurlTransferConfig {
             pass: opt_str(map, "pass"),
             pinned_pub_key: opt_str(map, "pinnedPubKey"),
             ciphers: opt_str(map, "ciphers"),
+            tls13_ciphers: opt_str(map, "tls13Ciphers"),
             tls_min: opt_str(map, "tlsMin"),
             tls_max: opt_str(map, "tlsMax"),
             ssl_reqd: opt_bool(map, "sslReqd").unwrap_or(false),
@@ -659,7 +690,10 @@ impl From<&HashMap<String, Value>> for CurlTransferConfig {
             doh_ssl_verify_peer: opt_bool(map, "dohSslVerifyPeer"),
             doh_ssl_verify_host: opt_bool(map, "dohSslVerifyHost"),
             dns_servers: opt_str(map, "dnsServers"),
+            dns_interface: opt_str(map, "dnsInterface"),
             dns_cache_timeout_sec: opt_u64(map, "dnsCacheTimeoutSec"),
+            proto: opt_str(map, "proto"),
+            proto_redir: opt_str(map, "protoRedir"),
             resolve: opt_str_vec(map, "resolve"),
             connect_to: opt_str_vec(map, "connectTo"),
             local_port_range: opt_str(map, "localPortRange"),
@@ -667,6 +701,7 @@ impl From<&HashMap<String, Value>> for CurlTransferConfig {
             keepalive_time_sec: opt_u64(map, "keepaliveTimeSec"),
             path_as_is: opt_bool(map, "pathAsIs").unwrap_or(false),
             globoff: opt_bool(map, "globoff").unwrap_or(false),
+            ftp_create_dirs: opt_bool(map, "ftpCreateDirs").unwrap_or(false),
             fresh_connect: opt_bool(map, "freshConnect").unwrap_or(false),
             forbid_reuse: opt_bool(map, "forbidReuse").unwrap_or(false),
             max_age_conn: opt_u64(map, "maxAgeConn"),
@@ -688,6 +723,7 @@ impl From<&HashMap<String, Value>> for CurlTransferConfig {
             retry_delay_sec: opt_u64(map, "retryDelaySec"),
             retry_max_time_sec: opt_u64(map, "retryMaxTimeSec"),
             retry_all_errors: opt_bool(map, "retryAllErrors"),
+            retry_conn_refused: opt_bool(map, "retryConnRefused").unwrap_or(false),
             retry_max_delay_sec: opt_u64(map, "retryMaxDelaySec"),
             retry_jitter: opt_bool(map, "retryJitter"),
             backoff_multiplier: opt_f64(map, "backoffMultiplier"),

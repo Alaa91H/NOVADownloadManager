@@ -662,7 +662,7 @@ fn curl_key_supported(
     let implemented_by_libcurl_multi = matches!(
         key,
         // Network / proxy
-        "proxy" | "noproxy" | "sourceAddress" | "interface"
+        "proxy" | "preProxy" | "noproxy" | "sourceAddress" | "interface"
         | "proxyUser" | "proxyAnyAuth" | "proxyType" | "proxyTunnel"
         | "proxyCaInfo" | "proxyCaPath" | "proxyCert" | "proxyCertType"
         | "proxyKey" | "proxyKeyType" | "proxyKeyPassword"
@@ -672,10 +672,10 @@ fn curl_key_supported(
         // Auth
         | "userAgent" | "referer" | "headers" | "cookies" | "cookieJar"
         | "username" | "password" | "authType" | "oauth2Bearer"
-        | "netrc" | "netrcOptional" | "unrestrictedAuth"
+        | "netrc" | "netrcOptional" | "netrcFile" | "unrestrictedAuth"
         // Speed / retry (note: retryCount/retryDelaySec/retryMaxTimeSec are
         // only wired in the CLI-args fallback path, NOT in libcurl-multi)
-        | "speedLimitKbs" | "speedLimitBytes" | "lowSpeedLimitBytes" | "speedTimeSec"
+        | "speedLimitKbs" | "speedLimitBytes" | "rate" | "lowSpeedLimitBytes" | "speedTimeSec"
         // Timeouts / limits
         | "timeoutSec" | "connectTimeoutSec" | "maxRedirs" | "maxFilesize"
         // Range / conditional
@@ -690,14 +690,17 @@ fn curl_key_supported(
         // TLS / SSL
         | "insecure" | "caCert" | "caPath"
         | "cert" | "certType" | "key" | "keyType" | "pass"
-        | "tlsMin" | "tlsMax" | "ciphers"
+        | "tlsMin" | "tlsMax" | "ciphers" | "tls13Ciphers"
         | "sslReqd" | "sslOptions" | "sslSessionIdCache" | "crlFile" | "issuerCert"
         | "pinnedPubKey"
         // IP / DNS
         | "ipResolve"
         | "dohUrl" | "dohSslVerifyPeer" | "dohSslVerifyHost"
-        | "dnsServers" | "dnsCacheTimeoutSec"
+        | "dnsServers" | "dnsInterface" | "dnsCacheTimeoutSec"
+        | "proto" | "protoRedir"
         | "resolve" | "connectTo"
+        // FTP
+        | "ftpCreateDirs"
         // TCP / connection
         | "localPortRange" | "tcpNoDelay" | "keepaliveTimeSec"
         | "pathAsIs"
@@ -719,6 +722,7 @@ fn curl_key_supported(
         | "maxTotalConnections"
         | "eventLoop" => true,
         "proxy" => has_flag(flags, "--proxy"),
+        "preProxy" => has_flag(flags, "--preproxy"),
         "noproxy" => has_flag(flags, "--noproxy"),
         "proxyUser" => has_flag(flags, "--proxy-user"),
         "proxyAnyAuth" => has_flag(flags, "--proxy-anyauth"),
@@ -738,7 +742,9 @@ fn curl_key_supported(
         "oauth2Bearer" => has_flag(flags, "--oauth2-bearer"),
         "netrc" => has_flag(flags, "--netrc"),
         "netrcOptional" => has_flag(flags, "--netrc-optional"),
+        "netrcFile" => has_flag(flags, "--netrc-file"),
         "speedLimitKbs" | "speedLimitBytes" => has_flag(flags, "--limit-rate"),
+        "rate" => has_flag(flags, "--rate") || has_flag(flags, "--limit-rate"),
         "lowSpeedLimitBytes" => has_flag(flags, "--speed-limit"),
         "speedTimeSec" => has_flag(flags, "--speed-time"),
         "timeoutSec" => has_flag(flags, "--max-time"),
@@ -776,13 +782,17 @@ fn curl_key_supported(
         "keyType" => has_flag(flags, "--key-type") && has_feature(features, "ssl"),
         "pass" => has_flag(flags, "--pass") && has_feature(features, "ssl"),
         "pinnedPubKey" => has_flag(flags, "--pinnedpubkey") && has_feature(features, "ssl"),
+        "tls13Ciphers" => has_flag(flags, "--tls13-ciphers") && has_feature(features, "ssl"),
         "tlsMax" => has_flag(flags, "--tls-max") && has_feature(features, "ssl"),
         "ciphers" => has_flag(flags, "--ciphers") && has_feature(features, "ssl"),
         "sslReqd" => has_feature(features, "ssl"),
         "dohUrl" => has_flag(flags, "--doh-url") && has_feature(features, "https-proxy"),
         "dnsServers" => has_flag(flags, "--dns-servers"),
+        "dnsInterface" => has_flag(flags, "--dns-interface"),
         "resolve" => has_flag(flags, "--resolve"),
         "connectTo" => has_flag(flags, "--connect-to"),
+        "proto" => has_flag(flags, "--proto"),
+        "protoRedir" => has_flag(flags, "--proto-redir"),
         "localPortRange" => has_flag(flags, "--local-port"),
         "tcpNoDelay" => has_flag(flags, "--tcp-nodelay"),
         "tcpFastOpen" => has_flag(flags, "--tcp-fastopen") && has_feature(features, "tcp-fastopen"),
@@ -791,6 +801,7 @@ fn curl_key_supported(
             has_flag(flags, "--happy-eyeballs-timeout-ms") && has_feature(features, "asynchdns")
         }
         "pathAsIs" => has_flag(flags, "--path-as-is"),
+        "ftpCreateDirs" => has_flag(flags, "--ftp-create-dirs"),
         // Proxy TLS / auth (always available when SSL is built in)
         "proxyType" | "proxyTunnel" => true,
         "proxyCaInfo" | "proxyCaPath" => has_feature(features, "ssl"),
@@ -820,6 +831,7 @@ fn curl_key_supported(
         "dohSslVerifyPeer" | "dohSslVerifyHost" => has_feature(features, "ssl"),
         // TCP / connection pool
         "freshConnect" | "forbidReuse" | "maxAgeConn" => true,
+        "retryConnRefused" => has_flag(flags, "--retry-connrefused"),
         "dnsCacheTimeoutSec" => true,
         "bufferSize" => true,
         "rawOptions" => false,

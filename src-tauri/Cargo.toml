@@ -36,6 +36,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 async-stream = "0.3"
 futures-core = "0.3"
 curl = { version = "0.4", default-features = false, features = ["ssl", "http2", "protocol-ftp", "ntlm"] }
+curl-sys = { version = "0.4", default-features = false, features = ["ssl", "http2", "protocol-ftp"] }
 regex = "1"
 sha2 = "0.10"
 sha1 = "0.10"

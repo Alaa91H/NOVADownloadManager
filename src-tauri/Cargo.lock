@@ -2677,6 +2677,7 @@ dependencies = [
  "axum",
  "chrono",
  "curl",
+ "curl-sys",
  "futures-core",
  "log",
  "md-5",
