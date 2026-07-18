@@ -317,13 +317,29 @@ pub(crate) fn build_curl_args_with_capabilities(
         push_bool_flag(&mut args, direct_bool(dopts, "tcpNoDelay"), "--tcp-nodelay");
         push_bool_flag(&mut args, direct_bool(dopts, "pathAsIs"), "--path-as-is");
         push_bool_flag(&mut args, direct_bool(dopts, "globoff"), "--globoff");
-        push_bool_flag(&mut args, direct_bool(dopts, "ftpCreateDirs"), "--ftp-create-dirs");
+        push_bool_flag(
+            &mut args,
+            direct_bool(dopts, "ftpCreateDirs"),
+            "--ftp-create-dirs",
+        );
         push_optional_arg(&mut args, "--netrc-file", direct_str(dopts, "netrcFile"))?;
-        push_optional_arg(&mut args, "--tls13-ciphers", direct_str(dopts, "tls13Ciphers"))?;
-        push_optional_arg(&mut args, "--dns-interface", direct_str(dopts, "dnsInterface"))?;
+        push_optional_arg(
+            &mut args,
+            "--tls13-ciphers",
+            direct_str(dopts, "tls13Ciphers"),
+        )?;
+        push_optional_arg(
+            &mut args,
+            "--dns-interface",
+            direct_str(dopts, "dnsInterface"),
+        )?;
         push_optional_arg(&mut args, "--proto", direct_str(dopts, "proto"))?;
         push_optional_arg(&mut args, "--proto-redir", direct_str(dopts, "protoRedir"))?;
-        push_bool_flag(&mut args, direct_bool(dopts, "retryConnRefused"), "--retry-connrefused");
+        push_bool_flag(
+            &mut args,
+            direct_bool(dopts, "retryConnRefused"),
+            "--retry-connrefused",
+        );
 
         match direct_str(dopts, "httpVersion")
             .unwrap_or("")

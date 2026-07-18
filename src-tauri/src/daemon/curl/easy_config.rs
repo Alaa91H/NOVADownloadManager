@@ -21,11 +21,9 @@ use sha2::Digest;
 const CURLOPT_PRE_PROXY: curl_sys::CURLoption = curl_sys::CURLOPTTYPE_OBJECTPOINT + 262;
 const CURLOPT_NETRC_FILE: curl_sys::CURLoption = curl_sys::CURLOPTTYPE_OBJECTPOINT + 118;
 const CURLOPT_TLS13_CIPHERS: curl_sys::CURLoption = curl_sys::CURLOPTTYPE_OBJECTPOINT + 276;
-const CURLOPT_FTP_CREATE_MISSING_DIRS: curl_sys::CURLoption =
-    curl_sys::CURLOPTTYPE_LONG + 110;
+const CURLOPT_FTP_CREATE_MISSING_DIRS: curl_sys::CURLoption = curl_sys::CURLOPTTYPE_LONG + 110;
 const CURLOPT_PROTOCOLS_STR: curl_sys::CURLoption = curl_sys::CURLOPTTYPE_OBJECTPOINT + 318;
-const CURLOPT_REDIR_PROTOCOLS_STR: curl_sys::CURLoption =
-    curl_sys::CURLOPTTYPE_OBJECTPOINT + 319;
+const CURLOPT_REDIR_PROTOCOLS_STR: curl_sys::CURLoption = curl_sys::CURLOPTTYPE_OBJECTPOINT + 319;
 const CURLOPT_DNS_INTERFACE: curl_sys::CURLoption = curl_sys::CURLOPTTYPE_OBJECTPOINT + 221;
 
 unsafe fn raw_setopt_str(
@@ -33,8 +31,8 @@ unsafe fn raw_setopt_str(
     option: curl_sys::CURLoption,
     value: &str,
 ) -> Result<(), String> {
-    let c_val =
-        std::ffi::CString::new(value).map_err(|e| format!("Could not convert option to CString: {e}"))?;
+    let c_val = std::ffi::CString::new(value)
+        .map_err(|e| format!("Could not convert option to CString: {e}"))?;
     let code = unsafe { curl_sys::curl_easy_setopt(easy_ptr, option, c_val.as_ptr()) };
     if code == curl_sys::CURLE_OK {
         Ok(())

@@ -43,7 +43,10 @@ pub fn run_native_messaging_host() {
 
     let base_url = discover_daemon_port(&client);
     let api_token = obtain_api_token(&client, &base_url);
-    let state = Mutex::new(HostState { base_url, api_token });
+    let state = Mutex::new(HostState {
+        base_url,
+        api_token,
+    });
 
     while let Ok(message) = read_native_message() {
         let response = handle_native_request(&client, &state, message);
@@ -98,12 +101,21 @@ fn port_file_paths() -> Vec<std::path::PathBuf> {
 
     // %LOCALAPPDATA%\NOVA\nova-daemon.port  (Windows)
     if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-        paths.push(std::path::PathBuf::from(local_app_data).join("NOVA").join("nova-daemon.port"));
+        paths.push(
+            std::path::PathBuf::from(local_app_data)
+                .join("NOVA")
+                .join("nova-daemon.port"),
+        );
     }
 
     // ~/.config/NOVA/nova-daemon.port  (Linux / fallback)
     if let Ok(home) = std::env::var("HOME") {
-        paths.push(std::path::PathBuf::from(home).join(".config").join("NOVA").join("nova-daemon.port"));
+        paths.push(
+            std::path::PathBuf::from(home)
+                .join(".config")
+                .join("NOVA")
+                .join("nova-daemon.port"),
+        );
     }
 
     // ~/Library/Application Support/NOVA/nova-daemon.port  (macOS)
@@ -190,10 +202,7 @@ fn handle_native_request(
     let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
 
     // Routes that are exempt from auth on the daemon side — no token needed.
-    let needs_auth = !matches!(
-        method,
-        "engine.status" | "capabilities" | "external.tools"
-    );
+    let needs_auth = !matches!(method, "engine.status" | "capabilities" | "external.tools");
 
     let result = match method {
         "engine.status" => http_json(client, state, "GET", "/v1/ping", None, false),
@@ -213,12 +222,22 @@ fn handle_native_request(
             Some(params),
             needs_auth,
         ),
-        "stream.add" => {
-            http_json(client, state, "POST", "/v1/stream/add", Some(params), needs_auth)
-        }
-        "analyze.start" => {
-            http_json(client, state, "POST", "/v1/analyze", Some(params), needs_auth)
-        }
+        "stream.add" => http_json(
+            client,
+            state,
+            "POST",
+            "/v1/stream/add",
+            Some(params),
+            needs_auth,
+        ),
+        "analyze.start" => http_json(
+            client,
+            state,
+            "POST",
+            "/v1/analyze",
+            Some(params),
+            needs_auth,
+        ),
         "probe.ytdlp" => {
             let url_param = params.get("url").and_then(Value::as_str).unwrap_or("");
             let encoded: String = url_param
@@ -233,9 +252,14 @@ fn handle_native_request(
             let route = format!("/api/ytdlp/probe?url={}", encoded);
             http_json(client, state, "GET", &route, None, needs_auth)
         }
-        "capabilities" => {
-            http_json(client, state, "GET", "/api/engines/capabilities", None, false)
-        }
+        "capabilities" => http_json(
+            client,
+            state,
+            "GET",
+            "/api/engines/capabilities",
+            None,
+            false,
+        ),
         "external.tools" => http_json(client, state, "GET", "/api/external-tools", None, false),
         _ => Err(format!("Unsupported native method: {method}")),
     };
