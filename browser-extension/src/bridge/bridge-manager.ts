@@ -210,7 +210,7 @@ export class BridgeManager implements BridgeGateway {
     const tokenPromise = this.auth.getToken();
     void tokenPromise.then((token) => {
       if (!token || !this.caps.registry.has('events.sse')) return;
-      void this.tm.sse.connectFirst([this.tm.http.url('/api/v1/events/stream'), this.tm.http.url('/v1/events')], token, {
+      void this.tm.sse.connectFirst([this.tm.http.url('/v1/events')], token, {
         onOpen: () => this.health.mark(),
         onEvent: (event: NovaEvent) => this.handleEvent(event),
         onError: (error: unknown) => {

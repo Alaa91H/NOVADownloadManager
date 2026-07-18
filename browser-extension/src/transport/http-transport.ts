@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { NovaExtensionError, parseErrorBody, toNovaExtensionError } from '../core/error-classification';
 import { Transport } from './transport';
-import { DEFAULT_NOVA_LOOPBACK_HTTP_URL, buildNovaLoopbackHttpUrl } from './loopback-url-policy';
+import { DEFAULT_NOVA_LOOPBACK_HTTP_URL, buildNovaLoopbackHttpUrl, novaBaseUrlForPort } from './loopback-url-policy';
 import { encodeJsonPayloadWithBudget, readJsonResponseWithBudget } from '../security/transport-payload-budget';
 
 export type HttpTransportOptions = {
@@ -10,21 +10,68 @@ export type HttpTransportOptions = {
   timeoutMs?: number;
 };
 
+const DEFAULT_PORT = 3199;
+const PORT_SCAN_MAX = 10;
+const PORT_DISCOVER_TIMEOUT_MS = 1_500;
+
 export class HttpTransport implements Transport {
   readonly id = 'http' as const;
+  private discoveredBaseUrl?: string;
 
   constructor(private readonly baseUrl = DEFAULT_NOVA_LOOPBACK_HTTP_URL) {}
 
   url(route: string): string {
-    return buildNovaLoopbackHttpUrl(this.baseUrl, route);
+    const base = this.discoveredBaseUrl ?? this.baseUrl;
+    return buildNovaLoopbackHttpUrl(base, route);
   }
 
   async isAvailable(): Promise<boolean> {
+    // Fast path: try the cached or default port first.
+    if (this.discoveredBaseUrl) {
+      if (await this.ping(this.discoveredBaseUrl)) return true;
+      this.discoveredBaseUrl = undefined;
+    }
+    if (await this.ping(this.baseUrl)) return true;
+
+    // Slow path: scan a range of ports in parallel.
+    const found = await this.scanPorts();
+    if (found) {
+      this.discoveredBaseUrl = found;
+      return true;
+    }
+    return false;
+  }
+
+  private async ping(baseUrl: string): Promise<boolean> {
     try {
-      const response = await fetch(this.url('/v1/ping'), { method: 'GET', cache: 'no-store' });
-      return response.ok;
+      const pingUrl = buildNovaLoopbackHttpUrl(baseUrl, '/v1/ping');
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), PORT_DISCOVER_TIMEOUT_MS);
+      try {
+        const response = await fetch(pingUrl, { method: 'GET', cache: 'no-store', signal: controller.signal });
+        return response.ok;
+      } finally {
+        clearTimeout(timeout);
+      }
     } catch {
       return false;
+    }
+  }
+
+  private async scanPorts(): Promise<string | null> {
+    const candidates: Array<Promise<string | null>> = [];
+    for (let offset = 0; offset < PORT_SCAN_MAX; offset++) {
+      const port = DEFAULT_PORT + offset;
+      const base = novaBaseUrlForPort(port);
+      candidates.push(
+        this.ping(base).then((ok) => (ok ? base : null)),
+      );
+    }
+    // Return the first port that responds. Promise.any rejects if ALL reject.
+    try {
+      return await Promise.any(candidates);
+    } catch {
+      return null;
     }
   }
 

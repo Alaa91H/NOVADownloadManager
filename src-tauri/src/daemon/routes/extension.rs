@@ -39,14 +39,13 @@ pub async fn handle_v1_ping(State(state): State<SharedState>) -> Json<serde_json
     }))
 }
 
-pub async fn handle_v1_pair_auto(Json(_body): Json<serde_json::Value>) -> Json<serde_json::Value> {
-    let token = format!(
-        "nova-local-pair-{}",
-        uuid::Uuid::new_v4().to_string().replace('-', "")
-    );
+pub async fn handle_v1_pair_auto(State(state): State<SharedState>) -> Json<serde_json::Value> {
+    // Return the daemon's actual API token so the extension can authenticate
+    // on all subsequent requests. This is safe because the endpoint is only
+    // reachable from loopback (CORS + CSP enforce this).
     Json(serde_json::json!({
         "ok": true,
-        "pairToken": token,
+        "pairToken": state.api_token,
         "autoApproved": true,
         "method": "auto-localhost-runtime-verified",
         "protocolVersion": 4,

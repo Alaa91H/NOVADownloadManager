@@ -345,6 +345,13 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     return;
                 }
             };
+
+            // Write the bound port to a file so the native messaging host and
+            // browser extension can discover it when the default port is occupied.
+            let port_file = std::path::Path::new(&data_dir).join("nova-daemon.port");
+            if let Err(e) = std::fs::write(&port_file, port.to_string()) {
+                log::warn!("Failed to write daemon port file: {}", e);
+            }
             let shutdown_state = state.clone();
             let shutdown_signal = async move {
                 let _ = tokio::signal::ctrl_c().await;
@@ -379,6 +386,8 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
             {
                 log::error!("Daemon server error: {}", e);
             }
+            // Remove the port file on clean shutdown.
+            let _ = std::fs::remove_file(std::path::Path::new(&data_dir).join("nova-daemon.port"));
         });
     });
 }

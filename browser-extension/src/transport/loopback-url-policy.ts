@@ -1,7 +1,8 @@
 ﻿import { NovaExtensionError } from '../core/error-classification';
 
 const ALLOWED_LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost']);
-const NOVA_LOOPBACK_PORT = '3199';
+const NOVA_DEFAULT_PORT = 3199;
+const NOVA_PORT_SCAN_MAX = 10;
 
 export const DEFAULT_NOVA_LOOPBACK_HTTP_URL = 'http://127.0.0.1:3199';
 export const DEFAULT_NOVA_LOOPBACK_WS_URL = 'ws://127.0.0.1:3199';
@@ -24,6 +25,11 @@ function parseUrl(value: string, kind: 'http' | 'ws'): URL {
   }
 }
 
+function isNovaPort(port: string): boolean {
+  const num = Number(port);
+  return Number.isFinite(num) && num >= NOVA_DEFAULT_PORT && num < NOVA_DEFAULT_PORT + NOVA_PORT_SCAN_MAX;
+}
+
 export function assertNovaLoopbackOrigin(url: string | URL, expectedProtocol: 'http:' | 'ws:'): URL {
   const parsed = typeof url === 'string' ? parseUrl(url, expectedProtocol === 'http:' ? 'http' : 'ws') : url;
   if (parsed.protocol !== expectedProtocol) {
@@ -32,8 +38,8 @@ export function assertNovaLoopbackOrigin(url: string | URL, expectedProtocol: 'h
   if (!ALLOWED_LOOPBACK_HOSTS.has(parsed.hostname)) {
     invalidLoopback('NOVA loopback URL must target localhost only.', { hostname: parsed.hostname });
   }
-  if (parsed.port !== NOVA_LOOPBACK_PORT) {
-    invalidLoopback('NOVA loopback URL must use the official NOVA browser integration port.', { port: parsed.port });
+  if (!isNovaPort(parsed.port || '3199')) {
+    invalidLoopback('NOVA loopback URL must use a valid NOVA daemon port (3199-3208).', { port: parsed.port });
   }
   if (parsed.username || parsed.password) {
     invalidLoopback('NOVA loopback URL must not include credentials.');
@@ -72,4 +78,8 @@ export function assertNovaLoopbackHttpUrl(url: string): string {
 export function assertNovaLoopbackWsUrl(url: string): string {
   const parsed = assertNovaLoopbackOrigin(url, 'ws:');
   return parsed.toString();
+}
+
+export function novaBaseUrlForPort(port: number): string {
+  return `http://127.0.0.1:${port}`;
 }
