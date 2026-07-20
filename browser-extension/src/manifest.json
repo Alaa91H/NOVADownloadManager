@@ -9,6 +9,7 @@
     "activeTab",
     "alarms",
     "contextMenus",
+    "declarativeNetRequest",
     "downloads",
     "nativeMessaging",
     "notifications",

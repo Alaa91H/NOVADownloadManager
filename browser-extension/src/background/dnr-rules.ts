@@ -34,8 +34,9 @@ function buildBlockRules(): browser.DeclarativeNetRequest.Rule[] {
       priority: 1,
       action: { type: 'block' },
       condition: {
-        regexFilter: `\\.${reEscape(ext)}(\\?.*)?$`,
+        regexFilter: `\\.${reEscape(ext)}([?#].*)?$`,
         resourceTypes,
+        isUrlFilterCaseSensitive: false,
       },
     });
   }
@@ -58,6 +59,7 @@ function buildBlockRules(): browser.DeclarativeNetRequest.Rule[] {
       condition: {
         regexFilter: pattern,
         resourceTypes,
+        isUrlFilterCaseSensitive: false,
       },
     });
   }
