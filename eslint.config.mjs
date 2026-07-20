@@ -62,6 +62,7 @@ export default tseslint.config(
       'coverage/',
       'bin/',
       '.cache/',
+      '.kilo/',
       'eslint.config.mjs',
     ],
   }

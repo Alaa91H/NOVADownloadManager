@@ -567,29 +567,22 @@ pub async fn handle_v1_stream_resolve(
 
     let ytdlp_bin = state.ytdlp_bin.clone();
     let url2 = url.to_string();
-    let output = tokio::time::timeout(
-        Duration::from_secs(30),
-        tokio::task::spawn_blocking(move || {
-            hidden_output(
-                &ytdlp_bin,
-                &[
-                    "--dump-json",
-                    "--no-playlist",
-                    "--no-warnings",
-                    "--skip-download",
-                    "--",
-                    &url2,
-                ],
-            )
-        }),
-    )
+    let joined = tokio::task::spawn_blocking(move || {
+        hidden_output_timed(
+            &ytdlp_bin,
+            &[
+                "--dump-json",
+                "--no-playlist",
+                "--no-warnings",
+                "--skip-download",
+                "--",
+                &url2,
+            ],
+            Duration::from_secs(30),
+        )
+    })
     .await;
 
-    let Ok(joined) = output else {
-        return Json(
-            serde_json::json!({"ok": false, "resolved": false, "message": "Stream resolve timed out", "qualities": []}),
-        );
-    };
     let spawned = match joined {
         Ok(value) => value,
         Err(error) => {
@@ -601,6 +594,11 @@ pub async fn handle_v1_stream_resolve(
     let process_output = match spawned {
         Ok(value) => value,
         Err(error) => {
+            if error.kind() == std::io::ErrorKind::TimedOut {
+                return Json(
+                    serde_json::json!({"ok": false, "resolved": false, "message": "Stream resolve timed out", "qualities": []}),
+                );
+            }
             return Json(
                 serde_json::json!({"ok": false, "resolved": false, "message": format!("yt-dlp failed to start: {}", error), "qualities": []}),
             );
@@ -1182,27 +1180,24 @@ async fn http_probe_for_analyze(state: &SharedState, url: &str) -> Option<serde_
 async fn ytdlp_probe_for_analyze(state: &SharedState, url: &str) -> Option<serde_json::Value> {
     let ytdlp_bin = state.ytdlp_bin.clone();
     let url2 = url.to_string();
-    let output = tokio::time::timeout(
-        Duration::from_secs(30),
-        tokio::task::spawn_blocking(move || {
-            hidden_output(
-                &ytdlp_bin,
-                &[
-                    "--dump-json",
-                    "--no-playlist",
-                    "--no-warnings",
-                    "--skip-download",
-                    "--",
-                    &url2,
-                ],
-            )
-        }),
-    )
+    let output = tokio::task::spawn_blocking(move || {
+        hidden_output_timed(
+            &ytdlp_bin,
+            &[
+                "--dump-json",
+                "--no-playlist",
+                "--no-warnings",
+                "--skip-download",
+                "--",
+                &url2,
+            ],
+            Duration::from_secs(30),
+        )
+    })
     .await;
 
-    // timeout returns Result<Result<Result<Output, io::Error>, JoinError>, Elapsed>
-    let join_result = output.ok()?;
-    let io_result = join_result.ok()?;
+    // spawn_blocking -> io::Result<Output>; timeouts surface as Err(TimedOut).
+    let io_result = output.ok()?;
     let process_output = io_result.ok()?;
     if !process_output.status.success() {
         return None;

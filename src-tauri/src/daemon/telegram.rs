@@ -53,7 +53,13 @@ pub async fn handle_telegram_update_config(
             cfg.chat_id = v;
         }
         if let Some(v) = body.get("apiBase").and_then(|v| v.as_str()) {
-            cfg.api_base = normalize_api_base(v);
+            cfg.api_base = normalize_api_base(v).unwrap_or_else(|| {
+                log::warn!(
+                    "Rejected Telegram apiBase '{}': not a trusted HTTPS telegram.org host",
+                    v
+                );
+                "https://api.telegram.org".to_string()
+            });
         }
         if let Some(v) = body.get("fileUploadLimitMb").and_then(|v| v.as_u64()) {
             cfg.file_upload_limit_mb = v.clamp(1, 2000);
@@ -80,17 +86,30 @@ pub async fn handle_telegram_test(State(state): State<SharedState>) -> Json<serd
     Json(serde_json::json!({"ok": ok}))
 }
 
-fn normalize_api_base(api_base: &str) -> String {
+fn normalize_api_base(api_base: &str) -> Option<String> {
     let trimmed = api_base.trim().trim_end_matches('/');
     if trimmed.is_empty() {
-        "https://api.telegram.org".to_string()
+        return Some("https://api.telegram.org".to_string());
+    }
+    // The Telegram bot token is embedded in the API URL, so a malicious
+    // apiBase would leak it to an attacker-controlled host. Restrict to the
+    // official Telegram host (or a trusted HTTPS mirror of it).
+    let parsed = reqwest::Url::parse(trimmed).ok()?;
+    if parsed.scheme() != "https" {
+        return None;
+    }
+    let host = parsed.host_str()?;
+    if host == "api.telegram.org" || host.ends_with(".telegram.org") {
+        Some(format!("https://{}", host))
     } else {
-        trimmed.to_string()
+        None
     }
 }
 
 fn telegram_api_url(api_base: &str, token: &str, method: &str) -> String {
-    format!("{}/bot{}/{}", normalize_api_base(api_base), token, method)
+    let base =
+        normalize_api_base(api_base).unwrap_or_else(|| "https://api.telegram.org".to_string());
+    format!("{}/bot{}/{}", base, token, method)
 }
 
 async fn telegram_send_message(

@@ -408,12 +408,14 @@ pub(crate) fn apply_easy_options<H: Handler>(
         }
     }
     if let Some(proto) = plan.config.str_("proto") {
+        reject_unsafe_protocols(proto, "proto")?;
         unsafe {
             raw_setopt_str(easy.raw(), CURLOPT_PROTOCOLS_STR, proto)
                 .map_err(|e| format!("Could not configure allowed protocols: {e}"))?;
         }
     }
     if let Some(proto_redir) = plan.config.str_("protoRedir") {
+        reject_unsafe_protocols(proto_redir, "protoRedir")?;
         unsafe {
             raw_setopt_str(easy.raw(), CURLOPT_REDIR_PROTOCOLS_STR, proto_redir)
                 .map_err(|e| format!("Could not configure redirect protocols: {e}"))?;
@@ -686,6 +688,10 @@ pub(crate) fn apply_easy_options<H: Handler>(
     if !resolve_entries.is_empty() {
         let mut list = List::new();
         for entry in &resolve_entries {
+            // Validate the target address to prevent SSRF bypass: a "safe" URL
+            // hostname could be redirected to an internal IP via a resolve entry.
+            crate::daemon::utils::is_safe_resolve_entry(entry.as_str())
+                .map_err(|e| format!("Rejected resolve entry '{}': {}", entry, e))?;
             list.append(entry.as_str())
                 .map_err(|e| format!("Could not add DNS resolve entry: {e}"))?;
         }
@@ -696,6 +702,8 @@ pub(crate) fn apply_easy_options<H: Handler>(
     if !connect_to_entries.is_empty() {
         let mut list = List::new();
         for entry in &connect_to_entries {
+            crate::daemon::utils::is_safe_resolve_entry(entry.as_str())
+                .map_err(|e| format!("Rejected connect-to entry '{}': {}", entry, e))?;
             list.append(entry.as_str())
                 .map_err(|e| format!("Could not add connect-to entry: {e}"))?;
         }
@@ -1014,4 +1022,26 @@ pub(crate) fn create_easy_for_range_ext(
         let _ = easy.max_recv_speed(limit);
     }
     Ok(easy)
+}
+
+/// Reject curl protocol lists that include schemes which could read local files
+/// or reach the local network. The curl syntax is a comma- or space-separated
+/// list of protocol names (e.g. "http,https,ftp").
+fn reject_unsafe_protocols(value: &str, field: &str) -> Result<(), String> {
+    const FORBIDDEN: &[&str] = &[
+        "file", "gopher", "scp", "smb", "smbs", "telnet", "dict", "ldap",
+    ];
+    let lower = value.to_lowercase();
+    for &bad in FORBIDDEN {
+        // Match either comma- or space-separated tokens.
+        for token in lower.split(|c: char| c == ',' || c.is_whitespace()) {
+            if token == bad {
+                return Err(format!(
+                    "Protocol '{}' is not allowed in curl '{}' option (would bypass local-file protections)",
+                    bad, field
+                ));
+            }
+        }
+    }
+    Ok(())
 }

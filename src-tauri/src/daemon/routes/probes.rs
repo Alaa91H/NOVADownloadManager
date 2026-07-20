@@ -621,22 +621,14 @@ pub async fn handle_ytdlp_probe(
 
     let ytdlp_bin = state.ytdlp_bin.clone();
     let url2 = url.to_string();
-    let output = tokio::time::timeout(
-        Duration::from_secs(30),
-        tokio::task::spawn_blocking(move || {
-            hidden_output(
-                &ytdlp_bin,
-                &["--dump-json", "--no-playlist", "--no-warnings", "--", &url2],
-            )
-        }),
-    )
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::GATEWAY_TIMEOUT,
-            Json(serde_json::json!({"error": "Probe timed out"})),
+    let output = tokio::task::spawn_blocking(move || {
+        hidden_output_timed(
+            &ytdlp_bin,
+            &["--dump-json", "--no-playlist", "--no-warnings", "--", &url2],
+            Duration::from_secs(30),
         )
-    })?
+    })
+    .await
     .map_err(|e| {
         log::error!("yt-dlp spawn failed: {}", e);
         (
@@ -645,6 +637,13 @@ pub async fn handle_ytdlp_probe(
         )
     })?
     .map_err(|e| {
+        if e.kind() == std::io::ErrorKind::TimedOut {
+            log::warn!("yt-dlp probe timed out for {}", url);
+            return (
+                StatusCode::GATEWAY_TIMEOUT,
+                Json(serde_json::json!({"error": "Probe timed out"})),
+            );
+        }
         log::error!("yt-dlp probe failed: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -721,28 +720,20 @@ pub async fn handle_ytdlp_probe_playlist(
 
     let ytdlp_bin = state.ytdlp_bin.clone();
     let url2 = url.to_string();
-    let output = tokio::time::timeout(
-        Duration::from_secs(30),
-        tokio::task::spawn_blocking(move || {
-            hidden_output(
-                &ytdlp_bin,
-                &[
-                    "--flat-playlist",
-                    "--dump-json",
-                    "--no-warnings",
-                    "--",
-                    &url2,
-                ],
-            )
-        }),
-    )
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::GATEWAY_TIMEOUT,
-            Json(serde_json::json!({"error": "Probe timed out"})),
+    let output = tokio::task::spawn_blocking(move || {
+        hidden_output_timed(
+            &ytdlp_bin,
+            &[
+                "--flat-playlist",
+                "--dump-json",
+                "--no-warnings",
+                "--",
+                &url2,
+            ],
+            Duration::from_secs(30),
         )
-    })?
+    })
+    .await
     .map_err(|e| {
         log::error!("yt-dlp spawn failed: {}", e);
         (
@@ -751,6 +742,13 @@ pub async fn handle_ytdlp_probe_playlist(
         )
     })?
     .map_err(|e| {
+        if e.kind() == std::io::ErrorKind::TimedOut {
+            log::warn!("yt-dlp playlist probe timed out for {}", url);
+            return (
+                StatusCode::GATEWAY_TIMEOUT,
+                Json(serde_json::json!({"error": "Probe timed out"})),
+            );
+        }
         log::error!("yt-dlp probe failed: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,

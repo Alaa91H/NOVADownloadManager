@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import prettier from 'prettier';
 import { en } from '../src/lib/i18n/en.ts';
 import { LANGUAGES } from './i18n-catalog.mjs';
 import { loadDict } from './i18n-dicts.mjs';
@@ -9,6 +10,14 @@ const I18N_DIR = join(ROOT, 'src', 'lib', 'i18n');
 const STAGING_DIR = join(ROOT, '.cache', 'i18n-staging');
 const entries = Object.entries(en);
 const sourceKeys = Object.keys(en);
+
+// Load the project Prettier config once so generated files match committed style.
+const prettierOptions = await prettier.resolveConfig(join(ROOT, '.prettierrc'));
+
+async function writeFormatted(filePath, source) {
+  const formatted = await prettier.format(source, { ...prettierOptions, filepath: filePath });
+  writeFileSync(filePath, formatted, 'utf8');
+}
 
 function exportName(code) {
   return code.replace(/[^a-zA-Z0-9]+(.)?/g, (_, next = '') => next.toUpperCase()).replace(/^(\d)/, '_$1');
@@ -33,7 +42,7 @@ function writeEnglishFallback(lang, targetDir) {
     '};',
     ''
   ];
-  writeFileSync(join(targetDir, `${fileStem(lang.code)}.ts`), lines.join('\n'), 'utf8');
+  return writeFormatted(join(targetDir, `${fileStem(lang.code)}.ts`), lines.join('\n'));
 }
 
 function writeMetadata(targetDir) {
@@ -45,7 +54,7 @@ function writeMetadata(targetDir) {
     '];',
     ''
   ];
-  writeFileSync(join(targetDir, 'languageMetadata.ts'), lines.join('\n'), 'utf8');
+  return writeFormatted(join(targetDir, 'languageMetadata.ts'), lines.join('\n'));
 }
 
 function writeTranslationsIndex(targetDir) {
@@ -103,7 +112,7 @@ function writeTranslationsIndex(targetDir) {
     '}',
     ''
   ];
-  writeFileSync(join(targetDir, 'translations.ts'), lines.join('\n'), 'utf8');
+  return writeFormatted(join(targetDir, 'translations.ts'), lines.join('\n'));
 }
 
 function writeLanguagesFacade() {
@@ -117,7 +126,7 @@ function writeLanguagesFacade() {
     '});',
     ''
   ];
-  writeFileSync(join(ROOT, 'src', 'lib', 'languages.ts'), lines.join('\n'), 'utf8');
+  return writeFormatted(join(ROOT, 'src', 'lib', 'languages.ts'), lines.join('\n'));
 }
 
 mkdirSync(I18N_DIR, { recursive: true });
@@ -138,20 +147,20 @@ for (const lang of LANGUAGES) {
       translatedCount += 1;
     } else {
       staleStagedCount += 1;
-      writeEnglishFallback(lang, I18N_DIR);
+      await writeEnglishFallback(lang, I18N_DIR);
     }
   } else if (existsSync(target)) {
     // Keep the committed translation when there is no freshly staged copy
     // (CI has no .cache/i18n-staging; wiping here would ship English only).
     translatedCount += 1;
   } else {
-    writeEnglishFallback(lang, I18N_DIR);
+    await writeEnglishFallback(lang, I18N_DIR);
   }
 }
 
-writeMetadata(I18N_DIR);
-writeTranslationsIndex(I18N_DIR);
-writeLanguagesFacade();
+await writeMetadata(I18N_DIR);
+await writeTranslationsIndex(I18N_DIR);
+await writeLanguagesFacade();
 
 const staleNote = staleStagedCount > 0 ? ` Ignored ${staleStagedCount} stale staged file(s).` : '';
 console.log(`[i18n:sync] Synced ${translatedCount}/${LANGUAGES.length} translated files. Missing languages use English fallback until i18n:update -- --resume completes.${staleNote}`);

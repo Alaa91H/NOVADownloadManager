@@ -48,7 +48,7 @@ pub fn shared_api_token() -> String {
 }
 
 /// Middleware that enforces Bearer token authentication on API routes.
-/// Exempt paths: /api/health, /api/engines/capabilities, /v1/pair-auto,
+/// Exempt paths: /api/health, /api/engines/capabilities, /v1/pair/auto,
 /// / (SPA index), /assets/*, and SPA fallback.
 async fn auth_middleware(
     axum::extract::State(state): axum::extract::State<SharedState>,
@@ -57,17 +57,18 @@ async fn auth_middleware(
 ) -> Result<axum::http::Response<axum::body::Body>, axum::http::StatusCode> {
     let path = request.uri().path();
 
+    // NOTE: do NOT use `path.starts_with("/api/engines/")` here — that would
+    // exempt every engine route (including POST /api/engines/download which
+    // downloads & executes binaries) from authentication. Only capabilities
+    // is public. Likewise, avoid `ends_with(".js")`-style exemptions: any
+    // path like `/api/downloads/secret.js` would bypass auth.
     let exempt = path == "/api/health"
         || path == "/api/engines/capabilities"
-        || path == "/v1/pair-auto"
+        || path == "/v1/pair/auto"
         || path == "/v1/ping"
-        || path.starts_with("/api/engines/")
         || path == "/"
         || path.starts_with("/assets/")
-        || path == "/index.html"
-        || path.ends_with(".js")
-        || path.ends_with(".css")
-        || path.ends_with(".ico");
+        || path == "/index.html";
 
     if exempt {
         return Ok(next.run(request).await);
@@ -232,7 +233,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
 
             // Discover external tools on startup.
             {
-                let et = state.external_tools.lock().unwrap();
+                let et = lock_or_err!(state.external_tools);
                 et.discover_and_initialize();
             }
 

@@ -1,5 +1,5 @@
 use crate::daemon::types::Segment;
-use std::net::{IpAddr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
 use std::process::Command;
 
 /// Browser-like UA avoids 403/Forbidden from CDNs and download mirrors that
@@ -56,24 +56,6 @@ pub fn is_safe_target_url(raw: &str) -> Result<(), String> {
     if host.is_empty() || host == "localhost" {
         return Err("Host is empty or localhost".to_string());
     }
-    fn is_internal_ip(ip: IpAddr) -> bool {
-        match ip {
-            IpAddr::V4(v4) => {
-                v4.is_loopback()
-                    || v4.is_private()
-                    || v4.is_link_local()
-                    || v4.is_multicast()
-                    || v4.is_unspecified()
-            }
-            IpAddr::V6(v6) => {
-                v6.is_loopback()
-                    || (v6.segments()[0] & 0xffc0) == 0xfe80
-                    || v6.is_multicast()
-                    || v6.is_unspecified()
-                    || (v6.segments()[0] & 0xfe00) == 0xfc00
-            }
-        }
-    }
     // Try to parse as IP first
     if let Ok(ip) = host.parse::<IpAddr>() {
         if is_internal_ip(ip) {
@@ -92,6 +74,99 @@ pub fn is_safe_target_url(raw: &str) -> Result<(), String> {
             return Err(format!(
                 "SSRF blocked: host '{}' resolves to internal IP {}",
                 host, ip
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Returns true if the IP is internal/private (loopback, private, link-local,
+/// multicast, unspecified, or IPv6 ULA). Shared by URL and resolve-entry checks.
+pub fn is_internal_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_multicast()
+                || v4.is_unspecified()
+        }
+        IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || (v6.segments()[0] & 0xffc0) == 0xfe80
+                || v6.is_multicast()
+                || v6.is_unspecified()
+                || (v6.segments()[0] & 0xfe00) == 0xfc00
+                || is_ipv4_mapped_internal(&v6)
+        }
+    }
+}
+
+/// Detect IPv4-mapped IPv6 addresses (::ffff:a.b.c.d) that point at internal IPv4.
+fn is_ipv4_mapped_internal(v6: &Ipv6Addr) -> bool {
+    let segs = v6.segments();
+    // ::ffff:a.b.c.d => segments [0,0,0,0,0,ffff,a,b]
+    if segs[0] == 0
+        && segs[1] == 0
+        && segs[2] == 0
+        && segs[3] == 0
+        && segs[4] == 0
+        && segs[5] == 0xffff
+    {
+        let v4 = Ipv4Addr::new(
+            (segs[6] >> 8) as u8,
+            segs[6] as u8,
+            (segs[7] >> 8) as u8,
+            segs[7] as u8,
+        );
+        return v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified();
+    }
+    false
+}
+
+/// Validate a curl `--resolve` / `--connect-to` entry to prevent SSRF bypass.
+///
+/// curl resolve syntax: `HOST:PORT:ADDRESS` (ADDRESS may be `+` to keep DNS).
+/// curl connect-to syntax: `HOST:PORT:CONNECT_HOST:CONNECT_PORT`.
+/// We reject any entry whose target ADDRESS/CONNECT_HOST resolves to an
+/// internal IP, mirroring `is_safe_target_url`'s policy.
+pub fn is_safe_resolve_entry(entry: &str) -> Result<(), String> {
+    let parts: Vec<&str> = entry.splitn(4, ':').collect();
+    if parts.len() < 3 {
+        return Err(format!("Invalid resolve/connect-to entry: '{}'", entry));
+    }
+    // The target address is the 3rd segment. For connect-to it is a hostname;
+    // for resolve it is an IP literal. A `+` means "use normal DNS" (safe).
+    let target = parts[2].trim();
+    if target.is_empty() {
+        return Err(format!(
+            "Empty address in resolve/connect-to entry: '{}'",
+            entry
+        ));
+    }
+    if target == "+" {
+        return Ok(());
+    }
+    if let Ok(ip) = target.parse::<IpAddr>() {
+        if is_internal_ip(ip) {
+            return Err(format!(
+                "SSRF blocked: resolve/connect-to entry '{}' targets internal IP {}",
+                entry, ip
+            ));
+        }
+        return Ok(());
+    }
+    // Hostname target — resolve and check all addresses.
+    let addr_str = format!("{}:443", target);
+    let addrs = addr_str
+        .to_socket_addrs()
+        .map_err(|e| format!("Could not resolve connect-to host '{}': {}", target, e))?;
+    for addr in addrs {
+        if is_internal_ip(addr.ip()) {
+            return Err(format!(
+                "SSRF blocked: connect-to host '{}' resolves to internal IP {}",
+                target,
+                addr.ip()
             ));
         }
     }

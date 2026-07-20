@@ -312,6 +312,16 @@ pub(crate) fn build_curl_args_with_capabilities(
         push_bool_flag(&mut args, direct_bool(dopts, "compressed"), "--compressed");
         push_bool_flag(&mut args, direct_bool(dopts, "insecure"), "--insecure");
         push_optional_arg(&mut args, "--cacert", direct_str(dopts, "caCert"))?;
+        // Validate resolve/connect-to entries for SSRF before adding them: a
+        // "safe" URL hostname could be redirected to an internal IP otherwise.
+        for entry in direct_array(dopts, "resolve") {
+            crate::daemon::utils::is_safe_resolve_entry(&entry)
+                .map_err(|e| format!("Rejected --resolve entry '{}': {}", entry, e))?;
+        }
+        for entry in direct_array(dopts, "connectTo") {
+            crate::daemon::utils::is_safe_resolve_entry(&entry)
+                .map_err(|e| format!("Rejected --connect-to entry '{}': {}", entry, e))?;
+        }
         push_array_args(&mut args, "--resolve", direct_array(dopts, "resolve"))?;
         push_array_args(&mut args, "--connect-to", direct_array(dopts, "connectTo"))?;
         push_bool_flag(&mut args, direct_bool(dopts, "tcpNoDelay"), "--tcp-nodelay");

@@ -607,22 +607,22 @@ pub async fn handle_checksum_verify(
     Json(body): Json<ChecksumVerifyBody>,
 ) -> Json<serde_json::Value> {
     let path = std::path::Path::new(&body.path);
-    match path.canonicalize() {
-        Ok(canonical) => {
-            let data_dir = std::path::Path::new(&state.data_dir)
-                .canonicalize()
-                .unwrap_or_else(|_| std::path::PathBuf::from(&state.data_dir));
-            if !canonical.starts_with(&data_dir) {
-                return Json(
-                    serde_json::json!({"ok": false, "error": "Path outside data directory"}),
-                );
-            }
-        }
+    // Canonicalize once and use the resolved path for both the boundary check
+    // and the actual file read, avoiding a TOCTOU window where a symlink could
+    // be swapped between validation and hashing.
+    let canonical = match path.canonicalize() {
+        Ok(c) => c,
         Err(_) => {
             return Json(serde_json::json!({"ok": false, "error": "File not found"}));
         }
+    };
+    let data_dir = std::path::Path::new(&state.data_dir)
+        .canonicalize()
+        .unwrap_or_else(|_| std::path::PathBuf::from(&state.data_dir));
+    if !canonical.starts_with(&data_dir) {
+        return Json(serde_json::json!({"ok": false, "error": "Path outside data directory"}));
     }
-    if !path.exists() {
+    if !canonical.exists() {
         return Json(serde_json::json!({"ok": false, "error": "File not found"}));
     }
     let result = if let Some(algo_name) = &body.algorithm {
@@ -639,12 +639,12 @@ pub async fn handle_checksum_verify(
                     ),
                 }));
             }
-            Some(checksum::verify_checksum(path, &algo, expected))
+            Some(checksum::verify_checksum(&canonical, &algo, expected))
         } else {
             None
         }
     } else {
-        checksum::auto_verify(path, &body.expected)
+        checksum::auto_verify(&canonical, &body.expected)
     };
     match result {
         Some(r) => Json(serde_json::json!({
@@ -694,7 +694,12 @@ pub struct MirrorAddBody {
 pub async fn handle_mirrors_add(
     State(state): State<SharedState>,
     Json(body): Json<MirrorAddBody>,
-) -> Json<serde_json::Value> {
+) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
+    // Validate the mirror URL for SSRF before accepting it: mirrors are used
+    // for failover downloads (transfer.rs) and otherwise bypass the is_safe_target_url
+    // check applied to the original URL.
+    crate::daemon::utils::is_safe_target_url(&body.mirror_url)
+        .map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e))?;
     let primary_url = {
         let snapshot = lock_or_err!(state.task_snapshot);
         snapshot
@@ -722,7 +727,9 @@ pub async fn handle_mirrors_add(
             task_id: body.task_id.clone(),
             mirror_url: body.mirror_url,
         });
-    Json(serde_json::json!({"ok": true, "task_id": body.task_id}))
+    Ok(Json(
+        serde_json::json!({"ok": true, "task_id": body.task_id}),
+    ))
 }
 
 // â”€â”€â”€ Plugin API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -898,7 +905,10 @@ pub struct MirrorSetBody {
 pub async fn handle_mirrors_set(
     State(state): State<SharedState>,
     Json(body): Json<MirrorSetBody>,
-) -> Json<serde_json::Value> {
+) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
+    // Validate the mirror URL for SSRF before accepting it (see handle_mirrors_add).
+    crate::daemon::utils::is_safe_target_url(&body.mirror_url)
+        .map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e))?;
     let primary_url = {
         let snapshot = lock_or_err!(state.task_snapshot);
         snapshot
@@ -918,7 +928,9 @@ pub async fn handle_mirrors_set(
         last_checked: None,
         healthy: true,
     }]);
-    Json(serde_json::json!({"ok": true, "task_id": body.task_id, "mirror_url": body.mirror_url}))
+    Ok(Json(
+        serde_json::json!({"ok": true, "task_id": body.task_id, "mirror_url": body.mirror_url}),
+    ))
 }
 
 #[derive(Deserialize)]
