@@ -184,6 +184,7 @@
 - [Why NOVA is different](#why-nova-is-different)
 - [Core capabilities](#core-capabilities)
 - [Architecture](#architecture)
+- [Security](#security)
 - [Repository structure](#repository-structure)
 - [Requirements](#requirements)
 - [Development](#development)
@@ -253,7 +254,39 @@ This runtime-verified model keeps the product predictable, debuggable, and safe 
 - Download queues, scheduling, batch import, and smart categories.
 - Active progress dialog, task properties, diagnostics panel, and comprehensive settings.
 
-## Architecture
+### Engine control surface
+
+NOVA exposes the full daemon engine-control API to the UI, so every capability the engine supports can be driven directly from the desktop app:
+
+- **Bandwidth & rate limiting** — global KB/s limit, pause/resume all downloads, per-task caps, and a live active-task breakdown.
+- **Priority queue** — reorder downloads and set per-task priority that the engine honors.
+- **Download profiles** — switch active profiles (presets for connections, rate limits, segmentation).
+- **Retry policy** — presets (default/aggressive/conservative/none) with a live backoff schedule preview.
+- **Download rules** — host/pattern-based rules that set category, priority, connections, save path, profile, rate limit, headers, mirrors, and required checksums.
+- **Scheduler rules** — server-side rules with triggers (time window, bandwidth-below, queue-empty, all-complete) and actions (start/pause downloads, set bandwidth limit, set priority, notify) that run even when NOVA is closed.
+- **Mirrors & failover** — add mirrors per task, trigger manual failover, enable/disable auto-failover, with health badges.
+- **Plugin system** — register/unregister/enable/disable engine plugins and update their settings.
+- **Checksum verification** — verify MD5/SHA-1/SHA-256/SHA-512 against expected digests (TOCTOU-hardened).
+- **Adaptive & segment telemetry** — per-task live connections, peak speed, retry count, segment progress.
+- **Metadata cache** — probe/metadata caching with stats and clear.
+- **Queue schedule sync** — push a front-end queue schedule to the engine so it runs server-side.
+
+All engine state is reactive: the UI subscribes via typed selectors and the engine surface auto-refreshes while the daemon is reachable.
+
+## Security
+
+NOVA treats the local daemon as a privileged trust boundary. The following hardening is enforced:
+
+- **Loopback-only API** — the daemon binds to `127.0.0.1` and rejects non-loopback origins by default.
+- **Bearer-token authentication** — every API route requires a token issued via the zero-click trusted-local pairing flow. No route is exempt except `/api/health`, `/api/engines/capabilities`, and the pairing endpoint itself.
+- **SSRF protection** — all outbound fetches (probes, downloads, mirror registration, resolve/connect-to overrides) are validated against internal/loopback/link-local/multicast IPs, including IPv4-mapped IPv6 addresses.
+- **Protocol allow-list** — curl `proto`/`protoRedir` options cannot enable `file`, `gopher`, `scp`, `smb`, `telnet`, `dict`, or `ldap`, preventing local-file reads via redirect.
+- **Secret hygiene** — Telegram bot tokens are never sent to non-`*.telegram.org` hosts; credential fields are redacted in the UI when configured.
+- **Path safety** — checksum verification and file operations use canonicalized paths to close TOCTOU windows.
+- **Process hygiene** — probe subprocesses (yt-dlp/ffmpeg) are actively killed on timeout instead of being left orphaned.
+- **Mutex recovery** — shared state mutexes recover from poisoning instead of panicking the daemon.
+
+See [SECURITY.md](SECURITY.md) for responsible-disclosure details.
 
 ```text
 Browser Extension / Desktop UI
