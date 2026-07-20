@@ -59,19 +59,45 @@ export class HttpTransport implements Transport {
   }
 
   private async scanPorts(): Promise<string | null> {
+    // Race all candidate ports but cancel the losers as soon as one responds,
+    // so we never leave pending fetch connections hanging. Promise.any alone
+    // resolves fast but leaves the remaining fetches running until timeout.
+    const controller = new AbortController();
     const candidates: Array<Promise<string | null>> = [];
     for (let offset = 0; offset < PORT_SCAN_MAX; offset++) {
       const port = DEFAULT_PORT + offset;
       const base = novaBaseUrlForPort(port);
       candidates.push(
-        this.ping(base).then((ok) => (ok ? base : null)),
+        this.pingWithSignal(base, controller.signal).then((ok) => (ok ? base : null)),
       );
     }
-    // Return the first port that responds. Promise.any rejects if ALL reject.
     try {
-      return await Promise.any(candidates);
+      const winner = await Promise.any(candidates);
+      controller.abort();
+      return winner;
     } catch {
+      controller.abort();
       return null;
+    }
+  }
+
+  private async pingWithSignal(baseUrl: string, externalSignal: AbortSignal): Promise<boolean> {
+    try {
+      const pingUrl = buildNovaLoopbackHttpUrl(baseUrl, '/v1/ping');
+      const controller = new AbortController();
+      // Cancel if either our own timeout or the external scan-cancel fires.
+      const onExternalAbort = () => controller.abort();
+      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+      const timeout = setTimeout(() => controller.abort(), PORT_DISCOVER_TIMEOUT_MS);
+      try {
+        const response = await fetch(pingUrl, { method: 'GET', cache: 'no-store', signal: controller.signal });
+        return response.ok;
+      } finally {
+        clearTimeout(timeout);
+        externalSignal.removeEventListener('abort', onExternalAbort);
+      }
+    } catch {
+      return false;
     }
   }
 

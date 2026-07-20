@@ -1,6 +1,6 @@
 ﻿/* src/components/SchedulerPanel.tsx */
 import React, { useState, useCallback } from 'react';
-import { Play, Square, Plus, Trash2, AlertCircle, CheckCircle2, GripVertical } from 'lucide-react';
+import { Play, Square, Plus, Trash2, AlertCircle, CheckCircle2, GripVertical, Zap } from 'lucide-react';
 import {
   useTaskData,
   useQueueData,
@@ -9,6 +9,7 @@ import {
   useToastActions,
   useI18n,
 } from '../store/selectors';
+import { novaClient } from '../api/novaClient';
 import { Button } from './primitives';
 import { DndContext, closestCenter, DragOverlay, type DragStartEvent, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
@@ -193,6 +194,7 @@ export const SchedulerPanel: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabId>('files');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [newQueueName, setNewQueueName] = useState('');
+  const [syncing, setSyncing] = useState(false);
 
   // Load the form when switching queues, adjusting state during render.
   // The auto-save effect below then fires once with the freshly synced values,
@@ -307,6 +309,49 @@ export const SchedulerPanel: React.FC = () => {
     setIsScheduled(enabled);
     if (enabled) {
       updateQueue(selectedQueueId, { scheduleCompleted: false }, true);
+    }
+  };
+
+  // Push the current queue schedule (time window + speed limit) to the engine's
+  // server-side scheduler. The front-end queue store holds UI state; this
+  // converts it into a SchedulerRule the daemon evaluates every tick so
+  // downloads actually start/pause and respect the limit even when the UI is
+  // closed.
+  const handleSyncToEngine = async () => {
+    if (!isScheduled) {
+      addToast('warning', t('sched_engine_sync_title'), t('sched_engine_sync_disabled'));
+      return;
+    }
+    const parseHm = (hm: string): [number, number] => {
+      const [h, m] = hm.split(':').map(Number);
+      return [Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0];
+    };
+    const [startH, startM] = parseHm(startTime || '02:00');
+    const [endH, endM] = parseHm(endTime || '08:00');
+    const taskIds = orderedQueueTasks.map((t) => t.id);
+    const rule = {
+      id: `queue-${selectedQueueId}`,
+      name: `${name} (engine)`,
+      enabled: true,
+      trigger: {
+        type: 'TimeWindow',
+        start_hour: startH,
+        start_minute: startM,
+        end_hour: endH,
+        end_minute: endM,
+      },
+      action: limitSpeed
+        ? { type: 'SetBandwidthLimit', kbps: speedLimitKbs || 0 }
+        : { type: 'StartDownload', task_ids: taskIds },
+    };
+    setSyncing(true);
+    try {
+      await novaClient.updateSchedulerRule(rule);
+      addToast('success', t('sched_engine_sync_title'), t('sched_engine_sync_done'));
+    } catch (e) {
+      addToast('error', t('sched_engine_sync_title'), e instanceof Error ? e.message : t('sched_engine_sync_fail'));
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -645,6 +690,21 @@ export const SchedulerPanel: React.FC = () => {
               {t('sched_start_queue')}
             </Button>
           </div>
+        )}
+
+        {activeTab !== 'files' && (
+          <button
+            type="button"
+            onClick={() => {
+              void handleSyncToEngine();
+            }}
+            disabled={syncing}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-lg bg-[var(--accent-primary)] text-white hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50"
+            title={t('sched_engine_sync_title')}
+          >
+            <Zap className="w-3.5 h-3.5" />
+            {t('sched_engine_sync_title')}
+          </button>
         )}
       </div>
     </div>
