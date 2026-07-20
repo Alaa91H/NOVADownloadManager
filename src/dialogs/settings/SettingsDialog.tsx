@@ -16,6 +16,7 @@ import {
   Activity,
   Gauge,
   Layers,
+  Shield,
 } from 'lucide-react';
 import {
   useDialogData,
@@ -34,7 +35,8 @@ import { GeneralAndDownloads } from './sections/GeneralAndDownloads';
 import { NetworkAndPerformance } from './sections/NetworkAndPerformance';
 import { BrowserAndIntegration } from './sections/BrowserAndIntegration';
 import { IntegrationsAndAutomation } from './sections/IntegrationsAndAutomation';
-import { AppearanceAndSecurity } from './sections/AppearanceAndSecurity';
+import { AppearanceSettings } from './sections/AppearanceSettings';
+import { SecuritySettings } from './sections/SecuritySettings';
 import { DiagnosticsAndSystem } from './sections/DiagnosticsAndSystem';
 import { DirectDownloadSettings } from './sections/DirectDownloadSettings';
 import { MediaDownloadSettings } from './sections/MediaDownloadSettings';
@@ -49,7 +51,8 @@ type SettingsTabId =
   | 'network'
   | 'integration'
   | 'integrations_automation'
-  | 'appearance_security'
+  | 'appearance'
+  | 'security'
   | 'diagnostics_system';
 type EnginesSubTab = 'direct' | 'media' | 'engineControls' | 'engineManagement' | 'mirrorsPlugins' | 'externalTools';
 type AutomationSubTab = 'telegram' | 'webhooks' | 'smtp' | 'rules';
@@ -211,20 +214,8 @@ export const SettingsDialog: React.FC = () => {
       'notify',
       'notification',
     ],
-    appearance_security: [
-      'appearance',
-      'security',
-      'theme',
-      'dark',
-      'privacy',
-      'color',
-      'screen',
-      'encryption',
-      'layout',
-      'contrast',
-      'accent',
-      'toolbar',
-    ],
+    appearance: ['appearance', 'theme', 'dark', 'color', 'layout', 'contrast', 'accent', 'toolbar'],
+    security: ['security', 'privacy', 'encryption', 'token', 'credential', 'origin', 'localhost'],
     diagnostics_system: [
       'diagnostics',
       'daemon',
@@ -310,10 +301,16 @@ export const SettingsDialog: React.FC = () => {
       ],
     },
     {
-      id: 'appearance_security' as const,
-      label: t('set_tab_appearance_security'),
+      id: 'appearance' as const,
+      label: t('settings_appearance'),
       desc: t('set_tab_appearance_security_desc'),
       icon: Palette,
+    },
+    {
+      id: 'security' as const,
+      label: t('settings_security_privacy'),
+      desc: t('set_tab_appearance_security_desc'),
+      icon: Shield,
     },
     {
       id: 'diagnostics_system' as const,
@@ -562,14 +559,16 @@ export const SettingsDialog: React.FC = () => {
             />
           )}
 
-          {activeTab === 'appearance_security' && (
-            <AppearanceAndSecurity
+          {activeTab === 'appearance' && (
+            <AppearanceSettings
               settings={localSettings}
               themeSettings={localThemeSettings}
               updateThemeSetting={updateLocalThemeSetting}
               updateSetting={updateLocalSetting}
             />
           )}
+
+          {activeTab === 'security' && <SecuritySettings settings={localSettings} updateSetting={updateLocalSetting} />}
 
           {activeTab === 'diagnostics_system' && (
             <DiagnosticsAndSystem
