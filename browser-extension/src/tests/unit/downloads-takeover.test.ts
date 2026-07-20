@@ -15,15 +15,24 @@ function shouldTakeover(
     if (parsed.protocol === 'blob:' || parsed.protocol === 'data:') return false;
     const host = parsed.hostname.toLowerCase();
     if (host === '127.0.0.1' || host === 'localhost') return false;
-    if (capture.neverTakeoverHosts.some((h) => host === h || host.endsWith(`.${h}`) || host.endsWith(h))) {
-      if (!capture.alwaysTakeoverHosts.some((h) => host === h || host.endsWith(`.${h}`) || host.endsWith(h))) {
+    // Match exact host or proper subdomain only (".example.com" matches
+    // "a.example.com" but NOT "notexample.com").
+    const hostMatches = (list: string[]): boolean =>
+      list.some((h) => {
+        const lower = h.toLowerCase();
+        return host === lower || host.endsWith(`.${lower}`);
+      });
+    if (hostMatches(capture.neverTakeoverHosts)) {
+      if (!hostMatches(capture.alwaysTakeoverHosts)) {
         return false;
       }
     }
-    if (capture.alwaysTakeoverHosts.some((h) => host === h || host.endsWith(`.${h}`) || host.endsWith(h))) {
+    if (hostMatches(capture.alwaysTakeoverHosts)) {
       return true;
     }
-  } catch { /* malformed URL */ }
+  } catch {
+    /* malformed URL */
+  }
 
   if (capture.aggressiveMode) return true;
 
@@ -102,5 +111,23 @@ describe('downloads takeover policy', () => {
       takeoverFileTypes: ['mp4'],
     };
     expect(shouldTakeover({ url: 'https://example.com/document.pdf', totalBytes: 1 }, capture)).toBe(true);
+  });
+
+  it('neverTakeoverHosts matches subdomains but NOT unrelated hosts sharing a suffix', () => {
+    // Regression: the old `host.endsWith(h)` matched "notexample.com" for h="example.com",
+    // wrongly skipping takeover on unrelated hosts. Proper subdomain matching only.
+    const capture = { ...baseTakeoverSettings, neverTakeoverHosts: ['example.com'] };
+    expect(shouldTakeover({ url: 'https://example.com/file.zip' }, capture)).toBe(false);
+    expect(shouldTakeover({ url: 'https://sub.example.com/file.zip' }, capture)).toBe(false);
+    // Unrelated host that merely ends with "example.com" — must still be claimed.
+    expect(shouldTakeover({ url: 'https://notexample.com/file.zip' }, capture)).toBe(true);
+  });
+
+  it('alwaysTakeoverHosts matches subdomains but NOT unrelated hosts sharing a suffix', () => {
+    const capture = { ...baseTakeoverSettings, alwaysTakeoverHosts: ['example.com'], takeoverMinSizeMB: 100 };
+    expect(shouldTakeover({ url: 'https://example.com/file.zip', totalBytes: 1 }, capture)).toBe(true);
+    expect(shouldTakeover({ url: 'https://sub.example.com/file.zip', totalBytes: 1 }, capture)).toBe(true);
+    // Unrelated host that merely ends with "example.com" — must NOT be force-claimed.
+    expect(shouldTakeover({ url: 'https://notexample.com/file.zip', totalBytes: 1 }, capture)).toBe(false);
   });
 });

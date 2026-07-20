@@ -310,13 +310,20 @@ export function shouldTakeover(
     if (parsed.protocol === 'blob:' || parsed.protocol === 'data:') return false;
     const host = parsed.hostname.toLowerCase();
     if (host === '127.0.0.1' || host === 'localhost') return false;
-    if (capture.neverTakeoverHosts.some((h: string) => host === h || host.endsWith(`.${h}`) || host.endsWith(h))) {
-      // alwaysTakeoverHosts wins over never
-      if (!capture.alwaysTakeoverHosts.some((h: string) => host === h || host.endsWith(`.${h}`) || host.endsWith(h))) {
+    // Match either an exact host or a proper subdomain (".example.com" matches
+    // "a.example.com" but NOT "notexample.com"). The previous `host.endsWith(h)`
+    // check produced false positives for unrelated hosts sharing a suffix.
+    const hostMatches = (list: string[]): boolean =>
+      list.some((h: string) => {
+        const lower = h.toLowerCase();
+        return host === lower || host.endsWith(`.${lower}`);
+      });
+    if (hostMatches(capture.neverTakeoverHosts)) {
+      if (!hostMatches(capture.alwaysTakeoverHosts)) {
         return false;
       }
     }
-    if (capture.alwaysTakeoverHosts.some((h: string) => host === h || host.endsWith(`.${h}`) || host.endsWith(h))) {
+    if (hostMatches(capture.alwaysTakeoverHosts)) {
       return true;
     }
   } catch {
