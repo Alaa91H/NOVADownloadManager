@@ -384,10 +384,10 @@ export const novaClient = {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...payload, url }),
         },
-        30000,
+        10000,
       );
     }
-    return request<NovaProbeResult>(`/api/probe?url=${encodeURIComponent(url)}`, undefined, 20000);
+    return request<NovaProbeResult>(`/api/probe?url=${encodeURIComponent(url)}`, undefined, 8000);
   },
 
   async createDownload(payload: CreateDownloadPayload): Promise<DownloadItem> {

@@ -6,8 +6,8 @@ use std::time::Duration;
 use crate::daemon::utils::hide_command_window;
 use crate::daemon::utils::DEFAULT_USER_AGENT;
 
-pub(super) const PROBE_HEAD_TIMEOUT_SECS: u64 = 15;
-pub(super) const PROBE_RANGE_TIMEOUT_SECS: u64 = 20;
+pub(super) const PROBE_HEAD_TIMEOUT_SECS: u64 = 6;
+pub(super) const PROBE_RANGE_TIMEOUT_SECS: u64 = 8;
 pub(super) const PROBE_USER_AGENT: &str = DEFAULT_USER_AGENT;
 
 pub(super) fn daemon_error(message: String) -> (StatusCode, Json<serde_json::Value>) {

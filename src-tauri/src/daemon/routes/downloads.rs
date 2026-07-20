@@ -443,11 +443,129 @@ fn apply_fast_resolve(body: &mut CreateDownloadBody) -> bool {
     // the URL as-is and let the download engine resolve it via HTTP redirects
     // and Content-Disposition. The background probe will enrich metadata
     // (size, etag, mirrors) asynchronously.
+    //
+    // Strong fast-path: if the URL path ends with a recognizable file extension
+    // (e.g. vlc-3.0.23-win64.exe, file.zip), the filename is already derivable
+    // from the URL itself — skip the background RIE probe entirely and start the
+    // download immediately. This is the common case for direct download links
+    // (get.videolan.org, github releases, cdns) and eliminates the multi-second
+    // probe delay users experienced between "size detected" and "download starts".
+    if let Some(file_name) = file_name_from_url(&original_url) {
+        if has_recognizable_extension(&file_name) {
+            body.name = Some(file_name);
+            if body.referer.as_deref().unwrap_or("").trim().is_empty() {
+                body.referer = Some(original_url.clone());
+            }
+            body.url = Some(original_url);
+            return true;
+        }
+    }
+
     if body.referer.as_deref().unwrap_or("").trim().is_empty() {
         body.referer = Some(original_url.clone());
     }
     body.url = Some(original_url);
     true
+}
+
+/// Extract the final path segment as a filename, stripping query strings.
+fn file_name_from_url(url: &str) -> Option<String> {
+    let path = url.split('?').next().unwrap_or(url);
+    let path = path.split('#').next().unwrap_or(path);
+    let last = path.rsplit('/').next()?;
+    let decoded = percent_decode(last);
+    if decoded.is_empty() || decoded == "/" {
+        None
+    } else {
+        Some(decoded)
+    }
+}
+
+/// Minimal percent-decoding for path segments (handles %20, %2F, etc.).
+fn percent_decode(input: &str) -> String {
+    if !input.contains('%') {
+        return input.to_string();
+    }
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(byte) =
+                u8::from_str_radix(std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""), 16)
+            {
+                out.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).to_string()
+}
+
+/// True when the filename ends with a known downloadable extension, indicating
+/// a direct file link rather than an HTML interstitial that needs probing.
+fn has_recognizable_extension(name: &str) -> bool {
+    let lower = name.rsplit('.').next().unwrap_or("").to_lowercase();
+    matches!(
+        lower.as_str(),
+        "exe"
+            | "msi"
+            | "msix"
+            | "appx"
+            | "dmg"
+            | "pkg"
+            | "deb"
+            | "rpm"
+            | "apk"
+            | "zip"
+            | "7z"
+            | "rar"
+            | "tar"
+            | "gz"
+            | "bz2"
+            | "xz"
+            | "iso"
+            | "img"
+            | "bin"
+            | "jar"
+            | "war"
+            | "pdf"
+            | "doc"
+            | "docx"
+            | "xls"
+            | "xlsx"
+            | "ppt"
+            | "pptx"
+            | "mp3"
+            | "mp4"
+            | "mkv"
+            | "avi"
+            | "mov"
+            | "flv"
+            | "webm"
+            | "wav"
+            | "flac"
+            | "ogg"
+            | "m4a"
+            | "aac"
+            | "epub"
+            | "mobi"
+            | "azw3"
+            | "torrent"
+            | "crx"
+            | "xpi"
+            | "run"
+            | "sh"
+            | "bat"
+            | "cmd"
+            | "ps1"
+            | "py"
+            | "whl"
+            | "egg"
+    )
 }
 
 struct ProbeMetadata {
