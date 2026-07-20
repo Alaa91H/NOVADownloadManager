@@ -1,6 +1,16 @@
 /* src/dialogs/settings/sections/EngineManagement.tsx */
 import React, { useState, useEffect, useCallback } from 'react';
-import { Download, CheckCircle, AlertCircle, RefreshCw, ExternalLink, Loader2, Activity, Code, Video } from 'lucide-react';
+import {
+  Download,
+  CheckCircle,
+  AlertCircle,
+  RefreshCw,
+  ExternalLink,
+  Loader2,
+  Activity,
+  Code,
+  Video,
+} from 'lucide-react';
 import { useToastActions } from '../../../store/selectors';
 import { novaClient } from '../../../api/novaClient';
 import { useEngineCapabilities } from '../../../capabilities/EngineCapabilityContext';
@@ -60,7 +70,9 @@ export const EngineManagement: React.FC = () => {
     const timeout = setTimeout(() => {
       void checkEngineStatus();
     }, 0);
-    return () => { clearTimeout(timeout); };
+    return () => {
+      clearTimeout(timeout);
+    };
   }, [checkEngineStatus]);
 
   const handleDownload = async (engine: 'ytdlp' | 'ffmpeg') => {
@@ -77,7 +89,11 @@ export const EngineManagement: React.FC = () => {
           version: result.version || '',
           path: result.path || '',
         }));
-        addToast('success', 'Engine Downloaded', `${engine === 'ytdlp' ? 'yt-dlp' : 'FFmpeg'} was downloaded successfully.`);
+        addToast(
+          'success',
+          'Engine Downloaded',
+          `${engine === 'ytdlp' ? 'yt-dlp' : 'FFmpeg'} was downloaded successfully.`,
+        );
         void checkEngineStatus();
       } else {
         setter((prev) => ({ ...prev, status: 'error', error: result.error || 'Unknown error' }));
@@ -134,7 +150,7 @@ export const EngineManagement: React.FC = () => {
           ...prev,
           status: 'done',
           latestVersion: result.latestVersion || '',
-          currentVersion: result.currentVersion || prev.version,
+          version: result.currentVersion || prev.version,
           updateAvailable: result.updateAvailable ?? false,
         }));
         if (result.updateAvailable) {
@@ -213,7 +229,9 @@ export const EngineManagement: React.FC = () => {
               state.available ? 'text-[var(--success)]' : 'text-[var(--danger)]'
             }`}
           >
-            <span className={`w-2 h-2 rounded-full ${state.available ? 'bg-[var(--success)]' : 'bg-[var(--danger)]'} ${state.available ? 'animate-pulse' : ''}`} />
+            <span
+              className={`w-2 h-2 rounded-full ${state.available ? 'bg-[var(--success)]' : 'bg-[var(--danger)]'} ${state.available ? 'animate-pulse' : ''}`}
+            />
             {state.available ? 'Installed' : 'Not Installed'}
           </span>
           {state.latestVersion && (
@@ -234,7 +252,10 @@ export const EngineManagement: React.FC = () => {
 
         {/* Path */}
         {state.path && (
-          <div className="mb-3 text-[10px] font-mono text-[var(--text-muted)] bg-[var(--bg-input)] rounded px-2 py-1 truncate" title={state.path}>
+          <div
+            className="mb-3 text-[10px] font-mono text-[var(--text-muted)] bg-[var(--bg-input)] rounded px-2 py-1 truncate"
+            title={state.path}
+          >
             {state.path}
           </div>
         )}
@@ -262,11 +283,7 @@ export const EngineManagement: React.FC = () => {
               ) : (
                 <Download className="w-3.5 h-3.5" />
               )}
-              {state.status === 'downloading'
-                ? 'Downloading...'
-                : state.available
-                  ? 'Re-download'
-                  : 'Download'}
+              {state.status === 'downloading' ? 'Downloading...' : state.available ? 'Re-download' : 'Download'}
             </button>
           )}
           <button
@@ -321,26 +338,32 @@ export const EngineManagement: React.FC = () => {
 
       <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
         Manage external engine binaries. yt-dlp handles media downloads (YouTube, etc.) and FFmpeg handles
-        post-processing (merge, convert, embed subtitles). Download yt-dlp directly from here, or point to a
-        system FFmpeg installation via the Media Download tab.
+        post-processing (merge, convert, embed subtitles). Download yt-dlp directly from here, or point to a system
+        FFmpeg installation via the Media Download tab.
       </p>
 
       {/* Engine capability summary */}
       <div className="grid grid-cols-3 gap-2">
         <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] p-2.5 text-center">
-          <div className={`text-xs font-bold ${engineCapabilities.directReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>
+          <div
+            className={`text-xs font-bold ${engineCapabilities.directReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
+          >
             {engineCapabilities.directReady ? 'Ready' : 'Unavailable'}
           </div>
           <div className="text-[10px] text-[var(--text-muted)] mt-0.5">Direct Engine</div>
         </div>
         <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] p-2.5 text-center">
-          <div className={`text-xs font-bold ${engineCapabilities.mediaReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>
+          <div
+            className={`text-xs font-bold ${engineCapabilities.mediaReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
+          >
             {engineCapabilities.mediaReady ? 'Ready' : 'Unavailable'}
           </div>
           <div className="text-[10px] text-[var(--text-muted)] mt-0.5">Media Engine</div>
         </div>
         <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] p-2.5 text-center">
-          <div className={`text-xs font-bold ${engineCapabilities.postProcessingReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>
+          <div
+            className={`text-xs font-bold ${engineCapabilities.postProcessingReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
+          >
             {engineCapabilities.postProcessingReady ? 'Ready' : 'Unavailable'}
           </div>
           <div className="text-[10px] text-[var(--text-muted)] mt-0.5">Post-Processor</div>
@@ -370,11 +393,11 @@ export const EngineManagement: React.FC = () => {
       <div className="flex items-start gap-2 p-3 bg-[var(--bg-hover)]/20 rounded-lg border border-[var(--border-color)]/30">
         <AlertCircle className="w-4 h-4 text-[var(--info)] shrink-0 mt-0.5" />
         <div className="text-[10px] text-[var(--text-muted)] leading-relaxed">
-          <strong className="text-[var(--text-secondary)]">Note:</strong> yt-dlp can be downloaded and updated
-          directly from this page. FFmpeg must be installed via your system package manager (e.g.{' '}
+          <strong className="text-[var(--text-secondary)]">Note:</strong> yt-dlp can be downloaded and updated directly
+          from this page. FFmpeg must be installed via your system package manager (e.g.{' '}
           <code className="font-mono">winget install ffmpeg</code> or{' '}
-          <code className="font-mono">apt install ffmpeg</code>), or you can specify a custom path in the Media
-          Download settings tab.
+          <code className="font-mono">apt install ffmpeg</code>), or you can specify a custom path in the Media Download
+          settings tab.
         </div>
       </div>
     </div>

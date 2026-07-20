@@ -1,7 +1,30 @@
 ﻿/* src/dialogs/settings/SettingsDialog.tsx */
 import React, { useState } from 'react';
-import { Settings, Sliders, Cpu, Globe, Bell, Palette, Search, ChevronDown, ChevronUp, X, Download, Video, Activity } from 'lucide-react';
-import { useDialogData, useSettingsData, useSettingsActions, useThemeData, useToastActions, useI18n } from '../../store/selectors';
+import {
+  Settings,
+  Sliders,
+  Cpu,
+  Globe,
+  Bell,
+  Palette,
+  Search,
+  ChevronDown,
+  ChevronUp,
+  X,
+  Download,
+  Video,
+  Activity,
+  Gauge,
+  Layers,
+} from 'lucide-react';
+import {
+  useDialogData,
+  useSettingsData,
+  useSettingsActions,
+  useThemeData,
+  useToastActions,
+  useI18n,
+} from '../../store/selectors';
 import type { AppSettings, AppThemeSettings } from '../../types/desktop-ui.types';
 import { initialSettings } from '../../initialData';
 import { playAppSound } from '../../utils/sound';
@@ -16,6 +39,8 @@ import { DiagnosticsAndSystem } from './sections/DiagnosticsAndSystem';
 import { DirectDownloadSettings } from './sections/DirectDownloadSettings';
 import { MediaDownloadSettings } from './sections/MediaDownloadSettings';
 import { EngineManagement } from './sections/EngineManagement';
+import { EngineControls } from './sections/EngineControls';
+import { MirrorsAndPlugins } from './sections/MirrorsAndPlugins';
 import { ExternalToolsSettings } from './sections/ExternalToolsSettings';
 
 type SettingsTabId =
@@ -26,7 +51,7 @@ type SettingsTabId =
   | 'integrations_automation'
   | 'appearance_security'
   | 'diagnostics_system';
-type EnginesSubTab = 'direct' | 'media' | 'engineManagement' | 'externalTools';
+type EnginesSubTab = 'direct' | 'media' | 'engineControls' | 'engineManagement' | 'mirrorsPlugins' | 'externalTools';
 type AutomationSubTab = 'telegram' | 'webhooks' | 'smtp' | 'rules';
 type DiagnosticsSubTab = 'bridge' | 'diagnostics' | 'backup' | 'advanced';
 type SettingsDialogPayload = {
@@ -259,6 +284,8 @@ export const SettingsDialog: React.FC = () => {
       subItems: [
         { id: 'direct', label: t('set_tab_direct_download'), icon: Download },
         { id: 'media', label: t('set_tab_media_download'), icon: Video },
+        { id: 'engineControls', label: 'Engine Controls', icon: Gauge },
+        { id: 'mirrorsPlugins', label: 'Mirrors & Plugins', icon: Layers },
         { id: 'engineManagement', label: 'Engine Manager', icon: Cpu },
         { id: 'externalTools', label: 'External Tools', icon: Cpu },
       ],
@@ -509,13 +536,13 @@ export const SettingsDialog: React.FC = () => {
             <MediaDownloadSettings settings={localSettings} updateSetting={updateLocalSetting} onAddToast={addToast} />
           )}
 
-          {activeTab === 'engines' && enginesSubTab === 'engineManagement' && (
-            <EngineManagement />
-          )}
+          {activeTab === 'engines' && enginesSubTab === 'engineManagement' && <EngineManagement />}
 
-          {activeTab === 'engines' && enginesSubTab === 'externalTools' && (
-            <ExternalToolsSettings />
-          )}
+          {activeTab === 'engines' && enginesSubTab === 'engineControls' && <EngineControls />}
+
+          {activeTab === 'engines' && enginesSubTab === 'mirrorsPlugins' && <MirrorsAndPlugins />}
+
+          {activeTab === 'engines' && enginesSubTab === 'externalTools' && <ExternalToolsSettings />}
 
           {activeTab === 'network' && (
             <NetworkAndPerformance settings={localSettings} updateSetting={updateLocalSetting} onAddToast={addToast} />

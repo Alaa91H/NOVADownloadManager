@@ -18,13 +18,18 @@ import {
   useNotificationsData,
   useI18n,
 } from '../store/selectors';
+import { useEngineStore } from '../store/engineStore';
 import { TopBar } from './TopBar';
 import { TaskTable } from './TaskTable';
 import { StatusBar } from './StatusBar';
 const SettingsPage = lazy(() => import('../pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 const SchedulerPage = lazy(() => import('../pages/SchedulerPage').then((m) => ({ default: m.SchedulerPage })));
-const MediaDownloadPage = lazy(() => import('../pages/MediaDownloadPage').then((m) => ({ default: m.MediaDownloadPage })));
-const WebpageGrabberPage = lazy(() => import('../pages/WebpageGrabberPage').then((m) => ({ default: m.WebpageGrabberPage })));
+const MediaDownloadPage = lazy(() =>
+  import('../pages/MediaDownloadPage').then((m) => ({ default: m.MediaDownloadPage })),
+);
+const WebpageGrabberPage = lazy(() =>
+  import('../pages/WebpageGrabberPage').then((m) => ({ default: m.WebpageGrabberPage })),
+);
 const BatchImportPage = lazy(() => import('../pages/BatchImportPage').then((m) => ({ default: m.BatchImportPage })));
 import DialogRoot from '../dialogs/DialogRoot';
 import { AlertCircle, CheckCircle, Info, X, RefreshCw, Minus, Square, Copy } from 'lucide-react';
@@ -122,15 +127,25 @@ const AppShellInner: React.FC = () => {
     let unlisten: (() => void) | undefined;
     let cancelled = false;
     const sync = () => {
-      void win.isMaximized().then((max) => {
-        if (!cancelled) setIsWindowMaximized(max);
-      });
+      void win.isMaximized().then(
+        (max) => {
+          if (!cancelled) setIsWindowMaximized(max);
+        },
+        () => {
+          /* window may be gone */
+        },
+      );
     };
     sync();
-    void win.onResized(sync).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
+    void win.onResized(sync).then(
+      (fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      },
+      () => {
+        /* listener registration failed */
+      },
+    );
     return () => {
       cancelled = true;
       unlisten?.();
@@ -149,10 +164,25 @@ const AppShellInner: React.FC = () => {
     }
     const totalSize = active.reduce((sum, task) => sum + task.sizeBytes, 0);
     const totalDone = active.reduce((sum, task) => sum + task.downloadedBytes, 0);
-    const pct =
-      totalSize > 0 ? Math.min(100, Math.max(0, Math.round((totalDone / totalSize) * 100))) : 0;
+    const pct = totalSize > 0 ? Math.min(100, Math.max(0, Math.round((totalDone / totalSize) * 100))) : 0;
     void win.setProgressBar({ status: ProgressBarStatus.Normal, progress: pct }).catch(() => {});
   }, [tasks]);
+
+  // Refresh the engine control surface (bandwidth, queue, profiles, mirrors,
+  // plugins, stats) when the daemon becomes reachable, then poll periodically.
+  // This makes every engine capability available to the UI without each
+  // component managing its own fetch lifecycle.
+  useEffect(() => {
+    if (bridge.status !== 'connected' && bridge.status !== 'degraded') return;
+    const refreshEngine = useEngineStore.getState().refreshAll;
+    void refreshEngine();
+    const interval = window.setInterval(() => {
+      void refreshEngine();
+    }, 15000);
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [bridge.status]);
 
   useEffect(() => {
     const preventUnsupportedContextMenu = (event: MouseEvent) => {
@@ -206,13 +236,17 @@ const AppShellInner: React.FC = () => {
         }
 
         if (!text || text === lastClipboardText.current) return;
-        lastClipboardText.current = text;
 
         const copiedUrl = extractFirstHttpUrl(text);
         if (!copiedUrl || dialog.active) return;
 
         const now = Date.now();
         if (now - lastClipboardOpenedAt.current < 1500) return;
+
+        // Only mark this URL as "seen" once we actually open the dialog.
+        // Marking it earlier would suppress legitimate re-detection when a
+        // dialog is open or the throttle window hasn't elapsed.
+        lastClipboardText.current = text;
         lastClipboardOpenedAt.current = now;
         openDialog(getDialogForUrl(copiedUrl), copiedUrl);
       } catch {
@@ -515,22 +549,28 @@ const AppShellInner: React.FC = () => {
           <button
             onClick={() => {
               if (isTauri()) {
-                void getCurrentWindow().minimize();
+                void getCurrentWindow()
+                  .minimize()
+                  .catch(() => {});
               }
             }}
             className="h-full px-3 hover:bg-[var(--bg-hover)] transition-colors flex items-center justify-center cursor-pointer"
             title={t('win_minimize')}
+            aria-label={t('win_minimize')}
           >
             <Minus className="w-3 h-3 text-[var(--text-secondary)]" />
           </button>
           <button
             onClick={() => {
               if (isTauri()) {
-                void getCurrentWindow().toggleMaximize();
+                void getCurrentWindow()
+                  .toggleMaximize()
+                  .catch(() => {});
               }
             }}
             className="h-full px-3 hover:bg-[var(--bg-hover)] transition-colors flex items-center justify-center cursor-pointer"
             title={t('win_maximize')}
+            aria-label={t('win_maximize')}
           >
             {isWindowMaximized ? (
               <Copy className="w-3 h-3 text-[var(--text-secondary)] -scale-x-100" />
@@ -541,11 +581,14 @@ const AppShellInner: React.FC = () => {
           <button
             onClick={() => {
               if (isTauri()) {
-                void getCurrentWindow().close();
+                void getCurrentWindow()
+                  .close()
+                  .catch(() => {});
               }
             }}
             className="h-full px-3 hover:bg-[var(--danger)] hover:text-white transition-colors flex items-center justify-center cursor-pointer"
             title={t('btn_close')}
+            aria-label={t('btn_close')}
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -556,23 +599,53 @@ const AppShellInner: React.FC = () => {
         {/* 2. Main Workspace Layout — downloads view or a full page (settings / lists) */}
         <div className="flex-1 flex flex-col h-full overflow-hidden">
           {activePage === 'settings' ? (
-            <Suspense fallback={<div className="flex-1 flex items-center justify-center"><div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" /></div>}>
+            <Suspense
+              fallback={
+                <div className="flex-1 flex items-center justify-center">
+                  <div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" />
+                </div>
+              }
+            >
               <SettingsPage />
             </Suspense>
           ) : activePage === 'scheduler' ? (
-            <Suspense fallback={<div className="flex-1 flex items-center justify-center"><div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" /></div>}>
+            <Suspense
+              fallback={
+                <div className="flex-1 flex items-center justify-center">
+                  <div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" />
+                </div>
+              }
+            >
               <SchedulerPage />
             </Suspense>
           ) : activePage === 'mediaDownload' ? (
-            <Suspense fallback={<div className="flex-1 flex items-center justify-center"><div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" /></div>}>
+            <Suspense
+              fallback={
+                <div className="flex-1 flex items-center justify-center">
+                  <div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" />
+                </div>
+              }
+            >
               <MediaDownloadPage />
             </Suspense>
           ) : activePage === 'webpageGrabber' ? (
-            <Suspense fallback={<div className="flex-1 flex items-center justify-center"><div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" /></div>}>
+            <Suspense
+              fallback={
+                <div className="flex-1 flex items-center justify-center">
+                  <div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" />
+                </div>
+              }
+            >
               <WebpageGrabberPage />
             </Suspense>
           ) : activePage === 'batchImport' ? (
-            <Suspense fallback={<div className="flex-1 flex items-center justify-center"><div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" /></div>}>
+            <Suspense
+              fallback={
+                <div className="flex-1 flex items-center justify-center">
+                  <div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" />
+                </div>
+              }
+            >
               <BatchImportPage />
             </Suspense>
           ) : (

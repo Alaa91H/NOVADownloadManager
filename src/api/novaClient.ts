@@ -147,15 +147,23 @@ type CreateDownloadPayload = Omit<
   startImmediately: boolean;
 };
 
+/** Safely coerce an untyped JSON value to a string, returning a fallback for non-strings. */
+function asStr(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : fallback;
+}
+
+/** Safely coerce an untyped JSON value to a number, returning a fallback for non-numbers. */
+function asNum(value: unknown, fallback = 0): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
 let _apiBase: string | undefined;
 let _authToken: string | undefined;
 
 // Development override: allow setting a bearer token through Vite env
 // (useful when running the daemon separately without Tauri).
 try {
-  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-  // @ts-ignore - import.meta.env is available at build time
-  const devToken = (import.meta.env.VITE_NOVA_API_TOKEN as string | undefined) || undefined;
+  const devToken = import.meta.env.VITE_NOVA_API_TOKEN || undefined;
   if (devToken) _authToken = devToken;
 } catch {
   // ignore when import.meta is not available in some test environments
@@ -168,7 +176,7 @@ export function setAuthToken(token: string): void {
 
 function getApiBase(): string {
   if (_apiBase !== undefined) return _apiBase;
-  const envUrl = import.meta.env.VITE_NOVA_API_URL as string | undefined;
+  const envUrl = import.meta.env.VITE_NOVA_API_URL;
   if (envUrl) {
     _apiBase = envUrl.replace(/\/$/, '');
     return _apiBase;
@@ -195,28 +203,51 @@ export const novaClient = {
     return request<unknown>('/api/engines/capabilities', undefined, 8000);
   },
 
-  async downloadEngine(engine: 'ytdlp' | 'ffmpeg'): Promise<{ ok: boolean; engine: string; path?: string; version?: string; error?: string }> {
-    return request('/api/engines/download', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ engine }),
-    }, 120000);
+  async downloadEngine(
+    engine: 'ytdlp' | 'ffmpeg',
+  ): Promise<{ ok: boolean; engine: string; path?: string; version?: string; error?: string }> {
+    return request(
+      '/api/engines/download',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ engine }),
+      },
+      120000,
+    );
   },
 
-  async verifyEngine(engine: 'ytdlp' | 'ffmpeg'): Promise<{ ok: boolean; available: boolean; engine: string; path?: string; version?: string; error?: string }> {
-    return request('/api/engines/verify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ engine }),
-    }, 10000);
+  async verifyEngine(
+    engine: 'ytdlp' | 'ffmpeg',
+  ): Promise<{ ok: boolean; available: boolean; engine: string; path?: string; version?: string; error?: string }> {
+    return request(
+      '/api/engines/verify',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ engine }),
+      },
+      10000,
+    );
   },
 
-  async checkEngineLatestVersion(engine: 'ytdlp' | 'ffmpeg'): Promise<{ ok: boolean; engine: string; latestVersion: string; currentVersion?: string; updateAvailable?: boolean; error?: string }> {
-    return request('/api/engines/latest-version', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ engine }),
-    }, 15000);
+  async checkEngineLatestVersion(engine: 'ytdlp' | 'ffmpeg'): Promise<{
+    ok: boolean;
+    engine: string;
+    latestVersion: string;
+    currentVersion?: string;
+    updateAvailable?: boolean;
+    error?: string;
+  }> {
+    return request(
+      '/api/engines/latest-version',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ engine }),
+      },
+      15000,
+    );
   },
 
   async diagnostics(): Promise<DiagnosticData> {
@@ -331,7 +362,7 @@ export const novaClient = {
 
     return () => {
       cancelled = true;
-      if (healthTimer !== null) clearInterval(healthTimer); // eslint-disable-line @typescript-eslint/no-unnecessary-condition
+      if (healthTimer) clearInterval(healthTimer); // eslint-disable-line @typescript-eslint/no-unnecessary-condition
       if (source) {
         source.removeEventListener('downloads', handleFullAndUpdate as EventListener);
         source.removeEventListener('downloads-delta', handleDelta as EventListener);
@@ -470,11 +501,24 @@ export const novaClient = {
   },
 
   // ── External Tools ──────────────────────────────────────────────────
-  async listExternalTools(): Promise<{ tools: Array<{ id: string; name: string; status: string; version?: string; path?: string; capabilities: Array<{ id: string; name: string; available: boolean }>; healthOk: boolean; error?: string }> }> {
+  async listExternalTools(): Promise<{
+    tools: Array<{
+      id: string;
+      name: string;
+      status: string;
+      version?: string;
+      path?: string;
+      capabilities: Array<{ id: string; name: string; available: boolean }>;
+      healthOk: boolean;
+      error?: string;
+    }>;
+  }> {
     return request('/api/external-tools', undefined, 10000);
   },
 
-  async discoverExternalTool(toolId: string): Promise<{ ok: boolean; status: string; version?: string; path?: string }> {
+  async discoverExternalTool(
+    toolId: string,
+  ): Promise<{ ok: boolean; status: string; version?: string; path?: string }> {
     return request(`/api/external-tools/${toolId}/discover`, { method: 'POST' }, 15000);
   },
 
@@ -482,7 +526,9 @@ export const novaClient = {
     return request(`/api/external-tools/${toolId}/health`, { method: 'POST' }, 10000);
   },
 
-  async checkExternalToolUpdates(toolId: string): Promise<{ available: boolean; latestVersion?: string; downloadUrl?: string; releaseNotes?: string }> {
+  async checkExternalToolUpdates(
+    toolId: string,
+  ): Promise<{ available: boolean; latestVersion?: string; downloadUrl?: string; releaseNotes?: string }> {
     return request(`/api/external-tools/${toolId}/check-updates`, { method: 'POST' }, 30000);
   },
 
@@ -490,30 +536,586 @@ export const novaClient = {
     return request(`/api/external-tools/${toolId}/update`, { method: 'POST' }, 120000);
   },
 
-  async setExternalToolPath(toolId: string, path: string): Promise<{ ok: boolean; status?: string; version?: string; path?: string; error?: string }> {
-    return request(`/api/external-tools/${toolId}/set-path`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path }),
-    }, 10000);
+  async setExternalToolPath(
+    toolId: string,
+    path: string,
+  ): Promise<{ ok: boolean; status?: string; version?: string; path?: string; error?: string }> {
+    return request(
+      `/api/external-tools/${toolId}/set-path`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      },
+      10000,
+    );
   },
 
   async uninstallExternalTool(toolId: string): Promise<{ ok: boolean; error?: string }> {
     return request(`/api/external-tools/${toolId}/uninstall`, { method: 'POST' }, 15000);
   },
 
-  async checkToolCapability(capabilityId: string): Promise<{ capabilityId: string; available: boolean; toolId: string; requiresMessage?: string }> {
+  async checkToolCapability(
+    capabilityId: string,
+  ): Promise<{ capabilityId: string; available: boolean; toolId: string; requiresMessage?: string }> {
     return request(`/api/external-tools/capabilities/${capabilityId}`, undefined, 5000);
+  },
+
+  // ── Engine Integration ─────────────────────────────────────────────
+  // The daemon exposes a rich engine-control surface (priority queue, bandwidth
+  // manager, rate limiting, download profiles, retry policy, download rules,
+  // server-side scheduler, mirror failover, plugin system, adaptive/segment
+  // telemetry, metadata cache, and aggregate stats). These methods expose every
+  // capability the backend supports so the UI can drive the engine directly.
+
+  async getEngineQueue(): Promise<{
+    ok: boolean;
+    entries: unknown[];
+    activeCount: number;
+    totalBandwidthKbps: number;
+    nextToStart?: string | null;
+  }> {
+    const data = await request<Record<string, unknown>>('/api/engine/queue', undefined, 5000);
+    return {
+      ok: Boolean(data.ok),
+      entries: Array.isArray(data.entries) ? data.entries : [],
+      activeCount: asNum(data.active_count),
+      totalBandwidthKbps: asNum(data.total_bandwidth_kbps),
+      nextToStart: asStr(data.next_to_start) || null,
+    };
+  },
+
+  async setQueuePriority(taskId: string, priority: number): Promise<{ ok: boolean; taskId: string; priority: string }> {
+    const data = await request<Record<string, unknown>>(
+      '/api/engine/queue',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: taskId, priority }),
+      },
+      5000,
+    );
+    return { ok: Boolean(data.ok), taskId: asStr(data.task_id, taskId), priority: asStr(data.priority) };
+  },
+
+  async getBandwidth(): Promise<{
+    ok: boolean;
+    globalLimitKbps: number;
+    paused: boolean;
+    tasks: Array<{ taskId: string; averageSpeedBps: number; allowedKbps: number }>;
+  }> {
+    const data = await request<Record<string, unknown>>('/api/engine/bandwidth', undefined, 5000);
+    const tasks = Array.isArray(data.tasks) ? data.tasks : [];
+    return {
+      ok: Boolean(data.ok),
+      globalLimitKbps: asNum(data.global_limit_kbps),
+      paused: Boolean(data.paused),
+      tasks: tasks.map((t) => {
+        const entry = t as Record<string, unknown>;
+        return {
+          taskId: asStr(entry.task_id),
+          averageSpeedBps: asNum(entry.average_speed_bps),
+          allowedKbps: asNum(entry.allowed_kbps),
+        };
+      }),
+    };
+  },
+
+  async setBandwidth(config: {
+    globalLimitKbps?: number;
+    paused?: boolean;
+    taskLimits?: Record<string, number>;
+    removeTaskLimits?: string[];
+  }): Promise<{ ok: boolean }> {
+    const data = await request<Record<string, unknown>>(
+      '/api/engine/bandwidth',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          global_limit_kbps: config.globalLimitKbps,
+          paused: config.paused,
+          task_limits: config.taskLimits,
+          remove_task_limits: config.removeTaskLimits,
+        }),
+      },
+      5000,
+    );
+    return { ok: Boolean(data.ok) };
+  },
+
+  async getRateLimit(): Promise<{ ok: boolean; paused: boolean; globalLimitKbps: number }> {
+    const data = await request<Record<string, unknown>>('/api/engine/rate-limit', undefined, 5000);
+    return {
+      ok: Boolean(data.ok),
+      paused: Boolean(data.paused),
+      globalLimitKbps: asNum(data.global_limit_kbps),
+    };
+  },
+
+  async setRateLimit(config: {
+    globalLimitKbps?: number;
+    taskLimit?: Record<string, number>;
+    removeTaskLimits?: string[];
+  }): Promise<{ ok: boolean }> {
+    const data = await request<Record<string, unknown>>(
+      '/api/engine/rate-limit',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          global_limit_kbps: config.globalLimitKbps,
+          task_limit: config.taskLimit,
+          remove_task_limits: config.removeTaskLimits,
+        }),
+      },
+      5000,
+    );
+    return { ok: Boolean(data.ok) };
+  },
+
+  async listProfiles(): Promise<{ ok: boolean; profiles: unknown[]; activeProfile: string }> {
+    const data = await request<Record<string, unknown>>('/api/engine/profiles', undefined, 5000);
+    return {
+      ok: Boolean(data.ok),
+      profiles: Array.isArray(data.profiles) ? data.profiles : [],
+      activeProfile: asStr(data.active_profile),
+    };
+  },
+
+  async setActiveProfile(profileId: string): Promise<{ ok: boolean }> {
+    const data = await request<Record<string, unknown>>(
+      '/api/engine/profiles',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile_id: profileId }),
+      },
+      5000,
+    );
+    return { ok: Boolean(data.ok) };
+  },
+
+  async getProfile(profileId: string): Promise<{ ok: boolean; profile?: unknown }> {
+    return request(`/api/engine/profiles/${encodeURIComponent(profileId)}`, undefined, 5000);
+  },
+
+  async addCustomProfile(
+    manifest: Record<string, unknown>,
+  ): Promise<{ ok: boolean; profileId?: string; error?: string }> {
+    return request(
+      '/api/engine/profiles/custom',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(manifest),
+      },
+      5000,
+    );
+  },
+
+  async deleteProfile(profileId: string): Promise<{ ok: boolean }> {
+    const data = await request<Record<string, unknown>>(
+      `/api/engine/profiles/${encodeURIComponent(profileId)}`,
+      { method: 'DELETE' },
+      5000,
+    );
+    return { ok: Boolean(data.ok) };
+  },
+
+  async getRetryPolicy(): Promise<{ ok: boolean; policy: unknown; backoffPreviewSecs: number[] }> {
+    const data = await request<Record<string, unknown>>('/api/engine/retry-policy', undefined, 5000);
+    const preview = Array.isArray(data.backoff_preview_secs) ? data.backoff_preview_secs : [];
+    return {
+      ok: Boolean(data.ok),
+      policy: data.policy,
+      backoffPreviewSecs: preview.map((v) => asNum(v)),
+    };
+  },
+
+  async setRetryPolicy(config: {
+    preset?: 'default' | 'aggressive' | 'conservative' | 'none';
+    maxRetries?: number;
+    baseDelaySecs?: number;
+    maxDelaySecs?: number;
+    backoffMultiplier?: number;
+    jitter?: boolean;
+  }): Promise<{ ok: boolean; policy?: unknown; error?: string }> {
+    const data = await request<Record<string, unknown>>(
+      '/api/engine/retry-policy',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          preset: config.preset,
+          max_retries: config.maxRetries,
+          base_delay_secs: config.baseDelaySecs,
+          max_delay_secs: config.maxDelaySecs,
+          backoff_multiplier: config.backoffMultiplier,
+          jitter: config.jitter,
+        }),
+      },
+      5000,
+    );
+    return { ok: Boolean(data.ok), policy: data.policy, error: asStr(data.error) };
+  },
+
+  async listDownloadRules(): Promise<{ ok: boolean; rules: unknown[] }> {
+    const data = await request<Record<string, unknown>>('/api/engine/rules', undefined, 5000);
+    return { ok: Boolean(data.ok), rules: Array.isArray(data.rules) ? data.rules : [] };
+  },
+
+  async addDownloadRule(rule: Record<string, unknown>): Promise<{ ok: boolean; ruleId: string }> {
+    const data = await request<Record<string, unknown>>(
+      '/api/engine/rules',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rule }),
+      },
+      5000,
+    );
+    return { ok: Boolean(data.ok), ruleId: asStr(data.rule_id) };
+  },
+
+  async deleteDownloadRule(ruleId: string): Promise<{ ok: boolean; ruleId: string }> {
+    const data = await request<Record<string, unknown>>(
+      `/api/engine/rules/${encodeURIComponent(ruleId)}`,
+      { method: 'DELETE' },
+      5000,
+    );
+    return { ok: Boolean(data.ok), ruleId: asStr(data.rule_id, ruleId) };
+  },
+
+  async listSchedulerRules(): Promise<{ ok: boolean; rules: unknown[]; activeRuleIds: string[] }> {
+    const data = await request<Record<string, unknown>>('/api/engine/scheduler', undefined, 5000);
+    const active = Array.isArray(data.active_rule_ids) ? data.active_rule_ids : [];
+    return {
+      ok: Boolean(data.ok),
+      rules: Array.isArray(data.rules) ? data.rules : [],
+      activeRuleIds: active.map((id) => asStr(id)),
+    };
+  },
+
+  async addSchedulerRule(rule: Record<string, unknown>): Promise<{ ok: boolean; ruleId: string }> {
+    const data = await request<Record<string, unknown>>(
+      '/api/engine/scheduler',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rule }),
+      },
+      5000,
+    );
+    return { ok: Boolean(data.ok), ruleId: asStr(data.rule_id) };
+  },
+
+  async updateSchedulerRule(rule: Record<string, unknown>): Promise<{ ok: boolean; ruleId: string }> {
+    const data = await request<Record<string, unknown>>(
+      '/api/engine/scheduler/update',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rule }),
+      },
+      5000,
+    );
+    return { ok: Boolean(data.ok), ruleId: asStr(data.rule_id) };
+  },
+
+  async deleteSchedulerRule(ruleId: string): Promise<{ ok: boolean; ruleId: string }> {
+    const data = await request<Record<string, unknown>>(
+      `/api/engine/scheduler/${encodeURIComponent(ruleId)}`,
+      { method: 'DELETE' },
+      5000,
+    );
+    return { ok: Boolean(data.ok), ruleId: asStr(data.rule_id, ruleId) };
+  },
+
+  async verifyChecksum(config: { path: string; expected: string; algorithm?: string }): Promise<{
+    ok: boolean;
+    algorithm?: string;
+    expected?: string;
+    actual?: string;
+    passed?: boolean;
+    error?: string;
+  }> {
+    return request(
+      '/api/engine/checksum',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config),
+      },
+      30000,
+    );
+  },
+
+  async listMirrors(): Promise<{ ok: boolean; downloads: unknown[] }> {
+    const data = await request<Record<string, unknown>>('/api/engine/mirrors', undefined, 5000);
+    return { ok: Boolean(data.ok), downloads: Array.isArray(data.downloads) ? data.downloads : [] };
+  },
+
+  async addMirror(taskId: string, mirrorUrl: string, priority?: number): Promise<{ ok: boolean; taskId: string }> {
+    const data = await request<Record<string, unknown>>(
+      '/api/engine/mirrors',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: taskId, mirror_url: mirrorUrl, priority }),
+      },
+      5000,
+    );
+    return { ok: Boolean(data.ok), taskId: asStr(data.task_id, taskId) };
+  },
+
+  async setMirror(taskId: string, mirrorUrl: string): Promise<{ ok: boolean; taskId: string; mirrorUrl: string }> {
+    const data = await request<Record<string, unknown>>(
+      '/api/engine/mirrors/set',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: taskId, mirror_url: mirrorUrl }),
+      },
+      5000,
+    );
+    return {
+      ok: Boolean(data.ok),
+      taskId: asStr(data.task_id, taskId),
+      mirrorUrl: asStr(data.mirror_url, mirrorUrl),
+    };
+  },
+
+  async triggerMirrorFailover(
+    taskId: string,
+  ): Promise<{ ok: boolean; taskId: string; activeUrl?: string; error?: string }> {
+    const data = await request<Record<string, unknown>>(
+      '/api/engine/mirrors/failover',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: taskId }),
+      },
+      5000,
+    );
+    return {
+      ok: Boolean(data.ok),
+      taskId: asStr(data.task_id, taskId),
+      activeUrl: asStr(data.active_url) || undefined,
+      error: asStr(data.error) || undefined,
+    };
+  },
+
+  async setMirrorFailover(
+    taskId: string,
+    enabled: boolean,
+  ): Promise<{ ok: boolean; taskId: string; failoverEnabled: boolean }> {
+    const data = await request<Record<string, unknown>>(
+      '/api/engine/mirrors/enable-failover',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: taskId, enabled }),
+      },
+      5000,
+    );
+    return {
+      ok: Boolean(data.ok),
+      taskId: asStr(data.task_id, taskId),
+      failoverEnabled: Boolean(data.failover_enabled ?? enabled),
+    };
+  },
+
+  async listPlugins(): Promise<{ ok: boolean; plugins: unknown[]; apiVersion: string }> {
+    const data = await request<Record<string, unknown>>('/api/plugins', undefined, 5000);
+    return {
+      ok: Boolean(data.ok),
+      plugins: Array.isArray(data.plugins) ? data.plugins : [],
+      apiVersion: asStr(data.api_version),
+    };
+  },
+
+  async getPlugin(pluginId: string): Promise<{ ok: boolean; plugin?: unknown; error?: string }> {
+    const data = await request<Record<string, unknown>>(
+      `/api/plugins/${encodeURIComponent(pluginId)}`,
+      undefined,
+      5000,
+    );
+    return {
+      ok: Boolean(data.ok),
+      plugin: data.plugin,
+      error: asStr(data.error) || undefined,
+    };
+  },
+
+  async registerPlugin(manifest: Record<string, unknown>): Promise<{ ok: boolean; pluginId?: string; error?: string }> {
+    const data = await request<Record<string, unknown>>(
+      '/api/plugins',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ manifest }),
+      },
+      5000,
+    );
+    return {
+      ok: Boolean(data.ok),
+      pluginId: asStr(data.plugin_id) || undefined,
+      error: asStr(data.error) || undefined,
+    };
+  },
+
+  async unregisterPlugin(pluginId: string): Promise<{ ok: boolean; pluginId?: string; error?: string }> {
+    const data = await request<Record<string, unknown>>(
+      `/api/plugins/${encodeURIComponent(pluginId)}`,
+      { method: 'DELETE' },
+      5000,
+    );
+    return {
+      ok: Boolean(data.ok),
+      pluginId: asStr(data.plugin_id) || undefined,
+      error: asStr(data.error) || undefined,
+    };
+  },
+
+  async enablePlugin(pluginId: string): Promise<{ ok: boolean; pluginId?: string; error?: string }> {
+    const data = await request<Record<string, unknown>>(
+      `/api/plugins/${encodeURIComponent(pluginId)}/enable`,
+      { method: 'POST' },
+      5000,
+    );
+    return {
+      ok: Boolean(data.ok),
+      pluginId: asStr(data.plugin_id) || undefined,
+      error: asStr(data.error) || undefined,
+    };
+  },
+
+  async disablePlugin(pluginId: string): Promise<{ ok: boolean; pluginId?: string; error?: string }> {
+    const data = await request<Record<string, unknown>>(
+      `/api/plugins/${encodeURIComponent(pluginId)}/disable`,
+      { method: 'POST' },
+      5000,
+    );
+    return {
+      ok: Boolean(data.ok),
+      pluginId: asStr(data.plugin_id) || undefined,
+      error: asStr(data.error) || undefined,
+    };
+  },
+
+  async updatePluginSettings(
+    pluginId: string,
+    settings: Record<string, unknown>,
+  ): Promise<{ ok: boolean; pluginId?: string; error?: string }> {
+    const data = await request<Record<string, unknown>>(
+      `/api/plugins/${encodeURIComponent(pluginId)}/settings`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings }),
+      },
+      5000,
+    );
+    return {
+      ok: Boolean(data.ok),
+      pluginId: asStr(data.plugin_id) || undefined,
+      error: asStr(data.error) || undefined,
+    };
+  },
+
+  async getAdaptiveInfo(taskId: string): Promise<{
+    ok: boolean;
+    taskId?: string;
+    connections?: number;
+    maxConnections?: number;
+    speed?: number;
+    peakSpeed?: number;
+    retryState?: { totalRetries: number; lastError: string };
+    error?: string;
+  }> {
+    const data = await request<Record<string, unknown>>(
+      `/api/engine/adaptive/${encodeURIComponent(taskId)}`,
+      undefined,
+      5000,
+    );
+    const retry = data.retry_state as Record<string, unknown> | undefined;
+    return {
+      ok: Boolean(data.ok),
+      taskId: asStr(data.task_id) || undefined,
+      connections: typeof data.connections === 'number' ? data.connections : undefined,
+      maxConnections: typeof data.max_connections === 'number' ? data.max_connections : undefined,
+      speed: typeof data.speed === 'number' ? data.speed : undefined,
+      peakSpeed: typeof data.peak_speed === 'number' ? data.peak_speed : undefined,
+      retryState: retry ? { totalRetries: asNum(retry.total_retries), lastError: asStr(retry.last_error) } : undefined,
+      error: asStr(data.error) || undefined,
+    };
+  },
+
+  async getSegmentInfo(taskId: string): Promise<{
+    ok: boolean;
+    taskId?: string;
+    segmented?: boolean;
+    totalSegments?: number;
+    completedSegments?: number;
+    progress?: number;
+    error?: string;
+  }> {
+    const data = await request<Record<string, unknown>>(
+      `/api/engine/segments/${encodeURIComponent(taskId)}`,
+      undefined,
+      5000,
+    );
+    return {
+      ok: Boolean(data.ok),
+      taskId: asStr(data.task_id) || undefined,
+      segmented: typeof data.segmented === 'boolean' ? data.segmented : undefined,
+      totalSegments: typeof data.total_segments === 'number' ? data.total_segments : undefined,
+      completedSegments: typeof data.completed_segments === 'number' ? data.completed_segments : undefined,
+      progress: typeof data.progress === 'number' ? data.progress : undefined,
+      error: asStr(data.error) || undefined,
+    };
+  },
+
+  async getMetadataCacheStats(): Promise<{ ok: boolean; entries: number }> {
+    const data = await request<Record<string, unknown>>('/api/engine/cache', undefined, 5000);
+    return { ok: Boolean(data.ok), entries: asNum(data.entries) };
+  },
+
+  async clearMetadataCache(): Promise<{ ok: boolean }> {
+    const data = await request<Record<string, unknown>>('/api/engine/cache', { method: 'DELETE' }, 5000);
+    return { ok: Boolean(data.ok) };
+  },
+
+  async getStats(): Promise<{
+    totalCompleted: number;
+    totalFailed: number;
+    totalDownloadedBytes: number;
+    activeDownloads: number;
+    sessionStartedAt?: string;
+  }> {
+    return request('/api/stats', undefined, 5000);
+  },
+
+  async getPendingCaptures(): Promise<{ ok: boolean; captures?: unknown[] }> {
+    return request('/captures/pending', undefined, 5000);
   },
 };
 
 async function request<T>(path: string, init?: RequestInit, timeoutMs = 2500): Promise<T> {
   const doFetch = async (abortSignal?: AbortSignal): Promise<T> => {
     const controller = new AbortController();
-    const combinedSignal = abortSignal ? combineAbortSignals(controller.signal, abortSignal) : controller.signal;
     const timer = window.setTimeout(() => {
       controller.abort();
     }, timeoutMs);
+
+    let combinedSignal: AbortSignal = controller.signal;
+    let detachExternalAbort: (() => void) | null = null;
+    if (abortSignal) {
+      const combined = combineAbortSignals(controller.signal, abortSignal);
+      combinedSignal = combined.signal;
+      detachExternalAbort = combined.cleanup;
+    }
 
     try {
       const headers = new Headers(init?.headers);
@@ -541,43 +1143,63 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 2500): P
       return (await response.json()) as T;
     } finally {
       window.clearTimeout(timer);
+      detachExternalAbort?.();
     }
   };
 
-  const retrySignal = new AbortController();
+  const retryController = new AbortController();
 
   try {
-    return await doFetch(retrySignal.signal);
+    return await doFetch(retryController.signal);
   } catch (err) {
     if (err instanceof Error && !err.message.includes('HTTP 4')) {
-      await new Promise<void>((r) => {
-        const timer = setTimeout(r, 500);
-        retrySignal.signal.addEventListener('abort', () => {
-          clearTimeout(timer);
-          r();
-        });
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 500);
+        retryController.signal.addEventListener(
+          'abort',
+          () => {
+            clearTimeout(timer);
+            resolve();
+          },
+          { once: true },
+        );
       });
-      if (retrySignal.signal.aborted) throw err;
-      return doFetch(retrySignal.signal);
+      if (retryController.signal.aborted) throw err;
+      return await doFetch(retryController.signal);
     }
     throw err;
+  } finally {
+    // Ensure any pending wait/abort listeners are released promptly.
+    retryController.abort();
   }
 }
 
-function combineAbortSignals(...signals: AbortSignal[]): AbortSignal {
+interface CombinedAbortSignal {
+  signal: AbortSignal;
+  cleanup: () => void;
+}
+
+function combineAbortSignals(...signals: AbortSignal[]): CombinedAbortSignal {
   const controller = new AbortController();
+  const cleanups: Array<() => void> = [];
   for (const signal of signals) {
     if (signal.aborted) {
       controller.abort(signal.reason);
-      return controller.signal;
+      for (const cleanup of cleanups) cleanup();
+      return { signal: controller.signal, cleanup: () => {} };
     }
-    signal.addEventListener(
-      'abort',
-      () => {
-        controller.abort(signal.reason);
-      },
-      { once: true },
-    );
+    const onAbort = () => {
+      controller.abort(signal.reason);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    cleanups.push(() => {
+      signal.removeEventListener('abort', onAbort);
+    });
   }
-  return controller.signal;
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      for (const cleanup of cleanups) cleanup();
+    },
+  };
 }
