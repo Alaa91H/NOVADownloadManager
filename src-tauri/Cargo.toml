@@ -28,8 +28,8 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 tokio = { version = "1", features = ["rt", "macros", "time", "net", "sync", "io-util", "signal"] }
 axum = "0.8"
-tower-http = { version = "0.6", features = ["cors", "fs", "compression-gzip", "limit"] }
-reqwest = { version = "0.12", features = ["json", "blocking", "multipart", "stream"] }
+tower-http = { version = "0.7", features = ["cors", "fs", "compression-gzip", "limit"] }
+reqwest = { version = "0.13", features = ["json", "blocking", "multipart", "stream"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
