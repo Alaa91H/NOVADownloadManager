@@ -24,7 +24,9 @@ export const EngineStatusBar: React.FC<EngineStatusBarProps> = ({
       />
       <div className="min-w-0">
         <span className="text-[10px] font-bold text-[var(--text-primary)] block leading-none">yt-dlp</span>
-        <span className={`text-[9px] ${engineCapabilities.mediaReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>
+        <span
+          className={`text-[9px] ${engineCapabilities.mediaReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
+        >
           {engineCapabilities.mediaReady ? 'Ready' : 'Unavailable'}
         </span>
       </div>
@@ -36,7 +38,11 @@ export const EngineStatusBar: React.FC<EngineStatusBarProps> = ({
     <div className="flex items-center gap-1.5 flex-1 min-w-0">
       <Code
         className={`w-3.5 h-3.5 shrink-0 ${
-          ffmpegAvailable === null ? 'text-[var(--text-muted)]' : ffmpegAvailable ? 'text-[var(--success)]' : 'text-[var(--danger)]'
+          ffmpegAvailable === null
+            ? 'text-[var(--text-muted)]'
+            : ffmpegAvailable
+              ? 'text-[var(--success)]'
+              : 'text-[var(--danger)]'
         }`}
       />
       <div className="min-w-0">

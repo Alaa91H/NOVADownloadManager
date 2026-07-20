@@ -36,7 +36,9 @@ test.describe('New Download Dialog — full flow', () => {
   });
 
   test('paste from clipboard button exists', async ({ page }) => {
-    const pasteBtn = page.locator('[role="dialog"] button[title*="paste" i], [role="dialog"] button[title*="لصق" i]').first();
+    const pasteBtn = page
+      .locator('[role="dialog"] button[title*="paste" i], [role="dialog"] button[title*="لصق" i]')
+      .first();
     const isVisible = await pasteBtn.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });
@@ -50,7 +52,9 @@ test.describe('New Download Dialog — full flow', () => {
   });
 
   test('browse folder button exists', async ({ page }) => {
-    const browseBtn = page.locator('[role="dialog"] button[title*="browse" i], [role="dialog"] button[title*="folder" i]').first();
+    const browseBtn = page
+      .locator('[role="dialog"] button[title*="browse" i], [role="dialog"] button[title*="folder" i]')
+      .first();
     const isVisible = await browseBtn.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });
@@ -62,7 +66,9 @@ test.describe('New Download Dialog — full flow', () => {
   });
 
   test('refresh probe button exists', async ({ page }) => {
-    const refreshBtn = page.locator('[role="dialog"] button[title*="refresh" i], [role="dialog"] button[title*="تحديث" i]').first();
+    const refreshBtn = page
+      .locator('[role="dialog"] button[title*="refresh" i], [role="dialog"] button[title*="تحديث" i]')
+      .first();
     const isVisible = await refreshBtn.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });
@@ -74,7 +80,9 @@ test.describe('New Download Dialog — full flow', () => {
   });
 
   test('advanced toggle exists', async ({ page }) => {
-    const advancedBtn = page.locator('[role="dialog"] button[title*="advanced" i], [role="dialog"] button[title*="متقد" i]').first();
+    const advancedBtn = page
+      .locator('[role="dialog"] button[title*="advanced" i], [role="dialog"] button[title*="متقد" i]')
+      .first();
     const isVisible = await advancedBtn.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
     await advancedBtn.click();
@@ -82,13 +90,24 @@ test.describe('New Download Dialog — full flow', () => {
   });
 
   test('advanced section shows category, queue, threads', async ({ page }) => {
-    const advancedBtn = page.locator('[role="dialog"] button[title*="advanced" i], [role="dialog"] button[title*="متقد" i]').first();
+    const advancedBtn = page
+      .locator('[role="dialog"] button[title*="advanced" i], [role="dialog"] button[title*="متقد" i]')
+      .first();
     if (await advancedBtn.isVisible().catch(() => false)) {
       await advancedBtn.click();
       await page.waitForTimeout(300);
-      const category = page.locator('[role="dialog"]').filter({ hasText: /category|فئة/i }).first();
-      const queue = page.locator('[role="dialog"]').filter({ hasText: /queue|قائمة/i }).first();
-      const threads = page.locator('[role="dialog"]').filter({ hasText: /threads|خيوط|اتصالات/i }).first();
+      const category = page
+        .locator('[role="dialog"]')
+        .filter({ hasText: /category|فئة/i })
+        .first();
+      const queue = page
+        .locator('[role="dialog"]')
+        .filter({ hasText: /queue|قائمة/i })
+        .first();
+      const threads = page
+        .locator('[role="dialog"]')
+        .filter({ hasText: /threads|خيوط|اتصالات/i })
+        .first();
       const hasCat = await category.isVisible().catch(() => false);
       const hasQueue = await queue.isVisible().catch(() => false);
       const hasThr = await threads.isVisible().catch(() => false);
@@ -99,50 +118,79 @@ test.describe('New Download Dialog — full flow', () => {
   });
 
   test('advanced section shows description field', async ({ page }) => {
-    const advancedBtn = page.locator('[role="dialog"] button[title*="advanced" i], [role="dialog"] button[title*="متقد" i]').first();
+    const advancedBtn = page
+      .locator('[role="dialog"] button[title*="advanced" i], [role="dialog"] button[title*="متقد" i]')
+      .first();
     if (await advancedBtn.isVisible().catch(() => false)) {
       await advancedBtn.click();
       await page.waitForTimeout(300);
-      const descField = page.locator('[role="dialog"] label, [role="dialog"] textarea').filter({ hasText: /description|وصف/i }).first();
+      const descField = page
+        .locator('[role="dialog"] label, [role="dialog"] textarea')
+        .filter({ hasText: /description|وصف/i })
+        .first();
       const isVisible = await descField.isVisible().catch(() => false);
       expect(typeof isVisible).toBe('boolean');
     }
   });
 
   test('advanced section shows resumable checkbox', async ({ page }) => {
-    const advancedBtn = page.locator('[role="dialog"] button[title*="advanced" i], [role="dialog"] button[title*="متقد" i]').first();
+    const advancedBtn = page
+      .locator('[role="dialog"] button[title*="advanced" i], [role="dialog"] button[title*="متقد" i]')
+      .first();
     if (await advancedBtn.isVisible().catch(() => false)) {
       await advancedBtn.click();
       await page.waitForTimeout(300);
-      const resumable = page.locator('[role="dialog"]').filter({ hasText: /resumable|استئناف|قابل/i }).first();
+      const resumable = page
+        .locator('[role="dialog"]')
+        .filter({ hasText: /resumable|استئناف|قابل/i })
+        .first();
       const isVisible = await resumable.isVisible().catch(() => false);
       expect(typeof isVisible).toBe('boolean');
     }
   });
 
   test('override defaults section exists', async ({ page }) => {
-    const advancedBtn = page.locator('[role="dialog"] button[title*="advanced" i], [role="dialog"] button[title*="متقد" i]').first();
+    const advancedBtn = page
+      .locator('[role="dialog"] button[title*="advanced" i], [role="dialog"] button[title*="متقد" i]')
+      .first();
     if (await advancedBtn.isVisible().catch(() => false)) {
       await advancedBtn.click();
       await page.waitForTimeout(300);
-      const overrideBtn = page.locator('[role="dialog"] button').filter({ hasText: /override|تجاوز/i }).first();
+      const overrideBtn = page
+        .locator('[role="dialog"] button')
+        .filter({ hasText: /override|تجاوز/i })
+        .first();
       const isVisible = await overrideBtn.isVisible().catch(() => false);
       expect(typeof isVisible).toBe('boolean');
     }
   });
 
   test('override section shows Referer, User-Agent, Proxy fields', async ({ page }) => {
-    const advancedBtn = page.locator('[role="dialog"] button[title*="advanced" i], [role="dialog"] button[title*="متقد" i]').first();
+    const advancedBtn = page
+      .locator('[role="dialog"] button[title*="advanced" i], [role="dialog"] button[title*="متقد" i]')
+      .first();
     if (await advancedBtn.isVisible().catch(() => false)) {
       await advancedBtn.click();
       await page.waitForTimeout(300);
-      const overrideBtn = page.locator('[role="dialog"] button').filter({ hasText: /override|تجاوز/i }).first();
+      const overrideBtn = page
+        .locator('[role="dialog"] button')
+        .filter({ hasText: /override|تجاوز/i })
+        .first();
       if (await overrideBtn.isVisible().catch(() => false)) {
         await overrideBtn.click();
         await page.waitForTimeout(300);
-        const referer = page.locator('[role="dialog"]').filter({ hasText: /referer/i }).first();
-        const userAgent = page.locator('[role="dialog"]').filter({ hasText: /user.?agent/i }).first();
-        const proxy = page.locator('[role="dialog"]').filter({ hasText: /proxy|بروكسي/i }).first();
+        const referer = page
+          .locator('[role="dialog"]')
+          .filter({ hasText: /referer/i })
+          .first();
+        const userAgent = page
+          .locator('[role="dialog"]')
+          .filter({ hasText: /user.?agent/i })
+          .first();
+        const proxy = page
+          .locator('[role="dialog"]')
+          .filter({ hasText: /proxy|بروكسي/i })
+          .first();
         const hasRef = await referer.isVisible().catch(() => false);
         const hasUA = await userAgent.isVisible().catch(() => false);
         const hasProxy = await proxy.isVisible().catch(() => false);
@@ -155,7 +203,10 @@ test.describe('New Download Dialog — full flow', () => {
 
   test('Queue Only button closes dialog without starting download', async ({ page }) => {
     await page.locator('[role="dialog"] input[type="text"]').first().fill('https://example.com/test.zip');
-    const queueBtn = page.locator('[role="dialog"] button').filter({ hasText: /queue only|إضافة للقائمة|قائمة فقط/i }).first();
+    const queueBtn = page
+      .locator('[role="dialog"] button')
+      .filter({ hasText: /queue only|إضافة للقائمة|قائمة فقط/i })
+      .first();
     if (await queueBtn.isVisible().catch(() => false)) {
       await queueBtn.click();
       await page.waitForTimeout(500);
@@ -164,7 +215,10 @@ test.describe('New Download Dialog — full flow', () => {
 
   test('Download Now button starts download', async ({ page }) => {
     await page.locator('[role="dialog"] input[type="text"]').first().fill('https://example.com/test.zip');
-    const downloadBtn = page.locator('[role="dialog"] button').filter({ hasText: /download now|بدء|تنزيل/i }).first();
+    const downloadBtn = page
+      .locator('[role="dialog"] button')
+      .filter({ hasText: /download now|بدء|تنزيل/i })
+      .first();
     if (await downloadBtn.isVisible().catch(() => false)) {
       await downloadBtn.click();
       await page.waitForTimeout(500);
@@ -172,7 +226,10 @@ test.describe('New Download Dialog — full flow', () => {
   });
 
   test('Cancel button closes dialog', async ({ page }) => {
-    const cancelBtn = page.locator('[role="dialog"] button').filter({ hasText: /cancel|إلغاء/i }).first();
+    const cancelBtn = page
+      .locator('[role="dialog"] button')
+      .filter({ hasText: /cancel|إلغاء/i })
+      .first();
     await expect(cancelBtn).toBeVisible();
     await cancelBtn.click();
     await expect(page.locator('[role="dialog"]')).not.toBeVisible({ timeout: 3000 });
@@ -189,7 +246,10 @@ test.describe('New Download Dialog — URL validation', () => {
   test('entering invalid URL shows error', async ({ page }) => {
     const urlInput = page.locator('[role="dialog"] input[type="text"]').first();
     await urlInput.fill('not-a-valid-url');
-    const downloadBtn = page.locator('[role="dialog"] button').filter({ hasText: /download now|بدء|تنزيل/i }).first();
+    const downloadBtn = page
+      .locator('[role="dialog"] button')
+      .filter({ hasText: /download now|بدء|تنزيل/i })
+      .first();
     if (await downloadBtn.isVisible().catch(() => false)) {
       await downloadBtn.click();
       await page.waitForTimeout(500);

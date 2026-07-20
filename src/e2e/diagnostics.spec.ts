@@ -15,7 +15,9 @@ const openDiagnostics = async (page: import('@playwright/test').Page) => {
 };
 
 test.describe('Diagnostics — dialog structure', () => {
-  test.beforeEach(async ({ page }) => { await openDiagnostics(page); });
+  test.beforeEach(async ({ page }) => {
+    await openDiagnostics(page);
+  });
 
   test('diagnostics dialog opens', async ({ page }) => {
     const dialog = page.locator('[role="dialog"]');
@@ -32,20 +34,28 @@ test.describe('Diagnostics — dialog structure', () => {
   });
 
   test('Refresh Report button exists', async ({ page }) => {
-    const refreshBtn = page.locator('button').filter({ hasText: /refresh|تحديث/i }).first();
+    const refreshBtn = page
+      .locator('button')
+      .filter({ hasText: /refresh|تحديث/i })
+      .first();
     const isVisible = await refreshBtn.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });
 
   test('Close button exists', async ({ page }) => {
-    const closeBtn = page.locator('button').filter({ hasText: /close|إغلاق/i }).first();
+    const closeBtn = page
+      .locator('button')
+      .filter({ hasText: /close|إغلاق/i })
+      .first();
     const isVisible = await closeBtn.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });
 });
 
 test.describe('Diagnostics — system info sections', () => {
-  test.beforeEach(async ({ page }) => { await openDiagnostics(page); });
+  test.beforeEach(async ({ page }) => {
+    await openDiagnostics(page);
+  });
 
   test('CPU info section exists', async ({ page }) => {
     const cpuSection = page.locator('text=CPU, text=المعالج').first();
@@ -73,7 +83,9 @@ test.describe('Diagnostics — system info sections', () => {
 });
 
 test.describe('Diagnostics — engine capabilities', () => {
-  test.beforeEach(async ({ page }) => { await openDiagnostics(page); });
+  test.beforeEach(async ({ page }) => {
+    await openDiagnostics(page);
+  });
 
   test('engine capabilities section exists', async ({ page }) => {
     const engineSection = page.locator('text=engine, text=المحرك, text=capability').first();
@@ -89,10 +101,15 @@ test.describe('Diagnostics — engine capabilities', () => {
 });
 
 test.describe('Diagnostics — refresh', () => {
-  test.beforeEach(async ({ page }) => { await openDiagnostics(page); });
+  test.beforeEach(async ({ page }) => {
+    await openDiagnostics(page);
+  });
 
   test('clicking Refresh re-fetches system info', async ({ page }) => {
-    const refreshBtn = page.locator('button').filter({ hasText: /refresh|تحديث/i }).first();
+    const refreshBtn = page
+      .locator('button')
+      .filter({ hasText: /refresh|تحديث/i })
+      .first();
     if (await refreshBtn.isVisible().catch(() => false)) {
       await refreshBtn.click();
       await page.waitForTimeout(1000);
@@ -101,7 +118,9 @@ test.describe('Diagnostics — refresh', () => {
 });
 
 test.describe('Diagnostics — close', () => {
-  test.beforeEach(async ({ page }) => { await openDiagnostics(page); });
+  test.beforeEach(async ({ page }) => {
+    await openDiagnostics(page);
+  });
 
   test('Escape closes diagnostics', async ({ page }) => {
     await page.keyboard.press('Escape');
@@ -112,7 +131,10 @@ test.describe('Diagnostics — close', () => {
   });
 
   test('close button closes diagnostics', async ({ page }) => {
-    const closeBtn = page.locator('button').filter({ hasText: /close|إغلاق/i }).first();
+    const closeBtn = page
+      .locator('button')
+      .filter({ hasText: /close|إغلاق/i })
+      .first();
     if (await closeBtn.isVisible().catch(() => false)) {
       await closeBtn.click();
       await page.waitForTimeout(300);

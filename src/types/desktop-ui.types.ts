@@ -279,6 +279,10 @@ export interface DownloadItem {
   timeLeftSeconds: number;
   elapsedSeconds: number;
   dateAdded: string;
+  /** ISO timestamp set by the daemon when the download reached a terminal state. */
+  completedAt?: string;
+  /** Number of retry attempts the daemon has performed for this task. */
+  retries?: number;
   category: FileType;
   queueId: string; // 'main' | 'night' | 'fast'
   connections: number;

@@ -8,7 +8,10 @@ const goto = async (page: import('@playwright/test').Page) => {
 test.describe('Column Customizer — open', () => {
   test('customize columns button exists in table header', async ({ page }) => {
     await goto(page);
-    const customizeBtn = page.locator('th button').filter({ has: page.locator('svg') }).first();
+    const customizeBtn = page
+      .locator('th button')
+      .filter({ has: page.locator('svg') })
+      .first();
     if (await customizeBtn.isVisible().catch(() => false)) {
       await expect(customizeBtn).toBeVisible();
     }
@@ -16,7 +19,10 @@ test.describe('Column Customizer — open', () => {
 
   test('clicking customize opens column config panel', async ({ page }) => {
     await goto(page);
-    const customizeBtn = page.locator('th button').filter({ has: page.locator('svg') }).first();
+    const customizeBtn = page
+      .locator('th button')
+      .filter({ has: page.locator('svg') })
+      .first();
     if (await customizeBtn.isVisible().catch(() => false)) {
       await customizeBtn.click();
       await page.waitForTimeout(300);
@@ -30,7 +36,10 @@ test.describe('Column Customizer — open', () => {
 test.describe('Column Customizer — column list', () => {
   test.beforeEach(async ({ page }) => {
     await goto(page);
-    const customizeBtn = page.locator('th button').filter({ has: page.locator('svg') }).first();
+    const customizeBtn = page
+      .locator('th button')
+      .filter({ has: page.locator('svg') })
+      .first();
     if (await customizeBtn.isVisible().catch(() => false)) {
       await customizeBtn.click();
       await page.waitForTimeout(300);
@@ -44,7 +53,9 @@ test.describe('Column Customizer — column list', () => {
   });
 
   test('columns can be toggled on/off', async ({ page }) => {
-    const checkboxes = page.locator('[class*="column"] input[type="checkbox"], [class*="Column"] input[type="checkbox"], [class*="customiz"] input[type="checkbox"]');
+    const checkboxes = page.locator(
+      '[class*="column"] input[type="checkbox"], [class*="Column"] input[type="checkbox"], [class*="customiz"] input[type="checkbox"]',
+    );
     const count = await checkboxes.count();
     for (let i = 0; i < Math.min(count, 3); i++) {
       const cb = checkboxes.nth(i);
@@ -77,7 +88,7 @@ test.describe('Column Customizer — column resize', () => {
     await goto(page);
     const header = page.locator('thead th').first();
     if (await header.isVisible().catch(() => false)) {
-      const beforeWidth = await header.evaluate(el => el.getBoundingClientRect().width);
+      const beforeWidth = await header.evaluate((el) => el.getBoundingClientRect().width);
       const handle = header.locator('.cursor-col-resize');
       if (await handle.isVisible().catch(() => false)) {
         const box = await handle.boundingBox();
@@ -87,7 +98,7 @@ test.describe('Column Customizer — column resize', () => {
           await page.mouse.move(box.x + 50, box.y + box.height / 2, { steps: 5 });
           await page.mouse.up();
           await page.waitForTimeout(200);
-          const afterWidth = await header.evaluate(el => el.getBoundingClientRect().width);
+          const afterWidth = await header.evaluate((el) => el.getBoundingClientRect().width);
           expect(Math.abs(afterWidth - beforeWidth)).toBeGreaterThan(0);
         }
       }

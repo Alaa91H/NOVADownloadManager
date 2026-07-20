@@ -1,10 +1,12 @@
 export const parseTimeTo12Hour = (timeStr: string) => {
   if (!timeStr) return { hour12: 12, minute: 0, ampm: 'AM' as const };
-  const [hour24, min] = timeStr.split(':').map(Number);
+  const [hour24Raw, minRaw] = timeStr.split(':').map(Number);
+  const hour24 = Number.isFinite(hour24Raw) ? hour24Raw : 0;
+  const min = Number.isFinite(minRaw) ? minRaw : 0;
   const ampm: 'AM' | 'PM' = hour24 >= 12 ? 'PM' : 'AM';
   let hour12 = hour24 % 12;
   if (hour12 === 0) hour12 = 12;
-  return { hour12, minute: min || 0, ampm };
+  return { hour12, minute: min, ampm };
 };
 
 export const formatTimeTo24Hour = (hour12: number, minute: number, ampm: 'AM' | 'PM') => {

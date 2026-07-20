@@ -44,7 +44,7 @@ test.describe('Drag & Drop — queue reordering', () => {
     if (count >= 2) {
       const first = items.first();
       const second = items.nth(1);
-      if (await first.isVisible().catch(() => false) && await second.isVisible().catch(() => false)) {
+      if ((await first.isVisible().catch(() => false)) && (await second.isVisible().catch(() => false))) {
         const firstBox = await first.boundingBox();
         const secondBox = await second.boundingBox();
         if (firstBox && secondBox) {
@@ -83,7 +83,9 @@ test.describe('Drag & Drop — cross-queue task move', () => {
 });
 
 test.describe('Drag & Drop — URL overlay', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('dragover shows drop overlay', async ({ page }) => {
     const body = page.locator('body');
@@ -132,7 +134,7 @@ test.describe('Drag & Drop — column reorder', () => {
     if (count >= 2) {
       const first = headers.first();
       const second = headers.nth(1);
-      if (await first.isVisible().catch(() => false) && await second.isVisible().catch(() => false)) {
+      if ((await first.isVisible().catch(() => false)) && (await second.isVisible().catch(() => false))) {
         const firstBox = await first.boundingBox();
         const secondBox = await second.boundingBox();
         if (firstBox && secondBox) {

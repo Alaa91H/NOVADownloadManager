@@ -47,29 +47,75 @@ export const mergeStoredSettings = (parsed: Partial<AppSettings>): AppSettings =
   return ensureBrowserPairingToken({
     ...initialSettings,
     ...parsed,
-    general: { ...initialSettings.general, ...(parsed.general || {}), integrateWithBrowsers: { ...initialSettings.general.integrateWithBrowsers, ...(parsed.general?.integrateWithBrowsers || {}) } },
-    connection: { ...initialSettings.connection, ...(parsed.connection || {}), speedLimiter: { ...initialSettings.connection.speedLimiter, ...(parsed.connection?.speedLimiter || {}) }, defaults: { ...initialSettings.connection.defaults, ...(parsed.connection?.defaults || {}) } },
-    saveAndCategories: { ...initialSettings.saveAndCategories, ...safeSaveAndCategories, categoryFolders: { ...initialSettings.saveAndCategories.categoryFolders, ...(safeSaveAndCategories.categoryFolders || {}) } },
+    general: {
+      ...initialSettings.general,
+      ...(parsed.general || {}),
+      integrateWithBrowsers: {
+        ...initialSettings.general.integrateWithBrowsers,
+        ...(parsed.general?.integrateWithBrowsers || {}),
+      },
+    },
+    connection: {
+      ...initialSettings.connection,
+      ...(parsed.connection || {}),
+      speedLimiter: { ...initialSettings.connection.speedLimiter, ...(parsed.connection?.speedLimiter || {}) },
+      defaults: { ...initialSettings.connection.defaults, ...(parsed.connection?.defaults || {}) },
+    },
+    saveAndCategories: {
+      ...initialSettings.saveAndCategories,
+      ...safeSaveAndCategories,
+      categoryFolders: {
+        ...initialSettings.saveAndCategories.categoryFolders,
+        ...(safeSaveAndCategories.categoryFolders || {}),
+      },
+    },
     sounds: { ...initialSettings.sounds, ...(parsed.sounds || {}) },
-    ui: { ...initialSettings.ui, ...(parsed.ui || {}), toolbar: { ...initialSettings.ui.toolbar, ...(parsed.ui?.toolbar || {}) }, statusBar: { ...initialSettings.ui.statusBar, ...(parsed.ui?.statusBar || {}) }, customButtons: parsed.ui?.customButtons || initialSettings.ui.customButtons },
-    keyboardShortcuts: { ...initialSettings.keyboardShortcuts, ...(parsed.keyboardShortcuts || {}), bindings: { ...initialSettings.keyboardShortcuts.bindings, ...(parsed.keyboardShortcuts?.bindings || {}) } },
+    ui: {
+      ...initialSettings.ui,
+      ...(parsed.ui || {}),
+      toolbar: { ...initialSettings.ui.toolbar, ...(parsed.ui?.toolbar || {}) },
+      statusBar: { ...initialSettings.ui.statusBar, ...(parsed.ui?.statusBar || {}) },
+      customButtons: parsed.ui?.customButtons || initialSettings.ui.customButtons,
+    },
+    keyboardShortcuts: {
+      ...initialSettings.keyboardShortcuts,
+      ...(parsed.keyboardShortcuts || {}),
+      bindings: { ...initialSettings.keyboardShortcuts.bindings, ...(parsed.keyboardShortcuts?.bindings || {}) },
+    },
     advanced: { ...initialSettings.advanced, ...(parsed.advanced || {}) },
-    extra: { ...initialSettings.extra, ...(parsed.extra || {}), language: parsed.extra?.language || detectSystemLanguage() },
+    extra: {
+      ...initialSettings.extra,
+      ...(parsed.extra || {}),
+      language: parsed.extra?.language || detectSystemLanguage(),
+    },
   });
 };
 
 const initSettings = (): AppSettings => {
   const cached = localStorage.getItem('nova_settings_v1');
   if (cached) {
-    try { return mergeStoredSettings(JSON.parse(cached) as Partial<AppSettings>); } catch { /* fall through */ }
+    try {
+      return mergeStoredSettings(JSON.parse(cached) as Partial<AppSettings>);
+    } catch {
+      /* fall through */
+    }
   }
-  return ensureBrowserPairingToken({ ...initialSettings, extra: { ...initialSettings.extra, language: detectSystemLanguage() } });
+  return ensureBrowserPairingToken({
+    ...initialSettings,
+    extra: { ...initialSettings.extra, language: detectSystemLanguage() },
+  });
 };
 
 const initTheme = (): AppThemeSettings => {
   const cached = localStorage.getItem('nova_theme_settings_v1');
   const base = { theme: 'system', density: 'compact', accent: 'blue', progress: 'bar', contrast: 'normal' };
-  if (cached) { try { return { ...base, ...(JSON.parse(cached) as AppThemeSettings) }; } catch { /* keep defaults */ } }
+  if (cached) {
+    try {
+      return { ...base, ...(JSON.parse(cached) as AppThemeSettings) };
+    } catch {
+      /* keep defaults */
+    }
+  }
   return base as AppThemeSettings;
 };
 
@@ -89,9 +135,15 @@ export const settingsStore = create<SettingsState>()((set) => ({
   themeSettings: initTheme(),
   i18nRevision: 0,
 
-  _setSettings: (s) => { set({ settings: s }); },
-  _setThemeSettings: (t) => { set({ themeSettings: t }); },
-  incrementI18nRevision: () => { set((p) => ({ i18nRevision: p.i18nRevision + 1 })); },
+  _setSettings: (s) => {
+    set({ settings: s });
+  },
+  _setThemeSettings: (t) => {
+    set({ themeSettings: t });
+  },
+  incrementI18nRevision: () => {
+    set((p) => ({ i18nRevision: p.i18nRevision + 1 }));
+  },
 
   updateSettings: (updated, silent = false) => {
     const sanitized = mergeStoredSettings(updated);
@@ -104,5 +156,7 @@ export const settingsStore = create<SettingsState>()((set) => ({
     }
   },
 
-  updateThemeSettings: (key, value) => { set((p) => ({ themeSettings: { ...p.themeSettings, [key]: value } })); },
+  updateThemeSettings: (key, value) => {
+    set((p) => ({ themeSettings: { ...p.themeSettings, [key]: value } }));
+  },
 }));

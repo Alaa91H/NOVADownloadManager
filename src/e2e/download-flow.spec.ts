@@ -45,8 +45,14 @@ test.describe('Download Flow — add download dialog opens', () => {
 
   test('dialog has Cancel and Download Now buttons', async ({ page }) => {
     await openNewDownload(page);
-    const cancelBtn = page.locator('[role="dialog"] button').filter({ hasText: /cancel|إلغاء/i }).first();
-    const downloadBtn = page.locator('[role="dialog"] button').filter({ hasText: /download now|بدء|تنزيل/i }).first();
+    const cancelBtn = page
+      .locator('[role="dialog"] button')
+      .filter({ hasText: /cancel|إلغاء/i })
+      .first();
+    const downloadBtn = page
+      .locator('[role="dialog"] button')
+      .filter({ hasText: /download now|بدء|تنزيل/i })
+      .first();
     await expect(cancelBtn).toBeVisible();
     await expect(downloadBtn).toBeVisible();
     await closeDialog(page);
@@ -73,7 +79,10 @@ test.describe('Download Flow — URL validation', () => {
   test('invalid URL shows validation on submit', async ({ page }) => {
     const urlInput = page.locator('[role="dialog"] input[type="text"]').first();
     await urlInput.fill('not-a-valid-url');
-    const downloadBtn = page.locator('[role="dialog"] button').filter({ hasText: /download now|بدء|تنزيل/i }).first();
+    const downloadBtn = page
+      .locator('[role="dialog"] button')
+      .filter({ hasText: /download now|بدء|تنزيل/i })
+      .first();
     await downloadBtn.click();
     await page.waitForTimeout(500);
     const dialog = page.locator('[role="dialog"]');
@@ -84,7 +93,10 @@ test.describe('Download Flow — URL validation', () => {
   test('empty URL shows validation on submit', async ({ page }) => {
     const urlInput = page.locator('[role="dialog"] input[type="text"]').first();
     await urlInput.fill('');
-    const downloadBtn = page.locator('[role="dialog"] button').filter({ hasText: /download now|بدء|تنزيل/i }).first();
+    const downloadBtn = page
+      .locator('[role="dialog"] button')
+      .filter({ hasText: /download now|بدء|تنزيل/i })
+      .first();
     await downloadBtn.click();
     await page.waitForTimeout(500);
   });
@@ -131,7 +143,7 @@ test.describe('Download Flow — magnet link detection', () => {
     await page.waitForTimeout(300);
     const magnetIndicator = page.locator('[role="dialog"]').locator('text=/magnet|رواسب/i').first();
     if (await magnetIndicator.isVisible().catch(() => false)) {
-      const className = await magnetIndicator.getAttribute('class') ?? '';
+      const className = (await magnetIndicator.getAttribute('class')) ?? '';
       expect(className.length).toBeGreaterThan(0);
     }
   });
@@ -165,7 +177,10 @@ test.describe('Download Flow — download starts and shows in task list', () => 
   test('clicking Download Now closes dialog', async ({ page }) => {
     await openNewDownload(page);
     await page.locator('[role="dialog"] input[type="text"]').first().fill('https://example.com/test.zip');
-    const downloadBtn = page.locator('[role="dialog"] button').filter({ hasText: /download now|بدء|تنزيل/i }).first();
+    const downloadBtn = page
+      .locator('[role="dialog"] button')
+      .filter({ hasText: /download now|بدء|تنزيل/i })
+      .first();
     if (await downloadBtn.isVisible().catch(() => false)) {
       await downloadBtn.click();
       await page.waitForTimeout(500);
@@ -175,7 +190,10 @@ test.describe('Download Flow — download starts and shows in task list', () => 
   test('Queue Only closes dialog without starting', async ({ page }) => {
     await openNewDownload(page);
     await page.locator('[role="dialog"] input[type="text"]').first().fill('https://example.com/test.zip');
-    const queueBtn = page.locator('[role="dialog"] button').filter({ hasText: /queue only|إضافة للقائمة|قائمة فقط/i }).first();
+    const queueBtn = page
+      .locator('[role="dialog"] button')
+      .filter({ hasText: /queue only|إضافة للقائمة|قائمة فقط/i })
+      .first();
     if (await queueBtn.isVisible().catch(() => false)) {
       await queueBtn.click();
       await page.waitForTimeout(500);
@@ -186,7 +204,10 @@ test.describe('Download Flow — download starts and shows in task list', () => 
     const rowsBefore = await page.locator('tr.desktop-table-row').count();
     await openNewDownload(page);
     await page.locator('[role="dialog"] input[type="text"]').first().fill('https://example.com/newfile.zip');
-    const downloadBtn = page.locator('[role="dialog"] button').filter({ hasText: /download now|بدء|تنزيل/i }).first();
+    const downloadBtn = page
+      .locator('[role="dialog"] button')
+      .filter({ hasText: /download now|بدء|تنزيل/i })
+      .first();
     if (await downloadBtn.isVisible().catch(() => false)) {
       await downloadBtn.click();
       await page.waitForTimeout(1000);
@@ -203,7 +224,10 @@ test.describe('Download Flow — task action buttons', () => {
 
   test('toolbar has resume button', async ({ page }) => {
     const resumeBtn = page.locator('button[aria-label*="resume" i], button[title*="resume" i]').first();
-    const resumeText = page.locator('button').filter({ hasText: /resume|استئناف/i }).first();
+    const resumeText = page
+      .locator('button')
+      .filter({ hasText: /resume|استئناف/i })
+      .first();
     const hasBtn = await resumeBtn.isVisible().catch(() => false);
     const hasText = await resumeText.isVisible().catch(() => false);
     expect(hasBtn || hasText).toBeTruthy();
@@ -211,7 +235,10 @@ test.describe('Download Flow — task action buttons', () => {
 
   test('toolbar has pause/stop button', async ({ page }) => {
     const pauseBtn = page.locator('button[aria-label*="pause" i], button[aria-label*="stop" i]').first();
-    const pauseText = page.locator('button').filter({ hasText: /pause|stop|إيقاف|توقف/i }).first();
+    const pauseText = page
+      .locator('button')
+      .filter({ hasText: /pause|stop|إيقاف|توقف/i })
+      .first();
     const hasBtn = await pauseBtn.isVisible().catch(() => false);
     const hasText = await pauseText.isVisible().catch(() => false);
     expect(hasBtn || hasText).toBeTruthy();
@@ -219,7 +246,10 @@ test.describe('Download Flow — task action buttons', () => {
 
   test('toolbar has delete button', async ({ page }) => {
     const deleteBtn = page.locator('button[aria-label*="delete" i]').first();
-    const deleteText = page.locator('button').filter({ hasText: /delete|حذف/i }).first();
+    const deleteText = page
+      .locator('button')
+      .filter({ hasText: /delete|حذف/i })
+      .first();
     const hasBtn = await deleteBtn.isVisible().catch(() => false);
     const hasText = await deleteText.isVisible().catch(() => false);
     expect(hasBtn || hasText).toBeTruthy();
@@ -287,8 +317,14 @@ test.describe('Download Flow — delete with confirmation', () => {
     if (await deleteChevron.isVisible().catch(() => false)) {
       await deleteChevron.click();
       await page.waitForTimeout(200);
-      const deleteAll = page.locator('button').filter({ hasText: /delete all|حذف الكل/i }).first();
-      const deleteSelected = page.locator('button').filter({ hasText: /delete selected|حذف المحدد/i }).first();
+      const deleteAll = page
+        .locator('button')
+        .filter({ hasText: /delete all|حذف الكل/i })
+        .first();
+      const deleteSelected = page
+        .locator('button')
+        .filter({ hasText: /delete selected|حذف المحدد/i })
+        .first();
       const hasAll = await deleteAll.isVisible().catch(() => false);
       const hasSelected = await deleteSelected.isVisible().catch(() => false);
       expect(hasAll || hasSelected).toBeTruthy();
@@ -301,13 +337,19 @@ test.describe('Download Flow — delete with confirmation', () => {
     if (await deleteChevron.isVisible().catch(() => false)) {
       await deleteChevron.click();
       await page.waitForTimeout(200);
-      const deleteAll = page.locator('button').filter({ hasText: /delete all|حذف الكل/i }).first();
+      const deleteAll = page
+        .locator('button')
+        .filter({ hasText: /delete all|حذف الكل/i })
+        .first();
       if (await deleteAll.isVisible().catch(() => false)) {
         await deleteAll.click();
         await page.waitForTimeout(500);
         const confirmDialog = page.locator('[role="dialog"]');
         if (await confirmDialog.isVisible().catch(() => false)) {
-          const cancelBtn = page.locator('button').filter({ hasText: /cancel|إلغاء/i }).first();
+          const cancelBtn = page
+            .locator('button')
+            .filter({ hasText: /cancel|إلغاء/i })
+            .first();
           if (await cancelBtn.isVisible().catch(() => false)) {
             await cancelBtn.click();
           }
@@ -323,11 +365,12 @@ test.describe('Download Flow — delete with confirmation', () => {
       await page.waitForTimeout(300);
       const deleteItem = page.locator('[role="menuitem"]').filter({ hasText: /delete/i });
       if (await deleteItem.isVisible().catch(() => false)) {
-        const hasDangerStyle = await deleteItem.evaluate(el =>
-          (el.getAttribute('class') ?? '').includes('red') ||
-          (el.getAttribute('class') ?? '').includes('danger') ||
-          window.getComputedStyle(el).color.includes('239') ||
-          window.getComputedStyle(el).color.includes('red')
+        const hasDangerStyle = await deleteItem.evaluate(
+          (el) =>
+            (el.getAttribute('class') ?? '').includes('red') ||
+            (el.getAttribute('class') ?? '').includes('danger') ||
+            window.getComputedStyle(el).color.includes('239') ||
+            window.getComputedStyle(el).color.includes('red'),
         );
         expect(typeof hasDangerStyle).toBe('boolean');
         await page.keyboard.press('Escape');
@@ -339,7 +382,9 @@ test.describe('Download Flow — delete with confirmation', () => {
 test.describe('Download Flow — progress bar updates', () => {
   test('progress bar elements exist in task rows', async ({ page }) => {
     await goto(page);
-    const progressBars = page.locator('tr.desktop-table-row [role="progressbar"], tr.desktop-table-row [class*="progress"]');
+    const progressBars = page.locator(
+      'tr.desktop-table-row [role="progressbar"], tr.desktop-table-row [class*="progress"]',
+    );
     const count = await progressBars.count();
     expect(count).toBeGreaterThanOrEqual(0);
   });
@@ -351,7 +396,7 @@ test.describe('Download Flow — progress bar updates', () => {
     for (let i = 0; i < Math.min(count, 3); i++) {
       const bar = progressBars.nth(i);
       if (await bar.isVisible().catch(() => false)) {
-        const hasWidth = await bar.evaluate(el => {
+        const hasWidth = await bar.evaluate((el) => {
           const style = window.getComputedStyle(el);
           return style.width !== '0px' || el.getAttribute('aria-valuenow') !== null;
         });

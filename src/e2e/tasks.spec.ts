@@ -6,7 +6,9 @@ const goto = async (page: import('@playwright/test').Page) => {
 };
 
 test.describe('Tasks — empty state', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('empty state is shown when no tasks', async ({ page }) => {
     const rows = page.locator('tr.desktop-table-row');
@@ -30,7 +32,9 @@ test.describe('Tasks — empty state', () => {
 });
 
 test.describe('Tasks — task data display', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('task rows show filename', async ({ page }) => {
     const firstRow = page.locator('tr.desktop-table-row').first();
@@ -69,7 +73,9 @@ test.describe('Tasks — task data display', () => {
 });
 
 test.describe('Tasks — task selection', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('clicking task checkbox selects it', async ({ page }) => {
     const firstRow = page.locator('tr.desktop-table-row').first();
@@ -103,10 +109,11 @@ test.describe('Tasks — task selection', () => {
     if (await firstRow.isVisible().catch(() => false)) {
       await firstRow.click();
       await page.waitForTimeout(200);
-      const hasHighlight = await firstRow.evaluate(el =>
-        (el.getAttribute('class') ?? '').includes('bg-[var(--accent-primary)]') ||
-        (el.getAttribute('class') ?? '').includes('bg-[var(--bg-hover)]') ||
-        (el.getAttribute('class') ?? '').includes('selected')
+      const hasHighlight = await firstRow.evaluate(
+        (el) =>
+          (el.getAttribute('class') ?? '').includes('bg-[var(--accent-primary)]') ||
+          (el.getAttribute('class') ?? '').includes('bg-[var(--bg-hover)]') ||
+          (el.getAttribute('class') ?? '').includes('selected'),
       );
       expect(typeof hasHighlight).toBe('boolean');
     }
@@ -126,7 +133,9 @@ test.describe('Tasks — task selection', () => {
 });
 
 test.describe('Tasks — task interaction', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('double-clicking a row opens task properties', async ({ page }) => {
     const firstRow = page.locator('tr.desktop-table-row').first();
@@ -156,7 +165,9 @@ test.describe('Tasks — task interaction', () => {
 });
 
 test.describe('Tasks — column header interactions', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('column header click toggles sort', async ({ page }) => {
     const headers = page.locator('thead th[draggable="true"]');
@@ -185,7 +196,7 @@ test.describe('Tasks — status pill rendering', () => {
     for (let i = 0; i < Math.min(count, 5); i++) {
       const pill = pills.nth(i);
       if (await pill.isVisible().catch(() => false)) {
-        const bgColor = await pill.evaluate(el => window.getComputedStyle(el).backgroundColor);
+        const bgColor = await pill.evaluate((el) => window.getComputedStyle(el).backgroundColor);
         expect(bgColor).toBeTruthy();
       }
     }

@@ -25,30 +25,21 @@ export const PlaylistBrowser: React.FC<PlaylistBrowserProps> = ({
         <span className="text-xs font-bold text-[var(--text-primary)] truncate">
           {playlistResult.title || 'Playlist'}
         </span>
-        <span className="text-[10px] text-[var(--text-muted)] shrink-0">
-          ({playlistResult.entries.length})
-        </span>
+        <span className="text-[10px] text-[var(--text-muted)] shrink-0">({playlistResult.entries.length})</span>
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {!selectAllPlaylist && selectedItems.size > 0 && (
-          <span className="text-[10px] text-[var(--info)] font-semibold">
-            {selectedItems.size} selected
-          </span>
+          <span className="text-[10px] text-[var(--info)] font-semibold">{selectedItems.size} selected</span>
         )}
         <button
           type="button"
           onClick={() => {
             onSelectAllChange(!selectAllPlaylist);
-            if (!selectAllPlaylist)
-              onSelectedItemsChange(new Set(playlistResult.entries.map((e) => e.index)));
+            if (!selectAllPlaylist) onSelectedItemsChange(new Set(playlistResult.entries.map((e) => e.index)));
           }}
           className="flex items-center gap-1 text-[10px] text-[var(--info)] hover:text-[var(--info)] transition-colors cursor-pointer"
         >
-          {selectAllPlaylist ? (
-            <CheckSquare className="w-3.5 h-3.5" />
-          ) : (
-            <Square className="w-3.5 h-3.5" />
-          )}
+          {selectAllPlaylist ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
           {selectAllPlaylist ? 'All' : 'Custom'}
         </button>
       </div>
@@ -90,9 +81,7 @@ export const PlaylistBrowser: React.FC<PlaylistBrowserProps> = ({
                 }}
               />
             )}
-            <span className="text-[11px] text-[var(--text-primary)] truncate min-w-0 flex-1">
-              {entry.title}
-            </span>
+            <span className="text-[11px] text-[var(--text-primary)] truncate min-w-0 flex-1">{entry.title}</span>
             {entry.duration > 0 && (
               <span className="text-[10px] text-[var(--text-muted)] shrink-0 font-mono">
                 {formatDuration(entry.duration)}

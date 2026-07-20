@@ -6,7 +6,9 @@ const goto = async (page: import('@playwright/test').Page) => {
 };
 
 test.describe('Downloads — task table structure', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('desktop table is visible on large viewport', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -34,7 +36,10 @@ test.describe('Downloads — task table structure', () => {
   });
 
   test('customize columns button exists', async ({ page }) => {
-    const customizeBtn = page.locator('th button').filter({ has: page.locator('svg') }).first();
+    const customizeBtn = page
+      .locator('th button')
+      .filter({ has: page.locator('svg') })
+      .first();
     if (await customizeBtn.isVisible().catch(() => false)) {
       await expect(customizeBtn).toBeVisible();
     }
@@ -42,7 +47,9 @@ test.describe('Downloads — task table structure', () => {
 });
 
 test.describe('Downloads — task rows', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('empty state message shown when no tasks', async ({ page }) => {
     const rows = page.locator('tr.desktop-table-row');
@@ -76,8 +83,10 @@ test.describe('Downloads — task rows', () => {
     if (await firstRow.isVisible().catch(() => false)) {
       await firstRow.click();
       await page.waitForTimeout(200);
-      const hasSelected = await firstRow.evaluate(el =>
-        (el.getAttribute('class') ?? '').includes('selected') || (el.getAttribute('class') ?? '').includes('bg-[var(--bg-hover)]')
+      const hasSelected = await firstRow.evaluate(
+        (el) =>
+          (el.getAttribute('class') ?? '').includes('selected') ||
+          (el.getAttribute('class') ?? '').includes('bg-[var(--bg-hover)]'),
       );
       expect(typeof hasSelected).toBe('boolean');
     }
@@ -98,7 +107,9 @@ test.describe('Downloads — task rows', () => {
 });
 
 test.describe('Downloads — task selection', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('select-all checkbox toggles all rows', async ({ page }) => {
     const selectAll = page.locator('thead input[type="checkbox"]');
@@ -128,10 +139,15 @@ test.describe('Downloads — task selection', () => {
 });
 
 test.describe('Downloads — column sorting', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('clicking column header sorts tasks', async ({ page }) => {
-    const nameHeader = page.locator('thead th').filter({ hasText: /name|file/i }).first();
+    const nameHeader = page
+      .locator('thead th')
+      .filter({ hasText: /name|file/i })
+      .first();
     if (await nameHeader.isVisible().catch(() => false)) {
       await nameHeader.click();
       await page.waitForTimeout(300);
@@ -152,7 +168,9 @@ test.describe('Downloads — column sorting', () => {
 });
 
 test.describe('Downloads — context menu', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('right-clicking task row opens context menu', async ({ page }) => {
     const firstRow = page.locator('tr.desktop-table-row').first();
@@ -211,7 +229,12 @@ test.describe('Downloads — context menu', () => {
     if (await firstRow.isVisible().catch(() => false)) {
       await firstRow.click({ button: 'right' });
       await page.waitForTimeout(300);
-      if (await page.locator('[role="menu"]').isVisible().catch(() => false)) {
+      if (
+        await page
+          .locator('[role="menu"]')
+          .isVisible()
+          .catch(() => false)
+      ) {
         await page.click('body', { position: { x: 10, y: 10 } });
         await page.waitForTimeout(300);
       }
@@ -220,7 +243,9 @@ test.describe('Downloads — context menu', () => {
 });
 
 test.describe('Downloads — task row context menu actions', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('context menu Properties opens task properties dialog', async ({ page }) => {
     const firstRow = page.locator('tr.desktop-table-row').first();
@@ -246,9 +271,11 @@ test.describe('Downloads — task row context menu actions', () => {
       await page.waitForTimeout(300);
       const deleteItem = page.locator('[role="menuitem"]').filter({ hasText: /delete/i });
       if (await deleteItem.isVisible().catch(() => false)) {
-        const isRed = await deleteItem.evaluate(el =>
-          (el.getAttribute('class') ?? '').includes('red') || (el.getAttribute('class') ?? '').includes('danger') ||
-          window.getComputedStyle(el).color.includes('239')
+        const isRed = await deleteItem.evaluate(
+          (el) =>
+            (el.getAttribute('class') ?? '').includes('red') ||
+            (el.getAttribute('class') ?? '').includes('danger') ||
+            window.getComputedStyle(el).color.includes('239'),
         );
         expect(typeof isRed).toBe('boolean');
         await page.keyboard.press('Escape');
@@ -269,7 +296,9 @@ test.describe('Downloads — status pills', () => {
 test.describe('Downloads — progress bar', () => {
   test('progress bar exists in downloading tasks', async ({ page }) => {
     await goto(page);
-    const progressBars = page.locator('tr.desktop-table-row [role="progressbar"], tr.desktop-table-row [class*="progress"]');
+    const progressBars = page.locator(
+      'tr.desktop-table-row [role="progressbar"], tr.desktop-table-row [class*="progress"]',
+    );
     const count = await progressBars.count();
     expect(count).toBeGreaterThanOrEqual(0);
   });

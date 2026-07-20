@@ -34,7 +34,14 @@ test.describe('Schedule Config — basic tab settings', () => {
       const sel = selects.nth(i);
       if (await sel.isVisible().catch(() => false)) {
         const options = await sel.locator('option').allTextContents();
-        if (options.some(o => o.toLowerCase().includes('once') || o.toLowerCase().includes('daily') || o.toLowerCase().includes('custom'))) {
+        if (
+          options.some(
+            (o) =>
+              o.toLowerCase().includes('once') ||
+              o.toLowerCase().includes('daily') ||
+              o.toLowerCase().includes('custom'),
+          )
+        ) {
           expect(options.length).toBeGreaterThanOrEqual(2);
           break;
         }
@@ -91,7 +98,10 @@ test.describe('Schedule Config — actions tab settings', () => {
     await goto(page);
     await page.keyboard.press('Control+j');
     await page.waitForTimeout(500);
-    const actionsTab = page.locator('button').filter({ hasText: /actions/i }).first();
+    const actionsTab = page
+      .locator('button')
+      .filter({ hasText: /actions/i })
+      .first();
     if (await actionsTab.isVisible().catch(() => false)) {
       await actionsTab.click();
       await page.waitForTimeout(300);
@@ -134,7 +144,10 @@ test.describe('Schedule Config — retries tab settings', () => {
     await goto(page);
     await page.keyboard.press('Control+j');
     await page.waitForTimeout(500);
-    const retriesTab = page.locator('button').filter({ hasText: /retries/i }).first();
+    const retriesTab = page
+      .locator('button')
+      .filter({ hasText: /retries/i })
+      .first();
     if (await retriesTab.isVisible().catch(() => false)) {
       await retriesTab.click();
       await page.waitForTimeout(300);
@@ -162,7 +175,10 @@ test.describe('Schedule Config — start and stop queue', () => {
   });
 
   test('start queue button starts queue execution', async ({ page }) => {
-    const startBtn = page.locator('button').filter({ hasText: /start|play|تشغيل/i }).first();
+    const startBtn = page
+      .locator('button')
+      .filter({ hasText: /start|play|تشغيل/i })
+      .first();
     if (await startBtn.isVisible().catch(() => false)) {
       await startBtn.click();
       await page.waitForTimeout(500);
@@ -170,7 +186,10 @@ test.describe('Schedule Config — start and stop queue', () => {
   });
 
   test('stop queue button stops queue execution', async ({ page }) => {
-    const stopBtn = page.locator('button').filter({ hasText: /stop|square|إيقاف/i }).first();
+    const stopBtn = page
+      .locator('button')
+      .filter({ hasText: /stop|square|إيقاف/i })
+      .first();
     if (await stopBtn.isVisible().catch(() => false)) {
       await stopBtn.click();
       await page.waitForTimeout(500);
@@ -191,7 +210,9 @@ test.describe('Schedule Config — files tab task management', () => {
   });
 
   test('search input filters tasks', async ({ page }) => {
-    const search = page.locator('input[type="text"][placeholder*="search"], input[type="text"][placeholder*="بحث"]').first();
+    const search = page
+      .locator('input[type="text"][placeholder*="search"], input[type="text"][placeholder*="بحث"]')
+      .first();
     if (await search.isVisible().catch(() => false)) {
       await search.fill('test');
       await page.waitForTimeout(300);
@@ -201,7 +222,10 @@ test.describe('Schedule Config — files tab task management', () => {
   });
 
   test('clear filter button exists', async ({ page }) => {
-    const clearBtn = page.locator('button').filter({ hasText: /clear|مسح|إلغاء/i }).first();
+    const clearBtn = page
+      .locator('button')
+      .filter({ hasText: /clear|مسح|إلغاء/i })
+      .first();
     const isVisible = await clearBtn.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });

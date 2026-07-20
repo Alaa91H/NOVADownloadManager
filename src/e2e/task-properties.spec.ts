@@ -30,7 +30,10 @@ test.describe('Task Properties — dialog structure', () => {
     if (await firstRow.isVisible().catch(() => false)) {
       await firstRow.click({ button: 'right' });
       await page.waitForTimeout(300);
-      const props = page.locator('[role="menuitem"]').filter({ hasText: /properties|الخصائص/i }).first();
+      const props = page
+        .locator('[role="menuitem"]')
+        .filter({ hasText: /properties|الخصائص/i })
+        .first();
       if (await props.isVisible().catch(() => false)) {
         await props.click();
         await page.waitForTimeout(500);

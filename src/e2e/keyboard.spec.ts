@@ -6,7 +6,9 @@ const goto = async (page: import('@playwright/test').Page) => {
 };
 
 test.describe('Keyboard Shortcuts — global scope', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('Ctrl+N opens new download dialog', async ({ page }) => {
     await page.keyboard.press('Control+n');
@@ -119,7 +121,7 @@ test.describe('Keyboard Shortcuts — focus-visible rings', () => {
     await page.keyboard.press('Tab');
     const focused = page.locator(':focus');
     if (await focused.isVisible().catch(() => false)) {
-      const outlineStyle = await focused.evaluate(el => {
+      const outlineStyle = await focused.evaluate((el) => {
         const style = window.getComputedStyle(el);
         return style.outlineStyle || style.boxShadow;
       });

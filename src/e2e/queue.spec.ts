@@ -6,7 +6,9 @@ const goto = async (page: import('@playwright/test').Page) => {
 };
 
 test.describe('Queue — queue sidebar panel', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('queue panel exists in sidebar or scheduler', async ({ page }) => {
     const queuePanel = page.locator('[class*="queue"], [class*="Queue"]').first();
@@ -35,7 +37,10 @@ test.describe('Queue — queue creation', () => {
     const input = page.locator('input[type="text"]').last();
     if (await input.isVisible().catch(() => false)) {
       await input.fill('Test Queue E2E');
-      const createBtn = page.locator('button').filter({ has: page.locator('svg') }).last();
+      const createBtn = page
+        .locator('button')
+        .filter({ has: page.locator('svg') })
+        .last();
       if (await createBtn.isVisible().catch(() => false)) {
         await createBtn.click();
         await page.waitForTimeout(300);
@@ -103,7 +108,10 @@ test.describe('Queue — queue deletion', () => {
       if (await deleteBtn.isVisible().catch(() => false)) {
         await deleteBtn.click();
         await page.waitForTimeout(300);
-        const cancelBtn = page.locator('button').filter({ hasText: /cancel|إلغاء|no/i }).first();
+        const cancelBtn = page
+          .locator('button')
+          .filter({ hasText: /cancel|إلغاء|no/i })
+          .first();
         if (await cancelBtn.isVisible().catch(() => false)) {
           await cancelBtn.click();
         }
@@ -137,7 +145,7 @@ test.describe('Queue — drag and drop reorder', () => {
     if (count >= 2) {
       const firstItem = queueItems.first();
       const secondItem = queueItems.nth(1);
-      if (await firstItem.isVisible().catch(() => false) && await secondItem.isVisible().catch(() => false)) {
+      if ((await firstItem.isVisible().catch(() => false)) && (await secondItem.isVisible().catch(() => false))) {
         const firstBox = await firstItem.boundingBox();
         const secondBox = await secondItem.boundingBox();
         if (firstBox && secondBox) {
@@ -165,7 +173,7 @@ test.describe('Queue — undo functionality', () => {
     if (count >= 2) {
       const firstItem = queueItems.first();
       const secondItem = queueItems.nth(1);
-      if (await firstItem.isVisible().catch(() => false) && await secondItem.isVisible().catch(() => false)) {
+      if ((await firstItem.isVisible().catch(() => false)) && (await secondItem.isVisible().catch(() => false))) {
         const firstBox = await firstItem.boundingBox();
         const secondBox = await secondItem.boundingBox();
         if (firstBox && secondBox) {
@@ -174,7 +182,10 @@ test.describe('Queue — undo functionality', () => {
           await page.mouse.move(secondBox.x + secondBox.width / 2, secondBox.y + secondBox.height / 2, { steps: 10 });
           await page.mouse.up();
           await page.waitForTimeout(500);
-          const undoBtn = page.locator('button').filter({ hasText: /undo|تراجع/i }).first();
+          const undoBtn = page
+            .locator('button')
+            .filter({ hasText: /undo|تراجع/i })
+            .first();
           const isVisible = await undoBtn.isVisible().catch(() => false);
           expect(typeof isVisible).toBe('boolean');
         }

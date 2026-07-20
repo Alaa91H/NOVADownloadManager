@@ -22,8 +22,27 @@ const settings = { ...initialSettings, extra: { ...initialSettings.extra, langua
 
 vi.mock('../../store/selectors', () => ({
   useTaskData: () => [],
-  useTaskSelectors: () => ({ selectedTaskId: null, tasks: [], activeCount: 0, queuedCount: 0, completedCount: 0, pausedCount: 0, errorCount: 0, selectedTask: null }),
-  useTaskActions: () => ({ pauseTask: noop, resumeTask: noop, deleteTask: noop, setSelectedTaskId: noop, addTask: noop, openTaskFile: noop, openTaskLocation: noop, updateTaskProperties: noop, triggerBatchDownload: noop }),
+  useTaskSelectors: () => ({
+    selectedTaskId: null,
+    tasks: [],
+    activeCount: 0,
+    queuedCount: 0,
+    completedCount: 0,
+    pausedCount: 0,
+    errorCount: 0,
+    selectedTask: null,
+  }),
+  useTaskActions: () => ({
+    pauseTask: noop,
+    resumeTask: noop,
+    deleteTask: noop,
+    setSelectedTaskId: noop,
+    addTask: noop,
+    openTaskFile: noop,
+    openTaskLocation: noop,
+    updateTaskProperties: noop,
+    triggerBatchDownload: noop,
+  }),
   useSettingsData: () => settings,
   useSettingsActions: () => ({ updateSettings: noop, updateThemeSettings: noop }),
   useThemeData: () => ({ theme: 'dark', density: 'compact', accent: 'blue', progress: 'bar', contrast: 'normal' }),
@@ -37,7 +56,13 @@ vi.mock('../../store/selectors', () => ({
   useNavigationActions: () => ({ setActivePage: noop, setWorkspaceView: noop }),
   useSearchQuery: () => ({ searchQuery: '', setSearchQuery: noop }),
   useNotificationsData: () => ({ isNotificationsMuted: false, setIsNotificationsMuted: noop }),
-  useMinimizedProgress: () => ({ activeProgressMinimizedToTaskbar: false, minimizedProgressTask: null, minimizeActiveProgressToTaskbar: noop, setActiveProgressMinimizedToTaskbar: noop, setMinimizedProgressTask: noop }),
+  useMinimizedProgress: () => ({
+    activeProgressMinimizedToTaskbar: false,
+    minimizedProgressTask: null,
+    minimizeActiveProgressToTaskbar: noop,
+    setActiveProgressMinimizedToTaskbar: noop,
+    setMinimizedProgressTask: noop,
+  }),
   useI18n: () => (k: string) => {
     if (k === 'app_name') return 'NOVA Download Manager';
     return k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());

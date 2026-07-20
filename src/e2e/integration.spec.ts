@@ -17,7 +17,10 @@ test.describe('Integration — download flow', () => {
     const value = await urlInput.inputValue();
     expect(value).toContain('example.com');
 
-    const queueBtn = dialog.locator('button').filter({ hasText: /queue|إضافة/i }).first();
+    const queueBtn = dialog
+      .locator('button')
+      .filter({ hasText: /queue|إضافة/i })
+      .first();
     if (await queueBtn.isVisible().catch(() => false)) {
       await queueBtn.click();
       await page.waitForTimeout(500);
@@ -34,7 +37,10 @@ test.describe('Integration — download flow', () => {
     const urlInput = dialog.locator('input[type="text"]').first();
     await urlInput.fill('https://example.com/another-file.zip');
 
-    const startBtn = dialog.locator('button').filter({ hasText: /download now|بدء|تنزيل/i }).first();
+    const startBtn = dialog
+      .locator('button')
+      .filter({ hasText: /download now|بدء|تنزيل/i })
+      .first();
     if (await startBtn.isVisible().catch(() => false)) {
       await startBtn.click();
       await page.waitForTimeout(500);
@@ -48,7 +54,10 @@ test.describe('Integration — settings flow', () => {
     await page.keyboard.press('Control+,');
     await page.waitForTimeout(600);
 
-    const langTab = page.locator('button').filter({ hasText: /language|لغة/i }).first();
+    const langTab = page
+      .locator('button')
+      .filter({ hasText: /language|لغة/i })
+      .first();
     if (await langTab.isVisible().catch(() => false)) {
       await langTab.click();
       await page.waitForTimeout(300);
@@ -77,7 +86,7 @@ test.describe('Integration — settings flow', () => {
       await lightBtn.click();
       await page.waitForTimeout(300);
       const newBg = await page.evaluate(() =>
-        getComputedStyle(document.documentElement).getPropertyValue('--bg-app').trim()
+        getComputedStyle(document.documentElement).getPropertyValue('--bg-app').trim(),
       );
       expect(newBg).toBeTruthy();
 
@@ -117,7 +126,10 @@ test.describe('Integration — scheduler flow', () => {
     const input = page.locator('input[type="text"]').last();
     if (await input.isVisible().catch(() => false)) {
       await input.fill('E2E Test Queue');
-      const createBtn = page.locator('button').filter({ has: page.locator('svg') }).last();
+      const createBtn = page
+        .locator('button')
+        .filter({ has: page.locator('svg') })
+        .last();
       if (await createBtn.isVisible().catch(() => false)) {
         await createBtn.click();
         await page.waitForTimeout(300);
@@ -130,13 +142,19 @@ test.describe('Integration — scheduler flow', () => {
       await page.waitForTimeout(300);
     }
 
-    const startBtn = page.locator('button').filter({ hasText: /start|play|تشغيل/i }).first();
+    const startBtn = page
+      .locator('button')
+      .filter({ hasText: /start|play|تشغيل/i })
+      .first();
     if (await startBtn.isVisible().catch(() => false)) {
       await startBtn.click();
       await page.waitForTimeout(500);
     }
 
-    const stopBtn = page.locator('button').filter({ hasText: /stop|square|إيقاف/i }).first();
+    const stopBtn = page
+      .locator('button')
+      .filter({ hasText: /stop|square|إيقاف/i })
+      .first();
     if (await stopBtn.isVisible().catch(() => false)) {
       await stopBtn.click();
       await page.waitForTimeout(500);
@@ -166,7 +184,10 @@ test.describe('Integration — task management flow', () => {
     if (await firstRow.isVisible().catch(() => false)) {
       await firstRow.click({ button: 'right' });
       await page.waitForTimeout(300);
-      const copyUrl = page.locator('[role="menuitem"]').filter({ hasText: /copy.*url/i }).first();
+      const copyUrl = page
+        .locator('[role="menuitem"]')
+        .filter({ hasText: /copy.*url/i })
+        .first();
       if (await copyUrl.isVisible().catch(() => false)) {
         await copyUrl.click();
         await page.waitForTimeout(500);

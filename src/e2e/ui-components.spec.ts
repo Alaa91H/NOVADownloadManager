@@ -6,13 +6,15 @@ const goto = async (page: import('@playwright/test').Page) => {
 };
 
 test.describe('UI Components — Button', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('buttons have hover scale effect', async ({ page }) => {
     const btn = page.locator('.interactive-btn').first();
     if (await btn.isVisible().catch(() => false)) {
       await btn.hover();
-      const transform = await btn.evaluate(el => window.getComputedStyle(el).transform);
+      const transform = await btn.evaluate((el) => window.getComputedStyle(el).transform);
       expect(transform).toBeTruthy();
     }
   });
@@ -20,7 +22,7 @@ test.describe('UI Components — Button', () => {
   test('buttons have active press effect', async ({ page }) => {
     const btn = page.locator('.interactive-btn').first();
     if (await btn.isVisible().catch(() => false)) {
-      await btn.evaluate(el => {
+      await btn.evaluate((el) => {
         el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       });
     }
@@ -56,7 +58,7 @@ test.describe('UI Components — Button', () => {
     for (let i = 0; i < Math.min(count, 3); i++) {
       const btn = primaryBtns.nth(i);
       if (await btn.isVisible().catch(() => false)) {
-        const bg = await btn.evaluate(el => window.getComputedStyle(el).backgroundColor);
+        const bg = await btn.evaluate((el) => window.getComputedStyle(el).backgroundColor);
         expect(bg).toBeTruthy();
       }
     }
@@ -64,7 +66,9 @@ test.describe('UI Components — Button', () => {
 });
 
 test.describe('UI Components — Switch', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('switch toggles can be found', async ({ page }) => {
     const switches = page.locator('label:has(> div[class*="rounded-full"])');
@@ -80,13 +84,13 @@ test.describe('UI Components — Switch', () => {
     if (count > 0) {
       const sw = switches.first();
       if (await sw.isVisible().catch(() => false)) {
-        const before = await sw.evaluate(el => {
+        const before = await sw.evaluate((el) => {
           const toggle = el.querySelector('div');
           return toggle?.getAttribute('class')?.includes('bg-[var(--accent-primary)]') || false;
         });
         await sw.click();
         await page.waitForTimeout(200);
-        const after = await sw.evaluate(el => {
+        const after = await sw.evaluate((el) => {
           const toggle = el.querySelector('div');
           return toggle?.getAttribute('class')?.includes('bg-[var(--accent-primary)]') || false;
         });
@@ -97,7 +101,9 @@ test.describe('UI Components — Switch', () => {
 });
 
 test.describe('UI Components — SelectField', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('select fields have labels', async ({ page }) => {
     const selects = page.locator('select');
@@ -117,7 +123,9 @@ test.describe('UI Components — SelectField', () => {
 });
 
 test.describe('UI Components — TextField', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('text fields have labels', async ({ page }) => {
     await page.keyboard.press('Control+n');
@@ -156,7 +164,7 @@ test.describe('UI Components — StatusPill', () => {
     for (let i = 0; i < Math.min(count, 5); i++) {
       const pill = pills.nth(i);
       if (await pill.isVisible().catch(() => false)) {
-        const bg = await pill.evaluate(el => window.getComputedStyle(el).backgroundColor);
+        const bg = await pill.evaluate((el) => window.getComputedStyle(el).backgroundColor);
         expect(bg).toBeTruthy();
       }
     }
@@ -171,7 +179,7 @@ test.describe('UI Components — ProgressBar', () => {
     for (let i = 0; i < Math.min(count, 5); i++) {
       const bar = progressBars.nth(i);
       if (await bar.isVisible().catch(() => false)) {
-        const width = await bar.evaluate(el => window.getComputedStyle(el).width);
+        const width = await bar.evaluate((el) => window.getComputedStyle(el).width);
         expect(width).toBeTruthy();
       }
     }
@@ -179,14 +187,16 @@ test.describe('UI Components — ProgressBar', () => {
 });
 
 test.describe('UI Components — focus-visible rings', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('buttons show focus-visible ring on Tab', async ({ page }) => {
     await page.keyboard.press('Tab');
     await page.keyboard.press('Tab');
     const focused = page.locator(':focus-visible');
     if (await focused.isVisible().catch(() => false)) {
-      const outline = await focused.evaluate(el => {
+      const outline = await focused.evaluate((el) => {
         const style = window.getComputedStyle(el);
         return style.outlineStyle !== 'none' || style.boxShadow !== 'none';
       });
@@ -269,7 +279,7 @@ test.describe('UI Components — modal animations', () => {
     await page.keyboard.press('Control+n');
     const dialog = page.locator('[role="dialog"]');
     await expect(dialog).toBeVisible({ timeout: 3000 });
-    const hasAnimation = await dialog.evaluate(el => {
+    const hasAnimation = await dialog.evaluate((el) => {
       const style = window.getComputedStyle(el);
       return style.animationName !== 'none' || style.transition !== 'none 0s ease 0s';
     });

@@ -6,28 +6,30 @@ const goto = async (page: import('@playwright/test').Page) => {
 };
 
 test.describe('Theme — dark mode', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('dark mode is default', async ({ page }) => {
-    const hasDark = await page.evaluate(() =>
-      document.documentElement.classList.contains('dark') ||
-      document.documentElement.getAttribute('data-theme')?.includes('dark') ||
-      (document.documentElement.getAttribute('class')?.includes('dark') || false)
+    const hasDark = await page.evaluate(
+      () =>
+        document.documentElement.classList.contains('dark') ||
+        document.documentElement.getAttribute('data-theme')?.includes('dark') ||
+        document.documentElement.getAttribute('class')?.includes('dark') ||
+        false,
     );
     expect(typeof hasDark).toBe('boolean');
   });
 
   test('dark mode uses dark background colors', async ({ page }) => {
     const bg = await page.evaluate(() =>
-      window.getComputedStyle(document.documentElement).getPropertyValue('--bg-app').trim()
+      window.getComputedStyle(document.documentElement).getPropertyValue('--bg-app').trim(),
     );
     expect(bg).toBeTruthy();
   });
 
   test('dark mode uses appropriate text colors', async ({ page }) => {
-    const text = await page.evaluate(() =>
-      window.getComputedStyle(document.body).color
-    );
+    const text = await page.evaluate(() => window.getComputedStyle(document.body).color);
     expect(text).toBeTruthy();
   });
 });
@@ -40,7 +42,7 @@ test.describe('Theme — light mode', () => {
       await lightBtn.click();
       await page.waitForTimeout(300);
       const bg = await page.evaluate(() =>
-        window.getComputedStyle(document.documentElement).getPropertyValue('--bg-app').trim()
+        window.getComputedStyle(document.documentElement).getPropertyValue('--bg-app').trim(),
       );
       expect(bg).toBeTruthy();
     }
@@ -48,7 +50,9 @@ test.describe('Theme — light mode', () => {
 });
 
 test.describe('Theme — accent colors', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('accent color can be changed from sidebar', async ({ page }) => {
     const accentBtns = page.locator('aside button[title*="accent" i], aside button[title*="لون" i]');
@@ -60,7 +64,7 @@ test.describe('Theme — accent colors', () => {
           await btn.click();
           await page.waitForTimeout(200);
           const accent = await page.evaluate(() =>
-            getComputedStyle(document.documentElement).getPropertyValue('--accent-primary').trim()
+            getComputedStyle(document.documentElement).getPropertyValue('--accent-primary').trim(),
           );
           expect(accent).toBeTruthy();
           expect(accent).toMatch(/^#/);
@@ -76,8 +80,10 @@ test.describe('Theme — accent colors', () => {
     for (let i = 0; i < count; i++) {
       const btn = accentBtns.nth(i);
       if (await btn.isVisible().catch(() => false)) {
-        const isActive = await btn.evaluate(el =>
-          (el.getAttribute('class') ?? '').includes('ring-2') || (el.getAttribute('class') ?? '').includes('scale-110')
+        const isActive = await btn.evaluate(
+          (el) =>
+            (el.getAttribute('class') ?? '').includes('ring-2') ||
+            (el.getAttribute('class') ?? '').includes('scale-110'),
         );
         if (isActive) hasActive = true;
       }
@@ -87,7 +93,9 @@ test.describe('Theme — accent colors', () => {
 });
 
 test.describe('Theme — density', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('density selector changes layout spacing', async ({ page }) => {
     const densitySelect = page.locator('aside select').first();
@@ -99,8 +107,8 @@ test.describe('Theme — density', () => {
         if (otherValue && otherValue !== currentValue) {
           await densitySelect.selectOption(otherValue);
           await page.waitForTimeout(300);
-          const bodyGap = await page.evaluate(() =>
-            window.getComputedStyle(document.body).gap || window.getComputedStyle(document.body).padding
+          const bodyGap = await page.evaluate(
+            () => window.getComputedStyle(document.body).gap || window.getComputedStyle(document.body).padding,
           );
           expect(bodyGap).toBeTruthy();
           await densitySelect.selectOption(currentValue);
@@ -132,7 +140,7 @@ test.describe('Theme — CSS variables', () => {
     await goto(page);
     const panels = page.locator('[class*="backdrop-blur"], [class*="glassmorphism"]').first();
     if (await panels.isVisible().catch(() => false)) {
-      const backdrop = await panels.evaluate(el => {
+      const backdrop = await panels.evaluate((el) => {
         const s = window.getComputedStyle(el);
         return s.backdropFilter || (s as unknown as Record<string, string>)['webkitBackdropFilter'] || '';
       });
@@ -148,7 +156,7 @@ test.describe('Theme — reduced motion', () => {
     await page.keyboard.press('Control+n');
     const dialog = page.locator('[role="dialog"]');
     await expect(dialog).toBeVisible({ timeout: 3000 });
-    const animation = await dialog.evaluate(el => window.getComputedStyle(el).animation);
+    const animation = await dialog.evaluate((el) => window.getComputedStyle(el).animation);
     expect(animation.includes('reduced-motion') || animation.includes('none')).toBeTruthy();
     await page.keyboard.press('Escape');
   });
@@ -162,7 +170,7 @@ test.describe('Accessibility — color contrast', () => {
     for (let i = 0; i < Math.min(count, 10); i++) {
       const el = textElements.nth(i);
       if (await el.isVisible().catch(() => false)) {
-        const color = await el.evaluate(el => window.getComputedStyle(el).color);
+        const color = await el.evaluate((el) => window.getComputedStyle(el).color);
         expect(color).toBeTruthy();
       }
     }
@@ -178,7 +186,7 @@ test.describe('Accessibility — keyboard navigation', () => {
       const focused = page.locator(':focus');
       if (await focused.isVisible().catch(() => false)) {
         tabCount++;
-        const tagName = await focused.evaluate(el => el.tagName.toLowerCase());
+        const tagName = await focused.evaluate((el) => el.tagName.toLowerCase());
         expect(['button', 'input', 'select', 'textarea', 'a']).toContain(tagName);
       }
     }

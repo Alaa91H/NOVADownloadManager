@@ -8,18 +8,42 @@ describe('queueStore', () => {
     queueStore.setState({
       queues: [
         {
-          id: 'main', name: 'Main Queue', active: false, scheduled: false, scheduleType: 'daily',
-          maxActive: 3, scheduleCompleted: false, startTime: '02:00', endTime: '08:00',
-          days: [0, 1, 2, 3, 4, 5, 6], limitSpeed: false, speedLimitKbs: 1024,
-          oneTimeLimit: false, shutdownOnComplete: false, hangupOnComplete: false,
-          retryCount: 3, downloadOrder: ['task1', 'task2'],
+          id: 'main',
+          name: 'Main Queue',
+          active: false,
+          scheduled: false,
+          scheduleType: 'daily',
+          maxActive: 3,
+          scheduleCompleted: false,
+          startTime: '02:00',
+          endTime: '08:00',
+          days: [0, 1, 2, 3, 4, 5, 6],
+          limitSpeed: false,
+          speedLimitKbs: 1024,
+          oneTimeLimit: false,
+          shutdownOnComplete: false,
+          hangupOnComplete: false,
+          retryCount: 3,
+          downloadOrder: ['task1', 'task2'],
         },
         {
-          id: 'q2', name: 'Night Queue', active: true, scheduled: true, scheduleType: 'daily',
-          maxActive: 1, scheduleCompleted: false, startTime: '22:00', endTime: '06:00',
-          days: [0, 1, 2, 3, 4, 5, 6], limitSpeed: true, speedLimitKbs: 512,
-          oneTimeLimit: false, shutdownOnComplete: false, hangupOnComplete: false,
-          retryCount: 3, downloadOrder: ['task3'],
+          id: 'q2',
+          name: 'Night Queue',
+          active: true,
+          scheduled: true,
+          scheduleType: 'daily',
+          maxActive: 1,
+          scheduleCompleted: false,
+          startTime: '22:00',
+          endTime: '06:00',
+          days: [0, 1, 2, 3, 4, 5, 6],
+          limitSpeed: true,
+          speedLimitKbs: 512,
+          oneTimeLimit: false,
+          shutdownOnComplete: false,
+          hangupOnComplete: false,
+          retryCount: 3,
+          downloadOrder: ['task3'],
         },
       ],
       _undoStack: [],
@@ -70,7 +94,9 @@ describe('queueStore', () => {
   });
 
   it('updateQueue with silent=true does not trigger toast (no crash)', () => {
-    expect(() => { queueStore.getState().updateQueue('main', { name: 'X' }, true); }).not.toThrow();
+    expect(() => {
+      queueStore.getState().updateQueue('main', { name: 'X' }, true);
+    }).not.toThrow();
   });
 
   it('removeTaskFromQueue removes task from all queues', () => {

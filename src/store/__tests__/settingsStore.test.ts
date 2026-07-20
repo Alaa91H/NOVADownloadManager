@@ -74,7 +74,10 @@ describe('settingsStore', () => {
   });
 
   it('updateSettings merges and persists', () => {
-    const updated = { ...settingsStore.getState().settings, general: { ...settingsStore.getState().settings.general, monitorClipboard: true } };
+    const updated = {
+      ...settingsStore.getState().settings,
+      general: { ...settingsStore.getState().settings.general, monitorClipboard: true },
+    };
     settingsStore.getState().updateSettings(updated, true);
     expect(settingsStore.getState().settings.general.monitorClipboard).toBe(true);
   });

@@ -45,7 +45,17 @@ const isQueueScheduledForDay = (queue: { scheduleType: string; days: number[] },
   return queue.days.includes(day);
 };
 
-const isQueueInScheduleWindow = (queue: { scheduled: boolean; scheduleCompleted: boolean; scheduleType: string; days: number[]; startTime: string; endTime: string }, now: Date): boolean => {
+const isQueueInScheduleWindow = (
+  queue: {
+    scheduled: boolean;
+    scheduleCompleted: boolean;
+    scheduleType: string;
+    days: number[];
+    startTime: string;
+    endTime: string;
+  },
+  now: Date,
+): boolean => {
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const today = now.getDay();
   const yesterday = (today + 6) % 7;
@@ -89,13 +99,18 @@ function EffectsProvider({ children }: { children: ReactNode }) {
       void tauriClient.saveConfigToDisk(updated);
       settingsStore.getState()._setSettings(updated);
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Theme
   useEffect(() => {
     const unsub = settingsStore.subscribe((state, prev) => {
-      if (state.themeSettings !== prev.themeSettings || state.settings.extra.language !== prev.settings.extra.language) {
+      if (
+        state.themeSettings !== prev.themeSettings ||
+        state.settings.extra.language !== prev.settings.extra.language
+      ) {
         applyTheme(state.themeSettings, state.settings.extra.language || 'en');
       }
     });
@@ -110,13 +125,17 @@ function EffectsProvider({ children }: { children: ReactNode }) {
       if (state.settings.extra.language !== prev.settings.extra.language) {
         const lang = state.settings.extra.language || 'en';
         if (!isLanguageLoaded(lang)) {
-          void loadLanguage(lang).then(() => { settingsStore.getState().incrementI18nRevision(); });
+          void loadLanguage(lang).then(() => {
+            settingsStore.getState().incrementI18nRevision();
+          });
         }
       }
     });
     const lang = settingsStore.getState().settings.extra.language || 'en';
     if (!isLanguageLoaded(lang)) {
-      void loadLanguage(lang).then(() => { settingsStore.getState().incrementI18nRevision(); });
+      void loadLanguage(lang).then(() => {
+        settingsStore.getState().incrementI18nRevision();
+      });
     }
     return unsub;
   }, []);
@@ -157,7 +176,12 @@ function EffectsProvider({ children }: { children: ReactNode }) {
     const retryIntervalRef: { current: number | null } = { current: null };
     let wasDegraded = false;
 
-    const markConnected = (info: { status?: 'connected' | 'degraded'; buildVersion?: string; version: string; pid: number }) => {
+    const markConnected = (info: {
+      status?: 'connected' | 'degraded';
+      buildVersion?: string;
+      version: string;
+      pid: number;
+    }) => {
       const status = info.status || 'connected';
       bridgeStore.getState().setIsDegradedMode(status === 'degraded');
       const s = settingsStore.getState().settings;
@@ -182,13 +206,15 @@ function EffectsProvider({ children }: { children: ReactNode }) {
           await refreshDaemonUrl();
           const info = await tauriClient.checkDaemonHealth();
           markConnected(info);
-          uiStore.getState().addToast(
-            info.status === 'degraded' ? 'warning' : 'success',
-            info.status === 'degraded' ? 'Service Partially Ready' : 'Service Connected',
-            info.status === 'degraded'
-              ? 'NOVA connected to the local service. Some engines are still starting.'
-              : 'NOVA connected to the local download service successfully.',
-          );
+          uiStore
+            .getState()
+            .addToast(
+              info.status === 'degraded' ? 'warning' : 'success',
+              info.status === 'degraded' ? 'Service Partially Ready' : 'Service Connected',
+              info.status === 'degraded'
+                ? 'NOVA connected to the local service. Some engines are still starting.'
+                : 'NOVA connected to the local download service successfully.',
+            );
           const params = new URLSearchParams(window.location.search);
           const captureUrl = params.get('capture');
           if (captureUrl) {
@@ -201,14 +227,19 @@ function EffectsProvider({ children }: { children: ReactNode }) {
             const delay = Math.min(100 * (1 << attempt), 2000);
             await new Promise((r) => setTimeout(r, delay));
           } else {
-            bridgeStore.getState().setBridge({ status: 'degraded', version: 'NOVA daemon unavailable', pid: 0, speedLimit: null });
+            bridgeStore
+              .getState()
+              .setBridge({ status: 'degraded', version: 'NOVA daemon unavailable', pid: 0, speedLimit: null });
             bridgeStore.getState().setIsDegradedMode(true);
             taskStore.getState().setTasks([]);
             wasDegraded = true;
-            uiStore.getState().addToast(
-              'warning', 'NOVA daemon unavailable',
-              e instanceof Error ? e.message : 'The local download engines are not available.',
-            );
+            uiStore
+              .getState()
+              .addToast(
+                'warning',
+                'NOVA daemon unavailable',
+                e instanceof Error ? e.message : 'The local download engines are not available.',
+              );
           }
         }
       }
@@ -227,18 +258,22 @@ function EffectsProvider({ children }: { children: ReactNode }) {
               const info = await tauriClient.checkDaemonHealth();
               markConnected(info);
               if (wasDegraded) {
-                uiStore.getState().addToast(
-                  info.status === 'degraded' ? 'warning' : 'info',
-                  'Daemon Reconnected',
-                  info.status === 'degraded'
-                    ? 'NOVA service is reachable while engines continue starting.'
-                    : 'NOVA download service is now available.',
-                );
+                uiStore
+                  .getState()
+                  .addToast(
+                    info.status === 'degraded' ? 'warning' : 'info',
+                    'Daemon Reconnected',
+                    info.status === 'degraded'
+                      ? 'NOVA service is reachable while engines continue starting.'
+                      : 'NOVA download service is now available.',
+                  );
                 wasDegraded = false;
               }
             } catch {
               wasDegraded = true;
-              bridgeStore.getState().setBridge({ status: 'degraded', version: 'Daemon unreachable', pid: 0, speedLimit: null });
+              bridgeStore
+                .getState()
+                .setBridge({ status: 'degraded', version: 'Daemon unreachable', pid: 0, speedLimit: null });
               bridgeStore.getState().setIsDegradedMode(true);
             }
             scheduleHealth();
@@ -269,13 +304,21 @@ function EffectsProvider({ children }: { children: ReactNode }) {
       if (state.settings.extra !== prev.settings.extra) {
         const s = state.settings;
         const timer = window.setTimeout(() => {
-          void novaClient.updateTelegramConfig({
-            enabled: s.extra.tgEnabled, token: s.extra.tgBotToken,
-            chatId: parseInt(s.extra.tgChatId, 10) || 0, apiBase: s.extra.tgApiBase,
-            fileUploadLimitMb: s.extra.tgFileUploadLimitMb,
-          }).catch((e: unknown) => { console.warn('updateTelegramConfig failed', e); });
+          void novaClient
+            .updateTelegramConfig({
+              enabled: s.extra.tgEnabled,
+              token: s.extra.tgBotToken,
+              chatId: parseInt(s.extra.tgChatId, 10) || 0,
+              apiBase: s.extra.tgApiBase,
+              fileUploadLimitMb: s.extra.tgFileUploadLimitMb,
+            })
+            .catch((e: unknown) => {
+              console.warn('updateTelegramConfig failed', e);
+            });
         }, 300);
-        return () => { window.clearTimeout(timer); };
+        return () => {
+          window.clearTimeout(timer);
+        };
       }
     });
     return unsub;
@@ -318,7 +361,8 @@ function EffectsProvider({ children }: { children: ReactNode }) {
           if (currentSettings.extra.openFolderOnComplete) void tauriClient.revealDownloadedFile(task.savePath);
         });
         if (
-          currentSettings.sounds.enabled && newlyCompletedTasks.length > 0 &&
+          currentSettings.sounds.enabled &&
+          newlyCompletedTasks.length > 0 &&
           !daemonTasks.some((t) => t.status === 'downloading' || t.status === 'queued')
         ) {
           playAppSound(currentSettings, 'queueFinished');
@@ -331,12 +375,19 @@ function EffectsProvider({ children }: { children: ReactNode }) {
 
     let pendingTasks: DownloadItem[] | null = null;
     const applyDownloads = (daemonTasks: DownloadItem[], fromStream = false) => {
-      if (!fromStream) { applyDownloadsImmediate(daemonTasks, false); return; }
+      if (!fromStream) {
+        applyDownloadsImmediate(daemonTasks, false);
+        return;
+      }
       pendingTasks = daemonTasks;
       if (debounceTimer === null) {
         debounceTimer = setTimeout(() => {
           debounceTimer = null;
-          if (pendingTasks !== null) { const t = pendingTasks; pendingTasks = null; applyDownloadsImmediate(t, true); }
+          if (pendingTasks !== null) {
+            const t = pendingTasks;
+            pendingTasks = null;
+            applyDownloadsImmediate(t, true);
+          }
         }, 100);
       }
     };
@@ -354,19 +405,30 @@ function EffectsProvider({ children }: { children: ReactNode }) {
     const canStreamDownloads = enableSse && typeof window.EventSource !== 'undefined';
     if (canStreamDownloads) {
       stopEvents = novaClient.streamDownloads(
-        (daemonTasks) => { applyDownloads(daemonTasks, true); },
-        () => { sseFailed = true; },
+        (daemonTasks) => {
+          applyDownloads(daemonTasks, true);
+        },
+        () => {
+          sseFailed = true;
+        },
       );
     }
 
-    const initialTimer = setTimeout(() => { if (!cancelled) { started = true; void syncDownloads(); } }, 1000);
+    const initialTimer = setTimeout(() => {
+      if (!cancelled) {
+        started = true;
+        void syncDownloads();
+      }
+    }, 1000);
     const interval = setInterval(() => {
       if (document.hidden) return;
       fallbackTick += 1;
       if (canStreamDownloads && !sseFailed && fallbackTick % 5 !== 0) return;
       void syncDownloads();
     }, 2000);
-    const onVisibilityChange = () => { if (!document.hidden) void syncDownloads(); };
+    const onVisibilityChange = () => {
+      if (!document.hidden) void syncDownloads();
+    };
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
       cancelled = true;
@@ -396,16 +458,22 @@ function EffectsProvider({ children }: { children: ReactNode }) {
         if (isActive && !wasActive) {
           activeScheduleWindowsRef.current[queue.id] = true;
           tasks
-            .filter((t) => t.queueId === queue.id && (t.status === 'queued' || t.status === 'paused' || t.status === 'error'))
+            .filter(
+              (t) => t.queueId === queue.id && (t.status === 'queued' || t.status === 'paused' || t.status === 'error'),
+            )
             .slice(0, Math.max(1, queue.maxActive || 1))
-            .forEach((t) => { void taskStore.getState().resumeTask(t.id); });
+            .forEach((t) => {
+              void taskStore.getState().resumeTask(t.id);
+            });
         }
 
         if (!isActive && wasActive) {
           activeScheduleWindowsRef.current[queue.id] = false;
           tasks
             .filter((t) => t.queueId === queue.id && t.status === 'downloading')
-            .forEach((t) => { void taskStore.getState().pauseTask(t.id); });
+            .forEach((t) => {
+              void taskStore.getState().pauseTask(t.id);
+            });
           if (queue.scheduleType === 'once') {
             queueStore.getState().updateQueue(queue.id, { scheduled: false, scheduleCompleted: true }, true);
           }
@@ -417,7 +485,9 @@ function EffectsProvider({ children }: { children: ReactNode }) {
 
     tickSchedules();
     const interval = window.setInterval(tickSchedules, 30000);
-    return () => { window.clearInterval(interval); };
+    return () => {
+      window.clearInterval(interval);
+    };
   }, []);
 
   // Auto-progress dialog
@@ -442,7 +512,9 @@ function EffectsProvider({ children }: { children: ReactNode }) {
         if (cd.active && cd.active !== 'activeProgress') return;
         uiStore.getState().openDialog('activeProgress', nextProgressTask);
       }, 0);
-      return () => { window.clearTimeout(timer); };
+      return () => {
+        window.clearTimeout(timer);
+      };
     });
     return unsub;
   }, []);
@@ -454,17 +526,27 @@ function EffectsProvider({ children }: { children: ReactNode }) {
     const today = new Date().toISOString().slice(0, 10);
     if (localStorage.getItem('nova_last_unsigned_update_check') === today) return;
     localStorage.setItem('nova_last_unsigned_update_check', today);
-    void tauriClient.checkTauriUpdate().then((result: { hasUpdate: boolean; latestVersion: string }) => {
-      if (result.hasUpdate) {
-        uiStore.getState().addToast('info', 'Update available', `A new version (${result.latestVersion}) is available.`);
-      }
-    }).catch((error: unknown) => { console.warn('unsigned update check failed', error); });
+    void tauriClient
+      .checkTauriUpdate()
+      .then((result: { hasUpdate: boolean; latestVersion: string }) => {
+        if (result.hasUpdate) {
+          uiStore
+            .getState()
+            .addToast('info', 'Update available', `A new version (${result.latestVersion}) is available.`);
+        }
+      })
+      .catch((error: unknown) => {
+        console.warn('unsigned update check failed', error);
+      });
   }, []);
 
   return <>{children}</>;
 }
 
-function applyTheme(themeSettings: { theme: string; density: string; accent: string; progress: string; contrast: string }, language: string) {
+function applyTheme(
+  themeSettings: { theme: string; density: string; accent: string; progress: string; contrast: string },
+  language: string,
+) {
   const root = document.documentElement;
   let activeTheme = themeSettings.theme;
   if (activeTheme === 'system') {
@@ -479,7 +561,10 @@ function applyTheme(themeSettings: { theme: string; density: string; accent: str
   root.setAttribute('lang', language || 'en');
 }
 
-function persistSettings(settings: AppSettings, themeSettings: { theme: string; density: string; accent: string; progress: string; contrast: string }) {
+function persistSettings(
+  settings: AppSettings,
+  themeSettings: { theme: string; density: string; accent: string; progress: string; contrast: string },
+) {
   const timer = setTimeout(() => {
     const safeSettings = {
       ...settings,
@@ -489,7 +574,9 @@ function persistSettings(settings: AppSettings, themeSettings: { theme: string; 
     localStorage.setItem('nova_settings_v1', JSON.stringify(safeSettings));
     localStorage.setItem('nova_theme_settings_v1', JSON.stringify(themeSettings));
   }, 300);
-  return () => { clearTimeout(timer); };
+  return () => {
+    clearTimeout(timer);
+  };
 }
 
 function pushBrowserConfig(status: string) {
@@ -497,13 +584,18 @@ function pushBrowserConfig(status: string) {
   if (isDetachedWindow()) return;
   const s = settingsStore.getState().settings;
   const enabled = Object.values(s.general.integrateWithBrowsers).some(Boolean);
-  void novaClient.configureBrowserExtension({
-    enabled, token: s.extra.browserPairingToken,
-    minSizeMb: s.fileTypes.autoDownloadMaxSizeMb,
-    defaultFolder: s.saveAndCategories.defaultFolder,
-    categoryFolders: s.saveAndCategories.categoryFolders,
-    userAgent: s.extra.userAgent,
-  }).catch((e: unknown) => { console.warn('configureBrowserExtension failed', e); });
+  void novaClient
+    .configureBrowserExtension({
+      enabled,
+      token: s.extra.browserPairingToken,
+      minSizeMb: s.fileTypes.autoDownloadMaxSizeMb,
+      defaultFolder: s.saveAndCategories.defaultFolder,
+      categoryFolders: s.saveAndCategories.categoryFolders,
+      userAgent: s.extra.userAgent,
+    })
+    .catch((e: unknown) => {
+      console.warn('configureBrowserExtension failed', e);
+    });
 }
 
 export const AppStoreProvider: React.FC<{ children: ReactNode }> = ({ children }) => {

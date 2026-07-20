@@ -49,24 +49,24 @@
   /* Semantic state colors */
   --danger: #ef4444;
   --danger-hover: #dc2626;
-  --danger-bg: rgba(239, 68, 68, 0.10);
+  --danger-bg: rgba(239, 68, 68, 0.1);
   --danger-border: rgba(239, 68, 68, 0.25);
   --success: #10b981;
   --success-hover: #059669;
-  --success-bg: rgba(16, 185, 129, 0.10);
+  --success-bg: rgba(16, 185, 129, 0.1);
   --success-border: rgba(16, 185, 129, 0.25);
   --warning: #f59e0b;
-  --warning-bg: rgba(245, 158, 11, 0.10);
+  --warning-bg: rgba(245, 158, 11, 0.1);
   --warning-border: rgba(245, 158, 11, 0.25);
   --error: #ef4444;
   --error-bg: rgba(239, 68, 68, 0.08);
-  --error-border: rgba(239, 68, 68, 0.20);
+  --error-border: rgba(239, 68, 68, 0.2);
   --info: #3b82f6;
-  --info-bg: rgba(59, 130, 246, 0.10);
+  --info-bg: rgba(59, 130, 246, 0.1);
   --info-border: rgba(59, 130, 246, 0.25);
 
   /* Overlay */
-  --overlay-bg: rgba(0, 0, 0, 0.50);
+  --overlay-bg: rgba(0, 0, 0, 0.5);
 
   /* Progress & segment track colors */
   --progress-track: rgba(148, 163, 184, 0.15);
@@ -246,20 +246,20 @@
   --danger: #dc2626;
   --danger-hover: #b91c1c;
   --danger-bg: rgba(220, 38, 38, 0.08);
-  --danger-border: rgba(220, 38, 38, 0.20);
+  --danger-border: rgba(220, 38, 38, 0.2);
   --success: #059669;
   --success-hover: #047857;
   --success-bg: rgba(5, 150, 105, 0.08);
-  --success-border: rgba(5, 150, 105, 0.20);
+  --success-border: rgba(5, 150, 105, 0.2);
   --warning: #d97706;
   --warning-bg: rgba(217, 119, 6, 0.08);
-  --warning-border: rgba(217, 119, 6, 0.20);
+  --warning-border: rgba(217, 119, 6, 0.2);
   --error: #dc2626;
   --error-bg: rgba(220, 38, 38, 0.06);
   --error-border: rgba(220, 38, 38, 0.15);
   --info: #2563eb;
   --info-bg: rgba(37, 99, 235, 0.08);
-  --info-border: rgba(37, 99, 235, 0.20);
+  --info-border: rgba(37, 99, 235, 0.2);
   --progress-track: rgba(0, 0, 0, 0.06);
   --segment-track: rgba(0, 0, 0, 0.06);
 }
@@ -324,4 +324,3 @@
     scroll-behavior: auto !important;
   }
 }
-

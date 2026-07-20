@@ -8,14 +8,20 @@ const goto = async (page: import('@playwright/test').Page) => {
 test.describe('Import/Export — dialog structure', () => {
   test('import/export can be opened', async ({ page }) => {
     await goto(page);
-    const importBtn = page.locator('button').filter({ hasText: /import|استيراد/i }).first();
+    const importBtn = page
+      .locator('button')
+      .filter({ hasText: /import|استيراد/i })
+      .first();
     const isVisible = await importBtn.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });
 
   test('export can be triggered', async ({ page }) => {
     await goto(page);
-    const exportBtn = page.locator('button').filter({ hasText: /export|تصدير/i }).first();
+    const exportBtn = page
+      .locator('button')
+      .filter({ hasText: /export|تصدير/i })
+      .first();
     const isVisible = await exportBtn.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });
@@ -24,7 +30,10 @@ test.describe('Import/Export — dialog structure', () => {
 test.describe('Import/Export — import formats', () => {
   test('import supports text/url format', async ({ page }) => {
     await goto(page);
-    const importBtn = page.locator('button').filter({ hasText: /import|استيراد/i }).first();
+    const importBtn = page
+      .locator('button')
+      .filter({ hasText: /import|استيراد/i })
+      .first();
     if (await importBtn.isVisible().catch(() => false)) {
       await importBtn.click();
       await page.waitForTimeout(500);
@@ -40,7 +49,10 @@ test.describe('Import/Export — import formats', () => {
 
   test('import dialog has textarea for URLs', async ({ page }) => {
     await goto(page);
-    const importBtn = page.locator('button').filter({ hasText: /import|استيراد/i }).first();
+    const importBtn = page
+      .locator('button')
+      .filter({ hasText: /import|استيراد/i })
+      .first();
     if (await importBtn.isVisible().catch(() => false)) {
       await importBtn.click();
       await page.waitForTimeout(500);
@@ -60,13 +72,19 @@ test.describe('Import/Export — import formats', () => {
 
   test('import confirm button exists', async ({ page }) => {
     await goto(page);
-    const importBtn = page.locator('button').filter({ hasText: /import|استيراد/i }).first();
+    const importBtn = page
+      .locator('button')
+      .filter({ hasText: /import|استيراد/i })
+      .first();
     if (await importBtn.isVisible().catch(() => false)) {
       await importBtn.click();
       await page.waitForTimeout(500);
       const dialog = page.locator('[role="dialog"]');
       if (await dialog.isVisible().catch(() => false)) {
-        const confirmBtn = dialog.locator('button').filter({ hasText: /import|استيراد|confirm|تأكيد/i }).first();
+        const confirmBtn = dialog
+          .locator('button')
+          .filter({ hasText: /import|استيراد|confirm|تأكيد/i })
+          .first();
         const isVisible = await confirmBtn.isVisible().catch(() => false);
         expect(typeof isVisible).toBe('boolean');
         await page.keyboard.press('Escape');
@@ -78,7 +96,10 @@ test.describe('Import/Export — import formats', () => {
 test.describe('Import/Export — export data', () => {
   test('export button triggers download', async ({ page }) => {
     await goto(page);
-    const exportBtn = page.locator('button').filter({ hasText: /export|تصدير/i }).first();
+    const exportBtn = page
+      .locator('button')
+      .filter({ hasText: /export|تصدير/i })
+      .first();
     if (await exportBtn.isVisible().catch(() => false)) {
       const downloadPromise = page.waitForEvent('download', { timeout: 3000 }).catch(() => null);
       await exportBtn.click();

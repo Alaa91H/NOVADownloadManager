@@ -32,7 +32,7 @@ test.describe('Magnet Detection — paste magnet link shows indicator', () => {
     await page.waitForTimeout(300);
     const magnetIndicator = page.locator('[role="dialog"]').locator('text=/magnet|رواسب/i').first();
     if (await magnetIndicator.isVisible().catch(() => false)) {
-      const className = await magnetIndicator.getAttribute('class') ?? '';
+      const className = (await magnetIndicator.getAttribute('class')) ?? '';
       expect(className.length).toBeGreaterThan(0);
     }
   });

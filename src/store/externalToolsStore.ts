@@ -93,8 +93,19 @@ export const useExternalToolsStore = create<ExternalToolsStore>((set, get) => ({
 
   checkForUpdates: async (toolId: string) => {
     try {
-      await novaClient.checkExternalToolUpdates(toolId);
-      await get().fetchTools();
+      const result = await novaClient.checkExternalToolUpdates(toolId);
+      set((state) => ({
+        tools: state.tools.map((t) =>
+          t.id === toolId
+            ? {
+                ...t,
+                updateAvailable: result.available,
+                latestVersion: result.latestVersion,
+                downloadUrl: result.downloadUrl,
+              }
+            : t,
+        ),
+      }));
     } catch (e) {
       console.warn('checkForUpdates failed', e);
     }

@@ -6,16 +6,22 @@ const goto = async (page: import('@playwright/test').Page) => {
 };
 
 test.describe('Browser Extension — status bar button', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('browser extension button exists in status bar', async ({ page }) => {
-    const shieldBtn = page.locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]').first();
+    const shieldBtn = page
+      .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+      .first();
     const isVisible = await shieldBtn.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });
 
   test('browser extension button has icon', async ({ page }) => {
-    const shieldBtn = page.locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]').first();
+    const shieldBtn = page
+      .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+      .first();
     if (await shieldBtn.isVisible().catch(() => false)) {
       const hasSvg = await shieldBtn.locator('svg').count();
       expect(hasSvg).toBeGreaterThanOrEqual(1);
@@ -23,7 +29,9 @@ test.describe('Browser Extension — status bar button', () => {
   });
 
   test('browser extension button has tooltip describing state', async ({ page }) => {
-    const shieldBtn = page.locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]').first();
+    const shieldBtn = page
+      .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+      .first();
     if (await shieldBtn.isVisible().catch(() => false)) {
       const title = await shieldBtn.getAttribute('title');
       expect(title).toBeTruthy();
@@ -32,7 +40,9 @@ test.describe('Browser Extension — status bar button', () => {
   });
 
   test('clicking browser extension button opens integration dialog', async ({ page }) => {
-    const shieldBtn = page.locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]').first();
+    const shieldBtn = page
+      .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+      .first();
     if (await shieldBtn.isVisible().catch(() => false)) {
       await shieldBtn.click();
       await page.waitForTimeout(500);
@@ -50,14 +60,18 @@ test.describe('Browser Extension — status bar button', () => {
 });
 
 test.describe('Browser Extension — 3-state icon', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('button color reflects connection state', async ({ page }) => {
-    const shieldBtn = page.locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]').first();
+    const shieldBtn = page
+      .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+      .first();
     if (await shieldBtn.isVisible().catch(() => false)) {
       const svg = shieldBtn.locator('svg').first();
       if (await svg.isVisible().catch(() => false)) {
-        const color = await svg.evaluate(el => window.getComputedStyle(el).color);
+        const color = await svg.evaluate((el) => window.getComputedStyle(el).color);
         expect(color).toBeTruthy();
       }
     }
@@ -77,7 +91,9 @@ test.describe('Browser Extension — sidebar widget', () => {
 test.describe('Browser Extension — integration dialog content', () => {
   test('integration dialog shows installation instructions', async ({ page }) => {
     await goto(page);
-    const shieldBtn = page.locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]').first();
+    const shieldBtn = page
+      .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+      .first();
     if (await shieldBtn.isVisible().catch(() => false)) {
       await shieldBtn.click();
       await page.waitForTimeout(500);

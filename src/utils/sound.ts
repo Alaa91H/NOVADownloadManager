@@ -100,6 +100,9 @@ export const playAppSound = (settings: AppSettings, event: SoundEvent) => {
       });
       return;
     }
+    // Custom sound selected but no data URL configured — fall back to a soft tone.
+    playTone('soft', volume);
+    return;
   }
 
   playTone(choice, volume);

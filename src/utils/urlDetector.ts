@@ -1,7 +1,6 @@
 export type UrlType = 'media' | 'download' | 'unknown';
 
 const MEDIA_PATTERNS: { host: RegExp; path?: RegExp }[] = [
-
   // ═══════════════════════════════════════════════════
   //  YouTube (official)
   // ═══════════════════════════════════════════════════
@@ -204,8 +203,6 @@ const MEDIA_PATTERNS: { host: RegExp; path?: RegExp }[] = [
   { host: /unext\.com$/i, path: /\/movies?\// },
   { host: /dmm\.com$/i, path: /\/digital\/videoa|\/video\// },
   { host: /lemino\.dmm\.com$/i, path: /\/movies?\// },
-  { host: /tver\.jp$/i },
-  { host: /abema\.tv$/i },
 
   // ═══════════════════════════════════════════════════
   //  Chinese platforms
@@ -335,10 +332,8 @@ const MEDIA_PATTERNS: { host: RegExp; path?: RegExp }[] = [
   { host: /tubitv\.com$/i, path: /\/movies|\/watch\// },
   { host: /pluto\.tv$/i, path: /\/live-tv|\/videos?\// },
   { host: /plex\.tv$/i, path: /\/watch\// },
-  { host: /plex\.tv$/i },
   { host: /kanopy\.com$/i, path: /\/watch\// },
   { host: /mubi\.com$/i, path: /\/films\// },
-  { host: /mubi\.com$/i },
   { host: /criterionchannel\.com$/i, path: /\/videos\// },
   { host: /britbox\.com$/i, path: /\/video\// },
   { host: /amcplus\.com$/i, path: /\/shows|\/movies\// },
@@ -346,7 +341,6 @@ const MEDIA_PATTERNS: { host: RegExp; path?: RegExp }[] = [
   { host: /curiositystream\.com$/i, path: /\/watch\// },
   { host: /magellantv\.com$/i, path: /\/watch\// },
   { host: /dazn\.com$/i, path: /\/en\/event\// },
-  { host: /discoveryplus\.com$/i, path: /\/videos\// },
   { host: /discoveryplus\.com$/i },
   { host: /crave\.ca$/i, path: /\/movies|\/series|\/video\// },
   { host: /stan\.com\.au$/i, path: /\/watch\// },
@@ -382,7 +376,6 @@ const MEDIA_PATTERNS: { host: RegExp; path?: RegExp }[] = [
   { host: /deezer\.com$/i, path: /\/track|\/album|\/playlist\// },
   { host: /deezer\.page\.link$/i },
   { host: /tidal\.com$/i, path: /\/track|\/album|\/playlist\// },
-  { host: /tidal\.com$/i },
   { host: /pandora\.com$/i, path: /\/track|\/station|\/artist\// },
   { host: /audiomack\.com$/i, path: /\/track|\/album|\/playlist\// },
   { host: /music\.yandex\.(ru|com)$/i, path: /\/track|\/album|\/playlist|\/users\// },
@@ -428,7 +421,6 @@ const MEDIA_PATTERNS: { host: RegExp; path?: RegExp }[] = [
   { host: /missav\.com$/i, path: /\/\w+\/\w+\.html/ },
 ];
 
-
 function normalizeUrl(raw: string): string {
   const url = raw.trim();
   if (!url) return url;
@@ -437,7 +429,9 @@ function normalizeUrl(raw: string): string {
 
   if (/^\/\/./.test(url)) return 'https:' + url;
 
-  if (/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*(:\d{1,5})?(\/|$|\?|#)/.test(url)) {
+  if (
+    /^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*(:\d{1,5})?(\/|$|\?|#)/.test(url)
+  ) {
     return 'https://' + url;
   }
 

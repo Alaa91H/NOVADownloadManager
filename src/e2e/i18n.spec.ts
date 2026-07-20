@@ -6,7 +6,9 @@ const goto = async (page: import('@playwright/test').Page) => {
 };
 
 test.describe('I18n — language switching', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('default language is English', async ({ page }) => {
     const lang = await page.evaluate(() => {
@@ -18,7 +20,10 @@ test.describe('I18n — language switching', () => {
   test('language can be changed via settings', async ({ page }) => {
     await page.keyboard.press('Control+,');
     await page.waitForTimeout(600);
-    const langTab = page.locator('button').filter({ hasText: /language|لغة/i }).first();
+    const langTab = page
+      .locator('button')
+      .filter({ hasText: /language|لغة/i })
+      .first();
     if (await langTab.isVisible().catch(() => false)) {
       await langTab.click();
       await page.waitForTimeout(300);
@@ -32,16 +37,24 @@ test.describe('I18n — language switching', () => {
 });
 
 test.describe('I18n — UI text updates', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('sidebar labels are translated', async ({ page }) => {
-    const allDownloads = page.locator('aside button').filter({ hasText: /all downloads|كل التحميلات|すべてのダウンロード/i }).first();
+    const allDownloads = page
+      .locator('aside button')
+      .filter({ hasText: /all downloads|كل التحميلات|すべてのダウンロード/i })
+      .first();
     const isVisible = await allDownloads.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });
 
   test('topbar buttons are translated', async ({ page }) => {
-    const newDl = page.locator('header button').filter({ hasText: /new|جديد|新规/i }).first();
+    const newDl = page
+      .locator('header button')
+      .filter({ hasText: /new|جديد|新规/i })
+      .first();
     const isVisible = await newDl.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });
@@ -58,13 +71,20 @@ test.describe('I18n — RTL support', () => {
     await goto(page);
     await page.keyboard.press('Control+,');
     await page.waitForTimeout(600);
-    const langTab = page.locator('button').filter({ hasText: /language|لغة/i }).first();
+    const langTab = page
+      .locator('button')
+      .filter({ hasText: /language|لغة/i })
+      .first();
     if (await langTab.isVisible().catch(() => false)) {
       await langTab.click();
       await page.waitForTimeout(300);
       const langSelect = page.locator('select').first();
       if (await langSelect.isVisible().catch(() => false)) {
-        const arabicOption = await langSelect.locator('option').filter({ hasText: /arabic|عربي/i }).first().getAttribute('value');
+        const arabicOption = await langSelect
+          .locator('option')
+          .filter({ hasText: /arabic|عربي/i })
+          .first()
+          .getAttribute('value');
         if (arabicOption) {
           await langSelect.selectOption(arabicOption);
           await page.waitForTimeout(500);
@@ -82,13 +102,20 @@ test.describe('I18n — RTL support', () => {
     await goto(page);
     await page.keyboard.press('Control+,');
     await page.waitForTimeout(600);
-    const langTab = page.locator('button').filter({ hasText: /language|لغة/i }).first();
+    const langTab = page
+      .locator('button')
+      .filter({ hasText: /language|لغة/i })
+      .first();
     if (await langTab.isVisible().catch(() => false)) {
       await langTab.click();
       await page.waitForTimeout(300);
       const langSelect = page.locator('select').first();
       if (await langSelect.isVisible().catch(() => false)) {
-        const hebrewOption = await langSelect.locator('option').filter({ hasText: /hebrew|עברית/i }).first().getAttribute('value');
+        const hebrewOption = await langSelect
+          .locator('option')
+          .filter({ hasText: /hebrew|עברית/i })
+          .first()
+          .getAttribute('value');
         if (hebrewOption) {
           await langSelect.selectOption(hebrewOption);
           await page.waitForTimeout(500);
@@ -103,7 +130,9 @@ test.describe('I18n — RTL support', () => {
 });
 
 test.describe('I18n — date/number formatting', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('numbers display in locale format', async ({ page }) => {
     const statusBar = page.locator('[role="status"]').first();
@@ -120,10 +149,12 @@ test.describe('I18n — accessibility', () => {
     for (let i = 0; i < Math.min(count, 20); i++) {
       const btn = buttons.nth(i);
       if (await btn.isVisible().catch(() => false)) {
-        const hasLabel = await btn.evaluate(el => {
-          return (el.textContent?.trim().length ?? 0) > 0 ||
+        const hasLabel = await btn.evaluate((el) => {
+          return (
+            (el.textContent?.trim().length ?? 0) > 0 ||
             (el.getAttribute('aria-label')?.length ?? 0) > 0 ||
-            (el.getAttribute('title')?.length ?? 0) > 0;
+            (el.getAttribute('title')?.length ?? 0) > 0
+          );
         });
         expect(hasLabel).toBeTruthy();
       }

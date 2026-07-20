@@ -125,7 +125,10 @@ describe('uiStore', () => {
 
     it('caps toasts at 50', () => {
       const manyToasts = Array.from({ length: 50 }, (_, i) => ({
-        id: `t${String(i)}`, type: 'info' as const, title: `T${String(i)}`, message: `M${String(i)}`,
+        id: `t${String(i)}`,
+        type: 'info' as const,
+        title: `T${String(i)}`,
+        message: `M${String(i)}`,
       }));
       uiStore.setState({ toasts: manyToasts });
       uiStore.getState().addToast('info', 'New', 'Extra');

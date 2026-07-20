@@ -265,5 +265,3 @@ export const formatTimeLeft = (seconds: number): string => {
   const remainingMinutes = minutes % 60;
   return `${String(hours)}h ${String(remainingMinutes)}m`;
 };
-
-

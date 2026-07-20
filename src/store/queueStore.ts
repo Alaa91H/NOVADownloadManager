@@ -21,7 +21,8 @@ const normalizeQueue = (q: Partial<Queue>, fallback?: Queue): Queue => {
   const base = fallback || initialQueues[0];
   const days = normalizeScheduleDays(q.days);
   return {
-    ...base, ...q,
+    ...base,
+    ...q,
     id: q.id || createLocalId('q'),
     name: q.name || base.name || 'Download List',
     days,
@@ -35,7 +36,11 @@ const normalizeQueue = (q: Partial<Queue>, fallback?: Queue): Queue => {
 const initQueues = (): Queue[] => {
   const cached = localStorage.getItem('nova_queues');
   if (cached) {
-    try { return (JSON.parse(cached) as Partial<Queue>[]).map((q, i) => normalizeQueue(q, initialQueues[i])); } catch { /* fall through */ }
+    try {
+      return (JSON.parse(cached) as Partial<Queue>[]).map((q, i) => normalizeQueue(q, initialQueues[i]));
+    } catch {
+      /* fall through */
+    }
   }
   return initialQueues;
 };
@@ -60,7 +65,9 @@ export const queueStore = create<QueueState>()((set, get) => ({
   queues: initQueues(),
   _undoStack: [],
 
-  _setQueues: (q) => { set({ queues: q }); },
+  _setQueues: (q) => {
+    set({ queues: q });
+  },
 
   updateQueue: (id, updated, silent = false) => {
     set((p) => ({ queues: p.queues.map((q) => (q.id === id ? { ...q, ...updated } : q)) }));
@@ -70,11 +77,23 @@ export const queueStore = create<QueueState>()((set, get) => ({
   addQueue: (name) => {
     const id = createLocalId('q');
     const newQueue: Queue = {
-      id, name, active: false, scheduled: false, scheduleType: 'daily', maxActive: 1,
-      scheduleCompleted: false, startTime: '02:00', endTime: '08:00',
-      days: [0, 1, 2, 3, 4, 5, 6], limitSpeed: false, speedLimitKbs: 1024,
-      oneTimeLimit: false, shutdownOnComplete: false, hangupOnComplete: false,
-      retryCount: 3, downloadOrder: [],
+      id,
+      name,
+      active: false,
+      scheduled: false,
+      scheduleType: 'daily',
+      maxActive: 1,
+      scheduleCompleted: false,
+      startTime: '02:00',
+      endTime: '08:00',
+      days: [0, 1, 2, 3, 4, 5, 6],
+      limitSpeed: false,
+      speedLimitKbs: 1024,
+      oneTimeLimit: false,
+      shutdownOnComplete: false,
+      hangupOnComplete: false,
+      retryCount: 3,
+      downloadOrder: [],
     };
     set((p) => ({ queues: [...p.queues, newQueue] }));
     uiStore.getState().addToast('success', 'Queue Created', `Download queue "${name}" was added successfully.`);
@@ -87,8 +106,29 @@ export const queueStore = create<QueueState>()((set, get) => ({
     }
     const tq = get().queues.find((q) => q.id === id);
     if (!tq) return;
-    set((p) => ({ queues: p.queues.filter((q) => q.id !== id) }));
-    uiStore.getState().addToast('warning', 'Queue Deleted', `Queue "${tq.name}" was deleted and its files were moved to the main queue.`);
+    set((p) => ({
+      queues: p.queues
+        .filter((q) => q.id !== id)
+        // Reassign orphaned tasks (from the deleted queue's order) to the main queue.
+        .map((q) =>
+          q.id === 'main'
+            ? {
+                ...q,
+                downloadOrder: [
+                  ...q.downloadOrder,
+                  ...tq.downloadOrder.filter((tid) => !q.downloadOrder.includes(tid)),
+                ],
+              }
+            : q,
+        ),
+    }));
+    uiStore
+      .getState()
+      .addToast(
+        'warning',
+        'Queue Deleted',
+        `Queue "${tq.name}" was deleted and its ${String(tq.downloadOrder.length)} file(s) were moved to the main queue.`,
+      );
   },
 
   removeTaskFromQueue: (taskId) => {
@@ -119,18 +159,35 @@ export const queueStore = create<QueueState>()((set, get) => ({
   createQueueAndMoveTask: (queueName, taskId) => {
     const newQueueId = createLocalId('q');
     const newQueue: Queue = {
-      id: newQueueId, name: queueName, active: false, scheduled: false, scheduleType: 'daily',
-      maxActive: 1, scheduleCompleted: false, startTime: '02:00', endTime: '08:00',
-      days: [0, 1, 2, 3, 4, 5, 6], limitSpeed: false, speedLimitKbs: 1024,
-      oneTimeLimit: false, shutdownOnComplete: false, hangupOnComplete: false,
-      retryCount: 3, downloadOrder: [taskId],
+      id: newQueueId,
+      name: queueName,
+      active: false,
+      scheduled: false,
+      scheduleType: 'daily',
+      maxActive: 1,
+      scheduleCompleted: false,
+      startTime: '02:00',
+      endTime: '08:00',
+      days: [0, 1, 2, 3, 4, 5, 6],
+      limitSpeed: false,
+      speedLimitKbs: 1024,
+      oneTimeLimit: false,
+      shutdownOnComplete: false,
+      hangupOnComplete: false,
+      retryCount: 3,
+      downloadOrder: [taskId],
     };
     set((p) => ({ queues: [...p.queues, newQueue] }));
-    uiStore.getState().addToast('success', 'Queue Created', `Queue "${queueName}" was created and the file was moved into it.`);
+    uiStore
+      .getState()
+      .addToast('success', 'Queue Created', `Queue "${queueName}" was created and the file was moved into it.`);
   },
 
   reorderQueues: (fromIndex, toIndex) => {
     set((p) => {
+      if (fromIndex < 0 || fromIndex >= p.queues.length || toIndex < 0 || toIndex >= p.queues.length) {
+        return p;
+      }
       const n = [...p.queues];
       const [m] = n.splice(fromIndex, 1);
       n.splice(toIndex, 0, m);
@@ -140,7 +197,12 @@ export const queueStore = create<QueueState>()((set, get) => ({
 
   snapshotForUndo: () => {
     const { queues } = get();
-    set({ _undoStack: [...get()._undoStack.slice(-19), { queues: JSON.parse(JSON.stringify(queues)) as Queue[], tasks: [] }] });
+    set({
+      _undoStack: [
+        ...get()._undoStack.slice(-19),
+        { queues: JSON.parse(JSON.stringify(queues)) as Queue[], tasks: [] },
+      ],
+    });
   },
 
   undoLast: () => {

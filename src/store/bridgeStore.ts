@@ -6,7 +6,12 @@ interface BridgeState {
   pid: number;
   speedLimit: number | null;
   isDegradedMode: boolean;
-  setBridge: (b: { status: 'connected' | 'connecting' | 'disconnected' | 'degraded'; version: string; pid: number; speedLimit: number | null }) => void;
+  setBridge: (b: {
+    status: 'connected' | 'connecting' | 'disconnected' | 'degraded';
+    version: string;
+    pid: number;
+    speedLimit: number | null;
+  }) => void;
   setIsDegradedMode: (d: boolean) => void;
 }
 
@@ -16,6 +21,10 @@ export const bridgeStore = create<BridgeState>()((set) => ({
   pid: 0,
   speedLimit: null,
   isDegradedMode: false,
-  setBridge: (b) => { set(b); },
-  setIsDegradedMode: (d) => { set({ isDegradedMode: d }); },
+  setBridge: (b) => {
+    set(b);
+  },
+  setIsDegradedMode: (d) => {
+    set({ isDegradedMode: d });
+  },
 }));

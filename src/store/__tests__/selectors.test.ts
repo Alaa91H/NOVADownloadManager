@@ -1,6 +1,23 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { useTaskData, useTaskSelectors, useTaskActions, useQueueData, useQueueActions, useSettingsData, useThemeData, useBridgeData, useIsDegraded, useDialogData, useToastData, useNavigationData, useSearchQuery, useNotificationsData, useMinimizedProgress, useI18n } from '../selectors';
+import {
+  useTaskData,
+  useTaskSelectors,
+  useTaskActions,
+  useQueueData,
+  useQueueActions,
+  useSettingsData,
+  useThemeData,
+  useBridgeData,
+  useIsDegraded,
+  useDialogData,
+  useToastData,
+  useNavigationData,
+  useSearchQuery,
+  useNotificationsData,
+  useMinimizedProgress,
+  useI18n,
+} from '../selectors';
 import { taskStore } from '../taskStore';
 import { settingsStore } from '../settingsStore';
 import { bridgeStore } from '../bridgeStore';
@@ -17,7 +34,9 @@ vi.mock('../../api/tauriClient', () => ({
 }));
 vi.mock('../../api/novaClient', () => ({
   novaClient: {
-    createDownload: vi.fn().mockImplementation((item: Record<string, unknown>) => Promise.resolve({ ...item, id: 'mock_id' })),
+    createDownload: vi
+      .fn()
+      .mockImplementation((item: Record<string, unknown>) => Promise.resolve({ ...item, id: 'mock_id' })),
     pauseDownload: vi.fn().mockImplementation((id: string) => Promise.resolve({ id, status: 'paused' })),
     resumeDownload: vi.fn().mockImplementation((id: string) => Promise.resolve({ id, status: 'downloading' })),
     deleteDownload: vi.fn().mockResolvedValue(undefined),
@@ -27,14 +46,81 @@ vi.mock('../../api/novaClient', () => ({
 const resetStores = () => {
   taskStore.setState({
     tasks: [
-      { id: 't1', name: 'a.zip', url: 'http://a.zip', fileType: 'compressed', status: 'downloading', sizeBytes: 100, downloadedBytes: 50, speedBytesPerSec: 10, timeLeftSeconds: 5, category: 'other', queueId: 'main', connections: 4, resumable: true, savePath: '', description: '', elapsedSeconds: 0, segments: [], dateAdded: '2024-01-01T00:00:00Z' },
-      { id: 't2', name: 'b.pdf', url: 'http://b.pdf', fileType: 'other', status: 'completed', sizeBytes: 200, downloadedBytes: 200, speedBytesPerSec: 0, timeLeftSeconds: 0, category: 'other', queueId: 'main', connections: 4, resumable: true, savePath: '', description: '', elapsedSeconds: 0, segments: [], dateAdded: '2024-01-02T00:00:00Z' },
-      { id: 't3', name: 'c.mp4', url: 'http://c.mp4', fileType: 'video', status: 'queued', sizeBytes: 0, downloadedBytes: 0, speedBytesPerSec: 0, timeLeftSeconds: 0, category: 'other', queueId: 'main', connections: 0, resumable: true, savePath: '', description: '', elapsedSeconds: 0, segments: [], dateAdded: '2024-01-03T00:00:00Z' },
+      {
+        id: 't1',
+        name: 'a.zip',
+        url: 'http://a.zip',
+        fileType: 'compressed',
+        status: 'downloading',
+        sizeBytes: 100,
+        downloadedBytes: 50,
+        speedBytesPerSec: 10,
+        timeLeftSeconds: 5,
+        category: 'other',
+        queueId: 'main',
+        connections: 4,
+        resumable: true,
+        savePath: '',
+        description: '',
+        elapsedSeconds: 0,
+        segments: [],
+        dateAdded: '2024-01-01T00:00:00Z',
+      },
+      {
+        id: 't2',
+        name: 'b.pdf',
+        url: 'http://b.pdf',
+        fileType: 'other',
+        status: 'completed',
+        sizeBytes: 200,
+        downloadedBytes: 200,
+        speedBytesPerSec: 0,
+        timeLeftSeconds: 0,
+        category: 'other',
+        queueId: 'main',
+        connections: 4,
+        resumable: true,
+        savePath: '',
+        description: '',
+        elapsedSeconds: 0,
+        segments: [],
+        dateAdded: '2024-01-02T00:00:00Z',
+      },
+      {
+        id: 't3',
+        name: 'c.mp4',
+        url: 'http://c.mp4',
+        fileType: 'video',
+        status: 'queued',
+        sizeBytes: 0,
+        downloadedBytes: 0,
+        speedBytesPerSec: 0,
+        timeLeftSeconds: 0,
+        category: 'other',
+        queueId: 'main',
+        connections: 0,
+        resumable: true,
+        savePath: '',
+        description: '',
+        elapsedSeconds: 0,
+        segments: [],
+        dateAdded: '2024-01-03T00:00:00Z',
+      },
     ],
     completedTaskIds: new Set(),
     hasSyncedDownloads: false,
   });
-  uiStore.setState({ selectedTaskId: 't1', activePage: 'downloads', workspaceView: 'all', searchQuery: '', dialog: { active: null }, toasts: [], isNotificationsMuted: false, activeProgressMinimizedToTaskbar: false, minimizedProgressTask: null });
+  uiStore.setState({
+    selectedTaskId: 't1',
+    activePage: 'downloads',
+    workspaceView: 'all',
+    searchQuery: '',
+    dialog: { active: null },
+    toasts: [],
+    isNotificationsMuted: false,
+    activeProgressMinimizedToTaskbar: false,
+    minimizedProgressTask: null,
+  });
   settingsStore.setState({
     settings: { ...initialSettings, extra: { ...initialSettings.extra, language: 'en', browserPairingToken: 'test' } },
     themeSettings: { theme: 'system', density: 'compact', accent: 'blue', progress: 'bar', contrast: 'normal' },

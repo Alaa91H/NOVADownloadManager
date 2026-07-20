@@ -12,7 +12,10 @@ test.describe('Media Player — dialog structure', () => {
     if (await firstRow.isVisible().catch(() => false)) {
       await firstRow.click({ button: 'right' });
       await page.waitForTimeout(300);
-      const playOption = page.locator('[role="menuitem"]').filter({ hasText: /play|تشغيل|media/i }).first();
+      const playOption = page
+        .locator('[role="menuitem"]')
+        .filter({ hasText: /play|تشغيل|media/i })
+        .first();
       if (await playOption.isVisible().catch(() => false)) {
         await playOption.click();
         await page.waitForTimeout(500);
@@ -33,13 +36,19 @@ test.describe('Media Player — player controls', () => {
     if (await firstRow.isVisible().catch(() => false)) {
       await firstRow.click({ button: 'right' });
       await page.waitForTimeout(300);
-      const playOption = page.locator('[role="menuitem"]').filter({ hasText: /play|تشغيل|media/i }).first();
+      const playOption = page
+        .locator('[role="menuitem"]')
+        .filter({ hasText: /play|تشغيل|media/i })
+        .first();
       if (await playOption.isVisible().catch(() => false)) {
         await playOption.click();
         await page.waitForTimeout(500);
         const dialog = page.locator('[role="dialog"]');
         if (await dialog.isVisible().catch(() => false)) {
-          const playPause = dialog.locator('button').filter({ has: page.locator('svg') }).first();
+          const playPause = dialog
+            .locator('button')
+            .filter({ has: page.locator('svg') })
+            .first();
           const isVisible = await playPause.isVisible().catch(() => false);
           expect(typeof isVisible).toBe('boolean');
           await page.keyboard.press('Escape');
@@ -54,7 +63,10 @@ test.describe('Media Player — player controls', () => {
     if (await firstRow.isVisible().catch(() => false)) {
       await firstRow.click({ button: 'right' });
       await page.waitForTimeout(300);
-      const playOption = page.locator('[role="menuitem"]').filter({ hasText: /play|تشغيل|media/i }).first();
+      const playOption = page
+        .locator('[role="menuitem"]')
+        .filter({ hasText: /play|تشغيل|media/i })
+        .first();
       if (await playOption.isVisible().catch(() => false)) {
         await playOption.click();
         await page.waitForTimeout(500);

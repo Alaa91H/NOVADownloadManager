@@ -132,14 +132,14 @@ test.describe('Edge Cases — empty states', () => {
 test.describe('Edge Cases — error handling', () => {
   test('network error does not crash app', async ({ page }) => {
     await goto(page);
-    await page.route('**/*', route => route.abort());
+    await page.route('**/*', (route) => route.abort());
     await page.reload().catch(() => {});
     await page.waitForTimeout(1000);
   });
 
   test('slow network does not crash app', async ({ page }) => {
     await goto(page);
-    await page.route('**/*', route => {
+    await page.route('**/*', (route) => {
       void route.fulfill({ status: 200, body: '', contentType: 'text/html' });
     });
   });
@@ -212,7 +212,7 @@ test.describe('Edge Cases — accessibility regression', () => {
     for (let i = 0; i < Math.min(count, 30); i++) {
       const btn = buttons.nth(i);
       if (await btn.isVisible().catch(() => false)) {
-        const hasName = await btn.evaluate(el => {
+        const hasName = await btn.evaluate((el) => {
           return (
             (el.textContent?.trim() || '').length > 0 ||
             (el.getAttribute('aria-label') || '').length > 0 ||
@@ -237,7 +237,7 @@ test.describe('Edge Cases — accessibility regression', () => {
     }
     const focused = page.locator(':focus');
     if (await focused.isVisible().catch(() => false)) {
-      const isInDialog = await focused.evaluate(el => el.closest('[role="dialog"]') !== null);
+      const isInDialog = await focused.evaluate((el) => el.closest('[role="dialog"]') !== null);
       expect(isInDialog).toBeTruthy();
     }
     await page.keyboard.press('Escape');

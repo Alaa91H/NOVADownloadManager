@@ -6,7 +6,9 @@ const goto = async (page: import('@playwright/test').Page) => {
 };
 
 test.describe('Navigation — sidebar workspace views', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   const views = [
     { label: 'All Downloads', view: 'all' },
@@ -21,8 +23,10 @@ test.describe('Navigation — sidebar workspace views', () => {
       if (await btn.isVisible().catch(() => false)) {
         await btn.click();
         await page.waitForTimeout(300);
-        const isActive = await btn.evaluate(el =>
-          (el.getAttribute('class') ?? '').includes('bg-[var(--bg-selected)]') || (el.getAttribute('class') ?? '').includes('font-bold')
+        const isActive = await btn.evaluate(
+          (el) =>
+            (el.getAttribute('class') ?? '').includes('bg-[var(--bg-selected)]') ||
+            (el.getAttribute('class') ?? '').includes('font-bold'),
         );
         expect(isActive).toBeTruthy();
       }
@@ -49,7 +53,9 @@ test.describe('Navigation — sidebar workspace views', () => {
 });
 
 test.describe('Navigation — topbar split button dropdowns', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('new download dropdown shows Single URL, Batch, Grabber, Media options', async ({ page }) => {
     const chevron = page.locator('button[data-dialog-trigger="true"]').first();
@@ -57,7 +63,10 @@ test.describe('Navigation — topbar split button dropdowns', () => {
       await chevron.click();
       await page.waitForTimeout(200);
       const options = page.locator('.fixed.inset-0.z-40 ~ div, [role="menu"], [class*="dropdown"]');
-      const visible = await options.first().isVisible().catch(() => false);
+      const visible = await options
+        .first()
+        .isVisible()
+        .catch(() => false);
       if (visible) {
         await page.keyboard.press('Escape');
       }
@@ -93,7 +102,9 @@ test.describe('Navigation — topbar split button dropdowns', () => {
 });
 
 test.describe('Navigation — global search', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('search input is visible and has placeholder', async ({ page }) => {
     const search = page.locator('[data-global-search="true"]');
@@ -121,7 +132,9 @@ test.describe('Navigation — global search', () => {
 });
 
 test.describe('Navigation — page transitions', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('navigating to scheduler shows scheduler panel', async ({ page }) => {
     const schedBtn = page.locator('aside button', { hasText: /scheduler|queue|جدولة/i }).first();
@@ -145,7 +158,10 @@ test.describe('Navigation — page transitions', () => {
   });
 
   test('settings button in sidebar opens settings dialog', async ({ page }) => {
-    const settingsBtn = page.locator('aside button').filter({ has: page.locator('svg') }).last();
+    const settingsBtn = page
+      .locator('aside button')
+      .filter({ has: page.locator('svg') })
+      .last();
     if (await settingsBtn.isVisible().catch(() => false)) {
       await settingsBtn.click();
       await page.waitForTimeout(500);
@@ -157,9 +173,12 @@ test.describe('Navigation — mobile nav', () => {
   test('mobile nav is hidden on desktop viewport', async ({ page }) => {
     await goto(page);
     await page.setViewportSize({ width: 1280, height: 800 });
-    const mobileNav = page.locator('[class*="md:hidden"]').filter({ hasText: /download/i }).first();
+    const mobileNav = page
+      .locator('[class*="md:hidden"]')
+      .filter({ hasText: /download/i })
+      .first();
     if (await mobileNav.isVisible().catch(() => false)) {
-      const display = await mobileNav.evaluate(el => window.getComputedStyle(el).display);
+      const display = await mobileNav.evaluate((el) => window.getComputedStyle(el).display);
       expect(display).toBe('none');
     }
   });

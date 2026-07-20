@@ -13,7 +13,10 @@ test.describe('Time Display — elapsed time format', () => {
   test('elapsed time format matches Xs or Xm XXs or Xh XXm XXs', async ({ page }) => {
     const statusBar = page.locator('[role="status"]').first();
     await expect(statusBar).toBeVisible({ timeout: 3000 });
-    const elapsedCell = page.locator('tr.desktop-table-row td').filter({ hasText: /\d+[hms]/ }).first();
+    const elapsedCell = page
+      .locator('tr.desktop-table-row td')
+      .filter({ hasText: /\d+[hms]/ })
+      .first();
     const isVisible = await elapsedCell.isVisible().catch(() => false);
     if (isVisible) {
       const text = await elapsedCell.textContent();
@@ -23,7 +26,10 @@ test.describe('Time Display — elapsed time format', () => {
   });
 
   test('elapsed column renders in the task table', async ({ page }) => {
-    const elapsedHeader = page.locator('th').filter({ hasText: /elapsed|المنقضي/i }).first();
+    const elapsedHeader = page
+      .locator('th')
+      .filter({ hasText: /elapsed|المنقضي/i })
+      .first();
     const isVisible = await elapsedHeader.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });
@@ -84,7 +90,10 @@ test.describe('Time Display — speed formatting', () => {
 
   test('speed tab shows formatted speed value', async ({ page }) => {
     const dialog = page.locator('[role="dialog"]');
-    const speedTab = dialog.locator('button').filter({ hasText: /speed|سرعة/i }).first();
+    const speedTab = dialog
+      .locator('button')
+      .filter({ hasText: /speed|سرعة/i })
+      .first();
     if (await speedTab.isVisible().catch(() => false)) {
       await speedTab.click();
       await page.waitForTimeout(300);

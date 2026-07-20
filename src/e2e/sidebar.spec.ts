@@ -6,7 +6,9 @@ const goto = async (page: import('@playwright/test').Page) => {
 };
 
 test.describe('Sidebar — structure', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('sidebar renders as nav/aside element', async ({ page }) => {
     const sidebar = page.locator('nav, aside').first();
@@ -31,14 +33,11 @@ test.describe('Sidebar — structure', () => {
 });
 
 test.describe('Sidebar — navigation buttons', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
-  const navItems = [
-    'All Downloads',
-    'Downloading',
-    'Completed',
-    'Queued',
-  ];
+  const navItems = ['All Downloads', 'Downloading', 'Completed', 'Queued'];
 
   for (const item of navItems) {
     test(`sidebar has "${item}" button`, async ({ page }) => {
@@ -52,8 +51,10 @@ test.describe('Sidebar — navigation buttons', () => {
       if (await btn.isVisible().catch(() => false)) {
         await btn.click();
         await page.waitForTimeout(300);
-        const isActive = await btn.evaluate(el =>
-          (el.getAttribute('class') ?? '').includes('bg-[var(--bg-selected)]') || (el.getAttribute('class') ?? '').includes('font-bold')
+        const isActive = await btn.evaluate(
+          (el) =>
+            (el.getAttribute('class') ?? '').includes('bg-[var(--bg-selected)]') ||
+            (el.getAttribute('class') ?? '').includes('font-bold'),
         );
         expect(isActive).toBeTruthy();
       }
@@ -62,7 +63,9 @@ test.describe('Sidebar — navigation buttons', () => {
 });
 
 test.describe('Sidebar — file type filters', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   const fileTypes = ['Compressed', 'Programs', 'Videos', 'Audio', 'Documents'];
 
@@ -76,7 +79,9 @@ test.describe('Sidebar — file type filters', () => {
 });
 
 test.describe('Sidebar — theme toggles', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('dark mode toggle exists', async ({ page }) => {
     const darkBtn = page.locator('aside button[title*="dark" i], aside button[title*="داكن" i]').first();
@@ -109,13 +114,17 @@ test.describe('Sidebar — theme toggles', () => {
   });
 
   test('active theme toggle has visual indicator', async ({ page }) => {
-    const themeBtns = page.locator('aside button[title*="dark" i], aside button[title*="light" i], aside button[title*="داكن" i], aside button[title*="فاتح" i]');
+    const themeBtns = page.locator(
+      'aside button[title*="dark" i], aside button[title*="light" i], aside button[title*="داكن" i], aside button[title*="فاتح" i]',
+    );
     const count = await themeBtns.count();
     for (let i = 0; i < count; i++) {
       const btn = themeBtns.nth(i);
       if (await btn.isVisible().catch(() => false)) {
-        const isActive = await btn.evaluate(el =>
-          (el.getAttribute('class') ?? '').includes('bg-[var(--bg-selected)]') || (el.getAttribute('class') ?? '').includes('text-[var(--accent-primary)]')
+        const isActive = await btn.evaluate(
+          (el) =>
+            (el.getAttribute('class') ?? '').includes('bg-[var(--bg-selected)]') ||
+            (el.getAttribute('class') ?? '').includes('text-[var(--accent-primary)]'),
         );
         expect(typeof isActive).toBe('boolean');
       }
@@ -124,7 +133,9 @@ test.describe('Sidebar — theme toggles', () => {
 });
 
 test.describe('Sidebar — accent colors', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('accent color buttons exist', async ({ page }) => {
     const accentBtns = page.locator('aside button[title*="accent" i], aside button[title*="لون" i]');
@@ -152,8 +163,10 @@ test.describe('Sidebar — accent colors', () => {
     for (let i = 0; i < count; i++) {
       const btn = accentBtns.nth(i);
       if (await btn.isVisible().catch(() => false)) {
-        const hasRing = await btn.evaluate(el =>
-          (el.getAttribute('class') ?? '').includes('ring-2') || (el.getAttribute('class') ?? '').includes('scale-110')
+        const hasRing = await btn.evaluate(
+          (el) =>
+            (el.getAttribute('class') ?? '').includes('ring-2') ||
+            (el.getAttribute('class') ?? '').includes('scale-110'),
         );
         expect(typeof hasRing).toBe('boolean');
       }
@@ -162,7 +175,9 @@ test.describe('Sidebar — accent colors', () => {
 });
 
 test.describe('Sidebar — density selector', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('density selector exists', async ({ page }) => {
     const densitySelect = page.locator('aside select').first();
@@ -174,8 +189,8 @@ test.describe('Sidebar — density selector', () => {
     const densitySelect = page.locator('aside select').first();
     if (await densitySelect.isVisible().catch(() => false)) {
       const options = await densitySelect.locator('option').allTextContents();
-      const lower = options.map(o => o.toLowerCase());
-      expect(lower.some(o => o.includes('compact') || o.includes('dense') || o.includes('normal'))).toBeTruthy();
+      const lower = options.map((o) => o.toLowerCase());
+      expect(lower.some((o) => o.includes('compact') || o.includes('dense') || o.includes('normal'))).toBeTruthy();
     }
   });
 
@@ -198,7 +213,9 @@ test.describe('Sidebar — density selector', () => {
 });
 
 test.describe('Sidebar — daemon widget', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('daemon widget shows connection status', async ({ page }) => {
     const daemonWidget = page.locator('aside').locator('div[class*="cursor-pointer"]').first();
@@ -232,7 +249,10 @@ test.describe('Sidebar — daemon widget', () => {
 test.describe('Sidebar — settings button', () => {
   test('settings button in sidebar opens settings', async ({ page }) => {
     await goto(page);
-    const settingsBtn = page.locator('aside button').filter({ has: page.locator('svg') }).last();
+    const settingsBtn = page
+      .locator('aside button')
+      .filter({ has: page.locator('svg') })
+      .last();
     if (await settingsBtn.isVisible().catch(() => false)) {
       await settingsBtn.click();
       await page.waitForTimeout(500);
@@ -256,7 +276,7 @@ test.describe('Sidebar — mobile navigation', () => {
     await goto(page);
     const sidebar = page.locator('aside');
     if (await sidebar.isVisible().catch(() => false)) {
-      const display = await sidebar.evaluate(el => window.getComputedStyle(el).display);
+      const display = await sidebar.evaluate((el) => window.getComputedStyle(el).display);
       expect(display).toBe('none');
     }
   });

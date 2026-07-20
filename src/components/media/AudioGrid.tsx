@@ -43,7 +43,10 @@ export const AudioGrid: React.FC<AudioGridProps> = ({
           <button
             key={opt.value}
             type="button"
-            onClick={() => { if (disabled) return; onAudioFormatChange(opt.value); }}
+            onClick={() => {
+              if (disabled) return;
+              onAudioFormatChange(opt.value);
+            }}
             disabled={disabled}
             className={`p-3 rounded-xl border transition-all ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} text-left ${
               isSelected
@@ -77,7 +80,9 @@ export const AudioGrid: React.FC<AudioGridProps> = ({
         <span className="text-[11px] text-[var(--text-secondary)] font-bold shrink-0">Bitrate</span>
         <select
           value={convertBitrate}
-          onChange={(e) => { onBitrateChange(e.target.value); }}
+          onChange={(e) => {
+            onBitrateChange(e.target.value);
+          }}
           className="flex-1 text-[11px] font-semibold bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg px-2 py-1 text-[var(--text-primary)] focus-visible:outline-none cursor-pointer"
         >
           <option value="320k">320 kbps</option>

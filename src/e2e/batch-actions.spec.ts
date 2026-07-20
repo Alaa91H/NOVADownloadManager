@@ -29,7 +29,10 @@ test.describe('Batch Actions Bar — visibility', () => {
       if (await checkbox.isVisible().catch(() => false)) {
         await checkbox.click();
         await page.waitForTimeout(300);
-        const countText = page.locator('[class*="batch"], [class*="fixed bottom"]').filter({ hasText: /selected|محدد/i }).first();
+        const countText = page
+          .locator('[class*="batch"], [class*="fixed bottom"]')
+          .filter({ hasText: /selected|محدد/i })
+          .first();
         const isVisible = await countText.isVisible().catch(() => false);
         expect(typeof isVisible).toBe('boolean');
       }
@@ -44,7 +47,11 @@ test.describe('Batch Actions Bar — visibility', () => {
       if (await checkbox.isVisible().catch(() => false)) {
         await checkbox.click();
         await page.waitForTimeout(300);
-        const resumeBtn = page.locator('[class*="batch"], [class*="fixed bottom"]').locator('button').filter({ hasText: /resume|استئناف/i }).first();
+        const resumeBtn = page
+          .locator('[class*="batch"], [class*="fixed bottom"]')
+          .locator('button')
+          .filter({ hasText: /resume|استئناف/i })
+          .first();
         const isVisible = await resumeBtn.isVisible().catch(() => false);
         expect(typeof isVisible).toBe('boolean');
       }
@@ -59,7 +66,11 @@ test.describe('Batch Actions Bar — visibility', () => {
       if (await checkbox.isVisible().catch(() => false)) {
         await checkbox.click();
         await page.waitForTimeout(300);
-        const pauseBtn = page.locator('[class*="batch"], [class*="fixed bottom"]').locator('button').filter({ hasText: /stop|pause|إيقاف/i }).first();
+        const pauseBtn = page
+          .locator('[class*="batch"], [class*="fixed bottom"]')
+          .locator('button')
+          .filter({ hasText: /stop|pause|إيقاف/i })
+          .first();
         const isVisible = await pauseBtn.isVisible().catch(() => false);
         expect(typeof isVisible).toBe('boolean');
       }
@@ -74,7 +85,11 @@ test.describe('Batch Actions Bar — visibility', () => {
       if (await checkbox.isVisible().catch(() => false)) {
         await checkbox.click();
         await page.waitForTimeout(300);
-        const deleteBtn = page.locator('[class*="batch"], [class*="fixed bottom"]').locator('button').filter({ hasText: /delete|حذف/i }).first();
+        const deleteBtn = page
+          .locator('[class*="batch"], [class*="fixed bottom"]')
+          .locator('button')
+          .filter({ hasText: /delete|حذف/i })
+          .first();
         const isVisible = await deleteBtn.isVisible().catch(() => false);
         expect(typeof isVisible).toBe('boolean');
       }
@@ -121,11 +136,17 @@ test.describe('Batch Actions Bar — selection count', () => {
     if (count >= 2) {
       const firstCheckbox = rows.nth(0).locator('input[type="checkbox"]');
       const secondCheckbox = rows.nth(1).locator('input[type="checkbox"]');
-      if (await firstCheckbox.isVisible().catch(() => false) && await secondCheckbox.isVisible().catch(() => false)) {
+      if (
+        (await firstCheckbox.isVisible().catch(() => false)) &&
+        (await secondCheckbox.isVisible().catch(() => false))
+      ) {
         await firstCheckbox.click();
         await secondCheckbox.click();
         await page.waitForTimeout(300);
-        const countText = page.locator('[class*="batch"], [class*="fixed bottom"]').filter({ hasText: /2|selected|محدد/i }).first();
+        const countText = page
+          .locator('[class*="batch"], [class*="fixed bottom"]')
+          .filter({ hasText: /2|selected|محدد/i })
+          .first();
         const isVisible = await countText.isVisible().catch(() => false);
         expect(typeof isVisible).toBe('boolean');
       }

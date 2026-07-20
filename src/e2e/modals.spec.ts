@@ -6,7 +6,9 @@ const goto = async (page: import('@playwright/test').Page) => {
 };
 
 test.describe('Modals — open and close', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('new download dialog opens and closes via Ctrl+N / Escape', async ({ page }) => {
     await page.keyboard.press('Control+n');
@@ -30,7 +32,10 @@ test.describe('Modals — open and close', () => {
     await page.keyboard.press('Control+n');
     const dialog = page.locator('[role="dialog"]');
     await expect(dialog).toBeVisible({ timeout: 3000 });
-    const closeBtn = dialog.locator('button').filter({ has: page.locator('svg') }).last();
+    const closeBtn = dialog
+      .locator('button')
+      .filter({ has: page.locator('svg') })
+      .last();
     if (await closeBtn.isVisible().catch(() => false)) {
       await closeBtn.click();
       await page.waitForTimeout(300);
@@ -65,7 +70,7 @@ test.describe('Modals — modal animation', () => {
     await page.keyboard.press('Control+n');
     const dialog = page.locator('[role="dialog"]');
     await expect(dialog).toBeVisible({ timeout: 3000 });
-    const hasAnimation = await dialog.evaluate(el => {
+    const hasAnimation = await dialog.evaluate((el) => {
       const style = window.getComputedStyle(el);
       return style.animation !== 'none' || style.transition !== 'none 0s ease 0s';
     });
@@ -107,7 +112,7 @@ test.describe('Modals — modal drag', () => {
     const titleBar = dialog.locator('.cursor-move, [class*="cursor-move"]').first();
     const isVisible = await titleBar.isVisible().catch(() => false);
     if (isVisible) {
-      const cursor = await titleBar.evaluate(el => window.getComputedStyle(el).cursor);
+      const cursor = await titleBar.evaluate((el) => window.getComputedStyle(el).cursor);
       expect(cursor).toBe('move');
     }
     await page.keyboard.press('Escape');
@@ -125,7 +130,7 @@ test.describe('Modals — focus trap', () => {
     await page.keyboard.press('Tab');
     const focused = page.locator(':focus');
     if (await focused.isVisible().catch(() => false)) {
-      const isInDialog = await focused.evaluate(el => {
+      const isInDialog = await focused.evaluate((el) => {
         return el.closest('[role="dialog"]') !== null;
       });
       expect(isInDialog).toBeTruthy();
@@ -141,7 +146,7 @@ test.describe('Modals — focus trap', () => {
     await page.keyboard.press('Shift+Tab');
     const focused = page.locator(':focus');
     if (await focused.isVisible().catch(() => false)) {
-      const isInDialog = await focused.evaluate(el => {
+      const isInDialog = await focused.evaluate((el) => {
         return el.closest('[role="dialog"]') !== null;
       });
       expect(isInDialog).toBeTruthy();
@@ -180,26 +185,38 @@ test.describe('Dialogs — New Download Dialog content', () => {
   });
 
   test('paste from clipboard button exists', async ({ page }) => {
-    const pasteBtn = page.locator('[role="dialog"] button[title*="paste" i], [role="dialog"] button[title*="لصق" i]').first();
+    const pasteBtn = page
+      .locator('[role="dialog"] button[title*="paste" i], [role="dialog"] button[title*="لصق" i]')
+      .first();
     const isVisible = await pasteBtn.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });
 
   test('browse folder button exists', async ({ page }) => {
-    const browseBtn = page.locator('[role="dialog"] button[title*="browse" i], [role="dialog"] button[title*="folder" i]').first();
+    const browseBtn = page
+      .locator('[role="dialog"] button[title*="browse" i], [role="dialog"] button[title*="folder" i]')
+      .first();
     const isVisible = await browseBtn.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });
 
   test('advanced options toggle exists', async ({ page }) => {
-    const advancedBtn = page.locator('[role="dialog"] button[title*="advanced" i], [role="dialog"] button[title*="متقد" i]').first();
+    const advancedBtn = page
+      .locator('[role="dialog"] button[title*="advanced" i], [role="dialog"] button[title*="متقد" i]')
+      .first();
     const isVisible = await advancedBtn.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });
 
   test('Queue Only and Download Now buttons exist', async ({ page }) => {
-    const queueBtn = page.locator('[role="dialog"] button').filter({ hasText: /queue|قائمة|جاري/i }).first();
-    const downloadBtn = page.locator('[role="dialog"] button').filter({ hasText: /download now|بدء|تنزيل/i }).first();
+    const queueBtn = page
+      .locator('[role="dialog"] button')
+      .filter({ hasText: /queue|قائمة|جاري/i })
+      .first();
+    const downloadBtn = page
+      .locator('[role="dialog"] button')
+      .filter({ hasText: /download now|بدء|تنزيل/i })
+      .first();
     const hasQueue = await queueBtn.isVisible().catch(() => false);
     const hasDownload = await downloadBtn.isVisible().catch(() => false);
     expect(typeof hasQueue).toBe('boolean');
@@ -207,7 +224,10 @@ test.describe('Dialogs — New Download Dialog content', () => {
   });
 
   test('Cancel button exists and closes dialog', async ({ page }) => {
-    const cancelBtn = page.locator('[role="dialog"] button').filter({ hasText: /cancel|إلغاء/i }).first();
+    const cancelBtn = page
+      .locator('[role="dialog"] button')
+      .filter({ hasText: /cancel|إلغاء/i })
+      .first();
     if (await cancelBtn.isVisible().catch(() => false)) {
       await cancelBtn.click();
       await expect(page.locator('[role="dialog"]')).not.toBeVisible({ timeout: 3000 });
@@ -215,7 +235,10 @@ test.describe('Dialogs — New Download Dialog content', () => {
   });
 
   test('clicking Download Now without URL shows validation', async ({ page }) => {
-    const downloadBtn = page.locator('[role="dialog"] button').filter({ hasText: /download now|بدء|تنزيل/i }).first();
+    const downloadBtn = page
+      .locator('[role="dialog"] button')
+      .filter({ hasText: /download now|بدء|تنزيل/i })
+      .first();
     if (await downloadBtn.isVisible().catch(() => false)) {
       await downloadBtn.click();
       await page.waitForTimeout(500);
@@ -223,7 +246,9 @@ test.describe('Dialogs — New Download Dialog content', () => {
   });
 
   test('advanced section shows category, queue, threads selectors', async ({ page }) => {
-    const advancedBtn = page.locator('[role="dialog"] button[title*="advanced" i], [role="dialog"] button[title*="متقد" i]').first();
+    const advancedBtn = page
+      .locator('[role="dialog"] button[title*="advanced" i], [role="dialog"] button[title*="متقد" i]')
+      .first();
     if (await advancedBtn.isVisible().catch(() => false)) {
       await advancedBtn.click();
       await page.waitForTimeout(300);
@@ -250,13 +275,19 @@ test.describe('Dialogs — Confirm Delete Dialog', () => {
     if (await deleteChevron.isVisible().catch(() => false)) {
       await deleteChevron.click();
       await page.waitForTimeout(200);
-      const deleteAll = page.locator('button').filter({ hasText: /delete all|حذف الكل/i }).first();
+      const deleteAll = page
+        .locator('button')
+        .filter({ hasText: /delete all|حذف الكل/i })
+        .first();
       if (await deleteAll.isVisible().catch(() => false)) {
         await deleteAll.click();
         await page.waitForTimeout(500);
         const confirmDialog = page.locator('[role="dialog"]');
         if (await confirmDialog.isVisible().catch(() => false)) {
-          const cancelBtn = page.locator('button').filter({ hasText: /cancel|إلغاء/i }).first();
+          const cancelBtn = page
+            .locator('button')
+            .filter({ hasText: /cancel|إلغاء/i })
+            .first();
           if (await cancelBtn.isVisible().catch(() => false)) {
             await cancelBtn.click();
           }
@@ -269,7 +300,10 @@ test.describe('Dialogs — Confirm Delete Dialog', () => {
 test.describe('Dialogs — About Dialog', () => {
   test('can be opened from sidebar', async ({ page }) => {
     await goto(page);
-    const aboutBtn = page.locator('aside button').filter({ hasText: /about|حول/i }).first();
+    const aboutBtn = page
+      .locator('aside button')
+      .filter({ hasText: /about|حول/i })
+      .first();
     if (await aboutBtn.isVisible().catch(() => false)) {
       await aboutBtn.click();
       await page.waitForTimeout(500);

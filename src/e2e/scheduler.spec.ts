@@ -11,7 +11,10 @@ const openScheduler = async (page: import('@playwright/test').Page) => {
 };
 
 test.describe('Scheduler — panel structure', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openScheduler(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openScheduler(page);
+  });
 
   test('scheduler panel is visible after Ctrl+J', async ({ page }) => {
     await expect(page.locator('text=Scheduler').first()).toBeVisible({ timeout: 3000 });
@@ -40,7 +43,10 @@ test.describe('Scheduler — panel structure', () => {
 });
 
 test.describe('Scheduler — queue creation', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openScheduler(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openScheduler(page);
+  });
 
   test('new queue input exists with placeholder', async ({ page }) => {
     const input = page.locator('input[type="text"][placeholder*="name"], input[type="text"]').last();
@@ -49,7 +55,10 @@ test.describe('Scheduler — queue creation', () => {
   });
 
   test('create queue button exists with Plus icon', async ({ page }) => {
-    const createBtn = page.locator('button').filter({ has: page.locator('svg') }).last();
+    const createBtn = page
+      .locator('button')
+      .filter({ has: page.locator('svg') })
+      .last();
     const isVisible = await createBtn.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });
@@ -58,7 +67,10 @@ test.describe('Scheduler — queue creation', () => {
     const input = page.locator('input[type="text"]').last();
     if (await input.isVisible().catch(() => false)) {
       await input.fill('Test Queue E2E');
-      const createBtn = page.locator('button').filter({ has: page.locator('svg') }).last();
+      const createBtn = page
+        .locator('button')
+        .filter({ has: page.locator('svg') })
+        .last();
       if (await createBtn.isVisible().catch(() => false)) {
         await createBtn.click();
         await page.waitForTimeout(300);
@@ -68,7 +80,10 @@ test.describe('Scheduler — queue creation', () => {
 });
 
 test.describe('Scheduler — queue deletion', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openScheduler(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openScheduler(page);
+  });
 
   test('delete button shows inline confirm', async ({ page }) => {
     const allBtns = page.locator('[draggable="true"] button');
@@ -77,8 +92,14 @@ test.describe('Scheduler — queue deletion', () => {
       const lastQueueDelete = allBtns.last();
       await lastQueueDelete.click();
       await page.waitForTimeout(300);
-      const confirmBtn = page.locator('button').filter({ hasText: /delete|حذف/i }).first();
-      const cancelBtn = page.locator('button').filter({ hasText: /cancel|إلغاء/i }).first();
+      const confirmBtn = page
+        .locator('button')
+        .filter({ hasText: /delete|حذف/i })
+        .first();
+      const cancelBtn = page
+        .locator('button')
+        .filter({ hasText: /cancel|إلغاء/i })
+        .first();
       if (await confirmBtn.isVisible().catch(() => false)) {
         await cancelBtn.click();
       }
@@ -87,7 +108,10 @@ test.describe('Scheduler — queue deletion', () => {
 });
 
 test.describe('Scheduler — tab navigation', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openScheduler(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openScheduler(page);
+  });
 
   const tabs = [
     { name: 'files', hasContent: true },
@@ -99,12 +123,18 @@ test.describe('Scheduler — tab navigation', () => {
 
   for (const tab of tabs) {
     test(`clicking "${tab.name}" tab shows its content`, async ({ page }) => {
-      const tabBtn = page.locator('button').filter({ hasText: new RegExp(tab.name, 'i') }).first();
+      const tabBtn = page
+        .locator('button')
+        .filter({ hasText: new RegExp(tab.name, 'i') })
+        .first();
       if (await tabBtn.isVisible().catch(() => false)) {
         await tabBtn.click();
         await page.waitForTimeout(300);
-        const isActive = await tabBtn.evaluate(el =>
-          (el.getAttribute('class') ?? '').includes('active') || (el.getAttribute('class') ?? '').includes('bg-') || (el.getAttribute('class') ?? '').includes('border-')
+        const isActive = await tabBtn.evaluate(
+          (el) =>
+            (el.getAttribute('class') ?? '').includes('active') ||
+            (el.getAttribute('class') ?? '').includes('bg-') ||
+            (el.getAttribute('class') ?? '').includes('border-'),
         );
         expect(typeof isActive).toBe('boolean');
       }
@@ -113,7 +143,10 @@ test.describe('Scheduler — tab navigation', () => {
 });
 
 test.describe('Scheduler — basic tab configuration', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openScheduler(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openScheduler(page);
+  });
 
   test('basic tab has queue name input', async ({ page }) => {
     const basicTab = page.locator('button').filter({ hasText: /basic/i }).first();
@@ -150,14 +183,19 @@ test.describe('Scheduler — basic tab configuration', () => {
 });
 
 test.describe('Scheduler — files tab', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openScheduler(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openScheduler(page);
+  });
 
   test('files tab shows search input', async ({ page }) => {
     const filesTab = page.locator('button').filter({ hasText: /files/i }).first();
     if (await filesTab.isVisible().catch(() => false)) {
       await filesTab.click();
       await page.waitForTimeout(300);
-      const search = page.locator('input[type="text"][placeholder*="search"], input[type="text"][placeholder*="بحث"]').first();
+      const search = page
+        .locator('input[type="text"][placeholder*="search"], input[type="text"][placeholder*="بحث"]')
+        .first();
       const isVisible = await search.isVisible().catch(() => false);
       expect(typeof isVisible).toBe('boolean');
     }
@@ -178,7 +216,10 @@ test.describe('Scheduler — files tab', () => {
 });
 
 test.describe('Scheduler — speed tab', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openScheduler(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openScheduler(page);
+  });
 
   test('speed tab has speed limit toggle/input', async ({ page }) => {
     const speedTab = page.locator('button').filter({ hasText: /speed/i }).first();
@@ -190,10 +231,16 @@ test.describe('Scheduler — speed tab', () => {
 });
 
 test.describe('Scheduler — actions tab', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openScheduler(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openScheduler(page);
+  });
 
   test('actions tab shows post-completion actions', async ({ page }) => {
-    const actionsTab = page.locator('button').filter({ hasText: /actions/i }).first();
+    const actionsTab = page
+      .locator('button')
+      .filter({ hasText: /actions/i })
+      .first();
     if (await actionsTab.isVisible().catch(() => false)) {
       await actionsTab.click();
       await page.waitForTimeout(300);
@@ -202,10 +249,16 @@ test.describe('Scheduler — actions tab', () => {
 });
 
 test.describe('Scheduler — retries tab', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openScheduler(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openScheduler(page);
+  });
 
   test('retries tab shows retry count and delay inputs', async ({ page }) => {
-    const retriesTab = page.locator('button').filter({ hasText: /retries/i }).first();
+    const retriesTab = page
+      .locator('button')
+      .filter({ hasText: /retries/i })
+      .first();
     if (await retriesTab.isVisible().catch(() => false)) {
       await retriesTab.click();
       await page.waitForTimeout(300);
@@ -217,16 +270,25 @@ test.describe('Scheduler — retries tab', () => {
 });
 
 test.describe('Scheduler — start/stop queue', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openScheduler(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openScheduler(page);
+  });
 
   test('start queue button exists', async ({ page }) => {
-    const startBtn = page.locator('button').filter({ hasText: /start|play|تشغيل/i }).first();
+    const startBtn = page
+      .locator('button')
+      .filter({ hasText: /start|play|تشغيل/i })
+      .first();
     const isVisible = await startBtn.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });
 
   test('stop queue button exists', async ({ page }) => {
-    const stopBtn = page.locator('button').filter({ hasText: /stop|square|إيقاف/i }).first();
+    const stopBtn = page
+      .locator('button')
+      .filter({ hasText: /stop|square|إيقاف/i })
+      .first();
     const isVisible = await stopBtn.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });

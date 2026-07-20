@@ -154,9 +154,7 @@ test.describe('Performance — SSE reconnection works', () => {
   test('EventSource or SSE connection is established', async ({ page }) => {
     await goto(page);
     const hasSSE = await page.evaluate(() => {
-      return typeof EventSource !== 'undefined' ||
-        document.querySelector('script[src*="sse"]') !== null ||
-        true;
+      return typeof EventSource !== 'undefined' || document.querySelector('script[src*="sse"]') !== null || true;
     });
     expect(hasSSE).toBe(true);
   });
@@ -166,7 +164,7 @@ test.describe('Performance — SSE reconnection works', () => {
     await page.waitForTimeout(1000);
 
     const errors: string[] = [];
-    page.on('pageerror', err => errors.push(err.message));
+    page.on('pageerror', (err) => errors.push(err.message));
 
     await page.evaluate(() => {
       const evt = new Event('offline');
@@ -180,7 +178,7 @@ test.describe('Performance — SSE reconnection works', () => {
     });
     await page.waitForTimeout(1000);
 
-    const criticalErrors = errors.filter(e => !e.includes('favicon') && !e.includes('SSE'));
+    const criticalErrors = errors.filter((e) => !e.includes('favicon') && !e.includes('SSE'));
     expect(criticalErrors).toHaveLength(0);
   });
 
@@ -221,7 +219,7 @@ test.describe('Performance — SSE reconnection works', () => {
 test.describe('Performance — console error monitoring', () => {
   test('no uncaught exceptions on page load', async ({ page }) => {
     const errors: string[] = [];
-    page.on('pageerror', err => errors.push(err.message));
+    page.on('pageerror', (err) => errors.push(err.message));
     await goto(page);
     await page.waitForTimeout(2000);
     expect(errors).toHaveLength(0);
@@ -229,7 +227,7 @@ test.describe('Performance — console error monitoring', () => {
 
   test('no uncaught exceptions on settings open', async ({ page }) => {
     const errors: string[] = [];
-    page.on('pageerror', err => errors.push(err.message));
+    page.on('pageerror', (err) => errors.push(err.message));
     await goto(page);
     await page.keyboard.press('Control+,');
     await page.waitForTimeout(600);
@@ -239,7 +237,7 @@ test.describe('Performance — console error monitoring', () => {
 
   test('no uncaught exceptions on dialog open/close', async ({ page }) => {
     const errors: string[] = [];
-    page.on('pageerror', err => errors.push(err.message));
+    page.on('pageerror', (err) => errors.push(err.message));
     await goto(page);
     await page.keyboard.press('Control+n');
     await expect(page.locator('[role="dialog"]')).toBeVisible({ timeout: 3000 });
@@ -250,7 +248,7 @@ test.describe('Performance — console error monitoring', () => {
 
   test('no uncaught exceptions on rapid keyboard shortcuts', async ({ page }) => {
     const errors: string[] = [];
-    page.on('pageerror', err => errors.push(err.message));
+    page.on('pageerror', (err) => errors.push(err.message));
     await goto(page);
 
     await page.keyboard.press('Control+n');
@@ -268,7 +266,7 @@ test.describe('Performance — console error monitoring', () => {
 
   test('no resource loading errors', async ({ page }) => {
     const failedRequests: string[] = [];
-    page.on('response', response => {
+    page.on('response', (response) => {
       if (response.status() >= 400 && !response.url().includes('favicon')) {
         failedRequests.push(`${String(response.status())}: ${response.url()}`);
       }
@@ -304,9 +302,9 @@ test.describe('Performance — rendering metrics', () => {
     await goto(page);
     await page.waitForTimeout(1000);
     const cls = await page.evaluate(() => {
-      return new Promise<number>(resolve => {
+      return new Promise<number>((resolve) => {
         let clsValue = 0;
-        const observer = new PerformanceObserver(list => {
+        const observer = new PerformanceObserver((list) => {
           for (const entry of list.getEntries()) {
             const e = entry as unknown as { hadRecentInput: boolean; value: number };
             if (!e.hadRecentInput) {

@@ -47,9 +47,7 @@ export const QualityGrid: React.FC<QualityGridProps> = ({
       <div className="flex items-center justify-between bg-[var(--danger-bg)]/5 border border-[var(--danger-border)] text-[var(--danger)] px-3 py-2 rounded-lg">
         <div className="flex items-center gap-2">
           <Info className="w-4 h-4" />
-          <div className="text-[11px]">
-            yt-dlp is not available — media probing and some formats are disabled.
-          </div>
+          <div className="text-[11px]">yt-dlp is not available — media probing and some formats are disabled.</div>
         </div>
         <div>
           <button
@@ -84,7 +82,9 @@ export const QualityGrid: React.FC<QualityGridProps> = ({
           <button
             key={opt.value}
             type="button"
-            onClick={() => { onQualityChange(opt.value); }}
+            onClick={() => {
+              onQualityChange(opt.value);
+            }}
             className={`w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all ${
               isSelected
                 ? 'bg-[var(--danger)]/8 border-[var(--danger-border)] shadow-[0_0_10px_-3px_rgba(239,68,68,0.25)]'
@@ -96,16 +96,16 @@ export const QualityGrid: React.FC<QualityGridProps> = ({
                 BEST
               </span>
             ) : (
-              <span className={`w-[52px] text-center text-[10px] font-extrabold rounded-lg py-1 border shrink-0 ${badgeColor}`}>
+              <span
+                className={`w-[52px] text-center text-[10px] font-extrabold rounded-lg py-1 border shrink-0 ${badgeColor}`}
+              >
                 {resolutionLabel(opt.height)}
               </span>
             )}
 
             <div className="flex-1 min-w-0">
               {opt.value === 'best' ? (
-                <span className="text-[11px] text-[var(--text-secondary)] font-semibold">
-                  Highest available
-                </span>
+                <span className="text-[11px] text-[var(--text-secondary)] font-semibold">Highest available</span>
               ) : (
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {opt.codecInfo && (
@@ -116,9 +116,7 @@ export const QualityGrid: React.FC<QualityGridProps> = ({
                       {opt.ext}
                     </span>
                   )}
-                  {opt.fps >= 60 && (
-                    <span className="text-[9px] text-[var(--warning)] font-bold">{opt.fps}fps</span>
-                  )}
+                  {opt.fps >= 60 && <span className="text-[9px] text-[var(--warning)] font-bold">{opt.fps}fps</span>}
                   {opt.hasAudio ? (
                     <span className="text-[9px] text-[var(--success)] font-bold">Muxed</span>
                   ) : (
@@ -131,9 +129,7 @@ export const QualityGrid: React.FC<QualityGridProps> = ({
               )}
             </div>
 
-            {opt.size && (
-              <span className="text-[10px] text-[var(--text-muted)] shrink-0 font-mono">{opt.size}</span>
-            )}
+            {opt.size && <span className="text-[10px] text-[var(--text-muted)] shrink-0 font-mono">{opt.size}</span>}
 
             {isSelected && <CheckCircle2 className="w-4 h-4 text-[var(--danger)] shrink-0" />}
             {needsFfmpegButMissing && (

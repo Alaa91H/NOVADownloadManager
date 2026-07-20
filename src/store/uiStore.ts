@@ -47,10 +47,18 @@ export const uiStore = create<UIState>()((set, get) => ({
   activeProgressMinimizedToTaskbar: false,
   minimizedProgressTask: null,
 
-  setSelectedTaskId: (id) => { set({ selectedTaskId: id }); },
-  setWorkspaceView: (view) => { set({ workspaceView: view }); },
-  setSearchQuery: (query) => { set({ searchQuery: query }); },
-  setActivePage: (page) => { set({ activePage: page }); },
+  setSelectedTaskId: (id) => {
+    set({ selectedTaskId: id });
+  },
+  setWorkspaceView: (view) => {
+    set({ workspaceView: view });
+  },
+  setSearchQuery: (query) => {
+    set({ searchQuery: query });
+  },
+  setActivePage: (page) => {
+    set({ activePage: page });
+  },
 
   openDialog: (active, payload) => {
     if (active === 'settings' || active === 'scheduler') {
@@ -89,26 +97,37 @@ export const uiStore = create<UIState>()((set, get) => ({
       const next = [...prev.toasts, { id, type, title, message, action }];
       return { toasts: next.length > 50 ? next.slice(-50) : next };
     });
-    setTimeout(() => {
-      get().removeToast(id);
-    }, action ? 6000 : 4500);
+    setTimeout(
+      () => {
+        get().removeToast(id);
+      },
+      action ? 6000 : 4500,
+    );
   },
 
-  removeToast: (id) => { set((prev) => ({ toasts: prev.toasts.filter((t) => t.id !== id) })); },
+  removeToast: (id) => {
+    set((prev) => ({ toasts: prev.toasts.filter((t) => t.id !== id) }));
+  },
 
   setIsNotificationsMuted: (muted) => {
     localStorage.setItem('nova_notifications_muted', String(muted));
     set({ isNotificationsMuted: muted });
   },
 
-  setActiveProgressMinimizedToTaskbar: (minimized) => { set({ activeProgressMinimizedToTaskbar: minimized }); },
-  setMinimizedProgressTask: (task) => { set({ minimizedProgressTask: task }); },
+  setActiveProgressMinimizedToTaskbar: (minimized) => {
+    set({ activeProgressMinimizedToTaskbar: minimized });
+  },
+  setMinimizedProgressTask: (task) => {
+    set({ minimizedProgressTask: task });
+  },
 
   minimizeActiveProgressToTaskbar: (task) => {
     const state = get();
     const fallbackTask =
       task ||
-      (state.dialog.active === 'activeProgress' ? (state.dialog.payload as DownloadItem | null | undefined) || null : null);
+      (state.dialog.active === 'activeProgress'
+        ? (state.dialog.payload as DownloadItem | null | undefined) || null
+        : null);
     if (!fallbackTask) return;
     set({ minimizedProgressTask: fallbackTask, activeProgressMinimizedToTaskbar: true, dialog: { active: null } });
   },

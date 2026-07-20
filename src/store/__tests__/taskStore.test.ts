@@ -5,14 +5,22 @@ import type { DownloadItem } from '../../types/desktop-ui.types';
 vi.mock('../../api/novaClient', () => ({
   novaClient: {
     createDownload: vi.fn().mockImplementation((item: Record<string, unknown>) =>
-      Promise.resolve({ ...item, id: 'new_task_1', dateAdded: new Date().toISOString(), downloadedBytes: 0, speedBytesPerSec: 0, timeLeftSeconds: 0, segments: [] }),
+      Promise.resolve({
+        ...item,
+        id: 'new_task_1',
+        dateAdded: new Date().toISOString(),
+        downloadedBytes: 0,
+        speedBytesPerSec: 0,
+        timeLeftSeconds: 0,
+        segments: [],
+      }),
     ),
-    pauseDownload: vi.fn().mockImplementation((id: string) =>
-      Promise.resolve({ id, status: 'paused', name: 'Paused File' }),
-    ),
-    resumeDownload: vi.fn().mockImplementation((id: string) =>
-      Promise.resolve({ id, status: 'downloading', name: 'Resumed File' }),
-    ),
+    pauseDownload: vi
+      .fn()
+      .mockImplementation((id: string) => Promise.resolve({ id, status: 'paused', name: 'Paused File' })),
+    resumeDownload: vi
+      .fn()
+      .mockImplementation((id: string) => Promise.resolve({ id, status: 'downloading', name: 'Resumed File' })),
     deleteDownload: vi.fn().mockResolvedValue(undefined),
   },
 }));
@@ -60,7 +68,10 @@ vi.mock('../settingsStore', () => ({
 
 describe('mergeDaemonTasks', () => {
   it('returns shallow copies of each task', () => {
-    const tasks = [{ id: '1', name: 'a' }, { id: '2', name: 'b' }] as DownloadItem[];
+    const tasks = [
+      { id: '1', name: 'a' },
+      { id: '2', name: 'b' },
+    ] as DownloadItem[];
     const result = mergeDaemonTasks(tasks);
     expect(result).toHaveLength(2);
     expect(result[0]).not.toBe(tasks[0]);
@@ -73,25 +84,67 @@ describe('taskStore', () => {
     taskStore.setState({
       tasks: [
         {
-          id: 'task1', name: 'file1.zip', url: 'http://example.com/file1.zip', fileType: 'compressed',
-          status: 'downloading', sizeBytes: 1024, downloadedBytes: 512, speedBytesPerSec: 100,
-          timeLeftSeconds: 5, category: 'other', queueId: 'main', connections: 4, resumable: true,
-          savePath: '/downloads/file1.zip', description: '', elapsedSeconds: 10, engine: 'curl',
-          segments: [], dateAdded: '2024-01-01T00:00:00Z',
+          id: 'task1',
+          name: 'file1.zip',
+          url: 'http://example.com/file1.zip',
+          fileType: 'compressed',
+          status: 'downloading',
+          sizeBytes: 1024,
+          downloadedBytes: 512,
+          speedBytesPerSec: 100,
+          timeLeftSeconds: 5,
+          category: 'other',
+          queueId: 'main',
+          connections: 4,
+          resumable: true,
+          savePath: '/downloads/file1.zip',
+          description: '',
+          elapsedSeconds: 10,
+          engine: 'curl',
+          segments: [],
+          dateAdded: '2024-01-01T00:00:00Z',
         },
         {
-          id: 'task2', name: 'file2.pdf', url: 'http://example.com/file2.pdf', fileType: 'other',
-          status: 'completed', sizeBytes: 2048, downloadedBytes: 2048, speedBytesPerSec: 0,
-          timeLeftSeconds: 0, category: 'other', queueId: 'main', connections: 4, resumable: true,
-          savePath: '/downloads/file2.pdf', description: '', elapsedSeconds: 30, engine: 'curl',
-          segments: [], dateAdded: '2024-01-02T00:00:00Z',
+          id: 'task2',
+          name: 'file2.pdf',
+          url: 'http://example.com/file2.pdf',
+          fileType: 'other',
+          status: 'completed',
+          sizeBytes: 2048,
+          downloadedBytes: 2048,
+          speedBytesPerSec: 0,
+          timeLeftSeconds: 0,
+          category: 'other',
+          queueId: 'main',
+          connections: 4,
+          resumable: true,
+          savePath: '/downloads/file2.pdf',
+          description: '',
+          elapsedSeconds: 30,
+          engine: 'curl',
+          segments: [],
+          dateAdded: '2024-01-02T00:00:00Z',
         },
         {
-          id: 'task3', name: 'video.mp4', url: 'http://example.com/video.mp4', fileType: 'video',
-          status: 'queued', sizeBytes: 0, downloadedBytes: 0, speedBytesPerSec: 0,
-          timeLeftSeconds: 0, category: 'other', queueId: 'main', connections: 0, resumable: true,
-          savePath: '/downloads/video.mp4', description: '', elapsedSeconds: 0, engine: 'yt-dlp',
-          segments: [], dateAdded: '2024-01-03T00:00:00Z',
+          id: 'task3',
+          name: 'video.mp4',
+          url: 'http://example.com/video.mp4',
+          fileType: 'video',
+          status: 'queued',
+          sizeBytes: 0,
+          downloadedBytes: 0,
+          speedBytesPerSec: 0,
+          timeLeftSeconds: 0,
+          category: 'other',
+          queueId: 'main',
+          connections: 0,
+          resumable: true,
+          savePath: '/downloads/video.mp4',
+          description: '',
+          elapsedSeconds: 0,
+          engine: 'yt-dlp',
+          segments: [],
+          dateAdded: '2024-01-03T00:00:00Z',
         },
       ],
       completedTaskIds: new Set(),
@@ -141,7 +194,21 @@ describe('taskStore', () => {
   describe('addTask', () => {
     it('adds a new task on success', async () => {
       const task = await taskStore.getState().addTask(
-        { name: 'new.zip', url: 'http://example.com/new.zip', fileType: 'other', status: 'queued', sizeBytes: 0, category: 'other', queueId: 'main', connections: 0, resumable: true, savePath: '/downloads/new.zip', description: '', directOptions: undefined, elapsedSeconds: 0 },
+        {
+          name: 'new.zip',
+          url: 'http://example.com/new.zip',
+          fileType: 'other',
+          status: 'queued',
+          sizeBytes: 0,
+          category: 'other',
+          queueId: 'main',
+          connections: 0,
+          resumable: true,
+          savePath: '/downloads/new.zip',
+          description: '',
+          directOptions: undefined,
+          elapsedSeconds: 0,
+        },
         false,
       );
       expect(task).not.toBeNull();

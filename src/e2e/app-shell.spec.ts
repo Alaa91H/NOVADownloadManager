@@ -1,9 +1,14 @@
 import { test, expect, type Page } from '@playwright/test';
 
-const goto = async (page: Page) => { await page.goto('/'); await page.waitForLoadState('networkidle'); };
+const goto = async (page: Page) => {
+  await page.goto('/');
+  await page.waitForLoadState('networkidle');
+};
 
 test.describe('App Shell — layout structure', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('page has correct title', async ({ page }) => {
     await expect(page).toHaveTitle(/Nova/i);
@@ -17,7 +22,7 @@ test.describe('App Shell — layout structure', () => {
   test('sidebar is rendered as fixed or static nav', async ({ page }) => {
     const sidebar = page.locator('nav, aside, [role="navigation"]').first();
     await expect(sidebar).toBeVisible({ timeout: 5000 });
-    const display = await sidebar.evaluate(el => window.getComputedStyle(el).display);
+    const display = await sidebar.evaluate((el) => window.getComputedStyle(el).display);
     expect(display).not.toBe('none');
   });
 
@@ -43,7 +48,9 @@ test.describe('App Shell — layout structure', () => {
 });
 
 test.describe('App Shell — custom title bar', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('title bar has minimize, maximize, close buttons', async ({ page }) => {
     const titleBar = page.locator('header, [class*="title-bar"]').first();
@@ -53,7 +60,10 @@ test.describe('App Shell — custom title bar', () => {
   });
 
   test('close button has hover effect', async ({ page }) => {
-    const closeBtn = page.locator('button').filter({ has: page.locator('.lucide-x, svg') }).last();
+    const closeBtn = page
+      .locator('button')
+      .filter({ has: page.locator('.lucide-x, svg') })
+      .last();
     if (await closeBtn.isVisible()) {
       await closeBtn.hover();
     }
@@ -62,7 +72,7 @@ test.describe('App Shell — custom title bar', () => {
   test('title bar is draggable', async ({ page }) => {
     const titleArea = page.locator('[class*="cursor-move"], [class*="select-none"]').first();
     if (await titleArea.isVisible()) {
-      const cursor = await titleArea.evaluate(el => window.getComputedStyle(el).cursor);
+      const cursor = await titleArea.evaluate((el) => window.getComputedStyle(el).cursor);
       expect(cursor).toBe('move');
     }
   });
@@ -87,7 +97,9 @@ test.describe('App Shell — error boundary', () => {
 });
 
 test.describe('App Shell — toast notification system', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('toast container exists with live region', async ({ page }) => {
     const toastRegion = page.locator('[role="status"][aria-live="polite"]');
@@ -121,7 +133,9 @@ test.describe('App Shell — toast notification system', () => {
 });
 
 test.describe('App Shell — keyboard shortcut system', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   const shortcuts: Array<{ keys: string; description: string; check: (page: Page) => Promise<void> }> = [
     {
@@ -194,7 +208,9 @@ test.describe('App Shell — keyboard shortcut system', () => {
 });
 
 test.describe('App Shell — page routing', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('default page is downloads', async ({ page }) => {
     // Should not be on settings or scheduler

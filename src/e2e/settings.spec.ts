@@ -11,7 +11,10 @@ const openSettings = async (page: import('@playwright/test').Page) => {
 };
 
 test.describe('Settings — page structure', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openSettings(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openSettings(page);
+  });
 
   test('settings page renders with title', async ({ page }) => {
     await expect(page.locator('text=Settings').first()).toBeVisible({ timeout: 3000 });
@@ -24,8 +27,14 @@ test.describe('Settings — page structure', () => {
   });
 
   test('settings has save/reset buttons', async ({ page }) => {
-    const saveBtn = page.locator('button').filter({ hasText: /save|حفظ/i }).first();
-    const resetBtn = page.locator('button').filter({ hasText: /reset|إعادة/i }).first();
+    const saveBtn = page
+      .locator('button')
+      .filter({ hasText: /save|حفظ/i })
+      .first();
+    const resetBtn = page
+      .locator('button')
+      .filter({ hasText: /reset|إعادة/i })
+      .first();
     const hasSave = await saveBtn.isVisible().catch(() => false);
     const hasReset = await resetBtn.isVisible().catch(() => false);
     expect(typeof hasSave).toBe('boolean');
@@ -34,13 +43,22 @@ test.describe('Settings — page structure', () => {
 });
 
 test.describe('Settings — General tab', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openSettings(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openSettings(page);
+  });
 
   test('general tab is active by default', async ({ page }) => {
-    const generalTab = page.locator('button').filter({ hasText: /general|عام/i }).first();
+    const generalTab = page
+      .locator('button')
+      .filter({ hasText: /general|عام/i })
+      .first();
     if (await generalTab.isVisible().catch(() => false)) {
-      const isActive = await generalTab.evaluate(el =>
-        (el.getAttribute('class') ?? '').includes('active') || (el.getAttribute('class') ?? '').includes('border-b') || el.getAttribute('aria-selected') === 'true'
+      const isActive = await generalTab.evaluate(
+        (el) =>
+          (el.getAttribute('class') ?? '').includes('active') ||
+          (el.getAttribute('class') ?? '').includes('border-b') ||
+          el.getAttribute('aria-selected') === 'true',
       );
       expect(typeof isActive).toBe('boolean');
     }
@@ -60,10 +78,16 @@ test.describe('Settings — General tab', () => {
 });
 
 test.describe('Settings — Theme tab', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openSettings(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openSettings(page);
+  });
 
   test('theme tab is clickable', async ({ page }) => {
-    const themeTab = page.locator('button').filter({ hasText: /theme|ثيم|سمة/i }).first();
+    const themeTab = page
+      .locator('button')
+      .filter({ hasText: /theme|ثيم|سمة/i })
+      .first();
     if (await themeTab.isVisible().catch(() => false)) {
       await themeTab.click();
       await page.waitForTimeout(300);
@@ -71,7 +95,10 @@ test.describe('Settings — Theme tab', () => {
   });
 
   test('theme options include dark, light, system', async ({ page }) => {
-    const themeTab = page.locator('button').filter({ hasText: /theme|ثيم|سمة/i }).first();
+    const themeTab = page
+      .locator('button')
+      .filter({ hasText: /theme|ثيم|سمة/i })
+      .first();
     if (await themeTab.isVisible().catch(() => false)) {
       await themeTab.click();
       await page.waitForTimeout(300);
@@ -79,7 +106,10 @@ test.describe('Settings — Theme tab', () => {
   });
 
   test('accent color options exist', async ({ page }) => {
-    const themeTab = page.locator('button').filter({ hasText: /theme|ثيم|سمة/i }).first();
+    const themeTab = page
+      .locator('button')
+      .filter({ hasText: /theme|ثيم|سمة/i })
+      .first();
     if (await themeTab.isVisible().catch(() => false)) {
       await themeTab.click();
       await page.waitForTimeout(300);
@@ -87,7 +117,10 @@ test.describe('Settings — Theme tab', () => {
   });
 
   test('density selector exists (compact/dense/normal)', async ({ page }) => {
-    const themeTab = page.locator('button').filter({ hasText: /theme|ثيم|سمة/i }).first();
+    const themeTab = page
+      .locator('button')
+      .filter({ hasText: /theme|ثيم|سمة/i })
+      .first();
     if (await themeTab.isVisible().catch(() => false)) {
       await themeTab.click();
       await page.waitForTimeout(300);
@@ -96,10 +129,16 @@ test.describe('Settings — Theme tab', () => {
 });
 
 test.describe('Settings — Connections tab', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openSettings(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openSettings(page);
+  });
 
   test('connections tab shows network settings', async ({ page }) => {
-    const connTab = page.locator('button').filter({ hasText: /connection|اتصال/i }).first();
+    const connTab = page
+      .locator('button')
+      .filter({ hasText: /connection|اتصال/i })
+      .first();
     if (await connTab.isVisible().catch(() => false)) {
       await connTab.click();
       await page.waitForTimeout(300);
@@ -107,7 +146,10 @@ test.describe('Settings — Connections tab', () => {
   });
 
   test('connection timeout field exists', async ({ page }) => {
-    const connTab = page.locator('button').filter({ hasText: /connection|اتصال/i }).first();
+    const connTab = page
+      .locator('button')
+      .filter({ hasText: /connection|اتصال/i })
+      .first();
     if (await connTab.isVisible().catch(() => false)) {
       await connTab.click();
       await page.waitForTimeout(300);
@@ -118,7 +160,10 @@ test.describe('Settings — Connections tab', () => {
   });
 
   test('proxy settings section exists', async ({ page }) => {
-    const connTab = page.locator('button').filter({ hasText: /connection|اتصال/i }).first();
+    const connTab = page
+      .locator('button')
+      .filter({ hasText: /connection|اتصال/i })
+      .first();
     if (await connTab.isVisible().catch(() => false)) {
       await connTab.click();
       await page.waitForTimeout(300);
@@ -130,10 +175,16 @@ test.describe('Settings — Connections tab', () => {
 });
 
 test.describe('Settings — Language tab', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openSettings(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openSettings(page);
+  });
 
   test('language selector exists', async ({ page }) => {
-    const langTab = page.locator('button').filter({ hasText: /language|لغة/i }).first();
+    const langTab = page
+      .locator('button')
+      .filter({ hasText: /language|لغة/i })
+      .first();
     if (await langTab.isVisible().catch(() => false)) {
       await langTab.click();
       await page.waitForTimeout(300);
@@ -144,7 +195,10 @@ test.describe('Settings — Language tab', () => {
   });
 
   test('language selector has multiple options', async ({ page }) => {
-    const langTab = page.locator('button').filter({ hasText: /language|لغة/i }).first();
+    const langTab = page
+      .locator('button')
+      .filter({ hasText: /language|لغة/i })
+      .first();
     if (await langTab.isVisible().catch(() => false)) {
       await langTab.click();
       await page.waitForTimeout(300);
@@ -157,7 +211,10 @@ test.describe('Settings — Language tab', () => {
   });
 
   test('changing language updates UI text', async ({ page }) => {
-    const langTab = page.locator('button').filter({ hasText: /language|لغة/i }).first();
+    const langTab = page
+      .locator('button')
+      .filter({ hasText: /language|لغة/i })
+      .first();
     if (await langTab.isVisible().catch(() => false)) {
       await langTab.click();
       await page.waitForTimeout(300);
@@ -180,10 +237,16 @@ test.describe('Settings — Language tab', () => {
 });
 
 test.describe('Settings — Downloads tab', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openSettings(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openSettings(page);
+  });
 
   test('downloads tab shows default download directory', async ({ page }) => {
-    const dlTab = page.locator('button').filter({ hasText: /download|تحميل/i }).first();
+    const dlTab = page
+      .locator('button')
+      .filter({ hasText: /download|تحميل/i })
+      .first();
     if (await dlTab.isVisible().catch(() => false)) {
       await dlTab.click();
       await page.waitForTimeout(300);
@@ -194,7 +257,10 @@ test.describe('Settings — Downloads tab', () => {
   });
 
   test('default threads setting exists', async ({ page }) => {
-    const dlTab = page.locator('button').filter({ hasText: /download|تحميل/i }).first();
+    const dlTab = page
+      .locator('button')
+      .filter({ hasText: /download|تحميل/i })
+      .first();
     if (await dlTab.isVisible().catch(() => false)) {
       await dlTab.click();
       await page.waitForTimeout(300);
@@ -205,7 +271,10 @@ test.describe('Settings — Downloads tab', () => {
   });
 
   test('overwrite option exists', async ({ page }) => {
-    const dlTab = page.locator('button').filter({ hasText: /download|تحميل/i }).first();
+    const dlTab = page
+      .locator('button')
+      .filter({ hasText: /download|تحميل/i })
+      .first();
     if (await dlTab.isVisible().catch(() => false)) {
       await dlTab.click();
       await page.waitForTimeout(300);
@@ -217,10 +286,16 @@ test.describe('Settings — Downloads tab', () => {
 });
 
 test.describe('Settings — Behavior tab', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openSettings(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openSettings(page);
+  });
 
   test('behavior tab shows UI preferences', async ({ page }) => {
-    const behTab = page.locator('button').filter({ hasText: /behavior|سلوك/i }).first();
+    const behTab = page
+      .locator('button')
+      .filter({ hasText: /behavior|سلوك/i })
+      .first();
     if (await behTab.isVisible().catch(() => false)) {
       await behTab.click();
       await page.waitForTimeout(300);
@@ -228,7 +303,10 @@ test.describe('Settings — Behavior tab', () => {
   });
 
   test('confirm delete option exists', async ({ page }) => {
-    const behTab = page.locator('button').filter({ hasText: /behavior|سلوك/i }).first();
+    const behTab = page
+      .locator('button')
+      .filter({ hasText: /behavior|سلوك/i })
+      .first();
     if (await behTab.isVisible().catch(() => false)) {
       await behTab.click();
       await page.waitForTimeout(300);
@@ -240,10 +318,16 @@ test.describe('Settings — Behavior tab', () => {
 });
 
 test.describe('Settings — save and reset', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openSettings(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openSettings(page);
+  });
 
   test('save button triggers save action', async ({ page }) => {
-    const saveBtn = page.locator('button').filter({ hasText: /save|حفظ/i }).first();
+    const saveBtn = page
+      .locator('button')
+      .filter({ hasText: /save|حفظ/i })
+      .first();
     if (await saveBtn.isVisible().catch(() => false)) {
       await saveBtn.click();
       await page.waitForTimeout(500);
@@ -251,7 +335,10 @@ test.describe('Settings — save and reset', () => {
   });
 
   test('reset button reverts changes', async ({ page }) => {
-    const resetBtn = page.locator('button').filter({ hasText: /reset|إعادة/i }).first();
+    const resetBtn = page
+      .locator('button')
+      .filter({ hasText: /reset|إعادة/i })
+      .first();
     if (await resetBtn.isVisible().catch(() => false)) {
       await resetBtn.click();
       await page.waitForTimeout(300);
@@ -271,7 +358,10 @@ test.describe('Settings — save and reset', () => {
 });
 
 test.describe('Settings — switch toggles', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openSettings(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openSettings(page);
+  });
 
   test('switch toggles can be toggled on and off', async ({ page }) => {
     const switches = page.locator('label:has(> div[class*="rounded-full"])');
@@ -279,13 +369,13 @@ test.describe('Settings — switch toggles', () => {
     for (let i = 0; i < Math.min(count, 3); i++) {
       const sw = switches.nth(i);
       if (await sw.isVisible().catch(() => false)) {
-        const wasOn = await sw.evaluate(el => {
+        const wasOn = await sw.evaluate((el) => {
           const toggle = el.querySelector('div');
           return toggle?.getAttribute('class')?.includes('bg-[var(--accent-primary)]') || false;
         });
         await sw.click();
         await page.waitForTimeout(200);
-        const isNow = await sw.evaluate(el => {
+        const isNow = await sw.evaluate((el) => {
           const toggle = el.querySelector('div');
           return toggle?.getAttribute('class')?.includes('bg-[var(--accent-primary)]') || false;
         });
@@ -296,7 +386,10 @@ test.describe('Settings — switch toggles', () => {
 });
 
 test.describe('Settings — select fields', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openSettings(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openSettings(page);
+  });
 
   test('select fields can be changed', async ({ page }) => {
     const selects = page.locator('select');
@@ -321,7 +414,10 @@ test.describe('Settings — select fields', () => {
 });
 
 test.describe('Settings — navigation back', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); await openSettings(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+    await openSettings(page);
+  });
 
   test('Escape navigates back to downloads', async ({ page }) => {
     await page.keyboard.press('Escape');
@@ -329,7 +425,10 @@ test.describe('Settings — navigation back', () => {
   });
 
   test('clicking back button navigates away', async ({ page }) => {
-    const backBtn = page.locator('button').filter({ has: page.locator('svg') }).first();
+    const backBtn = page
+      .locator('button')
+      .filter({ has: page.locator('svg') })
+      .first();
     if (await backBtn.isVisible().catch(() => false)) {
       await backBtn.click();
       await page.waitForTimeout(500);

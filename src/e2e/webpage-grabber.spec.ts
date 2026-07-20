@@ -11,7 +11,10 @@ const openGrabber = async (page: import('@playwright/test').Page) => {
   if (await chevron.isVisible().catch(() => false)) {
     await chevron.click();
     await page.waitForTimeout(300);
-    const grabberBtn = page.locator('button').filter({ hasText: /grabber|التقاط|أمسك/i }).first();
+    const grabberBtn = page
+      .locator('button')
+      .filter({ hasText: /grabber|التقاط|أمسك/i })
+      .first();
     if (await grabberBtn.isVisible().catch(() => false)) {
       await grabberBtn.click();
       await page.waitForTimeout(500);
@@ -20,7 +23,9 @@ const openGrabber = async (page: import('@playwright/test').Page) => {
 };
 
 test.describe('Webpage Grabber — dialog structure', () => {
-  test.beforeEach(async ({ page }) => { await openGrabber(page); });
+  test.beforeEach(async ({ page }) => {
+    await openGrabber(page);
+  });
 
   test('webpage grabber dialog opens', async ({ page }) => {
     const dialog = page.locator('[role="dialog"]');
@@ -44,7 +49,9 @@ test.describe('Webpage Grabber — dialog structure', () => {
 });
 
 test.describe('Webpage Grabber — URL input', () => {
-  test.beforeEach(async ({ page }) => { await openGrabber(page); });
+  test.beforeEach(async ({ page }) => {
+    await openGrabber(page);
+  });
 
   test('URL input accepts text', async ({ page }) => {
     const urlInput = page.locator('[role="dialog"] input[type="text"]').first();
@@ -65,7 +72,9 @@ test.describe('Webpage Grabber — URL input', () => {
 });
 
 test.describe('Webpage Grabber — settings', () => {
-  test.beforeEach(async ({ page }) => { await openGrabber(page); });
+  test.beforeEach(async ({ page }) => {
+    await openGrabber(page);
+  });
 
   test('depth setting exists', async ({ page }) => {
     const depthSection = page.locator('text=depth, text=عمق, text=深度').first();
@@ -81,23 +90,33 @@ test.describe('Webpage Grabber — settings', () => {
 });
 
 test.describe('Webpage Grabber — start grab', () => {
-  test.beforeEach(async ({ page }) => { await openGrabber(page); });
+  test.beforeEach(async ({ page }) => {
+    await openGrabber(page);
+  });
 
   test('start grab button exists', async ({ page }) => {
-    const startBtn = page.locator('button').filter({ hasText: /grab|التقاط|أمسك|start/i }).first();
+    const startBtn = page
+      .locator('button')
+      .filter({ hasText: /grab|التقاط|أمسك|start/i })
+      .first();
     const isVisible = await startBtn.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });
 
   test('cancel button exists', async ({ page }) => {
-    const cancelBtn = page.locator('button').filter({ hasText: /cancel|إلغاء/i }).first();
+    const cancelBtn = page
+      .locator('button')
+      .filter({ hasText: /cancel|إلغاء/i })
+      .first();
     const isVisible = await cancelBtn.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });
 });
 
 test.describe('Webpage Grabber — close', () => {
-  test.beforeEach(async ({ page }) => { await openGrabber(page); });
+  test.beforeEach(async ({ page }) => {
+    await openGrabber(page);
+  });
 
   test('Escape closes grabber dialog', async ({ page }) => {
     await page.keyboard.press('Escape');

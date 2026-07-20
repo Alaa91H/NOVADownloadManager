@@ -19,14 +19,20 @@ test.describe('Segment View — toggle and rendering', () => {
 
   test('segment details toggle button exists in active progress dialog', async ({ page }) => {
     const dialog = page.locator('[role="dialog"]');
-    const showDetailsBtn = dialog.locator('button').filter({ hasText: /show details|إظهار التفاصيل/i }).first();
+    const showDetailsBtn = dialog
+      .locator('button')
+      .filter({ hasText: /show details|إظهار التفاصيل/i })
+      .first();
     const isVisible = await showDetailsBtn.isVisible().catch(() => false);
     expect(typeof isVisible).toBe('boolean');
   });
 
   test('clicking segment toggle reveals segment info section', async ({ page }) => {
     const dialog = page.locator('[role="dialog"]');
-    const showDetailsBtn = dialog.locator('button').filter({ hasText: /show details|إظهار التفاصيل/i }).first();
+    const showDetailsBtn = dialog
+      .locator('button')
+      .filter({ hasText: /show details|إظهار التفاصيل/i })
+      .first();
     if (await showDetailsBtn.isVisible().catch(() => false)) {
       await showDetailsBtn.click();
       await page.waitForTimeout(400);
@@ -38,7 +44,10 @@ test.describe('Segment View — toggle and rendering', () => {
 
   test('segment progress bars render after toggle', async ({ page }) => {
     const dialog = page.locator('[role="dialog"]');
-    const showDetailsBtn = dialog.locator('button').filter({ hasText: /show details|إظهار التفاصيل/i }).first();
+    const showDetailsBtn = dialog
+      .locator('button')
+      .filter({ hasText: /show details|إظهار التفاصيل/i })
+      .first();
     if (await showDetailsBtn.isVisible().catch(() => false)) {
       await showDetailsBtn.click();
       await page.waitForTimeout(400);
@@ -50,7 +59,10 @@ test.describe('Segment View — toggle and rendering', () => {
 
   test('segment table renders with columns', async ({ page }) => {
     const dialog = page.locator('[role="dialog"]');
-    const showDetailsBtn = dialog.locator('button').filter({ hasText: /show details|إظهار التفاصيل/i }).first();
+    const showDetailsBtn = dialog
+      .locator('button')
+      .filter({ hasText: /show details|إظهار التفاصيل/i })
+      .first();
     if (await showDetailsBtn.isVisible().catch(() => false)) {
       await showDetailsBtn.click();
       await page.waitForTimeout(400);
@@ -83,7 +95,10 @@ test.describe('Segment View — active download dialog info', () => {
     await page.keyboard.press('Control+n');
     await expect(page.locator('[role="dialog"]')).toBeVisible({ timeout: 3000 });
     const dialog = page.locator('[role="dialog"]');
-    const showDetailsBtn = dialog.locator('button').filter({ hasText: /show details|إظهار التفاصيل/i }).first();
+    const showDetailsBtn = dialog
+      .locator('button')
+      .filter({ hasText: /show details|إظهار التفاصيل/i })
+      .first();
     if (await showDetailsBtn.isVisible().catch(() => false)) {
       await showDetailsBtn.click();
       await page.waitForTimeout(400);
@@ -104,11 +119,17 @@ test.describe('Segment View — hide details', () => {
 
   test('clicking hide details collapses segment info', async ({ page }) => {
     const dialog = page.locator('[role="dialog"]');
-    const showDetailsBtn = dialog.locator('button').filter({ hasText: /show details|إظهار التفاصيل/i }).first();
+    const showDetailsBtn = dialog
+      .locator('button')
+      .filter({ hasText: /show details|إظهار التفاصيل/i })
+      .first();
     if (await showDetailsBtn.isVisible().catch(() => false)) {
       await showDetailsBtn.click();
       await page.waitForTimeout(400);
-      const hideDetailsBtn = dialog.locator('button').filter({ hasText: /hide details|إخفاء التفاصيل/i }).first();
+      const hideDetailsBtn = dialog
+        .locator('button')
+        .filter({ hasText: /hide details|إخفاء التفاصيل/i })
+        .first();
       if (await hideDetailsBtn.isVisible().catch(() => false)) {
         await hideDetailsBtn.click();
         await page.waitForTimeout(400);

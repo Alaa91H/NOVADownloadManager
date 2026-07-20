@@ -19,7 +19,10 @@ interface TaskState {
   setTasks: (tasks: DownloadItem[]) => void;
   setTasksWith: (updater: (prev: DownloadItem[]) => DownloadItem[]) => void;
   addTask: (
-    task: Omit<DownloadItem, 'id' | 'dateAdded' | 'downloadedBytes' | 'speedBytesPerSec' | 'timeLeftSeconds' | 'segments'>,
+    task: Omit<
+      DownloadItem,
+      'id' | 'dateAdded' | 'downloadedBytes' | 'speedBytesPerSec' | 'timeLeftSeconds' | 'segments'
+    >,
     downloadImmediately: boolean,
   ) => Promise<DownloadItem | null>;
   pauseTask: (id: string) => Promise<void>;
@@ -47,29 +50,49 @@ export const taskStore = create<TaskState>()((set, get) => ({
   completedTaskIds: new Set<string>(),
   hasSyncedDownloads: false,
 
-  setTasks: (tasks) => { set({ tasks }); },
-  setTasksWith: (updater) => { set((p) => ({ tasks: updater(p.tasks) })); },
-  setCompletedTaskIds: (ids) => { set({ completedTaskIds: ids }); },
-  setHasSyncedDownloads: (v) => { set({ hasSyncedDownloads: v }); },
+  setTasks: (tasks) => {
+    set({ tasks });
+  },
+  setTasksWith: (updater) => {
+    set((p) => ({ tasks: updater(p.tasks) }));
+  },
+  setCompletedTaskIds: (ids) => {
+    set({ completedTaskIds: ids });
+  },
+  setHasSyncedDownloads: (v) => {
+    set({ hasSyncedDownloads: v });
+  },
 
   addTask: async (newItem, downloadImmediately) => {
     const { status: bridgeStatus } = bridgeStore.getState();
     if (bridgeStatus === 'connecting' || bridgeStatus === 'disconnected') {
-      uiStore.getState().addToast('error', 'NOVA daemon unavailable', 'Start the local NOVA daemon before creating downloads.');
+      uiStore
+        .getState()
+        .addToast('error', 'NOVA daemon unavailable', 'Start the local NOVA daemon before creating downloads.');
       return null;
     }
     try {
-      const normalizedTask = { ...(await novaClient.createDownload({ ...newItem, startImmediately: downloadImmediately })) };
+      const normalizedTask = {
+        ...(await novaClient.createDownload({ ...newItem, startImmediately: downloadImmediately })),
+      };
       set((p) => ({ tasks: [normalizedTask, ...p.tasks.filter((item) => item.id !== normalizedTask.id)] }));
       uiStore.getState().setSelectedTaskId(normalizedTask.id);
       bridgeStore.getState().setIsDegradedMode(false);
       if (newItem.queueId) queueStore.getState().addTaskToQueueOrder(normalizedTask.id, newItem.queueId);
-      uiStore.getState().addToast('success', 'Download added', `"${normalizedTask.name}" was added to the download queue.`);
+      uiStore
+        .getState()
+        .addToast('success', 'Download added', `"${normalizedTask.name}" was added to the download queue.`);
       if (downloadImmediately) uiStore.getState().openDialog('activeProgress', normalizedTask);
       return normalizedTask;
     } catch (error) {
       bridgeStore.getState().setIsDegradedMode(true);
-      uiStore.getState().addToast('error', 'NOVA daemon', error instanceof Error ? error.message : 'The local download engine rejected the task.');
+      uiStore
+        .getState()
+        .addToast(
+          'error',
+          'NOVA daemon',
+          error instanceof Error ? error.message : 'The local download engine rejected the task.',
+        );
       return null;
     }
   },
@@ -85,7 +108,13 @@ export const taskStore = create<TaskState>()((set, get) => ({
       set((p) => ({ tasks: p.tasks.map((item) => (item.id === id ? normalizedTask : item)) }));
       uiStore.getState().addToast('info', 'Download stopped', `"${normalizedTask.name}" was stopped.`);
     } catch (error) {
-      uiStore.getState().addToast('error', 'NOVA daemon', error instanceof Error ? error.message : 'The local engine could not stop the download.');
+      uiStore
+        .getState()
+        .addToast(
+          'error',
+          'NOVA daemon',
+          error instanceof Error ? error.message : 'The local engine could not stop the download.',
+        );
     }
   },
 
@@ -100,12 +129,19 @@ export const taskStore = create<TaskState>()((set, get) => ({
       set((p) => ({ tasks: p.tasks.map((item) => (item.id === id ? normalizedTask : item)) }));
       if (normalizedTask.id !== id) {
         uiStore.getState().setSelectedTaskId(normalizedTask.id);
-        if (normalizedTask.queueId) queueStore.getState().addTaskToQueueOrder(normalizedTask.id, normalizedTask.queueId);
+        if (normalizedTask.queueId)
+          queueStore.getState().addTaskToQueueOrder(normalizedTask.id, normalizedTask.queueId);
       }
       if (normalizedTask.status === 'downloading') uiStore.getState().openDialog('activeProgress', normalizedTask);
       uiStore.getState().addToast('info', 'Download resumed', `"${normalizedTask.name}" was resumed.`);
     } catch (error) {
-      uiStore.getState().addToast('error', 'NOVA daemon', error instanceof Error ? error.message : 'The local engine could not resume the download.');
+      uiStore
+        .getState()
+        .addToast(
+          'error',
+          'NOVA daemon',
+          error instanceof Error ? error.message : 'The local engine could not resume the download.',
+        );
     }
   },
 
@@ -125,18 +161,35 @@ export const taskStore = create<TaskState>()((set, get) => ({
       }
       set((p) => ({ tasks: p.tasks.filter((t) => t.id !== id) }));
       if (uiStore.getState().selectedTaskId === id) uiStore.getState().setSelectedTaskId(null);
-      uiStore.getState().addToast('warning', 'Download removed', `"${targetItem.name}" was removed from the daemon.${diskMessage}`);
+      uiStore
+        .getState()
+        .addToast('warning', 'Download removed', `"${targetItem.name}" was removed from the daemon.${diskMessage}`);
     } catch (error) {
-      uiStore.getState().addToast('error', 'NOVA daemon', error instanceof Error ? error.message : 'The local engine could not delete the download.');
+      uiStore
+        .getState()
+        .addToast(
+          'error',
+          'NOVA daemon',
+          error instanceof Error ? error.message : 'The local engine could not delete the download.',
+        );
     }
   },
 
   openTaskFile: async (id) => {
     const task = get().tasks.find((item) => item.id === id);
     const { addToast } = uiStore.getState();
-    if (!task) { addToast('error', 'Open File', 'The selected download was not found.'); return; }
-    if (task.status !== 'completed') { addToast('warning', 'Download not complete', 'The download must finish before opening.'); return; }
-    if (!task.savePath) { addToast('error', 'Open File', 'No saved file path is available for this download.'); return; }
+    if (!task) {
+      addToast('error', 'Open File', 'The selected download was not found.');
+      return;
+    }
+    if (task.status !== 'completed') {
+      addToast('warning', 'Download not complete', 'The download must finish before opening.');
+      return;
+    }
+    if (!task.savePath) {
+      addToast('error', 'Open File', 'No saved file path is available for this download.');
+      return;
+    }
     const opened = await tauriClient.openDownloadedFile(task.savePath);
     if (opened) addToast('success', 'File opened', `Opened "${task.name}".`);
     else addToast('error', 'File opened', `Could not open "${task.name}". The file may have moved.`);
@@ -145,8 +198,14 @@ export const taskStore = create<TaskState>()((set, get) => ({
   openTaskLocation: async (id) => {
     const task = get().tasks.find((item) => item.id === id);
     const { addToast } = uiStore.getState();
-    if (!task) { addToast('error', 'Open File Location', 'The selected download was not found.'); return; }
-    if (!task.savePath) { addToast('error', 'Open File Location', 'No saved file path is available for this download.'); return; }
+    if (!task) {
+      addToast('error', 'Open File Location', 'The selected download was not found.');
+      return;
+    }
+    if (!task.savePath) {
+      addToast('error', 'Open File Location', 'No saved file path is available for this download.');
+      return;
+    }
     const opened = await tauriClient.revealDownloadedFile(task.savePath);
     if (opened) addToast('success', 'Folder opened', `Opened location for "${task.name}".`);
     else addToast('error', 'Folder opened', `Could not open the location for "${task.name}".`);
@@ -166,19 +225,28 @@ export const taskStore = create<TaskState>()((set, get) => ({
       const targetDirectory = options?.saveDirectory || settings.saveAndCategories.categoryFolders.other || '';
       const task = await get().addTask(
         {
-          name: parsedName, url, fileType: 'other', status: 'queued', sizeBytes: 0,
-          category: 'other', queueId: options?.queueId || 'main',
-          connections: options?.connections ?? 0, resumable: true,
+          name: parsedName,
+          url,
+          fileType: 'other',
+          status: 'queued',
+          sizeBytes: 0,
+          category: 'other',
+          queueId: options?.queueId || 'main',
+          connections: options?.connections ?? 0,
+          resumable: true,
           savePath: targetDirectory ? `${targetDirectory.replace(/[\\/]+$/, '')}\\${parsedName}` : parsedName,
           description: options?.description || 'Batch import',
-          directOptions: options?.directOptions, elapsedSeconds: 0,
+          directOptions: options?.directOptions,
+          elapsedSeconds: 0,
         },
         false,
       );
       if (task) accepted.push(task);
     }
     if (accepted.length > 0) {
-      uiStore.getState().addToast('success', 'Batch import', `${String(accepted.length)} link(s) were accepted by the local daemon.`);
+      uiStore
+        .getState()
+        .addToast('success', 'Batch import', `${String(accepted.length)} link(s) were accepted by the local daemon.`);
     }
   },
 }));

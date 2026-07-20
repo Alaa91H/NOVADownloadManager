@@ -6,7 +6,9 @@ const goto = async (page: import('@playwright/test').Page) => {
 };
 
 test.describe('UI Responsive — sidebar navigation', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   const navItems = [
     { label: 'All Downloads', regex: /all downloads|كل التنزيلات/i },
@@ -21,9 +23,10 @@ test.describe('UI Responsive — sidebar navigation', () => {
       if (await btn.isVisible().catch(() => false)) {
         await btn.click();
         await page.waitForTimeout(300);
-        const isActive = await btn.evaluate(el =>
-          (el.getAttribute('class') ?? '').includes('bg-[var(--bg-selected)]') ||
-          (el.getAttribute('class') ?? '').includes('font-bold')
+        const isActive = await btn.evaluate(
+          (el) =>
+            (el.getAttribute('class') ?? '').includes('bg-[var(--bg-selected)]') ||
+            (el.getAttribute('class') ?? '').includes('font-bold'),
         );
         expect(isActive).toBeTruthy();
       }
@@ -43,7 +46,10 @@ test.describe('UI Responsive — sidebar navigation', () => {
   }
 
   test('clicking Settings button in sidebar opens settings', async ({ page }) => {
-    const settingsBtn = page.locator('aside button').filter({ has: page.locator('svg') }).last();
+    const settingsBtn = page
+      .locator('aside button')
+      .filter({ has: page.locator('svg') })
+      .last();
     if (await settingsBtn.isVisible().catch(() => false)) {
       await settingsBtn.click();
       await page.waitForTimeout(500);
@@ -66,13 +72,17 @@ test.describe('UI Responsive — sidebar navigation', () => {
 });
 
 test.describe('UI Responsive — dark/light theme toggle', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('dark mode is default theme', async ({ page }) => {
-    const hasDark = await page.evaluate(() =>
-      document.documentElement.classList.contains('dark') ||
-      document.documentElement.getAttribute('data-theme')?.includes('dark') ||
-      (document.documentElement.getAttribute('class')?.includes('dark') || false)
+    const hasDark = await page.evaluate(
+      () =>
+        document.documentElement.classList.contains('dark') ||
+        document.documentElement.getAttribute('data-theme')?.includes('dark') ||
+        document.documentElement.getAttribute('class')?.includes('dark') ||
+        false,
     );
     expect(typeof hasDark).toBe('boolean');
   });
@@ -93,12 +103,12 @@ test.describe('UI Responsive — dark/light theme toggle', () => {
     const lightBtn = page.locator('aside button[title*="light" i], aside button[title*="فاتح" i]').first();
     if (await lightBtn.isVisible().catch(() => false)) {
       const bgBefore = await page.evaluate(() =>
-        window.getComputedStyle(document.documentElement).getPropertyValue('--bg-app').trim()
+        window.getComputedStyle(document.documentElement).getPropertyValue('--bg-app').trim(),
       );
       await lightBtn.click();
       await page.waitForTimeout(300);
       const bgAfter = await page.evaluate(() =>
-        window.getComputedStyle(document.documentElement).getPropertyValue('--bg-app').trim()
+        window.getComputedStyle(document.documentElement).getPropertyValue('--bg-app').trim(),
       );
       expect(bgAfter).toBeTruthy();
       expect(bgBefore).not.toBe(bgAfter);
@@ -128,7 +138,7 @@ test.describe('UI Responsive — dark/light theme toggle', () => {
       await firstAccent.click();
       await page.waitForTimeout(300);
       const accent = await page.evaluate(() =>
-        getComputedStyle(document.documentElement).getPropertyValue('--accent-primary').trim()
+        getComputedStyle(document.documentElement).getPropertyValue('--accent-primary').trim(),
       );
       expect(accent).toBeTruthy();
       expect(accent).toMatch(/^#/);
@@ -136,15 +146,18 @@ test.describe('UI Responsive — dark/light theme toggle', () => {
   });
 
   test('active theme toggle has visual indicator', async ({ page }) => {
-    const themeBtns = page.locator('aside button[title*="dark" i], aside button[title*="light" i], aside button[title*="داكن" i], aside button[title*="فاتح" i]');
+    const themeBtns = page.locator(
+      'aside button[title*="dark" i], aside button[title*="light" i], aside button[title*="داكن" i], aside button[title*="فاتح" i]',
+    );
     const count = await themeBtns.count();
     let hasActive = false;
     for (let i = 0; i < count; i++) {
       const btn = themeBtns.nth(i);
       if (await btn.isVisible().catch(() => false)) {
-        const isActive = await btn.evaluate(el =>
-          (el.getAttribute('class') ?? '').includes('bg-[var(--bg-selected)]') ||
-          (el.getAttribute('class') ?? '').includes('text-[var(--accent-primary)]')
+        const isActive = await btn.evaluate(
+          (el) =>
+            (el.getAttribute('class') ?? '').includes('bg-[var(--bg-selected)]') ||
+            (el.getAttribute('class') ?? '').includes('text-[var(--accent-primary)]'),
         );
         if (isActive) hasActive = true;
       }
@@ -184,7 +197,7 @@ test.describe('UI Responsive — responsive layout at different viewports', () =
     await goto(page);
     const sidebar = page.locator('aside');
     if (await sidebar.isVisible().catch(() => false)) {
-      const display = await sidebar.evaluate(el => window.getComputedStyle(el).display);
+      const display = await sidebar.evaluate((el) => window.getComputedStyle(el).display);
       expect(display).toBe('none');
     }
   });
@@ -223,13 +236,17 @@ test.describe('UI Responsive — responsive layout at different viewports', () =
   test('large viewport at 1920px renders without horizontal scroll', async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
     await goto(page);
-    const hasHScroll = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+    const hasHScroll = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    );
     expect(hasHScroll).toBe(false);
   });
 });
 
 test.describe('UI Responsive — keyboard shortcuts', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('Ctrl+N opens new download dialog', async ({ page }) => {
     await page.keyboard.press('Control+n');
@@ -300,7 +317,7 @@ test.describe('UI Responsive — keyboard shortcuts', () => {
     await page.keyboard.press('Tab');
     const focused = page.locator(':focus');
     if (await focused.isVisible().catch(() => false)) {
-      const outlineStyle = await focused.evaluate(el => {
+      const outlineStyle = await focused.evaluate((el) => {
         const style = window.getComputedStyle(el);
         return style.outlineStyle || style.boxShadow;
       });
@@ -310,7 +327,9 @@ test.describe('UI Responsive — keyboard shortcuts', () => {
 });
 
 test.describe('UI Responsive — drag and drop tasks', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('draggable elements exist in the app', async ({ page }) => {
     const draggable = page.locator('[draggable="true"]');
@@ -330,7 +349,7 @@ test.describe('UI Responsive — drag and drop tasks', () => {
     if (count >= 2) {
       const first = headers.first();
       const second = headers.nth(1);
-      if (await first.isVisible().catch(() => false) && await second.isVisible().catch(() => false)) {
+      if ((await first.isVisible().catch(() => false)) && (await second.isVisible().catch(() => false))) {
         const firstBox = await first.boundingBox();
         const secondBox = await second.boundingBox();
         if (firstBox && secondBox) {
@@ -383,7 +402,7 @@ test.describe('UI Responsive — CSS variables and design system', () => {
     await goto(page);
     const panels = page.locator('[class*="backdrop-blur"], [class*="glassmorphism"]').first();
     if (await panels.isVisible().catch(() => false)) {
-      const backdrop = await panels.evaluate(el => {
+      const backdrop = await panels.evaluate((el) => {
         const s = window.getComputedStyle(el);
         return s.backdropFilter || (s as unknown as Record<string, string>)['webkitBackdropFilter'] || '';
       });
@@ -397,14 +416,16 @@ test.describe('UI Responsive — CSS variables and design system', () => {
     await page.keyboard.press('Control+n');
     const dialog = page.locator('[role="dialog"]');
     await expect(dialog).toBeVisible({ timeout: 3000 });
-    const animation = await dialog.evaluate(el => window.getComputedStyle(el).animation);
+    const animation = await dialog.evaluate((el) => window.getComputedStyle(el).animation);
     expect(animation.includes('reduced-motion') || animation.includes('none')).toBeTruthy();
     await page.keyboard.press('Escape');
   });
 });
 
 test.describe('UI Responsive — status bar layout', () => {
-  test.beforeEach(async ({ page }) => { await goto(page); });
+  test.beforeEach(async ({ page }) => {
+    await goto(page);
+  });
 
   test('status bar is visible at bottom', async ({ page }) => {
     const statusBar = page.locator('[role="status"]').first();
