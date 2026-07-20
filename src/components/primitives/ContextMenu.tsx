@@ -18,7 +18,7 @@ interface ContextMenuProps {
 
 export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, options, onClose }) => {
   const menuRef = useRef<HTMLDivElement>(null);
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(() => options.findIndex((o) => !o.disabled));
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -44,20 +44,19 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, options, onClose
       }
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
-        setActiveIndex((prev) => {
-          const opt = options[prev];
-          if (!opt.disabled) {
-            opt.onClick();
-            onClose();
-          }
-          return prev;
-        });
+        const opt = options[activeIndex];
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+        if (opt && !opt.disabled) {
+          opt.onClick();
+          onClose();
+        }
       }
     },
-    [onClose, options],
+    [onClose, options, activeIndex],
   );
 
   useEffect(() => {
+    menuRef.current?.focus();
     const handleClick = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         onClose();
@@ -97,9 +96,10 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, options, onClose
       <div
         ref={menuRef}
         style={{ position: 'fixed', left: posX, top: posY, minWidth: menuWidth }}
-        className="z-[101] bg-[var(--bg-surface-elevated)] border border-[var(--border-color)] rounded-lg shadow-2xl py-1 animate-in fade-in slide-in-from-top-1 duration-100 font-bold"
+        className="z-[101] bg-[var(--bg-surface-elevated)] border border-[var(--border-color)] rounded-lg shadow-2xl py-1 animate-in fade-in slide-in-from-top-1 duration-100 font-bold focus:outline-none"
         role="menu"
         aria-orientation="vertical"
+        tabIndex={0}
       >
         {options.map((opt, i) => (
           <button

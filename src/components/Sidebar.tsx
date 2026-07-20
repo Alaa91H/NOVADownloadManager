@@ -236,7 +236,9 @@ export const Sidebar: React.FC = () => {
 
         {/* Open workspace layouts */}
         <div className="space-y-0.5">
-          <h3 className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] px-1">{t('sidebar_web_browser')}</h3>
+          <h3 className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] px-1">
+            {t('sidebar_web_browser')}
+          </h3>
 
           <button
             onClick={() => {

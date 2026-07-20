@@ -81,7 +81,9 @@ export const BrowserAndIntegration: React.FC<Props> = ({ settings, updateSetting
           </span>
 
           <div className="space-y-2">
-            <span className="text-[11px] text-[var(--text-secondary)] font-bold block">{t('settings_capture_browsers')}</span>
+            <span className="text-[11px] text-[var(--text-secondary)] font-bold block">
+              {t('settings_capture_browsers')}
+            </span>
             {(['chrome', 'edge', 'firefox', 'safari'] as const).map((browser) => (
               <FormRow key={browser} label={t(`settings_browser_${browser}`)}>
                 <Switch

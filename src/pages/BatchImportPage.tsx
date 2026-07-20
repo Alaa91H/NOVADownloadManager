@@ -1,7 +1,15 @@
 /* src/pages/BatchImportPage.tsx */
 import React, { useState } from 'react';
 import { ArrowLeft, Layers, Clipboard, AlertCircle, Sliders } from 'lucide-react';
-import { useDialogActions, useTaskActions, useToastActions, useSettingsData, useQueueData, useNavigationActions, useI18n } from '../store/selectors';
+import {
+  useDialogActions,
+  useTaskActions,
+  useToastActions,
+  useSettingsData,
+  useQueueData,
+  useNavigationActions,
+  useI18n,
+} from '../store/selectors';
 import { Button, SelectField, TextField } from '../components/primitives';
 import { readClipboardText } from '../utils/clipboard';
 import { useEngineCapabilities } from '../capabilities/EngineCapabilityContext';
@@ -105,15 +113,9 @@ export const BatchImportPage: React.FC = () => {
 
   return (
     <div className="app-page flex-1 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-app)]" dir="ltr">
-
       {/* HEADER */}
       <div className="flex items-center gap-3 px-3 py-2 border-b border-[var(--border-color)] bg-[var(--bg-sidebar)] shrink-0 select-none">
-        <button
-          type="button"
-          onClick={handleBack}
-          className="toolbar-btn shrink-0"
-          title={t('page_back_tip')}
-        >
+        <button type="button" onClick={handleBack} className="toolbar-btn shrink-0" title={t('page_back_tip')}>
           <ArrowLeft className="w-4 h-4" />
           <span className="hidden sm:inline">{t('page_back')}</span>
         </button>
@@ -133,12 +135,9 @@ export const BatchImportPage: React.FC = () => {
       {/* BODY */}
       <div className="flex-1 min-h-0 overflow-y-auto p-4">
         <div className="max-w-3xl mx-auto space-y-4">
-
           <div className="flex items-center gap-2 p-3 bg-[var(--info-bg)] border border-[var(--info-border)] text-[var(--text-secondary)] rounded-lg text-xs">
             <AlertCircle className="w-5 h-5 text-[var(--accent-primary)] shrink-0" />
-            <p className="leading-relaxed">
-              {t('batch_desc')}
-            </p>
+            <p className="leading-relaxed">{t('batch_desc')}</p>
           </div>
 
           {!engineCapabilities.directReady && (
@@ -294,7 +293,6 @@ export const BatchImportPage: React.FC = () => {
               </div>
             </div>
           )}
-
         </div>
       </div>
 

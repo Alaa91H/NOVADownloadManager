@@ -34,25 +34,33 @@ export const MediaAndTorrent: React.FC<Props> = ({ settings, updateSetting }) =>
               label="Enable BitTorrent"
               disabled={!torrentSupported}
               checked={false}
-              onChange={(v) => { updateSetting('extra', 'torrentEnabled', v); }}
+              onChange={(v) => {
+                updateSetting('extra', 'torrentEnabled', v);
+              }}
             />
             <Checkbox
               label="Enable DHT"
               disabled={!torrentSupported}
               checked={false}
-              onChange={(v) => { updateTorrentSetting('torrentDht', v); }}
+              onChange={(v) => {
+                updateTorrentSetting('torrentDht', v);
+              }}
             />
             <Checkbox
               label="Enable PEX"
               disabled={!torrentSupported}
               checked={false}
-              onChange={(v) => { updateTorrentSetting('torrentPex', v); }}
+              onChange={(v) => {
+                updateTorrentSetting('torrentPex', v);
+              }}
             />
             <Checkbox
               label="Prefer encrypted peers"
               disabled={!torrentSupported}
               checked={false}
-              onChange={(v) => { updateTorrentSetting('torrentEncrypt', v); }}
+              onChange={(v) => {
+                updateTorrentSetting('torrentEncrypt', v);
+              }}
             />
           </div>
 
@@ -61,14 +69,18 @@ export const MediaAndTorrent: React.FC<Props> = ({ settings, updateSetting }) =>
               label="Incoming port"
               disabled={!torrentSupported}
               value={settings.extra.torrentPort}
-              onChange={(e) => { updateTorrentSetting('torrentPort', e.target.value); }}
+              onChange={(e) => {
+                updateTorrentSetting('torrentPort', e.target.value);
+              }}
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
               label="Max peers"
               disabled={!torrentSupported}
               value={settings.extra.torrentMaxPeers}
-              onChange={(e) => { updateTorrentSetting('torrentMaxPeers', e.target.value); }}
+              onChange={(e) => {
+                updateTorrentSetting('torrentMaxPeers', e.target.value);
+              }}
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
           </div>
@@ -83,13 +95,17 @@ export const MediaAndTorrent: React.FC<Props> = ({ settings, updateSetting }) =>
               label="Continue seeding after download"
               disabled={!torrentSupported}
               checked={false}
-              onChange={(v) => { updateTorrentSetting('torrentSeeding', v); }}
+              onChange={(v) => {
+                updateTorrentSetting('torrentSeeding', v);
+              }}
             />
             <Checkbox
               label="Stop seeding on battery"
               disabled={!torrentSupported}
               checked={false}
-              onChange={(v) => { updateSetting('extra', 'torrentBatteryStop', v); }}
+              onChange={(v) => {
+                updateSetting('extra', 'torrentBatteryStop', v);
+              }}
             />
           </div>
           <div className="grid grid-cols-1 gap-3 pt-1">
@@ -97,14 +113,18 @@ export const MediaAndTorrent: React.FC<Props> = ({ settings, updateSetting }) =>
               label="Ratio limit"
               disabled={!torrentSupported}
               value={settings.extra.torrentRatioLimit}
-              onChange={(e) => { updateTorrentSetting('torrentRatioLimit', e.target.value); }}
+              onChange={(e) => {
+                updateTorrentSetting('torrentRatioLimit', e.target.value);
+              }}
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
               label="Max upload speed"
               disabled={!torrentSupported}
               value={settings.extra.torrentUploadSpeed}
-              onChange={(e) => { updateTorrentSetting('torrentUploadSpeed', e.target.value); }}
+              onChange={(e) => {
+                updateTorrentSetting('torrentUploadSpeed', e.target.value);
+              }}
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
           </div>

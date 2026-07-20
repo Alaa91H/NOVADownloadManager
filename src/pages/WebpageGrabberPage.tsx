@@ -1,7 +1,15 @@
 /* src/pages/WebpageGrabberPage.tsx */
 import React, { useState } from 'react';
 import { ArrowLeft, Globe, FolderOpen, Layers, CheckSquare, Download, HelpCircle, FileText } from 'lucide-react';
-import { useDialogActions, useDialogData, useQueueData, useSettingsData, useToastActions, useNavigationActions, useI18n } from '../store/selectors';
+import {
+  useDialogActions,
+  useDialogData,
+  useQueueData,
+  useSettingsData,
+  useToastActions,
+  useNavigationActions,
+  useI18n,
+} from '../store/selectors';
 import { novaClient } from '../api/novaClient';
 import { tauriClient } from '../api/tauriClient';
 import { TextField, SelectField, Switch, Checkbox } from '../components/primitives';
@@ -54,6 +62,11 @@ export const WebpageGrabberPage: React.FC = () => {
         .replace(/[^a-zA-Z0-9._-]/g, '_')
         .slice(0, 80);
 
+      // NOTE: grabber options (depth, saveFormat, filters, followOuterDomains,
+      // overwriteExisting) are currently only recorded in the description string.
+      // The daemon does not yet expose a structured webpage-grabber task type;
+      // wiring these through directOptions is part of the engine-integration
+      // roadmap (Phase 2). For now createDownload queues the seed URL only.
       await novaClient.createDownload({
         url: url.trim(),
         name: `${fileName}_depth${String(depth)}.${saveFormat === 'text' ? 'txt' : 'html'}`,
@@ -70,10 +83,14 @@ export const WebpageGrabberPage: React.FC = () => {
         startImmediately: true,
       });
 
-      addToast('success', t('grabber_banner_title'), `Queued: ${url.trim()}`);
+      addToast('success', t('grabber_banner_title'), `${t('grabber_queued')}: ${url.trim()}`);
       setActivePage('downloads');
     } catch (err) {
-      addToast('error', t('grabber_error_no_backend'), err instanceof Error ? err.message : t('grabber_error_no_backend_msg'));
+      addToast(
+        'error',
+        t('grabber_error_no_backend'),
+        err instanceof Error ? err.message : t('grabber_error_no_backend_msg'),
+      );
     } finally {
       setIsStarting(false);
     }
@@ -83,15 +100,9 @@ export const WebpageGrabberPage: React.FC = () => {
 
   return (
     <div className="app-page flex-1 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-app)]" dir="ltr">
-
       {/* HEADER */}
       <div className="flex items-center gap-3 px-3 py-2 border-b border-[var(--border-color)] bg-[var(--bg-sidebar)] shrink-0 select-none">
-        <button
-          type="button"
-          onClick={handleBack}
-          className="toolbar-btn shrink-0"
-          title={t('page_back_tip')}
-        >
+        <button type="button" onClick={handleBack} className="toolbar-btn shrink-0" title={t('page_back_tip')}>
           <ArrowLeft className="w-4 h-4" />
           <span className="hidden sm:inline">{t('page_back')}</span>
         </button>
@@ -117,9 +128,7 @@ export const WebpageGrabberPage: React.FC = () => {
                 <Globe className="w-4 h-4" />
                 {t('grabber_banner_title')}
               </p>
-              <p className="text-[11px] text-[var(--text-muted)]">
-                {t('grabber_banner_desc')}
-              </p>
+              <p className="text-[11px] text-[var(--text-muted)]">{t('grabber_banner_desc')}</p>
             </div>
 
             <div className="space-y-4">
@@ -265,9 +274,7 @@ export const WebpageGrabberPage: React.FC = () => {
 
                 <div className="flex items-center gap-3 bg-[var(--bg-hover)]/20 p-2.5 rounded-lg border border-[var(--border-color)]/20">
                   <HelpCircle className="w-4 h-4 text-[var(--info)] shrink-0" />
-                  <div className="text-[10px] text-[var(--text-muted)] leading-normal">
-                    {t('grabber_notice')}
-                  </div>
+                  <div className="text-[10px] text-[var(--text-muted)] leading-normal">{t('grabber_notice')}</div>
                 </div>
               </div>
             </div>
@@ -293,7 +300,8 @@ export const WebpageGrabberPage: React.FC = () => {
                   title="Webpage Preview"
                   src={url.trim()}
                   className="w-full h-full"
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                  sandbox="allow-same-origin allow-forms"
+                  referrerPolicy="no-referrer"
                 />
               ) : (
                 <div className="flex h-full items-center justify-center p-4 text-[13px] text-[var(--text-secondary)]">

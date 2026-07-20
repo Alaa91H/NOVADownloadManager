@@ -1,5 +1,16 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Download, RefreshCw, Check, AlertTriangle, Settings, Terminal, Wrench, ExternalLink, FolderOpen, Trash2 } from 'lucide-react';
+import {
+  Download,
+  RefreshCw,
+  Check,
+  AlertTriangle,
+  Settings,
+  Terminal,
+  Wrench,
+  ExternalLink,
+  FolderOpen,
+  Trash2,
+} from 'lucide-react';
 import { useExternalToolsStore } from '../../../store/externalToolsStore';
 import type { ExternalToolState } from '../../../store/externalToolsStore';
 
@@ -21,11 +32,17 @@ const statusIcon = (status: string) => {
 
 const statusColor = (status: string) => {
   switch (status) {
-    case 'Installed': return 'text-emerald-400';
-    case 'Update Available': return 'text-amber-400';
-    case 'Not Installed': return 'text-zinc-500';
-    case 'Broken': case 'Incompatible': return 'text-red-400';
-    default: return 'text-zinc-500';
+    case 'Installed':
+      return 'text-emerald-400';
+    case 'Update Available':
+      return 'text-amber-400';
+    case 'Not Installed':
+      return 'text-zinc-500';
+    case 'Broken':
+    case 'Incompatible':
+      return 'text-red-400';
+    default:
+      return 'text-zinc-500';
   }
 };
 
@@ -93,21 +110,33 @@ const ToolCard: React.FC<{ tool: ExternalToolState; onRefresh: () => void }> = (
 
       {tool.version && (
         <div className="flex items-center gap-4 text-[10px] text-[var(--text-secondary)]">
-          <span>Version: <span className="font-mono text-[var(--text-primary)]">{tool.version}</span></span>
-          {tool.latestVersion && <span>Latest: <span className="font-mono text-[var(--text-primary)]">{tool.latestVersion}</span></span>}
+          <span>
+            Version: <span className="font-mono text-[var(--text-primary)]">{tool.version}</span>
+          </span>
+          {tool.latestVersion && (
+            <span>
+              Latest: <span className="font-mono text-[var(--text-primary)]">{tool.latestVersion}</span>
+            </span>
+          )}
         </div>
       )}
 
       {tool.path && (
         <div className="text-[10px] text-[var(--text-muted)] truncate" title={tool.path}>
           Path: <span className="font-mono text-[var(--text-secondary)]">{tool.path}</span>
-          {tool.customPath && <span className="ml-1 px-1 py-0.5 bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] rounded text-[9px] font-bold">Custom</span>}
+          {tool.customPath && (
+            <span className="ml-1 px-1 py-0.5 bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] rounded text-[9px] font-bold">
+              Custom
+            </span>
+          )}
         </div>
       )}
 
       {tool.capabilities.length > 0 && (
         <div className="space-y-1">
-          <span className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Capabilities</span>
+          <span className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
+            Capabilities
+          </span>
           <div className="flex flex-wrap gap-1">
             {tool.capabilities.map((cap) => (
               <span
@@ -134,7 +163,9 @@ const ToolCard: React.FC<{ tool: ExternalToolState; onRefresh: () => void }> = (
       <div className="flex flex-wrap gap-1.5 pt-1">
         <button
           type="button"
-          onClick={() => { void handleDiscover(); }}
+          onClick={() => {
+            void handleDiscover();
+          }}
           disabled={actionLoading}
           className="flex items-center gap-1 px-2 py-1 text-[10px] font-semibold bg-[var(--bg-hover)] border border-[var(--border-color)] rounded hover:bg-[var(--accent-primary)]/10 hover:border-[var(--accent-border)] transition-all disabled:opacity-50"
         >
@@ -143,7 +174,9 @@ const ToolCard: React.FC<{ tool: ExternalToolState; onRefresh: () => void }> = (
         </button>
         <button
           type="button"
-          onClick={() => { void handleCheckUpdates(); }}
+          onClick={() => {
+            void handleCheckUpdates();
+          }}
           disabled={actionLoading}
           className="flex items-center gap-1 px-2 py-1 text-[10px] font-semibold bg-[var(--bg-hover)] border border-[var(--border-color)] rounded hover:bg-[var(--accent-primary)]/10 hover:border-[var(--accent-border)] transition-all disabled:opacity-50"
         >
@@ -152,7 +185,9 @@ const ToolCard: React.FC<{ tool: ExternalToolState; onRefresh: () => void }> = (
         {tool.updateAvailable && (
           <button
             type="button"
-            onClick={() => { void handleUpdate(); }}
+            onClick={() => {
+              void handleUpdate();
+            }}
             disabled={actionLoading}
             className="flex items-center gap-1 px-2 py-1 text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded hover:bg-emerald-500/20 transition-all disabled:opacity-50"
           >
@@ -161,7 +196,10 @@ const ToolCard: React.FC<{ tool: ExternalToolState; onRefresh: () => void }> = (
         )}
         <button
           type="button"
-          onClick={() => { setShowPathInput(!showPathInput); setCustomPathValue(tool.path || ''); }}
+          onClick={() => {
+            setShowPathInput(!showPathInput);
+            setCustomPathValue(tool.path || '');
+          }}
           className="flex items-center gap-1 px-2 py-1 text-[10px] font-semibold bg-[var(--bg-hover)] border border-[var(--border-color)] rounded hover:bg-[var(--accent-primary)]/10 hover:border-[var(--accent-border)] transition-all"
         >
           <FolderOpen className="w-3 h-3" /> Change Path
@@ -169,7 +207,9 @@ const ToolCard: React.FC<{ tool: ExternalToolState; onRefresh: () => void }> = (
         {!showUninstallConfirm && tool.status !== 'Not Installed' && (
           <button
             type="button"
-            onClick={() => { setShowUninstallConfirm(true); }}
+            onClick={() => {
+              setShowUninstallConfirm(true);
+            }}
             className="flex items-center gap-1 px-2 py-1 text-[10px] font-semibold bg-red-500/5 text-red-400 border border-red-500/20 rounded hover:bg-red-500/15 transition-all"
           >
             <Trash2 className="w-3 h-3" /> Uninstall
@@ -182,13 +222,17 @@ const ToolCard: React.FC<{ tool: ExternalToolState; onRefresh: () => void }> = (
           <input
             type="text"
             value={customPathValue}
-            onChange={(e) => { setCustomPathValue(e.target.value); }}
+            onChange={(e) => {
+              setCustomPathValue(e.target.value);
+            }}
             placeholder={`/usr/bin/${tool.id}`}
             className="flex-1 px-2 py-1 text-[11px] font-mono bg-[var(--bg-hover)] border border-[var(--border-color)] rounded focus:border-[var(--accent-primary)] focus:ring-1 focus:ring-[var(--accent-primary)] text-[var(--text-primary)]"
           />
           <button
             type="button"
-            onClick={() => { void handleSetPath(); }}
+            onClick={() => {
+              void handleSetPath();
+            }}
             disabled={actionLoading || !customPathValue.trim()}
             className="px-2 py-1 text-[10px] font-semibold bg-[var(--accent-primary)] text-white rounded hover:opacity-90 disabled:opacity-50 transition-all"
           >
@@ -196,7 +240,9 @@ const ToolCard: React.FC<{ tool: ExternalToolState; onRefresh: () => void }> = (
           </button>
           <button
             type="button"
-            onClick={() => { setShowPathInput(false); }}
+            onClick={() => {
+              setShowPathInput(false);
+            }}
             className="px-2 py-1 text-[10px] font-semibold bg-[var(--bg-hover)] border border-[var(--border-color)] rounded hover:bg-[var(--bg-hover)] transition-all"
           >
             Cancel
@@ -215,7 +261,9 @@ const ToolCard: React.FC<{ tool: ExternalToolState; onRefresh: () => void }> = (
             {tool.installedByApp && (
               <button
                 type="button"
-                onClick={() => { void handleUninstall(); }}
+                onClick={() => {
+                  void handleUninstall();
+                }}
                 disabled={actionLoading}
                 className="px-2 py-1 text-[10px] font-semibold bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50 transition-all"
               >
@@ -224,7 +272,9 @@ const ToolCard: React.FC<{ tool: ExternalToolState; onRefresh: () => void }> = (
             )}
             <button
               type="button"
-              onClick={() => { setShowUninstallConfirm(false); }}
+              onClick={() => {
+                setShowUninstallConfirm(false);
+              }}
               className="px-2 py-1 text-[10px] font-semibold bg-[var(--bg-hover)] border border-[var(--border-color)] rounded hover:bg-[var(--bg-hover)] transition-all"
             >
               Cancel
@@ -261,7 +311,8 @@ export const ExternalToolsSettings: React.FC = () => {
       <div>
         <h2 className="text-sm font-bold text-[var(--text-primary)] mb-1">External Tools</h2>
         <p className="text-[11px] text-[var(--text-muted)]">
-          Manage external tools like FFmpeg and yt-dlp. These tools are discovered from your system and provide additional capabilities.
+          Manage external tools like FFmpeg and yt-dlp. These tools are discovered from your system and provide
+          additional capabilities.
         </p>
       </div>
 
@@ -273,7 +324,13 @@ export const ExternalToolsSettings: React.FC = () => {
       ) : (
         <div className="space-y-3">
           {tools.map((tool) => (
-            <ToolCard key={tool.id} tool={tool} onRefresh={() => { void fetchTools(); }} />
+            <ToolCard
+              key={tool.id}
+              tool={tool}
+              onRefresh={() => {
+                void fetchTools();
+              }}
+            />
           ))}
           {tools.length === 0 && (
             <div className="text-xs text-[var(--text-muted)] py-4 text-center">

@@ -1,7 +1,15 @@
 ﻿/* src/dialogs/download/AddDownloadDialog.tsx */
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { Video, ArrowRight, RefreshCw, Link } from 'lucide-react';
-import { useDialogData, useDialogActions, useQueueData, useSettingsData, useTaskActions, useToastActions, useI18n } from '../../store/selectors';
+import {
+  useDialogData,
+  useDialogActions,
+  useQueueData,
+  useSettingsData,
+  useTaskActions,
+  useToastActions,
+  useI18n,
+} from '../../store/selectors';
 import { tauriClient } from '../../api/tauriClient';
 import { novaClient } from '../../api/novaClient';
 import type { FileType } from '../../types/desktop-ui.types';
@@ -379,120 +387,122 @@ export const AddDownloadDialog: React.FC = () => {
     // the start of every download and resume. Storing a pre-resolved mirror URL
     // would bake in a time-limited token that goes stale on resume.
     const submittedUrl = url.trim();
-    const downloadUrl = submittedUrl;
     const effectiveReferer = referer.trim();
 
-    const directBlock = engineCapabilities.directBlockedReason(submittedUrl);
-    if (directBlock) {
-      addToast('error', t('add_dl_direct_engine_unavailable'), directBlock);
-      return;
-    }
+    try {
+      const directBlock = engineCapabilities.directBlockedReason(submittedUrl);
+      if (directBlock) {
+        addToast('error', t('add_dl_direct_engine_unavailable'), directBlock);
+        return;
+      }
 
-    if (
-      settings.extra.vpnEnabled &&
-      settings.extra.vpnKillSwitch &&
-      ((settings.extra.vpnMode === 'proxy' && !settings.extra.vpnProxyUrl.trim()) ||
-        (settings.extra.vpnMode === 'bind' && !settings.extra.vpnBindAddress.trim()))
-    ) {
-      addToast('error', t('add_dl_vpn_routing_error'), t('add_dl_vpn_incomplete'));
-      return;
-    }
+      if (
+        settings.extra.vpnEnabled &&
+        settings.extra.vpnKillSwitch &&
+        ((settings.extra.vpnMode === 'proxy' && !settings.extra.vpnProxyUrl.trim()) ||
+          (settings.extra.vpnMode === 'bind' && !settings.extra.vpnBindAddress.trim()))
+      ) {
+        addToast('error', t('add_dl_vpn_routing_error'), t('add_dl_vpn_incomplete'));
+        return;
+      }
 
-    const vpnRoute = await tauriClient.validateVpnRoute(settings);
-    if (!vpnRoute.ok) {
-      addToast('error', t('add_dl_vpn_routing_error'), vpnRoute.message);
-      return;
-    }
+      const vpnRoute = await tauriClient.validateVpnRoute(settings);
+      if (!vpnRoute.ok) {
+        addToast('error', t('add_dl_vpn_routing_error'), vpnRoute.message);
+        return;
+      }
 
-    if (!submittedUrl) {
-      addToast('error', t('toast_error_title'), t('add_dl_enter_valid_link'));
-      return;
-    }
+      if (!submittedUrl) {
+        addToast('error', t('toast_error_title'), t('add_dl_enter_valid_link'));
+        return;
+      }
 
-    if (submittedUrl.startsWith('magnet:') || submittedUrl.toLowerCase().endsWith('.torrent')) {
+      if (submittedUrl.startsWith('magnet:') || submittedUrl.toLowerCase().endsWith('.torrent')) {
+        addToast('error', t('toast_error_title'), t('add_dl_unsupported_torrent'));
+        return;
+      }
+
+      const urlType = detectUrlType(submittedUrl);
+      if (urlType === 'media') {
+        addToast('info', t('add_dl_media_detected'), t('add_dl_media_redirecting'));
+        clearSensitiveDialogState();
+        openDialog('mediaDownload', submittedUrl);
+        return;
+      }
+
+      const directOptions = engineCapabilities.sanitizeDirectOptions({
+        userAgent: userAgent.trim() || undefined,
+        referer: effectiveReferer || undefined,
+        headers: headers.trim() || undefined,
+        cookies: cookies.trim() || undefined,
+        proxy: proxy.trim() || undefined,
+        noproxy: noproxy.trim() || undefined,
+        sourceAddress: configuredSourceAddress || undefined,
+        speedLimitKbs: speedLimitKbs > 0 ? speedLimitKbs : undefined,
+        retryCount: retryCount > 0 ? retryCount : undefined,
+        retryDelaySec: retryDelaySec > 0 ? retryDelaySec : undefined,
+        timeoutSec: timeoutSec > 0 ? timeoutSec : undefined,
+        connectTimeoutSec: connectTimeoutSec > 0 ? connectTimeoutSec : undefined,
+        allowOverwrite: allowOverwrite || undefined,
+        segmented: supportsSegmentedDownloads && effectiveConnections > 1 && resumable ? true : undefined,
+        authType: authType || undefined,
+        username: authUsername.trim() || undefined,
+        password: authPassword.trim() || undefined,
+        oauth2Bearer: oauth2Bearer.trim() || undefined,
+        proxyUser: proxyUser.trim() || undefined,
+        proxyPassword: proxyPassword.trim() || undefined,
+        proxyType: proxyType || undefined,
+        proxyTunnel: proxyTunnel || undefined,
+        unrestrictedAuth: unrestrictedAuth || undefined,
+        ipResolve: ipResolve || undefined,
+        httpVersion: httpVersion || undefined,
+        insecure: insecure || undefined,
+        caCert: caCert.trim() || undefined,
+        cert: clientCert.trim() || undefined,
+        key: clientKey.trim() || undefined,
+        ciphers: tlsCiphers.trim() || undefined,
+        tlsMin: tlsMin || undefined,
+        maxRedirs: maxRedirs !== 20 ? maxRedirs : undefined,
+        keepaliveTimeSec: keepaliveTimeSec > 0 ? keepaliveTimeSec : undefined,
+        tcpNoDelay: tcpNoDelay || undefined,
+        dnsServers: dnsServers.trim() || undefined,
+        freshConnect: freshConnect || undefined,
+        forbidReuse: forbidReuse || undefined,
+      });
+
+      const task = await addTask(
+        {
+          name: fileName,
+          url: submittedUrl,
+          fileType,
+          status: downloadImmediately ? 'downloading' : 'queued',
+          sizeBytes,
+          category,
+          queueId,
+          connections: effectiveConnections,
+          resumable,
+          savePath,
+          description,
+          referer: effectiveReferer,
+          directOptions,
+          elapsedSeconds: 0,
+        },
+        downloadImmediately,
+      );
+
+      if (task) {
+        cleanupSensitiveLink(submittedUrl);
+        if (!downloadImmediately) {
+          clearSensitiveDialogState();
+          closeDialog();
+        }
+      }
+    } catch (err) {
       addToast(
         'error',
-        t('toast_error_title'),
-        t('add_dl_unsupported_torrent'),
+        t('add_dl_direct_engine_unavailable'),
+        err instanceof Error ? err.message : t('add_dl_vpn_routing_error'),
       );
-      return;
-    }
-
-    const urlType = detectUrlType(submittedUrl);
-    if (urlType === 'media') {
-      addToast('info', t('add_dl_media_detected'), t('add_dl_media_redirecting'));
-      clearSensitiveDialogState();
-      openDialog('mediaDownload', submittedUrl);
-      return;
-    }
-
-    const directOptions = engineCapabilities.sanitizeDirectOptions({
-      userAgent: userAgent.trim() || undefined,
-      referer: effectiveReferer || undefined,
-      headers: headers.trim() || undefined,
-      cookies: cookies.trim() || undefined,
-      proxy: proxy.trim() || undefined,
-      noproxy: noproxy.trim() || undefined,
-      sourceAddress: configuredSourceAddress || undefined,
-      speedLimitKbs: speedLimitKbs > 0 ? speedLimitKbs : undefined,
-      retryCount: retryCount > 0 ? retryCount : undefined,
-      retryDelaySec: retryDelaySec > 0 ? retryDelaySec : undefined,
-      timeoutSec: timeoutSec > 0 ? timeoutSec : undefined,
-      connectTimeoutSec: connectTimeoutSec > 0 ? connectTimeoutSec : undefined,
-      allowOverwrite: allowOverwrite ? undefined : false,
-      segmented: supportsSegmentedDownloads && effectiveConnections > 1 && resumable ? true : undefined,
-      authType: authType || undefined,
-      username: authUsername.trim() || undefined,
-      password: authPassword.trim() || undefined,
-      oauth2Bearer: oauth2Bearer.trim() || undefined,
-      proxyUser: proxyUser.trim() || undefined,
-      proxyPassword: proxyPassword.trim() || undefined,
-      proxyType: proxyType || undefined,
-      proxyTunnel: proxyTunnel || undefined,
-      unrestrictedAuth: unrestrictedAuth || undefined,
-      ipResolve: ipResolve || undefined,
-      httpVersion: httpVersion || undefined,
-      insecure: insecure || undefined,
-      caCert: caCert.trim() || undefined,
-      cert: clientCert.trim() || undefined,
-      key: clientKey.trim() || undefined,
-      ciphers: tlsCiphers.trim() || undefined,
-      tlsMin: tlsMin || undefined,
-      maxRedirs: maxRedirs !== 20 ? maxRedirs : undefined,
-      keepaliveTimeSec: keepaliveTimeSec > 0 ? keepaliveTimeSec : undefined,
-      tcpNoDelay: tcpNoDelay || undefined,
-      dnsServers: dnsServers.trim() || undefined,
-      freshConnect: freshConnect || undefined,
-      forbidReuse: forbidReuse || undefined,
-    });
-
-    const task = await addTask(
-      {
-        name: fileName,
-        url: downloadUrl,
-        fileType,
-        status: downloadImmediately ? 'downloading' : 'queued',
-        sizeBytes,
-        category,
-        queueId,
-        connections: effectiveConnections,
-        resumable,
-        savePath,
-        description:
-          description || (downloadUrl !== submittedUrl ? `Original download page: ${submittedUrl}` : description),
-        referer: effectiveReferer,
-        directOptions,
-        elapsedSeconds: 0,
-      },
-      downloadImmediately,
-    );
-
-    if (task) {
-      cleanupSensitiveLink(submittedUrl);
-      if (!downloadImmediately) {
-        clearSensitiveDialogState();
-        closeDialog();
-      }
     }
   };
 
@@ -598,9 +608,7 @@ export const AddDownloadDialog: React.FC = () => {
         <div className="bg-[var(--danger-bg)] border border-[var(--danger-border)] rounded-lg p-2.5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-xs">
             <Video className="w-4 h-4 text-[var(--danger)] shrink-0" />
-            <span className="text-[var(--text-primary)]">
-              {t('add_dl_media_detected')}
-            </span>
+            <span className="text-[var(--text-primary)]">{t('add_dl_media_detected')}</span>
           </div>
           <button
             onClick={() => {
@@ -657,7 +665,11 @@ export const AddDownloadDialog: React.FC = () => {
             let borderColor = 'border-[var(--border-color)] bg-[var(--bg-hover)]/30 text-[var(--text-muted)]';
             let textColor = 'text-[var(--text-secondary)]';
             const sizeKnown = sizeBytes > 0;
-            const sizeLabel = isFetchingInfo ? t('add_dl_checking') : sizeKnown ? formatBytes(sizeBytes) : t('add_dl_unknown_size');
+            const sizeLabel = isFetchingInfo
+              ? t('add_dl_checking')
+              : sizeKnown
+                ? formatBytes(sizeBytes)
+                : t('add_dl_unknown_size');
             const sizeTitle = isFetchingInfo
               ? t('add_dl_calculating_size')
               : sizeKnown
@@ -669,7 +681,8 @@ export const AddDownloadDialog: React.FC = () => {
               textColor = 'text-[var(--warning)]';
             } else if (infoFetched) {
               if (sizeKnown) {
-                borderColor = 'border-[var(--success)] bg-[var(--success-bg)] text-[var(--success)] dark:text-[var(--success)]';
+                borderColor =
+                  'border-[var(--success)] bg-[var(--success-bg)] text-[var(--success)] dark:text-[var(--success)]';
                 textColor = 'text-[var(--success)] dark:text-[var(--success)]';
               } else {
                 borderColor = 'border-[var(--border-color)] bg-[var(--bg-hover)]/30 text-[var(--text-secondary)]';
@@ -845,7 +858,9 @@ export const AddDownloadDialog: React.FC = () => {
             <SelectField
               label={t('add_dl_ip_resolve')}
               value={ipResolve}
-              onChange={(e) => { setIpResolve(e.target.value); }}
+              onChange={(e) => {
+                setIpResolve(e.target.value);
+              }}
               options={[
                 { value: '', label: t('add_dl_system_default') },
                 { value: '4', label: t('add_dl_force_ipv4') },
@@ -856,7 +871,9 @@ export const AddDownloadDialog: React.FC = () => {
             <SelectField
               label={t('add_dl_proxy_type')}
               value={proxyType}
-              onChange={(e) => { setProxyType(e.target.value); }}
+              onChange={(e) => {
+                setProxyType(e.target.value);
+              }}
               options={[
                 { value: '', label: t('add_dl_proxy_default') },
                 { value: 'socks4', label: 'SOCKS4' },
@@ -951,7 +968,9 @@ export const AddDownloadDialog: React.FC = () => {
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-[var(--text-secondary)] text-[10px] md:text-[11px] font-bold">{t('batch_cookies')}</label>
+              <label className="text-[var(--text-secondary)] text-[10px] md:text-[11px] font-bold">
+                {t('batch_cookies')}
+              </label>
               <textarea
                 rows={3}
                 value={cookies}
@@ -970,7 +989,9 @@ export const AddDownloadDialog: React.FC = () => {
           <div className="border-t border-[var(--border-color)]/40 pt-3 mt-1">
             <button
               type="button"
-              onClick={() => { setShowOverrideSection(!showOverrideSection); }}
+              onClick={() => {
+                setShowOverrideSection(!showOverrideSection);
+              }}
               className="flex items-center gap-2 w-full text-left cursor-pointer group"
             >
               <span className="text-[10px] md:text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
@@ -992,7 +1013,9 @@ export const AddDownloadDialog: React.FC = () => {
                     <SelectField
                       label={t('add_dl_auth_type')}
                       value={authType}
-                      onChange={(e) => { setAuthType(e.target.value); }}
+                      onChange={(e) => {
+                        setAuthType(e.target.value);
+                      }}
                       options={[
                         { value: '', label: t('add_dl_auth_none') },
                         { value: 'basic', label: t('add_dl_auth_basic') },
@@ -1003,13 +1026,68 @@ export const AddDownloadDialog: React.FC = () => {
                       ]}
                       disabled={!isDirectOptionSupported('authType')}
                     />
-                    <TextField label={t('add_dl_username')} value={authUsername} onChange={(e) => { setAuthUsername(e.target.value); }} placeholder="username" className="font-mono" style={{ direction: 'ltr', textAlign: 'left' }} disabled={!isDirectOptionSupported('username')} />
-                    <TextField label={t('add_dl_password')} value={authPassword} onChange={(e) => { setAuthPassword(e.target.value); }} placeholder="password" className="font-mono" style={{ direction: 'ltr', textAlign: 'left' }} disabled={!isDirectOptionSupported('password')} />
-                    <TextField label={t('add_dl_oauth2_bearer')} value={oauth2Bearer} onChange={(e) => { setOauth2Bearer(e.target.value); }} placeholder="eyJhbGciOi..." className="font-mono" style={{ direction: 'ltr', textAlign: 'left' }} disabled={!isDirectOptionSupported('oauth2Bearer')} />
-                    <TextField label={t('add_dl_proxy_username')} value={proxyUser} onChange={(e) => { setProxyUser(e.target.value); }} placeholder="proxy-user" className="font-mono" style={{ direction: 'ltr', textAlign: 'left' }} disabled={!isDirectOptionSupported('proxyUser')} />
-                    <TextField label={t('add_dl_proxy_password')} value={proxyPassword} onChange={(e) => { setProxyPassword(e.target.value); }} placeholder="proxy-pass" className="font-mono" style={{ direction: 'ltr', textAlign: 'left' }} disabled={!isDirectOptionSupported('proxyPassword')} />
+                    <TextField
+                      label={t('add_dl_username')}
+                      value={authUsername}
+                      onChange={(e) => {
+                        setAuthUsername(e.target.value);
+                      }}
+                      placeholder="username"
+                      className="font-mono"
+                      style={{ direction: 'ltr', textAlign: 'left' }}
+                      disabled={!isDirectOptionSupported('username')}
+                    />
+                    <TextField
+                      label={t('add_dl_password')}
+                      value={authPassword}
+                      onChange={(e) => {
+                        setAuthPassword(e.target.value);
+                      }}
+                      placeholder="password"
+                      className="font-mono"
+                      style={{ direction: 'ltr', textAlign: 'left' }}
+                      disabled={!isDirectOptionSupported('password')}
+                    />
+                    <TextField
+                      label={t('add_dl_oauth2_bearer')}
+                      value={oauth2Bearer}
+                      onChange={(e) => {
+                        setOauth2Bearer(e.target.value);
+                      }}
+                      placeholder="eyJhbGciOi..."
+                      className="font-mono"
+                      style={{ direction: 'ltr', textAlign: 'left' }}
+                      disabled={!isDirectOptionSupported('oauth2Bearer')}
+                    />
+                    <TextField
+                      label={t('add_dl_proxy_username')}
+                      value={proxyUser}
+                      onChange={(e) => {
+                        setProxyUser(e.target.value);
+                      }}
+                      placeholder="proxy-user"
+                      className="font-mono"
+                      style={{ direction: 'ltr', textAlign: 'left' }}
+                      disabled={!isDirectOptionSupported('proxyUser')}
+                    />
+                    <TextField
+                      label={t('add_dl_proxy_password')}
+                      value={proxyPassword}
+                      onChange={(e) => {
+                        setProxyPassword(e.target.value);
+                      }}
+                      placeholder="proxy-pass"
+                      className="font-mono"
+                      style={{ direction: 'ltr', textAlign: 'left' }}
+                      disabled={!isDirectOptionSupported('proxyPassword')}
+                    />
                     <div className="flex items-center gap-6 pt-5 md:col-span-2">
-                      <Checkbox label={t('add_dl_unrestricted_auth')} checked={unrestrictedAuth} onChange={setUnrestrictedAuth} disabled={!isDirectOptionSupported('unrestrictedAuth')} />
+                      <Checkbox
+                        label={t('add_dl_unrestricted_auth')}
+                        checked={unrestrictedAuth}
+                        onChange={setUnrestrictedAuth}
+                        disabled={!isDirectOptionSupported('unrestrictedAuth')}
+                      />
                     </div>
                   </div>
                 </div>
@@ -1020,13 +1098,89 @@ export const AddDownloadDialog: React.FC = () => {
                     {t('add_dl_tls_security')}
                   </span>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <SelectField label={t('add_dl_http_version')} value={httpVersion} onChange={(e) => { setHttpVersion(e.target.value); }} options={[{ value: '', label: 'Auto' }, { value: '1.0', label: 'HTTP/1.0' }, { value: '1.1', label: 'HTTP/1.1' }, { value: '2', label: 'HTTP/2' }, { value: '2-prior-knowledge', label: 'HTTP/2 Prior Knowledge' }, { value: '3', label: 'HTTP/3' }]} disabled={!isDirectOptionSupported('httpVersion')} />
-                    <SelectField label={t('add_dl_tls_min')} value={tlsMin} onChange={(e) => { setTlsMin(e.target.value); }} options={[{ value: '', label: 'Default' }, { value: '1.0', label: 'TLS 1.0' }, { value: '1.1', label: 'TLS 1.1' }, { value: '1.2', label: 'TLS 1.2' }, { value: '1.3', label: 'TLS 1.3' }]} disabled={!isDirectOptionSupported('tlsMin')} />
-                    <div className="flex items-center gap-6 pt-5"><Checkbox label={t('add_dl_insecure')} checked={insecure} onChange={setInsecure} disabled={!isDirectOptionSupported('insecure')} /></div>
-                    <TextField label={t('add_dl_ca_cert')} value={caCert} onChange={(e) => { setCaCert(e.target.value); }} placeholder="/path/to/cacert.pem" className="font-mono" style={{ direction: 'ltr', textAlign: 'left' }} disabled={!isDirectOptionSupported('caCert')} />
-                    <TextField label={t('add_dl_client_cert')} value={clientCert} onChange={(e) => { setClientCert(e.target.value); }} placeholder="/path/to/client.crt" className="font-mono" style={{ direction: 'ltr', textAlign: 'left' }} disabled={!isDirectOptionSupported('cert')} />
-                    <TextField label={t('add_dl_client_key')} value={clientKey} onChange={(e) => { setClientKey(e.target.value); }} placeholder="/path/to/client.key" className="font-mono" style={{ direction: 'ltr', textAlign: 'left' }} disabled={!isDirectOptionSupported('key')} />
-                    <TextField label={t('add_dl_cipher_suites')} value={tlsCiphers} onChange={(e) => { setTlsCiphers(e.target.value); }} placeholder="ECDHE+AESGCM:!aNULL" className="font-mono" style={{ direction: 'ltr', textAlign: 'left' }} disabled={!isDirectOptionSupported('ciphers')} />
+                    <SelectField
+                      label={t('add_dl_http_version')}
+                      value={httpVersion}
+                      onChange={(e) => {
+                        setHttpVersion(e.target.value);
+                      }}
+                      options={[
+                        { value: '', label: 'Auto' },
+                        { value: '1.0', label: 'HTTP/1.0' },
+                        { value: '1.1', label: 'HTTP/1.1' },
+                        { value: '2', label: 'HTTP/2' },
+                        { value: '2-prior-knowledge', label: 'HTTP/2 Prior Knowledge' },
+                        { value: '3', label: 'HTTP/3' },
+                      ]}
+                      disabled={!isDirectOptionSupported('httpVersion')}
+                    />
+                    <SelectField
+                      label={t('add_dl_tls_min')}
+                      value={tlsMin}
+                      onChange={(e) => {
+                        setTlsMin(e.target.value);
+                      }}
+                      options={[
+                        { value: '', label: 'Default' },
+                        { value: '1.0', label: 'TLS 1.0' },
+                        { value: '1.1', label: 'TLS 1.1' },
+                        { value: '1.2', label: 'TLS 1.2' },
+                        { value: '1.3', label: 'TLS 1.3' },
+                      ]}
+                      disabled={!isDirectOptionSupported('tlsMin')}
+                    />
+                    <div className="flex items-center gap-6 pt-5">
+                      <Checkbox
+                        label={t('add_dl_insecure')}
+                        checked={insecure}
+                        onChange={setInsecure}
+                        disabled={!isDirectOptionSupported('insecure')}
+                      />
+                    </div>
+                    <TextField
+                      label={t('add_dl_ca_cert')}
+                      value={caCert}
+                      onChange={(e) => {
+                        setCaCert(e.target.value);
+                      }}
+                      placeholder="/path/to/cacert.pem"
+                      className="font-mono"
+                      style={{ direction: 'ltr', textAlign: 'left' }}
+                      disabled={!isDirectOptionSupported('caCert')}
+                    />
+                    <TextField
+                      label={t('add_dl_client_cert')}
+                      value={clientCert}
+                      onChange={(e) => {
+                        setClientCert(e.target.value);
+                      }}
+                      placeholder="/path/to/client.crt"
+                      className="font-mono"
+                      style={{ direction: 'ltr', textAlign: 'left' }}
+                      disabled={!isDirectOptionSupported('cert')}
+                    />
+                    <TextField
+                      label={t('add_dl_client_key')}
+                      value={clientKey}
+                      onChange={(e) => {
+                        setClientKey(e.target.value);
+                      }}
+                      placeholder="/path/to/client.key"
+                      className="font-mono"
+                      style={{ direction: 'ltr', textAlign: 'left' }}
+                      disabled={!isDirectOptionSupported('key')}
+                    />
+                    <TextField
+                      label={t('add_dl_cipher_suites')}
+                      value={tlsCiphers}
+                      onChange={(e) => {
+                        setTlsCiphers(e.target.value);
+                      }}
+                      placeholder="ECDHE+AESGCM:!aNULL"
+                      className="font-mono"
+                      style={{ direction: 'ltr', textAlign: 'left' }}
+                      disabled={!isDirectOptionSupported('ciphers')}
+                    />
                   </div>
                 </div>
 
@@ -1036,14 +1190,67 @@ export const AddDownloadDialog: React.FC = () => {
                     {t('add_dl_connection_tuning')}
                   </span>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <TextField label={t('add_dl_max_redirects')} type="number" value={maxRedirs} onChange={(e) => { setMaxRedirs(Number(e.target.value)); }} disabled={!isDirectOptionSupported('maxRedirs')} />
-                    <TextField label={t('add_dl_keepalive')} type="number" value={keepaliveTimeSec} onChange={(e) => { setKeepaliveTimeSec(Number(e.target.value)); }} disabled={!isDirectOptionSupported('keepaliveTimeSec')} />
-                    <div className="flex items-center gap-6 pt-5"><Checkbox label={t('add_dl_tcp_no_delay')} checked={tcpNoDelay} onChange={setTcpNoDelay} disabled={!isDirectOptionSupported('tcpNoDelay')} /></div>
-                    <TextField label={t('add_dl_dns_servers')} value={dnsServers} onChange={(e) => { setDnsServers(e.target.value); }} placeholder="1.1.1.1, 8.8.8.8" className="font-mono" style={{ direction: 'ltr', textAlign: 'left' }} disabled={!isDirectOptionSupported('dnsServers')} />
-                    <TextField label={t('add_dl_noproxy')} value={noproxy} onChange={(e) => { setNoproxy(e.target.value); }} placeholder="localhost, 127.0.0.1, .local" className="font-mono" style={{ direction: 'ltr', textAlign: 'left' }} disabled={!isDirectOptionSupported('noproxy')} />
+                    <TextField
+                      label={t('add_dl_max_redirects')}
+                      type="number"
+                      value={maxRedirs}
+                      onChange={(e) => {
+                        setMaxRedirs(Number(e.target.value));
+                      }}
+                      disabled={!isDirectOptionSupported('maxRedirs')}
+                    />
+                    <TextField
+                      label={t('add_dl_keepalive')}
+                      type="number"
+                      value={keepaliveTimeSec}
+                      onChange={(e) => {
+                        setKeepaliveTimeSec(Number(e.target.value));
+                      }}
+                      disabled={!isDirectOptionSupported('keepaliveTimeSec')}
+                    />
+                    <div className="flex items-center gap-6 pt-5">
+                      <Checkbox
+                        label={t('add_dl_tcp_no_delay')}
+                        checked={tcpNoDelay}
+                        onChange={setTcpNoDelay}
+                        disabled={!isDirectOptionSupported('tcpNoDelay')}
+                      />
+                    </div>
+                    <TextField
+                      label={t('add_dl_dns_servers')}
+                      value={dnsServers}
+                      onChange={(e) => {
+                        setDnsServers(e.target.value);
+                      }}
+                      placeholder="1.1.1.1, 8.8.8.8"
+                      className="font-mono"
+                      style={{ direction: 'ltr', textAlign: 'left' }}
+                      disabled={!isDirectOptionSupported('dnsServers')}
+                    />
+                    <TextField
+                      label={t('add_dl_noproxy')}
+                      value={noproxy}
+                      onChange={(e) => {
+                        setNoproxy(e.target.value);
+                      }}
+                      placeholder="localhost, 127.0.0.1, .local"
+                      className="font-mono"
+                      style={{ direction: 'ltr', textAlign: 'left' }}
+                      disabled={!isDirectOptionSupported('noproxy')}
+                    />
                     <div className="flex items-center gap-6 pt-5 md:col-span-2">
-                      <Checkbox label={t('add_dl_fresh_connect')} checked={freshConnect} onChange={setFreshConnect} disabled={!isDirectOptionSupported('freshConnect')} />
-                      <Checkbox label={t('add_dl_forbid_reuse')} checked={forbidReuse} onChange={setForbidReuse} disabled={!isDirectOptionSupported('forbidReuse')} />
+                      <Checkbox
+                        label={t('add_dl_fresh_connect')}
+                        checked={freshConnect}
+                        onChange={setFreshConnect}
+                        disabled={!isDirectOptionSupported('freshConnect')}
+                      />
+                      <Checkbox
+                        label={t('add_dl_forbid_reuse')}
+                        checked={forbidReuse}
+                        onChange={setForbidReuse}
+                        disabled={!isDirectOptionSupported('forbidReuse')}
+                      />
                     </div>
                   </div>
                 </div>

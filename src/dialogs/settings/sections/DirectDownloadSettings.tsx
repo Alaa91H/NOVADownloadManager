@@ -32,25 +32,33 @@ export const DirectDownloadSettings: React.FC<Props> = ({ settings, updateSettin
               label="Timeout (s)"
               type="number"
               value={settings.connection.defaults.timeoutSec}
-              onChange={(e) => { updateDefaults('timeoutSec', Number(e.target.value)); }}
+              onChange={(e) => {
+                updateDefaults('timeoutSec', Number(e.target.value));
+              }}
             />
             <TextField
               label="Connect Timeout (s)"
               type="number"
               value={settings.connection.defaults.connectTimeoutSec}
-              onChange={(e) => { updateDefaults('connectTimeoutSec', Number(e.target.value)); }}
+              onChange={(e) => {
+                updateDefaults('connectTimeoutSec', Number(e.target.value));
+              }}
             />
             <TextField
               label="Retries"
               type="number"
               value={settings.connection.defaults.retryCount}
-              onChange={(e) => { updateDefaults('retryCount', Number(e.target.value)); }}
+              onChange={(e) => {
+                updateDefaults('retryCount', Number(e.target.value));
+              }}
             />
             <TextField
               label="Retry Delay (s)"
               type="number"
               value={settings.connection.defaults.retryDelaySec}
-              onChange={(e) => { updateDefaults('retryDelaySec', Number(e.target.value)); }}
+              onChange={(e) => {
+                updateDefaults('retryDelaySec', Number(e.target.value));
+              }}
             />
           </div>
         </div>
@@ -68,7 +76,9 @@ export const DirectDownloadSettings: React.FC<Props> = ({ settings, updateSettin
             <SelectField
               label="IP Resolve"
               value={settings.connection.defaults.ipResolve}
-              onChange={(e) => { updateDefaults('ipResolve', e.target.value); }}
+              onChange={(e) => {
+                updateDefaults('ipResolve', e.target.value);
+              }}
               options={[
                 { value: '', label: 'System Default' },
                 { value: '4', label: 'Force IPv4' },
@@ -79,18 +89,24 @@ export const DirectDownloadSettings: React.FC<Props> = ({ settings, updateSettin
               label="Max Redirects"
               type="number"
               value={settings.connection.defaults.maxRedirs}
-              onChange={(e) => { updateDefaults('maxRedirs', Number(e.target.value)); }}
+              onChange={(e) => {
+                updateDefaults('maxRedirs', Number(e.target.value));
+              }}
             />
             <TextField
               label="Keepalive Interval (s)"
               type="number"
               value={settings.connection.defaults.keepaliveTimeSec}
-              onChange={(e) => { updateDefaults('keepaliveTimeSec', Number(e.target.value)); }}
+              onChange={(e) => {
+                updateDefaults('keepaliveTimeSec', Number(e.target.value));
+              }}
             />
             <TextField
               label="DNS Servers"
               value={settings.connection.defaults.dnsServers}
-              onChange={(e) => { updateDefaults('dnsServers', e.target.value); }}
+              onChange={(e) => {
+                updateDefaults('dnsServers', e.target.value);
+              }}
               placeholder="1.1.1.1, 8.8.8.8"
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
@@ -110,7 +126,9 @@ export const DirectDownloadSettings: React.FC<Props> = ({ settings, updateSettin
             <SelectField
               label="HTTP Version"
               value={settings.connection.defaults.httpVersion}
-              onChange={(e) => { updateDefaults('httpVersion', e.target.value); }}
+              onChange={(e) => {
+                updateDefaults('httpVersion', e.target.value);
+              }}
               options={[
                 { value: '', label: 'Auto' },
                 { value: '1.0', label: 'HTTP/1.0' },
@@ -122,7 +140,9 @@ export const DirectDownloadSettings: React.FC<Props> = ({ settings, updateSettin
             <SelectField
               label="TLS Min Version"
               value={settings.connection.defaults.tlsMin}
-              onChange={(e) => { updateDefaults('tlsMin', e.target.value); }}
+              onChange={(e) => {
+                updateDefaults('tlsMin', e.target.value);
+              }}
               options={[
                 { value: '', label: 'Default' },
                 { value: '1.0', label: 'TLS 1.0' },
@@ -134,28 +154,36 @@ export const DirectDownloadSettings: React.FC<Props> = ({ settings, updateSettin
             <TextField
               label="CA Certificate Path"
               value={settings.connection.defaults.caCert}
-              onChange={(e) => { updateDefaults('caCert', e.target.value); }}
+              onChange={(e) => {
+                updateDefaults('caCert', e.target.value);
+              }}
               placeholder="/path/to/cacert.pem"
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
               label="Client Certificate"
               value={settings.connection.defaults.clientCert}
-              onChange={(e) => { updateDefaults('clientCert', e.target.value); }}
+              onChange={(e) => {
+                updateDefaults('clientCert', e.target.value);
+              }}
               placeholder="/path/to/client.crt"
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
               label="Client Key"
               value={settings.connection.defaults.clientKey}
-              onChange={(e) => { updateDefaults('clientKey', e.target.value); }}
+              onChange={(e) => {
+                updateDefaults('clientKey', e.target.value);
+              }}
               placeholder="/path/to/client.key"
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
               label="Cipher Suites"
               value={settings.connection.defaults.ciphers}
-              onChange={(e) => { updateDefaults('ciphers', e.target.value); }}
+              onChange={(e) => {
+                updateDefaults('ciphers', e.target.value);
+              }}
               placeholder="ECDHE+AESGCM:!aNULL"
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
@@ -164,7 +192,9 @@ export const DirectDownloadSettings: React.FC<Props> = ({ settings, updateSettin
             <Checkbox
               label="Skip TLS verification (insecure)"
               checked={settings.connection.defaults.insecure}
-              onChange={(v) => { updateDefaults('insecure', v); }}
+              onChange={(v) => {
+                updateDefaults('insecure', v);
+              }}
             />
           </div>
         </div>
@@ -181,18 +211,20 @@ export const DirectDownloadSettings: React.FC<Props> = ({ settings, updateSettin
           <FormRow label="Preallocate disk space">
             <Switch
               checked={settings.advanced.dynamicAllocation}
-              onChange={(v) => { updateSetting('advanced', 'dynamicAllocation', v); }}
+              onChange={(v) => {
+                updateSetting('advanced', 'dynamicAllocation', v);
+              }}
             />
           </FormRow>
           <TextField
             label="Buffer Size (KB)"
             type="number"
             value={settings.advanced.bufferSizeKb}
-            onChange={(e) => { updateSetting('advanced', 'bufferSizeKb', Number(e.target.value)); }}
+            onChange={(e) => {
+              updateSetting('advanced', 'bufferSizeKb', Number(e.target.value));
+            }}
           />
-          <p className="text-[10px] text-[var(--text-muted)]">
-            Larger buffers improve throughput but use more memory.
-          </p>
+          <p className="text-[10px] text-[var(--text-muted)]">Larger buffers improve throughput but use more memory.</p>
         </div>
       </div>
     </div>

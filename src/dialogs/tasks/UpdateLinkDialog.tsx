@@ -52,9 +52,7 @@ export const UpdateLinkDialog: React.FC = () => {
         <AlertCircle className="w-5 h-5 text-[var(--info)] shrink-0 mt-0.5" />
         <div className="text-xs space-y-1">
           <p className="font-extrabold text-[var(--text-primary)]">{t('update_link_title')}</p>
-          <p className="text-[var(--text-secondary)] leading-relaxed">
-            {t('update_link_desc')}
-          </p>
+          <p className="text-[var(--text-secondary)] leading-relaxed">{t('update_link_desc')}</p>
         </div>
       </div>
 
@@ -89,14 +87,18 @@ export const UpdateLinkDialog: React.FC = () => {
 
       <div className="space-y-3 bg-[var(--bg-hover)]/20 p-3 rounded-lg border border-[var(--border-color)]/30">
         <div>
-          <label className="text-[11px] text-[var(--text-secondary)] font-bold block mb-1">{t('update_link_current_file')}</label>
+          <label className="text-[11px] text-[var(--text-secondary)] font-bold block mb-1">
+            {t('update_link_current_file')}
+          </label>
           <div className="bg-[var(--bg-input)]/80 text-[var(--text-primary)] px-3 py-1.5 rounded border border-[var(--border-color)]/30 text-xs font-mono font-bold truncate">
             {task.name}
           </div>
         </div>
 
         <div>
-          <label className="text-[11px] text-[var(--text-secondary)] font-bold block mb-1">{t('update_link_current_link')}</label>
+          <label className="text-[11px] text-[var(--text-secondary)] font-bold block mb-1">
+            {t('update_link_current_link')}
+          </label>
           <div
             className="bg-[var(--bg-input)]/50 text-[var(--text-muted)] px-3 py-1.5 rounded border border-[var(--border-color)]/30 text-[10px] font-mono truncate select-all"
             style={{ direction: 'ltr' }}

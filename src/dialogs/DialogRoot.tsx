@@ -5,16 +5,30 @@ import { useTaskData } from '../store/selectors';
 import { useI18n } from '../store/selectors';
 import { Modal } from './Modal';
 
-const AddDownloadDialog = lazy(() => import('./download/AddDownloadDialog').then((m) => ({ default: m.AddDownloadDialog })));
-const DiagnosticsDialog = lazy(() => import('./diagnostics/DiagnosticsDialog').then((m) => ({ default: m.DiagnosticsDialog })));
-const TaskPropertiesDialog = lazy(() => import('./tasks/TaskPropertiesDialog').then((m) => ({ default: m.TaskPropertiesDialog })));
-const ActiveProgressDialog = lazy(() => import('./download/ActiveProgressDialog').then((m) => ({ default: m.ActiveProgressDialog })));
+const AddDownloadDialog = lazy(() =>
+  import('./download/AddDownloadDialog').then((m) => ({ default: m.AddDownloadDialog })),
+);
+const DiagnosticsDialog = lazy(() =>
+  import('./diagnostics/DiagnosticsDialog').then((m) => ({ default: m.DiagnosticsDialog })),
+);
+const TaskPropertiesDialog = lazy(() =>
+  import('./tasks/TaskPropertiesDialog').then((m) => ({ default: m.TaskPropertiesDialog })),
+);
+const ActiveProgressDialog = lazy(() =>
+  import('./download/ActiveProgressDialog').then((m) => ({ default: m.ActiveProgressDialog })),
+);
 const AboutDialog = lazy(() => import('./system/AboutDialog').then((m) => ({ default: m.AboutDialog })));
-const BrowserIntegrationDialog = lazy(() => import('./integration/BrowserIntegrationDialog').then((m) => ({ default: m.BrowserIntegrationDialog })));
+const BrowserIntegrationDialog = lazy(() =>
+  import('./integration/BrowserIntegrationDialog').then((m) => ({ default: m.BrowserIntegrationDialog })),
+);
 const ConfirmDialog = lazy(() => import('./common/ConfirmDialog').then((m) => ({ default: m.ConfirmDialog })));
 const UpdateLinkDialog = lazy(() => import('./tasks/UpdateLinkDialog').then((m) => ({ default: m.UpdateLinkDialog })));
-const AddToQueueDialog = lazy(() => import('./download/AddToQueueDialog').then((m) => ({ default: m.AddToQueueDialog })));
-const GenericConfirmDialog = lazy(() => import('./common/GenericConfirmDialog').then((m) => ({ default: m.GenericConfirmDialog })));
+const AddToQueueDialog = lazy(() =>
+  import('./download/AddToQueueDialog').then((m) => ({ default: m.AddToQueueDialog })),
+);
+const GenericConfirmDialog = lazy(() =>
+  import('./common/GenericConfirmDialog').then((m) => ({ default: m.GenericConfirmDialog })),
+);
 
 const DialogFallback = () => (
   <div className="flex items-center justify-center py-12">
@@ -110,9 +124,7 @@ export default function DialogRoot() {
       id={active === 'activeProgress' ? 'active-progress-modal' : undefined}
       preventLightDismiss={active === 'activeProgress'}
     >
-      <Suspense fallback={<DialogFallback />}>
-        {childComponent}
-      </Suspense>
+      <Suspense fallback={<DialogFallback />}>{childComponent}</Suspense>
     </Modal>
   );
 }

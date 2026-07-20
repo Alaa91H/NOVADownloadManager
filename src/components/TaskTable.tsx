@@ -44,6 +44,7 @@ import {
   renderSortIcon,
 } from '../utils/taskTableUtils';
 import { novaClient } from '../api/novaClient';
+import { writeClipboardText } from '../utils/clipboard';
 
 export const TaskTable: React.FC = () => {
   const tasks = useTaskData();
@@ -169,7 +170,7 @@ export const TaskTable: React.FC = () => {
       label: t('menu_copy_url'),
       icon: <Copy className="w-3.5 h-3.5" />,
       onClick: () => {
-        void navigator.clipboard.writeText(task.url);
+        void writeClipboardText(task.url).catch(() => {});
       },
     });
     opts.push({
@@ -528,7 +529,7 @@ export const TaskTable: React.FC = () => {
                             className="px-2 py-0.5 font-mono text-[11px] text-[var(--text-secondary)] truncate text-start"
                             style={{ width }}
                           >
-                            {task.status === 'error' ? '3' : '0'}
+                            {task.retries != null ? String(task.retries) : '--'}
                           </td>
                         );
                       case 'connections':
@@ -538,9 +539,7 @@ export const TaskTable: React.FC = () => {
                             className="px-2 py-0.5 font-mono text-[11px] text-[var(--text-secondary)] truncate text-start"
                             style={{ width }}
                           >
-                            {task.connections === 0
-                              ? `${t('table_auto')} (${String(task.segments.length || 8)})`
-                              : task.connections}
+                            {task.connections === 0 ? t('table_auto') : task.connections}
                           </td>
                         );
                       case 'crc32':
@@ -584,7 +583,7 @@ export const TaskTable: React.FC = () => {
                             className="px-2 py-0.5 font-mono text-[10px] text-[var(--text-muted)] truncate"
                             style={{ width, direction: 'ltr', textAlign: 'left' }}
                           >
-                            {task.status === 'completed' ? task.dateAdded : '--'}
+                            {task.status === 'completed' && task.completedAt ? task.completedAt : '--'}
                           </td>
                         );
                       case 'sourceUrl':
@@ -655,8 +654,12 @@ export const TaskTable: React.FC = () => {
         tasks={sortedTasks}
         checkedTaskIds={checkedTaskIds}
         handleToggleCheckTask={handleToggleCheckTask}
-        pauseTask={(id: string) => { void pauseTask(id); }}
-        resumeTask={(id: string) => { void resumeTask(id); }}
+        pauseTask={(id: string) => {
+          void pauseTask(id);
+        }}
+        resumeTask={(id: string) => {
+          void resumeTask(id);
+        }}
         openTaskFile={openTaskFile}
         openTaskLocation={openTaskLocation}
         openDialog={openDialog}

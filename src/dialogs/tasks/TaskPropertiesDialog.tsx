@@ -50,11 +50,7 @@ export const TaskPropertiesDialog: React.FC = () => {
 
   const handleSave = () => {
     if (connections > 1 && !supportsSegmentedDownloads) {
-      addToast(
-        'warning',
-        t('task_connections'),
-        t('task_engine_warning'),
-      );
+      addToast('warning', t('task_connections'), t('task_engine_warning'));
       setConnections(1);
     }
     updateTaskProperties(task.id, {

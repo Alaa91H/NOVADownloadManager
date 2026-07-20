@@ -106,7 +106,9 @@ export const IntegrationsAndAutomation: React.FC<Props> = ({
           <div className="bg-[var(--bg-hover)]/30 p-3.5 rounded-lg border border-[var(--border-color)] space-y-3">
             <div className="flex items-center gap-2">
               <Bot className="w-4 h-4 text-[var(--info)]" />
-              <span className="text-[11px] font-extrabold text-[var(--info)]">{t('settings_telegram_notifications')}</span>
+              <span className="text-[11px] font-extrabold text-[var(--info)]">
+                {t('settings_telegram_notifications')}
+              </span>
             </div>
             <FormRow label={t('settings_enable_telegram')}>
               <Switch

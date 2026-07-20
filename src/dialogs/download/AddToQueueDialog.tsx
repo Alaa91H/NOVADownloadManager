@@ -1,7 +1,14 @@
 ﻿/* src/dialogs/download/AddToQueueDialog.tsx */
 import React, { useState } from 'react';
 import { ListPlus, Clock, ArrowRightLeft, FolderHeart, Plus } from 'lucide-react';
-import { useDialogData, useDialogActions, useQueueData, useQueueActions, useToastActions, useI18n } from '../../store/selectors';
+import {
+  useDialogData,
+  useDialogActions,
+  useQueueData,
+  useQueueActions,
+  useToastActions,
+  useI18n,
+} from '../../store/selectors';
 import { TextField, DialogButton } from '../../components/primitives';
 import type { DownloadItem } from '../../types/desktop-ui.types';
 
@@ -13,8 +20,19 @@ export const AddToQueueDialog: React.FC = () => {
   const { addToast } = useToastActions();
   const t = useI18n();
 
-  const task = dialog.payload as DownloadItem;
+  const task = dialog.payload as DownloadItem | undefined;
   const [newQueueName, setNewQueueName] = useState('');
+
+  if (!task) {
+    return (
+      <div className="space-y-4">
+        <p className="text-xs text-[var(--text-secondary)]">{t('queue_move_file_desc')}</p>
+        <DialogButton variant="secondary" onClick={closeDialog}>
+          {t('btn_close')}
+        </DialogButton>
+      </div>
+    );
+  }
 
   const handleSelectQueue = (queueId: string) => {
     if (task.queueId === queueId) {

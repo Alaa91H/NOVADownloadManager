@@ -62,7 +62,9 @@ export const MediaDownloadSettings: React.FC<Props> = ({ settings, updateSetting
           <SelectField
             label="Default Video Quality"
             value={settings.extra.videoQuality}
-            onChange={(e) => { updateSetting('extra', 'videoQuality', e.target.value); }}
+            onChange={(e) => {
+              updateSetting('extra', 'videoQuality', e.target.value);
+            }}
             options={[
               { value: 'ask', label: 'Ask Each Time' },
               { value: 'best', label: 'Best Available' },
@@ -91,12 +93,16 @@ export const MediaDownloadSettings: React.FC<Props> = ({ settings, updateSetting
           <Checkbox
             label="Download subtitles with media"
             checked={settings.extra.downloadSubtitles}
-            onChange={(v) => { updateSetting('extra', 'downloadSubtitles', v); }}
+            onChange={(v) => {
+              updateSetting('extra', 'downloadSubtitles', v);
+            }}
           />
           <SelectField
             label="Subtitle Language"
             value={settings.extra.subtitleLanguage}
-            onChange={(e) => { updateSetting('extra', 'subtitleLanguage', e.target.value); }}
+            onChange={(e) => {
+              updateSetting('extra', 'subtitleLanguage', e.target.value);
+            }}
             options={[
               { value: '', label: 'Use media default' },
               { value: 'all', label: 'All languages' },
@@ -117,17 +123,23 @@ export const MediaDownloadSettings: React.FC<Props> = ({ settings, updateSetting
           <Checkbox
             label="Monitor clipboard for media URLs"
             checked={settings.extra.mediaMonitorEnabled}
-            onChange={(v) => { updateSetting('extra', 'mediaMonitorEnabled', v); }}
+            onChange={(v) => {
+              updateSetting('extra', 'mediaMonitorEnabled', v);
+            }}
           />
           <Checkbox
             label="Capture HLS streams"
             checked={settings.extra.captureHls}
-            onChange={(v) => { updateSetting('extra', 'captureHls', v); }}
+            onChange={(v) => {
+              updateSetting('extra', 'captureHls', v);
+            }}
           />
           <Checkbox
             label="Capture DASH streams"
             checked={settings.extra.captureDash}
-            onChange={(v) => { updateSetting('extra', 'captureDash', v); }}
+            onChange={(v) => {
+              updateSetting('extra', 'captureDash', v);
+            }}
           />
         </div>
       </div>
@@ -143,19 +155,25 @@ export const MediaDownloadSettings: React.FC<Props> = ({ settings, updateSetting
           <TextField
             label="FFmpeg Binary Path"
             value={settings.extra.ffmpegPath}
-            onChange={(e) => { updateSetting('extra', 'ffmpegPath', e.target.value); }}
+            onChange={(e) => {
+              updateSetting('extra', 'ffmpegPath', e.target.value);
+            }}
             placeholder="Leave empty to use bundled FFmpeg"
             style={{ direction: 'ltr', textAlign: 'left' }}
           />
           <Checkbox
             label="Auto-merge audio + video segments"
             checked={settings.extra.ffmpegAutoMerge}
-            onChange={(v) => { updateSetting('extra', 'ffmpegAutoMerge', v); }}
+            onChange={(v) => {
+              updateSetting('extra', 'ffmpegAutoMerge', v);
+            }}
           />
           <Checkbox
             label="Delete segments after merge"
             checked={settings.extra.ffmpegDeleteSegments}
-            onChange={(v) => { updateSetting('extra', 'ffmpegDeleteSegments', v); }}
+            onChange={(v) => {
+              updateSetting('extra', 'ffmpegDeleteSegments', v);
+            }}
           />
 
           <div className="flex flex-col gap-1.5 items-start pt-2 border-t border-[var(--border-color)]/30">

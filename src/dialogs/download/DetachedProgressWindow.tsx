@@ -6,7 +6,9 @@ import { Minus, X } from 'lucide-react';
 import { useTaskData, useBridgeData, useI18n } from '../../store/selectors';
 import { Logo } from '../../components/Logo';
 
-const ActiveProgressDialog = lazy(() => import('./ActiveProgressDialog').then((m) => ({ default: m.ActiveProgressDialog })));
+const ActiveProgressDialog = lazy(() =>
+  import('./ActiveProgressDialog').then((m) => ({ default: m.ActiveProgressDialog })),
+);
 
 /**
  * Full-window host for a single download's live progress, shown in a separate
@@ -21,17 +23,25 @@ export const DetachedProgressWindow: React.FC<{ taskId: string }> = ({ taskId })
   const task = tasks.find((tt) => tt.id === taskId);
 
   const minimize = () => {
-    if (isTauri()) void getCurrentWindow().minimize().catch(() => {});
+    if (isTauri())
+      void getCurrentWindow()
+        .minimize()
+        .catch(() => {});
   };
   const close = () => {
-    if (isTauri()) void getCurrentWindow().close().catch(() => {});
+    if (isTauri())
+      void getCurrentWindow()
+        .close()
+        .catch(() => {});
   };
 
   // Keep the OS window title in sync with the file being downloaded.
   useEffect(() => {
     if (!isTauri()) return;
     const title = task ? `${task.name} — ${t('app_name')}` : t('app_name');
-    void getCurrentWindow().setTitle(title).catch(() => {});
+    void getCurrentWindow()
+      .setTitle(title)
+      .catch(() => {});
   }, [task, t]);
 
   return (
@@ -77,7 +87,13 @@ export const DetachedProgressWindow: React.FC<{ taskId: string }> = ({ taskId })
             <p className="text-xs">{t('shell_connecting')}</p>
           </div>
         ) : task ? (
-          <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" /></div>}>
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center h-full">
+                <div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" />
+              </div>
+            }
+          >
             <ActiveProgressDialog taskId={taskId} />
           </Suspense>
         ) : (

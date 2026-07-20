@@ -55,11 +55,7 @@ export const BrowserIntegrationDialog: React.FC = () => {
       setHealth(result);
       addToast('success', t('browser_bridge_title'), t('browser_bridge_ready'));
     } catch (error) {
-      addToast(
-        'error',
-        t('browser_bridge_title'),
-        error instanceof Error ? error.message : t('browser_bridge_error'),
-      );
+      addToast('error', t('browser_bridge_title'), error instanceof Error ? error.message : t('browser_bridge_error'));
     } finally {
       setIsChecking(false);
     }
@@ -121,17 +117,9 @@ export const BrowserIntegrationDialog: React.FC = () => {
   const openBrowserPage = async (browser: 'chrome' | 'edge' | 'firefox') => {
     try {
       await tauriClient.openBrowserExtensions(browser);
-      addToast(
-        'info',
-        t('toast_info_title'),
-        t('browser_ext_page_opened'),
-      );
+      addToast('info', t('toast_info_title'), t('browser_ext_page_opened'));
     } catch (e) {
-      addToast(
-        'error',
-        t('toast_error_title'),
-        e instanceof Error ? e.message : t('browser_ext_page_error'),
-      );
+      addToast('error', t('toast_error_title'), e instanceof Error ? e.message : t('browser_ext_page_error'));
     }
   };
 
@@ -181,9 +169,7 @@ export const BrowserIntegrationDialog: React.FC = () => {
               </Button>
             </div>
           </div>
-          <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-            {t('browser_chrome_edge_desc')}
-          </p>
+          <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">{t('browser_chrome_edge_desc')}</p>
         </div>
 
         <div className="border border-[var(--border-color)] rounded-lg p-3 bg-[var(--bg-surface)]/70 space-y-2">
@@ -196,17 +182,13 @@ export const BrowserIntegrationDialog: React.FC = () => {
               {t('browser_open')}
             </Button>
           </div>
-          <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-            {t('browser_firefox_desc')}
-          </p>
+          <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">{t('browser_firefox_desc')}</p>
         </div>
       </div>
 
       <div className="border border-[var(--border-color)] rounded-lg p-3 bg-[var(--bg-hover)]/25 space-y-2">
         <div className="text-xs font-extrabold text-[var(--text-primary)]">{t('browser_extension_downloads')}</div>
-        <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-          {t('browser_extension_desc')}
-        </p>
+        <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">{t('browser_extension_desc')}</p>
         <div className="flex flex-wrap gap-2 pt-1">
           <Button onClick={() => void openReleasesPage()} variant="primary" size="sm" icon={Download}>
             {t('browser_download_github')}

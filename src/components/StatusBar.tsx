@@ -43,12 +43,18 @@ export const StatusBar: React.FC = () => {
   const t = useI18n();
 
   const minimizedRealTask = useMemo(
-    () => (minimizedProgressTask ? tasks.find((t) => t.id === minimizedProgressTask.id) || minimizedProgressTask : null),
+    () =>
+      minimizedProgressTask
+        ? tasks.find((task) => task.id === minimizedProgressTask.id) || minimizedProgressTask
+        : null,
     [minimizedProgressTask, tasks],
   );
 
   const minimizedProgressPercent = useMemo(
-    () => (minimizedRealTask && minimizedRealTask.sizeBytes > 0 ? Math.round((minimizedRealTask.downloadedBytes / minimizedRealTask.sizeBytes) * 100) : 0),
+    () =>
+      minimizedRealTask && minimizedRealTask.sizeBytes > 0
+        ? Math.round((minimizedRealTask.downloadedBytes / minimizedRealTask.sizeBytes) * 100)
+        : 0,
     [minimizedRealTask],
   );
 
@@ -75,21 +81,33 @@ export const StatusBar: React.FC = () => {
       if (cancelledRef.current) return;
       try {
         const health = await novaClient.browserExtensionHealth();
-        if (!cancelledRef.current) { setBrowserHealth(health); } // eslint-disable-line @typescript-eslint/no-unnecessary-condition
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+        if (!cancelledRef.current) {
+          setBrowserHealth(health);
+        }
       } catch {
-        if (!cancelledRef.current) { setBrowserHealth(null); } // eslint-disable-line @typescript-eslint/no-unnecessary-condition
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+        if (!cancelledRef.current) {
+          setBrowserHealth(null);
+        }
       }
     };
     void poll();
-    healthTimerRef.current = window.setInterval(() => { void poll(); }, 15000);
+    healthTimerRef.current = window.setInterval(() => {
+      void poll();
+    }, 15000);
     return () => {
       cancelledRef.current = true;
       if (healthTimerRef.current !== null) window.clearInterval(healthTimerRef.current);
     };
-  }, [isAnyBrowserEnabled, settings.general.integrateWithBrowsers]);
+  }, [isAnyBrowserEnabled]);
 
-  const closeSpeedMenu = useCallback(() => { setSpeedMenuVisible(false); }, []);
-  const closeTelegramMenu = useCallback(() => { setTelegramMenuVisible(false); }, []);
+  const closeSpeedMenu = useCallback(() => {
+    setSpeedMenuVisible(false);
+  }, []);
+  const closeTelegramMenu = useCallback(() => {
+    setTelegramMenuVisible(false);
+  }, []);
 
   useEscapeKey(speedMenuVisible, closeSpeedMenu);
   useEscapeKey(telegramMenuVisible, closeTelegramMenu);
@@ -131,16 +149,18 @@ export const StatusBar: React.FC = () => {
   }, [tasks]);
 
   // 2. Derive browser icon color from health state
-  const browserStatusColor = browserIconState === 'connected'
-    ? 'text-[var(--success)] hover:text-[var(--success)]'
-    : browserIconState === 'degraded'
-      ? 'text-[var(--warning)] hover:text-[var(--warning)]'
-      : 'text-[var(--danger)] hover:text-[var(--danger)]';
-  const browserStatusTip = browserIconState === 'connected'
-    ? t('statusbar_browser_connected')
-    : browserIconState === 'degraded'
-      ? t('statusbar_browser_degraded')
-      : t('statusbar_browser_disconnected');
+  const browserStatusColor =
+    browserIconState === 'connected'
+      ? 'text-[var(--success)] hover:text-[var(--success)]'
+      : browserIconState === 'degraded'
+        ? 'text-[var(--warning)] hover:text-[var(--warning)]'
+        : 'text-[var(--danger)] hover:text-[var(--danger)]';
+  const browserStatusTip =
+    browserIconState === 'connected'
+      ? t('statusbar_browser_connected')
+      : browserIconState === 'degraded'
+        ? t('statusbar_browser_degraded')
+        : t('statusbar_browser_disconnected');
   const isTelegramConfigured =
     settings.extra.tgEnabled && !!settings.extra.tgBotToken.trim() && !!settings.extra.tgChatId.trim();
   const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null;
@@ -275,7 +295,9 @@ export const StatusBar: React.FC = () => {
               );
             }}
             className={`p-1.5 hover:bg-[var(--bg-hover)] rounded transition-all cursor-pointer flex items-center justify-center ${
-              isDegradedMode ? 'text-[var(--warning)] animate-pulse' : 'text-[var(--success)] hover:text-[var(--success)]'
+              isDegradedMode
+                ? 'text-[var(--warning)] animate-pulse'
+                : 'text-[var(--success)] hover:text-[var(--success)]'
             }`}
             title={isDegradedMode ? t('statusbar_degraded_tip') : t('statusbar_daemon_tip')}
           >
@@ -330,7 +352,9 @@ export const StatusBar: React.FC = () => {
             }}
             onContextMenu={handleTelegramContextMenu}
             className={`p-1.5 hover:bg-[var(--bg-hover)] rounded transition-all cursor-pointer flex items-center justify-center ${
-              isTelegramConfigured ? 'text-[var(--success)] hover:text-[var(--success)]' : 'text-[var(--danger)] hover:text-[var(--danger)]'
+              isTelegramConfigured
+                ? 'text-[var(--success)] hover:text-[var(--success)]'
+                : 'text-[var(--danger)] hover:text-[var(--danger)]'
             }`}
             title={isTelegramConfigured ? t('statusbar_telegram_connected') : t('statusbar_telegram_disconnected')}
           >

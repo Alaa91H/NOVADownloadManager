@@ -156,8 +156,7 @@ export const DiagnosticsDialog: React.FC = () => {
                 Runtime Engine Capabilities
               </h4>
               <p className="text-[10px] text-[var(--text-muted)]">
-                Live data reported by the download engines at runtime. Unsupported options are excluded from
-                execution.
+                Live data reported by the download engines at runtime. Unsupported options are excluded from execution.
               </p>
               <pre className="max-h-80 overflow-auto rounded-md bg-black/20 p-3 text-[10px] leading-4 text-[var(--text-secondary)] whitespace-pre-wrap">
                 {JSON.stringify(data.engineCapabilities, null, 2)}

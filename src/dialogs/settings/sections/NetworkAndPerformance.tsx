@@ -72,16 +72,31 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
   const handleTestProxy = () => {
     setProxyTestStatus('testing');
     setProxyErrorMessage('');
+    // NOTE: a real proxy connectivity probe belongs in the daemon (it can
+    // issue an HTTP CONNECT through the configured proxy). The previous
+    // implementation faked success for any non-loopback host, which misled
+    // users into thinking broken proxies worked. Until the daemon exposes a
+    // /api/probe/proxy endpoint, we validate the inputs locally and clearly
+    // report that a live test requires starting a download.
     setTimeout(() => {
-      if (settings.connection.proxyHost === '127.0.0.1' || !settings.connection.proxyHost) {
+      const host = settings.connection.proxyHost.trim();
+      const port = Number(settings.connection.proxyPort);
+      if (!host) {
         setProxyTestStatus('fail');
-        setProxyErrorMessage('Connection refused or proxy host is empty.');
+        setProxyErrorMessage('Proxy host is empty.');
         onAddToast('error', t('settings_toast_proxy_test'), t('settings_toast_proxy_fail'));
-      } else {
-        setProxyTestStatus('pass');
-        onAddToast('success', t('settings_toast_proxy_test'), t('settings_toast_proxy_pass'));
+        return;
       }
-    }, 800);
+      if (!Number.isFinite(port) || port < 1 || port > 65535) {
+        setProxyTestStatus('fail');
+        setProxyErrorMessage('Proxy port must be between 1 and 65535.');
+        onAddToast('error', t('settings_toast_proxy_test'), t('settings_toast_proxy_fail'));
+        return;
+      }
+      setProxyTestStatus('pass');
+      setProxyErrorMessage('Configuration looks valid. Start a download to verify the live proxy connection.');
+      onAddToast('success', t('settings_toast_proxy_test'), t('settings_toast_proxy_pass'));
+    }, 400);
   };
 
   return (
@@ -118,7 +133,9 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
                   }}
                 />
               </div>
-              <span className="text-[10px] text-[var(--warning)] font-bold block mt-1">{t('settings_limit_shared')}</span>
+              <span className="text-[10px] text-[var(--warning)] font-bold block mt-1">
+                {t('settings_limit_shared')}
+              </span>
             </div>
           )}
         </div>
@@ -153,7 +170,6 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
             ]}
           />
         </div>
-
       </div>
 
       <div className="space-y-4">
@@ -262,7 +278,9 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
                   disabled={proxyTestStatus === 'testing'}
                   className="px-3 py-1.5 bg-[var(--info-bg)] border border-[var(--info-border)] text-[var(--info)] rounded text-xs font-bold hover:bg-[var(--info-bg)] transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50"
                 >
-                  {proxyTestStatus === 'testing' && <RefreshCw className="w-3.5 h-3.5 animate-spin text-[var(--info)]" />}
+                  {proxyTestStatus === 'testing' && (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-[var(--info)]" />
+                  )}
                   {t('settings_test_proxy')}
                 </button>
                 {proxyTestStatus === 'pass' && (
@@ -275,7 +293,9 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
                     {t('settings_proxy_failed')}
                   </span>
                 )}
-                {proxyErrorMessage && <p className="text-[11px] text-[var(--danger)] font-mono mt-1">{proxyErrorMessage}</p>}
+                {proxyErrorMessage && (
+                  <p className="text-[11px] text-[var(--danger)] font-mono mt-1">{proxyErrorMessage}</p>
+                )}
               </div>
             </div>
           )}

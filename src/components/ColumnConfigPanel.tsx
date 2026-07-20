@@ -84,9 +84,19 @@ const ColumnConfigPanel: React.FC<ColumnConfigPanelProps> = ({
 
   const resetDefaults = useCallback(() => {
     const defaults: { [key: string]: boolean } = {
-      name: true, size: true, progress: true, speed: true, timeLeft: true,
-      date: true, status: true, retries: false, connections: false, priority: false,
-      completedDate: false, sourceUrl: false, smartCategory: false,
+      name: true,
+      size: true,
+      progress: true,
+      speed: true,
+      timeLeft: true,
+      date: true,
+      status: true,
+      retries: false,
+      connections: false,
+      priority: false,
+      completedDate: false,
+      sourceUrl: false,
+      smartCategory: false,
     };
     setVisibleCols(() => ({ ...defaults }));
   }, [setVisibleCols]);
@@ -118,16 +128,12 @@ const ColumnConfigPanel: React.FC<ColumnConfigPanelProps> = ({
   };
 
   return (
-    <div
-      className="absolute top-full mt-1.5 ltr:right-0 rtl:left-0 z-[100] w-72 p-3 bg-[var(--bg-surface-elevated)] border border-[var(--border-color)] rounded-lg shadow-2xl space-y-2 animate-in fade-in slide-in-from-top-1 duration-150"
-    >
+    <div className="absolute top-full mt-1.5 ltr:right-0 rtl:left-0 z-[100] w-72 p-3 bg-[var(--bg-surface-elevated)] border border-[var(--border-color)] rounded-lg shadow-2xl space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
       {/* Header with close */}
       <div className="flex items-center justify-between border-b border-[var(--border-color)] pb-2">
         <div className="flex items-center gap-1.5">
           <Eye className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
-          <h4 className="text-xs font-extrabold text-[var(--text-primary)]">
-            {t('col_customize_title')}
-          </h4>
+          <h4 className="text-xs font-extrabold text-[var(--text-primary)]">{t('col_customize_title')}</h4>
         </div>
         <button
           type="button"
@@ -142,9 +148,7 @@ const ColumnConfigPanel: React.FC<ColumnConfigPanelProps> = ({
         </button>
       </div>
 
-      <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
-        {t('col_customize_desc')}
-      </p>
+      <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">{t('col_customize_desc')}</p>
 
       {/* Action bar */}
       <div className="flex items-center gap-1 py-1 border-b border-[var(--border-color)]/50">
@@ -237,7 +241,9 @@ const ColumnConfigPanel: React.FC<ColumnConfigPanelProps> = ({
               )}
 
               {/* Label (right) */}
-              <span className={`flex-1 truncate ${isVisible ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)] line-through decoration-1'}`}>
+              <span
+                className={`flex-1 truncate ${isVisible ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)] line-through decoration-1'}`}
+              >
                 {label}
               </span>
 

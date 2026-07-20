@@ -41,12 +41,15 @@ export const Button: React.FC<ButtonProps> = ({
     danger: 'bg-[var(--danger)] hover:bg-[var(--danger-hover)] text-white shadow-sm',
   };
 
+  const { title, disabled, ...rest } = props;
+  const resolvedTitle = disabled && disabledTooltip ? disabledTooltip : title;
+
   return (
     <button
       className={`${baseStyle} ${sizeStyles[size]} ${variantStyles[variant]} ${className}`}
-      title={props.disabled && disabledTooltip ? disabledTooltip : props.title}
-      aria-disabled={props.disabled ? true : undefined}
-      {...props}
+      title={resolvedTitle}
+      aria-disabled={disabled ? true : undefined}
+      {...rest}
     >
       {Icon && <Icon className="w-3.5 h-3.5" />}
       <span>{children}</span>
@@ -67,7 +70,15 @@ interface TextFieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
   onIconClick?: () => void;
   id?: string;
 }
-export const TextField: React.FC<TextFieldProps> = ({ label, error, icon: Icon, onIconClick, id, className = '', ...props }) => {
+export const TextField: React.FC<TextFieldProps> = ({
+  label,
+  error,
+  icon: Icon,
+  onIconClick,
+  id,
+  className = '',
+  ...props
+}) => {
   return (
     <div className="flex flex-col gap-0.5 w-full text-ui">
       {label && (
@@ -76,8 +87,8 @@ export const TextField: React.FC<TextFieldProps> = ({ label, error, icon: Icon, 
         </label>
       )}
       <div className="relative flex items-center">
-        {Icon && (
-          onIconClick ? (
+        {Icon &&
+          (onIconClick ? (
             <button
               type="button"
               onClick={onIconClick}
@@ -87,8 +98,7 @@ export const TextField: React.FC<TextFieldProps> = ({ label, error, icon: Icon, 
             </button>
           ) : (
             <Icon className="absolute right-2.5 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />
-          )
-        )}
+          ))}
         <input
           id={id}
           className={`w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-md text-[var(--text-primary)] text-[11px] md:text-xs transition-all focus:border-[var(--accent-primary)] focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)] focus-visible:outline-none ${Icon ? 'pr-10 pl-2.5' : 'px-2.5'} py-1 md:py-1.25 ${error ? 'border-[var(--danger)] focus:border-[var(--danger)]' : ''} ${className}`}
@@ -219,12 +229,24 @@ interface StatusPillProps {
 const StatusPillInner: React.FC<StatusPillProps> = ({ status }) => {
   const t = useI18n();
   const meta: Record<DownloadStatus, { bg: string; key: string }> = {
-    downloading: { bg: 'bg-[var(--info-bg)] text-[var(--info)] border-[var(--info-border)]', key: 'status_downloading' },
-    completed: { bg: 'bg-[var(--success-bg)] text-[var(--success)] border-[var(--success-border)]', key: 'status_completed' },
+    downloading: {
+      bg: 'bg-[var(--info-bg)] text-[var(--info)] border-[var(--info-border)]',
+      key: 'status_downloading',
+    },
+    completed: {
+      bg: 'bg-[var(--success-bg)] text-[var(--success)] border-[var(--success-border)]',
+      key: 'status_completed',
+    },
     paused: { bg: 'bg-[var(--warning-bg)] text-[var(--warning)] border-[var(--warning-border)]', key: 'status_paused' },
     // Transient states reuse the closest stable visual and label.
-    pausing: { bg: 'bg-[var(--warning-bg)] text-[var(--warning)] border-[var(--warning-border)]', key: 'status_paused' },
-    stopping: { bg: 'bg-[var(--warning-bg)] text-[var(--warning)] border-[var(--warning-border)]', key: 'status_paused' },
+    pausing: {
+      bg: 'bg-[var(--warning-bg)] text-[var(--warning)] border-[var(--warning-border)]',
+      key: 'status_paused',
+    },
+    stopping: {
+      bg: 'bg-[var(--warning-bg)] text-[var(--warning)] border-[var(--warning-border)]',
+      key: 'status_paused',
+    },
     queued: { bg: 'bg-[var(--bg-hover)] text-[var(--text-muted)] border-[var(--border-color)]', key: 'status_queued' },
     error: { bg: 'bg-[var(--danger-bg)] text-[var(--danger)] border-[var(--danger-border)]', key: 'status_error' },
   };

@@ -21,7 +21,16 @@ import {
   LayoutGrid,
   FileText,
 } from 'lucide-react';
-import { useDialogData, useDialogActions, useSettingsData, useSettingsActions, useTaskActions, useToastActions, useNavigationActions, useI18n } from '../store/selectors';
+import {
+  useDialogData,
+  useDialogActions,
+  useSettingsData,
+  useSettingsActions,
+  useTaskActions,
+  useToastActions,
+  useNavigationActions,
+  useI18n,
+} from '../store/selectors';
 import { novaClient, type MediaFormat, type MediaPlaylistEntry } from '../api/novaClient';
 import { tauriClient } from '../api/tauriClient';
 import { clearClipboardIfTextMatches } from '../utils/clipboard';
@@ -58,8 +67,12 @@ export const MediaDownloadPage: React.FC = () => {
   const [quality, setQuality] = useState<string>(settings.extra.videoQuality || 'best');
   const [audioFormat, setAudioFormat] = useState<string>('m4a');
   const [ffmpegEnabled, setFfmpegEnabled] = useState<boolean>(settings.extra.ffmpegAutoMerge || false);
-  const [convertBitrate, setConvertBitrate] = useState<string>((settings.extra as Record<string, unknown>).convertBitrate as string || '320k');
-  const [outputTemplate, setOutputTemplate] = useState<string>((settings.extra as Record<string, unknown>).defaultOutputTemplate as string || '%(title)s.%(ext)s');
+  const [convertBitrate, setConvertBitrate] = useState<string>(
+    ((settings.extra as Record<string, unknown>).convertBitrate as string) || '320k',
+  );
+  const [outputTemplate, setOutputTemplate] = useState<string>(
+    ((settings.extra as Record<string, unknown>).defaultOutputTemplate as string) || '%(title)s.%(ext)s',
+  );
 
   const [advancedState, setAdvancedState] = useState<AdvancedState>({
     downloadSubtitles: false,
@@ -132,7 +145,7 @@ export const MediaDownloadPage: React.FC = () => {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const latestUrlRef = useRef('');
 
-  const isPlaylistUrl = targetType === 'playlist' || url.includes('list=');
+  const isPlaylistUrl = targetType === 'playlist' || /[?&]list=[^&]/.test(url);
 
   /* ── URL tracking ── */
   useEffect(() => {
@@ -153,8 +166,12 @@ export const MediaDownloadPage: React.FC = () => {
     if (engineCapabilities.postProcessingReady) return;
     novaClient
       .checkFfmpeg()
-      .then((r) => { setFfmpegProbe(r.available); })
-      .catch(() => { setFfmpegProbe(false); });
+      .then((r) => {
+        setFfmpegProbe(r.available);
+      })
+      .catch(() => {
+        setFfmpegProbe(false);
+      });
   }, [engineCapabilities.postProcessingReady]);
 
   const ffmpegAvailable: boolean | null = engineCapabilities.postProcessingReady ? true : ffmpegProbe;
@@ -223,8 +240,12 @@ export const MediaDownloadPage: React.FC = () => {
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!url.trim().startsWith('http')) return;
-    debounceRef.current = setTimeout(() => { void doProbe(url); }, 800);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+    debounceRef.current = setTimeout(() => {
+      void doProbe(url);
+    }, 800);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, [url, doProbe]);
 
   /* ── computed values ── */
@@ -309,10 +330,42 @@ export const MediaDownloadPage: React.FC = () => {
 
   const dynamicAudioOptions: AudioOption[] = (() => {
     const opts: AudioOption[] = [
-      { value: 'mp3', label: 'MP3', needsFfmpeg: true, bitrate: '320kbps', sizeBytes: 0, ext: 'mp3', description: 'Best Compatibility' },
-      { value: 'm4a', label: 'M4A', needsFfmpeg: false, bitrate: '', sizeBytes: 0, ext: 'm4a', description: 'AAC · Original Quality' },
-      { value: 'flac', label: 'FLAC', needsFfmpeg: true, bitrate: '', sizeBytes: 0, ext: 'flac', description: 'Lossless Archive' },
-      { value: 'wav', label: 'WAV', needsFfmpeg: true, bitrate: '', sizeBytes: 0, ext: 'wav', description: 'Uncompressed PCM' },
+      {
+        value: 'mp3',
+        label: 'MP3',
+        needsFfmpeg: true,
+        bitrate: '320kbps',
+        sizeBytes: 0,
+        ext: 'mp3',
+        description: 'Best Compatibility',
+      },
+      {
+        value: 'm4a',
+        label: 'M4A',
+        needsFfmpeg: false,
+        bitrate: '',
+        sizeBytes: 0,
+        ext: 'm4a',
+        description: 'AAC · Original Quality',
+      },
+      {
+        value: 'flac',
+        label: 'FLAC',
+        needsFfmpeg: true,
+        bitrate: '',
+        sizeBytes: 0,
+        ext: 'flac',
+        description: 'Lossless Archive',
+      },
+      {
+        value: 'wav',
+        label: 'WAV',
+        needsFfmpeg: true,
+        bitrate: '',
+        sizeBytes: 0,
+        ext: 'wav',
+        description: 'Uncompressed PCM',
+      },
     ];
     if (probeResult) {
       const audioOnly = probeResult.formats.filter(
@@ -381,7 +434,9 @@ export const MediaDownloadPage: React.FC = () => {
       updateSettings(updated);
     }
   }, [quality, settings, updateSettings]);
-  const handleTemplatePreset = (preset: string) => { setOutputTemplate(preset); };
+  const handleTemplatePreset = (preset: string) => {
+    setOutputTemplate(preset);
+  };
 
   const clearSensitiveDialogState = () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -416,112 +471,149 @@ export const MediaDownloadPage: React.FC = () => {
     }
 
     if (!engineCapabilities.mediaReady) {
-      addToast('error', t('media_engine_unavailable'), engineCapabilities.mediaBlockedReason() || t('media_engine_not_ready'));
+      addToast(
+        'error',
+        t('media_engine_unavailable'),
+        engineCapabilities.mediaBlockedReason() || t('media_engine_not_ready'),
+      );
       return;
     }
 
-    if (
-      settings.extra.vpnEnabled &&
-      settings.extra.vpnKillSwitch &&
-      ((settings.extra.vpnMode === 'proxy' && !settings.extra.vpnProxyUrl.trim()) ||
-        (settings.extra.vpnMode === 'bind' && !settings.extra.vpnBindAddress.trim()))
-    ) {
-      addToast('error', t('add_dl_vpn_routing_error'), t('media_vpn_incomplete'));
-      return;
-    }
+    try {
+      if (
+        settings.extra.vpnEnabled &&
+        settings.extra.vpnKillSwitch &&
+        ((settings.extra.vpnMode === 'proxy' && !settings.extra.vpnProxyUrl.trim()) ||
+          (settings.extra.vpnMode === 'bind' && !settings.extra.vpnBindAddress.trim()))
+      ) {
+        addToast('error', t('add_dl_vpn_routing_error'), t('media_vpn_incomplete'));
+        return;
+      }
 
-    const vpnRoute = await tauriClient.validateVpnRoute(settings);
-    if (!vpnRoute.ok) {
-      addToast('error', t('add_dl_vpn_routing_error'), vpnRoute.message);
-      return;
-    }
+      const vpnRoute = await tauriClient.validateVpnRoute(settings);
+      if (!vpnRoute.ok) {
+        addToast('error', t('add_dl_vpn_routing_error'), vpnRoute.message);
+        return;
+      }
 
-    if (isPlaylistUrl && playlistResult && !selectAllPlaylist && selectedPlaylistItems.size === 0) {
-      addToast('error', t('media_no_selection'), t('media_no_selection_msg'));
-      return;
-    }
+      if (isPlaylistUrl && playlistResult && !selectAllPlaylist && selectedPlaylistItems.size === 0) {
+        addToast('error', t('media_no_selection'), t('media_no_selection_msg'));
+        return;
+      }
 
-    const isPlaylist = isPlaylistUrl;
-    const fileType = saveMode === 'audio' ? 'audio' : 'video';
+      const isPlaylist = isPlaylistUrl;
+      const fileType = saveMode === 'audio' ? 'audio' : 'video';
 
-    let playlistItemsStr = '';
-    if (isPlaylist && playlistResult && !selectAllPlaylist) {
-      playlistItemsStr = Array.from<number>(selectedPlaylistItems)
-        .sort((a, b) => a - b)
-        .join(',');
-    }
+      let playlistItemsStr = '';
+      if (isPlaylist && playlistResult && !selectAllPlaylist) {
+        playlistItemsStr = Array.from<number>(selectedPlaylistItems)
+          .sort((a, b) => a - b)
+          .join(',');
+      }
 
-    const effectiveQuality =
-      requiresFfmpeg && !engineCapabilities.postProcessingReady ? 'best' : quality;
+      const effectiveQuality = requiresFfmpeg && !engineCapabilities.postProcessingReady ? 'best' : quality;
 
-    const { mediaProxy, cookiesFromBrowser, mediaUserAgent, mediaReferer, mediaHeaders, mediaCookies,
-      rateLimitKbs, retries, fragmentRetries, concurrentFragments, sleepIntervalSec, maxSleepIntervalSec,
-      downloadSubtitles, subtitleLanguages, autoSubtitles, embedSubtitles, writeThumbnail, embedThumbnail,
-      writeInfoJson, writeDescription, splitChapters, sponsorBlock, formatSelectorOverride,
-      formatSort, downloadSections, matchFilter, remuxFormat } = advancedState;
+      const {
+        mediaProxy,
+        cookiesFromBrowser,
+        mediaUserAgent,
+        mediaReferer,
+        mediaHeaders,
+        mediaCookies,
+        rateLimitKbs,
+        retries,
+        fragmentRetries,
+        concurrentFragments,
+        sleepIntervalSec,
+        maxSleepIntervalSec,
+        downloadSubtitles,
+        subtitleLanguages,
+        autoSubtitles,
+        embedSubtitles,
+        writeThumbnail,
+        embedThumbnail,
+        writeInfoJson,
+        writeDescription,
+        splitChapters,
+        sponsorBlock,
+        formatSelectorOverride,
+        formatSort,
+        downloadSections,
+        matchFilter,
+        remuxFormat,
+      } = advancedState;
 
-    const mediaOptions = engineCapabilities.sanitizeMediaOptions({
-      mode: saveMode,
-      quality: effectiveQuality,
-      formatSelector: formatSelectorOverride.trim() || undefined,
-      formatSort: formatSort.trim() || undefined,
-      audioFormat,
-      ffmpegEnabled: ffmpegEnabled && engineCapabilities.postProcessingReady,
-      ffmpegLocation: settings.extra.ffmpegPath.trim() || undefined,
-      bitrate: convertBitrate,
-      outputTemplate,
-      playlist: isPlaylist,
-      playlistItems: playlistItemsStr || undefined,
-      subtitles: downloadSubtitles,
-      subtitleLanguages: subtitleLanguages.trim() || undefined,
-      autoSubtitles,
-      embedSubtitles,
-      writeThumbnail,
-      embedThumbnail,
-      writeInfoJson,
-      writeDescription,
-      splitChapters,
-      sponsorBlock: sponsorBlock.trim() || undefined,
-      proxy: mediaProxy.trim() || undefined,
-      sourceAddress: configuredSourceAddress || undefined,
-      cookies: mediaCookies.trim() || undefined,
-      cookiesFromBrowser: cookiesFromBrowser.trim() || undefined,
-      userAgent: mediaUserAgent.trim() || undefined,
-      referer: mediaReferer.trim() || undefined,
-      headers: mediaHeaders.trim() || undefined,
-      rateLimitKbs: rateLimitKbs > 0 ? rateLimitKbs : undefined,
-      retries: retries > 0 ? retries : undefined,
-      fragmentRetries: fragmentRetries > 0 ? fragmentRetries : undefined,
-      concurrentFragments: concurrentFragments > 0 ? concurrentFragments : undefined,
-      sleepIntervalSec: sleepIntervalSec > 0 ? sleepIntervalSec : undefined,
-      maxSleepIntervalSec: maxSleepIntervalSec > 0 ? maxSleepIntervalSec : undefined,
-      downloadSections: downloadSections.trim() || undefined,
-      matchFilter: matchFilter.trim() || undefined,
-      remuxFormat: remuxFormat.trim() || undefined,
-    });
+      const mediaOptions = engineCapabilities.sanitizeMediaOptions({
+        mode: saveMode,
+        quality: effectiveQuality,
+        formatSelector: formatSelectorOverride.trim() || undefined,
+        formatSort: formatSort.trim() || undefined,
+        audioFormat,
+        ffmpegEnabled: ffmpegEnabled && engineCapabilities.postProcessingReady,
+        ffmpegLocation: settings.extra.ffmpegPath.trim() || undefined,
+        bitrate: convertBitrate,
+        outputTemplate,
+        playlist: isPlaylist,
+        playlistItems: playlistItemsStr || undefined,
+        subtitles: downloadSubtitles,
+        subtitleLanguages: subtitleLanguages.trim() || undefined,
+        autoSubtitles,
+        embedSubtitles,
+        writeThumbnail,
+        embedThumbnail,
+        writeInfoJson,
+        writeDescription,
+        splitChapters,
+        sponsorBlock: sponsorBlock.trim() || undefined,
+        proxy: mediaProxy.trim() || undefined,
+        sourceAddress: configuredSourceAddress || undefined,
+        cookies: mediaCookies.trim() || undefined,
+        cookiesFromBrowser: cookiesFromBrowser.trim() || undefined,
+        userAgent: mediaUserAgent.trim() || undefined,
+        referer: mediaReferer.trim() || undefined,
+        headers: mediaHeaders.trim() || undefined,
+        rateLimitKbs: rateLimitKbs > 0 ? rateLimitKbs : undefined,
+        retries: retries > 0 ? retries : undefined,
+        fragmentRetries: fragmentRetries > 0 ? fragmentRetries : undefined,
+        concurrentFragments: concurrentFragments > 0 ? concurrentFragments : undefined,
+        sleepIntervalSec: sleepIntervalSec > 0 ? sleepIntervalSec : undefined,
+        maxSleepIntervalSec: maxSleepIntervalSec > 0 ? maxSleepIntervalSec : undefined,
+        downloadSections: downloadSections.trim() || undefined,
+        matchFilter: matchFilter.trim() || undefined,
+        remuxFormat: remuxFormat.trim() || undefined,
+      });
 
-    const task = await addTask(
-      {
-        name: isPlaylist ? playlistResult?.title || t('media_playlist_title_fallback') : probeResult?.title || t('media_download_title_fallback'),
-        url: submittedUrl,
-        sizeBytes: selectedFormatSize,
-        fileType,
-        category: fileType,
-        status: 'downloading',
-        savePath,
-        queueId: selectedQueue,
-        description: `Media ${saveMode} request: quality=${quality}, ffmpeg=${ffmpegEnabled ? 'enabled' : 'disabled'}, output=${outputTemplate}`,
-        connections: 0,
-        resumable: true,
-        mediaOptions,
-        elapsedSeconds: 0,
-      },
-      true,
-    );
+      const task = await addTask(
+        {
+          name: isPlaylist
+            ? playlistResult?.title || t('media_playlist_title_fallback')
+            : probeResult?.title || t('media_download_title_fallback'),
+          url: submittedUrl,
+          sizeBytes: selectedFormatSize,
+          fileType,
+          category: fileType,
+          status: 'downloading',
+          savePath,
+          queueId: selectedQueue,
+          description: `Media ${saveMode} request: quality=${quality}, ffmpeg=${ffmpegEnabled ? 'enabled' : 'disabled'}, output=${outputTemplate}`,
+          connections: 0,
+          resumable: true,
+          mediaOptions,
+          elapsedSeconds: 0,
+        },
+        true,
+      );
 
-    if (task) {
-      cleanupSensitiveLink(submittedUrl);
-      setActivePage('downloads');
+      if (task) {
+        cleanupSensitiveLink(submittedUrl);
+        setActivePage('downloads');
+      }
+    } catch (err) {
+      addToast(
+        'error',
+        t('media_engine_unavailable'),
+        err instanceof Error ? err.message : t('media_invalid_link_msg'),
+      );
     }
   };
 
@@ -529,15 +621,9 @@ export const MediaDownloadPage: React.FC = () => {
 
   return (
     <div className="app-page flex-1 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-app)]" dir="ltr">
-
       {/* ───────────────────── HEADER ───────────────────── */}
       <div className="flex items-center gap-3 px-3 py-2 border-b border-[var(--border-color)] bg-[var(--bg-sidebar)] shrink-0 select-none">
-        <button
-          type="button"
-          onClick={handleBack}
-          className="toolbar-btn shrink-0"
-          title={t('page_back_tip')}
-        >
+        <button type="button" onClick={handleBack} className="toolbar-btn shrink-0" title={t('page_back_tip')}>
           <ArrowLeft className="w-4 h-4" />
           <span className="hidden sm:inline">{t('page_back')}</span>
         </button>
@@ -601,7 +687,6 @@ export const MediaDownloadPage: React.FC = () => {
 
       {/* ───────────────────── BODY: TWO COLUMNS ───────────────────── */}
       <div className="flex-1 min-h-0 overflow-hidden flex">
-
         {/* ═══════════ LEFT PANEL 55% ═══════════ */}
         <div className="w-[55%] flex flex-col min-h-0 border-r border-[var(--border-color)]/50">
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 scrollbar-thin">
@@ -615,7 +700,9 @@ export const MediaDownloadPage: React.FC = () => {
                 <TextField
                   label=""
                   value={savePath}
-                  onChange={(e) => { setSavePath(e.target.value); }}
+                  onChange={(e) => {
+                    setSavePath(e.target.value);
+                  }}
                   placeholder="D:\\Downloads\\Videos"
                   icon={FolderOpen}
                   onIconClick={() => {
@@ -635,17 +722,25 @@ export const MediaDownloadPage: React.FC = () => {
                 onFfmpegEnabledChange={setFfmpegEnabled}
               />
 
-              <div className={`p-3 rounded-xl border ${openPanel === 'advanced' ? 'border-[var(--info-border)] bg-[var(--info-bg)]/6' : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30'}`}>
+              <div
+                className={`p-3 rounded-xl border ${openPanel === 'advanced' ? 'border-[var(--info-border)] bg-[var(--info-bg)]/6' : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30'}`}
+              >
                 <button
                   type="button"
                   className="w-full text-left flex items-center justify-between"
-                  onClick={() => { togglePanel('advanced'); }}
+                  onClick={() => {
+                    togglePanel('advanced');
+                  }}
                 >
                   <div className="flex items-center gap-2">
                     <Settings2 className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-                    <span className="text-sm font-extrabold text-[var(--text-primary)]">{t('media_advanced_options')}</span>
+                    <span className="text-sm font-extrabold text-[var(--text-primary)]">
+                      {t('media_advanced_options')}
+                    </span>
                   </div>
-                  <ChevronRight className={`w-4 h-4 transition-transform ${openPanel === 'advanced' ? 'rotate-90' : ''}`} />
+                  <ChevronRight
+                    className={`w-4 h-4 transition-transform ${openPanel === 'advanced' ? 'rotate-90' : ''}`}
+                  />
                 </button>
                 {openPanel === 'advanced' && (
                   <div className="mt-3 space-y-1.5">
@@ -663,13 +758,23 @@ export const MediaDownloadPage: React.FC = () => {
               {/* Left: Collapsible option panels */}
               <div className="space-y-3">
                 {/* Mode Toggle Panel */}
-                <div className={`p-3 rounded-xl border ${openPanel === 'mode' ? 'border-[var(--danger-border)] bg-[var(--danger-bg)]/6' : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30'}`}>
-                  <button type="button" className="w-full text-left flex items-center justify-between" onClick={() => { togglePanel('mode'); }}>
+                <div
+                  className={`p-3 rounded-xl border ${openPanel === 'mode' ? 'border-[var(--danger-border)] bg-[var(--danger-bg)]/6' : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30'}`}
+                >
+                  <button
+                    type="button"
+                    className="w-full text-left flex items-center justify-between"
+                    onClick={() => {
+                      togglePanel('mode');
+                    }}
+                  >
                     <div className="flex items-center gap-2">
                       <Video className="w-4 h-4" />
                       <span className="text-sm font-extrabold text-[var(--text-primary)]">{t('media_mode')}</span>
                     </div>
-                    <ChevronRight className={`w-4 h-4 transition-transform ${openPanel === 'mode' ? 'rotate-90' : ''}`} />
+                    <ChevronRight
+                      className={`w-4 h-4 transition-transform ${openPanel === 'mode' ? 'rotate-90' : ''}`}
+                    />
                   </button>
                   {openPanel === 'mode' && (
                     <div className="mt-3 grid grid-cols-2 gap-2">
@@ -679,7 +784,8 @@ export const MediaDownloadPage: React.FC = () => {
                           setSaveMode('video');
                           setSavePath(
                             settings.saveAndCategories.categoryFolders.video ||
-                              settings.saveAndCategories.defaultFolder || '',
+                              settings.saveAndCategories.defaultFolder ||
+                              '',
                           );
                         }}
                         className={`p-3 rounded-xl border text-xs font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer ${
@@ -697,7 +803,8 @@ export const MediaDownloadPage: React.FC = () => {
                           setSaveMode('audio');
                           setSavePath(
                             settings.saveAndCategories.categoryFolders.audio ||
-                              settings.saveAndCategories.defaultFolder || '',
+                              settings.saveAndCategories.defaultFolder ||
+                              '',
                           );
                         }}
                         className={`p-3 rounded-xl border text-xs font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer ${
@@ -714,7 +821,9 @@ export const MediaDownloadPage: React.FC = () => {
                 </div>
 
                 {/* Quality Panel */}
-                <div className={`p-3 rounded-xl border ${openPanel === 'quality' ? 'border-[var(--danger-border)] bg-[var(--danger-bg)]/6' : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30'}`}>
+                <div
+                  className={`p-3 rounded-xl border ${openPanel === 'quality' ? 'border-[var(--danger-border)] bg-[var(--danger-bg)]/6' : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30'}`}
+                >
                   <button
                     type="button"
                     className={`w-full text-left flex items-center justify-between ${saveMode === 'audio' || !ytDlpReady ? 'cursor-not-allowed opacity-80' : ''}`}
@@ -727,7 +836,9 @@ export const MediaDownloadPage: React.FC = () => {
                       <LayoutGrid className="w-4 h-4" />
                       <span className="text-sm font-extrabold text-[var(--text-primary)]">Video Quality</span>
                     </div>
-                    <ChevronRight className={`w-4 h-4 transition-transform ${openPanel === 'quality' ? 'rotate-90' : ''}`} />
+                    <ChevronRight
+                      className={`w-4 h-4 transition-transform ${openPanel === 'quality' ? 'rotate-90' : ''}`}
+                    />
                   </button>
                   {openPanel === 'quality' && (
                     <div className="mt-3">
@@ -743,26 +854,40 @@ export const MediaDownloadPage: React.FC = () => {
                         <QualityGrid
                           options={dynamicQualityOptions}
                           quality={quality}
-                          onQualityChange={(q) => { setQuality(q); }}
+                          onQualityChange={(q) => {
+                            setQuality(q);
+                          }}
                           selectedFormat={selectedFormat}
                           selectedFormatSize={selectedFormatSize}
                           requiresFfmpeg={requiresFfmpeg}
                           ffmpegAvailable={ffmpegAvailable}
                           mediaReady={engineCapabilities.mediaReady}
-                          onOpenEnginesSettings={() => { openDialog('settings'); }}
+                          onOpenEnginesSettings={() => {
+                            openDialog('settings');
+                          }}
                         />
                       )}
                     </div>
                   )}
                 </div>
                 {/* Audio Panel */}
-                <div className={`p-3 rounded-xl border ${openPanel === 'audio' ? 'border-[var(--accent-border)] bg-[var(--accent-light)]/6' : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30'}`}>
-                  <button type="button" className="w-full text-left flex items-center justify-between" onClick={() => { togglePanel('audio'); }}>
+                <div
+                  className={`p-3 rounded-xl border ${openPanel === 'audio' ? 'border-[var(--accent-border)] bg-[var(--accent-light)]/6' : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30'}`}
+                >
+                  <button
+                    type="button"
+                    className="w-full text-left flex items-center justify-between"
+                    onClick={() => {
+                      togglePanel('audio');
+                    }}
+                  >
                     <div className="flex items-center gap-2">
                       <ListMusic className="w-4 h-4" />
                       <span className="text-sm font-extrabold text-[var(--text-primary)]">Audio Format</span>
                     </div>
-                    <ChevronRight className={`w-4 h-4 transition-transform ${openPanel === 'audio' ? 'rotate-90' : ''}`} />
+                    <ChevronRight
+                      className={`w-4 h-4 transition-transform ${openPanel === 'audio' ? 'rotate-90' : ''}`}
+                    />
                   </button>
                   {openPanel === 'audio' && (
                     <div className="mt-3">
@@ -785,13 +910,23 @@ export const MediaDownloadPage: React.FC = () => {
                 </div>
 
                 {/* Output / Naming Panel */}
-                <div className={`p-3 rounded-xl border ${openPanel === 'output' ? 'border-[var(--info-border)] bg-[var(--info-bg)]/6' : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30'}`}>
-                  <button type="button" className="w-full text-left flex items-center justify-between" onClick={() => { togglePanel('output'); }}>
+                <div
+                  className={`p-3 rounded-xl border ${openPanel === 'output' ? 'border-[var(--info-border)] bg-[var(--info-bg)]/6' : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30'}`}
+                >
+                  <button
+                    type="button"
+                    className="w-full text-left flex items-center justify-between"
+                    onClick={() => {
+                      togglePanel('output');
+                    }}
+                  >
                     <div className="flex items-center gap-2">
                       <FileText className="w-4 h-4" />
                       <span className="text-sm font-extrabold text-[var(--text-primary)]">Output Naming</span>
                     </div>
-                    <ChevronRight className={`w-4 h-4 transition-transform ${openPanel === 'output' ? 'rotate-90' : ''}`} />
+                    <ChevronRight
+                      className={`w-4 h-4 transition-transform ${openPanel === 'output' ? 'rotate-90' : ''}`}
+                    />
                   </button>
                   {openPanel === 'output' && (
                     <div className="mt-3">
@@ -804,7 +939,9 @@ export const MediaDownloadPage: React.FC = () => {
                           <button
                             key={p.preset}
                             type="button"
-                            onClick={() => { handleTemplatePreset(p.preset); }}
+                            onClick={() => {
+                              handleTemplatePreset(p.preset);
+                            }}
                             className={`text-[9px] px-1.5 py-0.5 rounded-md transition-all cursor-pointer ${
                               outputTemplate === p.preset
                                 ? 'bg-[var(--info-bg)] text-[var(--info)] border border-[var(--info-border)]'
@@ -818,7 +955,9 @@ export const MediaDownloadPage: React.FC = () => {
                       <TextField
                         label=""
                         value={outputTemplate}
-                        onChange={(e) => { setOutputTemplate(e.target.value); }}
+                        onChange={(e) => {
+                          setOutputTemplate(e.target.value);
+                        }}
                         placeholder="%(title)s.%(ext)s"
                         className="font-mono"
                         id="page-template"
@@ -844,7 +983,9 @@ export const MediaDownloadPage: React.FC = () => {
                 <input
                   type="text"
                   value={url}
-                  onChange={(e) => { setUrl(e.target.value); }}
+                  onChange={(e) => {
+                    setUrl(e.target.value);
+                  }}
                   placeholder={t('media_url_placeholder')}
                   className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none font-mono"
                   style={{ direction: 'ltr' }}
@@ -878,7 +1019,9 @@ export const MediaDownloadPage: React.FC = () => {
                       src={probeResult.thumbnail}
                       alt=""
                       className="w-28 h-[72px] rounded-lg object-cover shrink-0 bg-black/40"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
                     />
                   )}
                   <div className="min-w-0 flex-1">
@@ -913,7 +1056,9 @@ export const MediaDownloadPage: React.FC = () => {
               <PlaylistBrowser
                 playlistResult={playlistResult}
                 selectAllPlaylist={selectAllPlaylist}
-                onSelectAllChange={(v) => { setSelectAllPlaylist(v); }}
+                onSelectAllChange={(v) => {
+                  setSelectAllPlaylist(v);
+                }}
                 selectedItems={selectedPlaylistItems}
                 onSelectedItemsChange={setSelectedPlaylistItems}
               />
@@ -921,8 +1066,12 @@ export const MediaDownloadPage: React.FC = () => {
 
             {isPlaylistUrl && playlistResult && totalSize > 0 && (
               <div className="flex items-center justify-between text-[10px] text-[var(--text-muted)] px-1">
-                <span>{t('media_per_file')} {selectedFormatSize > 0 ? formatBytes(selectedFormatSize) : '—'}</span>
-                <span className="text-[var(--info)] font-semibold">{t('media_est_total')} {formatBytes(totalSize)}</span>
+                <span>
+                  {t('media_per_file')} {selectedFormatSize > 0 ? formatBytes(selectedFormatSize) : '—'}
+                </span>
+                <span className="text-[var(--info)] font-semibold">
+                  {t('media_est_total')} {formatBytes(totalSize)}
+                </span>
               </div>
             )}
           </div>
@@ -931,7 +1080,6 @@ export const MediaDownloadPage: React.FC = () => {
 
       {/* ───────────────────── FOOTER ───────────────────── */}
       <div className="shrink-0 border-t border-[var(--border-color)] bg-[var(--bg-sidebar)] px-4 py-3 flex items-center justify-between gap-3">
-
         {/* Left: size info */}
         <div className="flex items-center gap-3 min-w-0">
           {selectedFormatSize > 0 && !isPlaylistUrl && (
@@ -974,11 +1122,7 @@ export const MediaDownloadPage: React.FC = () => {
             disabled={!engineCapabilities.mediaReady || isProbingAny}
             className="flex items-center gap-2 px-5 py-2 text-xs font-extrabold text-white bg-[var(--danger)] hover:bg-[var(--danger)] active:bg-[var(--danger-hover)] disabled:opacity-40 disabled:cursor-not-allowed border border-[var(--danger-border)] rounded-xl shadow-[0_0_20px_-6px_var(--danger)] hover:shadow-[0_0_24px_-4px_var(--danger)] transition-all cursor-pointer"
           >
-            {isProbingAny ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Download className="w-3.5 h-3.5" />
-            )}
+            {isProbingAny ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
             {isPlaylistUrl ? (
               <>
                 {t('media_download_playlist')}

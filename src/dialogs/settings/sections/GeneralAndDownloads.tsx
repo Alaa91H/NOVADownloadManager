@@ -27,7 +27,12 @@ export const GeneralAndDownloads: React.FC<Props> = ({
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateDownloading, setUpdateDownloading] = useState(false);
   const [updateProgress, setUpdateProgress] = useState<{ downloaded: number; total: number } | null>(null);
-  const [updateResult, setUpdateResult] = useState<{ hasUpdate: boolean; currentVersion: string; latestVersion: string; performUpdate?: () => Promise<void> } | null>(null);
+  const [updateResult, setUpdateResult] = useState<{
+    hasUpdate: boolean;
+    currentVersion: string;
+    latestVersion: string;
+    performUpdate?: () => Promise<void>;
+  } | null>(null);
   // Placeholder showing the expected default path (resolved on mount)
   const [defaultPathHint, setDefaultPathHint] = useState('');
 
@@ -130,7 +135,11 @@ export const GeneralAndDownloads: React.FC<Props> = ({
     try {
       await updateResult.performUpdate();
     } catch (error) {
-      addToast('error', t('settings_update_failed'), error instanceof Error ? error.message : 'Update installation failed.');
+      addToast(
+        'error',
+        t('settings_update_failed'),
+        error instanceof Error ? error.message : 'Update installation failed.',
+      );
       setUpdateDownloading(false);
       setUpdateProgress(null);
     }
@@ -223,8 +232,10 @@ export const GeneralAndDownloads: React.FC<Props> = ({
                   variant="primary"
                   size="md"
                 >
-                  {updateDownloading 
-                    ? (updateProgress ? `Downloading... ${String(Math.round((updateProgress.downloaded / updateProgress.total) * 100))}%` : 'Downloading...')
+                  {updateDownloading
+                    ? updateProgress
+                      ? `Downloading... ${String(Math.round((updateProgress.downloaded / updateProgress.total) * 100))}%`
+                      : 'Downloading...'
                     : t('settings_install_update')}
                 </Button>
               )}
@@ -342,7 +353,6 @@ export const GeneralAndDownloads: React.FC<Props> = ({
             >
               {t('settings_check_permissions')}
             </Button>
-
           </div>
         </div>
 
@@ -394,29 +404,29 @@ export const GeneralAndDownloads: React.FC<Props> = ({
             </span>
           </div>
           <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">{t('settings_file_types_desc')}</p>
-          {(
-            Object.keys(settings.fileTypes.extensions) as Array<keyof typeof settings.fileTypes.extensions>
-          ).map((cat) => (
-            <div key={cat} className="flex flex-col gap-1">
-              <label className="text-[10px] text-[var(--text-muted)] font-bold">
-                {t(`settings_file_types_${cat}`)}
-              </label>
-              <input
-                type="text"
-                value={settings.fileTypes.extensions[cat].join(', ')}
-                placeholder={t('settings_file_types_placeholder')}
-                onChange={(e) => {
-                  const parsed = e.target.value
-                    .split(',')
-                    .map((s) => s.trim().replace(/^\./, ''))
-                    .filter(Boolean);
-                  updateSetting('fileTypes', 'extensions', { ...settings.fileTypes.extensions, [cat]: parsed });
-                }}
-                className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2.5 py-1.5 text-xs font-mono text-left focus:border-[var(--accent-primary)] focus:outline-none text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
-                style={{ direction: 'ltr' }}
-              />
-            </div>
-          ))}
+          {(Object.keys(settings.fileTypes.extensions) as Array<keyof typeof settings.fileTypes.extensions>).map(
+            (cat) => (
+              <div key={cat} className="flex flex-col gap-1">
+                <label className="text-[10px] text-[var(--text-muted)] font-bold">
+                  {t(`settings_file_types_${cat}`)}
+                </label>
+                <input
+                  type="text"
+                  value={settings.fileTypes.extensions[cat].join(', ')}
+                  placeholder={t('settings_file_types_placeholder')}
+                  onChange={(e) => {
+                    const parsed = e.target.value
+                      .split(',')
+                      .map((s) => s.trim().replace(/^\./, ''))
+                      .filter(Boolean);
+                    updateSetting('fileTypes', 'extensions', { ...settings.fileTypes.extensions, [cat]: parsed });
+                  }}
+                  className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2.5 py-1.5 text-xs font-mono text-left focus:border-[var(--accent-primary)] focus:outline-none text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
+                  style={{ direction: 'ltr' }}
+                />
+              </div>
+            ),
+          )}
         </div>
 
         <div className="bg-[var(--bg-hover)]/30 p-3.5 rounded-lg border border-[var(--border-color)] space-y-3">
@@ -489,41 +499,39 @@ export const GeneralAndDownloads: React.FC<Props> = ({
             />
           </div>
           <div className="bg-[var(--bg-hover)]/30 p-3.5 rounded-lg border border-[var(--border-color)] space-y-3">
-          <div className="flex items-center gap-2 border-b border-[var(--border-color)] pb-1">
-            <Volume2 className="w-4 h-4 text-[var(--accent-primary)]" />
-            <span className="text-[11px] font-extrabold text-[var(--text-secondary)] block">
-              {t('sound_alerts')}
-            </span>
+            <div className="flex items-center gap-2 border-b border-[var(--border-color)] pb-1">
+              <Volume2 className="w-4 h-4 text-[var(--accent-primary)]" />
+              <span className="text-[11px] font-extrabold text-[var(--text-secondary)] block">{t('sound_alerts')}</span>
+            </div>
+            <div className="grid grid-cols-1 gap-3">
+              <SelectField
+                label={t('settings_sound_on_start')}
+                value={settings.sounds.onStart || 'off'}
+                onChange={(e) => {
+                  updateSetting('sounds', 'onStart', e.target.value);
+                }}
+                options={[
+                  { value: 'off', label: t('sound_off') },
+                  { value: 'soft', label: t('sound_soft') },
+                  { value: 'tap', label: t('sound_tap') },
+                  { value: 'chime', label: t('sound_chime') },
+                  { value: 'alert', label: t('sound_alert') },
+                ]}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-1 border-t border-[var(--border-color)]/50">
+              <Button
+                type="button"
+                onClick={onTestNotification}
+                variant="secondary"
+                size="md"
+                icon={Play}
+                className="text-[var(--success)] hover:text-[var(--success)]"
+              >
+                {t('settings_test_notification')}
+              </Button>
+            </div>
           </div>
-          <div className="grid grid-cols-1 gap-3">
-            <SelectField
-              label={t('settings_sound_on_start')}
-              value={settings.sounds.onStart || 'off'}
-              onChange={(e) => {
-                updateSetting('sounds', 'onStart', e.target.value);
-              }}
-              options={[
-                { value: 'off', label: t('sound_off') },
-                { value: 'soft', label: t('sound_soft') },
-                { value: 'tap', label: t('sound_tap') },
-                { value: 'chime', label: t('sound_chime') },
-                { value: 'alert', label: t('sound_alert') },
-              ]}
-            />
-          </div>
-          <div className="flex justify-end gap-2 pt-1 border-t border-[var(--border-color)]/50">
-            <Button
-              type="button"
-              onClick={onTestNotification}
-              variant="secondary"
-              size="md"
-              icon={Play}
-              className="text-[var(--success)] hover:text-[var(--success)]"
-            >
-              {t('settings_test_notification')}
-            </Button>
-          </div>
-        </div>
         </div>
 
         <div className="space-y-4 pt-4 border-t border-[var(--border-color)]/60">

@@ -202,7 +202,9 @@ export const AppearanceAndSecurity: React.FC<Props> = ({
           </div>
 
           <div className="space-y-1 pt-2">
-            <label className="text-[11px] text-[var(--text-muted)] font-bold block">{t('settings_trusted_origins')}</label>
+            <label className="text-[11px] text-[var(--text-muted)] font-bold block">
+              {t('settings_trusted_origins')}
+            </label>
             <input
               type="text"
               value={settings.extra.trustedOrigins}

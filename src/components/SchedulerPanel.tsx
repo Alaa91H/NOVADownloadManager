@@ -11,11 +11,7 @@ import {
 } from '../store/selectors';
 import { Button } from './primitives';
 import { DndContext, closestCenter, DragOverlay, type DragStartEvent, type DragEndEvent } from '@dnd-kit/core';
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-  useSortable,
-} from '@dnd-kit/sortable';
+import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { SchedulerSidebar } from './SchedulerSidebar';
 import { SchedulerFilesTab } from './SchedulerFilesTab';
@@ -38,7 +34,14 @@ interface SortableQueueItemProps {
   onDropTask?: (taskId: string, targetQueueId: string) => void;
 }
 
-const SortableQueueItem: React.FC<SortableQueueItemProps> = ({ id, name, isSelected, onSelect, taskCount, onDropTask }) => {
+const SortableQueueItem: React.FC<SortableQueueItemProps> = ({
+  id,
+  name,
+  isSelected,
+  onSelect,
+  taskCount,
+  onDropTask,
+}) => {
   const t = useI18n();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const [isDragOver, setIsDragOver] = React.useState(false);
@@ -69,7 +72,9 @@ const SortableQueueItem: React.FC<SortableQueueItemProps> = ({ id, name, isSelec
           setIsDragOver(true);
         }
       }}
-      onDragLeave={() => { setIsDragOver(false); }}
+      onDragLeave={() => {
+        setIsDragOver(false);
+      }}
       onDrop={(e) => {
         e.preventDefault();
         setIsDragOver(false);
@@ -111,7 +116,16 @@ const inferScheduleType = (queue: {
 export const SchedulerPanel: React.FC = () => {
   const tasks = useTaskData();
   const queues = useQueueData();
-  const { updateQueue, addQueue, deleteQueue, removeTaskFromQueue, moveTaskToQueue, reorderQueues, snapshotForUndo, undoLast } = useQueueActions();
+  const {
+    updateQueue,
+    addQueue,
+    deleteQueue,
+    removeTaskFromQueue,
+    moveTaskToQueue,
+    reorderQueues,
+    snapshotForUndo,
+    undoLast,
+  } = useQueueActions();
   const { resumeTask, pauseTask } = useTaskActions();
   const { addToast } = useToastActions();
   const t = useI18n();
@@ -126,21 +140,26 @@ export const SchedulerPanel: React.FC = () => {
     setActiveQueueDragId(String(event.active.id));
   }, []);
 
-  const handleQueueDragEnd = useCallback((event: DragEndEvent) => {
-    setActiveQueueDragId(null);
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const oldIndex = queues.findIndex((q) => q.id === active.id);
-    const newIndex = queues.findIndex((q) => q.id === over.id);
-    if (oldIndex !== -1 && newIndex !== -1) {
-      snapshotForUndo();
-      reorderQueues(oldIndex, newIndex);
-      addToast('info', t('sched_toast_priority_title'), t('sched_toast_reordered'), {
-        label: t('sched_toast_undo'),
-        onClick: () => { undoLast(); },
-      });
-    }
-  }, [queues, reorderQueues, addToast, t, snapshotForUndo, undoLast]);
+  const handleQueueDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      setActiveQueueDragId(null);
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      const oldIndex = queues.findIndex((q) => q.id === active.id);
+      const newIndex = queues.findIndex((q) => q.id === over.id);
+      if (oldIndex !== -1 && newIndex !== -1) {
+        snapshotForUndo();
+        reorderQueues(oldIndex, newIndex);
+        addToast('info', t('sched_toast_priority_title'), t('sched_toast_reordered'), {
+          label: t('sched_toast_undo'),
+          onClick: () => {
+            undoLast();
+          },
+        });
+      }
+    },
+    [queues, reorderQueues, addToast, t, snapshotForUndo, undoLast],
+  );
 
   // Select a newly added queue, adjusting state during render instead of in an effect.
   if (queues.length !== prevQueuesCount) {
@@ -292,7 +311,7 @@ export const SchedulerPanel: React.FC = () => {
   };
 
   const handleStartQueue = () => {
-    const queuedAndPaused = queueTasks.filter((t) => t.status === 'queued' || t.status === 'paused');
+    const queuedAndPaused = orderedQueueTasks.filter((t) => t.status === 'queued' || t.status === 'paused');
     const toStart = queuedAndPaused.slice(0, maxActive);
     if (toStart.length === 0) {
       addToast('info', t('sched_start_queue'), t('sched_toast_nothing_to_start'));
@@ -305,7 +324,7 @@ export const SchedulerPanel: React.FC = () => {
   };
 
   const handleStopQueue = () => {
-    const activeTasks = queueTasks.filter((t) => t.status === 'downloading');
+    const activeTasks = orderedQueueTasks.filter((t) => t.status === 'downloading');
     if (activeTasks.length === 0) {
       addToast('info', t('sched_stop_queue'), t('sched_toast_nothing_to_stop'));
       return;
@@ -356,7 +375,9 @@ export const SchedulerPanel: React.FC = () => {
     updateQueue(selectedQueueId, { downloadOrder: newOrder });
     addToast('info', t('sched_toast_priority_title'), t('sched_toast_reordered'), {
       label: t('sched_toast_undo'),
-      onClick: () => { undoLast(); },
+      onClick: () => {
+        undoLast();
+      },
     });
   };
 
@@ -391,7 +412,11 @@ export const SchedulerPanel: React.FC = () => {
               {t('sched_select_queue')}
             </label>
             <div className="flex items-center gap-1.5">
-              <DndContext collisionDetection={closestCenter} onDragStart={handleQueueDragStart} onDragEnd={handleQueueDragEnd}>
+              <DndContext
+                collisionDetection={closestCenter}
+                onDragStart={handleQueueDragStart}
+                onDragEnd={handleQueueDragEnd}
+              >
                 <SortableContext items={queues.map((q) => q.id)} strategy={verticalListSortingStrategy}>
                   <div className="flex flex-col gap-0.5 max-h-40 overflow-y-auto scrollbar-none min-w-[140px]">
                     {queues.map((q) => (
@@ -400,7 +425,9 @@ export const SchedulerPanel: React.FC = () => {
                         id={q.id}
                         name={q.name}
                         isSelected={q.id === selectedQueueId}
-                        onSelect={() => { setSelectedQueueId(q.id); }}
+                        onSelect={() => {
+                          setSelectedQueueId(q.id);
+                        }}
                         taskCount={tasks.filter((t) => t.queueId === q.id).length}
                         onDropTask={(taskId, targetQueueId) => {
                           if (q.id !== selectedQueueId) {
@@ -409,10 +436,17 @@ export const SchedulerPanel: React.FC = () => {
                             const draggedTask = tasks.find((t) => t.id === taskId);
                             const targetQueue = queues.find((q) => q.id === targetQueueId);
                             if (draggedTask && targetQueue) {
-                              addToast('info', t('sched_toast_priority_title'), `"${draggedTask.name}" ${t('sched_toast_moved_to')} "${targetQueue.name}"`, {
-                                label: t('sched_toast_undo'),
-                                onClick: () => { undoLast(); },
-                              });
+                              addToast(
+                                'info',
+                                t('sched_toast_priority_title'),
+                                `"${draggedTask.name}" ${t('sched_toast_moved_to')} "${targetQueue.name}"`,
+                                {
+                                  label: t('sched_toast_undo'),
+                                  onClick: () => {
+                                    undoLast();
+                                  },
+                                },
+                              );
                             }
                           }
                         }}
@@ -433,7 +467,9 @@ export const SchedulerPanel: React.FC = () => {
                 <>
                   {queueToDeleteId === selectedQueueId ? (
                     <div className="flex items-center gap-1 bg-[var(--danger-bg)] border border-[var(--danger)]/30 p-1 rounded-lg">
-                      <span className="text-[10px] font-bold text-[var(--danger)] px-1">{t('sched_delete_confirm')}</span>
+                      <span className="text-[10px] font-bold text-[var(--danger)] px-1">
+                        {t('sched_delete_confirm')}
+                      </span>
                       <button
                         type="button"
                         onClick={() => {

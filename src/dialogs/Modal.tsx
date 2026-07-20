@@ -267,7 +267,9 @@ export const Modal: React.FC<ModalProps> = ({
           <div
             className="flex items-center"
             style={{ direction: 'ltr' }}
-            onClick={(e) => { e.stopPropagation(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
           >
             <button
               onClick={handleCloseAttempt}
@@ -280,9 +282,7 @@ export const Modal: React.FC<ModalProps> = ({
         </div>
 
         {/* Modal content area */}
-        <div className="flex-1 overflow-y-auto p-3 bg-[var(--bg-surface-elevated)]">
-          {children}
-        </div>
+        <div className="flex-1 overflow-y-auto p-3 bg-[var(--bg-surface-elevated)]">{children}</div>
       </div>
     </div>
   );

@@ -2,7 +2,19 @@
 import React, { useState, useRef } from 'react';
 import type { AppSettings } from '../../../types/desktop-ui.types';
 import { FormRow, Switch, TextField, SelectField } from '../../../components/primitives';
-import { Activity, Database, RefreshCw, Terminal, AlertTriangle, Cpu, Shield, Zap, Globe, Plus, Trash2 } from 'lucide-react';
+import {
+  Activity,
+  Database,
+  RefreshCw,
+  Terminal,
+  AlertTriangle,
+  Cpu,
+  Shield,
+  Zap,
+  Globe,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import { useBridgeData, useSettingsActions, useI18n } from '../../../store/selectors';
 import { novaClient } from '../../../api/novaClient';
 import { useEngineCapabilities } from '../../../capabilities/EngineCapabilityContext';
@@ -122,7 +134,9 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="bg-[var(--bg-hover)]/30 border border-[var(--border-color)] rounded-lg p-3">
-              <span className="text-[10px] text-[var(--text-muted)] block font-bold">{t('settings_bridge_service')}</span>
+              <span className="text-[10px] text-[var(--text-muted)] block font-bold">
+                {t('settings_bridge_service')}
+              </span>
               <span className="text-xs font-mono text-[var(--success)]">{bridge.status}</span>
             </div>
             <div className="bg-[var(--bg-hover)]/30 border border-[var(--border-color)] rounded-lg p-3">
@@ -130,7 +144,9 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
               <span className="text-xs font-mono">{bridge.pid || '-'}</span>
             </div>
             <div className="bg-[var(--bg-hover)]/30 border border-[var(--border-color)] rounded-lg p-3">
-              <span className="text-[10px] text-[var(--text-muted)] block font-bold">{t('settings_bridge_version')}</span>
+              <span className="text-[10px] text-[var(--text-muted)] block font-bold">
+                {t('settings_bridge_version')}
+              </span>
               <span className="text-xs font-mono">{bridge.version || '-'}</span>
             </div>
             <div className="bg-[var(--bg-hover)]/30 border border-[var(--border-color)] rounded-lg p-3">
@@ -165,7 +181,9 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
             {pinging && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
             {t('settings_test_response')}
           </button>
-          {pingLatency != null && <p className="text-[11px] text-[var(--success)] font-mono">Response: {pingLatency}ms</p>}
+          {pingLatency != null && (
+            <p className="text-[11px] text-[var(--success)] font-mono">Response: {pingLatency}ms</p>
+          )}
         </div>
       )}
 
@@ -180,7 +198,9 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
               </div>
               <button
                 type="button"
-                onClick={() => { setShowCapDetails(!showCapDetails); }}
+                onClick={() => {
+                  setShowCapDetails(!showCapDetails);
+                }}
                 className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors cursor-pointer"
               >
                 {showCapDetails ? '▾ Collapse' : '▸ Expand'}
@@ -188,24 +208,42 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
-              <div className={`border rounded-lg p-2 text-center ${engineCapabilities.directReady ? 'bg-[var(--success-bg)] border-[var(--success-border)]' : 'bg-[var(--danger-bg)] border-[var(--danger-border)]'}`}>
-                <Zap className={`w-3.5 h-3.5 mx-auto mb-1 ${engineCapabilities.directReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`} />
+              <div
+                className={`border rounded-lg p-2 text-center ${engineCapabilities.directReady ? 'bg-[var(--success-bg)] border-[var(--success-border)]' : 'bg-[var(--danger-bg)] border-[var(--danger-border)]'}`}
+              >
+                <Zap
+                  className={`w-3.5 h-3.5 mx-auto mb-1 ${engineCapabilities.directReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
+                />
                 <span className="text-[9px] font-bold text-[var(--text-secondary)] block">libcurl</span>
-                <span className={`text-[10px] font-mono font-bold ${engineCapabilities.directReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>
+                <span
+                  className={`text-[10px] font-mono font-bold ${engineCapabilities.directReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
+                >
                   {engineCapabilities.directReady ? 'Active' : 'Unavailable'}
                 </span>
               </div>
-              <div className={`border rounded-lg p-2 text-center ${engineCapabilities.mediaReady ? 'bg-[var(--success-bg)] border-[var(--success-border)]' : 'bg-[var(--warning-bg)] border-[var(--warning-border)]'}`}>
-                <Globe className={`w-3.5 h-3.5 mx-auto mb-1 ${engineCapabilities.mediaReady ? 'text-[var(--success)]' : 'text-[var(--warning)]'}`} />
+              <div
+                className={`border rounded-lg p-2 text-center ${engineCapabilities.mediaReady ? 'bg-[var(--success-bg)] border-[var(--success-border)]' : 'bg-[var(--warning-bg)] border-[var(--warning-border)]'}`}
+              >
+                <Globe
+                  className={`w-3.5 h-3.5 mx-auto mb-1 ${engineCapabilities.mediaReady ? 'text-[var(--success)]' : 'text-[var(--warning)]'}`}
+                />
                 <span className="text-[9px] font-bold text-[var(--text-secondary)] block">Media Engine</span>
-                <span className={`text-[10px] font-mono font-bold ${engineCapabilities.mediaReady ? 'text-[var(--success)]' : 'text-[var(--warning)]'}`}>
+                <span
+                  className={`text-[10px] font-mono font-bold ${engineCapabilities.mediaReady ? 'text-[var(--success)]' : 'text-[var(--warning)]'}`}
+                >
                   {engineCapabilities.mediaReady ? 'Active' : 'Unavailable'}
                 </span>
               </div>
-              <div className={`border rounded-lg p-2 text-center ${engineCapabilities.ffmpegReady ? 'bg-[var(--success-bg)] border-[var(--success-border)]' : 'bg-[var(--warning-bg)] border-[var(--warning-border)]'}`}>
-                <Shield className={`w-3.5 h-3.5 mx-auto mb-1 ${engineCapabilities.ffmpegReady ? 'text-[var(--success)]' : 'text-[var(--warning)]'}`} />
+              <div
+                className={`border rounded-lg p-2 text-center ${engineCapabilities.ffmpegReady ? 'bg-[var(--success-bg)] border-[var(--success-border)]' : 'bg-[var(--warning-bg)] border-[var(--warning-border)]'}`}
+              >
+                <Shield
+                  className={`w-3.5 h-3.5 mx-auto mb-1 ${engineCapabilities.ffmpegReady ? 'text-[var(--success)]' : 'text-[var(--warning)]'}`}
+                />
                 <span className="text-[9px] font-bold text-[var(--text-secondary)] block">FFmpeg</span>
-                <span className={`text-[10px] font-mono font-bold ${engineCapabilities.ffmpegReady ? 'text-[var(--success)]' : 'text-[var(--warning)]'}`}>
+                <span
+                  className={`text-[10px] font-mono font-bold ${engineCapabilities.ffmpegReady ? 'text-[var(--success)]' : 'text-[var(--warning)]'}`}
+                >
                   {engineCapabilities.ffmpegReady ? 'Active' : 'Unavailable'}
                 </span>
               </div>
@@ -239,25 +277,30 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
                 {/* Supported Options */}
                 <div className="bg-[var(--bg-hover)]/30 border border-[var(--border-color)] rounded-lg p-3">
                   <span className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider block mb-2">
-                    Direct Option Keys ({engineCapabilities.directOptionKeys.size} supported, {engineCapabilities.unsupportedDirectOptionKeys.size} unsupported)
+                    Direct Option Keys ({engineCapabilities.directOptionKeys.size} supported,{' '}
+                    {engineCapabilities.unsupportedDirectOptionKeys.size} unsupported)
                   </span>
                   <div className="flex flex-wrap gap-1.5">
-                    {Array.from(engineCapabilities.directOptionKeys).sort().map((key) => (
-                      <span
-                        key={key}
-                        className="px-1.5 py-0.5 bg-[var(--success-bg)] border border-[var(--success-border)] text-[var(--success)] text-[8px] font-mono rounded"
-                      >
-                        {key}
-                      </span>
-                    ))}
-                    {Array.from(engineCapabilities.unsupportedDirectOptionKeys).sort().map((key) => (
-                      <span
-                        key={key}
-                        className="px-1.5 py-0.5 bg-[var(--danger-bg)] border border-[var(--danger-border)] text-[var(--danger)]/50 text-[8px] font-mono rounded line-through"
-                      >
-                        {key}
-                      </span>
-                    ))}
+                    {Array.from(engineCapabilities.directOptionKeys)
+                      .sort()
+                      .map((key) => (
+                        <span
+                          key={key}
+                          className="px-1.5 py-0.5 bg-[var(--success-bg)] border border-[var(--success-border)] text-[var(--success)] text-[8px] font-mono rounded"
+                        >
+                          {key}
+                        </span>
+                      ))}
+                    {Array.from(engineCapabilities.unsupportedDirectOptionKeys)
+                      .sort()
+                      .map((key) => (
+                        <span
+                          key={key}
+                          className="px-1.5 py-0.5 bg-[var(--danger-bg)] border border-[var(--danger-border)] text-[var(--danger)]/50 text-[8px] font-mono rounded line-through"
+                        >
+                          {key}
+                        </span>
+                      ))}
                   </div>
                 </div>
 
@@ -267,14 +310,17 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
                     Media Option Keys ({engineCapabilities.mediaOptionKeys.size} supported)
                   </span>
                   <div className="flex flex-wrap gap-1.5">
-                    {Array.from(engineCapabilities.mediaOptionKeys).sort().slice(0, 40).map((key) => (
-                      <span
-                        key={key}
-                        className="px-1.5 py-0.5 bg-[var(--warning-bg)] border border-[var(--warning-border)] text-[var(--warning)] text-[8px] font-mono rounded"
-                      >
-                        {key}
-                      </span>
-                    ))}
+                    {Array.from(engineCapabilities.mediaOptionKeys)
+                      .sort()
+                      .slice(0, 40)
+                      .map((key) => (
+                        <span
+                          key={key}
+                          className="px-1.5 py-0.5 bg-[var(--warning-bg)] border border-[var(--warning-border)] text-[var(--warning)] text-[8px] font-mono rounded"
+                        >
+                          {key}
+                        </span>
+                      ))}
                     {engineCapabilities.mediaOptionKeys.size > 40 && (
                       <span className="px-1.5 py-0.5 bg-[var(--bg-hover)] text-[var(--text-muted)] text-[8px] font-mono rounded">
                         +{engineCapabilities.mediaOptionKeys.size - 40} more
@@ -299,7 +345,9 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
                     </div>
                     <div>
                       <span className="text-[var(--text-muted)]">Post-Processing:</span>
-                      <span className="text-[var(--accent-primary)] ml-1 font-bold">{engineCapabilities.postProcessorId}</span>
+                      <span className="text-[var(--accent-primary)] ml-1 font-bold">
+                        {engineCapabilities.postProcessorId}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -316,13 +364,7 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
             <h3 className="text-xs font-extrabold text-[var(--warning)]">{t('settings_backup_restore')}</h3>
           </div>
           <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">{t('settings_backup_desc')}</p>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json"
-            className="hidden"
-            onChange={handleImportFileChange}
-          />
+          <input ref={fileInputRef} type="file" accept=".json" className="hidden" onChange={handleImportFileChange} />
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -428,15 +470,23 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
             )}
             {headers.map((h, idx) => (
               <div key={`${h.key}-${String(idx)}`} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
-                <span className="bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1.5 text-xs font-mono truncate text-[var(--text-primary)]" title={h.key}>
+                <span
+                  className="bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1.5 text-xs font-mono truncate text-[var(--text-primary)]"
+                  title={h.key}
+                >
                   {h.key}
                 </span>
-                <span className="bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1.5 text-xs font-mono truncate text-[var(--text-primary)]" title={h.value}>
+                <span
+                  className="bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1.5 text-xs font-mono truncate text-[var(--text-primary)]"
+                  title={h.value}
+                >
                   {h.value}
                 </span>
                 <button
                   type="button"
-                  onClick={() => { removeHeader(idx); }}
+                  onClick={() => {
+                    removeHeader(idx);
+                  }}
                   className="p-1.5 rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger)] hover:bg-[var(--danger-bg)] transition-colors cursor-pointer shrink-0"
                   title={t('settings_default_headers_remove')}
                 >
@@ -447,19 +497,27 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
             <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
               <input
                 value={headerKeyInput}
-                onChange={(e) => { setHeaderKeyInput(e.target.value); }}
+                onChange={(e) => {
+                  setHeaderKeyInput(e.target.value);
+                }}
                 placeholder={t('settings_header_key')}
                 className="bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1.5 text-xs font-mono text-left focus:border-[var(--accent-primary)] focus:outline-none text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
                 style={{ direction: 'ltr' }}
-                onKeyDown={(e) => { if (e.key === 'Enter') addHeader(); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') addHeader();
+                }}
               />
               <input
                 value={headerValueInput}
-                onChange={(e) => { setHeaderValueInput(e.target.value); }}
+                onChange={(e) => {
+                  setHeaderValueInput(e.target.value);
+                }}
                 placeholder={t('settings_header_value')}
                 className="bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1.5 text-xs font-mono text-left focus:border-[var(--accent-primary)] focus:outline-none text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
                 style={{ direction: 'ltr' }}
-                onKeyDown={(e) => { if (e.key === 'Enter') addHeader(); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') addHeader();
+                }}
               />
               <button
                 type="button"

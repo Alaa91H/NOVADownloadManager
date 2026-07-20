@@ -108,7 +108,9 @@ export const TopBar: React.FC = () => {
       try {
         await deleteTask(id, false);
         deleted++;
-      } catch { /* continue with remaining tasks */ }
+      } catch {
+        /* continue with remaining tasks */
+      }
     }
     addToast('warning', t('topbar_delete_all_title'), t('topbar_delete_all_done', { count: deleted }));
   };
@@ -124,13 +126,11 @@ export const TopBar: React.FC = () => {
       try {
         await deleteTask(task.id, false);
         deleted++;
-      } catch { /* continue with remaining tasks */ }
+      } catch {
+        /* continue with remaining tasks */
+      }
     }
-    addToast(
-      'warning',
-      t('topbar_delete_completed_title'),
-      t('topbar_delete_completed_done', { count: deleted }),
-    );
+    addToast('warning', t('topbar_delete_completed_title'), t('topbar_delete_completed_done', { count: deleted }));
   };
 
   const toggleSpeedLimiter = () => {
@@ -309,6 +309,9 @@ export const TopBar: React.FC = () => {
                     toggleDropdown('newDownload');
                   }}
                   data-dialog-trigger="true"
+                  aria-haspopup="menu"
+                  aria-expanded={openDropdown === 'newDownload'}
+                  aria-label={t('topbar_more_options')}
                   className="px-2 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-white transition-all cursor-pointer flex items-center justify-center"
                   title={t('topbar_more_options')}
                 >
@@ -321,9 +324,14 @@ export const TopBar: React.FC = () => {
 
             {toolbarShowsDropdown('newDownload') && openDropdown === 'newDownload' && (
               <>
-                <div className="fixed inset-0 z-40 bg-transparent" onClick={closeDropdown} />
-                <div className="absolute top-full left-0 mt-1.5 w-64 bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded-lg shadow-xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100 flex flex-col gap-0.5">
+                <div className="fixed inset-0 z-40 bg-transparent" onClick={closeDropdown} aria-hidden="true" />
+                <div
+                  role="menu"
+                  aria-label={t('topbar_new_download')}
+                  className="absolute top-full left-0 mt-1.5 w-64 bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded-lg shadow-xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100 flex flex-col gap-0.5"
+                >
                   <button
+                    role="menuitem"
                     onClick={() => {
                       openDialog('addDownload');
                       closeDropdown();
@@ -334,6 +342,7 @@ export const TopBar: React.FC = () => {
                     <span>{t('topbar_single_url')}</span>
                   </button>
                   <button
+                    role="menuitem"
                     onClick={() => {
                       openDialog('batchDownload');
                       closeDropdown();
@@ -344,6 +353,7 @@ export const TopBar: React.FC = () => {
                     <span>{t('topbar_batch_download')}</span>
                   </button>
                   <button
+                    role="menuitem"
                     onClick={() => {
                       openDialog('webpageGrabber');
                       closeDropdown();
@@ -354,6 +364,7 @@ export const TopBar: React.FC = () => {
                     <span>{t('dlg_webpage_grabber')}</span>
                   </button>
                   <button
+                    role="menuitem"
                     onClick={() => {
                       openDialog('mediaDownload');
                       closeDropdown();
@@ -400,6 +411,8 @@ export const TopBar: React.FC = () => {
                   }}
                   className="px-1.5 text-[var(--text-secondary)] hover:text-[var(--success)] hover:bg-[var(--success-bg)] transition-all cursor-pointer flex items-center justify-center border-l border-[var(--border-color)]"
                   aria-label={t('topbar_more_resume_options')}
+                  aria-haspopup="menu"
+                  aria-expanded={openDropdown === 'resume'}
                 >
                   <ChevronDown
                     className={`w-3 h-3 transition-transform duration-200 ${openDropdown === 'resume' ? 'rotate-180' : ''}`}
@@ -410,9 +423,14 @@ export const TopBar: React.FC = () => {
 
             {toolbarShowsDropdown('resume') && openDropdown === 'resume' && (
               <>
-                <div className="fixed inset-0 z-40 bg-transparent" onClick={closeDropdown} />
-                <div className="absolute top-full left-0 mt-1.5 w-52 bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded-lg shadow-xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100 flex flex-col gap-0.5">
+                <div className="fixed inset-0 z-40 bg-transparent" onClick={closeDropdown} aria-hidden="true" />
+                <div
+                  role="menu"
+                  aria-label={t('resume')}
+                  className="absolute top-full left-0 mt-1.5 w-52 bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded-lg shadow-xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100 flex flex-col gap-0.5"
+                >
                   <button
+                    role="menuitem"
                     onClick={() => {
                       if (canResumeSelected && selectedTaskId) void resumeTask(selectedTaskId);
                       closeDropdown();
@@ -424,6 +442,7 @@ export const TopBar: React.FC = () => {
                     <span>{t('topbar_resume_selected')}</span>
                   </button>
                   <button
+                    role="menuitem"
                     onClick={() => {
                       handleResumeAll();
                       closeDropdown();
@@ -468,6 +487,8 @@ export const TopBar: React.FC = () => {
                   }}
                   className="px-1.5 text-[var(--text-secondary)] hover:text-[var(--danger)] hover:bg-[var(--danger-bg)] transition-all cursor-pointer flex items-center justify-center border-l border-[var(--border-color)]"
                   aria-label={t('topbar_more_options')}
+                  aria-haspopup="menu"
+                  aria-expanded={openDropdown === 'stop'}
                 >
                   <ChevronDown
                     className={`w-3 h-3 transition-transform duration-200 ${openDropdown === 'stop' ? 'rotate-180' : ''}`}
@@ -478,9 +499,14 @@ export const TopBar: React.FC = () => {
 
             {toolbarShowsDropdown('stop') && openDropdown === 'stop' && (
               <>
-                <div className="fixed inset-0 z-40 bg-transparent" onClick={closeDropdown} />
-                <div className="absolute top-full left-0 mt-1.5 w-52 bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded-lg shadow-xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100 flex flex-col gap-0.5">
+                <div className="fixed inset-0 z-40 bg-transparent" onClick={closeDropdown} aria-hidden="true" />
+                <div
+                  role="menu"
+                  aria-label={t('topbar_stop')}
+                  className="absolute top-full left-0 mt-1.5 w-52 bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded-lg shadow-xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100 flex flex-col gap-0.5"
+                >
                   <button
+                    role="menuitem"
                     onClick={() => {
                       if (canStopSelected && selectedTaskId) void pauseTask(selectedTaskId);
                       closeDropdown();
@@ -492,6 +518,7 @@ export const TopBar: React.FC = () => {
                     <span>{t('topbar_stop_selected')}</span>
                   </button>
                   <button
+                    role="menuitem"
                     onClick={() => {
                       handleStopAll();
                       closeDropdown();
@@ -538,6 +565,8 @@ export const TopBar: React.FC = () => {
                   }}
                   className="px-1.5 text-[var(--danger)] hover:text-[var(--danger)] hover:bg-[var(--danger-bg)] transition-all cursor-pointer flex items-center justify-center border-l border-[var(--border-color)]"
                   aria-label={t('topbar_more_options')}
+                  aria-haspopup="menu"
+                  aria-expanded={openDropdown === 'delete'}
                 >
                   <ChevronDown
                     className={`w-3 h-3 transition-transform duration-200 ${openDropdown === 'delete' ? 'rotate-180' : ''}`}
@@ -548,9 +577,14 @@ export const TopBar: React.FC = () => {
 
             {toolbarShowsDropdown('delete') && openDropdown === 'delete' && (
               <>
-                <div className="fixed inset-0 z-40 bg-transparent" onClick={closeDropdown} />
-                <div className="absolute top-full left-0 mt-1.5 w-56 bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded-lg shadow-xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100 flex flex-col gap-0.5">
+                <div className="fixed inset-0 z-40 bg-transparent" onClick={closeDropdown} aria-hidden="true" />
+                <div
+                  role="menu"
+                  aria-label={t('action_delete')}
+                  className="absolute top-full left-0 mt-1.5 w-56 bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded-lg shadow-xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100 flex flex-col gap-0.5"
+                >
                   <button
+                    role="menuitem"
                     onClick={() => {
                       if (hasSelectedTask) openDialog('confirmDelete', selectedTask);
                       closeDropdown();
@@ -562,6 +596,7 @@ export const TopBar: React.FC = () => {
                     <span>{t('topbar_delete_selected')}</span>
                   </button>
                   <button
+                    role="menuitem"
                     onClick={() => {
                       openDialog('genericConfirm', {
                         message: t('topbar_delete_all_confirm'),
@@ -578,6 +613,7 @@ export const TopBar: React.FC = () => {
                     <span>{t('topbar_delete_all')}</span>
                   </button>
                   <button
+                    role="menuitem"
                     onClick={() => {
                       openDialog('genericConfirm', {
                         message: t('topbar_delete_completed_confirm'),
@@ -654,8 +690,12 @@ export const TopBar: React.FC = () => {
 
         {/* Search Input */}
         <div className="relative w-48 sm:w-60">
-          <Search className="absolute right-2.5 top-2.5 w-3.5 h-3.5 text-[var(--text-muted)]" />
+          <Search className="absolute right-2.5 top-2.5 w-3.5 h-3.5 text-[var(--text-muted)]" aria-hidden="true" />
+          <label htmlFor="topbar-global-search" className="sr-only">
+            {t('topbar_search_placeholder')}
+          </label>
           <input
+            id="topbar-global-search"
             data-global-search="true"
             type="text"
             placeholder={t('topbar_search_placeholder')}
