@@ -135,6 +135,22 @@ impl PriorityBandwidthQueue {
         self.reallocate();
     }
 
+    /// Update the known size of a queued or active download. Used when the
+    /// fast path starts a download with size 0 and a background probe later
+    /// discovers the real Content-Length.
+    pub fn update_size(&self, task_id: &str, size_bytes: u64) {
+        let mut entries = match self.entries.lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        for entry in entries.iter_mut() {
+            if entry.task_id == task_id {
+                entry.size_bytes = size_bytes;
+                break;
+            }
+        }
+    }
+
     pub fn reallocate(&self) {
         let entries = match self.entries.lock() {
             Ok(g) => g,

@@ -297,7 +297,7 @@ fn cache_probe_payload(state: &SharedState, url: &str, payload: &serde_json::Val
     });
 }
 
-pub(super) async fn probe_url_with_options(
+pub(crate) async fn probe_url_with_options(
     state: &SharedState,
     url: &str,
     body: Option<&CreateDownloadBody>,

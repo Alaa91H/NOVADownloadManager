@@ -24,6 +24,7 @@ use crate::lock_or_err;
 
 use super::common::*;
 use super::extension::{extension_candidate_to_download_body, legacy_v1_body_to_download_body};
+use super::probes::probe_url_with_options;
 
 pub async fn handle_health(State(state): State<SharedState>) -> Json<serde_json::Value> {
     let status = state.engine_capabilities();
@@ -284,14 +285,23 @@ pub async fn handle_create_download(
     // If that fails, still create the task immediately so the user sees it
     // right away, then spawn a background probe to enrich metadata and kick
     // off the actual download once the probe resolves.
-    let needs_background_resolve = if body.media_options.is_none() {
+    let (needs_background_resolve, needs_background_size_update) = if body.media_options.is_none() {
         let original_url = body.url.clone().unwrap_or_default();
         let fast_path_hit = apply_fast_resolve(&mut body);
-        !fast_path_hit
-            && body.start_immediately.unwrap_or(true)
-            && supported_direct_url(&original_url)
+        if fast_path_hit {
+            // Fast path: start immediately, but launch a non-blocking probe to
+            // discover the total size (so the UI can show progress percentage)
+            // and enrich metadata (etag, resumable, mirrors) without delaying
+            // the download start.
+            (false, body.size_bytes.unwrap_or(0) == 0)
+        } else {
+            (
+                body.start_immediately.unwrap_or(true) && supported_direct_url(&original_url),
+                false,
+            )
+        }
     } else {
-        false
+        (false, false)
     };
 
     if needs_background_resolve {
@@ -341,12 +351,24 @@ pub async fn handle_create_download(
 
             // ── Spawn background resolution for slow-path tasks ────────────
             if needs_background_resolve && !task_id.is_empty() {
-                let state_clone = background_state;
+                let state_clone = background_state.clone();
                 let task_id_clone = task_id.clone();
                 let original_url_clone = background_url;
                 tokio::spawn(async move {
                     background_resolve_and_start(state_clone, task_id_clone, original_url_clone)
                         .await;
+                });
+            }
+
+            // Fast-path size discovery: the download already started, but we
+            // don't know the total size yet. Launch a non-blocking HEAD probe
+            // to update size_bytes so the UI can show a progress percentage.
+            if needs_background_size_update && !task_id.is_empty() {
+                let state_clone = background_state.clone();
+                let task_id_clone = task_id.clone();
+                let probe_url = body.url.clone().unwrap_or_default();
+                tokio::spawn(async move {
+                    background_size_probe(state_clone, task_id_clone, probe_url).await;
                 });
             }
 
@@ -720,6 +742,75 @@ async fn background_resolve_and_start(state: SharedState, task_id: String, origi
     }
 
     start_curl_task_by_id(&state, &task_id).await;
+}
+
+/// Non-blocking probe that discovers the total file size for a download that
+/// already started via the fast path (where size was unknown). This lets the UI
+/// show a progress percentage without delaying the download start.
+async fn background_size_probe(state: SharedState, task_id: String, url: String) {
+    if url.is_empty() {
+        return;
+    }
+    // Build a minimal probe body for size discovery only.
+    let probe_body = CreateDownloadBody {
+        url: Some(url.clone()),
+        name: None,
+        file_type: None,
+        size_bytes: None,
+        category: None,
+        queue_id: None,
+        connections: None,
+        resumable: None,
+        save_path: None,
+        description: None,
+        referer: None,
+        start_immediately: Some(false),
+        direct_options: None,
+        media_options: None,
+    };
+    let probe_result = probe_url_with_options(&state, &url, Some(&probe_body)).await;
+    let size = match probe_result {
+        Ok(json) => json
+            .get("identity")
+            .and_then(|i| i.get("contentLength"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        Err(e) => {
+            log::debug!("background_size_probe for {}: {:?}", task_id, e);
+            return;
+        }
+    };
+    if size == 0 {
+        return;
+    }
+    // Update the task size_bytes so the UI can compute progress percentage.
+    let mut updated = false;
+    {
+        let mut jobs = lock_or_err!(state.curl_jobs);
+        if let Some(job) = jobs.get_mut(&task_id) {
+            if job.task.size_bytes == 0 {
+                job.task.size_bytes = size;
+                updated = true;
+            }
+        }
+    }
+    if updated {
+        // Also update the snapshot and the priority queue entry.
+        if let Ok(mut tasks) = state.task_snapshot.lock() {
+            if let Some(task) = tasks.get_mut(&task_id) {
+                if task.size_bytes == 0 {
+                    task.size_bytes = size;
+                }
+            }
+        }
+        state.priority_queue.update_size(&task_id, size);
+        state.mark_dirty();
+        log::info!(
+            "background_size_probe: updated task {} size to {} bytes",
+            task_id,
+            size
+        );
+    }
 }
 
 /// Start a previously-created curl task by its ID. Called by the background
