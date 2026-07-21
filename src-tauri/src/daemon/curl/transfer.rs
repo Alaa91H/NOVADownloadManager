@@ -778,6 +778,40 @@ fn run_libcurl_download(
         }
     }
     let started_segmented = plan.segmented;
+
+    // Auto-resolve filename conflicts before downloading. Professional download
+    // managers (IDM, browser built-in) never block the user with "file exists"
+    // errors; they append " (1)", " (2)" etc. to the filename. This also fixes
+    // the reported bug where NOVA "detects size but never downloads" because a
+    // stale partial file from a previous failed attempt blocked the new one.
+    if !plan.allow_overwrite && plan.output_path.exists() {
+        let existing_size = FileWriter::current_size(&plan.output_path);
+        let is_complete = plan.total_size > 0 && existing_size == plan.total_size;
+        if !is_complete {
+            if let Some(renamed) = auto_rename_path(&plan.output_path) {
+                log::info!(
+                    "Task {}: auto-renamed {} -> {} (conflict resolution)",
+                    id,
+                    plan.output_path.display(),
+                    renamed.display()
+                );
+                plan.output_path = renamed;
+                // Update the task snapshot so the UI shows the new filename.
+                if let Ok(mut tasks) = state.task_snapshot.lock() {
+                    if let Some(task) = tasks.get_mut(id) {
+                        task.save_path = plan.output_path.to_string_lossy().to_string();
+                    }
+                }
+                if let Ok(mut jobs) = state.curl_jobs.lock() {
+                    if let Some(job) = jobs.get_mut(id) {
+                        job.task.save_path = plan.output_path.to_string_lossy().to_string();
+                    }
+                }
+                state.mark_dirty();
+            }
+        }
+    }
+
     for attempt in 0..retry_policy.attempts {
         if cancel.load(Ordering::Acquire) {
             return Err("cancelled".to_string());
@@ -1145,4 +1179,36 @@ pub(crate) fn start_curl_process(state: &SharedState, id: &str) {
             }
         }
     });
+}
+
+/// Generate a unique filename by appending " (1)", " (2)", etc. before the
+/// extension, mirroring the browser's `uniquify` conflict resolution.
+/// Returns `None` only if the original path has no filename component.
+fn auto_rename_path(original: &std::path::Path) -> Option<std::path::PathBuf> {
+    let parent = original.parent()?;
+    let stem = original.file_stem()?.to_str()?;
+    let ext = original.extension().and_then(|e| e.to_str());
+
+    for counter in 1u32..=9999 {
+        let new_stem = format!("{} ({})", stem, counter);
+        let new_name = match ext {
+            Some(e) => format!("{}.{}", new_stem, e),
+            None => new_stem,
+        };
+        let candidate = parent.join(&new_name);
+        if !candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    // Exhausted the counter; append a timestamp as a last resort.
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let new_stem = format!("{}_{}", stem, ts);
+    let new_name = match ext {
+        Some(e) => format!("{}.{}", new_stem, e),
+        None => new_stem,
+    };
+    Some(parent.join(&new_name))
 }
