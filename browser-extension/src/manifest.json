@@ -23,7 +23,7 @@
     "http://127.0.0.1/*"
   ],
   "content_security_policy": {
-    "extension_pages": "default-src 'self'; style-src 'self'; font-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; connect-src 'self' http://127.0.0.1:3199 http://localhost:3199 ws://127.0.0.1:3199 ws://localhost:3199"
+    "extension_pages": "default-src 'self'; style-src 'self'; font-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; connect-src 'self' http://127.0.0.1:3199 http://127.0.0.1:3200 http://127.0.0.1:3201 http://127.0.0.1:3202 http://127.0.0.1:3203 http://127.0.0.1:3204 http://127.0.0.1:3205 http://127.0.0.1:3206 http://127.0.0.1:3207 http://127.0.0.1:3208 http://localhost:3199 http://localhost:3200 http://localhost:3201 http://localhost:3202 http://localhost:3203 http://localhost:3204 http://localhost:3205 http://localhost:3206 http://localhost:3207 http://localhost:3208 ws://127.0.0.1:3199 ws://127.0.0.1:3200 ws://127.0.0.1:3201 ws://127.0.0.1:3202 ws://127.0.0.1:3203 ws://127.0.0.1:3204 ws://127.0.0.1:3205 ws://127.0.0.1:3206 ws://127.0.0.1:3207 ws://127.0.0.1:3208 ws://localhost:3199 ws://localhost:3200 ws://localhost:3201 ws://localhost:3202 ws://localhost:3203 ws://localhost:3204 ws://localhost:3205 ws://localhost:3206 ws://localhost:3207 ws://localhost:3208"
   },
   "background": {
     "service_worker": "entrypoints/background.ts"
