@@ -9,7 +9,13 @@ import { uiStore } from './uiStore';
 import { getTranslation } from '../lib/i18n/translations';
 
 export function useTaskData() {
-  return useStore(taskStore, (s) => s.tasks);
+  // useShallow ensures components only re-render when the array contents
+  // actually change (by reference), not on every poll cycle. This works
+  // because mergeDaemonTasks preserves object identity for unchanged tasks.
+  return useStore(
+    taskStore,
+    useShallow((s) => s.tasks),
+  );
 }
 
 export function useTaskSelectors() {

@@ -10,7 +10,44 @@ import { settingsStore } from './settingsStore';
 const isNativeEngineTask = (task: DownloadItem) =>
   task.engine === 'curl' || task.engine === 'libcurl-multi' || task.engine === 'yt-dlp';
 
-export const mergeDaemonTasks = (daemonTasks: DownloadItem[]) => daemonTasks.map((task) => ({ ...task }));
+/**
+ * Merge daemon tasks into the local store, preserving object identity for
+ * tasks that haven't changed since the last sync. This is critical for
+ * rendering performance: components subscribed via useShallow(useTaskData)
+ * only re-render when actual task data changes, not on every 2-second poll.
+ */
+export const mergeDaemonTasks = (daemonTasks: DownloadItem[]): DownloadItem[] => {
+  const prev = taskStore.getState().tasks;
+  const prevMap = new Map<string, DownloadItem>();
+  for (const t of prev) prevMap.set(t.id, t);
+
+  return daemonTasks.map((task) => {
+    const existing = prevMap.get(task.id);
+    if (existing && shallowEqualTask(existing, task)) {
+      return existing;
+    }
+    return { ...task };
+  });
+};
+
+/** Compare two tasks for shallow equality (the fields that change during
+ *  download progress). If all relevant fields match, we reuse the old
+ *  reference to prevent unnecessary React re-renders. */
+function shallowEqualTask(a: DownloadItem, b: DownloadItem): boolean {
+  return (
+    a.status === b.status &&
+    a.downloadedBytes === b.downloadedBytes &&
+    a.speedBytesPerSec === b.speedBytesPerSec &&
+    a.sizeBytes === b.sizeBytes &&
+    a.timeLeftSeconds === b.timeLeftSeconds &&
+    a.elapsedSeconds === b.elapsedSeconds &&
+    a.engineStatus === b.engineStatus &&
+    a.errorMessage === b.errorMessage &&
+    a.name === b.name &&
+    a.savePath === b.savePath &&
+    a.connections === b.connections
+  );
+}
 
 interface TaskState {
   tasks: DownloadItem[];
