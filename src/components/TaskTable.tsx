@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+﻿import React, { useState, useMemo } from 'react';
 import {
   Square,
   Trash2,
@@ -82,8 +82,11 @@ export const TaskTable: React.FC = () => {
 
   const { sortBy, sortOrder, sortedTasks, handleSort } = useTaskSortFilter(tasks, searchQuery, workspaceView);
 
+  // Memoize the list of task IDs so useMultiSelection's effect only re-runs
+  // when the actual set of visible tasks changes, not on every re-render.
+  const sortedTaskIds = useMemo(() => sortedTasks.map((t) => t.id), [sortedTasks]);
   const { checkedTaskIds, isAllChecked, isSomeChecked, handleToggleCheckAll, handleToggleCheckTask } =
-    useMultiSelection(sortedTasks.map((t) => t.id));
+    useMultiSelection(sortedTaskIds);
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; task: DownloadItem } | null>(null);
 
