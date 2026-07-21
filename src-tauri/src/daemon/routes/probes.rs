@@ -106,6 +106,15 @@ fn apply_probe_request_options(
     mut request: reqwest::RequestBuilder,
     body: Option<&CreateDownloadBody>,
 ) -> reqwest::RequestBuilder {
+    // Add realistic browser headers that many strict servers and CDNs expect.
+    // Some servers (Cloudflare, Akamai) reject requests missing
+    // Accept-Language or Sec-Fetch-* headers as bot traffic.
+    request = request
+        .header(reqwest::header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
+        .header("sec-fetch-mode", "no-cors")
+        .header("sec-fetch-site", "cross-site")
+        .header("sec-fetch-dest", "empty");
+
     let Some(body) = body else {
         return request;
     };
