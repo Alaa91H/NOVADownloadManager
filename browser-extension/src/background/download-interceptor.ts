@@ -135,19 +135,33 @@ export async function handleDownload(item: ChromeDownloadItem): Promise<void> {
   if (pendingDownloads.has(item.id)) return;
 
   pendingDownloads.add(item.id);
+
+  // ── Cancel the browser download FIRST, before any async work. ──────
+  // Professional download integrations (IDM, FDM) cancel the native download
+  // synchronously on onCreated so the browser never shows a Save As dialog
+  // or writes partial data. We cancel unconditionally when downloads capture
+  // is on, then validate settings afterward. If settings later rule out
+  // takeover, we re-trigger the browser download via chrome.downloads.download.
+  // This is the only way to reliably win the race against the browser UI.
+  let cancelled = false;
+  try {
+    cancelled = await cancelDownload(item.id);
+  } catch {
+    // cancelDownload already handles retries internally; ignore here.
+  }
+
   try {
     const settings = await new SettingsStore().get().catch(() => null);
-    if (!settings?.enabled) {
-      pendingDownloads.delete(item.id);
-      return;
-    }
-    if (!settings.capture.downloads && !settings.capture.aggressiveMode) {
+    if (!settings?.enabled || (!settings.capture.downloads && !settings.capture.aggressiveMode)) {
+      // Capture is disabled — if we cancelled, restart the native download.
+      if (cancelled) await restartNativeDownload(item);
       pendingDownloads.delete(item.id);
       return;
     }
 
     const shouldOverride = shouldTakeover(item, settings);
     if (!shouldOverride) {
+      if (cancelled) await restartNativeDownload(item);
       pendingDownloads.delete(item.id);
       return;
     }
@@ -173,20 +187,23 @@ export async function handleDownload(item: ChromeDownloadItem): Promise<void> {
     });
     await saveState(state);
 
-    // Absolute takeover: cancel the browser download FIRST, before any bridge
-    // round-trip. Candidates always land in the outbox and flush when NOVA is up.
-    const cancelled = await cancelDownload(item.id);
+    // The browser download was already cancelled at the top of this handler
+    // (before any async work) to win the race against the browser Save As
+    // dialog. Candidates always land in the outbox and flush when NOVA is up.
 
-    const raw = downloadEntryToCandidate({
-      url: item.url,
-      finalUrl: item.finalUrl,
-      filename: item.filename,
-      mime: item.mime,
-      fileSize: item.fileSize,
-      totalBytes: item.totalBytes,
-      referrer: item.referrer,
-      tabId: item.tabId,
-    }, new Date().toISOString());
+    const raw = downloadEntryToCandidate(
+      {
+        url: item.url,
+        finalUrl: item.finalUrl,
+        filename: item.filename,
+        mime: item.mime,
+        fileSize: item.fileSize,
+        totalBytes: item.totalBytes,
+        referrer: item.referrer,
+        tabId: item.tabId,
+      },
+      new Date().toISOString(),
+    );
     const candidate = new MetadataEnricher().enrich(raw);
 
     const tabId = typeof item.tabId === 'number' && item.tabId >= 0 ? item.tabId : undefined;
@@ -261,16 +278,19 @@ async function handleChange(delta: browser.Downloads.OnChangedDownloadDeltaType)
       return;
     }
 
-    const raw = downloadEntryToCandidate({
-      url: item.url,
-      finalUrl: item.finalUrl,
-      filename: item.filename,
-      mime: item.mime,
-      fileSize: item.fileSize,
-      totalBytes: item.totalBytes,
-      referrer: item.referrer,
-      tabId: item.tabId,
-    }, new Date().toISOString());
+    const raw = downloadEntryToCandidate(
+      {
+        url: item.url,
+        finalUrl: item.finalUrl,
+        filename: item.filename,
+        mime: item.mime,
+        fileSize: item.fileSize,
+        totalBytes: item.totalBytes,
+        referrer: item.referrer,
+        tabId: item.tabId,
+      },
+      new Date().toISOString(),
+    );
     const candidate = new MetadataEnricher().enrich(raw);
 
     try {
@@ -297,10 +317,7 @@ async function handleChange(delta: browser.Downloads.OnChangedDownloadDeltaType)
  * - alwaysTakeoverHosts forces claim even when filters would skip
  * - size / file-type filters only apply when NOT in aggressive mode
  */
-export function shouldTakeover(
-  item: ChromeDownloadItem,
-  settings: Awaited<ReturnType<SettingsStore['get']>>,
-): boolean {
+export function shouldTakeover(item: ChromeDownloadItem, settings: Awaited<ReturnType<SettingsStore['get']>>): boolean {
   const capture = settings.capture;
   if (!capture.takeoverEnabled && !capture.aggressiveMode) return false;
 
@@ -354,13 +371,16 @@ export async function handleManualCapture(payload: {
   const settings = await new SettingsStore().get().catch(() => null);
   if (!settings?.enabled) return;
 
-  const raw = downloadEntryToCandidate({
-    url: payload.url,
-    filename: payload.filename,
-    referrer: payload.referrer,
-    fileSize: 0,
-    totalBytes: 0,
-  }, new Date().toISOString());
+  const raw = downloadEntryToCandidate(
+    {
+      url: payload.url,
+      filename: payload.filename,
+      referrer: payload.referrer,
+      fileSize: 0,
+      totalBytes: 0,
+    },
+    new Date().toISOString(),
+  );
   const candidate = new MetadataEnricher().enrich(raw);
   try {
     await bridgeManager.sendCandidate(candidate);
@@ -368,4 +388,23 @@ export async function handleManualCapture(payload: {
     // NOVA not available — candidate stays in outbox for retry
   }
   void ensureBridgeForHandoff();
+}
+
+/// Re-trigger a native browser download after we cancelled it, used when
+/// capture settings later rule out takeover. Mirrors the original request as
+/// closely as possible (URL, filename, referrer) so the user experience is
+/// identical to having never intercepted.
+async function restartNativeDownload(item: ChromeDownloadItem): Promise<void> {
+  try {
+    await browser.downloads.download({
+      url: item.url,
+      filename: item.filename || undefined,
+      conflictAction: 'uniquify',
+      saveAs: false,
+    });
+  } catch (e) {
+    // If restart fails (e.g. invalid URL, permission revoked), the user has
+    // lost the download. Log loudly so the issue is discoverable.
+    console.error('download-interceptor: failed to restart native download after cancel', e, item.url);
+  }
 }
