@@ -122,6 +122,11 @@ body {
   transition: background-color var(--transition-speed) var(--transition-bezier);
   cursor: pointer;
   contain: layout style;
+  /* content-visibility:auto lets the browser skip rendering offscreen rows,
+     dramatically improving performance for large download lists (hundreds
+     of tasks). The browser only paints rows visible in the viewport. */
+  content-visibility: auto;
+  contain-intrinsic-size: var(--row-height);
 }
 
 .desktop-table-row:hover {
