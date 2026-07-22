@@ -4,8 +4,13 @@ import { SettingsStore } from '../storage/settings-store';
 import { MigrationStore } from '../storage/migration-store';
 import { updateBadge } from './badge';
 import { scheduleReconnect } from './alarms';
+import { handleManualCapture } from './download-interceptor';
 import { enforceAggressivePermissions } from '../profiles/aggressive-permission-enforcer';
+import { AGGRESSIVE_CAPTURE_PERMISSION_BUNDLE } from '../profiles/aggressive-capture-profile';
+import { PermissionPolicy } from '../rules/permission-policy';
 import { catchAndIgnore } from '../core/safe-catch';
+
+const permissionPolicy = new PermissionPolicy();
 
 let keepAliveInterval: ReturnType<typeof setInterval> | undefined;
 
@@ -49,10 +54,10 @@ function isDownloadUrl(url: string): boolean {
 }
 
 function captureUrl(url: string, referrer: string): void {
-  browser.runtime.sendMessage({
-    type: 'CAPTURE_DOWNLOAD',
-    payload: { url, referrer, source: 'navigation-capture' },
-  }).catch(() => {});
+  // runtime.sendMessage is never delivered to the sender's own context, so
+  // the background must invoke the capture handler directly. The previous
+  // self-message made navigation capture dead code.
+  void handleManualCapture({ url, referrer, source: 'navigation-capture' }).catch(() => {});
 }
 
 export function registerLifecycle(): void {
@@ -64,8 +69,16 @@ export function registerLifecycle(): void {
     void maybeAutoConnect();
   });
 
-  browser.runtime.onInstalled.addListener(() => {
+  browser.runtime.onInstalled.addListener((details) => {
     startKeepAlive();
+    if (details.reason === 'install') {
+      // Store builds ship capture permissions as OPTIONAL. Nothing else
+      // requests them proactively, so a fresh store install captured
+      // nothing at all. Request once on install (Firefox grants from
+      // background; Chrome requires a user gesture and surfaces the grant
+      // action in the popup instead).
+      void requestCapturePermissionsOnInstall();
+    }
     void maybeAutoConnect();
   });
 
@@ -98,6 +111,23 @@ export function registerLifecycle(): void {
       captureUrl(url, ref);
     })(), 'lifecycle:navigation-capture');
   });
+}
+
+async function requestCapturePermissionsOnInstall(): Promise<void> {
+  try {
+    const missingPerms: string[] = [];
+    const missingOrigins: string[] = [];
+    for (const permission of AGGRESSIVE_CAPTURE_PERMISSION_BUNDLE.permissions) {
+      if (!(await permissionPolicy.has([permission], []))) missingPerms.push(permission);
+    }
+    for (const origin of AGGRESSIVE_CAPTURE_PERMISSION_BUNDLE.origins) {
+      if (!(await permissionPolicy.has([], [origin]))) missingOrigins.push(origin);
+    }
+    if (missingPerms.length === 0 && missingOrigins.length === 0) return;
+    await permissionPolicy.request(missingPerms, missingOrigins);
+  } catch {
+    // Chrome rejects background permission requests without a user gesture.
+  }
 }
 
 async function maybeAutoConnect(): Promise<void> {

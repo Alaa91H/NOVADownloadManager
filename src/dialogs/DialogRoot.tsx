@@ -23,6 +23,7 @@ const BrowserIntegrationDialog = lazy(() =>
 );
 const ConfirmDialog = lazy(() => import('./common/ConfirmDialog').then((m) => ({ default: m.ConfirmDialog })));
 const UpdateLinkDialog = lazy(() => import('./tasks/UpdateLinkDialog').then((m) => ({ default: m.UpdateLinkDialog })));
+const RenameDialog = lazy(() => import('./tasks/RenameDialog').then((m) => ({ default: m.RenameDialog })));
 const AddToQueueDialog = lazy(() =>
   import('./download/AddToQueueDialog').then((m) => ({ default: m.AddToQueueDialog })),
 );
@@ -68,6 +69,11 @@ export default function DialogRoot() {
       title = t('action_update_link');
       size = 'md';
       childComponent = <UpdateLinkDialog />;
+      break;
+    case 'renameTask':
+      title = t('action_rename');
+      size = 'md';
+      childComponent = <RenameDialog />;
       break;
     case 'addToQueue':
       title = t('action_add_queue');

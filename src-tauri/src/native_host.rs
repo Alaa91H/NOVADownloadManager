@@ -96,10 +96,28 @@ fn read_port_file() -> Option<u16> {
 }
 
 /// Compute platform-specific paths where the daemon may have written its port.
+/// These MUST match the directories the daemon actually uses:
+/// - Tauri mode:      app_data_dir for identifier `com.nova.downloadmanager`
+/// - Integration mode: `<APPDATA|HOME>/nova-download-manager`
+/// Legacy `NOVA` paths are kept as a fallback for older installs.
 fn port_file_paths() -> Vec<std::path::PathBuf> {
     let mut paths = Vec::new();
 
-    // %LOCALAPPDATA%\NOVA\nova-daemon.port  (Windows)
+    // Windows — Tauri app_data_dir: %APPDATA%\com.nova.downloadmanager
+    if let Ok(app_data) = std::env::var("APPDATA") {
+        let base = std::path::PathBuf::from(app_data);
+        paths.push(
+            base.join("com.nova.downloadmanager")
+                .join("nova-daemon.port"),
+        );
+        // Integration mode: %APPDATA%\nova-download-manager
+        paths.push(
+            base.join("nova-download-manager")
+                .join("nova-daemon.port"),
+        );
+    }
+
+    // Legacy: %LOCALAPPDATA%\NOVA\nova-daemon.port  (Windows)
     if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
         paths.push(
             std::path::PathBuf::from(local_app_data)
@@ -108,21 +126,40 @@ fn port_file_paths() -> Vec<std::path::PathBuf> {
         );
     }
 
-    // ~/.config/NOVA/nova-daemon.port  (Linux / fallback)
-    if let Ok(home) = std::env::var("HOME") {
+    // Linux — Tauri app_data_dir: $XDG_DATA_HOME/com.nova.downloadmanager
+    // (default ~/.local/share), integration mode: ~/nova-download-manager
+    if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+        let home = std::path::PathBuf::from(home);
+        if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+            paths.push(
+                std::path::PathBuf::from(xdg)
+                    .join("com.nova.downloadmanager")
+                    .join("nova-daemon.port"),
+            );
+        }
         paths.push(
-            std::path::PathBuf::from(home)
-                .join(".config")
+            home.join(".local")
+                .join("share")
+                .join("com.nova.downloadmanager")
+                .join("nova-daemon.port"),
+        );
+        paths.push(home.join("nova-download-manager").join("nova-daemon.port"));
+        // Legacy: ~/.config/NOVA/nova-daemon.port
+        paths.push(
+            home.join(".config")
                 .join("NOVA")
                 .join("nova-daemon.port"),
         );
-    }
-
-    // ~/Library/Application Support/NOVA/nova-daemon.port  (macOS)
-    if let Ok(home) = std::env::var("HOME") {
+        // macOS — Tauri app_data_dir
         paths.push(
-            std::path::PathBuf::from(home)
-                .join("Library")
+            home.join("Library")
+                .join("Application Support")
+                .join("com.nova.downloadmanager")
+                .join("nova-daemon.port"),
+        );
+        // Legacy macOS
+        paths.push(
+            home.join("Library")
                 .join("Application Support")
                 .join("NOVA")
                 .join("nova-daemon.port"),

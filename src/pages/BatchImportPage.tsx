@@ -12,6 +12,7 @@ import {
 } from '../store/selectors';
 import { Button, SelectField, TextField } from '../components/primitives';
 import { readClipboardText } from '../utils/clipboard';
+import { expandUrlList } from '../utils/urlPatternExpander';
 import { useEngineCapabilities } from '../capabilities/EngineCapabilityContext';
 
 export const BatchImportPage: React.FC = () => {
@@ -59,11 +60,9 @@ export const BatchImportPage: React.FC = () => {
   };
 
   const handleImport = () => {
-    const candidateUrls = inputText
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean);
-    const urls = candidateUrls.filter((line) => engineCapabilities.supportsDirectProtocol(line));
+    // Expand URL patterns (e.g. file[1-10].zip → file1.zip … file10.zip)
+    const expandedUrls = expandUrlList(inputText);
+    const urls = expandedUrls.filter((line) => engineCapabilities.supportsDirectProtocol(line));
 
     if (!engineCapabilities.directReady) {
       addToast('error', t('toast_error_title'), t('batch_direct_engine_not_ready'));
@@ -174,7 +173,7 @@ export const BatchImportPage: React.FC = () => {
             </div>
             <textarea
               rows={8}
-              placeholder=""
+              placeholder={'https://example.com/file[1-10].zip\nhttps://example.com/image[a-c].png\nOne URL per line. Patterns like [1-10], [01-05], [a-z], [1-10:2] are supported.'}
               value={inputText}
               onChange={(e) => {
                 setInputText(e.target.value);
@@ -182,6 +181,11 @@ export const BatchImportPage: React.FC = () => {
               className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg p-3 text-xs font-mono transition-all focus:border-[var(--accent-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent-primary)] text-left"
               style={{ direction: 'ltr' }}
             />
+            {inputText.includes('[') && (
+              <div className="text-[10px] text-[var(--accent-primary)] font-bold pt-1">
+                Pattern detected: {expandUrlList(inputText).length} URLs will be generated
+              </div>
+            )}
           </div>
 
           {showAdvanced && (

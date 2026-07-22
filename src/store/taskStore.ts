@@ -67,6 +67,9 @@ interface TaskState {
   deleteTask: (id: string, deleteDisk: boolean) => Promise<void>;
   openTaskFile: (id: string) => Promise<void>;
   openTaskLocation: (id: string) => Promise<void>;
+  renameTask: (id: string, name: string) => Promise<boolean>;
+  redownloadTask: (id: string) => Promise<void>;
+  refreshTaskLink: (id: string, url: string) => Promise<boolean>;
   updateTaskProperties: (id: string, updatedFields: Partial<DownloadItem>) => void;
   triggerBatchDownload: (
     urls: string[],
@@ -246,6 +249,74 @@ export const taskStore = create<TaskState>()((set, get) => ({
     const opened = await tauriClient.revealDownloadedFile(task.savePath);
     if (opened) addToast('success', 'Folder opened', `Opened location for "${task.name}".`);
     else addToast('error', 'Folder opened', `Could not open the location for "${task.name}".`);
+  },
+
+  renameTask: async (id, name) => {
+    const targetItem = get().tasks.find((t) => t.id === id);
+    if (!targetItem || !isNativeEngineTask(targetItem)) {
+      uiStore.getState().addToast('error', 'NOVA daemon', 'This task is not backed by a real download engine.');
+      return false;
+    }
+    try {
+      const normalizedTask = { ...(await novaClient.updateDownload(id, { name })) };
+      set((p) => ({ tasks: p.tasks.map((item) => (item.id === id ? normalizedTask : item)) }));
+      uiStore.getState().addToast('success', 'Download renamed', `Renamed to "${normalizedTask.name}".`);
+      return true;
+    } catch (error) {
+      uiStore
+        .getState()
+        .addToast(
+          'error',
+          'NOVA daemon',
+          error instanceof Error ? error.message : 'The local engine could not rename the download.',
+        );
+      return false;
+    }
+  },
+
+  redownloadTask: async (id) => {
+    const targetItem = get().tasks.find((t) => t.id === id);
+    if (!targetItem || !isNativeEngineTask(targetItem)) {
+      uiStore.getState().addToast('error', 'NOVA daemon', 'This task is not backed by a real download engine.');
+      return;
+    }
+    try {
+      const normalizedTask = { ...(await novaClient.redownloadDownload(id)) };
+      set((p) => ({ tasks: p.tasks.map((item) => (item.id === id ? normalizedTask : item)) }));
+      uiStore
+        .getState()
+        .addToast('info', 'Re-download started', `"${normalizedTask.name}" will be downloaded again from scratch.`);
+    } catch (error) {
+      uiStore
+        .getState()
+        .addToast(
+          'error',
+          'NOVA daemon',
+          error instanceof Error ? error.message : 'The local engine could not restart the download.',
+        );
+    }
+  },
+
+  refreshTaskLink: async (id, url) => {
+    const targetItem = get().tasks.find((t) => t.id === id);
+    if (!targetItem || !isNativeEngineTask(targetItem)) {
+      uiStore.getState().addToast('error', 'NOVA daemon', 'This task is not backed by a real download engine.');
+      return false;
+    }
+    try {
+      const normalizedTask = { ...(await novaClient.updateDownload(id, { url })) };
+      set((p) => ({ tasks: p.tasks.map((item) => (item.id === id ? normalizedTask : item)) }));
+      return true;
+    } catch (error) {
+      uiStore
+        .getState()
+        .addToast(
+          'error',
+          'NOVA daemon',
+          error instanceof Error ? error.message : 'The local engine could not update the download link.',
+        );
+      return false;
+    }
   },
 
   updateTaskProperties: (id, updatedFields) => {

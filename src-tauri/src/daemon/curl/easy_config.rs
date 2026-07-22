@@ -142,6 +142,13 @@ impl Handler for SegmentWriter {
                     cap.validator = Some(value.to_string());
                 }
             }
+            "content-encoding" => {
+                if !value.eq_ignore_ascii_case("identity") {
+                    if let Ok(mut cap) = self.progress.capture.lock() {
+                        cap.content_encoded = true;
+                    }
+                }
+            }
             "last-modified" => {
                 if let Ok(mut cap) = self.progress.capture.lock() {
                     if cap.validator.is_none() {
@@ -225,6 +232,28 @@ fn installed_ca_bundle_path() -> &'static str {
     })
 }
 
+/// Returns true when the URL scheme requires TLS certificate verification
+/// against a CA bundle AND the linked TLS backend has no operating-system
+/// trust store to fall back on. Schannel (Windows) and SecureTransport
+/// (macOS) verify against the OS store; OpenSSL and most other backends on
+/// Windows have no default trust path, so a missing cacert.pem means every
+/// HTTPS handshake fails (historically surfacing as the silent
+/// response_code=0 "completed with 0 bytes" bug).
+fn tls_backend_needs_explicit_ca() -> bool {
+    let version = ::curl::Version::get();
+    let ssl = version.ssl_version().unwrap_or("");
+    !(ssl.contains("Schannel") || ssl.contains("SecureTransport"))
+}
+
+fn url_requires_explicit_ca(url: &str, insecure: bool) -> bool {
+    if insecure {
+        return false;
+    }
+    let lower = url.get(..8).unwrap_or(url).to_ascii_lowercase();
+    (lower.starts_with("https://") || lower.starts_with("ftps://"))
+        && tls_backend_needs_explicit_ca()
+}
+
 static SSL_INIT: OnceLock<()> = OnceLock::new();
 
 pub fn init_download_ssl() {
@@ -232,8 +261,18 @@ pub fn init_download_ssl() {
         let ca_path = installed_ca_bundle_path();
         if !ca_path.is_empty() {
             log::info!("curl SSL using bundled CA: {}", ca_path);
+        } else if tls_backend_needs_explicit_ca() {
+            log::error!(
+                "No bundled CA certificate found and the TLS backend ({}) has no OS trust store; \
+                 verified HTTPS downloads will fail with a clear error instead of silently \
+                 completing with zero bytes. Restore cacert.pem next to the executable.",
+                ::curl::Version::get().ssl_version().unwrap_or("unknown")
+            );
         } else {
-            log::warn!("No bundled CA certificate found; HTTPS downloads may fail if OpenSSL cannot locate system CA certs.");
+            log::info!(
+                "No bundled CA certificate found; using the operating system trust store ({}).",
+                ::curl::Version::get().ssl_version().unwrap_or("unknown")
+            );
         }
 
         let build_link_mode = option_env!("NOVA_BUILD_LIBCURL_LINK_MODE").unwrap_or("unknown");
@@ -390,8 +429,31 @@ pub(crate) fn apply_easy_options<H: Handler>(
             .map_err(|e| format!("Could not configure CA file: {e}"))?;
     } else if !installed_ca_bundle_path().is_empty() {
         if let Err(e) = easy.cainfo(installed_ca_bundle_path()) {
+            // A cainfo setopt failure on a verified TLS transfer is fatal for
+            // backends that have no system trust store to fall back on.
+            if url_requires_explicit_ca(&plan.url, plan.config.bool_("insecure") == Some(true)) {
+                return Err(format!(
+                    "TLS configuration failed: could not load the bundled CA certificate store ({e}). \
+                     HTTPS downloads cannot be verified. Reinstall NOVA or provide a valid caCert option."
+                ));
+            }
             log::warn!("Could not set bundled CA file: {}", e);
         }
+    }
+    // Hard fail (instead of the historical silent response_code=0 "success")
+    // when an HTTPS transfer must be verified but no trust store exists at
+    // all. Backends such as Schannel/SecureTransport use the OS trust store
+    // and do not need a bundle.
+    if url_requires_explicit_ca(&plan.url, plan.config.bool_("insecure") == Some(true))
+        && plan.config.str_("caCert").is_none()
+        && installed_ca_bundle_path().is_empty()
+    {
+        return Err(format!(
+            "TLS is not configured: no CA certificate bundle was found next to the application \
+             or in the application directory, and the TLS backend ({}) does not use the operating \
+             system trust store. HTTPS downloads would fail. Reinstall NOVA to restore cacert.pem.",
+            ::curl::Version::get().ssl_version().unwrap_or("unknown")
+        ));
     }
     if let Some(doh) = plan.config.str_("dohUrl") {
         easy.doh_url(Some(doh))

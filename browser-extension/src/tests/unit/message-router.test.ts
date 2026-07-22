@@ -86,11 +86,14 @@ describe('message-router dispatch + policy', () => {
     expect(response.code).toBe('PERMISSION_MISSING');
   });
 
-  it('accepts OVERLAY_SCAN_PAGE from a trusted in-page content script and binds to the sender tab', async () => {
-    const response = (await harness.invoke({ type: 'OVERLAY_SCAN_PAGE' }, harness.pageSender)) as { ok?: boolean; code?: string; candidates?: unknown[] };
+  it('passes policy for OVERLAY_SCAN_PAGE from a trusted content script but reports the overlay as disabled', async () => {
+    const response = (await harness.invoke({ type: 'OVERLAY_SCAN_PAGE' }, harness.pageSender)) as { ok?: boolean; code?: string; error?: string };
+    // The sender policy must accept the trusted content script (no
+    // PERMISSION_MISSING), while the feature itself is intentionally
+    // disabled — captures are managed from the popup.
     expect(response.code).not.toBe('PERMISSION_MISSING');
-    expect(response.ok).toBe(true);
-    expect(Array.isArray(response.candidates)).toBe(true);
+    expect(response.ok).toBe(false);
+    expect(response.error).toMatch(/disabled/i);
   });
 
   it('rejects OVERLAY_SCAN_PAGE when the sender has no originating tab id', async () => {
@@ -99,16 +102,13 @@ describe('message-router dispatch + policy', () => {
     expect(response.code).toBe('PERMISSION_MISSING');
   });
 
-  it('rejects OVERLAY_SCAN_PAGE once the per-tab rate limit is exceeded', async () => {
+  it('keeps OVERLAY_SCAN_PAGE disabled responses stable across repeated calls', async () => {
     const sender = { url: 'https://example.com/rate', tab: { id: 77 } };
-    // Standard per-tab limit is 12 scans/minute; the 13th must be rejected.
-    for (let i = 0; i < 12; i += 1) {
-      await harness.invoke({ type: 'OVERLAY_SCAN_PAGE' }, sender);
+    for (let i = 0; i < 13; i += 1) {
+      const response = (await harness.invoke({ type: 'OVERLAY_SCAN_PAGE' }, sender)) as { ok: boolean; error?: string };
+      expect(response.ok).toBe(false);
+      expect(response.error).toMatch(/disabled/i);
     }
-    const blocked = (await harness.invoke({ type: 'OVERLAY_SCAN_PAGE' }, sender)) as { ok: boolean; code: string; message: string };
-    expect(blocked.ok).toBe(false);
-    expect(blocked.code).toBe('PERMISSION_MISSING');
-    expect(blocked.message).toMatch(/rate limit/i);
   });
 
   it('returns LIST_TASKS as a { ok, tasks } envelope, never a bare array', async () => {
@@ -130,9 +130,10 @@ describe('message-router dispatch + policy', () => {
     expect(response.code).toBe('PERMISSION_MISSING');
   });
 
-  it('rejects OVERLAY_SEND_SELECTED when none of the chosen ids exist in the tab cache', async () => {
-    const response = (await harness.invoke({ type: 'OVERLAY_SEND_SELECTED', candidateIds: ['does-not-exist'] }, harness.pageSender)) as { ok: boolean; code: string };
+  it('reports OVERLAY_SEND_SELECTED as disabled for a trusted content-script sender', async () => {
+    const response = (await harness.invoke({ type: 'OVERLAY_SEND_SELECTED', candidateIds: ['does-not-exist'] }, harness.pageSender)) as { ok: boolean; code?: string; error?: string };
+    expect(response.code).not.toBe('PERMISSION_MISSING');
     expect(response.ok).toBe(false);
-    expect(response.code).toBe('VALIDATION_FAILED');
+    expect(response.error).toMatch(/disabled/i);
   });
 });

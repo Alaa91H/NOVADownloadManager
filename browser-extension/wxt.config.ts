@@ -94,8 +94,12 @@ export default defineConfig({
       host_permissions: store ? ['http://127.0.0.1/*'] : ['<all_urls>', 'http://127.0.0.1/*'],
       optional_host_permissions: store ? ['<all_urls>'] : undefined,
       content_security_policy: {
+        // Loopback-only connect-src. The desktop daemon binds 127.0.0.1:3199
+        // but may fall back to higher ports (3199-3229) when occupied, and
+        // the extension scans 3199-3208 — restricting connect-src to a single
+        // port permanently broke the bridge whenever the daemon moved ports.
         extension_pages:
-          "default-src 'self'; style-src 'self'; font-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; frame-src 'none'; worker-src 'self'; connect-src 'self' http://127.0.0.1:3199 http://localhost:3199 ws://127.0.0.1:3199 ws://localhost:3199",
+          "default-src 'self'; style-src 'self'; font-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; frame-src 'none'; worker-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*",
       },
       browser_specific_settings: isFirefox
         ? {

@@ -48,6 +48,9 @@ const CONTENT_SCRIPT_MESSAGES = new Set<RuntimeMessage['type']>([
   'OVERLAY_SEND_SELECTED',
   'PAGE_TAP_CANDIDATES_FOUND',
   'TAKEOVER_DOWNLOAD_CLICK',
+  // Download-capture content script hands URLs off to the background with
+  // this message; rejecting it silently killed click/blob/form capture.
+  'CAPTURE_DOWNLOAD',
 ]);
 
 function isBackgroundInternalSender(sender: RuntimeMessageSenderLike | undefined): boolean {

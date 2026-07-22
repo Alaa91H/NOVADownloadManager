@@ -11,6 +11,9 @@ import {
   FolderOpen,
   Play as ResumeIcon,
   Send,
+  RefreshCw,
+  Link2,
+  FileEdit,
 } from 'lucide-react';
 import {
   useTaskData,
@@ -49,7 +52,7 @@ import { writeClipboardText } from '../utils/clipboard';
 export const TaskTable: React.FC = () => {
   const tasks = useTaskData();
   const { selectedTaskId } = useTaskSelectors();
-  const { setSelectedTaskId, pauseTask, resumeTask, deleteTask, openTaskFile, openTaskLocation } = useTaskActions();
+  const { setSelectedTaskId, pauseTask, resumeTask, redownloadTask, openTaskFile, openTaskLocation } = useTaskActions();
   const { searchQuery } = useSearchQuery();
   const { workspaceView } = useNavigationData();
   const { openDialog } = useDialogActions();
@@ -97,34 +100,7 @@ export const TaskTable: React.FC = () => {
 
   const buildContextMenuOptions = (task: DownloadItem): ContextMenuOption[] => {
     const opts: ContextMenuOption[] = [];
-    opts.push({
-      id: 'properties',
-      label: t('nav_properties'),
-      icon: <Info className="w-3.5 h-3.5" />,
-      onClick: () => {
-        openDialog('taskProperties', task);
-      },
-    });
-    if (task.status === 'downloading') {
-      opts.push({
-        id: 'stop',
-        label: t('topbar_stop'),
-        icon: <Square className="w-3.5 h-3.5" />,
-        onClick: () => {
-          void pauseTask(task.id);
-        },
-      });
-    }
-    if (task.status === 'paused' || task.status === 'error') {
-      opts.push({
-        id: 'resume',
-        label: task.status === 'error' ? t('menu_retry_download') : t('resume'),
-        icon: <ResumeIcon className="w-3.5 h-3.5" />,
-        onClick: () => {
-          void resumeTask(task.id);
-        },
-      });
-    }
+    const isActive = task.status === 'downloading' || task.status === 'pausing' || task.status === 'stopping';
     if (task.status === 'completed') {
       opts.push({
         id: 'openFile',
@@ -142,32 +118,68 @@ export const TaskTable: React.FC = () => {
           void openTaskLocation(task.id);
         },
       });
-      if (settings.extra.tgEnabled) {
-        opts.push({
-          id: 'sendTelegram',
-          label: t('telegram_send_selected_file'),
-          icon: <Send className="w-3.5 h-3.5" />,
-          onClick: () => {
-            void novaClient
-              .sendTelegramFile({ path: task.savePath, caption: `NOVA: ${task.name}` })
-              .then((result) => {
-                addToast(
-                  result.ok ? 'success' : 'error',
-                  t('telegram_send_file_title'),
-                  result.ok ? t('telegram_send_file_ok') : result.error || t('telegram_send_file_failed'),
-                );
-              })
-              .catch((error: unknown) => {
-                addToast(
-                  'error',
-                  t('telegram_send_file_title'),
-                  error instanceof Error ? error.message : t('telegram_send_file_failed'),
-                );
-              });
+    }
+    if (task.status === 'downloading') {
+      opts.push({
+        id: 'stop',
+        label: t('topbar_stop'),
+        icon: <Square className="w-3.5 h-3.5" />,
+        onClick: () => {
+          void pauseTask(task.id);
+        },
+      });
+    }
+    if (task.status === 'paused' || task.status === 'error' || task.status === 'queued') {
+      opts.push({
+        id: 'resume',
+        label: task.status === 'error' ? t('menu_retry_download') : t('resume'),
+        icon: <ResumeIcon className="w-3.5 h-3.5" />,
+        onClick: () => {
+          void resumeTask(task.id);
+        },
+      });
+    }
+    opts.push({
+      id: 'redownload',
+      label: t('menu_redownload'),
+      icon: <RefreshCw className="w-3.5 h-3.5" />,
+      disabled: isActive,
+      onClick: () => {
+        openDialog('genericConfirm', {
+          message: t('redownload_confirm', { name: task.name }),
+          isDanger: false,
+          onConfirm: () => {
+            void redownloadTask(task.id);
           },
         });
-      }
-    }
+      },
+    });
+    opts.push({
+      id: 'updateLink',
+      label: t('action_update_link'),
+      icon: <Link2 className="w-3.5 h-3.5" />,
+      disabled: isActive,
+      onClick: () => {
+        openDialog('updateLink', task);
+      },
+    });
+    opts.push({
+      id: 'rename',
+      label: t('menu_rename'),
+      icon: <FileEdit className="w-3.5 h-3.5" />,
+      disabled: isActive,
+      onClick: () => {
+        openDialog('renameTask', task);
+      },
+    });
+    opts.push({
+      id: 'addToQueue',
+      label: t('action_add_queue'),
+      icon: <ListPlus className="w-3.5 h-3.5" />,
+      onClick: () => {
+        openDialog('addToQueue', task);
+      },
+    });
     opts.push({
       id: 'copyUrl',
       label: t('menu_copy_url'),
@@ -176,13 +188,46 @@ export const TaskTable: React.FC = () => {
         void writeClipboardText(task.url).catch(() => {});
       },
     });
+    if (task.status === 'completed' && settings.extra.tgEnabled) {
+      opts.push({
+        id: 'sendTelegram',
+        label: t('telegram_send_selected_file'),
+        icon: <Send className="w-3.5 h-3.5" />,
+        onClick: () => {
+          void novaClient
+            .sendTelegramFile({ path: task.savePath, caption: `NOVA: ${task.name}` })
+            .then((result) => {
+              addToast(
+                result.ok ? 'success' : 'error',
+                t('telegram_send_file_title'),
+                result.ok ? t('telegram_send_file_ok') : result.error || t('telegram_send_file_failed'),
+              );
+            })
+            .catch((error: unknown) => {
+              addToast(
+                'error',
+                t('telegram_send_file_title'),
+                error instanceof Error ? error.message : t('telegram_send_file_failed'),
+              );
+            });
+        },
+      });
+    }
+    opts.push({
+      id: 'properties',
+      label: t('nav_properties'),
+      icon: <Info className="w-3.5 h-3.5" />,
+      onClick: () => {
+        openDialog('taskProperties', task);
+      },
+    });
     opts.push({
       id: 'delete',
       label: t('action_delete'),
       icon: <Trash2 className="w-3.5 h-3.5" />,
       danger: true,
       onClick: () => {
-        void deleteTask(task.id, false);
+        openDialog('confirmDelete', task);
       },
     });
     return opts;

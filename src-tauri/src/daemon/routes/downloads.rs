@@ -11,7 +11,8 @@ use std::convert::Infallible;
 use std::time::Duration;
 
 use crate::daemon::curl::{
-    create_curl_task as direct_create, delete_task, list_all_tasks, pause_task, resume_task,
+    create_curl_task as direct_create, delete_task, list_all_tasks, pause_task, redownload_task,
+    resume_task, update_task_metadata,
 };
 use crate::daemon::engine::mirror::{MirrorManager, MirrorSource};
 use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
@@ -27,7 +28,11 @@ use super::extension::{extension_candidate_to_download_body, legacy_v1_body_to_d
 use super::probes::probe_url_with_options;
 
 pub async fn handle_health(State(state): State<SharedState>) -> Json<serde_json::Value> {
-    let status = state.engine_capabilities();
+    // Offload the (potentially subprocess-spawning) capability probe to the
+    // blocking pool so health polling never stalls the async runtime.
+    let status = tokio::task::spawn_blocking(move || state.engine_capabilities())
+        .await
+        .unwrap_or_else(|_| std::sync::Arc::new(serde_json::json!({"status": "degraded"})));
     let service_status = status
         .get("status")
         .and_then(|v| v.as_str())
@@ -419,6 +424,38 @@ pub async fn handle_delete_task(
             log::error!("Delete task failed: {}", e);
             daemon_error(e)
         })
+}
+
+#[derive(serde::Deserialize, Default)]
+pub struct UpdateDownloadBody {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    url: Option<String>,
+}
+
+pub async fn handle_update_task(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateDownloadBody>,
+) -> Result<Json<Task>, (StatusCode, Json<serde_json::Value>)> {
+    update_task_metadata(&state, &id, body.name, body.url)
+        .await
+        .map(Json)
+        .map_err(|e| {
+            log::error!("Update task failed: {}", e);
+            daemon_error(e)
+        })
+}
+
+pub async fn handle_redownload_task(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> Result<Json<Task>, (StatusCode, Json<serde_json::Value>)> {
+    redownload_task(&state, &id).await.map(Json).map_err(|e| {
+        log::error!("Redownload task failed: {}", e);
+        daemon_error(e)
+    })
 }
 
 fn supported_direct_url(url: &str) -> bool {
@@ -956,7 +993,14 @@ pub(crate) fn register_routes(router: Router<SharedState>) -> Router<SharedState
         .route("/api/downloads/events", get(handle_download_events))
         .route("/api/downloads/{id}/pause", post(handle_pause_task))
         .route("/api/downloads/{id}/resume", post(handle_resume_task))
-        .route("/api/downloads/{id}", delete(handle_delete_task))
+        .route(
+            "/api/downloads/{id}/redownload",
+            post(handle_redownload_task),
+        )
+        .route(
+            "/api/downloads/{id}",
+            delete(handle_delete_task).patch(handle_update_task),
+        )
         .route("/api/stats", get(handle_stats))
         .route("/captures", post(handle_captures))
         .route("/captures/pending", get(handle_captures_pending))

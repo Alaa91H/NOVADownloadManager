@@ -25,8 +25,18 @@ fn now_str_for_events() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
+/// Engine-capability computation probes external tools via subprocesses and
+/// can take seconds on a cold cache. Never run it on the async worker —
+/// offload to the blocking pool so one cold probe cannot stall every other
+/// daemon request (this was a major cause of slow first extension connects).
+async fn engine_capabilities_async(state: SharedState) -> std::sync::Arc<serde_json::Value> {
+    tokio::task::spawn_blocking(move || state.engine_capabilities())
+        .await
+        .unwrap_or_else(|_| std::sync::Arc::new(serde_json::json!({"status": "degraded"})))
+}
+
 pub async fn handle_v1_ping(State(state): State<SharedState>) -> Json<serde_json::Value> {
-    let status = state.engine_capabilities();
+    let status = engine_capabilities_async(state).await;
     Json(serde_json::json!({
         "ok": true,
         "app": "NOVA",
@@ -55,7 +65,7 @@ pub async fn handle_v1_pair_auto(State(state): State<SharedState>) -> Json<serde
 }
 
 pub async fn handle_v1_auth_check(State(state): State<SharedState>) -> Json<serde_json::Value> {
-    let status = state.engine_capabilities();
+    let status = engine_capabilities_async(state).await;
     Json(serde_json::json!({
         "ok": true,
         "protocolVersion": 4,
@@ -68,7 +78,7 @@ pub async fn handle_v1_auth_check(State(state): State<SharedState>) -> Json<serd
 pub async fn handle_v1_extension_settings(
     State(state): State<SharedState>,
 ) -> Json<serde_json::Value> {
-    let status = state.engine_capabilities();
+    let status = engine_capabilities_async(state).await;
     Json(serde_json::json!({
         "ok": true,
         "capabilities": extension_capabilities_from_status(&status),

@@ -91,11 +91,10 @@ describe('PopupApp video capture popup', () => {
     cleanup();
   });
 
-  it('opens expanded video panel by default', async () => {
+  it('renders the compact empty state when no videos are captured', async () => {
     const { default: PopupApp } = await import('../../ui/popup/PopupApp');
     render(<PopupApp />);
-    await waitFor(() => expect(document.querySelector('.nova-popup-expanded')).toBeTruthy());
-    expect(screen.getByRole('button', { name: /Close/i })).toBeTruthy();
+    await waitFor(() => expect(document.querySelector('.nova-popup-compact-empty')).toBeTruthy());
   });
 
   it('auto-scans and shows captured videos on open', async () => {
@@ -116,8 +115,10 @@ describe('PopupApp video capture popup', () => {
     render(<PopupApp />);
 
     await waitFor(() => expect(runtimeMock.state.scanCalls).toBeGreaterThan(0));
-    await waitFor(() => expect(document.querySelector('.nova-popup-expanded')).toBeTruthy());
-    await waitFor(() => expect(document.querySelector('.nova-mini-count-badge')?.textContent).toBe('1'));
+    // Compact bar is the live UI once videos exist (the legacy expanded
+    // panel is no longer reachable).
+    await waitFor(() => expect(document.querySelector('.nova-compact-btn-download')).toBeTruthy());
+    expect(screen.getByRole('button', { name: /Close/i })).toBeTruthy();
   });
 
   it('loads candidates from cache before scan completes', async () => {
@@ -136,7 +137,7 @@ describe('PopupApp video capture popup', () => {
     const { default: PopupApp } = await import('../../ui/popup/PopupApp');
     render(<PopupApp />);
 
-    await waitFor(() => expect(document.querySelector('.nova-popup-expanded')).toBeTruthy());
+    await waitFor(() => expect(document.querySelector('.nova-compact-btn-download')).toBeTruthy());
     await waitFor(() => expect(runtimeMock.state.scanCalls).toBeGreaterThan(0));
   });
 });

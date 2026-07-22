@@ -8,13 +8,14 @@ import type { DownloadItem } from '../../types/desktop-ui.types';
 export const UpdateLinkDialog: React.FC = () => {
   const dialog = useDialogData();
   const { closeDialog } = useDialogActions();
-  const { updateTaskProperties } = useTaskActions();
+  const { refreshTaskLink } = useTaskActions();
   const { addToast } = useToastActions();
   const t = useI18n();
 
   const task = dialog.payload as DownloadItem | undefined;
   const [mode, setMode] = useState<'browser' | 'manual'>('browser');
   const [newUrl, setNewUrl] = useState(task?.url || '');
+  const [busy, setBusy] = useState(false);
 
   if (!task) {
     return (
@@ -27,16 +28,20 @@ export const UpdateLinkDialog: React.FC = () => {
     );
   }
 
-  const handleUpdateManual = () => {
+  const handleUpdateManual = async () => {
     const url = newUrl.trim();
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       addToast('error', t('toast_error_title'), t('update_link_error_toast'));
       return;
     }
-
-    updateTaskProperties(task.id, { url });
-    addToast('success', t('toast_success_title'), t('update_link_success_toast'));
-    closeDialog();
+    if (busy) return;
+    setBusy(true);
+    const ok = await refreshTaskLink(task.id, url);
+    setBusy(false);
+    if (ok) {
+      addToast('success', t('toast_success_title'), t('update_link_success_toast'));
+      closeDialog();
+    }
   };
 
   const handleStartBrowserUpdate = () => {
@@ -142,7 +147,13 @@ export const UpdateLinkDialog: React.FC = () => {
             <DialogButton onClick={closeDialog} variant="secondary">
               {t('btn_cancel')}
             </DialogButton>
-            <DialogButton onClick={handleUpdateManual} variant="primary" icon={Globe}>
+            <DialogButton
+              onClick={() => {
+                void handleUpdateManual();
+              }}
+              variant="primary"
+              icon={Globe}
+            >
               {t('update_link_update_btn')}
             </DialogButton>
           </div>

@@ -2,6 +2,7 @@
 
 const mockNativeAvailable = vi.fn();
 const mockHttpAvailable = vi.fn();
+const mockHttpPingDefault = vi.fn();
 
 vi.mock('../../transport/native-transport', () => ({
   NativeTransport: class {
@@ -12,6 +13,7 @@ vi.mock('../../transport/native-transport', () => ({
 vi.mock('../../transport/http-transport', () => ({
   HttpTransport: class {
     isAvailable = mockHttpAvailable;
+    pingDefault = mockHttpPingDefault;
     url = (path: string) => `http://127.0.0.1:3199${path}`;
     request = vi.fn();
   },
@@ -37,20 +39,37 @@ describe('TransportManager', () => {
     vi.restoreAllMocks();
   });
 
-  it('discovers mixed transport when both native and http are available', async () => {
+  it('returns the http fast path without probing native when the daemon answers', async () => {
     mockNativeAvailable.mockResolvedValue(true);
     mockHttpAvailable.mockResolvedValue(true);
     const tm = new TransportManager();
+    const result = await tm.discover();
+    expect(result.transport).toBe('http');
+    expect(result.http).toBe(true);
+    // The whole point of the fast path: never pay the native-host spawn
+    // cost when the daemon is already reachable over loopback HTTP.
+    expect(mockNativeAvailable).not.toHaveBeenCalled();
+  });
+
+  it('discovers mixed transport when native wakes the desktop daemon', async () => {
+    mockNativeAvailable.mockResolvedValue(true);
+    // Daemon down for the initial probe, then up after the native wake.
+    mockHttpAvailable.mockResolvedValueOnce(false).mockResolvedValue(true);
+    mockHttpPingDefault.mockResolvedValue(true);
+    const tm = new TransportManager();
+    tm.nativeWakeProbeMs = 1_000;
     const result = await tm.discover();
     expect(result.transport).toBe('mixed');
     expect(result.native).toBe(true);
     expect(result.http).toBe(true);
   });
 
-  it('discovers native-only when http is unavailable', async () => {
+  it('discovers native-only when http stays unavailable after the wake window', async () => {
     mockNativeAvailable.mockResolvedValue(true);
     mockHttpAvailable.mockResolvedValue(false);
+    mockHttpPingDefault.mockResolvedValue(false);
     const tm = new TransportManager();
+    tm.nativeWakeProbeMs = 0;
     const result = await tm.discover();
     expect(result.transport).toBe('native');
   });
@@ -66,7 +85,9 @@ describe('TransportManager', () => {
   it('discovers null when nothing is available', async () => {
     mockNativeAvailable.mockResolvedValue(false);
     mockHttpAvailable.mockResolvedValue(false);
+    mockHttpPingDefault.mockResolvedValue(false);
     const tm = new TransportManager();
+    tm.nativeWakeProbeMs = 0;
     const result = await tm.discover();
     expect(result.transport).toBeNull();
   });

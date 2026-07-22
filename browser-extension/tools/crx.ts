@@ -38,7 +38,12 @@ function uint32le(value: number): Buffer {
   return buffer;
 }
 
-/** Resolve a signing key from a file path, or null when none is configured. */
+/** Resolve a signing key from env configuration, or null when none is set.
+ *  Sources, in priority order:
+ *  1. CRX_PRIVATE_KEY_PATH — filesystem path to a PEM file.
+ *  2. CRX_PRIVATE_KEY      — inline PEM, or a base64-encoded PEM (the common
+ *                            CI secret format, since PEMs contain newlines).
+ */
 export function resolveCrxPrivateKey(): string | null {
   const keyPath = process.env.CRX_PRIVATE_KEY_PATH?.trim();
   if (keyPath) {
@@ -49,6 +54,22 @@ export function resolveCrxPrivateKey(): string | null {
       if (process.env.DEBUG) console.error(`CRX key read failed (path: ${keyPath}): ${(error as Error).message}`);
       return null;
     }
+  }
+
+  const inline = process.env.CRX_PRIVATE_KEY?.trim();
+  if (inline) {
+    if (inline.includes('-----BEGIN')) {
+      return inline;
+    }
+    try {
+      const decoded = Buffer.from(inline, 'base64').toString('utf8');
+      if (decoded.includes('-----BEGIN')) {
+        return decoded;
+      }
+    } catch {
+      // fall through to null
+    }
+    if (process.env.DEBUG) console.error('CRX_PRIVATE_KEY is set but is neither a PEM nor base64-encoded PEM.');
   }
   return null;
 }

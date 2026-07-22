@@ -229,6 +229,19 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
 
             let state = Arc::new(state);
 
+            // Warm the engine-capability cache in the background so the very
+            // first /v1/ping from the browser extension does not have to wait
+            // for subprocess probing (yt-dlp --version, ffmpeg -version, …),
+            // which previously made the first extension connection take
+            // several seconds.
+            {
+                let warm_state = state.clone();
+                std::thread::spawn(move || {
+                    let _ = warm_state.engine_capabilities();
+                    log::debug!("Engine capability cache warmed");
+                });
+            }
+
             log::debug!("Daemon started with API auth enabled");
 
             // Discover external tools on startup.

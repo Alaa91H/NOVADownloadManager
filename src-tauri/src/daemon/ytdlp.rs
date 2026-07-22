@@ -210,7 +210,12 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                             let mut jobs = lock_or_err!(state2.media_jobs);
                             if let Some(current) = jobs.get_mut(&id2) {
                                 let task_name = current.task.name.clone();
-                                if status.is_some_and(|s| s.success()) {
+                                // Exit code 0 alone is not proof of success:
+                                // verify a non-empty output file exists before
+                                // marking the task completed.
+                                let output_verified = status.is_some_and(|s| s.success())
+                                    && media_output_produced(&current.task);
+                                if status.is_some_and(|s| s.success()) && output_verified {
                                     current.task.status = "completed".to_string();
                                     current.task.downloaded_bytes = current.task.size_bytes;
                                     current.task.speed_bytes_per_sec = 0;
@@ -220,6 +225,22 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                                     if let Ok(mut stats) = state2.download_stats.lock() {
                                         stats.total_completed += 1;
                                         stats.total_downloaded_bytes += current.task.size_bytes;
+                                    }
+                                } else if status.is_some_and(|s| s.success()) {
+                                    log::error!(
+                                        "yt-dlp exited 0 but produced no output file for task {} (save_path: {})",
+                                        id2, current.task.save_path
+                                    );
+                                    current.task.status = "error".to_string();
+                                    current.task.speed_bytes_per_sec = 0;
+                                    current.task.engine_status = Some("no-output".to_string());
+                                    current.task.error_message = Some(
+                                        "The media engine reported success but no output file was produced"
+                                            .to_string(),
+                                    );
+                                    notif = format!("Download failed: {}", task_name);
+                                    if let Ok(mut stats) = state2.download_stats.lock() {
+                                        stats.total_failed += 1;
                                     }
                                 } else if current.task.status != "paused" {
                                     current.task.status = "error".to_string();
@@ -316,6 +337,36 @@ fn parse_progress_u64(value: &str) -> Option<u64> {
             .ok()
             .filter(|value| value.is_finite() && *value >= 0.0)
             .map(|value| value as u64)
+    })
+}
+
+/// Verify that a finished yt-dlp task actually produced a non-empty file.
+/// Checks the recorded save_path first, then sibling files sharing the same
+/// stem (format merges change the extension, e.g. `.mkv`; audio extraction
+/// produces `.mp3`/`.opus`, and thumbnails/subtitles are skipped because
+/// they never become the recorded save_path).
+fn media_output_produced(task: &crate::daemon::types::Task) -> bool {
+    if task.save_path.is_empty() {
+        // No destination was ever reported; nothing to verify against, so
+        // do not manufacture a failure.
+        return true;
+    }
+    let path = std::path::Path::new(&task.save_path);
+    let non_empty = |p: &std::path::Path| {
+        std::fs::metadata(p).map(|m| m.is_file() && m.len() > 0).unwrap_or(false)
+    };
+    if non_empty(path) {
+        return true;
+    }
+    let (Some(parent), Some(stem)) = (path.parent(), path.file_stem()) else {
+        return false;
+    };
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return false;
+    };
+    entries.filter_map(Result::ok).any(|entry| {
+        let p = entry.path();
+        p != path && p.file_stem() == Some(stem) && non_empty(&p)
     })
 }
 

@@ -97,6 +97,11 @@ export const RuntimeMessageSchema = z.discriminatedUnion('type', [
       'download-attribute', 'link-click', 'context-selection',
       'programmatic-click', 'window-open', 'dynamic-download-attr',
       'keyboard-enter', 'navigation-capture', 'floating-panel',
+      // Emitted by the download-capture content script when it patches
+      // location.assign/replace, form submits, and blob: anchor downloads.
+      'location-assign', 'location-replace',
+      'form-submit', 'form-submit-post',
+      'blob-download', 'location-assign-blob', 'location-replace-blob',
     ]),
     tabId: z.number().int().optional(),
   }) }),

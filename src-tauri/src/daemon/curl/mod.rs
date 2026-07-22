@@ -8,8 +8,8 @@ pub(crate) mod transfer_config;
 pub(crate) use args::build_curl_args;
 pub(crate) use easy_config::init_download_ssl;
 pub(crate) use task_api::{
-    create_curl_task, curl_version, delete_task, list_all_tasks, pause_task, resume_task,
-    CurlExtractor,
+    create_curl_task, curl_version, delete_task, list_all_tasks, pause_task, redownload_task,
+    resume_task, update_task_metadata, CurlExtractor,
 };
 pub(crate) use transfer::start_curl_process;
 
@@ -56,6 +56,11 @@ pub(super) struct ResponseCapture {
     pub(super) validator: Option<String>,
     pub(super) digest_sha256: Option<String>,
     pub(super) mirrors: Vec<String>,
+    /// True when the server actually responded with a `Content-Encoding`
+    /// other than `identity`. Only then is the on-disk size allowed to
+    /// differ from the probed Content-Length, because libcurl transparently
+    /// decompresses the body.
+    pub(super) content_encoded: bool,
 }
 
 pub(super) struct SegmentProgress {

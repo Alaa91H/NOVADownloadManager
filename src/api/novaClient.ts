@@ -416,6 +416,22 @@ export const novaClient = {
     await request<unknown>(`/api/downloads/${encodeURIComponent(id)}${query}`, { method: 'DELETE' }, 3000);
   },
 
+  async updateDownload(id: string, patch: { name?: string; url?: string }): Promise<DownloadItem> {
+    return request<DownloadItem>(
+      `/api/downloads/${encodeURIComponent(id)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      },
+      5000,
+    );
+  },
+
+  async redownloadDownload(id: string): Promise<DownloadItem> {
+    return request<DownloadItem>(`/api/downloads/${encodeURIComponent(id)}/redownload`, { method: 'POST' }, 8000);
+  },
+
   async updateTorrentConfig(config: Record<string, unknown>): Promise<void> {
     await request<unknown>(
       '/api/torrents/config',

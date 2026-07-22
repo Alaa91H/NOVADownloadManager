@@ -16,11 +16,30 @@ export function registerAlarms(): void {
 async function reconnectAndMaybeReschedule(): Promise<void> {
   const state = await bridgeManager.reconnect();
   await updateBadge(state);
-  if (!state.canSend && state.lastError?.retryable && state.retryAfterMs) {
+  if (state.canSend) {
+    // Connected: cancel any pending backstop alarm so it cannot fire a
+    // redundant reconnect later.
+    await browser.alarms.clear(RECONNECT_ALARM).catch(() => false);
+    return;
+  }
+  if (state.lastError?.retryable && state.retryAfterMs) {
     await scheduleReconnect(state.retryAfterMs);
   }
 }
 
+let fastRetryTimer: ReturnType<typeof setTimeout> | undefined;
+
 export async function scheduleReconnect(delayMs: number): Promise<void> {
+  // Chrome MV3 clamps alarm firings to >= ~30s on stable channels, so a
+  // 2-5s reconnect intent would otherwise become a 30s+ wait. While the
+  // service worker is alive, setTimeout delivers the retry on time; the
+  // alarm remains as the backstop for when the worker gets suspended.
+  if (fastRetryTimer !== undefined) {
+    clearTimeout(fastRetryTimer);
+  }
+  fastRetryTimer = setTimeout(() => {
+    fastRetryTimer = undefined;
+    void reconnectAndMaybeReschedule();
+  }, delayMs);
   await browser.alarms.create(RECONNECT_ALARM, { when: Date.now() + delayMs });
 }

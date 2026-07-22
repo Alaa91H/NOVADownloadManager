@@ -348,6 +348,52 @@ fn update_single_progress(
     }
 }
 
+/// HTTP(S) transfers always yield a non-zero response code after a
+/// successful perform. Other protocols (FTP/SFTP/SCP/...) legitimately
+/// report response_code()==0 even on success, so the "no response" guards
+/// must only apply to HTTP-family URLs.
+fn is_http_family(url: &str) -> bool {
+    let lower = url.get(..8).unwrap_or(url).to_ascii_lowercase();
+    lower.starts_with("http://") || lower.starts_with("https://")
+}
+
+/// Result of a completed transfer pass. Carries everything the completion
+/// path needs to decide whether the download may be marked complete.
+#[derive(Clone, Debug)]
+pub(super) struct TransferOutcome {
+    pub(super) size: u64,
+    pub(super) validator: Option<String>,
+    /// True when the server actually sent a `Content-Encoding` (captured
+    /// from response headers, not assumed from config), meaning libcurl
+    /// decompressed the body and on-disk size may differ from the probed
+    /// Content-Length.
+    pub(super) content_encoded: bool,
+}
+
+impl TransferOutcome {
+    fn plain(size: u64, validator: Option<String>) -> Self {
+        Self {
+            size,
+            validator,
+            content_encoded: false,
+        }
+    }
+}
+
+/// Validate the final on-disk size against the probed size. Skipped only
+/// when the server actually used Content-Encoding for this transfer.
+fn validate_transfer_size(
+    total_size: u64,
+    content_encoded: bool,
+    actual: u64,
+) -> Result<(), String> {
+    IntegrityValidator::new(IntegrityMetadata {
+        expected_size: (total_size > 0).then_some(total_size),
+        compressed_transfer: content_encoded,
+    })
+    .validate_size(actual)
+}
+
 fn run_single_libcurl(
     state: &SharedState,
     id: &str,
@@ -355,16 +401,33 @@ fn run_single_libcurl(
     cancel: Arc<AtomicBool>,
     retry_after: Arc<AtomicU64>,
     streaming_digest_out: Arc<Mutex<Option<String>>>,
-) -> Result<(u64, Option<String>), String> {
+) -> Result<TransferOutcome, String> {
     FileWriter::ensure_parent(&plan.output_path)?;
     if plan.config.bool_("skipExisting") == Some(true) && plan.output_path.exists() {
+        // Only honour skipExisting when the file on disk is plausibly the
+        // completed object. An empty file, or one whose size disagrees with
+        // a known remote size, must be (re)downloaded instead of being
+        // silently accepted as "complete".
         let existing = FileWriter::current_size(&plan.output_path);
-        return Ok((existing, None));
+        let plausible = if plan.total_size > 0 {
+            existing == plan.total_size
+        } else {
+            existing > 0
+        };
+        if plausible {
+            return Ok(TransferOutcome::plain(existing, None));
+        }
+        log::info!(
+            "skipExisting ignored for {} (on-disk {} bytes, expected {}): redownloading",
+            plan.output_path.display(),
+            existing,
+            plan.total_size
+        );
     }
     if plan.output_path.exists() {
         let existing = FileWriter::current_size(&plan.output_path);
         if plan.total_size > 0 && existing == plan.total_size {
-            return Ok((existing, None));
+            return Ok(TransferOutcome::plain(existing, None));
         }
         if plan.total_size > 0 && existing > plan.total_size {
             if plan.allow_overwrite {
@@ -402,7 +465,7 @@ fn run_single_libcurl(
         abort: cancel.clone(),
         retry_after: retry_after.clone(),
         capture: capture.clone(),
-        streaming_digest_out,
+        streaming_digest_out: streaming_digest_out.clone(),
     };
     let task_limit = state.bandwidth_manager.allowed_speed_for_task(id);
     let task_limit_bps = if task_limit > 0 {
@@ -461,8 +524,45 @@ fn run_single_libcurl(
         .response_code()
         .map_err(|e| format!("Could not read HTTP response code: {e}"))?;
     if response == 304 {
-        let captured = capture.lock().ok().and_then(|cap| cap.validator.clone());
-        return Ok((FileWriter::current_size(&plan.output_path), captured));
+        // 304 Not Modified is only a valid completion when the local file
+        // actually holds the (unchanged) object. If the partial file is
+        // missing or empty, the conditional request was satisfied against
+        // data we no longer have; retry once WITHOUT the validator so the
+        // server returns the full body instead of another 304.
+        let on_disk = FileWriter::current_size(&plan.output_path);
+        if on_disk == 0 && plan.validator.is_some() {
+            log::info!(
+                "304 Not Modified but no local data for {}; retrying without conditional headers",
+                plan.output_path.display()
+            );
+            let mut unconditional = plan.clone();
+            unconditional.validator = None;
+            unconditional.validator_is_etag = false;
+            return run_single_libcurl(
+                state,
+                id,
+                &unconditional,
+                cancel,
+                retry_after,
+                streaming_digest_out.clone(),
+            );
+        }
+        if on_disk == 0 {
+            return Err(
+                "Server replied 304 Not Modified but no local file exists to validate against"
+                    .to_string(),
+            );
+        }
+        let (captured, encoded) = capture
+            .lock()
+            .ok()
+            .map(|cap| (cap.validator.clone(), cap.content_encoded))
+            .unwrap_or((None, false));
+        return Ok(TransferOutcome {
+            size: on_disk,
+            validator: captured,
+            content_encoded: encoded,
+        });
     }
     if response == 412 {
         let existing = FileWriter::current_size(&plan.output_path);
@@ -511,7 +611,9 @@ fn run_single_libcurl(
     // handshake error, etc.). Without this check, the download is silently
     // marked as "completed" with 0 bytes, which is exactly the bug where
     // "NOVA detects the file size but never downloads the file."
-    if response == 0 {
+    // This guard applies only to HTTP-family URLs: FTP/SFTP/SCP transfers
+    // legitimately report response_code()==0 on success.
+    if response == 0 && is_http_family(&plan.url) {
         let downloaded = FileWriter::current_size(&plan.output_path);
         if downloaded == 0 {
             return Err(
@@ -528,9 +630,26 @@ fn run_single_libcurl(
                 downloaded, plan.total_size
             ));
         }
+        // Unknown-size HTTP transfer whose connection dropped mid-body: with
+        // no Content-Length there is no way to prove completeness. Fail
+        // loudly so the user can retry instead of trusting a truncated file.
+        if plan.total_size == 0 && downloaded > 0 {
+            return Err(format!(
+                "Transfer ended without an HTTP response after {} bytes; the file may be incomplete",
+                downloaded
+            ));
+        }
     }
-    let captured = capture.lock().ok().and_then(|cap| cap.validator.clone());
-    Ok((FileWriter::current_size(&plan.output_path), captured))
+    let (captured, encoded) = capture
+        .lock()
+        .ok()
+        .map(|cap| (cap.validator.clone(), cap.content_encoded))
+        .unwrap_or((None, false));
+    Ok(TransferOutcome {
+        size: FileWriter::current_size(&plan.output_path),
+        validator: captured,
+        content_encoded: encoded,
+    })
 }
 
 fn run_segmented_libcurl(
@@ -540,12 +659,12 @@ fn run_segmented_libcurl(
     cancel: Arc<AtomicBool>,
     retry_after: Arc<AtomicU64>,
     streaming_digest_out: Arc<Mutex<Option<String>>>,
-) -> Result<(u64, Option<String>), String> {
+) -> Result<TransferOutcome, String> {
     FileWriter::ensure_parent(&plan.output_path)?;
     if !plan.allow_overwrite && plan.output_path.exists() {
         let existing = FileWriter::current_size(&plan.output_path);
         if existing == plan.total_size && plan.total_size > 0 {
-            return Ok((existing, None));
+            return Ok(TransferOutcome::plain(existing, None));
         }
         return Err(format!(
             "Destination already exists: {}",
@@ -560,7 +679,7 @@ fn run_segmented_libcurl(
         && FileWriter::current_size(&plan.output_path) == plan.total_size
         && plan.total_size > 0
     {
-        return Ok((plan.total_size, None));
+        return Ok(TransferOutcome::plain(plan.total_size, None));
     }
 
     let task_limit = state.bandwidth_manager.allowed_speed_for_task(id);
@@ -659,7 +778,8 @@ fn run_segmented_libcurl(
     }
 
     if handles.is_empty() {
-        return merge_parts(&plan.output_path, &ranges).map(|s| (s, None));
+        return merge_parts(&plan.output_path, &ranges)
+            .map(|s| TransferOutcome::plain(s, None));
     }
 
     let mut last_total: u64 = active
@@ -735,13 +855,13 @@ fn run_segmented_libcurl(
             }
             return Err("range-not-satisfiable-416".to_string());
         }
-        if code != 206 && code != 200 {
+        if is_http_family(&plan.url) && code != 206 && code != 200 {
             return Err(format!(
                 "Segment {} finished with unexpected HTTP status {}",
                 idx, code
             ));
         }
-        if code == 200 && plan.connections > 1 {
+        if code == 200 && plan.connections > 1 && is_http_family(&plan.url) {
             return Err("Server did not honor byte-range requests; retry with one connection or probe the URL again.".to_string());
         }
     }
@@ -753,11 +873,16 @@ fn run_segmented_libcurl(
         &mut last_total,
         &mut last_tick,
     );
-    let captured_validator = seg_captures
+    let (captured_validator, encoded) = seg_captures
         .first()
         .and_then(|cap| cap.lock().ok())
-        .and_then(|cap| cap.validator.clone());
-    merge_parts(&plan.output_path, &ranges).map(|s| (s, captured_validator))
+        .map(|cap| (cap.validator.clone(), cap.content_encoded))
+        .unwrap_or((None, false));
+    merge_parts(&plan.output_path, &ranges).map(|s| TransferOutcome {
+        size: s,
+        validator: captured_validator,
+        content_encoded: encoded,
+    })
 }
 
 fn run_libcurl_download(
@@ -767,12 +892,6 @@ fn run_libcurl_download(
     cancel: Arc<AtomicBool>,
 ) -> Result<u64, String> {
     let retry_policy = plan.config.retry_policy();
-    let compressed = plan.config.bool_("compressed") != Some(false);
-    let integrity_metadata = IntegrityMetadata {
-        expected_size: (plan.total_size > 0).then_some(plan.total_size),
-        compressed_transfer: compressed,
-    };
-    let integrity = IntegrityValidator::new(integrity_metadata);
     let start_time = std::time::Instant::now();
     let mut last_error = String::new();
     let retry_after = Arc::new(AtomicU64::new(0));
@@ -864,7 +983,9 @@ fn run_libcurl_download(
             )
         };
         match result {
-            Ok((size, captured_validator)) => {
+            Ok(outcome) => {
+                let size = outcome.size;
+                let captured_validator = outcome.validator.clone();
                 if let Ok(mut trackers) = state.engine_trackers.lock() {
                     if let Some(tracker) = trackers.get_mut(id) {
                         tracker.retry_state.reset();
@@ -875,7 +996,10 @@ fn run_libcurl_download(
                         mgr.report_success(&plan.url);
                     }
                 }
-                integrity.validate_size(size)?;
+                // Size validation is skipped only when the server ACTUALLY
+                // used Content-Encoding for this transfer (captured from the
+                // response headers) — never merely assumed from config.
+                validate_transfer_size(plan.total_size, outcome.content_encoded, size)?;
                 if let Some(ref expected_raw) = plan.digest_sha256 {
                     let actual_hex = streaming_digest_reader
                         .lock()
@@ -978,10 +1102,14 @@ fn run_libcurl_download(
                             retry_after.clone(),
                             streaming_digest_out.clone(),
                         ) {
-                            Ok((size, _captured)) => {
+                            Ok(fb) => {
                                 crate::daemon::direct::record_host_ceiling(&plan.url, 1);
-                                integrity.validate_size(size)?;
-                                return Ok(size);
+                                validate_transfer_size(
+                                    plan.total_size,
+                                    fb.content_encoded,
+                                    fb.size,
+                                )?;
+                                return Ok(fb.size);
                             }
                             Err(fb_error)
                                 if fb_error == "cancelled" || cancel.load(Ordering::Acquire) =>
@@ -1037,10 +1165,10 @@ fn run_libcurl_download(
             retry_after.clone(),
             streaming_digest_out.clone(),
         ) {
-            Ok((size, _captured)) => {
+            Ok(fb) => {
                 crate::daemon::direct::record_host_ceiling(&plan.url, 1);
-                integrity.validate_size(size)?;
-                return Ok(size);
+                validate_transfer_size(plan.total_size, fb.content_encoded, fb.size)?;
+                return Ok(fb.size);
             }
             Err(error) if error == "cancelled" || cancel.load(Ordering::Acquire) => {
                 return Err("cancelled".to_string());
@@ -1176,10 +1304,30 @@ pub(crate) fn start_curl_process(state: &SharedState, id: &str) {
         );
         let remove_on_error = plan.remove_on_error;
         let output_path = plan.output_path.clone();
+        let expected_size = plan.total_size;
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             run_libcurl_download(&state2, &id2, plan, cancel.clone())
         }));
         match result {
+            // Last-line defence: a transfer whose expected size is known but
+            // which produced a zero-byte file must NEVER be marked completed,
+            // no matter which code path returned Ok.
+            Ok(Ok(0)) if expected_size > 0 => {
+                if remove_on_error {
+                    let _ = std::fs::remove_file(&output_path);
+                    remove_stale_parts_for(&output_path);
+                }
+                mark_curl_task_failed(
+                    &state2,
+                    &id2,
+                    format!(
+                        "Transfer produced an empty file but {} bytes were expected; refusing to mark the download as complete",
+                        expected_size
+                    ),
+                    false,
+                    generation,
+                );
+            }
             Ok(Ok(final_size)) => mark_curl_task_finished(&state2, &id2, final_size, generation),
             Ok(Err(error)) => {
                 let cancelled = cancel.load(Ordering::Relaxed) || error == "cancelled";

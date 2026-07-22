@@ -48,7 +48,8 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "resources/**/*"
+      "resources/**/*",
+      "cacert.pem"
     ],
     "linux": {
       "deb": {

@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../i18n/react', () => ({
+vi.mock('../../../i18n/react', () => ({
   useI18n: () => ({
     t: (k: string) => {
       const map: Record<string, string> = {
@@ -25,7 +25,7 @@ vi.mock('../../i18n/react', () => ({
   }),
 }));
 
-vi.mock('../../ui/runtime-request', () => ({
+vi.mock('../../runtime-request', () => ({
   runtimeRequest: (msg: Record<string, unknown>) => {
     if (msg.type === 'GET_BRIDGE_STATE') return Promise.resolve({ canSend: false, status: 'offline' });
     if (msg.type === 'GET_CANDIDATES') return Promise.resolve([]);
@@ -40,15 +40,14 @@ describe('PopupApp (video capture)', () => {
     vi.resetModules();
   });
 
-  it('opens expanded video panel by default', async () => {
+  it('renders the compact empty state when no videos are captured', async () => {
     const { default: PopupApp } = await import('../PopupApp');
     render(<PopupApp />);
-    await waitFor(() => expect(document.querySelector('.nova-popup-expanded')).toBeTruthy());
-    expect(screen.getByRole('button', { name: /Close/i })).toBeTruthy();
+    await waitFor(() => expect(document.querySelector('.nova-popup-compact-empty')).toBeTruthy());
   });
 
   it('loads and displays video candidates from cache/scan', async () => {
-    vi.doMock('../../ui/runtime-request', () => ({
+    vi.doMock('../../runtime-request', () => ({
       runtimeRequest: (msg: Record<string, unknown>) => {
         if (msg.type === 'GET_BRIDGE_STATE') return Promise.resolve({ canSend: true, status: 'connected' });
         if (msg.type === 'GET_CANDIDATES' || msg.type === 'SCAN_PAGE') {
@@ -70,6 +69,8 @@ describe('PopupApp (video capture)', () => {
     }));
     const { default: PopupApp } = await import('../PopupApp');
     render(<PopupApp />);
-    await waitFor(() => expect(document.querySelector('.nova-popup-expanded')).toBeTruthy());
+    // Compact download bar is the live UI once candidates exist.
+    await waitFor(() => expect(document.querySelector('.nova-compact-btn-download')).toBeTruthy());
+    expect(screen.getByRole('button', { name: /Close/i })).toBeTruthy();
   });
 });

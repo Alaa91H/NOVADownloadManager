@@ -12,7 +12,11 @@ export type HttpTransportOptions = {
 
 const DEFAULT_PORT = 3199;
 const PORT_SCAN_MAX = 10;
-const PORT_DISCOVER_TIMEOUT_MS = 1_500;
+// A freshly started daemon may need a moment for its first response while
+// the engine-capability cache warms up; 1.5s was too tight and produced
+// false "offline" results on the very first connect attempt.
+const PORT_DISCOVER_TIMEOUT_MS = 4_000;
+const PORT_SCAN_TIMEOUT_MS = 1_500;
 
 export class HttpTransport implements Transport {
   readonly id = 'http' as const;
@@ -42,6 +46,14 @@ export class HttpTransport implements Transport {
     return false;
   }
 
+  /** Ping only the default (or explicitly configured) base URL. */
+  async pingDefault(): Promise<boolean> {
+    if (this.discoveredBaseUrl) {
+      return this.ping(this.discoveredBaseUrl);
+    }
+    return this.ping(this.baseUrl);
+  }
+
   private async ping(baseUrl: string): Promise<boolean> {
     try {
       const pingUrl = buildNovaLoopbackHttpUrl(baseUrl, '/v1/ping');
@@ -68,7 +80,7 @@ export class HttpTransport implements Transport {
       const port = DEFAULT_PORT + offset;
       const base = novaBaseUrlForPort(port);
       candidates.push(
-        this.pingWithSignal(base, controller.signal).then((ok) => (ok ? base : null)),
+        this.pingWithSignal(base, controller.signal, PORT_SCAN_TIMEOUT_MS).then((ok) => (ok ? base : null)),
       );
     }
     try {
@@ -81,14 +93,14 @@ export class HttpTransport implements Transport {
     }
   }
 
-  private async pingWithSignal(baseUrl: string, externalSignal: AbortSignal): Promise<boolean> {
+  private async pingWithSignal(baseUrl: string, externalSignal: AbortSignal, timeoutMs: number): Promise<boolean> {
     try {
       const pingUrl = buildNovaLoopbackHttpUrl(baseUrl, '/v1/ping');
       const controller = new AbortController();
       // Cancel if either our own timeout or the external scan-cancel fires.
       const onExternalAbort = () => controller.abort();
       externalSignal.addEventListener('abort', onExternalAbort, { once: true });
-      const timeout = setTimeout(() => controller.abort(), PORT_DISCOVER_TIMEOUT_MS);
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const response = await fetch(pingUrl, { method: 'GET', cache: 'no-store', signal: controller.signal });
         return response.ok;

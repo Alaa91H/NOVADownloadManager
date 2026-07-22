@@ -219,6 +219,217 @@ pub(crate) async fn resume_task(state: &SharedState, id: &str) -> Result<Task, S
     Err("Task not found".to_string())
 }
 
+/// Characters that may not appear in a file name on any supported platform
+/// (Windows-reserved set is the strictest, so it is used universally).
+fn sanitize_new_name(raw: &str) -> Result<String, String> {
+    let name = raw.trim();
+    if name.is_empty() {
+        return Err("Name cannot be empty".to_string());
+    }
+    if name.len() > 240 {
+        return Err("Name is too long (max 240 characters)".to_string());
+    }
+    if name
+        .chars()
+        .any(|c| matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control())
+    {
+        return Err(format!("Name contains forbidden characters: {}", name));
+    }
+    if name == "." || name == ".." {
+        return Err("Invalid name".to_string());
+    }
+    Ok(name.to_string())
+}
+
+/// Rename the on-disk destination (completed or partial) to match a new task
+/// name, keeping the original extension when the new name has none. Returns
+/// the new save path on success.
+fn rename_destination_on_disk(old_path: &std::path::Path, new_name: &str) -> Option<std::path::PathBuf> {
+    let parent = old_path.parent()?;
+    let mut candidate = parent.join(new_name);
+    // Keep the previous extension when the user typed a bare stem.
+    if candidate.extension().is_none() {
+        if let Some(ext) = old_path.extension().and_then(|e| e.to_str()) {
+            candidate.set_extension(ext);
+        }
+    }
+    if candidate == old_path {
+        return Some(old_path.to_path_buf());
+    }
+    if candidate.exists() {
+        // Never clobber an existing file during rename.
+        return None;
+    }
+    if old_path.exists() {
+        std::fs::rename(old_path, &candidate).ok()?;
+    }
+    Some(candidate)
+}
+
+/// Clear stored conditional-request validators after the task URL changes so
+/// a resume against the refreshed link does not trigger 412/304 loops.
+fn clear_stale_validators(direct_options: &mut std::collections::HashMap<String, serde_json::Value>) {
+    for key in ["etag", "lastModified", "digestSha256"] {
+        direct_options.remove(key);
+    }
+}
+
+pub(crate) async fn update_task_metadata(
+    state: &SharedState,
+    id: &str,
+    name: Option<String>,
+    url: Option<String>,
+) -> Result<Task, String> {
+    let new_name = match name.as_deref() {
+        Some(raw) => Some(sanitize_new_name(raw)?),
+        None => None,
+    };
+    let new_url = match url.as_deref() {
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return Err("URL cannot be empty".to_string());
+            }
+            Some(trimmed.to_string())
+        }
+        None => None,
+    };
+    if new_name.is_none() && new_url.is_none() {
+        return Err("Nothing to update".to_string());
+    }
+
+    // Media (yt-dlp) tasks.
+    {
+        let mut jobs = lock_or_err!(state.media_jobs);
+        if let Some(job) = jobs.get_mut(id) {
+            if matches!(job.task.status.as_str(), "downloading" | "pausing" | "stopping") {
+                return Err("Stop the download before editing it".to_string());
+            }
+            if let Some(ref u) = new_url {
+                if !(u.starts_with("http://") || u.starts_with("https://")) {
+                    return Err("Only http(s) URLs are supported for media tasks".to_string());
+                }
+                job.task.url = u.clone();
+            }
+            if let Some(ref n) = new_name {
+                job.task.name = n.clone();
+                if let Some(new_path) = rename_destination_on_disk(
+                    std::path::Path::new(&job.task.save_path),
+                    n,
+                ) {
+                    job.task.save_path = new_path.to_string_lossy().to_string();
+                }
+            }
+            let task = job.task.clone();
+            drop(jobs);
+            lock_or_err!(state.task_snapshot).insert(id.to_string(), task.clone());
+            state.mark_dirty();
+            return Ok(task);
+        }
+    }
+
+    // Direct (libcurl) tasks.
+    {
+        let mut jobs = lock_or_err!(state.curl_jobs);
+        if let Some(job) = jobs.get_mut(id) {
+            if matches!(job.task.status.as_str(), "downloading" | "pausing" | "stopping") {
+                return Err("Stop the download before editing it".to_string());
+            }
+            if let Some(ref u) = new_url {
+                let parsed = DirectUrl::parse(u)?;
+                crate::daemon::utils::is_safe_target_url(&parsed.normalized)?;
+                let old_url = std::mem::replace(&mut job.task.url, parsed.normalized.clone());
+                if old_url != parsed.normalized {
+                    clear_stale_validators(&mut job.direct_options);
+                    if !old_url.is_empty() {
+                        state.metadata_cache.remove(&old_url);
+                    }
+                }
+            }
+            if let Some(ref n) = new_name {
+                job.task.name = n.clone();
+                if let Some(new_path) = rename_destination_on_disk(
+                    std::path::Path::new(&job.task.save_path),
+                    n,
+                ) {
+                    job.task.save_path = new_path.to_string_lossy().to_string();
+                }
+            }
+            let task = job.task.clone();
+            drop(jobs);
+            lock_or_err!(state.task_snapshot).insert(id.to_string(), task.clone());
+            state.mark_dirty();
+            return Ok(task);
+        }
+    }
+
+    Err("Task not found".to_string())
+}
+
+/// Re-download a task from scratch: removes the existing output (and any
+/// segment parts), resets progress, clears stale validators, and restarts.
+pub(crate) async fn redownload_task(state: &SharedState, id: &str) -> Result<Task, String> {
+    {
+        let mut jobs = lock_or_err!(state.media_jobs);
+        if let Some(job) = jobs.get_mut(id) {
+            if let Some(pid) = job.child.take() {
+                kill_process(pid);
+            }
+            let path = std::path::PathBuf::from(&job.task.save_path);
+            if !job.task.save_path.is_empty() {
+                let _ = std::fs::remove_file(&path);
+            }
+            job.task.status = "downloading".to_string();
+            job.task.downloaded_bytes = 0;
+            job.task.speed_bytes_per_sec = 0;
+            job.task.time_left_seconds = 0;
+            job.task.error_message = None;
+            job.task.engine_status = Some("redownload-requested".to_string());
+            let task = job.task.clone();
+            drop(jobs);
+            lock_or_err!(state.task_snapshot).insert(id.to_string(), task.clone());
+            state.mark_dirty();
+            crate::daemon::ytdlp::start_ytdlp_process(state, id);
+            return Ok(task);
+        }
+    }
+
+    {
+        let mut jobs = lock_or_err!(state.curl_jobs);
+        if let Some(job) = jobs.get_mut(id) {
+            // Cancel any running worker and invalidate its generation so a
+            // late finish cannot overwrite the fresh state.
+            job.cancel_token.store(true, Ordering::Release);
+            job.run_generation.fetch_add(1, Ordering::Release);
+            let path = std::path::PathBuf::from(&job.task.save_path);
+            let _ = std::fs::remove_file(&path);
+            remove_stale_parts_for(&path);
+            clear_stale_validators(&mut job.direct_options);
+            job.task.status = "queued".to_string();
+            job.task.downloaded_bytes = 0;
+            job.task.speed_bytes_per_sec = 0;
+            job.task.time_left_seconds = 0;
+            job.task.error_message = None;
+            job.task.engine_status = Some("redownload-requested".to_string());
+            job.task.segments = crate::daemon::utils::build_segments(
+                job.task.connections,
+                job.task.size_bytes,
+                0,
+                true,
+                0,
+            );
+            let task = job.task.clone();
+            drop(jobs);
+            lock_or_err!(state.task_snapshot).insert(id.to_string(), task.clone());
+            state.mark_dirty();
+            start_curl_process(state, id);
+            return Ok(task);
+        }
+    }
+
+    Err("Task not found".to_string())
+}
+
 pub(crate) async fn delete_task(
     state: &SharedState,
     id: &str,

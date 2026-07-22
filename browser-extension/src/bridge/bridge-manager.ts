@@ -471,7 +471,8 @@ export class BridgeManager implements BridgeGateway {
         });
         return this.state;
       }
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // No fixed sleep: discover() now adaptively polls until the freshly
+      // launched daemon binds its port, returning as soon as it answers.
       return this.autoConnect();
     } catch {
       await this.setState({
