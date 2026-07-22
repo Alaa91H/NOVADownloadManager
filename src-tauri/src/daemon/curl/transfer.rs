@@ -506,6 +506,29 @@ fn run_single_libcurl(
     if response >= 400 {
         return Err(format!("HTTP error {}", response));
     }
+    // response == 0 means no HTTP response was received at all — the transfer
+    // failed before reaching the server (DNS failure, connection refused, TLS
+    // handshake error, etc.). Without this check, the download is silently
+    // marked as "completed" with 0 bytes, which is exactly the bug where
+    // "NOVA detects the file size but never downloads the file."
+    if response == 0 {
+        let downloaded = FileWriter::current_size(&plan.output_path);
+        if downloaded == 0 {
+            return Err(
+                "Transfer failed: no HTTP response received (DNS, connection, or TLS error). \
+                 The download engine could not reach the server."
+                    .to_string(),
+            );
+        }
+        // Partial data was received but the connection dropped before a complete
+        // response. Treat this as an error so retry logic can kick in.
+        if plan.total_size > 0 && downloaded < plan.total_size {
+            return Err(format!(
+                "Transfer interrupted: received {} of {} bytes before connection lost (HTTP response code: 0)",
+                downloaded, plan.total_size
+            ));
+        }
+    }
     let captured = capture.lock().ok().and_then(|cap| cap.validator.clone());
     Ok((FileWriter::current_size(&plan.output_path), captured))
 }
