@@ -61,7 +61,7 @@ export function expandUrlPattern(url: string): string[] {
   let m: RegExpExecArray | null;
   BRACKET_RE.lastIndex = 0;
   while ((m = BRACKET_RE.exec(url)) !== null) {
-    groups.push({ prefix: url.slice(cursor, m.index), values: expandBracket(m[1]!) });
+    groups.push({ prefix: url.slice(cursor, m.index), values: expandBracket(m[1]) });
     cursor = m.index + m[0].length;
   }
   const trailing = url.slice(cursor);
