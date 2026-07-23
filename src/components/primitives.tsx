@@ -225,8 +225,18 @@ export const FormRow: React.FC<FormRowProps> = ({ label, children, id }) => {
 // --- StatusPill ---
 interface StatusPillProps {
   status: DownloadStatus;
+  engineStatus?: string;
 }
-const StatusPillInner: React.FC<StatusPillProps> = ({ status }) => {
+
+const ENGINE_STATUS_LABELS: Record<string, string> = {
+  'resolving-url': 'Resolving URL...',
+  starting: 'Starting...',
+  'running-libcurl-multi': '',
+  'resume-requested': 'Resuming...',
+  'redownload-requested': 'Re-downloading...',
+};
+
+const StatusPillInner: React.FC<StatusPillProps> = ({ status, engineStatus }) => {
   const t = useI18n();
   const meta: Record<DownloadStatus, { bg: string; key: string }> = {
     downloading: {
@@ -251,12 +261,19 @@ const StatusPillInner: React.FC<StatusPillProps> = ({ status }) => {
     error: { bg: 'bg-[var(--danger-bg)] text-[var(--danger)] border-[var(--danger-border)]', key: 'status_error' },
   };
   const config = meta[status];
+  const subtitle =
+    status === 'downloading' && engineStatus ? ENGINE_STATUS_LABELS[engineStatus] ?? '' : '';
 
   return (
-    <span
-      className={`inline-flex items-center px-2 py-0.5 text-[10px] md:text-xs font-medium rounded-md border ${config.bg}`}
-    >
-      {t(config.key)}
+    <span className="inline-flex flex-col items-center gap-0.5">
+      <span
+        className={`inline-flex items-center px-2 py-0.5 text-[10px] md:text-xs font-medium rounded-md border ${config.bg}`}
+      >
+        {t(config.key)}
+      </span>
+      {subtitle ? (
+        <span className="text-[9px] text-[var(--text-muted)] leading-none">{subtitle}</span>
+      ) : null}
     </span>
   );
 };

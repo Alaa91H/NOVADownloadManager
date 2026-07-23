@@ -567,7 +567,7 @@ export const TaskTable: React.FC = () => {
                       case 'status':
                         return (
                           <td key={colKey} className="px-2 py-0.5 truncate text-start" style={{ width }}>
-                            <StatusPill status={task.status} />
+                            <StatusPill status={task.status} engineStatus={task.engineStatus} />
                           </td>
                         );
                       case 'retries':

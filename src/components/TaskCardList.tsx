@@ -69,7 +69,7 @@ const TaskCardListInner: React.FC<TaskCardListProps> = ({
                   {task.name}
                 </span>
               </div>
-              <StatusPill status={task.status} />
+              <StatusPill status={task.status} engineStatus={task.engineStatus} />
             </div>
 
             <div className="mt-3 flex items-center gap-2">
