@@ -1,3 +1,4 @@
+pub mod adaptive;
 pub mod adaptive_connections;
 pub mod bandwidth;
 pub mod checksum;

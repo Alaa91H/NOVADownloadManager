@@ -8,6 +8,8 @@ use crate::daemon::external_tools::ExternalToolManager;
 use crate::daemon::persist::DownloadStats;
 use crate::daemon::resource_intelligence::ResourceIntelligenceEngine;
 
+use crate::daemon::engine::adaptive::AdaptiveEngine;
+use crate::daemon::engine::adaptive::TelemetryBus;
 use crate::daemon::engine::adaptive_connections::AdaptiveConnectionManager;
 use crate::daemon::engine::bandwidth::BandwidthManager;
 use crate::daemon::engine::dynamic_segments::DynamicSegmentScheduler;
@@ -30,6 +32,8 @@ pub struct TaskEngineTracker {
     pub adaptive: AdaptiveConnectionManager,
     pub segments: Option<DynamicSegmentScheduler>,
     pub retry_state: RetryState,
+    pub adaptive_engine: Option<AdaptiveEngine>,
+    pub telemetry_bus: Arc<TelemetryBus>,
 }
 
 const ENGINE_CACHE_TTL_SECS: u64 = 120;

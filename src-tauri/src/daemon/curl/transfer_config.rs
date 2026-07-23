@@ -166,6 +166,8 @@ pub struct CurlTransferConfig {
     pub digest_sha256: Option<String>,
     pub link_mirrors: Vec<String>,
     pub mirror_priorities: Vec<u32>,
+    pub rie_strategy: Option<String>,
+    pub rie_connections: Option<u32>,
 }
 
 impl CurlTransferConfig {
@@ -741,6 +743,8 @@ impl From<&HashMap<String, Value>> for CurlTransferConfig {
                     })
                     .unwrap_or_default()
             },
+            rie_strategy: opt_str(map, "rieStrategy"),
+            rie_connections: map.get("rieConnections").and_then(|v| v.as_u64()).map(|n| n as u32),
         }
     }
 }
@@ -959,5 +963,26 @@ mod tests {
     fn config_array_u32_empty_returns_none() {
         let config = CurlTransferConfig::new();
         assert_eq!(config.array_u32_("mirrorPriorities"), None);
+    }
+
+    #[test]
+    fn config_rie_fields_from_hashmap() {
+        let mut map = HashMap::new();
+        map.insert(
+            "rieStrategy".to_string(),
+            Value::String("AdaptiveSegmented".to_string()),
+        );
+        map.insert("rieConnections".to_string(), Value::Number(8.into()));
+
+        let config = CurlTransferConfig::from(&map);
+        assert_eq!(config.rie_strategy.as_deref(), Some("AdaptiveSegmented"));
+        assert_eq!(config.rie_connections, Some(8));
+    }
+
+    #[test]
+    fn config_rie_fields_absent_when_not_set() {
+        let config = CurlTransferConfig::new();
+        assert_eq!(config.rie_strategy, None);
+        assert_eq!(config.rie_connections, None);
     }
 }

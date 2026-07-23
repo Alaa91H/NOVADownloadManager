@@ -159,9 +159,10 @@ fn merge_parts(output_path: &Path, ranges: &[ByteRange]) -> Result<u64, String> 
     FileWriter::merge_parts(output_path, ranges)
 }
 
-fn resolve_effective_target(plan: &DirectDownloadPlan) -> (String, bool) {
+fn resolve_effective_target(plan: &DirectDownloadPlan) -> (String, bool, PreflightData) {
     const MAX_META_REFRESH_HOPS: usize = 5;
     let mut current = plan.url.clone();
+    let mut preflight = PreflightData::default();
 
     for _hop in 0..=MAX_META_REFRESH_HOPS {
         let mut hop_plan = plan.clone();
@@ -169,11 +170,12 @@ fn resolve_effective_target(plan: &DirectDownloadPlan) -> (String, bool) {
 
         let mut easy = Easy2::new(HtmlHeadCapture::default());
         if apply_easy_options(&mut easy, &hop_plan, Some((0, 0))).is_err() {
-            return (current, true);
+            return (current, true, preflight);
         }
         let _ = easy.timeout(Duration::from_secs(5));
+
         if easy.perform().is_err() {
-            return (current, true);
+            return (current, true, preflight);
         }
 
         let code = easy.response_code().unwrap_or(0);
@@ -184,6 +186,24 @@ fn resolve_effective_target(plan: &DirectDownloadPlan) -> (String, bool) {
             .filter(|u| u.starts_with("http"))
             .map(|u| u.to_string())
             .unwrap_or_else(|| current.clone());
+
+        if let Ok(t) = easy.total_time() {
+            preflight.initial_rtt_us = t.as_micros() as u64;
+        }
+        if let Ok(t) = easy.appconnect_time() {
+            let us = t.as_micros() as u64;
+            if us > 0 {
+                preflight.tls_handshake_us = us;
+                preflight.uses_tls = true;
+            }
+        }
+        if let Ok(t) = easy.connect_time() {
+            preflight.connect_us = t.as_micros() as u64;
+        }
+        if let Ok(t) = easy.starttransfer_time() {
+            preflight.ttfb_us = t.as_micros() as u64;
+        }
+
         let is_html = easy
             .content_type()
             .ok()
@@ -202,13 +222,27 @@ fn resolve_effective_target(plan: &DirectDownloadPlan) -> (String, bool) {
                     continue;
                 }
             }
-            return (effective, false);
+            return (effective, false, preflight);
         }
 
-        return (effective, code == 206);
+        return (effective, code == 206, {
+            preflight.supports_range = code == 206;
+            preflight
+        });
     }
 
-    (current, false)
+    (current, false, preflight)
+}
+
+#[derive(Clone, Debug, Default)]
+struct PreflightData {
+    protocol: String,
+    initial_rtt_us: u64,
+    tls_handshake_us: u64,
+    connect_us: u64,
+    ttfb_us: u64,
+    uses_tls: bool,
+    supports_range: bool,
 }
 
 fn update_curl_task_progress(
@@ -659,6 +693,7 @@ fn run_segmented_libcurl(
     cancel: Arc<AtomicBool>,
     retry_after: Arc<AtomicU64>,
     streaming_digest_out: Arc<Mutex<Option<String>>>,
+    preflight: &PreflightData,
 ) -> Result<TransferOutcome, String> {
     FileWriter::ensure_parent(&plan.output_path)?;
     if !plan.allow_overwrite && plan.output_path.exists() {
@@ -697,6 +732,51 @@ fn run_segmented_libcurl(
         MAX_DIRECT_CONNECTIONS,
     );
 
+    let telemetry_bus = Arc::new(crate::daemon::engine::adaptive::TelemetryBus::new());
+    let adaptive_engine = {
+        let host = reqwest::Url::parse(&plan.url)
+            .ok()
+            .and_then(|u| u.host_str().map(str::to_string))
+            .unwrap_or_else(|| "unknown".into());
+        let protocol = match preflight.protocol.as_str() {
+            "h2" | "h2c" => crate::daemon::engine::adaptive::server_profiler::ProtocolVersion::Http2,
+            "h3" => crate::daemon::engine::adaptive::server_profiler::ProtocolVersion::Http3,
+            "HTTP/1.1" => crate::daemon::engine::adaptive::server_profiler::ProtocolVersion::Http11,
+            "HTTP/1.0" => crate::daemon::engine::adaptive::server_profiler::ProtocolVersion::Http11,
+            _ => crate::daemon::engine::adaptive::server_profiler::ProtocolVersion::Unknown,
+        };
+        let rie_connections = plan.config.rie_connections.unwrap_or(effective_connections);
+        let mut engine = crate::daemon::engine::adaptive::AdaptiveEngine::new(
+            host,
+            plan.total_size,
+            rie_connections,
+            protocol.clone(),
+            MIN_SEGMENT_SIZE,
+        );
+        if preflight.initial_rtt_us > 0 || preflight.ttfb_us > 0 {
+            engine.seed_profile(
+                protocol.clone(),
+                preflight.supports_range,
+                None,
+                if preflight.uses_tls {
+                    Some("TLS".into())
+                } else {
+                    None
+                },
+                None,
+                preflight.initial_rtt_us,
+                preflight.tls_handshake_us,
+            );
+        }
+        if let Some(ref strat) = plan.config.rie_strategy {
+            log::info!(
+                "Task {}: RIE strategy={} rie_conns={} effective_conns={}",
+                id, strat, rie_connections, effective_connections
+            );
+        }
+        engine
+    };
+
     {
         let mut trackers = lock_or_err!(state.engine_trackers);
         trackers.insert(
@@ -709,6 +789,8 @@ fn run_segmented_libcurl(
                     ),
                 segments: Some(segment_scheduler.clone()),
                 retry_state: crate::daemon::engine::retry::RetryState::new(),
+                adaptive_engine: Some(adaptive_engine),
+                telemetry_bus: telemetry_bus.clone(),
             },
         );
     }
@@ -799,10 +881,30 @@ fn run_segmented_libcurl(
             };
             prev_seg_bytes[i] = seg_downloaded;
             segment_scheduler.update_segment(i as u32, seg_downloaded, seg_speed, true);
+            telemetry_bus.report_bytes(i, seg_downloaded);
+            telemetry_bus.report_speed(i, seg_speed);
+            telemetry_bus.set_alive(i, true);
         }
-        if let Ok(trackers) = state.engine_trackers.lock() {
-            if let Some(tracker) = trackers.get(id) {
-                if let Some(adj) = tracker.adaptive.should_adjust() {
+        if let Ok(mut trackers) = state.engine_trackers.lock() {
+            if let Some(tracker) = trackers.get_mut(id) {
+                if let Some(ref mut engine) = tracker.adaptive_engine {
+                    let decision = engine.evaluate(&telemetry_bus);
+                    if decision.target_connections != engine.current_connections()
+                        || !decision.actions.is_empty()
+                    {
+                        log::debug!(
+                            "Adaptive engine decision for task {}: conns={}, reason={}, confidence={:.2}",
+                            id,
+                            decision.target_connections,
+                            decision.reason,
+                            decision.confidence,
+                        );
+                        tracker
+                            .adaptive
+                            .current_connections
+                            .store(decision.target_connections, Ordering::Relaxed);
+                    }
+                } else if let Some(adj) = tracker.adaptive.should_adjust() {
                     log::debug!(
                         "Adaptive suggestion for task {}: {} -> {} ({})",
                         id,
@@ -899,6 +1001,8 @@ fn run_libcurl_download(
     if plan.segmented && crate::daemon::direct::learned_host_ceiling(&plan.url) == Some(1) {
         plan.segmented = false;
     }
+    let mut supports_range = true;
+    let mut preflight = PreflightData::default();
     {
         if let Ok(mut jobs) = state.curl_jobs.lock() {
             if let Some(job) = jobs.get_mut(id) {
@@ -907,7 +1011,10 @@ fn run_libcurl_download(
         }
         state.mark_dirty();
 
-        let (effective_url, supports_range) = resolve_effective_target(&plan);
+        let resolved = resolve_effective_target(&plan);
+        let effective_url = resolved.0;
+        supports_range = resolved.1;
+        preflight = resolved.2;
 
         if let Ok(mut jobs) = state.curl_jobs.lock() {
             if let Some(job) = jobs.get_mut(id) {
@@ -985,6 +1092,7 @@ fn run_libcurl_download(
                 cancel.clone(),
                 retry_after.clone(),
                 streaming_digest_out.clone(),
+                &preflight,
             )
         } else {
             run_single_libcurl(
@@ -1407,4 +1515,41 @@ fn auto_rename_path(original: &std::path::Path) -> Option<std::path::PathBuf> {
         None => new_stem,
     };
     Some(parent.join(&new_name))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preflight_data_defaults() {
+        let p = PreflightData::default();
+        assert!(p.protocol.is_empty());
+        assert_eq!(p.initial_rtt_us, 0);
+        assert_eq!(p.tls_handshake_us, 0);
+        assert_eq!(p.connect_us, 0);
+        assert_eq!(p.ttfb_us, 0);
+        assert!(!p.uses_tls);
+        assert!(!p.supports_range);
+    }
+
+    #[test]
+    fn preflight_data_clones() {
+        let mut p = PreflightData::default();
+        p.protocol = "h2".into();
+        p.initial_rtt_us = 50000;
+        p.tls_handshake_us = 12000;
+        p.connect_us = 8000;
+        p.ttfb_us = 55000;
+        p.uses_tls = true;
+        p.supports_range = true;
+        let p2 = p.clone();
+        assert_eq!(p2.protocol, "h2");
+        assert_eq!(p2.initial_rtt_us, 50000);
+        assert_eq!(p2.tls_handshake_us, 12000);
+        assert_eq!(p2.connect_us, 8000);
+        assert_eq!(p2.ttfb_us, 55000);
+        assert!(p2.uses_tls);
+        assert!(p2.supports_range);
+    }
 }
