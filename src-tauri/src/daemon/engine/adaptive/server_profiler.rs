@@ -1,3 +1,9 @@
+#![allow(
+    dead_code,
+    clippy::manual_checked_ops,
+    clippy::manual_clamp,
+    clippy::too_many_arguments
+)]
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -265,19 +271,17 @@ impl ServerProfiler {
         match http_status {
             429 | 503 => {
                 profile.rate_limit_detected = true;
-                profile.rate_limit_cooldown_until =
-                    Some(Instant::now() + Duration::from_secs(30));
+                profile.rate_limit_cooldown_until = Some(Instant::now() + Duration::from_secs(30));
             }
-            200..=299 => {
+            200..=299
                 if profile.rate_limit_detected
                     && profile
                         .rate_limit_cooldown_until
                         .map(|t| Instant::now() >= t)
-                        .unwrap_or(false)
-                {
-                    profile.rate_limit_detected = false;
-                    profile.rate_limit_cooldown_until = None;
-                }
+                        .unwrap_or(false) =>
+            {
+                profile.rate_limit_detected = false;
+                profile.rate_limit_cooldown_until = None;
             }
             _ => {}
         }
@@ -372,7 +376,16 @@ mod tests {
     #[test]
     fn update_from_telemetry_records_rtt_and_speed() {
         let mut p = ServerProfiler::new();
-        p.seed_from_preflight("h", ProtocolVersion::Http11, true, None, None, None, 10000, 5000);
+        p.seed_from_preflight(
+            "h",
+            ProtocolVersion::Http11,
+            true,
+            None,
+            None,
+            None,
+            10000,
+            5000,
+        );
         p.update_from_telemetry("h", 12000, 500_000, 200, false);
         p.update_from_telemetry("h", 9000, 600_000, 200, false);
         let prof = p.get("h").unwrap();
@@ -384,7 +397,16 @@ mod tests {
     #[test]
     fn update_from_telemetry_detects_rate_limit() {
         let mut p = ServerProfiler::new();
-        p.seed_from_preflight("h", ProtocolVersion::Http11, true, None, None, None, 10000, 5000);
+        p.seed_from_preflight(
+            "h",
+            ProtocolVersion::Http11,
+            true,
+            None,
+            None,
+            None,
+            10000,
+            5000,
+        );
         p.update_from_telemetry("h", 10000, 100_000, 429, false);
         let prof = p.get("h").unwrap();
         assert!(prof.rate_limit_detected);
@@ -394,7 +416,16 @@ mod tests {
     #[test]
     fn update_from_telemetry_records_errors() {
         let mut p = ServerProfiler::new();
-        p.seed_from_preflight("h", ProtocolVersion::Http11, true, None, None, None, 10000, 5000);
+        p.seed_from_preflight(
+            "h",
+            ProtocolVersion::Http11,
+            true,
+            None,
+            None,
+            None,
+            10000,
+            5000,
+        );
         p.update_from_telemetry("h", 0, 0, 0, true);
         p.update_from_telemetry("h", 0, 0, 0, true);
         let prof = p.get("h").unwrap();
@@ -405,7 +436,16 @@ mod tests {
     #[test]
     fn report_success_resets_consecutive_failures() {
         let mut p = ServerProfiler::new();
-        p.seed_from_preflight("h", ProtocolVersion::Http11, true, None, None, None, 10000, 5000);
+        p.seed_from_preflight(
+            "h",
+            ProtocolVersion::Http11,
+            true,
+            None,
+            None,
+            None,
+            10000,
+            5000,
+        );
         p.report_failure("h");
         p.report_failure("h");
         p.report_success("h");
@@ -416,7 +456,16 @@ mod tests {
     #[test]
     fn derive_thresholds_with_data() {
         let mut p = ServerProfiler::new();
-        p.seed_from_preflight("h", ProtocolVersion::Http11, true, None, None, None, 20000, 5000);
+        p.seed_from_preflight(
+            "h",
+            ProtocolVersion::Http11,
+            true,
+            None,
+            None,
+            None,
+            20000,
+            5000,
+        );
         for i in 0..20 {
             p.update_from_telemetry("h", 15000 + i * 1000, 200_000 + i * 50_000, 200, false);
         }
@@ -473,10 +522,22 @@ mod tests {
 
     #[test]
     fn protocol_from_curl_version() {
-        assert_eq!(ProtocolVersion::from_curl_http_version(1), ProtocolVersion::Http11);
-        assert_eq!(ProtocolVersion::from_curl_http_version(2), ProtocolVersion::Http2);
-        assert_eq!(ProtocolVersion::from_curl_http_version(3), ProtocolVersion::Http3);
-        assert_eq!(ProtocolVersion::from_curl_http_version(99), ProtocolVersion::Unknown);
+        assert_eq!(
+            ProtocolVersion::from_curl_http_version(1),
+            ProtocolVersion::Http11
+        );
+        assert_eq!(
+            ProtocolVersion::from_curl_http_version(2),
+            ProtocolVersion::Http2
+        );
+        assert_eq!(
+            ProtocolVersion::from_curl_http_version(3),
+            ProtocolVersion::Http3
+        );
+        assert_eq!(
+            ProtocolVersion::from_curl_http_version(99),
+            ProtocolVersion::Unknown
+        );
     }
 
     #[test]
@@ -484,13 +545,25 @@ mod tests {
         assert_eq!(ProtocolVersion::from_scheme("ftp"), ProtocolVersion::Ftp);
         assert_eq!(ProtocolVersion::from_scheme("sftp"), ProtocolVersion::Sftp);
         assert_eq!(ProtocolVersion::from_scheme("scp"), ProtocolVersion::Scp);
-        assert_eq!(ProtocolVersion::from_scheme("https"), ProtocolVersion::Unknown);
+        assert_eq!(
+            ProtocolVersion::from_scheme("https"),
+            ProtocolVersion::Unknown
+        );
     }
 
     #[test]
     fn learn_optimal_connections() {
         let mut p = ServerProfiler::new();
-        p.seed_from_preflight("h", ProtocolVersion::Http11, true, None, None, None, 10000, 5000);
+        p.seed_from_preflight(
+            "h",
+            ProtocolVersion::Http11,
+            true,
+            None,
+            None,
+            None,
+            10000,
+            5000,
+        );
         p.learn_optimal_connections("h", 4, 800_000);
         let prof = p.get("h").unwrap();
         assert_eq!(prof.optimal_connections, 4);
@@ -510,7 +583,16 @@ mod tests {
     #[test]
     fn rtt_samples_capped_at_100() {
         let mut p = ServerProfiler::new();
-        p.seed_from_preflight("h", ProtocolVersion::Http11, true, None, None, None, 10000, 5000);
+        p.seed_from_preflight(
+            "h",
+            ProtocolVersion::Http11,
+            true,
+            None,
+            None,
+            None,
+            10000,
+            5000,
+        );
         for i in 0..150 {
             p.update_from_telemetry("h", 10000 + i, 100_000, 200, false);
         }

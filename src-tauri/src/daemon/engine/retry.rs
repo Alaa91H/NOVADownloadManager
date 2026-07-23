@@ -1,3 +1,4 @@
+#![allow(dead_code, clippy::manual_checked_ops)]
 use std::time::Duration;
 
 use super::config::global_config;
@@ -136,7 +137,6 @@ impl RetryState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
 
     fn assert_duration_eq(actual: Duration, expected: Duration, msg: &str) {
         let epsilon = Duration::from_millis(50);
@@ -332,7 +332,10 @@ mod tests {
 
     #[test]
     fn should_retry_within_limit() {
-        let policy = RetryPolicy { max_retries: 5, ..RetryPolicy::default() };
+        let policy = RetryPolicy {
+            max_retries: 5,
+            ..RetryPolicy::default()
+        };
         assert!(policy.should_retry(0));
         assert!(policy.should_retry(4));
         assert!(!policy.should_retry(5));

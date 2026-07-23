@@ -1,7 +1,8 @@
+#![allow(dead_code, clippy::too_many_arguments, clippy::manual_clamp, clippy::unnecessary_sort_by)]
 use std::time::{Duration, Instant};
 
-use super::ConnectionTelemetry;
 use super::server_profiler::ServerProfile;
+use super::ConnectionTelemetry;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SegmentState {
@@ -122,7 +123,11 @@ impl SegmentController {
         }
 
         if active_count == 1 && self.total_size > 0 {
-            let seg = self.segments.iter().find(|s| s.state == SegmentState::Active).unwrap();
+            let seg = self
+                .segments
+                .iter()
+                .find(|s| s.state == SegmentState::Active)
+                .unwrap();
             let seg_id = seg.id;
             let seg_total = seg.total_bytes();
             let seg_speed = seg.speed;
@@ -141,7 +146,9 @@ impl SegmentController {
             .map(|s| s.speed)
             .collect();
 
-        let median_speed = if speeds.is_empty() { 0 } else {
+        let median_speed = if speeds.is_empty() {
+            0
+        } else {
             let mut sorted = speeds.clone();
             sorted.sort_unstable();
             sorted[sorted.len() / 2]
@@ -154,10 +161,10 @@ impl SegmentController {
         for seg in &self.segments {
             if seg.state == SegmentState::Active && seg.speed == 0 {
                 if let Some(stall_start) = seg.stall_since {
-                    if now.duration_since(stall_start) > self.stall_threshold {
-                        if seg.remaining_bytes() > self.min_segment_bytes {
-                            return Some(SegmentPlan::SplitSegment { segment_id: seg.id });
-                        }
+                    if now.duration_since(stall_start) > self.stall_threshold
+                        && seg.remaining_bytes() > self.min_segment_bytes
+                    {
+                        return Some(SegmentPlan::SplitSegment { segment_id: seg.id });
                     }
                 }
             }
@@ -174,25 +181,24 @@ impl SegmentController {
         let mut fastest: Option<u32> = None;
         let mut fastest_speed: u64 = 0;
         for seg in &active_segs {
-            if seg.speed < median_speed / 3 {
-                if seg.speed < slowest_speed {
-                    slowest_speed = seg.speed;
-                    slowest = Some(seg.id);
-                }
+            if seg.speed < median_speed / 3 && seg.speed < slowest_speed {
+                slowest_speed = seg.speed;
+                slowest = Some(seg.id);
             }
-            if seg.speed > median_speed * 2 {
-                if seg.speed > fastest_speed {
-                    fastest_speed = seg.speed;
-                    fastest = Some(seg.id);
-                }
+            if seg.speed > median_speed * 2 && seg.speed > fastest_speed {
+                fastest_speed = seg.speed;
+                fastest = Some(seg.id);
             }
         }
 
         if let (Some(slow_id), Some(fast_id)) = (slowest, fastest) {
             let slow_seg = self.segments.iter().find(|s| s.id == slow_id).unwrap();
             let fast_seg = self.segments.iter().find(|s| s.id == fast_id).unwrap();
-            if fast_seg.speed > slow_seg.speed * 3 && slow_seg.remaining_bytes() > self.min_segment_bytes {
-                let transferable = ((fast_seg.speed - slow_seg.speed) / 4).min(slow_seg.remaining_bytes() / 4);
+            if fast_seg.speed > slow_seg.speed * 3
+                && slow_seg.remaining_bytes() > self.min_segment_bytes
+            {
+                let transferable =
+                    ((fast_seg.speed - slow_seg.speed) / 4).min(slow_seg.remaining_bytes() / 4);
                 if transferable >= self.min_segment_bytes {
                     return Some(SegmentPlan::Rebalance {
                         from_seg: slow_id,
@@ -228,10 +234,7 @@ impl SegmentController {
         self.maybe_grow_throughput(active_count as u32)
     }
 
-    fn maybe_grow_throughput(
-        &mut self,
-        active_count: u32,
-    ) -> Option<SegmentPlan> {
+    fn maybe_grow_throughput(&mut self, active_count: u32) -> Option<SegmentPlan> {
         if self.total_size == 0 || active_count >= self.max_segments {
             return None;
         }
@@ -262,12 +265,17 @@ impl SegmentController {
 
         let mut best_id: Option<u32> = None;
         let mut best_speed: u64 = 0;
-        for seg in self.segments.iter().filter(|s| s.state == SegmentState::Active) {
-            if seg.speed > avg_speed_per_seg * 2 && seg.remaining_bytes() > self.min_segment_bytes {
-                if seg.speed > best_speed {
-                    best_speed = seg.speed;
-                    best_id = Some(seg.id);
-                }
+        for seg in self
+            .segments
+            .iter()
+            .filter(|s| s.state == SegmentState::Active)
+        {
+            if seg.speed > avg_speed_per_seg * 2
+                && seg.remaining_bytes() > self.min_segment_bytes
+                && seg.speed > best_speed
+            {
+                best_speed = seg.speed;
+                best_id = Some(seg.id);
             }
         }
 
@@ -383,7 +391,9 @@ impl SegmentController {
     fn largest_active_remaining(&self) -> Option<u32> {
         self.segments
             .iter()
-            .filter(|s| s.state == SegmentState::Active && s.remaining_bytes() >= self.min_segment_bytes * 2)
+            .filter(|s| {
+                s.state == SegmentState::Active && s.remaining_bytes() >= self.min_segment_bytes * 2
+            })
             .max_by_key(|s| s.remaining_bytes())
             .map(|s| s.id)
     }
@@ -917,7 +927,11 @@ mod tests {
             c.update_progress(0, 200_000, 300);
             c.update_progress(1, 200_000, 400);
             c.evaluate(&[]);
-            assert!(c.peak_throughput() >= 500, "peak was {}", c.peak_throughput());
+            assert!(
+                c.peak_throughput() >= 500,
+                "peak was {}",
+                c.peak_throughput()
+            );
         }
     }
 
@@ -926,7 +940,11 @@ mod tests {
         let mut c = SegmentController::new(10_000_000, 1, 1024 * 1024);
         assert_eq!(c.active_segment_count(), 1);
         c.redistribute_for_count(4);
-        assert!(c.active_segment_count() >= 2, "expected >=2, got {}", c.active_segment_count());
+        assert!(
+            c.active_segment_count() >= 2,
+            "expected >=2, got {}",
+            c.active_segment_count()
+        );
     }
 
     #[test]

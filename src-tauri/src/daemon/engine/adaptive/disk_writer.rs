@@ -1,28 +1,18 @@
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{mpsc, Arc};
 
 use crate::daemon::engine::config::global_config;
 
 const CHANNEL_BOUND: usize = 64;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct DiskWriterStats {
     pub bytes_written: u64,
     pub flushes: u64,
     pub pending_bytes: u64,
-}
-
-impl Default for DiskWriterStats {
-    fn default() -> Self {
-        Self {
-            bytes_written: 0,
-            flushes: 0,
-            pending_bytes: 0,
-        }
-    }
 }
 
 pub enum WriteCommand {
@@ -126,9 +116,8 @@ impl AsyncDiskWriter {
 
         let cfg = global_config();
         let mut batch: Vec<WriteCommand> = Vec::new();
-        let mut last_flush = std::time::Instant::now();
-        let flush_interval =
-            std::time::Duration::from_millis(cfg.flush_interval_ms);
+        let _last_flush = std::time::Instant::now();
+        let flush_interval = std::time::Duration::from_millis(cfg.flush_interval_ms);
 
         loop {
             match rx.recv_timeout(flush_interval) {
@@ -154,12 +143,7 @@ impl AsyncDiskWriter {
                         }
                     }
                     WriteCommand::Flush => {
-                        Self::drain_batch(
-                            &mut batch,
-                            &mut files,
-                            &bytes_written,
-                            &pending_bytes,
-                        );
+                        Self::drain_batch(&mut batch, &mut files, &bytes_written, &pending_bytes);
                         for file in files.values_mut() {
                             let _ = file.flush();
                         }
@@ -167,12 +151,7 @@ impl AsyncDiskWriter {
                         needs_flush = false;
                     }
                     WriteCommand::Shutdown => {
-                        Self::drain_batch(
-                            &mut batch,
-                            &mut files,
-                            &bytes_written,
-                            &pending_bytes,
-                        );
+                        Self::drain_batch(&mut batch, &mut files, &bytes_written, &pending_bytes);
                         for file in files.values_mut() {
                             let _ = file.flush();
                             let _ = file.sync_all();
@@ -181,12 +160,7 @@ impl AsyncDiskWriter {
                     }
                 },
                 Err(mpsc::RecvTimeoutError::Timeout) => {
-                    Self::drain_batch(
-                        &mut batch,
-                        &mut files,
-                        &bytes_written,
-                        &pending_bytes,
-                    );
+                    Self::drain_batch(&mut batch, &mut files, &bytes_written, &pending_bytes);
                     if needs_flush {
                         for file in files.values_mut() {
                             let _ = file.flush();
@@ -196,12 +170,7 @@ impl AsyncDiskWriter {
                     }
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    Self::drain_batch(
-                        &mut batch,
-                        &mut files,
-                        &bytes_written,
-                        &pending_bytes,
-                    );
+                    Self::drain_batch(&mut batch, &mut files, &bytes_written, &pending_bytes);
                     for file in files.values_mut() {
                         let _ = file.flush();
                         let _ = file.sync_all();
@@ -227,10 +196,8 @@ impl AsyncDiskWriter {
             {
                 let len = data.len() as u64;
                 if let Some(file) = files.get_mut(&segment_id) {
-                    if file.seek(SeekFrom::Start(offset)).is_ok() {
-                        if file.write_all(&data).is_ok() {
-                            bytes_written.fetch_add(len, Ordering::Relaxed);
-                        }
+                    if file.seek(SeekFrom::Start(offset)).is_ok() && file.write_all(&data).is_ok() {
+                        bytes_written.fetch_add(len, Ordering::Relaxed);
                     }
                 }
                 pending_bytes.fetch_sub(len, Ordering::Relaxed);
@@ -251,11 +218,17 @@ mod tests {
 
     fn temp_paths(count: u32) -> BTreeMap<u32, String> {
         let id = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("nova_disk_test_{}_{}", std::process::id(), id));
+        let dir =
+            std::env::temp_dir().join(format!("nova_disk_test_{}_{}", std::process::id(), id));
         let _ = fs::create_dir_all(&dir);
         let mut map = BTreeMap::new();
         for i in 0..count {
-            map.insert(i, dir.join(format!("seg_{}.bin", i)).to_string_lossy().to_string());
+            map.insert(
+                i,
+                dir.join(format!("seg_{}.bin", i))
+                    .to_string_lossy()
+                    .to_string(),
+            );
         }
         map
     }

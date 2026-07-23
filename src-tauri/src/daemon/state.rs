@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use reqwest::Client as HttpClient;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -13,8 +14,6 @@ use crate::daemon::engine::adaptive::TelemetryBus;
 use crate::daemon::engine::adaptive_connections::AdaptiveConnectionManager;
 use crate::daemon::engine::bandwidth::BandwidthManager;
 use crate::daemon::engine::capability_discovery::CapabilityDiscovery;
-use crate::daemon::engine::config::EngineConfig;
-use crate::daemon::engine::config::global_config;
 use crate::daemon::engine::die_orchestrator::DieOrchestrator;
 use crate::daemon::engine::dynamic_segments::DynamicSegmentScheduler;
 use crate::daemon::engine::event_bus::EventBus;
@@ -22,7 +21,7 @@ use crate::daemon::engine::extractor::SharedExtractorRegistry;
 use crate::daemon::engine::metadata_cache::MetadataCache;
 use crate::daemon::engine::mirror::MirrorManager;
 use crate::daemon::engine::plugin_api::PluginApi;
-use crate::daemon::engine::policy_engine::{DecisionContext, PolicyDecision, PolicyEngine};
+use crate::daemon::engine::policy_engine::PolicyEngine;
 use crate::daemon::engine::priority_queue::PriorityBandwidthQueue;
 use crate::daemon::engine::profiles::ProfileManager;
 use crate::daemon::engine::resource_manager::ResourceManager;

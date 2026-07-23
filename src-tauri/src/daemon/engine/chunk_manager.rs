@@ -1,3 +1,4 @@
+#![allow(dead_code, clippy::manual_clamp)]
 use std::time::{Duration, Instant};
 
 /// Sliding window for tracking recent samples.
@@ -67,7 +68,12 @@ impl ChunkManager {
 
     /// Recommend a chunk size based on current conditions.
     /// Called periodically by the engine to determine optimal write/read chunk sizes.
-    pub fn recommend_chunk_size(&mut self, rtt_us: u64, network_speed: u64, disk_speed: u64) -> u64 {
+    pub fn recommend_chunk_size(
+        &mut self,
+        rtt_us: u64,
+        network_speed: u64,
+        disk_speed: u64,
+    ) -> u64 {
         // Only recompute every 500ms to avoid oscillation
         if self.last_adjustment.elapsed() < Duration::from_millis(500) {
             return self.current_chunk_bytes;
@@ -99,9 +105,9 @@ impl ChunkManager {
         let adjusted = adjusted * memory_factor;
 
         // Reduce chunk if remaining data is small
-        let remaining = self.total_size.saturating_sub(
-            self.network_samples.len() as u64 * self.current_chunk_bytes / 4,
-        );
+        let remaining = self
+            .total_size
+            .saturating_sub(self.network_samples.len() as u64 * self.current_chunk_bytes / 4);
         let remaining_factor = if remaining > 0 {
             (remaining as f64 / self.min_chunk as f64).min(1.0).max(0.1)
         } else {
@@ -181,7 +187,12 @@ mod tests {
             cm.last_adjustment = Instant::now() - Duration::from_secs(1);
             cm.recommend_chunk_size(20_000, 50 * 1024 * 1024, 100 * 1024 * 1024);
         }
-        assert!(cm.current_chunk() > initial, "chunk should grow on fast network: {} > {}", cm.current_chunk(), initial);
+        assert!(
+            cm.current_chunk() > initial,
+            "chunk should grow on fast network: {} > {}",
+            cm.current_chunk(),
+            initial
+        );
     }
 
     #[test]
@@ -200,7 +211,12 @@ mod tests {
         cm.last_adjustment = Instant::now() - Duration::from_secs(1);
         cm.recommend_chunk_size(20_000, 50 * 1024 * 1024, 100 * 1024 * 1024);
         let after_pressure = cm.current_chunk();
-        assert!(after_pressure < before_pressure, "chunk should shrink under memory pressure: {} < {}", after_pressure, before_pressure);
+        assert!(
+            after_pressure < before_pressure,
+            "chunk should shrink under memory pressure: {} < {}",
+            after_pressure,
+            before_pressure
+        );
     }
 
     #[test]
@@ -238,7 +254,12 @@ mod tests {
         cm.last_adjustment = Instant::now() - Duration::from_secs(1);
         cm.recommend_chunk_size(10_000, 10 * 1024 * 1024, 100 * 1024);
         let disk_limited = cm.current_chunk();
-        assert!(disk_limited < balanced, "slow disk should reduce chunk: {} < {}", disk_limited, balanced);
+        assert!(
+            disk_limited < balanced,
+            "slow disk should reduce chunk: {} < {}",
+            disk_limited,
+            balanced
+        );
     }
 
     #[test]

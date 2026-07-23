@@ -1,10 +1,10 @@
+#![allow(dead_code, clippy::manual_checked_ops)]
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use super::adaptive::profile_store::UnifiedProfileStore;
-use super::resource_manager::ResourceManager;
 use super::config::global_config;
+use super::resource_manager::ResourceManager;
 
 pub struct DieOrchestrator {
     pub resource_manager: Arc<Mutex<ResourceManager>>,
@@ -71,13 +71,7 @@ impl DieOrchestrator {
         }
     }
 
-    pub fn record_telemetry(
-        &mut self,
-        host: &str,
-        rtt_us: u64,
-        speed: u64,
-        http_status: u16,
-    ) {
+    pub fn record_telemetry(&mut self, host: &str, rtt_us: u64, speed: u64, http_status: u16) {
         if let Ok(mut store) = self.profile_store.lock() {
             store.merge_telemetry(host, rtt_us, speed, http_status);
             store.save_if_dirty();

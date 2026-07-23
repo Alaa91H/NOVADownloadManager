@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -744,7 +745,10 @@ impl From<&HashMap<String, Value>> for CurlTransferConfig {
                     .unwrap_or_default()
             },
             rie_strategy: opt_str(map, "rieStrategy"),
-            rie_connections: map.get("rieConnections").and_then(|v| v.as_u64()).map(|n| n as u32),
+            rie_connections: map
+                .get("rieConnections")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as u32),
         }
     }
 }

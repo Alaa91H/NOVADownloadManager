@@ -1,3 +1,4 @@
+#![allow(dead_code, clippy::manual_checked_ops, clippy::manual_clamp)]
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -114,11 +115,13 @@ impl EngineConfig {
         url: &str,
     ) -> crate::daemon::direct::ConnectionLimits {
         let requested = requested.clamp(1, self.max_connections_per_download) as usize;
-        let learned =
-            crate::daemon::direct::learned_host_ceiling(url).unwrap_or(self.max_connections_per_download as usize);
+        let learned = crate::daemon::direct::learned_host_ceiling(url)
+            .unwrap_or(self.max_connections_per_download as usize);
         let per_host = requested.min(learned).max(1);
         let total = requested.max(1);
-        let cache = (total * 2).max(total).min(self.max_total_connections as usize * 4);
+        let cache = (total * 2)
+            .max(total)
+            .min(self.max_total_connections as usize * 4);
         crate::daemon::direct::ConnectionLimits {
             total,
             per_host,
@@ -127,11 +130,7 @@ impl EngineConfig {
     }
 
     /// Update thresholds based on live measurements. Called by the DIE.
-    pub fn update_from_profile(
-        &mut self,
-        per_connection_ceiling: u64,
-        median_rtt_us: u64,
-    ) {
+    pub fn update_from_profile(&mut self, per_connection_ceiling: u64, median_rtt_us: u64) {
         if per_connection_ceiling > 0 {
             self.speed_high_threshold = (per_connection_ceiling as f64 * 0.8) as u64;
             self.speed_low_threshold = (per_connection_ceiling as f64 * 0.1) as u64;

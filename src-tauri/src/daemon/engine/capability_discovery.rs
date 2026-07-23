@@ -1,3 +1,4 @@
+#![allow(dead_code, clippy::manual_checked_ops)]
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -91,7 +92,8 @@ impl CapabilityDiscovery {
     }
 
     pub fn hosts_needing_probe(&self) -> Vec<String> {
-        self.capabilities.keys()
+        self.capabilities
+            .keys()
             .filter(|host| self.needs_probe(host))
             .cloned()
             .collect()
@@ -118,7 +120,11 @@ impl CapabilityDiscovery {
         if let Some(cap) = self.capabilities.get_mut(host) {
             cap.measured_throughput = throughput;
             cap.per_connection_ceiling = per_conn;
-            let ideal = if per_conn > 0 { (throughput / per_conn).max(1) as u32 } else { 1 };
+            let ideal = if per_conn > 0 {
+                (throughput / per_conn).max(1) as u32
+            } else {
+                1
+            };
             cap.stable_connections = ideal.min(cap.max_connections);
         }
     }

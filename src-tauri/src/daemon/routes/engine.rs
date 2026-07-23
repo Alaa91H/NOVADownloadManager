@@ -591,6 +591,42 @@ pub async fn run_scheduler_tick(state: &SharedState) {
                 log::info!("Scheduler notification: {}", message);
                 crate::daemon::telegram::telegram_notify(state, &message).await;
             }
+            SchedulerAction::Shutdown => {
+                log::info!("Scheduler: all downloads complete — shutting down the system");
+                #[cfg(target_os = "windows")]
+                {
+                    let _ = std::process::Command::new("shutdown")
+                        .args(["/s", "/t", "30"])
+                        .spawn();
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    let _ = std::process::Command::new("shutdown")
+                        .args(["-h", "+1"])
+                        .spawn();
+                }
+                #[cfg(target_os = "macos")]
+                {
+                    let _ = std::process::Command::new("shutdown")
+                        .args(["-h", "+1"])
+                        .spawn();
+                }
+            }
+            SchedulerAction::Sleep => {
+                log::info!("Scheduler: all downloads complete — putting system to sleep");
+                #[cfg(target_os = "windows")]
+                {
+                    let _ = std::process::Command::new("rundll32.exe")
+                        .args(["powrprof.dll,SetSuspendState", "0,1,0"])
+                        .spawn();
+                }
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
+                {
+                    let _ = std::process::Command::new("systemctl")
+                        .arg("suspend")
+                        .spawn();
+                }
+            }
         }
     }
 }

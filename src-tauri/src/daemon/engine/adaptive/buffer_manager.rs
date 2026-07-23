@@ -42,7 +42,12 @@ impl BufferManager {
         }
     }
 
-    pub fn recommend(&mut self, speed: u64, connections: u32, memory_pressure: f64) -> BufferRecommendation {
+    pub fn recommend(
+        &mut self,
+        speed: u64,
+        connections: u32,
+        memory_pressure: f64,
+    ) -> BufferRecommendation {
         self.peak_speed = self.peak_speed.max(speed);
         self.active_connections = connections;
         self.memory_pressure = memory_pressure;
@@ -73,7 +78,7 @@ impl BufferManager {
 
         let speed_factor = if self.peak_speed > 10 * 1024 * 1024 {
             2.0
-        } else if self.peak_speed > 1 * 1024 * 1024 {
+        } else if self.peak_speed > 1024 * 1024 {
             1.5
         } else if self.peak_speed > 100 * 1024 {
             1.0
@@ -112,7 +117,7 @@ impl BufferManager {
             200
         } else if self.peak_speed > 5 * 1024 * 1024 {
             MIN_FLUSH_INTERVAL_MS
-        } else if self.peak_speed > 1 * 1024 * 1024 {
+        } else if self.peak_speed > 1024 * 1024 {
             50
         } else {
             100
@@ -160,7 +165,12 @@ mod tests {
 
         bm.last_adjustment = Instant::now() - Duration::from_secs(10);
         let high = bm.recommend(50 * 1024 * 1024, 1, 0.0).write_buffer;
-        assert!(high >= low, "fast network should increase buffer: {} >= {}", high, low);
+        assert!(
+            high >= low,
+            "fast network should increase buffer: {} >= {}",
+            high,
+            low
+        );
     }
 
     #[test]
@@ -171,7 +181,12 @@ mod tests {
 
         bm.last_adjustment = Instant::now() - Duration::from_secs(10);
         let pressured = bm.recommend(1 * 1024 * 1024, 1, 0.9).write_buffer;
-        assert!(pressured < normal, "memory pressure should reduce buffer: {} < {}", pressured, normal);
+        assert!(
+            pressured < normal,
+            "memory pressure should reduce buffer: {} < {}",
+            pressured,
+            normal
+        );
     }
 
     #[test]
@@ -182,7 +197,12 @@ mod tests {
 
         bm.last_adjustment = Instant::now() - Duration::from_secs(10);
         let many = bm.recommend(1 * 1024 * 1024, 16, 0.0).write_buffer;
-        assert!(many <= single, "more connections should reduce buffer: {} <= {}", many, single);
+        assert!(
+            many <= single,
+            "more connections should reduce buffer: {} <= {}",
+            many,
+            single
+        );
     }
 
     #[test]
@@ -215,7 +235,12 @@ mod tests {
 
         bm.last_adjustment = Instant::now() - Duration::from_secs(10);
         let fast = bm.recommend(10 * 1024 * 1024, 1, 0.0).flush_interval_ms;
-        assert!(fast <= slow, "fast network should flush faster: {} <= {}", fast, slow);
+        assert!(
+            fast <= slow,
+            "fast network should flush faster: {} <= {}",
+            fast,
+            slow
+        );
     }
 
     #[test]
@@ -226,7 +251,12 @@ mod tests {
 
         bm.last_adjustment = Instant::now() - Duration::from_secs(10);
         let pressured = bm.recommend(1 * 1024 * 1024, 1, 0.9).flush_interval_ms;
-        assert!(pressured >= normal, "pressure should slow flush: {} >= {}", pressured, normal);
+        assert!(
+            pressured >= normal,
+            "pressure should slow flush: {} >= {}",
+            pressured,
+            normal
+        );
     }
 
     #[test]

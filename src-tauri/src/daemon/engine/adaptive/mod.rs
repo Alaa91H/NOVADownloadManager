@@ -1,3 +1,9 @@
+#![allow(
+    dead_code,
+    clippy::manual_clamp,
+    clippy::manual_checked_ops,
+    clippy::too_many_arguments
+)]
 pub mod buffer_manager;
 pub mod convergence;
 pub mod disk_writer;
@@ -43,7 +49,7 @@ impl Default for AdaptiveThresholds {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ConnectionTelemetry {
     pub bytes_downloaded: u64,
     pub rtt_us: u64,
@@ -57,24 +63,7 @@ pub struct ConnectionTelemetry {
     pub alive: bool,
 }
 
-impl Default for ConnectionTelemetry {
-    fn default() -> Self {
-        Self {
-            bytes_downloaded: 0,
-            rtt_us: 0,
-            dns_us: 0,
-            tls_us: 0,
-            ttfb_us: 0,
-            last_speed: 0,
-            stall_count: 0,
-            error_count: 0,
-            http_status: 0,
-            alive: false,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct AggregateTelemetry {
     pub total_bytes: u64,
     pub total_speed: u64,
@@ -82,19 +71,6 @@ pub struct AggregateTelemetry {
     pub active_connections: u32,
     pub completed_connections: u32,
     pub failed_connections: u32,
-}
-
-impl Default for AggregateTelemetry {
-    fn default() -> Self {
-        Self {
-            total_bytes: 0,
-            total_speed: 0,
-            peak_speed: 0,
-            active_connections: 0,
-            completed_connections: 0,
-            failed_connections: 0,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -165,13 +141,17 @@ impl TelemetryBus {
 
     pub fn report_bytes(&self, conn_id: usize, bytes: u64) {
         if conn_id < MAX_TRACKED_CONNECTIONS {
-            self.connections[conn_id].bytes.store(bytes, Ordering::Relaxed);
+            self.connections[conn_id]
+                .bytes
+                .store(bytes, Ordering::Relaxed);
         }
     }
 
     pub fn report_speed(&self, conn_id: usize, speed: u64) {
         if conn_id < MAX_TRACKED_CONNECTIONS {
-            self.connections[conn_id].speed.store(speed, Ordering::Relaxed);
+            self.connections[conn_id]
+                .speed
+                .store(speed, Ordering::Relaxed);
             self.aggregate_speed.store(speed, Ordering::Relaxed);
             self.aggregate_peak.fetch_max(speed, Ordering::Relaxed);
         }
@@ -179,44 +159,60 @@ impl TelemetryBus {
 
     pub fn report_rtt(&self, conn_id: usize, rtt_us: u64) {
         if conn_id < MAX_TRACKED_CONNECTIONS {
-            self.connections[conn_id].rtt_us.store(rtt_us, Ordering::Relaxed);
+            self.connections[conn_id]
+                .rtt_us
+                .store(rtt_us, Ordering::Relaxed);
         }
     }
 
     pub fn report_handshake(&self, conn_id: usize, dns_us: u64, tls_us: u64) {
         if conn_id < MAX_TRACKED_CONNECTIONS {
-            self.connections[conn_id].dns_us.store(dns_us, Ordering::Relaxed);
-            self.connections[conn_id].tls_us.store(tls_us, Ordering::Relaxed);
+            self.connections[conn_id]
+                .dns_us
+                .store(dns_us, Ordering::Relaxed);
+            self.connections[conn_id]
+                .tls_us
+                .store(tls_us, Ordering::Relaxed);
         }
     }
 
     pub fn report_ttfb(&self, conn_id: usize, ttfb_us: u64) {
         if conn_id < MAX_TRACKED_CONNECTIONS {
-            self.connections[conn_id].ttfb_us.store(ttfb_us, Ordering::Relaxed);
+            self.connections[conn_id]
+                .ttfb_us
+                .store(ttfb_us, Ordering::Relaxed);
         }
     }
 
     pub fn report_stall(&self, conn_id: usize) {
         if conn_id < MAX_TRACKED_CONNECTIONS {
-            self.connections[conn_id].stall_count.fetch_add(1, Ordering::Relaxed);
+            self.connections[conn_id]
+                .stall_count
+                .fetch_add(1, Ordering::Relaxed);
         }
     }
 
     pub fn report_error(&self, conn_id: usize) {
         if conn_id < MAX_TRACKED_CONNECTIONS {
-            self.connections[conn_id].error_count.fetch_add(1, Ordering::Relaxed);
+            self.connections[conn_id]
+                .error_count
+                .fetch_add(1, Ordering::Relaxed);
         }
     }
 
     pub fn report_http_status(&self, conn_id: usize, status: u16) {
         if conn_id < MAX_TRACKED_CONNECTIONS {
-            self.connections[conn_id].http_status.store(status, Ordering::Relaxed);
+            self.connections[conn_id]
+                .http_status
+                .store(status, Ordering::Relaxed);
         }
     }
 
     pub fn set_alive(&self, conn_id: usize, alive: bool) {
         if conn_id < MAX_TRACKED_CONNECTIONS {
-            self.connections[conn_id].alive.store(alive, Ordering::Relaxed);
+            self.connections[conn_id]
+                .alive
+                .store(alive, Ordering::Relaxed);
             if alive {
                 self.active_conns.fetch_add(1, Ordering::Relaxed);
             } else {
@@ -289,11 +285,26 @@ impl TelemetryBus {
 
 #[derive(Clone, Debug)]
 pub enum AdaptationAction {
-    AdjustConnections { old_count: u32, new_count: u32 },
-    SplitSegment { segment_id: u32, at_byte: u64 },
-    MergeSegments { a: u32, b: u32 },
-    Redistribute { from_seg: u32, to_seg: u32, bytes: u64 },
-    ThrottleAll { per_conn_bytes_per_sec: u64 },
+    AdjustConnections {
+        old_count: u32,
+        new_count: u32,
+    },
+    SplitSegment {
+        segment_id: u32,
+        at_byte: u64,
+    },
+    MergeSegments {
+        a: u32,
+        b: u32,
+    },
+    Redistribute {
+        from_seg: u32,
+        to_seg: u32,
+        bytes: u64,
+    },
+    ThrottleAll {
+        per_conn_bytes_per_sec: u64,
+    },
     NoChange,
 }
 
@@ -367,7 +378,13 @@ impl AdaptiveEngine {
         min_segment_bytes: u64,
     ) -> Self {
         let protocol = profile.protocol.clone();
-        let mut engine = Self::new(host.clone(), total_size, connections, protocol, min_segment_bytes);
+        let mut engine = Self::new(
+            host.clone(),
+            total_size,
+            connections,
+            protocol,
+            min_segment_bytes,
+        );
         engine.profiler.get_or_create(&host);
         let p = engine.profiler.get_mut(&host).unwrap();
         p.protocol = profile.protocol;
@@ -439,22 +456,24 @@ impl AdaptiveEngine {
                 );
                 if conn.error_count > 0 {
                     for _ in 0..conn.error_count {
-                        self.profiler.update_from_telemetry(
-                            &self.host, 0, 0, 0, true,
-                        );
+                        self.profiler
+                            .update_from_telemetry(&self.host, 0, 0, 0, true);
                     }
                 }
             }
         }
 
         let agg_speed = snapshot.aggregate.peak_speed.max(
-            snapshot.connections.iter()
+            snapshot
+                .connections
+                .iter()
                 .filter(|c| c.alive)
                 .map(|c| c.last_speed)
-                .sum::<u64>()
+                .sum::<u64>(),
         );
 
-        self.convergence.record_speed(agg_speed, snapshot.aggregate.active_connections);
+        self.convergence
+            .record_speed(agg_speed, snapshot.aggregate.active_connections);
 
         let mut decision = AdaptationDecision {
             target_connections: self.current_connections,
@@ -514,20 +533,30 @@ impl AdaptiveEngine {
         if !self.convergence.should_adjust(&AdaptiveThresholds {
             eval_interval_ms: self.tick_interval.as_millis() as u64,
             ..AdaptiveThresholds::default()
-        }) && target == self.current_connections {
+        }) && target == self.current_connections
+        {
             let seg_plan = self.segment_ctrl.evaluate(&snapshot.connections);
             if let Some(plan) = seg_plan {
                 self.segment_ctrl.apply_plan(&plan);
                 decision.actions.push(match plan {
                     segment_controller::SegmentPlan::SplitSegment { segment_id } => {
-                        AdaptationAction::SplitSegment { segment_id, at_byte: 0 }
+                        AdaptationAction::SplitSegment {
+                            segment_id,
+                            at_byte: 0,
+                        }
                     }
                     segment_controller::SegmentPlan::MergeSegments { a, b } => {
                         AdaptationAction::MergeSegments { a, b }
                     }
-                    segment_controller::SegmentPlan::Rebalance { from_seg, to_seg, bytes } => {
-                        AdaptationAction::Redistribute { from_seg, to_seg, bytes }
-                    }
+                    segment_controller::SegmentPlan::Rebalance {
+                        from_seg,
+                        to_seg,
+                        bytes,
+                    } => AdaptationAction::Redistribute {
+                        from_seg,
+                        to_seg,
+                        bytes,
+                    },
                     _ => AdaptationAction::NoChange,
                 });
                 decision.confidence = 0.7;
@@ -546,7 +575,8 @@ impl AdaptiveEngine {
                 new_count: target,
             });
             decision.reason.push_str(&format!(
-                "connections {}→{} ", self.current_connections, target
+                "connections {}→{} ",
+                self.current_connections, target
             ));
         }
 
@@ -555,14 +585,23 @@ impl AdaptiveEngine {
             self.segment_ctrl.apply_plan(&plan);
             decision.actions.push(match plan {
                 segment_controller::SegmentPlan::SplitSegment { segment_id } => {
-                    AdaptationAction::SplitSegment { segment_id, at_byte: 0 }
+                    AdaptationAction::SplitSegment {
+                        segment_id,
+                        at_byte: 0,
+                    }
                 }
                 segment_controller::SegmentPlan::MergeSegments { a, b } => {
                     AdaptationAction::MergeSegments { a, b }
                 }
-                segment_controller::SegmentPlan::Rebalance { from_seg, to_seg, bytes } => {
-                    AdaptationAction::Redistribute { from_seg, to_seg, bytes }
-                }
+                segment_controller::SegmentPlan::Rebalance {
+                    from_seg,
+                    to_seg,
+                    bytes,
+                } => AdaptationAction::Redistribute {
+                    from_seg,
+                    to_seg,
+                    bytes,
+                },
                 _ => AdaptationAction::NoChange,
             });
         }

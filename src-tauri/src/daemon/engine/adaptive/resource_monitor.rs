@@ -154,13 +154,20 @@ impl ResourceMonitor {
             ) -> i32;
         }
 
-        let mut idle = FileTime { dw_low_date_time: 0, dw_high_date_time: 0 };
-        let mut kernel = FileTime { dw_low_date_time: 0, dw_high_date_time: 0 };
-        let mut user = FileTime { dw_low_date_time: 0, dw_high_date_time: 0 };
-
-        let success = unsafe {
-            GetSystemTimes(&mut idle, &mut kernel, &mut user)
+        let mut idle = FileTime {
+            dw_low_date_time: 0,
+            dw_high_date_time: 0,
         };
+        let mut kernel = FileTime {
+            dw_low_date_time: 0,
+            dw_high_date_time: 0,
+        };
+        let mut user = FileTime {
+            dw_low_date_time: 0,
+            dw_high_date_time: 0,
+        };
+
+        let success = unsafe { GetSystemTimes(&mut idle, &mut kernel, &mut user) };
 
         if success == 0 {
             return self.estimate_cpu_usage_fallback();
@@ -270,7 +277,8 @@ impl ResourceMonitor {
         self.last_disk_write_bytes = total_written;
 
         if elapsed.as_secs_f64() > 0.0 {
-            self.disk_write_mbps = (delta as f64 / elapsed.as_secs_f64() / (1024.0 * 1024.0)) as u64;
+            self.disk_write_mbps =
+                (delta as f64 / elapsed.as_secs_f64() / (1024.0 * 1024.0)) as u64;
         }
     }
 

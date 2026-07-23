@@ -37,9 +37,7 @@ impl ConvergenceDetector {
                 return false;
             }
         }
-        if self.last_adjustment.elapsed()
-            < Duration::from_millis(thresholds.eval_interval_ms)
-        {
+        if self.last_adjustment.elapsed() < Duration::from_millis(thresholds.eval_interval_ms) {
             return false;
         }
         if self.adjustments_in_window >= thresholds.max_adjustments_per_minute {
@@ -78,7 +76,9 @@ impl ConvergenceDetector {
         if self.consecutive_no_improvement >= 3 {
             self.cooldown_until = Some(Instant::now() + Duration::from_secs(30));
             self.consecutive_no_improvement = 0;
-        } else if self.consecutive_no_improvement >= 2 && self.last_adjustment.elapsed() < Duration::from_secs(5) {
+        } else if self.consecutive_no_improvement >= 2
+            && self.last_adjustment.elapsed() < Duration::from_secs(5)
+        {
             let double_interval = Duration::from_secs(10);
             self.cooldown_until = Some(Instant::now() + double_interval);
         }
@@ -99,11 +99,13 @@ impl ConvergenceDetector {
         let before_end = len.saturating_sub(window);
         let after_start = len.saturating_sub(window);
 
-        let before: Vec<u64> = self.history
+        let before: Vec<u64> = self
+            .history
             .range(before_start..before_end)
             .map(|s| s.aggregate_speed)
             .collect();
-        let after: Vec<u64> = self.history
+        let after: Vec<u64> = self
+            .history
             .range(after_start..)
             .map(|s| s.aggregate_speed)
             .collect();

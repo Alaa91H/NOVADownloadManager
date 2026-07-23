@@ -9,10 +9,7 @@ pub struct ProtocolAdapter {
 
 impl ProtocolAdapter {
     pub fn new(protocol: ProtocolVersion) -> Self {
-        let multiplexing = matches!(
-            protocol,
-            ProtocolVersion::Http2 | ProtocolVersion::Http3
-        );
+        let multiplexing = matches!(protocol, ProtocolVersion::Http2 | ProtocolVersion::Http3);
         Self {
             negotiated: protocol,
             multiplexing,

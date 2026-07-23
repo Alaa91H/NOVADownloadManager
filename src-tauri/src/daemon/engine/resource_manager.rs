@@ -1,8 +1,8 @@
+#![allow(dead_code)]
 use crate::daemon::engine::config::global_config;
 
 use super::adaptive::buffer_manager::BufferManager;
 use super::adaptive::resource_monitor::ResourceMonitor;
-use super::chunk_manager::ChunkManager;
 use super::thread_pool::ThreadPool;
 
 pub struct ResourceManager {

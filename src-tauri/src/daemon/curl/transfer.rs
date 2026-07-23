@@ -61,7 +61,11 @@ fn build_decision_context(
     let (memory_pressure, cpu_pressure, disk_pressure) = {
         if let Ok(mut rm) = state.resource_manager.lock() {
             let snap = rm.snapshot();
-            let disk_pressure = if snap.is_disk_bottlenecked() { 0.8 } else { 0.1 };
+            let disk_pressure = if snap.is_disk_bottlenecked() {
+                0.8
+            } else {
+                0.1
+            };
             (snap.memory_pressure, snap.cpu_usage_pct, disk_pressure)
         } else {
             (0.0, 0.0, 0.0)
@@ -71,7 +75,11 @@ fn build_decision_context(
     let active_downloads = state
         .curl_jobs
         .lock()
-        .map(|j| j.values().filter(|j| j.task.status == "downloading").count() as u32)
+        .map(|j| {
+            j.values()
+                .filter(|j| j.task.status == "downloading")
+                .count() as u32
+        })
         .unwrap_or(1);
 
     let (total_downloaded, elapsed_secs) = {
@@ -93,11 +101,14 @@ fn build_decision_context(
     let mut completed_segments = 0u32;
     let mut failed_segments = 0u32;
     if let Ok(trackers) = state.engine_trackers.lock() {
-            if let Some(tracker) = trackers.get(id) {
-                if let Some(seg) = tracker.segments.as_ref() {
-                    let info = seg.segments();
-                    completed_segments = info.iter().filter(|s| s.progress >= 1.0).count() as u32;
-                    failed_segments = info.iter().filter(|s| !s.active && s.downloaded == 0 && s.total_bytes > 0).count() as u32;
+        if let Some(tracker) = trackers.get(id) {
+            if let Some(seg) = tracker.segments.as_ref() {
+                let info = seg.segments();
+                completed_segments = info.iter().filter(|s| s.progress >= 1.0).count() as u32;
+                failed_segments = info
+                    .iter()
+                    .filter(|s| !s.active && s.downloaded == 0 && s.total_bytes > 0)
+                    .count() as u32;
             }
         }
     }
@@ -232,7 +243,10 @@ pub(crate) fn plan_from_job(job: &CurlJob) -> DirectDownloadPlan {
         url: job.task.url.clone(),
         output_path: std::path::PathBuf::from(&job.task.save_path),
         total_size: job.task.size_bytes,
-        connections: job.task.connections.clamp(1, global_config().max_connections_per_download),
+        connections: job
+            .task
+            .connections
+            .clamp(1, global_config().max_connections_per_download),
         resumable: job.task.resumable,
         allow_overwrite,
         follow_redirects: config.bool_("location").unwrap_or(true),
@@ -257,7 +271,11 @@ pub(crate) fn split_ranges(
     connections: u32,
     output_path: &Path,
 ) -> Vec<ByteRange> {
-    SegmentPlanner::new(global_config().max_connections_per_download).plan(total_size, connections, output_path)
+    SegmentPlanner::new(global_config().max_connections_per_download).plan(
+        total_size,
+        connections,
+        output_path,
+    )
 }
 
 fn part_size(range: &ByteRange) -> u64 {
@@ -853,7 +871,9 @@ fn run_segmented_libcurl(
             .and_then(|u| u.host_str().map(str::to_string))
             .unwrap_or_else(|| "unknown".into());
         let protocol = match preflight.protocol.as_str() {
-            "h2" | "h2c" => crate::daemon::engine::adaptive::server_profiler::ProtocolVersion::Http2,
+            "h2" | "h2c" => {
+                crate::daemon::engine::adaptive::server_profiler::ProtocolVersion::Http2
+            }
             "h3" => crate::daemon::engine::adaptive::server_profiler::ProtocolVersion::Http3,
             "HTTP/1.1" => crate::daemon::engine::adaptive::server_profiler::ProtocolVersion::Http11,
             "HTTP/1.0" => crate::daemon::engine::adaptive::server_profiler::ProtocolVersion::Http11,
@@ -885,7 +905,10 @@ fn run_segmented_libcurl(
         if let Some(ref strat) = plan.config.rie_strategy {
             log::info!(
                 "Task {}: RIE strategy={} rie_conns={} effective_conns={}",
-                id, strat, rie_connections, effective_connections
+                id,
+                strat,
+                rie_connections,
+                effective_connections
             );
         }
         engine
@@ -911,10 +934,9 @@ fn run_segmented_libcurl(
 
     let mut active: Vec<(ByteRange, Arc<AtomicU64>, u64)> = Vec::new();
     let mut guard = CurlMultiGuard::new();
-    guard.configure_limits(global_config().connection_limits_for(
-        effective_connections,
-        &plan.url,
-    ))?;
+    guard.configure_limits(
+        global_config().connection_limits_for(effective_connections, &plan.url),
+    )?;
     guard
         .multi()
         .pipelining(false, true)
@@ -1114,7 +1136,9 @@ fn run_libcurl_download(
     if plan.segmented && crate::daemon::direct::learned_host_ceiling(&plan.url) == Some(1) {
         plan.segmented = false;
     }
+    #[allow(unused_assignments)]
     let mut supports_range = true;
+    #[allow(unused_assignments)]
     let mut preflight = PreflightData::default();
     {
         if let Ok(mut jobs) = state.curl_jobs.lock() {
@@ -1294,25 +1318,11 @@ fn run_libcurl_download(
                         .ok()
                         .and_then(|t| t.get(id).map(|tr| tr.retry_state.attempt))
                         .unwrap_or(0);
-                    let ctx = build_decision_context(
-                        state,
-                        id,
-                        &plan,
-                        failure_count,
-                        0,
-                        supports_range,
-                    );
+                    let ctx =
+                        build_decision_context(state, id, &plan, failure_count, 0, supports_range);
                     if let Ok(mut healer) = state.self_healer.lock() {
-                        let recovery = healer.on_failure(
-                            &ctx.host,
-                            &error,
-                            &ctx,
-                        );
-                        log::info!(
-                            "Task {}: self-healer recovery decision: {:?}",
-                            id,
-                            recovery
-                        );
+                        let recovery = healer.on_failure(&ctx.host, &error, &ctx);
+                        log::info!("Task {}: self-healer recovery decision: {:?}", id, recovery);
                     }
                     if let Ok(mut pe) = state.policy_engine.lock() {
                         let retry_decision = pe.decide_retry(&ctx, &error);

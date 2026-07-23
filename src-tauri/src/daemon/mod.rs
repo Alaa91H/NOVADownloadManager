@@ -233,7 +233,9 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     let pe_ref = Arc::new(Mutex::new(
                         crate::daemon::engine::policy_engine::PolicyEngine::new(),
                     ));
-                    Arc::new(Mutex::new(crate::daemon::engine::self_healing::SelfHealer::new(pe_ref)))
+                    Arc::new(Mutex::new(
+                        crate::daemon::engine::self_healing::SelfHealer::new(pe_ref),
+                    ))
                 },
                 capability_discovery: Arc::new(Mutex::new(
                     crate::daemon::engine::capability_discovery::CapabilityDiscovery::new(),

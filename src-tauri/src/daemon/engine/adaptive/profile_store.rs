@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use serde::{Deserialize, Serialize};
@@ -177,11 +176,7 @@ impl UnifiedProfileStore {
         &self.profiles[host]
     }
 
-    pub fn merge_preflight(
-        &mut self,
-        host: &str,
-        profile: &ServerProfile,
-    ) {
+    pub fn merge_preflight(&mut self, host: &str, profile: &ServerProfile) {
         let existing = self.profiles.get(host);
         let mut persisted = PersistedProfile::from(profile);
 
@@ -192,8 +187,9 @@ impl UnifiedProfileStore {
             }
             if old.median_rtt_us > 0 && persisted.initial_rtt_us > 0 {
                 let alpha = 0.3;
-                persisted.median_rtt_us =
-                    ((old.median_rtt_us as f64 * (1.0 - alpha)) + (persisted.initial_rtt_us as f64 * alpha)) as u64;
+                persisted.median_rtt_us = ((old.median_rtt_us as f64 * (1.0 - alpha))
+                    + (persisted.initial_rtt_us as f64 * alpha))
+                    as u64;
             }
             persisted.bandwidth_plateau_detected = old.bandwidth_plateau_detected;
             persisted.detected_rate_limit_headers = old.detected_rate_limit_headers.clone();
@@ -203,13 +199,7 @@ impl UnifiedProfileStore {
         self.dirty = true;
     }
 
-    pub fn merge_telemetry(
-        &mut self,
-        host: &str,
-        rtt_us: u64,
-        speed: u64,
-        http_status: u16,
-    ) {
+    pub fn merge_telemetry(&mut self, host: &str, rtt_us: u64, speed: u64, http_status: u16) {
         let entry = self
             .profiles
             .entry(host.to_string())
@@ -298,7 +288,10 @@ impl UnifiedProfileStore {
                 host: host.to_string(),
                 ..Default::default()
             });
-        if !entry.detected_rate_limit_headers.contains(&header.to_string()) {
+        if !entry
+            .detected_rate_limit_headers
+            .contains(&header.to_string())
+        {
             entry.detected_rate_limit_headers.push(header.to_string());
             self.dirty = true;
         }
@@ -332,7 +325,8 @@ impl UnifiedProfileStore {
 
     pub fn save(&self) {
         if let Ok(json) = serde_json::to_string_pretty(&self.profiles) {
-            let _ = fs::create_dir_all(self.save_path.parent().unwrap_or(std::path::Path::new(".")));
+            let _ =
+                fs::create_dir_all(self.save_path.parent().unwrap_or(std::path::Path::new(".")));
             let _ = fs::write(&self.save_path, json);
         }
     }
@@ -409,10 +403,7 @@ mod tests {
     use super::*;
 
     fn temp_store() -> UnifiedProfileStore {
-        let dir = std::env::temp_dir().join(format!(
-            "nova_profile_test_{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("nova_profile_test_{}", std::process::id()));
         let _ = fs::create_dir_all(&dir);
         UnifiedProfileStore::with_path(dir.join("profiles.json"))
     }

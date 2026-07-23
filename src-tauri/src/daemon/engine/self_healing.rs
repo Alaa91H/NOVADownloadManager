@@ -1,8 +1,11 @@
+#![allow(dead_code)]
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::daemon::engine::policy_engine::{PolicyEngine, DecisionContext, PolicyDecision, RecoveryAction};
+use crate::daemon::engine::policy_engine::{
+    DecisionContext, PolicyDecision, PolicyEngine, RecoveryAction,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HealthStatus {
@@ -102,7 +105,8 @@ impl SelfHealer {
 
     fn can_recover(&self) -> bool {
         let window_start = Instant::now() - self.recovery_window;
-        let recent = self.failure_history
+        let recent = self
+            .failure_history
             .iter()
             .filter(|r| r.timestamp >= window_start && !r.succeeded)
             .count() as u32;
@@ -110,7 +114,8 @@ impl SelfHealer {
     }
 
     pub fn health_status(&self) -> HealthStatus {
-        let recent_failures = self.failure_history
+        let recent_failures = self
+            .failure_history
             .iter()
             .filter(|r| r.timestamp.elapsed() < Duration::from_secs(60))
             .count() as u32;
@@ -133,7 +138,9 @@ impl SelfHealer {
     }
 
     pub fn snapshot(&self) -> HealthSnapshot {
-        let active_warnings = self.recovery_counts.iter()
+        let active_warnings = self
+            .recovery_counts
+            .iter()
             .filter(|(_, &count)| count >= 3)
             .map(|(host, count)| format!("{}: {} consecutive failures", host, count))
             .collect();

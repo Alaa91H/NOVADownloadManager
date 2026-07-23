@@ -21,7 +21,7 @@ impl Default for AdaptiveConfig {
         let cfg = global_config();
         let max_conns = cfg.max_connections_per_download;
         let avg_cores = (cfg.worker_threads / 2).max(1);
-        let mem_gb = cfg.write_buffer_bytes / (256 * 1024);
+        let _mem_gb = cfg.write_buffer_bytes / (256 * 1024);
         let speed_high = (avg_cores as u64 * 2 * 1024 * 1024).max(2 * 1024 * 1024);
         let speed_low = (avg_cores as u64 * 64 * 1024).max(100 * 1024);
         Self {

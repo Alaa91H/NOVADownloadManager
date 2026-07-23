@@ -46,6 +46,10 @@ pub enum SchedulerAction {
     Notify {
         message: String,
     },
+    /// Shut down the computer after all downloads complete.
+    Shutdown,
+    /// Put the computer to sleep after all downloads complete.
+    Sleep,
 }
 
 #[derive(Clone)]

@@ -1,5 +1,11 @@
+#![allow(
+    dead_code,
+    clippy::too_many_arguments,
+    clippy::manual_checked_ops,
+    clippy::manual_clamp,
+    private_interfaces
+)]
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::daemon::engine::config::global_config;
@@ -284,7 +290,10 @@ impl PolicyEngine {
             };
         }
 
-        let active = ctx.attempted_segments.saturating_sub(ctx.completed_segments).saturating_sub(ctx.failed_segments);
+        let active = ctx
+            .attempted_segments
+            .saturating_sub(ctx.completed_segments)
+            .saturating_sub(ctx.failed_segments);
 
         if ctx.failed_segments > 0 && active > 1 {
             return PolicyDecision::Segments {
@@ -293,9 +302,14 @@ impl PolicyEngine {
             };
         }
 
-        if ctx.current_speed > 0 && ctx.per_connection_ceiling > 0 && ctx.attempted_segments < ctx.current_connections {
+        if ctx.current_speed > 0
+            && ctx.per_connection_ceiling > 0
+            && ctx.attempted_segments < ctx.current_connections
+        {
             let speed_ratio = ctx.current_speed as f64 / ctx.per_connection_ceiling as f64;
-            if speed_ratio > 0.8 && ctx.attempted_segments < global_config().max_connections_per_download {
+            if speed_ratio > 0.8
+                && ctx.attempted_segments < global_config().max_connections_per_download
+            {
                 return PolicyDecision::Segments {
                     action: SegmentAction::Add,
                     reason: "speed approaching ceiling: splitting to parallelize".into(),
@@ -336,7 +350,10 @@ impl PolicyEngine {
         PolicyDecision::Retry {
             should_retry: true,
             delay,
-            reason: format!("retry attempt {} with adaptive backoff", ctx.consecutive_failures + 1),
+            reason: format!(
+                "retry attempt {} with adaptive backoff",
+                ctx.consecutive_failures + 1
+            ),
         }
     }
 
@@ -400,7 +417,7 @@ impl PolicyEngine {
             write_buf = (write_buf * 2).min(4 * 1024 * 1024);
             read_buf = (read_buf * 2).min(2 * 1024 * 1024);
             flush_ms = 10;
-        } else if ctx.current_speed > 1 * 1024 * 1024 {
+        } else if ctx.current_speed > 1024 * 1024 {
             write_buf = (write_buf * 3 / 2).min(2 * 1024 * 1024);
             read_buf = (read_buf * 3 / 2).min(1024 * 1024);
             flush_ms = 50;
@@ -445,7 +462,8 @@ impl PolicyEngine {
             context_snapshot: context.to_string(),
         });
         if self.decision_history.len() > self.max_history {
-            self.decision_history.drain(0..self.decision_history.len() - self.max_history);
+            self.decision_history
+                .drain(0..self.decision_history.len() - self.max_history);
         }
     }
 
@@ -568,7 +586,10 @@ mod tests {
         let mut ctx = base_ctx();
         ctx.file_size = 500_000;
         match pe.decide_segments(&ctx) {
-            PolicyDecision::Segments { action: SegmentAction::NoChange, .. } => {}
+            PolicyDecision::Segments {
+                action: SegmentAction::NoChange,
+                ..
+            } => {}
             _ => panic!("expected NoChange for small file"),
         }
     }
@@ -601,7 +622,11 @@ mod tests {
         let mut ctx = base_ctx();
         ctx.is_rate_limited = true;
         match pe.decide_retry(&ctx, "429") {
-            PolicyDecision::Retry { should_retry, delay, .. } => {
+            PolicyDecision::Retry {
+                should_retry,
+                delay,
+                ..
+            } => {
                 assert!(should_retry);
                 assert!(delay >= Duration::from_secs(25));
             }
@@ -626,11 +651,17 @@ mod tests {
         };
 
         match pe.decide_recovery(&ctx_1) {
-            PolicyDecision::Recovery { action: RecoveryAction::RetryConnection, .. } => {}
+            PolicyDecision::Recovery {
+                action: RecoveryAction::RetryConnection,
+                ..
+            } => {}
             _ => panic!("1 failure should be RetryConnection"),
         }
         match pe.decide_recovery(&ctx_3) {
-            PolicyDecision::Recovery { action: RecoveryAction::ReduceConnections, .. } => {}
+            PolicyDecision::Recovery {
+                action: RecoveryAction::ReduceConnections,
+                ..
+            } => {}
             _ => panic!("3 failures should be ReduceConnections"),
         }
         match pe.decide_recovery(&ctx_6) {
@@ -672,7 +703,9 @@ mod tests {
         ctx.is_rate_limited = true;
         ctx.throughput_ceiling = 10_000_000;
         match pe.decide_throttle(&ctx) {
-            PolicyDecision::Throttle { max_bytes_per_sec, .. } => {
+            PolicyDecision::Throttle {
+                max_bytes_per_sec, ..
+            } => {
                 assert!(max_bytes_per_sec.is_some());
                 assert!(max_bytes_per_sec.unwrap() < 10_000_000);
             }
@@ -683,7 +716,9 @@ mod tests {
     #[test]
     fn record_decision_stores_history() {
         let mut pe = PolicyEngine::new();
-        let decision = PolicyDecision::NoAction { reason: "test".into() };
+        let decision = PolicyDecision::NoAction {
+            reason: "test".into(),
+        };
         pe.record_decision(&decision, "test context");
         assert_eq!(pe.decision_count(), 1);
     }
