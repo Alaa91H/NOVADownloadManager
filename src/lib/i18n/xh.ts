@@ -1218,4 +1218,13 @@ export const xh: Record<string, string> = {
   'col_elapsed': 'Elapsed',
   'progress_elapsed': 'Elapsed',
   'table_elapsed_label': 'Elapsed',
+  'action_rename': 'Rename Download',
+  'menu_rename': 'Rename',
+  'menu_redownload': 'Re-download',
+  'rename_title': 'Rename download',
+  'rename_desc': 'Enter a new file name for this download. If the file already exists on disk, it will be renamed too (the original extension is kept when omitted).',
+  'rename_new_name': 'New name',
+  'rename_btn': 'Rename',
+  'rename_invalid_chars': 'The name contains characters that are not allowed: / \\ : * ? " < > |',
+  'redownload_confirm': 'Re-download "{name}" from the beginning? The existing file will be replaced.',
 };

@@ -142,11 +142,9 @@ impl Handler for SegmentWriter {
                     cap.validator = Some(value.to_string());
                 }
             }
-            "content-encoding" => {
-                if !value.eq_ignore_ascii_case("identity") {
-                    if let Ok(mut cap) = self.progress.capture.lock() {
-                        cap.content_encoded = true;
-                    }
+            "content-encoding" if !value.eq_ignore_ascii_case("identity") => {
+                if let Ok(mut cap) = self.progress.capture.lock() {
+                    cap.content_encoded = true;
                 }
             }
             "last-modified" => {

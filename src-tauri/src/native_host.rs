@@ -99,6 +99,7 @@ fn read_port_file() -> Option<u16> {
 /// These MUST match the directories the daemon actually uses:
 /// - Tauri mode:      app_data_dir for identifier `com.nova.downloadmanager`
 /// - Integration mode: `<APPDATA|HOME>/nova-download-manager`
+///
 /// Legacy `NOVA` paths are kept as a fallback for older installs.
 fn port_file_paths() -> Vec<std::path::PathBuf> {
     let mut paths = Vec::new();
