@@ -213,7 +213,7 @@ mod tests {
             metadata_cache: crate::daemon::engine::metadata_cache::MetadataCache::with_ttl(
                 std::time::Duration::from_secs(3600),
             ),
-            default_retry_policy: RwLock::new(crate::daemon::engine::retry::RetryPolicy::default()),
+            default_retry_policy: RwLock::new(crate::daemon::engine::config::global_config().retry_policy()),
             plugin_api: crate::daemon::engine::plugin_api::PluginApi::new(),
             engine_trackers: Mutex::new(HashMap::new()),
             mirror_managers: Mutex::new(HashMap::new()),

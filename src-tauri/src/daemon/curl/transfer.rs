@@ -11,6 +11,7 @@ use crate::daemon::direct::{
     EventLoopMode, FileWriter, IntegrityMetadata, IntegrityValidator, RetryPolicy, SegmentPlanner,
     SegmentRange as ByteRange,
 };
+use crate::daemon::engine::config::global_config;
 use crate::daemon::state::SharedState;
 use crate::daemon::types::{CurlJob, Segment};
 use crate::daemon::utils::{build_segments, now_str};
@@ -99,7 +100,7 @@ pub(crate) fn plan_from_job(job: &CurlJob) -> DirectDownloadPlan {
     let segmented = config.bool_("segmented").unwrap_or(true)
         && !forced_single
         && job.task.resumable
-        && job.task.size_bytes >= MIN_SEGMENT_SIZE
+        && job.task.size_bytes >= global_config().min_segment_bytes
         && job.task.connections > 1;
     let etag = config.str_("etag").map(str::to_string);
     let last_modified = config.str_("lastModified").map(str::to_string);
@@ -119,7 +120,7 @@ pub(crate) fn plan_from_job(job: &CurlJob) -> DirectDownloadPlan {
         url: job.task.url.clone(),
         output_path: std::path::PathBuf::from(&job.task.save_path),
         total_size: job.task.size_bytes,
-        connections: job.task.connections.clamp(1, MAX_DIRECT_CONNECTIONS),
+        connections: job.task.connections.clamp(1, global_config().max_connections_per_download),
         resumable: job.task.resumable,
         allow_overwrite,
         follow_redirects: config.bool_("location").unwrap_or(true),
@@ -144,7 +145,7 @@ pub(crate) fn split_ranges(
     connections: u32,
     output_path: &Path,
 ) -> Vec<ByteRange> {
-    SegmentPlanner::new(MAX_DIRECT_CONNECTIONS).plan(total_size, connections, output_path)
+    SegmentPlanner::new(global_config().max_connections_per_download).plan(total_size, connections, output_path)
 }
 
 fn part_size(range: &ByteRange) -> u64 {
@@ -521,7 +522,7 @@ fn run_single_libcurl(
         preallocate,
     )?;
     let mut guard = CurlMultiGuard::new();
-    guard.configure_limits(plan.config.connection_limits(1, MAX_DIRECT_CONNECTIONS))?;
+    guard.configure_limits(global_config().connection_limits_for(1, &plan.url))?;
     let mut socket_runtime = if matches!(plan.config.event_loop_mode(), EventLoopMode::MultiSocket)
     {
         Some(guard.attach_socket_runtime()?)
@@ -718,9 +719,10 @@ fn run_segmented_libcurl(
     }
 
     let task_limit = state.bandwidth_manager.allowed_speed_for_task(id);
+    let cfg = global_config();
     let effective_connections = CurlTransferConfig::bandwidth_aware_connections(
         plan.connections,
-        MAX_DIRECT_CONNECTIONS,
+        cfg.max_connections_per_download,
         task_limit,
     );
 
@@ -729,7 +731,7 @@ fn run_segmented_libcurl(
     let segment_scheduler = crate::daemon::engine::dynamic_segments::DynamicSegmentScheduler::new(
         plan.total_size,
         effective_connections,
-        MAX_DIRECT_CONNECTIONS,
+        cfg.max_connections_per_download,
     );
 
     let telemetry_bus = Arc::new(crate::daemon::engine::adaptive::TelemetryBus::new());
@@ -751,7 +753,7 @@ fn run_segmented_libcurl(
             plan.total_size,
             rie_connections,
             protocol.clone(),
-            MIN_SEGMENT_SIZE,
+            cfg.min_segment_bytes,
         );
         if preflight.initial_rtt_us > 0 || preflight.ttfb_us > 0 {
             engine.seed_profile(
@@ -797,9 +799,8 @@ fn run_segmented_libcurl(
 
     let mut active: Vec<(ByteRange, Arc<AtomicU64>, u64)> = Vec::new();
     let mut guard = CurlMultiGuard::new();
-    guard.configure_limits(plan.config.connection_limits_for_url(
+    guard.configure_limits(global_config().connection_limits_for(
         effective_connections,
-        MAX_DIRECT_CONNECTIONS,
         &plan.url,
     ))?;
     guard

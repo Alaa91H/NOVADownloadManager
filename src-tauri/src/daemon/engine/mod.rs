@@ -2,6 +2,7 @@ pub mod adaptive;
 pub mod adaptive_connections;
 pub mod bandwidth;
 pub mod checksum;
+pub mod config;
 pub mod dynamic_segments;
 pub mod event_bus;
 pub mod extractor;

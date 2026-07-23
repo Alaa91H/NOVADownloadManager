@@ -24,9 +24,6 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex};
 
-pub(super) const DEFAULT_DIRECT_CONNECTIONS: u32 = 8;
-pub(super) const MAX_DIRECT_CONNECTIONS: u32 = 32;
-pub(super) const MIN_SEGMENT_SIZE: u64 = 1024 * 1024;
 pub(super) const PROGRESS_INTERVAL_MS: u64 = 250;
 
 #[derive(Clone, Debug)]

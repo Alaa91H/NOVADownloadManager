@@ -3,6 +3,7 @@ use std::path::Path;
 
 use super::*;
 use crate::daemon::direct::DirectUrl;
+use crate::daemon::engine::config::global_config;
 use crate::daemon::types::CreateDownloadBody;
 use crate::daemon::utils::{push_arg, DEFAULT_USER_AGENT};
 
@@ -157,9 +158,10 @@ fn apply_raw_curl_options(args: &mut Vec<String>, raw_options: &str) -> Result<(
 
 #[inline]
 pub(crate) fn requested_connections(connections: Option<u32>) -> u32 {
+    let cfg = global_config();
     match connections.unwrap_or(0) {
-        0 => DEFAULT_DIRECT_CONNECTIONS,
-        n => n.clamp(1, MAX_DIRECT_CONNECTIONS),
+        0 => cfg.initial_segments,
+        n => n.clamp(1, cfg.max_connections_per_download),
     }
 }
 

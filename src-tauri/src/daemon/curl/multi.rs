@@ -188,31 +188,24 @@ mod tests {
     }
 
     #[test]
-    fn connection_limits_from_system_resources() {
-        let limits = ConnectionLimits::from_system_resources();
-        assert!(limits.total >= 2);
-        assert!(limits.total <= 32);
+    fn connection_limits_from_config() {
+        use crate::daemon::engine::config::global_config;
+        let limits = global_config().connection_limits_for(4, "https://example.com/file");
+        assert!(limits.total >= 1);
+        assert!(limits.total <= 128);
         assert!(limits.per_host >= 1);
-        assert!(limits.per_host <= 16);
-        assert!(limits.cache >= 8);
-        assert!(limits.cache <= 128);
-        assert!(limits.per_host <= limits.total);
+        assert!(limits.cache >= limits.total);
     }
 
     #[test]
-    fn connection_limits_clamp_to_system() {
-        let limits = ConnectionLimits {
-            total: 1000,
-            per_host: 500,
-            cache: 10000,
-        };
-        let clamped = limits.clamp_to_system();
-        let sys = ConnectionLimits::from_system_resources();
-        assert!(clamped.total <= sys.total * 2);
-        assert!(clamped.per_host <= sys.per_host * 2);
-        assert!(clamped.cache <= sys.cache * 2);
-        assert!(clamped.total >= 1);
-        assert!(clamped.per_host >= 1);
+    fn connection_limits_clamp_to_config() {
+        use crate::daemon::engine::config::global_config;
+        let limits = global_config().connection_limits_for(1000, "https://example.com/file");
+        let cfg = global_config();
+        assert!(limits.total <= cfg.max_connections_per_download as usize);
+        assert!(limits.per_host <= limits.total);
+        assert!(limits.total >= 1);
+        assert!(limits.per_host >= 1);
     }
 }
 

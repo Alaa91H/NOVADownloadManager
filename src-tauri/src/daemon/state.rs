@@ -12,6 +12,8 @@ use crate::daemon::engine::adaptive::AdaptiveEngine;
 use crate::daemon::engine::adaptive::TelemetryBus;
 use crate::daemon::engine::adaptive_connections::AdaptiveConnectionManager;
 use crate::daemon::engine::bandwidth::BandwidthManager;
+use crate::daemon::engine::config::EngineConfig;
+use crate::daemon::engine::config::global_config;
 use crate::daemon::engine::dynamic_segments::DynamicSegmentScheduler;
 use crate::daemon::engine::event_bus::EventBus;
 use crate::daemon::engine::extractor::SharedExtractorRegistry;
