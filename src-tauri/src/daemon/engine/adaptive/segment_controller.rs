@@ -1,4 +1,9 @@
-#![allow(dead_code, clippy::too_many_arguments, clippy::manual_clamp, clippy::unnecessary_sort_by)]
+#![allow(
+    dead_code,
+    clippy::too_many_arguments,
+    clippy::manual_clamp,
+    clippy::unnecessary_sort_by
+)]
 use std::time::{Duration, Instant};
 
 use super::server_profiler::ServerProfile;

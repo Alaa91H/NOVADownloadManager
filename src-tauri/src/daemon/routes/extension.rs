@@ -301,18 +301,13 @@ pub(super) fn map_candidate_file_type(media_type: &str, extension: Option<&str>)
         "app" => "program".to_string(),
         "document" | "video" | "audio" | "other" => media_type.to_string(),
         "image" => "other".to_string(),
-        _ => match extension.unwrap_or("").to_ascii_lowercase().as_str() {
-            "zip" | "rar" | "7z" | "tar" | "gz" | "bz2" | "xz" | "iso" => "compressed".to_string(),
-            "exe" | "msi" | "apk" | "dmg" | "pkg" | "appimage" | "deb" | "rpm" => {
-                "program".to_string()
-            }
-            "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "txt" | "epub" => {
-                "document".to_string()
-            }
-            "mp4" | "mkv" | "webm" | "avi" | "mov" | "m4v" | "flv" => "video".to_string(),
-            "mp3" | "wav" | "flac" | "m4a" | "ogg" | "opus" | "aac" => "audio".to_string(),
-            _ => "other".to_string(),
-        },
+        // For unknown media types, fall back to the unified extension map in
+        // utils::file_type_from_extension so every code path classifies files
+        // identically.
+        _ => crate::daemon::utils::file_type_from_extension(
+            extension.unwrap_or("").to_ascii_lowercase().as_str(),
+        )
+        .to_string(),
     }
 }
 

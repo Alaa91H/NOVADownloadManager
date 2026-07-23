@@ -174,15 +174,40 @@ pub fn is_safe_resolve_entry(entry: &str) -> Result<(), String> {
 }
 
 #[inline]
+/// Infer a file category from a filename or extension.
+///
+/// This is the single source of truth for extension→category mapping in the
+/// daemon. Previously, `infer_file_type` (utils.rs) and
+/// `map_candidate_file_type` (extension.rs) maintained diverging maps that
+/// classified the same file differently depending on the code path — e.g.
+/// `.iso` was "compressed" via infer_file_type but "app" via the browser
+/// extension, and `.xz`/`.opus`/`.appimage` were only in one map.
 pub fn infer_file_type(name: &str) -> &'static str {
     let lower = name.to_lowercase();
     let ext = lower.rsplit('.').next().unwrap_or("");
+    file_type_from_extension(ext)
+}
+
+/// Map a bare extension (lowercase, no dot) to a file category. Used by both
+/// `infer_file_type` and the browser-extension candidate mapper so that
+/// every code path produces the same classification.
+pub fn file_type_from_extension(ext: &str) -> &'static str {
     match ext {
-        "zip" | "rar" | "7z" | "tar" | "gz" | "bz2" | "iso" | "cab" => "compressed",
-        "exe" | "msi" | "apk" | "dmg" | "pkg" | "bat" | "sh" => "program",
-        "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "txt" | "epub" => "document",
-        "mp4" | "mkv" | "avi" | "mov" | "flv" | "wmv" | "webm" | "ts" => "video",
-        "mp3" | "flac" | "wav" | "ogg" | "m4a" | "aac" | "wma" => "audio",
+        // Archives
+        "zip" | "rar" | "7z" | "tar" | "gz" | "bz2" | "xz" | "zst" | "iso" | "cab" => "compressed",
+        // Programs / installers
+        "exe" | "msi" | "msix" | "apk" | "dmg" | "pkg" | "appimage" | "deb" | "rpm" | "bat"
+        | "sh" | "ps1" => "program",
+        // Documents
+        "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "txt" | "epub" | "mobi"
+        | "csv" | "rtf" => "document",
+        // Video
+        "mp4" | "mkv" | "avi" | "mov" | "flv" | "wmv" | "webm" | "ts" | "m2ts" | "m4v" | "mpg"
+        | "mpeg" | "3gp" => "video",
+        // Audio
+        "mp3" | "flac" | "wav" | "ogg" | "m4a" | "aac" | "wma" | "opus" | "aiff" | "alac" => {
+            "audio"
+        }
         _ => "other",
     }
 }
