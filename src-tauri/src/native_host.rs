@@ -112,10 +112,7 @@ fn port_file_paths() -> Vec<std::path::PathBuf> {
                 .join("nova-daemon.port"),
         );
         // Integration mode: %APPDATA%\nova-download-manager
-        paths.push(
-            base.join("nova-download-manager")
-                .join("nova-daemon.port"),
-        );
+        paths.push(base.join("nova-download-manager").join("nova-daemon.port"));
     }
 
     // Legacy: %LOCALAPPDATA%\NOVA\nova-daemon.port  (Windows)
@@ -146,11 +143,7 @@ fn port_file_paths() -> Vec<std::path::PathBuf> {
         );
         paths.push(home.join("nova-download-manager").join("nova-daemon.port"));
         // Legacy: ~/.config/NOVA/nova-daemon.port
-        paths.push(
-            home.join(".config")
-                .join("NOVA")
-                .join("nova-daemon.port"),
-        );
+        paths.push(home.join(".config").join("NOVA").join("nova-daemon.port"));
         // macOS — Tauri app_data_dir
         paths.push(
             home.join("Library")

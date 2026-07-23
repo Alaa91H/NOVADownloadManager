@@ -229,10 +229,9 @@ fn sanitize_new_name(raw: &str) -> Result<String, String> {
     if name.len() > 240 {
         return Err("Name is too long (max 240 characters)".to_string());
     }
-    if name
-        .chars()
-        .any(|c| matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control())
-    {
+    if name.chars().any(|c| {
+        matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control()
+    }) {
         return Err(format!("Name contains forbidden characters: {}", name));
     }
     if name == "." || name == ".." {
@@ -244,7 +243,10 @@ fn sanitize_new_name(raw: &str) -> Result<String, String> {
 /// Rename the on-disk destination (completed or partial) to match a new task
 /// name, keeping the original extension when the new name has none. Returns
 /// the new save path on success.
-fn rename_destination_on_disk(old_path: &std::path::Path, new_name: &str) -> Option<std::path::PathBuf> {
+fn rename_destination_on_disk(
+    old_path: &std::path::Path,
+    new_name: &str,
+) -> Option<std::path::PathBuf> {
     let parent = old_path.parent()?;
     let mut candidate = parent.join(new_name);
     // Keep the previous extension when the user typed a bare stem.
@@ -268,7 +270,9 @@ fn rename_destination_on_disk(old_path: &std::path::Path, new_name: &str) -> Opt
 
 /// Clear stored conditional-request validators after the task URL changes so
 /// a resume against the refreshed link does not trigger 412/304 loops.
-fn clear_stale_validators(direct_options: &mut std::collections::HashMap<String, serde_json::Value>) {
+fn clear_stale_validators(
+    direct_options: &mut std::collections::HashMap<String, serde_json::Value>,
+) {
     for key in ["etag", "lastModified", "digestSha256"] {
         direct_options.remove(key);
     }
@@ -302,7 +306,10 @@ pub(crate) async fn update_task_metadata(
     {
         let mut jobs = lock_or_err!(state.media_jobs);
         if let Some(job) = jobs.get_mut(id) {
-            if matches!(job.task.status.as_str(), "downloading" | "pausing" | "stopping") {
+            if matches!(
+                job.task.status.as_str(),
+                "downloading" | "pausing" | "stopping"
+            ) {
                 return Err("Stop the download before editing it".to_string());
             }
             if let Some(ref u) = new_url {
@@ -313,10 +320,9 @@ pub(crate) async fn update_task_metadata(
             }
             if let Some(ref n) = new_name {
                 job.task.name = n.clone();
-                if let Some(new_path) = rename_destination_on_disk(
-                    std::path::Path::new(&job.task.save_path),
-                    n,
-                ) {
+                if let Some(new_path) =
+                    rename_destination_on_disk(std::path::Path::new(&job.task.save_path), n)
+                {
                     job.task.save_path = new_path.to_string_lossy().to_string();
                 }
             }
@@ -332,7 +338,10 @@ pub(crate) async fn update_task_metadata(
     {
         let mut jobs = lock_or_err!(state.curl_jobs);
         if let Some(job) = jobs.get_mut(id) {
-            if matches!(job.task.status.as_str(), "downloading" | "pausing" | "stopping") {
+            if matches!(
+                job.task.status.as_str(),
+                "downloading" | "pausing" | "stopping"
+            ) {
                 return Err("Stop the download before editing it".to_string());
             }
             if let Some(ref u) = new_url {
@@ -348,10 +357,9 @@ pub(crate) async fn update_task_metadata(
             }
             if let Some(ref n) = new_name {
                 job.task.name = n.clone();
-                if let Some(new_path) = rename_destination_on_disk(
-                    std::path::Path::new(&job.task.save_path),
-                    n,
-                ) {
+                if let Some(new_path) =
+                    rename_destination_on_disk(std::path::Path::new(&job.task.save_path), n)
+                {
                     job.task.save_path = new_path.to_string_lossy().to_string();
                 }
             }

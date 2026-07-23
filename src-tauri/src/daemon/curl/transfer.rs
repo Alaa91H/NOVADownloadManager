@@ -778,8 +778,7 @@ fn run_segmented_libcurl(
     }
 
     if handles.is_empty() {
-        return merge_parts(&plan.output_path, &ranges)
-            .map(|s| TransferOutcome::plain(s, None));
+        return merge_parts(&plan.output_path, &ranges).map(|s| TransferOutcome::plain(s, None));
     }
 
     let mut last_total: u64 = active

@@ -280,7 +280,8 @@ pub fn init_download_ssl() {
                 "NOVA libcurl runtime: using fallback/system libcurl (link_mode={}, prefix={}). \
                  Native statically-built libcurl is not linked. TLS backend and protocol support \
                  may differ from production builds.",
-                build_link_mode, build_prefix
+                build_link_mode,
+                build_prefix
             );
         }
     });

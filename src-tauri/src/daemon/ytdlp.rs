@@ -353,7 +353,9 @@ fn media_output_produced(task: &crate::daemon::types::Task) -> bool {
     }
     let path = std::path::Path::new(&task.save_path);
     let non_empty = |p: &std::path::Path| {
-        std::fs::metadata(p).map(|m| m.is_file() && m.len() > 0).unwrap_or(false)
+        std::fs::metadata(p)
+            .map(|m| m.is_file() && m.len() > 0)
+            .unwrap_or(false)
     };
     if non_empty(path) {
         return true;
