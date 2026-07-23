@@ -87,6 +87,13 @@ export const TaskPropertiesDialog: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {task.status === 'error' && task.errorMessage ? (
+        <div className="bg-[var(--danger-bg)] border border-[var(--danger-border)] rounded-lg p-3">
+          <span className="text-[10px] font-semibold text-[var(--danger)] uppercase tracking-wide">{t('status_error')}</span>
+          <p className="text-xs text-[var(--danger)] mt-1 font-mono break-all">{task.errorMessage}</p>
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-2 gap-3 bg-[var(--bg-hover)] p-3 border border-[var(--border-color)] rounded-lg">
         <div className="flex flex-col">
           <span className="text-[10px] text-[var(--text-muted)]">{t('task_file_size')}</span>

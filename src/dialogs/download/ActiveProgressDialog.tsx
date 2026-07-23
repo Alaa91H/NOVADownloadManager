@@ -354,6 +354,12 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
                 <div className="grid grid-cols-12 gap-y-2 text-[11px] md:text-xs">
                   <div className="col-span-3 text-[var(--text-secondary)] font-semibold">{t('progress_status')}</div>
                   <div className="col-span-9 text-[var(--text-primary)] font-medium capitalize">{task.status}</div>
+                  {task.status === 'error' && task.errorMessage ? (
+                    <>
+                      <div className="col-span-3 text-[var(--danger)] font-semibold">{t('status_error')}</div>
+                      <div className="col-span-9 text-[var(--danger)] font-mono text-[10px] break-all leading-relaxed">{task.errorMessage}</div>
+                    </>
+                  ) : null}
                   <div className="col-span-3 text-[var(--text-secondary)] font-semibold">{t('progress_file_size')}</div>
                   <div className="col-span-9 text-[var(--text-primary)] font-medium">{formatBytes(task.sizeBytes)}</div>
                   <div className="col-span-3 text-[var(--text-secondary)] font-semibold">

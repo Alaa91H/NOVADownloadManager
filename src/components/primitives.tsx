@@ -226,6 +226,7 @@ export const FormRow: React.FC<FormRowProps> = ({ label, children, id }) => {
 interface StatusPillProps {
   status: DownloadStatus;
   engineStatus?: string;
+  errorMessage?: string;
 }
 
 const ENGINE_STATUS_LABELS: Record<string, string> = {
@@ -236,7 +237,7 @@ const ENGINE_STATUS_LABELS: Record<string, string> = {
   'redownload-requested': 'Re-downloading...',
 };
 
-const StatusPillInner: React.FC<StatusPillProps> = ({ status, engineStatus }) => {
+const StatusPillInner: React.FC<StatusPillProps> = ({ status, engineStatus, errorMessage }) => {
   const t = useI18n();
   const meta: Record<DownloadStatus, { bg: string; key: string }> = {
     downloading: {
@@ -262,7 +263,11 @@ const StatusPillInner: React.FC<StatusPillProps> = ({ status, engineStatus }) =>
   };
   const config = meta[status];
   const subtitle =
-    status === 'downloading' && engineStatus ? ENGINE_STATUS_LABELS[engineStatus] ?? '' : '';
+    status === 'error' && errorMessage
+      ? errorMessage
+      : status === 'downloading' && engineStatus
+        ? ENGINE_STATUS_LABELS[engineStatus] ?? ''
+        : '';
 
   return (
     <span className="inline-flex flex-col items-center gap-0.5">
@@ -272,7 +277,14 @@ const StatusPillInner: React.FC<StatusPillProps> = ({ status, engineStatus }) =>
         {t(config.key)}
       </span>
       {subtitle ? (
-        <span className="text-[9px] text-[var(--text-muted)] leading-none">{subtitle}</span>
+        <span
+          className={`text-[9px] leading-none truncate max-w-[180px] ${
+            status === 'error' ? 'text-[var(--danger)]' : 'text-[var(--text-muted)]'
+          }`}
+          title={subtitle}
+        >
+          {subtitle}
+        </span>
       ) : null}
     </span>
   );
