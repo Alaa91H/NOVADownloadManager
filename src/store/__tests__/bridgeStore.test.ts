@@ -37,9 +37,11 @@ describe('bridgeStore', () => {
     expect(bridgeStore.getState().isDegradedMode).toBe(false);
   });
 
-  it('setBridge does not affect isDegradedMode', () => {
-    bridgeStore.setState({ isDegradedMode: true });
-    bridgeStore.getState().setBridge({ status: 'disconnected', version: '2.0', pid: 99, speedLimit: null });
+  it('setBridge syncs isDegradedMode atomically with status', () => {
+    bridgeStore.getState().setBridge({ status: 'degraded', version: '1.0', pid: 1, speedLimit: null });
     expect(bridgeStore.getState().isDegradedMode).toBe(true);
+    bridgeStore.getState().setBridge({ status: 'disconnected', version: '2.0', pid: 99, speedLimit: null });
+    // status changed to disconnected, so isDegradedMode must be false now
+    expect(bridgeStore.getState().isDegradedMode).toBe(false);
   });
 });

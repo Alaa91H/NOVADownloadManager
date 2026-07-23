@@ -432,15 +432,6 @@ export const tauriClient = {
     }
   },
 
-  async executeFile(filePath: string): Promise<{ success: boolean; message: string }> {
-    try {
-      await invoke('open_file', { path: filePath });
-      return { success: true, message: 'Opening file with the system default application.' };
-    } catch (e) {
-      return { success: false, message: errorMessage(e, 'The file could not be opened.') };
-    }
-  },
-
   async saveConfigToDisk(settings: AppSettings): Promise<boolean> {
     try {
       const { encryptCredentials } = await import('../utils/crypto');

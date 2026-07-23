@@ -8,9 +8,9 @@ import {
   useSettingsData,
   useToastActions,
   useNavigationActions,
+  useTaskActions,
   useI18n,
 } from '../store/selectors';
-import { novaClient } from '../api/novaClient';
 import { tauriClient } from '../api/tauriClient';
 import { TextField, SelectField, Switch, Checkbox } from '../components/primitives';
 
@@ -21,6 +21,7 @@ export const WebpageGrabberPage: React.FC = () => {
   const queues = useQueueData();
   const settings = useSettingsData();
   const { addToast } = useToastActions();
+  const { addTask } = useTaskActions();
   const t = useI18n();
 
   const [url, setUrl] = useState(() => (typeof dialog.payload === 'string' ? dialog.payload : ''));
@@ -62,26 +63,26 @@ export const WebpageGrabberPage: React.FC = () => {
         .replace(/[^a-zA-Z0-9._-]/g, '_')
         .slice(0, 80);
 
-      // NOTE: grabber options (depth, saveFormat, filters, followOuterDomains,
-      // overwriteExisting) are currently only recorded in the description string.
-      // The daemon does not yet expose a structured webpage-grabber task type;
-      // wiring these through directOptions is part of the engine-integration
-      // roadmap (Phase 2). For now createDownload queues the seed URL only.
-      await novaClient.createDownload({
-        url: url.trim(),
-        name: `${fileName}_depth${String(depth)}.${saveFormat === 'text' ? 'txt' : 'html'}`,
-        fileType: 'document',
-        status: 'queued',
-        sizeBytes: 0,
-        category: 'document',
-        queueId: queue?.id || 'main',
-        connections: 1,
-        resumable: false,
-        savePath: savePath || settings.saveAndCategories.defaultFolder,
-        description: `Webpage grabber: depth=${String(depth)}, format=${saveFormat}, followExternal=${String(followOuterDomains)}, overwrite=${String(overwriteExisting)}`,
-        elapsedSeconds: 0,
-        startImmediately: true,
-      });
+      // Route through the task store (addTask) instead of calling novaClient
+      // directly, so post-create side effects (toast, degraded-mode guard,
+      // queue bookkeeping, auto-open progress dialog) are applied uniformly.
+      await addTask(
+        {
+          name: `${fileName}_depth${String(depth)}.${saveFormat === 'text' ? 'txt' : 'html'}`,
+          url: url.trim(),
+          fileType: 'document',
+          status: 'queued',
+          sizeBytes: 0,
+          category: 'document',
+          queueId: queue?.id || 'main',
+          connections: 1,
+          resumable: false,
+          savePath: savePath || settings.saveAndCategories.defaultFolder,
+          description: `Webpage grabber: depth=${String(depth)}, format=${saveFormat}, followExternal=${String(followOuterDomains)}, overwrite=${String(overwriteExisting)}`,
+          elapsedSeconds: 0,
+        },
+        true,
+      );
 
       addToast('success', t('grabber_banner_title'), `${t('grabber_queued')}: ${url.trim()}`);
       setActivePage('downloads');
