@@ -171,7 +171,7 @@ fn resolve_effective_target(plan: &DirectDownloadPlan) -> (String, bool) {
         if apply_easy_options(&mut easy, &hop_plan, Some((0, 0))).is_err() {
             return (current, true);
         }
-        let _ = easy.timeout(Duration::from_secs(30));
+        let _ = easy.timeout(Duration::from_secs(5));
         if easy.perform().is_err() {
             return (current, true);
         }
@@ -900,7 +900,22 @@ fn run_libcurl_download(
         plan.segmented = false;
     }
     {
+        if let Ok(mut jobs) = state.curl_jobs.lock() {
+            if let Some(job) = jobs.get_mut(id) {
+                job.task.engine_status = Some("resolving-url".to_string());
+            }
+        }
+        state.mark_dirty();
+
         let (effective_url, supports_range) = resolve_effective_target(&plan);
+
+        if let Ok(mut jobs) = state.curl_jobs.lock() {
+            if let Some(job) = jobs.get_mut(id) {
+                job.task.engine_status = Some("running-libcurl-multi".to_string());
+            }
+        }
+        state.mark_dirty();
+
         if effective_url != plan.url {
             log::info!(
                 "Task {}: resolved effective URL {} -> {}",
