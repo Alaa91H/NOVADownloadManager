@@ -1184,6 +1184,7 @@ pub(crate) fn mark_curl_task_finished(
     final_size: u64,
     generation: u64,
 ) {
+    log::info!("Task {id}: download completed (final_size={final_size}, generation={generation})");
     state.priority_queue.stop_download(id);
     {
         if let Ok(mut stats) = state.download_stats.lock() {
@@ -1226,7 +1227,10 @@ pub(crate) fn mark_curl_task_failed(
     cancelled: bool,
     generation: u64,
 ) {
-    if !cancelled {
+    if cancelled {
+        log::info!("Task {id}: download cancelled (generation={generation})");
+    } else {
+        log::error!("Task {id}: download failed: {message} (generation={generation})");
         state.priority_queue.stop_download(id);
         if let Ok(mut stats) = state.download_stats.lock() {
             stats.total_failed += 1;
@@ -1287,6 +1291,10 @@ pub(crate) fn start_curl_process(state: &SharedState, id: &str) {
         job.task.error_message = None;
         let plan = plan_from_job(job);
         let token = job.cancel_token.clone();
+        log::info!(
+            "Task {id}: plan_from_job — url={}, total_size={}, resumable={}, output_path={}, connections={}",
+            plan.url, plan.total_size, plan.resumable, plan.output_path.display(), plan.connections
+        );
         (plan, token, generation)
     };
     state.mark_dirty();
@@ -1312,6 +1320,9 @@ pub(crate) fn start_curl_process(state: &SharedState, id: &str) {
             // which produced a zero-byte file must NEVER be marked completed,
             // no matter which code path returned Ok.
             Ok(Ok(0)) if expected_size > 0 => {
+                log::error!(
+                    "Task {id2}: download produced 0-byte file but {expected_size} bytes were expected; refusing to mark as complete"
+                );
                 if remove_on_error {
                     let _ = std::fs::remove_file(&output_path);
                     remove_stale_parts_for(&output_path);
