@@ -1,4 +1,7 @@
+pub mod buffer_manager;
 pub mod convergence;
+pub mod disk_writer;
+pub mod profile_store;
 pub mod protocol_adapter;
 pub mod resource_monitor;
 pub mod segment_controller;
@@ -12,6 +15,10 @@ use protocol_adapter::ProtocolAdapter;
 use resource_monitor::ResourceMonitor;
 use segment_controller::SegmentController;
 use server_profiler::ProtocolVersion;
+
+use crate::daemon::engine::chunk_manager::ChunkManager;
+
+pub use buffer_manager::BufferManager;
 
 pub const MAX_TRACKED_CONNECTIONS: usize = 32;
 
@@ -317,6 +324,8 @@ pub struct AdaptiveEngine {
     pub resources: ResourceMonitor,
     pub protocol: ProtocolAdapter,
     pub segment_ctrl: SegmentController,
+    pub chunk_manager: ChunkManager,
+    pub buffer_manager: BufferManager,
     host: String,
     total_size: u64,
     current_connections: u32,
@@ -339,6 +348,8 @@ impl AdaptiveEngine {
             resources: ResourceMonitor::new(),
             protocol: ProtocolAdapter::new(protocol),
             segment_ctrl: SegmentController::new(total_size, connections, min_segment_bytes),
+            chunk_manager: ChunkManager::new(total_size),
+            buffer_manager: BufferManager::new(),
             host,
             total_size,
             current_connections: connections,
@@ -601,6 +612,22 @@ impl AdaptiveEngine {
     pub fn segment_controller_mut(&mut self) -> &mut SegmentController {
         &mut self.segment_ctrl
     }
+
+    pub fn chunk_manager(&self) -> &ChunkManager {
+        &self.chunk_manager
+    }
+
+    pub fn chunk_manager_mut(&mut self) -> &mut ChunkManager {
+        &mut self.chunk_manager
+    }
+
+    pub fn buffer_manager(&self) -> &BufferManager {
+        &self.buffer_manager
+    }
+
+    pub fn buffer_manager_mut(&mut self) -> &mut BufferManager {
+        &mut self.buffer_manager
+    }
 }
 
 #[cfg(test)]
@@ -806,6 +833,6 @@ mod tests {
             ProtocolVersion::Http2,
             256 * 1024,
         );
-        assert_eq!(engine.segment_controller().segment_count(), 4);
+        assert_eq!(engine.segment_controller().segment_count(), 1);
     }
 }

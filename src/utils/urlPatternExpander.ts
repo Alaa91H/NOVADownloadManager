@@ -81,7 +81,10 @@ export function expandUrlPattern(url: string): string[] {
 /** Expand multiple URLs (one per line), each possibly containing patterns. */
 export function expandUrlList(input: string): string[] {
   const out: string[] = [];
-  for (const line of input.split('\n').map((l) => l.trim()).filter(Boolean)) {
+  for (const line of input
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)) {
     out.push(...expandUrlPattern(line));
   }
   return out;

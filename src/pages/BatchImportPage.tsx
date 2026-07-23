@@ -173,7 +173,9 @@ export const BatchImportPage: React.FC = () => {
             </div>
             <textarea
               rows={8}
-              placeholder={'https://example.com/file[1-10].zip\nhttps://example.com/image[a-c].png\nOne URL per line. Patterns like [1-10], [01-05], [a-z], [1-10:2] are supported.'}
+              placeholder={
+                'https://example.com/file[1-10].zip\nhttps://example.com/image[a-c].png\nOne URL per line. Patterns like [1-10], [01-05], [a-z], [1-10:2] are supported.'
+              }
               value={inputText}
               onChange={(e) => {
                 setInputText(e.target.value);

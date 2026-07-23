@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use super::config::global_config;
+
 #[derive(Clone, Debug)]
 pub struct RetryPolicy {
     pub max_retries: u32,
@@ -11,11 +13,12 @@ pub struct RetryPolicy {
 
 impl Default for RetryPolicy {
     fn default() -> Self {
+        let cfg = global_config();
         Self {
-            max_retries: 5,
-            base_delay: Duration::from_secs(1),
-            max_delay: Duration::from_secs(120),
-            backoff_multiplier: 2.0,
+            max_retries: cfg.max_retries,
+            base_delay: Duration::from_millis(cfg.base_retry_delay_ms),
+            max_delay: Duration::from_millis(cfg.max_retry_delay_ms),
+            backoff_multiplier: cfg.backoff_multiplier,
             jitter: true,
         }
     }
@@ -65,6 +68,43 @@ impl RetryPolicy {
             Duration::from_secs_f64((capped + jitter).max(0.1))
         } else {
             Duration::from_secs_f64(capped)
+        }
+    }
+
+    pub fn should_retry(&self, attempt: u32) -> bool {
+        attempt < self.max_retries
+    }
+
+    pub fn adapt_for_error(&self, error: &str) -> RetryPolicy {
+        let lower = error.to_ascii_lowercase();
+        if lower.contains("timeout") || lower.contains("timed out") {
+            RetryPolicy {
+                base_delay: self.base_delay * 2,
+                max_delay: self.max_delay * 3 / 2,
+                ..self.clone()
+            }
+        } else if lower.contains("connection refused") || lower.contains("connection reset") {
+            RetryPolicy {
+                base_delay: self.base_delay,
+                max_delay: self.max_delay,
+                backoff_multiplier: (self.backoff_multiplier * 1.5).min(5.0),
+                ..self.clone()
+            }
+        } else if lower.contains("429") || lower.contains("too many requests") {
+            RetryPolicy {
+                base_delay: self.base_delay * 3,
+                max_delay: self.max_delay * 2,
+                ..self.clone()
+            }
+        } else if lower.contains("503") || lower.contains("service unavailable") {
+            RetryPolicy {
+                base_delay: self.base_delay * 2,
+                max_delay: self.max_delay * 2,
+                max_retries: self.max_retries + 5,
+                ..self.clone()
+            }
+        } else {
+            self.clone()
         }
     }
 }
@@ -288,5 +328,50 @@ mod tests {
         assert_eq!(state.attempt, cloned.attempt);
         assert_eq!(state.total_retries, cloned.total_retries);
         assert_eq!(state.last_error, cloned.last_error);
+    }
+
+    #[test]
+    fn should_retry_within_limit() {
+        let policy = RetryPolicy { max_retries: 5, ..RetryPolicy::default() };
+        assert!(policy.should_retry(0));
+        assert!(policy.should_retry(4));
+        assert!(!policy.should_retry(5));
+    }
+
+    #[test]
+    fn adapt_for_error_timeout_increases_delay() {
+        let policy = RetryPolicy::default();
+        let adapted = policy.adapt_for_error("Connection timed out");
+        assert!(adapted.base_delay > policy.base_delay);
+        assert!(adapted.max_delay > policy.max_delay);
+    }
+
+    #[test]
+    fn adapt_for_error_rate_limit_increases_delay_significantly() {
+        let policy = RetryPolicy::default();
+        let adapted = policy.adapt_for_error("HTTP 429 Too Many Requests");
+        assert!(adapted.base_delay > policy.base_delay);
+    }
+
+    #[test]
+    fn adapt_for_error_service_unavailable_increases_retries() {
+        let policy = RetryPolicy::default();
+        let adapted = policy.adapt_for_error("HTTP 503 Service Unavailable");
+        assert!(adapted.max_retries > policy.max_retries);
+    }
+
+    #[test]
+    fn adapt_for_error_connection_refused_increases_backoff() {
+        let policy = RetryPolicy::default();
+        let adapted = policy.adapt_for_error("Connection refused");
+        assert!(adapted.backoff_multiplier >= policy.backoff_multiplier);
+    }
+
+    #[test]
+    fn adapt_for_unknown_error_returns_clone() {
+        let policy = RetryPolicy::default();
+        let adapted = policy.adapt_for_error("unknown error");
+        assert_eq!(adapted.max_retries, policy.max_retries);
+        assert_eq!(adapted.base_delay, policy.base_delay);
     }
 }

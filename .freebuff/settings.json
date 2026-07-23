@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "startup": {},
+  "skills": {
+    "preloaded": [
+      "test",
+      "derisk",
+      "apply-locally",
+      "brainstorm",
+      "merge-local",
+      "explain",
+      "commit",
+      "simplify",
+      "review",
+      "preview",
+      "overhaul",
+      "open-pr",
+      "merge-pr"
+    ]
+  }
+}

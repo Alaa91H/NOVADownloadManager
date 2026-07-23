@@ -266,7 +266,7 @@ const StatusPillInner: React.FC<StatusPillProps> = ({ status, engineStatus, erro
     status === 'error' && errorMessage
       ? errorMessage
       : status === 'downloading' && engineStatus
-        ? ENGINE_STATUS_LABELS[engineStatus] ?? ''
+        ? (ENGINE_STATUS_LABELS[engineStatus] ?? '')
         : '';
 
   return (

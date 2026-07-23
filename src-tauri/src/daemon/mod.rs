@@ -225,6 +225,25 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                         ),
                     ))
                 },
+                policy_engine: {
+                    let pe = crate::daemon::engine::policy_engine::PolicyEngine::new();
+                    Arc::new(Mutex::new(pe))
+                },
+                self_healer: {
+                    let pe_ref = Arc::new(Mutex::new(
+                        crate::daemon::engine::policy_engine::PolicyEngine::new(),
+                    ));
+                    Arc::new(Mutex::new(crate::daemon::engine::self_healing::SelfHealer::new(pe_ref)))
+                },
+                capability_discovery: Arc::new(Mutex::new(
+                    crate::daemon::engine::capability_discovery::CapabilityDiscovery::new(),
+                )),
+                die_orchestrator: Arc::new(Mutex::new(
+                    crate::daemon::engine::die_orchestrator::DieOrchestrator::new(),
+                )),
+                resource_manager: Arc::new(Mutex::new(
+                    crate::daemon::engine::resource_manager::ResourceManager::new(),
+                )),
             };
 
             let state = Arc::new(state);

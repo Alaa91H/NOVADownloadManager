@@ -1221,6 +1221,8 @@ export const km: Record<string, string> = {
   'action_rename': 'Rename Download',
   'menu_rename': 'Rename',
   'menu_redownload': 'Re-download',
+  menu_refresh_url: 'Refresh URL',
+  menu_refresh_url_failed: 'Could not open the URL in the system browser.',
   'rename_title': 'Rename download',
   'rename_desc': 'Enter a new file name for this download. If the file already exists on disk, it will be renamed too (the original extension is kept when omitted).',
   'rename_new_name': 'New name',

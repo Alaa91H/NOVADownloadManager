@@ -89,7 +89,9 @@ export const TaskPropertiesDialog: React.FC = () => {
     <div className="space-y-4">
       {task.status === 'error' && task.errorMessage ? (
         <div className="bg-[var(--danger-bg)] border border-[var(--danger-border)] rounded-lg p-3">
-          <span className="text-[10px] font-semibold text-[var(--danger)] uppercase tracking-wide">{t('status_error')}</span>
+          <span className="text-[10px] font-semibold text-[var(--danger)] uppercase tracking-wide">
+            {t('status_error')}
+          </span>
           <p className="text-xs text-[var(--danger)] mt-1 font-mono break-all">{task.errorMessage}</p>
         </div>
       ) : null}

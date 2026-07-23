@@ -47,6 +47,7 @@ import {
   renderSortIcon,
 } from '../utils/taskTableUtils';
 import { novaClient } from '../api/novaClient';
+import { tauriClient } from '../api/tauriClient';
 import { writeClipboardText } from '../utils/clipboard';
 
 export const TaskTable: React.FC = () => {
@@ -186,6 +187,32 @@ export const TaskTable: React.FC = () => {
       icon: <Copy className="w-3.5 h-3.5" />,
       onClick: () => {
         void writeClipboardText(task.url).catch(() => {});
+      },
+    });
+    // Redownload: restart the download from scratch (IDM "Download again")
+    if (task.status === 'completed' || task.status === 'error') {
+      opts.push({
+        id: 'redownload',
+        label: t('menu_redownload'),
+        icon: <RefreshCw className="w-3.5 h-3.5" />,
+        onClick: () => {
+          void redownloadTask(task.id);
+        },
+      });
+    }
+    // Refresh URL: open the source URL in the system browser to capture a
+    // fresh link (useful when the download URL has expired or needs a new
+    // session token). The browser extension captures the new URL automatically.
+    opts.push({
+      id: 'refreshUrl',
+      label: t('menu_refresh_url'),
+      icon: <Link2 className="w-3.5 h-3.5" />,
+      onClick: () => {
+        void tauriClient.openExternalUrl(task.url).then((ok) => {
+          if (!ok) {
+            addToast('warning', t('menu_refresh_url'), t('menu_refresh_url_failed'));
+          }
+        });
       },
     });
     if (task.status === 'completed' && settings.extra.tgEnabled) {
@@ -567,7 +594,11 @@ export const TaskTable: React.FC = () => {
                       case 'status':
                         return (
                           <td key={colKey} className="px-2 py-0.5 truncate text-start" style={{ width }}>
-                            <StatusPill status={task.status} engineStatus={task.engineStatus} errorMessage={task.errorMessage} />
+                            <StatusPill
+                              status={task.status}
+                              engineStatus={task.engineStatus}
+                              errorMessage={task.errorMessage}
+                            />
                           </td>
                         );
                       case 'retries':

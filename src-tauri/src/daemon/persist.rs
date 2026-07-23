@@ -229,6 +229,26 @@ mod tests {
                     reqwest::Client::new(),
                 ),
             )),
+            policy_engine: std::sync::Arc::new(std::sync::Mutex::new(
+                crate::daemon::engine::policy_engine::PolicyEngine::new(),
+            )),
+            self_healer: {
+                let pe = std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::daemon::engine::policy_engine::PolicyEngine::new(),
+                ));
+                std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::daemon::engine::self_healing::SelfHealer::new(pe),
+                ))
+            },
+            capability_discovery: std::sync::Arc::new(std::sync::Mutex::new(
+                crate::daemon::engine::capability_discovery::CapabilityDiscovery::new(),
+            )),
+            die_orchestrator: std::sync::Arc::new(std::sync::Mutex::new(
+                crate::daemon::engine::die_orchestrator::DieOrchestrator::new(),
+            )),
+            resource_manager: std::sync::Arc::new(std::sync::Mutex::new(
+                crate::daemon::engine::resource_manager::ResourceManager::new(),
+            )),
         }
     }
 

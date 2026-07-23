@@ -12,10 +12,122 @@ use crate::daemon::direct::{
     SegmentRange as ByteRange,
 };
 use crate::daemon::engine::config::global_config;
+use crate::daemon::engine::policy_engine::{DecisionCategory, DecisionContext};
 use crate::daemon::state::SharedState;
 use crate::daemon::types::{CurlJob, Segment};
 use crate::daemon::utils::{build_segments, now_str};
 use crate::lock_or_err;
+
+fn build_decision_context(
+    state: &SharedState,
+    id: &str,
+    plan: &DirectDownloadPlan,
+    consecutive_failures: u32,
+    current_speed: u64,
+    supports_range: bool,
+) -> DecisionContext {
+    let host = {
+        let url_str = &plan.url;
+        if let Some(start) = url_str.find("://") {
+            let rest = &url_str[start + 3..];
+            if let Some(end) = rest.find('/') {
+                &rest[..end]
+            } else {
+                rest
+            }
+        } else {
+            ""
+        }
+    }
+    .to_string();
+
+    let (server_stability, throughput_ceiling, per_conn_ceiling, is_rate_limited) = {
+        if let Ok(die) = state.die_orchestrator.lock() {
+            if let Ok(ps) = die.profile_store.lock() {
+                let profile = ps.get_for_host(&host);
+                let stability = profile.map(|p| p.stability_score as f32).unwrap_or(0.5);
+                let tput = profile.map(|p| p.throughput_ceiling).unwrap_or(0);
+                let per_conn = profile.map(|p| p.per_connection_ceiling).unwrap_or(0);
+                let rate_limited = ps.is_rate_limited(&host);
+                (stability, tput, per_conn, rate_limited)
+            } else {
+                (0.5f32, 0u64, 0u64, false)
+            }
+        } else {
+            (0.5f32, 0u64, 0u64, false)
+        }
+    };
+
+    let (memory_pressure, cpu_pressure, disk_pressure) = {
+        if let Ok(mut rm) = state.resource_manager.lock() {
+            let snap = rm.snapshot();
+            let disk_pressure = if snap.is_disk_bottlenecked() { 0.8 } else { 0.1 };
+            (snap.memory_pressure, snap.cpu_usage_pct, disk_pressure)
+        } else {
+            (0.0, 0.0, 0.0)
+        }
+    };
+
+    let active_downloads = state
+        .curl_jobs
+        .lock()
+        .map(|j| j.values().filter(|j| j.task.status == "downloading").count() as u32)
+        .unwrap_or(1);
+
+    let (total_downloaded, elapsed_secs) = {
+        if let Ok(jobs) = state.curl_jobs.lock() {
+            if let Some(job) = jobs.get(id) {
+                (
+                    job.task.downloaded_bytes,
+                    job.start_time.elapsed().as_secs_f64(),
+                )
+            } else {
+                (0u64, 0.0)
+            }
+        } else {
+            (0u64, 0.0)
+        }
+    };
+
+    let attempted_segments = plan.connections;
+    let mut completed_segments = 0u32;
+    let mut failed_segments = 0u32;
+    if let Ok(trackers) = state.engine_trackers.lock() {
+            if let Some(tracker) = trackers.get(id) {
+                if let Some(seg) = tracker.segments.as_ref() {
+                    let info = seg.segments();
+                    completed_segments = info.iter().filter(|s| s.progress >= 1.0).count() as u32;
+                    failed_segments = info.iter().filter(|s| !s.active && s.downloaded == 0 && s.total_bytes > 0).count() as u32;
+            }
+        }
+    }
+
+    DecisionContext {
+        category: DecisionCategory::Connection,
+        host,
+        file_size: plan.total_size,
+        current_speed,
+        current_connections: plan.connections,
+        active_downloads,
+        memory_pressure,
+        cpu_pressure,
+        disk_pressure,
+        server_stability,
+        is_rate_limited,
+        consecutive_failures,
+        supports_range,
+        supports_resume: plan.resumable,
+        protocol_multiplexed: false,
+        rtt_us: 0,
+        throughput_ceiling,
+        per_connection_ceiling: per_conn_ceiling,
+        attempted_segments,
+        completed_segments,
+        failed_segments,
+        total_downloaded,
+        elapsed_secs,
+    }
+}
 
 pub(crate) fn task_from_body(
     body: &crate::daemon::types::CreateDownloadBody,
@@ -1175,6 +1287,38 @@ fn run_libcurl_download(
                 return Err("cancelled".to_string())
             }
             Err(error) => {
+                {
+                    let failure_count = state
+                        .engine_trackers
+                        .lock()
+                        .ok()
+                        .and_then(|t| t.get(id).map(|tr| tr.retry_state.attempt))
+                        .unwrap_or(0);
+                    let ctx = build_decision_context(
+                        state,
+                        id,
+                        &plan,
+                        failure_count,
+                        0,
+                        supports_range,
+                    );
+                    if let Ok(mut healer) = state.self_healer.lock() {
+                        let recovery = healer.on_failure(
+                            &ctx.host,
+                            &error,
+                            &ctx,
+                        );
+                        log::info!(
+                            "Task {}: self-healer recovery decision: {:?}",
+                            id,
+                            recovery
+                        );
+                    }
+                    if let Ok(mut pe) = state.policy_engine.lock() {
+                        let retry_decision = pe.decide_retry(&ctx, &error);
+                        pe.record_decision(&retry_decision, &error);
+                    }
+                }
                 if let Ok(mut trackers) = state.engine_trackers.lock() {
                     if let Some(tracker) = trackers.get_mut(id) {
                         tracker.retry_state.record_failure(error.clone());

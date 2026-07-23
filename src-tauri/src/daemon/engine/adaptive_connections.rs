@@ -2,12 +2,9 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const ADAPTIVE_EVAL_INTERVAL_MS: u64 = 2000;
+use super::config::global_config;
+
 const MIN_CONNECTIONS: u32 = 1;
-const DEFAULT_MAX_CONNECTIONS: u32 = 32;
-const SPEED_HIGH_THRESHOLD: u64 = 5 * 1024 * 1024;
-const SPEED_LOW_THRESHOLD: u64 = 100 * 1024;
-const STALL_THRESHOLD_MS: u64 = 5000;
 
 #[derive(Clone, Debug)]
 pub struct AdaptiveConfig {
@@ -21,35 +18,43 @@ pub struct AdaptiveConfig {
 
 impl Default for AdaptiveConfig {
     fn default() -> Self {
+        let cfg = global_config();
+        let max_conns = cfg.max_connections_per_download;
+        let avg_cores = (cfg.worker_threads / 2).max(1);
+        let mem_gb = cfg.write_buffer_bytes / (256 * 1024);
+        let speed_high = (avg_cores as u64 * 2 * 1024 * 1024).max(2 * 1024 * 1024);
+        let speed_low = (avg_cores as u64 * 64 * 1024).max(100 * 1024);
         Self {
             min_connections: MIN_CONNECTIONS,
-            max_connections: DEFAULT_MAX_CONNECTIONS,
-            speed_high_threshold: SPEED_HIGH_THRESHOLD,
-            speed_low_threshold: SPEED_LOW_THRESHOLD,
-            stall_threshold: Duration::from_millis(STALL_THRESHOLD_MS),
-            eval_interval: Duration::from_millis(ADAPTIVE_EVAL_INTERVAL_MS),
+            max_connections: max_conns,
+            speed_high_threshold: speed_high,
+            speed_low_threshold: speed_low,
+            stall_threshold: Duration::from_secs(5),
+            eval_interval: Duration::from_secs(2),
         }
     }
 }
 
 impl AdaptiveConfig {
     pub fn aggressive() -> Self {
+        let base = Self::default();
         Self {
             min_connections: 2,
-            max_connections: 48,
-            speed_high_threshold: 10 * 1024 * 1024,
-            speed_low_threshold: 50 * 1024,
-            stall_threshold: Duration::from_millis(3000),
+            max_connections: (base.max_connections * 3 / 2).min(48),
+            speed_high_threshold: base.speed_high_threshold * 2,
+            speed_low_threshold: base.speed_low_threshold / 2,
+            stall_threshold: Duration::from_secs(3),
             eval_interval: Duration::from_millis(1500),
         }
     }
 
     pub fn conservative() -> Self {
+        let base = Self::default();
         Self {
             min_connections: 1,
-            max_connections: 16,
-            speed_high_threshold: 2 * 1024 * 1024,
-            speed_low_threshold: 200 * 1024,
+            max_connections: (base.max_connections / 2).max(4),
+            speed_high_threshold: base.speed_high_threshold / 2,
+            speed_low_threshold: base.speed_low_threshold * 2,
             stall_threshold: Duration::from_secs(10),
             eval_interval: Duration::from_secs(5),
         }

@@ -12,20 +12,25 @@ use crate::daemon::engine::adaptive::AdaptiveEngine;
 use crate::daemon::engine::adaptive::TelemetryBus;
 use crate::daemon::engine::adaptive_connections::AdaptiveConnectionManager;
 use crate::daemon::engine::bandwidth::BandwidthManager;
+use crate::daemon::engine::capability_discovery::CapabilityDiscovery;
 use crate::daemon::engine::config::EngineConfig;
 use crate::daemon::engine::config::global_config;
+use crate::daemon::engine::die_orchestrator::DieOrchestrator;
 use crate::daemon::engine::dynamic_segments::DynamicSegmentScheduler;
 use crate::daemon::engine::event_bus::EventBus;
 use crate::daemon::engine::extractor::SharedExtractorRegistry;
 use crate::daemon::engine::metadata_cache::MetadataCache;
 use crate::daemon::engine::mirror::MirrorManager;
 use crate::daemon::engine::plugin_api::PluginApi;
+use crate::daemon::engine::policy_engine::{DecisionContext, PolicyDecision, PolicyEngine};
 use crate::daemon::engine::priority_queue::PriorityBandwidthQueue;
 use crate::daemon::engine::profiles::ProfileManager;
+use crate::daemon::engine::resource_manager::ResourceManager;
 use crate::daemon::engine::retry::RetryPolicy;
 use crate::daemon::engine::retry::RetryState;
 use crate::daemon::engine::rules::DownloadRuleEngine;
 use crate::daemon::engine::scheduler::SmartScheduler;
+use crate::daemon::engine::self_healing::SelfHealer;
 use crate::daemon::types::{CurlJob, MediaJob, Task, TelegramConfig};
 
 /// Live engine-side tracking for one running download: adaptive connection
@@ -77,6 +82,16 @@ pub struct AppState {
     pub rie: ResourceIntelligenceEngine,
     /// External Tool Manager — manages FFmpeg, yt-dlp, and other external tools.
     pub external_tools: Arc<Mutex<ExternalToolManager>>,
+    /// Policy Engine — central decision layer for all runtime decisions.
+    pub policy_engine: Arc<Mutex<PolicyEngine>>,
+    /// Self-Healing subsystem — auto-recovery for all failure modes.
+    pub self_healer: Arc<Mutex<SelfHealer>>,
+    /// Capability Discovery — runtime probing of server capabilities.
+    pub capability_discovery: Arc<Mutex<CapabilityDiscovery>>,
+    /// Die Orchestrator — host-level connection coordination and profile-driven limits.
+    pub die_orchestrator: Arc<Mutex<DieOrchestrator>>,
+    /// Resource Manager — unified memory/disk/thread pressure monitoring.
+    pub resource_manager: Arc<Mutex<ResourceManager>>,
 }
 
 impl AppState {

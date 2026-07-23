@@ -357,7 +357,9 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
                   {task.status === 'error' && task.errorMessage ? (
                     <>
                       <div className="col-span-3 text-[var(--danger)] font-semibold">{t('status_error')}</div>
-                      <div className="col-span-9 text-[var(--danger)] font-mono text-[10px] break-all leading-relaxed">{task.errorMessage}</div>
+                      <div className="col-span-9 text-[var(--danger)] font-mono text-[10px] break-all leading-relaxed">
+                        {task.errorMessage}
+                      </div>
                     </>
                   ) : null}
                   <div className="col-span-3 text-[var(--text-secondary)] font-semibold">{t('progress_file_size')}</div>

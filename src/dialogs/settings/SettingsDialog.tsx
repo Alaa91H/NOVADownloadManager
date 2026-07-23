@@ -38,10 +38,8 @@ import { IntegrationsAndAutomation } from './sections/IntegrationsAndAutomation'
 import { AppearanceSettings } from './sections/AppearanceSettings';
 import { SecuritySettings } from './sections/SecuritySettings';
 import { DiagnosticsAndSystem } from './sections/DiagnosticsAndSystem';
-import { DirectDownloadSettings } from './sections/DirectDownloadSettings';
 import { MediaDownloadSettings } from './sections/MediaDownloadSettings';
 import { EngineManagement } from './sections/EngineManagement';
-import { EngineControls } from './sections/EngineControls';
 import { MirrorsAndPlugins } from './sections/MirrorsAndPlugins';
 import { ExternalToolsSettings } from './sections/ExternalToolsSettings';
 
@@ -54,7 +52,7 @@ type SettingsTabId =
   | 'appearance'
   | 'security'
   | 'diagnostics_system';
-type EnginesSubTab = 'direct' | 'media' | 'engineControls' | 'engineManagement' | 'mirrorsPlugins' | 'externalTools';
+type EnginesSubTab = 'media' | 'engineManagement' | 'mirrorsPlugins' | 'externalTools';
 type AutomationSubTab = 'telegram' | 'webhooks' | 'smtp' | 'rules';
 type DiagnosticsSubTab = 'bridge' | 'diagnostics' | 'backup' | 'advanced';
 type SettingsDialogPayload = {
@@ -79,9 +77,7 @@ export const SettingsDialog: React.FC = () => {
   const [activeTab, setActiveTab] = useState<SettingsTabId>(payload.tab || 'general');
   const [searchQuery, setSearchQuery] = useState('');
   const [enginesSubTab, setEnginesSubTab] = useState<EnginesSubTab>(
-    payload.tab === 'engines' && (payload.subTab === 'direct' || payload.subTab === 'media')
-      ? payload.subTab
-      : 'direct',
+    payload.tab === 'engines' && payload.subTab === 'media' ? payload.subTab : 'media',
   );
 
   const REJECTED_KEY_PATTERN = /[^a-zA-Z0-9_]/;
@@ -525,17 +521,11 @@ export const SettingsDialog: React.FC = () => {
             />
           )}
 
-          {activeTab === 'engines' && enginesSubTab === 'direct' && (
-            <DirectDownloadSettings settings={localSettings} updateSetting={updateLocalSetting} />
-          )}
-
           {activeTab === 'engines' && enginesSubTab === 'media' && (
             <MediaDownloadSettings settings={localSettings} updateSetting={updateLocalSetting} onAddToast={addToast} />
           )}
 
           {activeTab === 'engines' && enginesSubTab === 'engineManagement' && <EngineManagement />}
-
-          {activeTab === 'engines' && enginesSubTab === 'engineControls' && <EngineControls />}
 
           {activeTab === 'engines' && enginesSubTab === 'mirrorsPlugins' && <MirrorsAndPlugins />}
 
