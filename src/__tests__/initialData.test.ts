@@ -24,8 +24,8 @@ describe('formatBytes', () => {
 });
 
 describe('formatSpeed', () => {
-  it('returns "0 B/s" for zero', () => {
-    expect(formatSpeed(0)).toBe('0 B/s');
+  it('returns "--" for zero', () => {
+    expect(formatSpeed(0)).toBe('--');
   });
 
   it('formats speed correctly', () => {
@@ -35,9 +35,9 @@ describe('formatSpeed', () => {
 });
 
 describe('formatTimeLeft', () => {
-  it('returns "Unknown" for zero or negative', () => {
-    expect(formatTimeLeft(0)).toBe('Unknown');
-    expect(formatTimeLeft(-1)).toBe('Unknown');
+  it('returns "--" for zero or negative', () => {
+    expect(formatTimeLeft(0)).toBe('--');
+    expect(formatTimeLeft(-1)).toBe('--');
   });
 
   it('formats seconds only', () => {

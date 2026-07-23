@@ -228,40 +228,6 @@ export const initialSettings: AppSettings = {
   },
 };
 
-export const formatBytes = (bytes: number): string => {
-  if (!Number.isFinite(bytes)) return 'Unknown';
-  if (bytes <= 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let i = 0;
-  let temp = bytes;
-  while (temp >= k && i < sizes.length - 1) {
-    temp /= k;
-    i += 1;
-  }
-  return `${String(parseFloat(temp.toFixed(2)))} ${sizes[i]}`;
-};
-
-export const formatSpeed = (bytesPerSec: number): string => {
-  if (!Number.isFinite(bytesPerSec) || bytesPerSec <= 0) return '0 B/s';
-  const k = 1024;
-  const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
-  let i = 0;
-  let temp = bytesPerSec;
-  while (temp >= k && i < sizes.length - 1) {
-    temp /= k;
-    i += 1;
-  }
-  return `${String(parseFloat(temp.toFixed(1)))} ${sizes[i]}`;
-};
-
-export const formatTimeLeft = (seconds: number): string => {
-  if (!Number.isFinite(seconds) || seconds <= 0) return 'Unknown';
-  if (seconds < 60) return `${String(seconds)}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  if (minutes < 60) return `${String(minutes)}m ${String(remainingSeconds)}s`;
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  return `${String(hours)}h ${String(remainingMinutes)}m`;
-};
+// Formatting utilities have moved to utils/formatUtils.ts — the single source of truth.
+// Re-exported here for backward compatibility with existing imports.
+export { formatBytes, formatSpeed, formatTimeLeft } from './utils/formatUtils';

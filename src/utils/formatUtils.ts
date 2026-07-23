@@ -1,15 +1,52 @@
-import { formatSpeed as rawFormatSpeed, formatTimeLeft as rawFormatTimeLeft } from '../initialData';
+/**
+ * Unified formatting utilities for the entire NOVA frontend.
+ *
+ * This is the single source of truth for all byte/speed/time formatting.
+ * Previously these functions lived in initialData.ts (a settings-data file)
+ * and were re-exported from taskTableUtils.tsx — now they have one home.
+ */
 
-/** Format speed with -- wrapper for zero/negative values */
-export const formatSpeed = (bytesPerSec: number): string => {
-  if (bytesPerSec <= 0) return '--';
-  return rawFormatSpeed(bytesPerSec);
+/** Format a byte count into human-readable units (B, KB, MB, GB, TB). */
+export const formatBytes = (bytes: number): string => {
+  if (!Number.isFinite(bytes)) return 'Unknown';
+  if (bytes <= 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  let temp = bytes;
+  while (temp >= k && i < sizes.length - 1) {
+    temp /= k;
+    i += 1;
+  }
+  return `${String(parseFloat(temp.toFixed(2)))} ${sizes[i]}`;
 };
 
-/** Format time remaining with -- wrapper for zero/negative values */
-export const formatTimeLeft = (sec: number): string => {
-  if (sec <= 0) return '--';
-  return rawFormatTimeLeft(sec);
+/** Format a speed (bytes/sec) into human-readable units with -- for zero. */
+export const formatSpeed = (bytesPerSec: number): string => {
+  if (bytesPerSec <= 0) return '--';
+  if (!Number.isFinite(bytesPerSec)) return '--';
+  const k = 1024;
+  const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+  let i = 0;
+  let temp = bytesPerSec;
+  while (temp >= k && i < sizes.length - 1) {
+    temp /= k;
+    i += 1;
+  }
+  return `${String(parseFloat(temp.toFixed(1)))} ${sizes[i]}`;
+};
+
+/** Format remaining time (seconds) into human-readable with -- for zero. */
+export const formatTimeLeft = (seconds: number): string => {
+  if (seconds <= 0) return '--';
+  if (!Number.isFinite(seconds)) return '--';
+  if (seconds < 60) return `${String(seconds)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes < 60) return `${String(minutes)}m ${String(remainingSeconds)}s`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return `${String(hours)}h ${String(remainingMinutes)}m`;
 };
 
 export const isMagnetLink = (url: string): boolean => url.trim().startsWith('magnet:');
@@ -28,11 +65,7 @@ export const formatElapsed = (seconds: number): string => {
 
 /**
  * Extract a user-facing message from an unknown error value.
- *
- * This is the single canonical error-message formatter for the entire frontend.
- * Previously, the pattern `error instanceof Error ? error.message : '<fallback>'`
- * was hand-inlined at 17+ sites across the project. Now every catch block can
- * import and use `extractErrorMessage(e, 'fallback')` instead.
+ * The single canonical error-message formatter for the entire frontend.
  */
 export function extractErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error) return error.message;
