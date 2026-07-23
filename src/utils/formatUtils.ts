@@ -25,3 +25,17 @@ export const formatElapsed = (seconds: number): string => {
   if (m > 0) return `${String(m)}m ${String(s).padStart(2, '0')}s`;
   return `${String(s)}s`;
 };
+
+/**
+ * Extract a user-facing message from an unknown error value.
+ *
+ * This is the single canonical error-message formatter for the entire frontend.
+ * Previously, the pattern `error instanceof Error ? error.message : '<fallback>'`
+ * was hand-inlined at 17+ sites across the project. Now every catch block can
+ * import and use `extractErrorMessage(e, 'fallback')` instead.
+ */
+export function extractErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  return fallback;
+}

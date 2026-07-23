@@ -3,6 +3,7 @@ import type { DownloadItem } from '../types/desktop-ui.types';
 import { novaClient } from '../api/novaClient';
 import { tauriClient } from '../api/tauriClient';
 import { bridgeStore } from './bridgeStore';
+import { extractErrorMessage } from '../utils/formatUtils';
 import { uiStore } from './uiStore';
 import { queueStore } from './queueStore';
 import { settingsStore } from './settingsStore';
@@ -128,11 +129,7 @@ export const taskStore = create<TaskState>()((set, get) => ({
       bridgeStore.getState().setIsDegradedMode(true);
       uiStore
         .getState()
-        .addToast(
-          'error',
-          'NOVA daemon',
-          error instanceof Error ? error.message : 'The local download engine rejected the task.',
-        );
+        .addToast('error', 'NOVA daemon', extractErrorMessage(error, 'The local download engine rejected the task.'));
       return null;
     }
   },
@@ -150,11 +147,7 @@ export const taskStore = create<TaskState>()((set, get) => ({
     } catch (error) {
       uiStore
         .getState()
-        .addToast(
-          'error',
-          'NOVA daemon',
-          error instanceof Error ? error.message : 'The local engine could not stop the download.',
-        );
+        .addToast('error', 'NOVA daemon', extractErrorMessage(error, 'The local engine could not stop the download.'));
     }
   },
 
@@ -180,7 +173,7 @@ export const taskStore = create<TaskState>()((set, get) => ({
         .addToast(
           'error',
           'NOVA daemon',
-          error instanceof Error ? error.message : 'The local engine could not resume the download.',
+          extractErrorMessage(error, 'The local engine could not resume the download.'),
         );
     }
   },
@@ -210,7 +203,7 @@ export const taskStore = create<TaskState>()((set, get) => ({
         .addToast(
           'error',
           'NOVA daemon',
-          error instanceof Error ? error.message : 'The local engine could not delete the download.',
+          extractErrorMessage(error, 'The local engine could not delete the download.'),
         );
     }
   },
@@ -268,7 +261,7 @@ export const taskStore = create<TaskState>()((set, get) => ({
         .addToast(
           'error',
           'NOVA daemon',
-          error instanceof Error ? error.message : 'The local engine could not rename the download.',
+          extractErrorMessage(error, 'The local engine could not rename the download.'),
         );
       return false;
     }
@@ -292,7 +285,7 @@ export const taskStore = create<TaskState>()((set, get) => ({
         .addToast(
           'error',
           'NOVA daemon',
-          error instanceof Error ? error.message : 'The local engine could not restart the download.',
+          extractErrorMessage(error, 'The local engine could not restart the download.'),
         );
     }
   },
@@ -313,7 +306,7 @@ export const taskStore = create<TaskState>()((set, get) => ({
         .addToast(
           'error',
           'NOVA daemon',
-          error instanceof Error ? error.message : 'The local engine could not update the download link.',
+          extractErrorMessage(error, 'The local engine could not update the download link.'),
         );
       return false;
     }

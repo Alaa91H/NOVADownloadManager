@@ -62,9 +62,7 @@ async function invoke(cmd: string, args?: Record<string, unknown>): Promise<unkn
   throw new Error('Not running in Tauri');
 }
 
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
-}
+import { extractErrorMessage } from '../utils/formatUtils';
 
 async function getBuildVersion(): Promise<string> {
   try {
@@ -216,7 +214,7 @@ export const tauriClient = {
           ? { ok: true, message: 'VPN proxy endpoint is reachable.' }
           : { ok: false, message: 'VPN proxy endpoint is not reachable.' };
       } catch (error) {
-        return { ok: false, message: errorMessage(error, 'Could not validate the VPN proxy endpoint.') };
+        return { ok: false, message: extractErrorMessage(error, 'Could not validate the VPN proxy endpoint.') };
       }
     }
 
@@ -231,7 +229,7 @@ export const tauriClient = {
           ? { ok: true, message: 'VPN source address is active on this device.' }
           : { ok: false, message: 'VPN source address is not active on this device.' };
       } catch (error) {
-        return { ok: false, message: errorMessage(error, 'Could not validate the VPN source address.') };
+        return { ok: false, message: extractErrorMessage(error, 'Could not validate the VPN source address.') };
       }
     }
 
@@ -244,7 +242,7 @@ export const tauriClient = {
             message: 'No active VPN interface was detected. Use proxy or bind mode if this is a false negative.',
           };
     } catch (error) {
-      return { ok: false, message: errorMessage(error, 'Could not inspect VPN interfaces.') };
+      return { ok: false, message: extractErrorMessage(error, 'Could not inspect VPN interfaces.') };
     }
   },
 
@@ -387,7 +385,7 @@ export const tauriClient = {
     } catch (e) {
       return {
         success: false,
-        message: errorMessage(e, 'The downloaded file could not be deleted from disk.'),
+        message: extractErrorMessage(e, 'The downloaded file could not be deleted from disk.'),
       };
     }
   },
