@@ -218,10 +218,6 @@ export function useEngineRateLimit() {
   return useStore(useEngineStore, (s) => s.rateLimit);
 }
 
-export function useEngineQueue() {
-  return useStore(useEngineStore, (s) => s.queue);
-}
-
 export function useEngineProfiles() {
   return useStore(useEngineStore, (s) => s.profiles);
 }
@@ -242,16 +238,8 @@ export function useEngineCache() {
   return useStore(useEngineStore, (s) => s.cache);
 }
 
-export function useEngineStats() {
-  return useStore(useEngineStore, (s) => s.stats);
-}
-
 export function useEngineAdaptive(taskId: string | null) {
   return useStore(useEngineStore, (s) => (taskId ? s.adaptive[taskId] : undefined));
-}
-
-export function useEngineSegments(taskId: string | null) {
-  return useStore(useEngineStore, (s) => (taskId ? s.segments[taskId] : undefined));
 }
 
 export function useEngineActions() {
@@ -260,12 +248,9 @@ export function useEngineActions() {
       refreshAll: useEngineStore.getState().refreshAll,
       setBandwidth: useEngineStore.getState().setBandwidth,
       setRateLimit: useEngineStore.getState().setRateLimit,
-      setQueuePriority: useEngineStore.getState().setQueuePriority,
       setActiveProfile: useEngineStore.getState().setActiveProfile,
       setRetryPolicy: useEngineStore.getState().setRetryPolicy,
       addMirror: useEngineStore.getState().addMirror,
-      triggerFailover: useEngineStore.getState().triggerFailover,
-      setFailover: useEngineStore.getState().setFailover,
       clearCache: useEngineStore.getState().clearCache,
       refreshAdaptive: useEngineStore.getState().refreshAdaptive,
       refreshSegments: useEngineStore.getState().refreshSegments,
