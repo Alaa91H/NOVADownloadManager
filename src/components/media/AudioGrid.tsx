@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Music, CheckCircle2 } from 'lucide-react';
 import { formatBytes } from '../../initialData';
 

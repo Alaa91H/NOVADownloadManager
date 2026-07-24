@@ -1,4 +1,4 @@
-﻿/* src/pages/SchedulerPage.tsx */
+/* src/pages/SchedulerPage.tsx */
 import React from 'react';
 import { Clock } from 'lucide-react';
 import { useI18n } from '../store/selectors';

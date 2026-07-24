@@ -1,4 +1,4 @@
-﻿/* src/components/TopBar.tsx */
+/* src/components/TopBar.tsx */
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   Plus,
@@ -32,6 +32,7 @@ import { useEscapeKey } from '../hooks/useEscapeKey';
 import type { CustomButtonAction, CustomButtonIcon, ToolbarButtonId } from '../types/desktop-ui.types';
 import { novaClient } from '../api/novaClient';
 
+import { extractErrorMessage } from '../utils/formatUtils';
 type DropdownId = 'newDownload' | 'resume' | 'stop' | 'delete' | null;
 
 export const TopBar: React.FC = () => {
@@ -163,11 +164,7 @@ export const TopBar: React.FC = () => {
         addToast('error', t('telegram_send_file_title'), result.error || t('telegram_send_file_failed'));
       }
     } catch (error) {
-      addToast(
-        'error',
-        t('telegram_send_file_title'),
-        error instanceof Error ? error.message : t('telegram_send_file_failed'),
-      );
+      addToast('error', t('telegram_send_file_title'), extractErrorMessage(error, t('telegram_send_file_failed')));
     }
   };
 

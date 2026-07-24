@@ -1,4 +1,4 @@
-﻿/* src/dialogs/settings/sections/MediaAndTorrent.tsx */
+/* src/dialogs/settings/sections/MediaAndTorrent.tsx */
 import React from 'react';
 import type { AppSettings } from '../../../types/desktop-ui.types';
 import { TextField, Checkbox } from '../../../components/primitives';

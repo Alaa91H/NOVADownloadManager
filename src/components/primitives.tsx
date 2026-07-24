@@ -1,4 +1,4 @@
-﻿/* src/components/primitives.tsx */
+/* src/components/primitives.tsx */
 import type { ReactNode } from 'react';
 import React from 'react';
 import type { LucideIcon } from 'lucide-react';

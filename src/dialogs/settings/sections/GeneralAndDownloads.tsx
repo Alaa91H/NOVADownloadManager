@@ -7,6 +7,7 @@ import { WORLD_LANGUAGES } from '../../../lib/languages';
 import { useToastActions, useI18n } from '../../../store/selectors';
 import { tauriClient } from '../../../api/tauriClient';
 
+import { extractErrorMessage } from '../../../utils/formatUtils';
 interface Props {
   settings: AppSettings;
   updateSetting: (section: keyof AppSettings, key: string, value: unknown) => void;
@@ -119,11 +120,7 @@ export const GeneralAndDownloads: React.FC<Props> = ({
         );
       }
     } catch (error) {
-      addToast(
-        'error',
-        t('settings_update_failed'),
-        error instanceof Error ? error.message : t('settings_update_failed_msg'),
-      );
+      addToast('error', t('settings_update_failed'), extractErrorMessage(error, t('settings_update_failed_msg')));
     } finally {
       setUpdateChecking(false);
     }
@@ -135,11 +132,7 @@ export const GeneralAndDownloads: React.FC<Props> = ({
     try {
       await updateResult.performUpdate();
     } catch (error) {
-      addToast(
-        'error',
-        t('settings_update_failed'),
-        error instanceof Error ? error.message : 'Update installation failed.',
-      );
+      addToast('error', t('settings_update_failed'), extractErrorMessage(error, 'Update installation failed.'));
       setUpdateDownloading(false);
       setUpdateProgress(null);
     }

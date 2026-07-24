@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { ListMusic, CheckSquare, Square } from 'lucide-react';
 import type { MediaPlaylistEntry } from '../../api/novaClient';
 import { formatDuration } from './mediaHelpers';

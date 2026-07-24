@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Square,
   Trash2,
@@ -50,6 +50,7 @@ import { novaClient } from '../api/novaClient';
 import { tauriClient } from '../api/tauriClient';
 import { writeClipboardText } from '../utils/clipboard';
 
+import { extractErrorMessage } from '../utils/formatUtils';
 export const TaskTable: React.FC = () => {
   const tasks = useTaskData();
   const { selectedTaskId } = useTaskSelectors();
@@ -234,7 +235,7 @@ export const TaskTable: React.FC = () => {
               addToast(
                 'error',
                 t('telegram_send_file_title'),
-                error instanceof Error ? error.message : t('telegram_send_file_failed'),
+                extractErrorMessage(error, t('telegram_send_file_failed')),
               );
             });
         },
@@ -438,7 +439,7 @@ export const TaskTable: React.FC = () => {
                 <Sliders className="w-3.5 h-3.5" />
               </button>
 
-              {/* Column Config Panel — anchored to this button */}
+              {/* Column Config Panel � anchored to this button */}
               {showColConfig && (
                 <div ref={colConfigRef} className="absolute top-full ltr:right-0 rtl:left-0 z-30 mt-1">
                   <ColumnConfigPanel

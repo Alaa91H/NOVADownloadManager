@@ -1,4 +1,4 @@
-﻿/* src/dialogs/Modal.tsx */
+/* src/dialogs/Modal.tsx */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { Logo } from '../components/Logo';
@@ -29,7 +29,7 @@ export const Modal: React.FC<ModalProps> = ({
   const modalRef = useRef<HTMLDivElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
 
-  // Dragging state — `dragging` drives rendering, `isDragging` is read inside
+  // Dragging state � `dragging` drives rendering, `isDragging` is read inside
   // window-level mouse handlers without re-subscribing them.
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
@@ -78,7 +78,7 @@ export const Modal: React.FC<ModalProps> = ({
       const newX = e.clientX - dragStart.current.x;
       const newY = e.clientY - dragStart.current.y;
 
-      // App title bar height (px) — keeps dialogs below the drag region.
+      // App title bar height (px) � keeps dialogs below the drag region.
       const APP_TITLEBAR = 32;
       // Status bar at the bottom (approx).
       const APP_STATUSBAR = 28;
@@ -104,9 +104,9 @@ export const Modal: React.FC<ModalProps> = ({
 
       // Vertical: center of overlay sits at (APP_TITLEBAR + usableH/2).
       // We need the dialog top edge >= APP_TITLEBAR + MARGIN
-      //   → center.y + offsetY - halfDH >= APP_TITLEBAR + MARGIN
-      //   → offsetY >= APP_TITLEBAR + MARGIN + halfDH - (APP_TITLEBAR + usableH/2)
-      //   → offsetY >= halfDH - usableH/2 + MARGIN
+      //   ? center.y + offsetY - halfDH >= APP_TITLEBAR + MARGIN
+      //   ? offsetY >= APP_TITLEBAR + MARGIN + halfDH - (APP_TITLEBAR + usableH/2)
+      //   ? offsetY >= halfDH - usableH/2 + MARGIN
       const minY = halfDH - usableH / 2 + MARGIN;
       // Dialog bottom edge <= vh - APP_STATUSBAR - MARGIN
       const maxY = usableH / 2 - halfDH - MARGIN;

@@ -1,4 +1,4 @@
-﻿/* src/dialogs/common/GenericConfirmDialog.tsx */
+/* src/dialogs/common/GenericConfirmDialog.tsx */
 import React from 'react';
 import { AlertTriangle, CheckCircle, Info } from 'lucide-react';
 import { useDialogData, useDialogActions, useI18n } from '../../store/selectors';

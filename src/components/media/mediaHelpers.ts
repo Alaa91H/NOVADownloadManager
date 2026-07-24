@@ -1,4 +1,4 @@
-﻿import type { MediaFormat } from '../../api/novaClient';
+import type { MediaFormat } from '../../api/novaClient';
 
 export type AdvancedTab = 'subtitles' | 'format' | 'network' | 'perf';
 

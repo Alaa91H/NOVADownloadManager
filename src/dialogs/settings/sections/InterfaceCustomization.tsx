@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { Bell, Keyboard, ListChecks, Paintbrush, Plus, SlidersHorizontal, Trash2, Volume2, Wand2 } from 'lucide-react';
 import type {
   AppSettings,

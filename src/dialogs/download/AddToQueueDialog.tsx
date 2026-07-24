@@ -1,4 +1,4 @@
-﻿/* src/dialogs/download/AddToQueueDialog.tsx */
+/* src/dialogs/download/AddToQueueDialog.tsx */
 import React, { useState } from 'react';
 import { ListPlus, Clock, ArrowRightLeft, FolderHeart, Plus } from 'lucide-react';
 import {

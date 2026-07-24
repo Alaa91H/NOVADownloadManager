@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Server, Shield, ShieldAlert, Volume2, Globe } from 'lucide-react';
 import { useI18n } from '../store/selectors';
 

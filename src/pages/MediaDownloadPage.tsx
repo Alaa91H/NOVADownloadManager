@@ -1,4 +1,4 @@
-﻿/* src/pages/MediaDownloadPage.tsx */
+/* src/pages/MediaDownloadPage.tsx */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ArrowLeft,
@@ -45,7 +45,7 @@ import { QualityGrid, type QualityOption } from '../components/media/QualityGrid
 import { AudioGrid, type AudioOption } from '../components/media/AudioGrid';
 import { PlaylistBrowser } from '../components/media/PlaylistBrowser';
 
-/* ═══════════════════════════════════ main component ════════════════════════════════════ */
+/* ----------------------------------- main component ------------------------------------ */
 
 export const MediaDownloadPage: React.FC = () => {
   const dialog = useDialogData();
@@ -111,7 +111,7 @@ export const MediaDownloadPage: React.FC = () => {
   const configuredSourceAddress =
     settings.extra.vpnEnabled && settings.extra.vpnMode === 'bind' ? settings.extra.vpnBindAddress.trim() : '';
 
-  /* ── probe state ── */
+  /* -- probe state -- */
   const [probeResult, setProbeResult] = useState<{
     id: string;
     title: string;
@@ -125,14 +125,14 @@ export const MediaDownloadPage: React.FC = () => {
   const [probeError, setProbeError] = useState('');
   const [ffmpegProbe, setFfmpegProbe] = useState<boolean | null>(null);
 
-  /* ── playlist state ── */
+  /* -- playlist state -- */
   const [playlistResult, setPlaylistResult] = useState<{ title: string; entries: MediaPlaylistEntry[] } | null>(null);
   const [isProbingPlaylist, setIsProbingPlaylist] = useState(false);
   const [playlistError, setPlaylistError] = useState('');
   const [selectedPlaylistItems, setSelectedPlaylistItems] = useState<Set<number>>(new Set());
   const [selectAllPlaylist, setSelectAllPlaylist] = useState(true);
 
-  /* ── UI state ── */
+  /* -- UI state -- */
   const [advancedTab, setAdvancedTab] = useState<AdvancedTab>('subtitles');
 
   // Accordion state: only one left-side panel open at a time
@@ -147,12 +147,12 @@ export const MediaDownloadPage: React.FC = () => {
 
   const isPlaylistUrl = targetType === 'playlist' || /[?&]list=[^&]/.test(url);
 
-  /* ── URL tracking ── */
+  /* -- URL tracking -- */
   useEffect(() => {
     latestUrlRef.current = url;
   }, [url]);
 
-  /* ── clipboard cleanup on unmount ── */
+  /* -- clipboard cleanup on unmount -- */
   useEffect(() => {
     return () => {
       if (settings.extra.preventClipboardHistory) {
@@ -161,7 +161,7 @@ export const MediaDownloadPage: React.FC = () => {
     };
   }, [settings.extra.preventClipboardHistory]);
 
-  /* ── FFmpeg availability check ── */
+  /* -- FFmpeg availability check -- */
   useEffect(() => {
     if (engineCapabilities.postProcessingReady) return;
     novaClient
@@ -176,7 +176,7 @@ export const MediaDownloadPage: React.FC = () => {
 
   const ffmpegAvailable: boolean | null = engineCapabilities.postProcessingReady ? true : ffmpegProbe;
 
-  /* ── probe logic ── */
+  /* -- probe logic -- */
   const doProbe = useCallback(
     async (probeUrl: string) => {
       if (!probeUrl.trim().startsWith('http')) return;
@@ -218,7 +218,7 @@ export const MediaDownloadPage: React.FC = () => {
     [isPlaylistUrl, t],
   );
 
-  /* ── URL change side effects ── */
+  /* -- URL change side effects -- */
   const [prevUrl, setPrevUrl] = useState(url);
   if (prevUrl !== url) {
     setPrevUrl(url);
@@ -236,7 +236,7 @@ export const MediaDownloadPage: React.FC = () => {
     else setPlaylistResult(null);
   }
 
-  /* ── debounced probe trigger ── */
+  /* -- debounced probe trigger -- */
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!url.trim().startsWith('http')) return;
@@ -248,7 +248,7 @@ export const MediaDownloadPage: React.FC = () => {
     };
   }, [url, doProbe]);
 
-  /* ── computed values ── */
+  /* -- computed values -- */
   const isProbingAny = isProbing || isProbingPlaylist;
   const ytDlpReady = engineCapabilities.mediaReady;
   const _ffmpegReady = engineCapabilities.postProcessingReady;
@@ -346,7 +346,7 @@ export const MediaDownloadPage: React.FC = () => {
         bitrate: '',
         sizeBytes: 0,
         ext: 'm4a',
-        description: 'AAC · Original Quality',
+        description: 'AAC � Original Quality',
       },
       {
         value: 'flac',
@@ -385,7 +385,7 @@ export const MediaDownloadPage: React.FC = () => {
             bitrate: abr,
             sizeBytes: f.filesize || f.filesizeApprox || 0,
             ext: key,
-            description: `Original Stream${abr ? ` · ${abr}` : ''}`,
+            description: `Original Stream${abr ? ` � ${abr}` : ''}`,
           });
         }
       }
@@ -420,7 +420,7 @@ export const MediaDownloadPage: React.FC = () => {
     return selectedFormatSize;
   })();
 
-  /* ── handlers ── */
+  /* -- handlers -- */
   /* Persist chosen quality to settings so the user's preference is remembered */
   useEffect(() => {
     // Avoid updating during initial mount if settings already match
@@ -617,11 +617,11 @@ export const MediaDownloadPage: React.FC = () => {
     }
   };
 
-  /* ══════════════════════════════ RENDER ══════════════════════════════ */
+  /* ------------------------------ RENDER ------------------------------ */
 
   return (
     <div className="app-page flex-1 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-app)]" dir="ltr">
-      {/* ───────────────────── HEADER ───────────────────── */}
+      {/* --------------------- HEADER --------------------- */}
       <div className="flex items-center gap-3 px-3 py-2 border-b border-[var(--border-color)] bg-[var(--bg-sidebar)] shrink-0 select-none">
         <button type="button" onClick={handleBack} className="toolbar-btn shrink-0" title={t('page_back_tip')}>
           <ArrowLeft className="w-4 h-4" />
@@ -667,7 +667,7 @@ export const MediaDownloadPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ───────────────────── ENGINE WARNINGS ───────────────────── */}
+      {/* --------------------- ENGINE WARNINGS --------------------- */}
       {(!engineCapabilities.mediaReady || !engineCapabilities.postProcessingReady) && (
         <div className="shrink-0 px-4 pt-2.5 space-y-1.5">
           {!engineCapabilities.mediaReady && (
@@ -685,9 +685,9 @@ export const MediaDownloadPage: React.FC = () => {
         </div>
       )}
 
-      {/* ───────────────────── BODY: TWO COLUMNS ───────────────────── */}
+      {/* --------------------- BODY: TWO COLUMNS --------------------- */}
       <div className="flex-1 min-h-0 overflow-hidden flex">
-        {/* ═══════════ LEFT PANEL 55% ═══════════ */}
+        {/* ----------- LEFT PANEL 55% ----------- */}
         <div className="w-[55%] flex flex-col min-h-0 border-r border-[var(--border-color)]/50">
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 scrollbar-thin">
             <div className="space-y-3">
@@ -970,7 +970,7 @@ export const MediaDownloadPage: React.FC = () => {
           </div>
         </div>
 
-        {/* ═══════════ RIGHT PANEL 45% ═══════════ */}
+        {/* ----------- RIGHT PANEL 45% ----------- */}
         <div className="w-[45%] flex flex-col min-h-0">
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 scrollbar-thin">
             <div className="shrink-0 px-4 pt-3 pb-2 space-y-1">
@@ -1067,7 +1067,7 @@ export const MediaDownloadPage: React.FC = () => {
             {isPlaylistUrl && playlistResult && totalSize > 0 && (
               <div className="flex items-center justify-between text-[10px] text-[var(--text-muted)] px-1">
                 <span>
-                  {t('media_per_file')} {selectedFormatSize > 0 ? formatBytes(selectedFormatSize) : '—'}
+                  {t('media_per_file')} {selectedFormatSize > 0 ? formatBytes(selectedFormatSize) : '�'}
                 </span>
                 <span className="text-[var(--info)] font-semibold">
                   {t('media_est_total')} {formatBytes(totalSize)}
@@ -1078,7 +1078,7 @@ export const MediaDownloadPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ───────────────────── FOOTER ───────────────────── */}
+      {/* --------------------- FOOTER --------------------- */}
       <div className="shrink-0 border-t border-[var(--border-color)] bg-[var(--bg-sidebar)] px-4 py-3 flex items-center justify-between gap-3">
         {/* Left: size info */}
         <div className="flex items-center gap-3 min-w-0">
@@ -1094,7 +1094,7 @@ export const MediaDownloadPage: React.FC = () => {
               {selectAllPlaylist ? playlistResult.entries.length : selectedPlaylistItems.size}&nbsp;item
               {(selectAllPlaylist ? playlistResult.entries.length : selectedPlaylistItems.size) !== 1 ? 's' : ''}
               {totalSize > 0 && (
-                <span className="text-[var(--info)] ml-1 font-semibold">· {formatBytes(totalSize)}</span>
+                <span className="text-[var(--info)] ml-1 font-semibold">� {formatBytes(totalSize)}</span>
               )}
             </span>
           )}

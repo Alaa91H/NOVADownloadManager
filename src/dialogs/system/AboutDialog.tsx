@@ -1,4 +1,4 @@
-﻿/* src/dialogs/system/AboutDialog.tsx */
+/* src/dialogs/system/AboutDialog.tsx */
 import React from 'react';
 import { Download, CheckCircle, Shield } from 'lucide-react';
 import { useDialogActions, useBridgeData } from '../../store/selectors';

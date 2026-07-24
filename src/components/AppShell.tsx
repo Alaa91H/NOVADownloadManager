@@ -1,4 +1,4 @@
-﻿/* src/components/AppShell.tsx */
+/* src/components/AppShell.tsx */
 import React, { useEffect, useState, useRef, lazy, Suspense } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow, ProgressBarStatus } from '@tauri-apps/api/window';
@@ -596,7 +596,7 @@ const AppShellInner: React.FC = () => {
       </div>
 
       <div className="flex-1 flex min-h-0 overflow-hidden relative">
-        {/* 2. Main Workspace Layout — downloads view or a full page (settings / lists) */}
+        {/* 2. Main Workspace Layout � downloads view or a full page (settings / lists) */}
         <div className="flex-1 flex flex-col h-full overflow-hidden">
           {activePage === 'settings' ? (
             <Suspense

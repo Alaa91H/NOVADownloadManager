@@ -1,4 +1,4 @@
-﻿/* src/dialogs/settings/sections/IntegrationsAndAutomation.tsx */
+/* src/dialogs/settings/sections/IntegrationsAndAutomation.tsx */
 import React, { useState, useEffect, useRef } from 'react';
 import type { AppSettings } from '../../../types/desktop-ui.types';
 import { FormRow, Switch, TextField, Checkbox } from '../../../components/primitives';

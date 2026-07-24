@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Sliders } from 'lucide-react';
 import { SpeedLimitInput } from './SpeedLimitInput';
 import { useI18n } from '../store/selectors';

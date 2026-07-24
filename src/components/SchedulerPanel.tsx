@@ -1,4 +1,4 @@
-﻿/* src/components/SchedulerPanel.tsx */
+/* src/components/SchedulerPanel.tsx */
 import React, { useState, useCallback } from 'react';
 import { Play, Square, Plus, Trash2, AlertCircle, CheckCircle2, GripVertical, Zap } from 'lucide-react';
 import {

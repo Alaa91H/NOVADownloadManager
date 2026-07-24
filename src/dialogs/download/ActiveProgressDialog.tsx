@@ -1,4 +1,4 @@
-﻿/* src/dialogs/download/ActiveProgressDialog.tsx */
+/* src/dialogs/download/ActiveProgressDialog.tsx */
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   useDialogData,
@@ -610,7 +610,7 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
           </div>
         )}
 
-        {/* Show / Hide details — next to the Stop button, clearly visible */}
+        {/* Show / Hide details � next to the Stop button, clearly visible */}
         <button
           onClick={() => {
             setDetailsCollapsed((v) => !v);

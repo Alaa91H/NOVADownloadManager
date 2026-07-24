@@ -1,4 +1,4 @@
-﻿/* src/dialogs/diagnostics/DiagnosticsDialog.tsx */
+/* src/dialogs/diagnostics/DiagnosticsDialog.tsx */
 import React, { useEffect, useRef, useState } from 'react';
 import { Cpu, HardDrive, RefreshCw, ShieldCheck } from 'lucide-react';
 import type { DiagnosticData } from '../../api/tauriClient';
@@ -125,7 +125,7 @@ export const DiagnosticsDialog: React.FC = () => {
                   typeof net === 'string'
                     ? {
                         name: net.split('=')[0] || net,
-                        ip: net.split('=').slice(1).join('=') || '—',
+                        ip: net.split('=').slice(1).join('=') || '�',
                         speedMbps: undefined,
                       }
                     : net;

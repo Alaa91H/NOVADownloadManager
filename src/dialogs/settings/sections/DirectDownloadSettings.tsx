@@ -1,4 +1,4 @@
-﻿/* src/dialogs/settings/sections/DirectDownloadSettings.tsx */
+/* src/dialogs/settings/sections/DirectDownloadSettings.tsx */
 import React from 'react';
 import type { AppSettings } from '../../../types/desktop-ui.types';
 import { FormRow, Switch, TextField, SelectField, Checkbox } from '../../../components/primitives';
@@ -16,7 +16,7 @@ export const DirectDownloadSettings: React.FC<Props> = ({ settings, updateSettin
 
   return (
     <div className="space-y-6 text-left animate-in fade-in duration-200">
-      {/* ── Timeouts & Retries ── */}
+      {/* -- Timeouts & Retries -- */}
       <div className="space-y-4">
         <div className="flex items-center gap-2 border-b border-[var(--border-color)] pb-2">
           <Clock className="w-4 h-4 text-[var(--warning)]" />
@@ -64,7 +64,7 @@ export const DirectDownloadSettings: React.FC<Props> = ({ settings, updateSettin
         </div>
       </div>
 
-      {/* ── Connection Tuning ── */}
+      {/* -- Connection Tuning -- */}
       <div className="space-y-4">
         <div className="flex items-center gap-2 border-b border-[var(--border-color)] pb-2">
           <Network className="w-4 h-4 text-[var(--info)]" />
@@ -114,7 +114,7 @@ export const DirectDownloadSettings: React.FC<Props> = ({ settings, updateSettin
         </div>
       </div>
 
-      {/* ── HTTP / TLS ── */}
+      {/* -- HTTP / TLS -- */}
       <div className="space-y-4">
         <div className="flex items-center gap-2 border-b border-[var(--border-color)] pb-2">
           <Shield className="w-4 h-4 text-[var(--success)]" />
@@ -200,7 +200,7 @@ export const DirectDownloadSettings: React.FC<Props> = ({ settings, updateSettin
         </div>
       </div>
 
-      {/* ── Disk & Memory ── */}
+      {/* -- Disk & Memory -- */}
       <div className="space-y-4">
         <div className="flex items-center gap-2 border-b border-[var(--border-color)] pb-2">
           <HardDrive className="w-4 h-4 text-[var(--accent-primary)]" />

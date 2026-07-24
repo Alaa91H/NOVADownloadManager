@@ -1,4 +1,4 @@
-﻿/* src/dialogs/common/ConfirmDialog.tsx */
+/* src/dialogs/common/ConfirmDialog.tsx */
 import React, { useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { useDialogData, useDialogActions, useTaskActions, useI18n } from '../../store/selectors';

@@ -30,6 +30,7 @@ import {
 import { novaClient, type BrowserExtensionHealth } from '../api/novaClient';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 
+import { extractErrorMessage } from '../utils/formatUtils';
 export const StatusBar: React.FC = () => {
   const tasks = useTaskData();
   const { selectedTaskId } = useTaskSelectors();
@@ -203,7 +204,7 @@ export const StatusBar: React.FC = () => {
       addToast(
         'error',
         t('settings_toast_telegram_test'),
-        error instanceof Error ? error.message : t('settings_toast_telegram_fail'),
+        extractErrorMessage(error, t('settings_toast_telegram_fail')),
       );
     } finally {
       setTelegramMenuVisible(false);
@@ -227,11 +228,7 @@ export const StatusBar: React.FC = () => {
         result.ok ? t('telegram_send_file_ok') : result.error || t('telegram_send_file_failed'),
       );
     } catch (error) {
-      addToast(
-        'error',
-        t('telegram_send_file_title'),
-        error instanceof Error ? error.message : t('telegram_send_file_failed'),
-      );
+      addToast('error', t('telegram_send_file_title'), extractErrorMessage(error, t('telegram_send_file_failed')));
     } finally {
       setTelegramMenuVisible(false);
     }

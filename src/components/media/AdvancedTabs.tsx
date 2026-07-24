@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Subtitles, Settings2, Wifi, Gauge } from 'lucide-react';
 import { TextField, Switch } from '../primitives';
 import type { AdvancedTab } from './mediaHelpers';

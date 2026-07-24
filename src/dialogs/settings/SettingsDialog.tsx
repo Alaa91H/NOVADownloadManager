@@ -1,21 +1,15 @@
-﻿/* src/dialogs/settings/SettingsDialog.tsx */
+/* src/dialogs/settings/SettingsDialog.tsx */
 import React, { useState } from 'react';
 import {
   Settings,
   Sliders,
-  Cpu,
   Globe,
-  Bell,
   Palette,
   Search,
   ChevronDown,
   ChevronUp,
   X,
-  Download,
-  Video,
   Activity,
-  Gauge,
-  Layers,
   Shield,
 } from 'lucide-react';
 import {
@@ -34,30 +28,15 @@ import { playAppSound } from '../../utils/sound';
 import { GeneralAndDownloads } from './sections/GeneralAndDownloads';
 import { NetworkAndPerformance } from './sections/NetworkAndPerformance';
 import { BrowserAndIntegration } from './sections/BrowserAndIntegration';
-import { IntegrationsAndAutomation } from './sections/IntegrationsAndAutomation';
 import { AppearanceSettings } from './sections/AppearanceSettings';
 import { SecuritySettings } from './sections/SecuritySettings';
 import { DiagnosticsAndSystem } from './sections/DiagnosticsAndSystem';
-import { MediaDownloadSettings } from './sections/MediaDownloadSettings';
-import { EngineManagement } from './sections/EngineManagement';
-import { MirrorsAndPlugins } from './sections/MirrorsAndPlugins';
-import { ExternalToolsSettings } from './sections/ExternalToolsSettings';
 
-type SettingsTabId =
-  | 'general'
-  | 'engines'
-  | 'network'
-  | 'integration'
-  | 'integrations_automation'
-  | 'appearance'
-  | 'security'
-  | 'diagnostics_system';
-type EnginesSubTab = 'media' | 'engineManagement' | 'mirrorsPlugins' | 'externalTools';
-type AutomationSubTab = 'telegram' | 'webhooks' | 'smtp' | 'rules';
+type SettingsTabId = 'general' | 'network' | 'integration' | 'appearance' | 'security' | 'diagnostics_system';
 type DiagnosticsSubTab = 'bridge' | 'diagnostics' | 'backup' | 'advanced';
 type SettingsDialogPayload = {
   tab?: SettingsTabId;
-  subTab?: EnginesSubTab | AutomationSubTab | DiagnosticsSubTab;
+  subTab?: DiagnosticsSubTab;
 };
 
 const isSettingsPayload = (payload: unknown): payload is SettingsDialogPayload =>
@@ -76,9 +55,6 @@ export const SettingsDialog: React.FC = () => {
   const [localThemeSettings, setLocalThemeSettings] = useState<AppThemeSettings>(structuredClone(themeSettings));
   const [activeTab, setActiveTab] = useState<SettingsTabId>(payload.tab || 'general');
   const [searchQuery, setSearchQuery] = useState('');
-  const [enginesSubTab, setEnginesSubTab] = useState<EnginesSubTab>(
-    payload.tab === 'engines' && payload.subTab === 'media' ? payload.subTab : 'media',
-  );
 
   const REJECTED_KEY_PATTERN = /[^a-zA-Z0-9_]/;
   const updateLocalSetting = (section: keyof AppSettings, key: string, value: unknown) => {
@@ -148,7 +124,7 @@ export const SettingsDialog: React.FC = () => {
         audio.volume = 0.5;
         audio.play().catch(() => {});
       } catch {
-        // Audio playback unavailable — nothing to do.
+        // Audio playback unavailable � nothing to do.
       }
     }
   };
@@ -167,49 +143,8 @@ export const SettingsDialog: React.FC = () => {
       'update',
       'path',
     ],
-    engines: [
-      'engine',
-      'curl',
-      'libcurl',
-      'ytdlp',
-      'yt-dlp',
-      'media',
-      'direct',
-      'ffmpeg',
-      'tls',
-      'timeout',
-      'quality',
-      'format',
-      'subtitle',
-      'download',
-      'verify',
-      'update',
-      'plugin',
-      'manager',
-      'binary',
-      'external',
-      'tools',
-      'capability',
-      'capabilities',
-      'install',
-      'uninstall',
-    ],
     network: ['network', 'proxy', 'connection', 'dns', 'ip', 'speed', 'bandwidth', 'threads', 'limits', 'performance'],
     integration: ['browser', 'extension', 'integrate', 'capture', 'token', 'cookies', 'history', 'filter', 'monitor'],
-    integrations_automation: [
-      'telegram',
-      'webhook',
-      'mail',
-      'smtp',
-      'automation',
-      'rule',
-      'rules',
-      'discord',
-      'slack',
-      'bot',
-      'notify',
-      'notification',
-    ],
     appearance: ['appearance', 'theme', 'dark', 'color', 'layout', 'contrast', 'accent', 'toolbar'],
     security: ['security', 'privacy', 'encryption', 'token', 'credential', 'origin', 'localhost'],
     diagnostics_system: [
@@ -227,15 +162,6 @@ export const SettingsDialog: React.FC = () => {
   };
 
   // State for sub-tabs and accordion expand
-  const [automationSubTab, setAutomationSubTab] = useState<AutomationSubTab>(
-    payload.tab === 'integrations_automation' &&
-      (payload.subTab === 'telegram' ||
-        payload.subTab === 'webhooks' ||
-        payload.subTab === 'smtp' ||
-        payload.subTab === 'rules')
-      ? payload.subTab
-      : 'telegram',
-  );
   const [diagnosticsSubTab, setDiagnosticsSubTab] = useState<DiagnosticsSubTab>(
     payload.tab === 'diagnostics_system' &&
       (payload.subTab === 'bridge' ||
@@ -245,11 +171,7 @@ export const SettingsDialog: React.FC = () => {
       ? payload.subTab
       : 'bridge',
   );
-  const [expandedTabId, setExpandedTabId] = useState<string>(
-    payload.tab === 'integrations_automation' || payload.tab === 'diagnostics_system' || payload.tab === 'engines'
-      ? payload.tab
-      : '',
-  );
+  const [expandedTabId, setExpandedTabId] = useState<string>(payload.tab === 'diagnostics_system' ? payload.tab : '');
 
   // Helper to check if a single tab matches search criteria
   const isTabMatchingSearch = (tabId: string, tabLabel: string, tabDesc: string) => {
@@ -263,38 +185,12 @@ export const SettingsDialog: React.FC = () => {
 
   const mainTabs = [
     { id: 'general' as const, label: t('set_tab_general'), desc: t('set_tab_general_desc'), icon: Settings },
-    {
-      id: 'engines' as const,
-      label: t('set_tab_engines'),
-      desc: t('set_tab_engines_desc'),
-      icon: Cpu,
-      subItems: [
-        { id: 'direct', label: t('set_tab_direct_download'), icon: Download },
-        { id: 'media', label: t('set_tab_media_download'), icon: Video },
-        { id: 'engineControls', label: 'Engine Controls', icon: Gauge },
-        { id: 'mirrorsPlugins', label: 'Mirrors & Plugins', icon: Layers },
-        { id: 'engineManagement', label: 'Engine Manager', icon: Cpu },
-        { id: 'externalTools', label: 'External Tools', icon: Cpu },
-      ],
-    },
     { id: 'network' as const, label: t('set_tab_network'), desc: t('set_tab_network_desc'), icon: Globe },
     {
       id: 'integration' as const,
       label: t('set_tab_browser_integration'),
       desc: t('set_tab_browser_integration_desc'),
       icon: Sliders,
-    },
-    {
-      id: 'integrations_automation' as const,
-      label: t('set_tab_integrations_automation'),
-      desc: t('set_tab_integrations_automation_desc'),
-      icon: Bell,
-      subItems: [
-        { id: 'telegram', label: t('set_sub_telegram') },
-        { id: 'webhooks', label: t('set_sub_webhooks') },
-        { id: 'smtp', label: t('set_sub_smtp') },
-        { id: 'rules', label: t('set_sub_rules') },
-      ],
     },
     {
       id: 'appearance' as const,
@@ -314,10 +210,8 @@ export const SettingsDialog: React.FC = () => {
       desc: t('set_tab_diagnostics_system_desc'),
       icon: Activity,
       subItems: [
-        { id: 'bridge', label: t('set_sub_bridge') },
         { id: 'diagnostics', label: t('set_sub_diagnostics') },
         { id: 'backup', label: t('set_sub_backup') },
-        { id: 'advanced', label: t('set_sub_advanced') },
       ],
     },
   ];
@@ -362,13 +256,7 @@ export const SettingsDialog: React.FC = () => {
       setActiveTab(firstTab.id);
       if (firstTab.subItems && firstTab.subItems.length > 0) {
         setExpandedTabId(firstTab.id);
-        if (firstTab.id === 'engines') {
-          setEnginesSubTab(firstTab.subItems[0].id as EnginesSubTab);
-        } else if (firstTab.id === 'integrations_automation') {
-          setAutomationSubTab(firstTab.subItems[0].id as AutomationSubTab);
-        } else {
-          setDiagnosticsSubTab(firstTab.subItems[0].id as DiagnosticsSubTab);
-        }
+        setDiagnosticsSubTab(firstTab.subItems[0].id as DiagnosticsSubTab);
       }
     }
   }
@@ -433,13 +321,7 @@ export const SettingsDialog: React.FC = () => {
                         setExpandedTabId(tab.id);
                         // Also auto-select its first sub-item if any
                         if (tab.subItems.length > 0) {
-                          if (tab.id === 'engines') {
-                            setEnginesSubTab(tab.subItems[0].id as EnginesSubTab);
-                          } else if (tab.id === 'integrations_automation') {
-                            setAutomationSubTab(tab.subItems[0].id as AutomationSubTab);
-                          } else {
-                            setDiagnosticsSubTab(tab.subItems[0].id as DiagnosticsSubTab);
-                          }
+                          setDiagnosticsSubTab(tab.subItems[0].id as DiagnosticsSubTab);
                         }
                       }
                     }
@@ -468,23 +350,14 @@ export const SettingsDialog: React.FC = () => {
                     className={`flex flex-col gap-1 mt-1 animate-in slide-in-from-top-1 duration-150 pl-3 ml-3 border-l border-[var(--border-color)]/50 mr-1 pr-1`}
                   >
                     {tab.subItems.map((sub) => {
-                      const isSubSelected =
-                        (tab.id === 'engines' && enginesSubTab === sub.id) ||
-                        (tab.id === 'integrations_automation' && automationSubTab === sub.id) ||
-                        (tab.id === 'diagnostics_system' && diagnosticsSubTab === sub.id);
+                      const isSubSelected = diagnosticsSubTab === sub.id;
                       return (
                         <button
                           key={sub.id}
                           type="button"
                           onClick={() => {
                             setActiveTab(tab.id);
-                            if (tab.id === 'engines') {
-                              setEnginesSubTab(sub.id as EnginesSubTab);
-                            } else if (tab.id === 'integrations_automation') {
-                              setAutomationSubTab(sub.id as AutomationSubTab);
-                            } else {
-                              setDiagnosticsSubTab(sub.id as DiagnosticsSubTab);
-                            }
+                            setDiagnosticsSubTab(sub.id as DiagnosticsSubTab);
                           }}
                           className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md cursor-pointer text-[11px] font-semibold w-full text-left justify-start transition-all duration-150 hover:scale-[1.02] active:scale-[0.98] ${
                             isSubSelected && isSelected
@@ -521,32 +394,12 @@ export const SettingsDialog: React.FC = () => {
             />
           )}
 
-          {activeTab === 'engines' && enginesSubTab === 'media' && (
-            <MediaDownloadSettings settings={localSettings} updateSetting={updateLocalSetting} onAddToast={addToast} />
-          )}
-
-          {activeTab === 'engines' && enginesSubTab === 'engineManagement' && <EngineManagement />}
-
-          {activeTab === 'engines' && enginesSubTab === 'mirrorsPlugins' && <MirrorsAndPlugins />}
-
-          {activeTab === 'engines' && enginesSubTab === 'externalTools' && <ExternalToolsSettings />}
-
           {activeTab === 'network' && (
             <NetworkAndPerformance settings={localSettings} updateSetting={updateLocalSetting} onAddToast={addToast} />
           )}
 
           {activeTab === 'integration' && (
             <BrowserAndIntegration settings={localSettings} updateSetting={updateLocalSetting} onAddToast={addToast} />
-          )}
-
-          {activeTab === 'integrations_automation' && (
-            <IntegrationsAndAutomation
-              settings={localSettings}
-              updateSetting={updateLocalSetting}
-              onAddToast={addToast}
-              activeSubTab={automationSubTab}
-              onChangeSubTab={setAutomationSubTab}
-            />
           )}
 
           {activeTab === 'appearance' && (

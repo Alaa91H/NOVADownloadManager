@@ -1,4 +1,4 @@
-﻿/* src/dialogs/tasks/TaskPropertiesDialog.tsx */
+/* src/dialogs/tasks/TaskPropertiesDialog.tsx */
 import React, { useState } from 'react';
 import { HardDrive } from 'lucide-react';
 import { useDialogData, useDialogActions, useTaskActions, useToastActions, useI18n } from '../../store/selectors';

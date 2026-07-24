@@ -1,4 +1,4 @@
-﻿/* src/components/Sidebar.tsx */
+/* src/components/Sidebar.tsx */
 import React from 'react';
 import {
   FileText,

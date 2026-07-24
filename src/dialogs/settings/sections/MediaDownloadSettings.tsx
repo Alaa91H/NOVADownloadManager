@@ -1,4 +1,4 @@
-﻿/* src/dialogs/settings/sections/MediaDownloadSettings.tsx */
+/* src/dialogs/settings/sections/MediaDownloadSettings.tsx */
 import React, { useState } from 'react';
 import type { AppSettings } from '../../../types/desktop-ui.types';
 import { TextField, SelectField, Checkbox } from '../../../components/primitives';
@@ -48,7 +48,7 @@ export const MediaDownloadSettings: React.FC<Props> = ({ settings, updateSetting
 
   return (
     <div className="space-y-6 text-left animate-in fade-in duration-200">
-      {/* ── Quality & Format ── */}
+      {/* -- Quality & Format -- */}
       <div className="space-y-4">
         <div className="flex items-center gap-2 border-b border-[var(--border-color)] pb-2">
           <Video className="w-4 h-4 text-[var(--danger)]" />
@@ -82,7 +82,7 @@ export const MediaDownloadSettings: React.FC<Props> = ({ settings, updateSetting
         </div>
       </div>
 
-      {/* ── Subtitles & Languages ── */}
+      {/* -- Subtitles & Languages -- */}
       <div className="space-y-4">
         <div className="flex items-center gap-2 border-b border-[var(--border-color)] pb-2">
           <FileText className="w-4 h-4 text-[var(--info)]" />
@@ -112,7 +112,7 @@ export const MediaDownloadSettings: React.FC<Props> = ({ settings, updateSetting
         </div>
       </div>
 
-      {/* ── Media Detection ── */}
+      {/* -- Media Detection -- */}
       <div className="space-y-4">
         <div className="flex items-center gap-2 border-b border-[var(--border-color)] pb-2">
           <Film className="w-4 h-4 text-[var(--success)]" />
@@ -144,7 +144,7 @@ export const MediaDownloadSettings: React.FC<Props> = ({ settings, updateSetting
         </div>
       </div>
 
-      {/* ── FFmpeg Integration ── */}
+      {/* -- FFmpeg Integration -- */}
       <div className="space-y-4">
         <div className="flex items-center gap-2 border-b border-[var(--border-color)] pb-2">
           <RefreshCw className="w-4 h-4 text-[var(--accent-primary)]" />

@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { ExternalLink, FolderOpen } from 'lucide-react';
 import type { DownloadItem } from '../types/desktop-ui.types';
 import { formatBytes } from '../initialData';

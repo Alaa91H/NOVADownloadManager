@@ -1,4 +1,4 @@
-﻿/* src/dialogs/settings/sections/DiagnosticsAndSystem.tsx */
+/* src/dialogs/settings/sections/DiagnosticsAndSystem.tsx */
 import React, { useState, useRef } from 'react';
 import type { AppSettings } from '../../../types/desktop-ui.types';
 import { FormRow, Switch, TextField, SelectField } from '../../../components/primitives';
@@ -19,6 +19,7 @@ import { useBridgeData, useSettingsActions, useI18n } from '../../../store/selec
 import { novaClient } from '../../../api/novaClient';
 import { useEngineCapabilities } from '../../../capabilities/EngineCapabilityContext';
 
+import { extractErrorMessage } from '../../../utils/formatUtils';
 interface Props {
   settings: AppSettings;
   updateSetting: (section: keyof AppSettings, key: string, value: unknown) => void;
@@ -66,11 +67,7 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
         `NOVA responded in ${String(latency)}ms with status: ${health.status}.`,
       );
     } catch (error) {
-      onAddToast(
-        'error',
-        t('settings_toast_ping_failed'),
-        error instanceof Error ? error.message : t('settings_toast_no_response'),
-      );
+      onAddToast('error', t('settings_toast_ping_failed'), extractErrorMessage(error, t('settings_toast_no_response')));
     } finally {
       setPinging(false);
     }
@@ -189,7 +186,7 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
 
       {subTab === 'diagnostics' && (
         <div className="space-y-4 animate-in fade-in duration-150">
-          {/* ── Engine Capability Breakdown ── */}
+          {/* -- Engine Capability Breakdown -- */}
           <div className="border-t border-[var(--border-color)]/40 pt-3 mt-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -203,7 +200,7 @@ export const DiagnosticsAndSystem: React.FC<Props> = ({
                 }}
                 className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors cursor-pointer"
               >
-                {showCapDetails ? '▾ Collapse' : '▸ Expand'}
+                {showCapDetails ? '? Collapse' : '? Expand'}
               </button>
             </div>
 

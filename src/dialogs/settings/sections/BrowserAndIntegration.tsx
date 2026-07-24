@@ -1,4 +1,4 @@
-﻿/* src/dialogs/settings/sections/BrowserAndIntegration.tsx */
+/* src/dialogs/settings/sections/BrowserAndIntegration.tsx */
 import React, { useState } from 'react';
 import type { AppSettings } from '../../../types/desktop-ui.types';
 import { FormRow, Switch, TextField } from '../../../components/primitives';
@@ -6,6 +6,7 @@ import { Puzzle, RefreshCw, Eye, EyeOff } from 'lucide-react';
 import { useDialogActions, useI18n } from '../../../store/selectors';
 import { novaClient } from '../../../api/novaClient';
 
+import { extractErrorMessage } from '../../../utils/formatUtils';
 interface Props {
   settings: AppSettings;
   updateSetting: (section: keyof AppSettings, key: string, value: unknown) => void;
@@ -60,7 +61,7 @@ export const BrowserAndIntegration: React.FC<Props> = ({ settings, updateSetting
       onAddToast(
         'error',
         t('settings_toast_extension_offline'),
-        error instanceof Error ? error.message : t('settings_toast_extension_fallback'),
+        extractErrorMessage(error, t('settings_toast_extension_fallback')),
       );
     } finally {
       setIsPairing(false);

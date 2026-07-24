@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Radio, Code, Loader2 } from 'lucide-react';
 import { Switch } from '../primitives';
 import type { EngineCapabilitySnapshot } from '../../capabilities/EngineCapabilityContext';

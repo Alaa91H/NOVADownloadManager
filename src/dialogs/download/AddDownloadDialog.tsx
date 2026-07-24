@@ -1,4 +1,4 @@
-﻿/* src/dialogs/download/AddDownloadDialog.tsx */
+/* src/dialogs/download/AddDownloadDialog.tsx */
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { Video, ArrowRight, RefreshCw, Link } from 'lucide-react';
 import {
@@ -985,7 +985,7 @@ export const AddDownloadDialog: React.FC = () => {
             </div>
           </div>
 
-          {/* ── Override Defaults (unified) ── */}
+          {/* -- Override Defaults (unified) -- */}
           <div className="border-t border-[var(--border-color)]/40 pt-3 mt-1">
             <button
               type="button"
@@ -998,7 +998,7 @@ export const AddDownloadDialog: React.FC = () => {
                 {t('add_dl_override_defaults')}
               </span>
               <span className="text-[10px] text-[var(--text-muted)] group-hover:text-[var(--text-secondary)] transition-colors">
-                {showOverrideSection ? '▾ ' + t('add_dl_hide_overrides') : '▸ ' + t('add_dl_show_overrides')}
+                {showOverrideSection ? '? ' + t('add_dl_hide_overrides') : '? ' + t('add_dl_show_overrides')}
               </span>
             </button>
 

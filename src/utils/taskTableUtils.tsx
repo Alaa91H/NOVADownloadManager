@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Sliders, FileText, Cpu, Film, Music, HelpCircle } from 'lucide-react';
 import type { FileType } from '../types/desktop-ui.types';
 

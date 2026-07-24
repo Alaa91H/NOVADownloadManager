@@ -1,4 +1,4 @@
-﻿/* src/dialogs/settings/sections/AppearanceAndSecurity.tsx */
+/* src/dialogs/settings/sections/AppearanceAndSecurity.tsx */
 import React from 'react';
 import type { AppThemeSettings, AppSettings, AppTheme } from '../../../types/desktop-ui.types';
 import { SelectField, Checkbox } from '../../../components/primitives';

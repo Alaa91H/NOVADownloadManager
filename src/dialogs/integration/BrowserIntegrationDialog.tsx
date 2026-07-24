@@ -1,4 +1,4 @@
-﻿/* src/dialogs/integration/BrowserIntegrationDialog.tsx */
+/* src/dialogs/integration/BrowserIntegrationDialog.tsx */
 import React, { useEffect, useState } from 'react';
 import {
   CheckCircle2,
@@ -17,6 +17,7 @@ import { useDialogActions, useSettingsData, useSettingsActions, useToastActions,
 import { writeClipboardText } from '../../utils/clipboard';
 import { DialogButton, Button } from '../../components/primitives';
 
+import { extractErrorMessage } from '../../utils/formatUtils';
 const EXTENSION_RELEASES_URL = 'https://github.com/Alaa91H/NovaDownloadManager/releases/latest';
 
 export const BrowserIntegrationDialog: React.FC = () => {
@@ -55,7 +56,7 @@ export const BrowserIntegrationDialog: React.FC = () => {
       setHealth(result);
       addToast('success', t('browser_bridge_title'), t('browser_bridge_ready'));
     } catch (error) {
-      addToast('error', t('browser_bridge_title'), error instanceof Error ? error.message : t('browser_bridge_error'));
+      addToast('error', t('browser_bridge_title'), extractErrorMessage(error, t('browser_bridge_error')));
     } finally {
       setIsChecking(false);
     }

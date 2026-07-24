@@ -1,4 +1,4 @@
-﻿/* src/dialogs/tasks/UpdateLinkDialog.tsx */
+/* src/dialogs/tasks/UpdateLinkDialog.tsx */
 import React, { useState } from 'react';
 import { Globe, Link2, AlertCircle, FileEdit, ArrowRight } from 'lucide-react';
 import { useDialogData, useDialogActions, useTaskActions, useToastActions, useI18n } from '../../store/selectors';
