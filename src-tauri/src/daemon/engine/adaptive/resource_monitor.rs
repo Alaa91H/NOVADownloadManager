@@ -1,3 +1,4 @@
+#![allow(dead_code, clippy::manual_range_contains, unused_assignments)]
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug)]

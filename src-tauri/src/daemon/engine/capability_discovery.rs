@@ -1,4 +1,8 @@
-#![allow(dead_code, clippy::manual_checked_ops)]
+#![allow(
+    dead_code,
+    clippy::manual_checked_ops,
+    clippy::field_reassign_with_default
+)]
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 

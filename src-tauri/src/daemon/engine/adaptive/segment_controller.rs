@@ -2,7 +2,8 @@
     dead_code,
     clippy::too_many_arguments,
     clippy::manual_clamp,
-    clippy::unnecessary_sort_by
+    clippy::unnecessary_sort_by,
+    clippy::needless_else
 )]
 use std::time::{Duration, Instant};
 

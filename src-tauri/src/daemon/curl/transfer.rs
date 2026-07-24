@@ -1689,6 +1689,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn preflight_data_clones() {
         let mut p = PreflightData::default();
         p.protocol = "h2".into();

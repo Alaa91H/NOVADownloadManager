@@ -4,7 +4,6 @@ import { Video, ArrowRight, RefreshCw, Link } from 'lucide-react';
 import {
   useDialogData,
   useDialogActions,
-  useQueueData,
   useSettingsData,
   useTaskActions,
   useToastActions,
@@ -17,13 +16,11 @@ import { detectUrlType } from '../../utils/urlDetector';
 import { clearClipboardIfTextMatches, readClipboardText } from '../../utils/clipboard';
 import { formatBytes } from '../../initialData';
 import { isMagnetLink } from '../../utils/formatUtils';
-import { TextField, SelectField, Checkbox } from '../../components/primitives';
 import { useEngineCapabilities } from '../../capabilities/EngineCapabilityContext';
 
 export const AddDownloadDialog: React.FC = () => {
   const dialog = useDialogData();
   const { closeDialog, openDialog } = useDialogActions();
-  const queues = useQueueData();
   const settings = useSettingsData();
   const { addTask } = useTaskActions();
   const { addToast } = useToastActions();
@@ -50,51 +47,49 @@ export const AddDownloadDialog: React.FC = () => {
   const [savePath, setSavePath] = useState(settings.saveAndCategories.defaultFolder || '');
   const [defaultDownloadsDir, setDefaultDownloadsDir] = useState('');
   const [category, setCategory] = useState<FileType>('other');
-  const [queueId, setQueueId] = useState('main');
-  const [description, setDescription] = useState('');
+  const [queueId] = useState('main');
+  const [description] = useState('');
   const [connections, setConnections] = useState<number>(settings.connection.maxConnections);
   const [resumable, setResumable] = useState(true);
   const [referer, setReferer] = useState('');
-  const [userAgent, setUserAgent] = useState(settings.extra.userAgent || '');
-  const [headers, setHeaders] = useState('');
-  const [cookies, setCookies] = useState('');
-  const [proxy, setProxy] = useState(buildConfiguredProxy);
-  const [speedLimitKbs, setSpeedLimitKbs] = useState<number>(
+  const [userAgent] = useState(settings.extra.userAgent || '');
+  const [headers] = useState('');
+  const [cookies] = useState('');
+  const [proxy] = useState(buildConfiguredProxy);
+  const [speedLimitKbs] = useState<number>(
     settings.connection.speedLimiter.enabled ? settings.connection.speedLimiter.maxSpeedKbs : 0,
   );
-  const [retryCount, setRetryCount] = useState<number>(settings.connection.defaults.retryCount);
-  const [retryDelaySec, setRetryDelaySec] = useState<number>(settings.connection.defaults.retryDelaySec);
-  const [timeoutSec, setTimeoutSec] = useState<number>(settings.connection.defaults.timeoutSec);
-  const [connectTimeoutSec, setConnectTimeoutSec] = useState<number>(settings.connection.defaults.connectTimeoutSec);
-  const [allowOverwrite, setAllowOverwrite] = useState(settings.extra.duplicateAction === 'overwrite');
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [showOverrideSection, setShowOverrideSection] = useState(false);
-  const [authType, setAuthType] = useState('');
-  const [authUsername, setAuthUsername] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
-  const [oauth2Bearer, setOauth2Bearer] = useState('');
-  const [httpVersion, setHttpVersion] = useState(settings.connection.defaults.httpVersion);
-  const [insecure, setInsecure] = useState(settings.connection.defaults.insecure);
-  const [caCert, setCaCert] = useState(settings.connection.defaults.caCert);
-  const [clientCert, setClientCert] = useState(settings.connection.defaults.clientCert);
-  const [clientKey, setClientKey] = useState(settings.connection.defaults.clientKey);
-  const [tlsCiphers, setTlsCiphers] = useState(settings.connection.defaults.ciphers);
-  const [tlsMin, setTlsMin] = useState(settings.connection.defaults.tlsMin);
-  const [maxRedirs, setMaxRedirs] = useState<number>(settings.connection.defaults.maxRedirs);
-  const [keepaliveTimeSec, setKeepaliveTimeSec] = useState<number>(settings.connection.defaults.keepaliveTimeSec);
-  const [tcpNoDelay, setTcpNoDelay] = useState(false);
-  const [dnsServers, setDnsServers] = useState(settings.connection.defaults.dnsServers);
-  const [noproxy, setNoproxy] = useState('');
-  const [proxyUser, setProxyUser] = useState(settings.connection.proxyUser || '');
-  const [proxyPassword, setProxyPassword] = useState(settings.connection.proxyPass || '');
-  const [proxyType, setProxyType] = useState(settings.connection.proxyType || '');
-  const [proxyTunnel, setProxyTunnel] = useState(settings.connection.proxyTunnel || false);
-  const [ipResolve, setIpResolve] = useState(settings.connection.defaults.ipResolve);
-  const [unrestrictedAuth, setUnrestrictedAuth] = useState(false);
-  const [freshConnect, setFreshConnect] = useState(false);
-  const [forbidReuse, setForbidReuse] = useState(false);
-  const [isFetchingInfo, setIsFetchingInfo] = useState(false);
+  const [retryCount] = useState<number>(settings.connection.defaults.retryCount);
+  const [retryDelaySec] = useState<number>(settings.connection.defaults.retryDelaySec);
+  const [timeoutSec] = useState<number>(settings.connection.defaults.timeoutSec);
+  const [connectTimeoutSec] = useState<number>(settings.connection.defaults.connectTimeoutSec);
+  const [allowOverwrite] = useState(settings.extra.duplicateAction === 'overwrite');
   const [infoFetched, setInfoFetched] = useState(false);
+  const [authType] = useState('');
+  const [authUsername] = useState('');
+  const [authPassword] = useState('');
+  const [oauth2Bearer] = useState('');
+  const [httpVersion] = useState(settings.connection.defaults.httpVersion);
+  const [insecure] = useState(settings.connection.defaults.insecure);
+  const [caCert] = useState(settings.connection.defaults.caCert);
+  const [clientCert] = useState(settings.connection.defaults.clientCert);
+  const [clientKey] = useState(settings.connection.defaults.clientKey);
+  const [tlsCiphers] = useState(settings.connection.defaults.ciphers);
+  const [tlsMin] = useState(settings.connection.defaults.tlsMin);
+  const [maxRedirs] = useState<number>(settings.connection.defaults.maxRedirs);
+  const [keepaliveTimeSec] = useState<number>(settings.connection.defaults.keepaliveTimeSec);
+  const [tcpNoDelay] = useState(false);
+  const [dnsServers] = useState(settings.connection.defaults.dnsServers);
+  const [noproxy] = useState('');
+  const [proxyUser] = useState(settings.connection.proxyUser || '');
+  const [proxyPassword] = useState(settings.connection.proxyPass || '');
+  const [proxyType] = useState(settings.connection.proxyType || '');
+  const [proxyTunnel] = useState(settings.connection.proxyTunnel || false);
+  const [ipResolve] = useState(settings.connection.defaults.ipResolve);
+  const [unrestrictedAuth] = useState(false);
+  const [freshConnect] = useState(false);
+  const [forbidReuse] = useState(false);
+  const [isFetchingInfo, setIsFetchingInfo] = useState(false);
   const [probeNonce, setProbeNonce] = useState(0);
   const [detectedUrlType, setDetectedUrlType] = useState<'media' | 'download' | 'unknown'>('unknown');
   const latestUrlRef = useRef('');
@@ -107,7 +102,6 @@ export const AddDownloadDialog: React.FC = () => {
   }, [url]);
 
   const directEngineReady = engineCapabilities.directReady;
-  const supportedDirectOptions = engineCapabilities.directOptionKeys;
 
   const isDirectOptionSupported = useCallback(
     (key: string) => engineCapabilities.supportsDirectOption(key),
@@ -506,26 +500,6 @@ export const AddDownloadDialog: React.FC = () => {
     }
   };
 
-  const queueOptions = queues.map((q) => ({ value: q.id, label: q.name }));
-  const connectionOptions = supportsSegmentedDownloads
-    ? [
-        { value: 0, label: t('add_dl_automatic_default') },
-        { value: 8, label: t('add_dl_threads_8') },
-        { value: 16, label: t('add_dl_threads_16') },
-        { value: 24, label: t('add_dl_threads_24') },
-        { value: 32, label: t('add_dl_threads_32') },
-      ]
-    : [{ value: 1, label: t('add_dl_single_connection') }];
-
-  const categoryOptions = [
-    { value: 'document', label: t('documents') },
-    { value: 'program', label: t('programs') },
-    { value: 'compressed', label: t('compressed') },
-    { value: 'video', label: t('videos') },
-    { value: 'audio', label: t('audio') },
-    { value: 'other', label: t('others') },
-  ];
-
   const canSubmitDownload = Boolean(url.trim()) && directEngineReady;
 
   return (
@@ -535,11 +509,7 @@ export const AddDownloadDialog: React.FC = () => {
           {t('add_dl_direct_engine_error')}
         </div>
       )}
-      {showAdvanced && supportedDirectOptions.size > 0 && (
-        <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-hover)]/30 p-2 text-[10px] text-[var(--text-secondary)]">
-          {t('add_dl_advanced_info')}
-        </div>
-      )}
+
       {/* 1. Direct URL Input Row with Paste icon on far right */}
       <div className="space-y-1.5">
         <div className="relative">
@@ -736,529 +706,8 @@ export const AddDownloadDialog: React.FC = () => {
           >
             <RefreshCw className="w-3.5 h-3.5" strokeWidth={2.5} />
           </button>
-
-          {/* Toggle Advanced Settings Gear Button */}
-          <button
-            onClick={() => {
-              setShowAdvanced(!showAdvanced);
-            }}
-            className={`w-7.5 h-7.5 flex items-center justify-center border hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded transition-all cursor-pointer ${
-              showAdvanced
-                ? 'bg-[var(--accent-light)] border-[var(--accent-primary)] text-[var(--accent-primary)]'
-                : 'bg-[var(--bg-input)] border-[var(--border-color)]'
-            }`}
-            title={t('add_dl_advanced_options')}
-          >
-            <svg
-              className="w-3.5 h-3.5"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-          </button>
         </div>
       </div>
-
-      {/* 4. Expandable Advanced Controls Section */}
-      {showAdvanced && (
-        <div className="p-2.5 bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-200">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <SelectField
-              label={t('add_dl_category')}
-              value={category}
-              onChange={(e) => {
-                const newCat = e.target.value as FileType;
-                setCategory(newCat);
-                setFileType(newCat);
-                // Manually changing the category re-applies the per-type default
-                // path unless the user has already chosen a custom location.
-                if (!savePathEdited.current) {
-                  setSavePath(buildSavePath(newCat, fileName || 'file_download.bin'));
-                }
-              }}
-              options={categoryOptions}
-            />
-            <SelectField
-              label={t('add_dl_queue')}
-              value={queueId}
-              onChange={(e) => {
-                setQueueId(e.target.value);
-              }}
-              options={queueOptions}
-            />
-            <SelectField
-              label={t('add_dl_threads')}
-              value={effectiveConnections}
-              onChange={(e) => {
-                setConnections(Number(e.target.value));
-              }}
-              options={connectionOptions}
-              disabled={!supportsSegmentedDownloads}
-            />
-          </div>
-
-          <TextField
-            label={t('add_dl_desc')}
-            value={description}
-            onChange={(e) => {
-              setDescription(e.target.value);
-            }}
-            placeholder="Enter notes or description for this file..."
-          />
-
-          <div className="flex items-center gap-6 pt-2">
-            <Checkbox
-              label={t('add_dl_resumable')}
-              checked={resumable}
-              onChange={setResumable}
-              disabled={!isDirectOptionSupported('range')}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-[var(--border-color)]/40">
-            <TextField
-              label="Referer"
-              value={referer}
-              onChange={(e) => {
-                setReferer(e.target.value);
-              }}
-              placeholder="https://example.com/page"
-              className="font-mono"
-              style={{ direction: 'ltr', textAlign: 'left' }}
-              disabled={!isDirectOptionSupported('referer')}
-            />
-            <TextField
-              label="User-Agent"
-              value={userAgent}
-              onChange={(e) => {
-                setUserAgent(e.target.value);
-              }}
-              placeholder="Mozilla/5.0 ..."
-              className="font-mono"
-              style={{ direction: 'ltr', textAlign: 'left' }}
-              disabled={!isDirectOptionSupported('userAgent')}
-            />
-            <TextField
-              label="Proxy"
-              value={proxy}
-              onChange={(e) => {
-                setProxy(e.target.value);
-              }}
-              placeholder="http://127.0.0.1:8080"
-              className="font-mono"
-              style={{ direction: 'ltr', textAlign: 'left' }}
-              disabled={!isDirectOptionSupported('proxy')}
-            />
-            <SelectField
-              label={t('add_dl_ip_resolve')}
-              value={ipResolve}
-              onChange={(e) => {
-                setIpResolve(e.target.value);
-              }}
-              options={[
-                { value: '', label: t('add_dl_system_default') },
-                { value: '4', label: t('add_dl_force_ipv4') },
-                { value: '6', label: t('add_dl_force_ipv6') },
-              ]}
-              disabled={!isDirectOptionSupported('ipResolve')}
-            />
-            <SelectField
-              label={t('add_dl_proxy_type')}
-              value={proxyType}
-              onChange={(e) => {
-                setProxyType(e.target.value);
-              }}
-              options={[
-                { value: '', label: t('add_dl_proxy_default') },
-                { value: 'socks4', label: 'SOCKS4' },
-                { value: 'socks5', label: 'SOCKS5' },
-                { value: 'socks4a', label: 'SOCKS4a (remote DNS)' },
-                { value: 'socks5h', label: 'SOCKS5h (remote DNS)' },
-              ]}
-              disabled={!isDirectOptionSupported('proxyType')}
-            />
-            <div className="flex items-center gap-6 pt-5">
-              <Checkbox
-                label={t('add_dl_proxy_tunnel')}
-                checked={proxyTunnel}
-                onChange={setProxyTunnel}
-                disabled={!isDirectOptionSupported('proxyTunnel')}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <TextField
-              label="Speed Limit (KB/s)"
-              type="number"
-              value={speedLimitKbs}
-              onChange={(e) => {
-                setSpeedLimitKbs(Number(e.target.value));
-              }}
-              disabled={!isDirectOptionSupported('speedLimitKbs')}
-            />
-            <TextField
-              label="Retries"
-              type="number"
-              value={retryCount}
-              onChange={(e) => {
-                setRetryCount(Number(e.target.value));
-              }}
-              disabled={!isDirectOptionSupported('retryCount')}
-            />
-            <TextField
-              label="Retry Delay (s)"
-              type="number"
-              value={retryDelaySec}
-              onChange={(e) => {
-                setRetryDelaySec(Number(e.target.value));
-              }}
-              disabled={!isDirectOptionSupported('retryDelaySec')}
-            />
-            <TextField
-              label="Timeout (s)"
-              type="number"
-              value={timeoutSec}
-              onChange={(e) => {
-                setTimeoutSec(Number(e.target.value));
-              }}
-              disabled={!isDirectOptionSupported('timeoutSec')}
-            />
-            <TextField
-              label="Connect Timeout (s)"
-              type="number"
-              value={connectTimeoutSec}
-              onChange={(e) => {
-                setConnectTimeoutSec(Number(e.target.value));
-              }}
-              disabled={!isDirectOptionSupported('connectTimeoutSec')}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-            <Checkbox
-              label={t('add_dl_allow_overwrite')}
-              checked={allowOverwrite}
-              onChange={setAllowOverwrite}
-              disabled={!isDirectOptionSupported('allowOverwrite')}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-[var(--text-secondary)] text-[10px] md:text-[11px] font-bold">
-                {t('batch_custom_headers')}
-              </label>
-              <textarea
-                rows={3}
-                value={headers}
-                onChange={(e) => {
-                  setHeaders(e.target.value);
-                }}
-                placeholder="Header-Name: value"
-                className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-md text-[11px] font-mono text-left text-[var(--text-primary)] p-2 focus:outline-none focus:border-[var(--accent-primary)]"
-                style={{ direction: 'ltr' }}
-                disabled={!isDirectOptionSupported('headers')}
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-[var(--text-secondary)] text-[10px] md:text-[11px] font-bold">
-                {t('batch_cookies')}
-              </label>
-              <textarea
-                rows={3}
-                value={cookies}
-                onChange={(e) => {
-                  setCookies(e.target.value);
-                }}
-                placeholder="name=value; other=value"
-                className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-md text-[11px] font-mono text-left text-[var(--text-primary)] p-2 focus:outline-none focus:border-[var(--accent-primary)]"
-                style={{ direction: 'ltr' }}
-                disabled={!isDirectOptionSupported('cookies')}
-              />
-            </div>
-          </div>
-
-          {/* -- Override Defaults (unified) -- */}
-          <div className="border-t border-[var(--border-color)]/40 pt-3 mt-1">
-            <button
-              type="button"
-              onClick={() => {
-                setShowOverrideSection(!showOverrideSection);
-              }}
-              className="flex items-center gap-2 w-full text-left cursor-pointer group"
-            >
-              <span className="text-[10px] md:text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
-                {t('add_dl_override_defaults')}
-              </span>
-              <span className="text-[10px] text-[var(--text-muted)] group-hover:text-[var(--text-secondary)] transition-colors">
-                {showOverrideSection ? '? ' + t('add_dl_hide_overrides') : '? ' + t('add_dl_show_overrides')}
-              </span>
-            </button>
-
-            {showOverrideSection && (
-              <div className="space-y-3 mt-2 animate-in fade-in duration-150">
-                {/* Authentication */}
-                <div className="bg-[var(--bg-input)]/30 rounded-lg p-3 border border-[var(--border-color)]/30">
-                  <span className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider block mb-2">
-                    {t('add_dl_authentication')}
-                  </span>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <SelectField
-                      label={t('add_dl_auth_type')}
-                      value={authType}
-                      onChange={(e) => {
-                        setAuthType(e.target.value);
-                      }}
-                      options={[
-                        { value: '', label: t('add_dl_auth_none') },
-                        { value: 'basic', label: t('add_dl_auth_basic') },
-                        { value: 'digest', label: t('add_dl_auth_digest') },
-                        { value: 'ntlm', label: t('add_dl_auth_ntlm') },
-                        { value: 'negotiate', label: t('add_dl_auth_negotiate') },
-                        { value: 'any', label: t('add_dl_auth_any') },
-                      ]}
-                      disabled={!isDirectOptionSupported('authType')}
-                    />
-                    <TextField
-                      label={t('add_dl_username')}
-                      value={authUsername}
-                      onChange={(e) => {
-                        setAuthUsername(e.target.value);
-                      }}
-                      placeholder="username"
-                      className="font-mono"
-                      style={{ direction: 'ltr', textAlign: 'left' }}
-                      disabled={!isDirectOptionSupported('username')}
-                    />
-                    <TextField
-                      label={t('add_dl_password')}
-                      value={authPassword}
-                      onChange={(e) => {
-                        setAuthPassword(e.target.value);
-                      }}
-                      placeholder="password"
-                      className="font-mono"
-                      style={{ direction: 'ltr', textAlign: 'left' }}
-                      disabled={!isDirectOptionSupported('password')}
-                    />
-                    <TextField
-                      label={t('add_dl_oauth2_bearer')}
-                      value={oauth2Bearer}
-                      onChange={(e) => {
-                        setOauth2Bearer(e.target.value);
-                      }}
-                      placeholder="eyJhbGciOi..."
-                      className="font-mono"
-                      style={{ direction: 'ltr', textAlign: 'left' }}
-                      disabled={!isDirectOptionSupported('oauth2Bearer')}
-                    />
-                    <TextField
-                      label={t('add_dl_proxy_username')}
-                      value={proxyUser}
-                      onChange={(e) => {
-                        setProxyUser(e.target.value);
-                      }}
-                      placeholder="proxy-user"
-                      className="font-mono"
-                      style={{ direction: 'ltr', textAlign: 'left' }}
-                      disabled={!isDirectOptionSupported('proxyUser')}
-                    />
-                    <TextField
-                      label={t('add_dl_proxy_password')}
-                      value={proxyPassword}
-                      onChange={(e) => {
-                        setProxyPassword(e.target.value);
-                      }}
-                      placeholder="proxy-pass"
-                      className="font-mono"
-                      style={{ direction: 'ltr', textAlign: 'left' }}
-                      disabled={!isDirectOptionSupported('proxyPassword')}
-                    />
-                    <div className="flex items-center gap-6 pt-5 md:col-span-2">
-                      <Checkbox
-                        label={t('add_dl_unrestricted_auth')}
-                        checked={unrestrictedAuth}
-                        onChange={setUnrestrictedAuth}
-                        disabled={!isDirectOptionSupported('unrestrictedAuth')}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* TLS / Security */}
-                <div className="bg-[var(--bg-input)]/30 rounded-lg p-3 border border-[var(--border-color)]/30">
-                  <span className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider block mb-2">
-                    {t('add_dl_tls_security')}
-                  </span>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <SelectField
-                      label={t('add_dl_http_version')}
-                      value={httpVersion}
-                      onChange={(e) => {
-                        setHttpVersion(e.target.value);
-                      }}
-                      options={[
-                        { value: '', label: 'Auto' },
-                        { value: '1.0', label: 'HTTP/1.0' },
-                        { value: '1.1', label: 'HTTP/1.1' },
-                        { value: '2', label: 'HTTP/2' },
-                        { value: '2-prior-knowledge', label: 'HTTP/2 Prior Knowledge' },
-                        { value: '3', label: 'HTTP/3' },
-                      ]}
-                      disabled={!isDirectOptionSupported('httpVersion')}
-                    />
-                    <SelectField
-                      label={t('add_dl_tls_min')}
-                      value={tlsMin}
-                      onChange={(e) => {
-                        setTlsMin(e.target.value);
-                      }}
-                      options={[
-                        { value: '', label: 'Default' },
-                        { value: '1.0', label: 'TLS 1.0' },
-                        { value: '1.1', label: 'TLS 1.1' },
-                        { value: '1.2', label: 'TLS 1.2' },
-                        { value: '1.3', label: 'TLS 1.3' },
-                      ]}
-                      disabled={!isDirectOptionSupported('tlsMin')}
-                    />
-                    <div className="flex items-center gap-6 pt-5">
-                      <Checkbox
-                        label={t('add_dl_insecure')}
-                        checked={insecure}
-                        onChange={setInsecure}
-                        disabled={!isDirectOptionSupported('insecure')}
-                      />
-                    </div>
-                    <TextField
-                      label={t('add_dl_ca_cert')}
-                      value={caCert}
-                      onChange={(e) => {
-                        setCaCert(e.target.value);
-                      }}
-                      placeholder="/path/to/cacert.pem"
-                      className="font-mono"
-                      style={{ direction: 'ltr', textAlign: 'left' }}
-                      disabled={!isDirectOptionSupported('caCert')}
-                    />
-                    <TextField
-                      label={t('add_dl_client_cert')}
-                      value={clientCert}
-                      onChange={(e) => {
-                        setClientCert(e.target.value);
-                      }}
-                      placeholder="/path/to/client.crt"
-                      className="font-mono"
-                      style={{ direction: 'ltr', textAlign: 'left' }}
-                      disabled={!isDirectOptionSupported('cert')}
-                    />
-                    <TextField
-                      label={t('add_dl_client_key')}
-                      value={clientKey}
-                      onChange={(e) => {
-                        setClientKey(e.target.value);
-                      }}
-                      placeholder="/path/to/client.key"
-                      className="font-mono"
-                      style={{ direction: 'ltr', textAlign: 'left' }}
-                      disabled={!isDirectOptionSupported('key')}
-                    />
-                    <TextField
-                      label={t('add_dl_cipher_suites')}
-                      value={tlsCiphers}
-                      onChange={(e) => {
-                        setTlsCiphers(e.target.value);
-                      }}
-                      placeholder="ECDHE+AESGCM:!aNULL"
-                      className="font-mono"
-                      style={{ direction: 'ltr', textAlign: 'left' }}
-                      disabled={!isDirectOptionSupported('ciphers')}
-                    />
-                  </div>
-                </div>
-
-                {/* Connection Tuning */}
-                <div className="bg-[var(--bg-input)]/30 rounded-lg p-3 border border-[var(--border-color)]/30">
-                  <span className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider block mb-2">
-                    {t('add_dl_connection_tuning')}
-                  </span>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <TextField
-                      label={t('add_dl_max_redirects')}
-                      type="number"
-                      value={maxRedirs}
-                      onChange={(e) => {
-                        setMaxRedirs(Number(e.target.value));
-                      }}
-                      disabled={!isDirectOptionSupported('maxRedirs')}
-                    />
-                    <TextField
-                      label={t('add_dl_keepalive')}
-                      type="number"
-                      value={keepaliveTimeSec}
-                      onChange={(e) => {
-                        setKeepaliveTimeSec(Number(e.target.value));
-                      }}
-                      disabled={!isDirectOptionSupported('keepaliveTimeSec')}
-                    />
-                    <div className="flex items-center gap-6 pt-5">
-                      <Checkbox
-                        label={t('add_dl_tcp_no_delay')}
-                        checked={tcpNoDelay}
-                        onChange={setTcpNoDelay}
-                        disabled={!isDirectOptionSupported('tcpNoDelay')}
-                      />
-                    </div>
-                    <TextField
-                      label={t('add_dl_dns_servers')}
-                      value={dnsServers}
-                      onChange={(e) => {
-                        setDnsServers(e.target.value);
-                      }}
-                      placeholder="1.1.1.1, 8.8.8.8"
-                      className="font-mono"
-                      style={{ direction: 'ltr', textAlign: 'left' }}
-                      disabled={!isDirectOptionSupported('dnsServers')}
-                    />
-                    <TextField
-                      label={t('add_dl_noproxy')}
-                      value={noproxy}
-                      onChange={(e) => {
-                        setNoproxy(e.target.value);
-                      }}
-                      placeholder="localhost, 127.0.0.1, .local"
-                      className="font-mono"
-                      style={{ direction: 'ltr', textAlign: 'left' }}
-                      disabled={!isDirectOptionSupported('noproxy')}
-                    />
-                    <div className="flex items-center gap-6 pt-5 md:col-span-2">
-                      <Checkbox
-                        label={t('add_dl_fresh_connect')}
-                        checked={freshConnect}
-                        onChange={setFreshConnect}
-                        disabled={!isDirectOptionSupported('freshConnect')}
-                      />
-                      <Checkbox
-                        label={t('add_dl_forbid_reuse')}
-                        checked={forbidReuse}
-                        onChange={setForbidReuse}
-                        disabled={!isDirectOptionSupported('forbidReuse')}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* 5. Footer Buttons Bar */}
       <div className="flex justify-between items-center pt-3 mt-2.5 border-t border-[var(--border-color)]">

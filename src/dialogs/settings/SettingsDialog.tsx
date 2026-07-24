@@ -1,17 +1,6 @@
 /* src/dialogs/settings/SettingsDialog.tsx */
 import React, { useState } from 'react';
-import {
-  Settings,
-  Sliders,
-  Globe,
-  Palette,
-  Search,
-  ChevronDown,
-  ChevronUp,
-  X,
-  Activity,
-  Shield,
-} from 'lucide-react';
+import { Settings, Sliders, Globe, Palette, Search, ChevronDown, ChevronUp, X, Activity, Shield } from 'lucide-react';
 import {
   useDialogData,
   useSettingsData,
