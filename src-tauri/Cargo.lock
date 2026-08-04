@@ -83,7 +83,7 @@ dependencies = [
  "objc2-foundation",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
  "wl-clipboard-rs",
  "x11rb",
 ]
@@ -2731,7 +2731,7 @@ dependencies = [
  "tower-http 0.7.0",
  "unicode-normalization",
  "uuid",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
  "zip 2.4.2",
 ]
 
