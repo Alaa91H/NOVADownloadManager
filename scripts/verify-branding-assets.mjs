@@ -184,7 +184,14 @@ requireContains('index.html', 'href="/favicon.ico"', 'web favicon reference');
 requireContains('index.html', 'href="/site.webmanifest"', 'web manifest reference');
 
 const artExts = new Set(['.png', '.ico', '.icns', '.bmp', '.webmanifest']);
-const ignoredPrefixes = ['node_modules/', 'dist/', 'browser-extension/.output/', 'browser-extension/dist/', 'src-tauri/target/'];
+const ignoredPrefixes = [
+  'node_modules/',
+  'dist/',
+  'coverage/',
+  'browser-extension/.output/',
+  'browser-extension/dist/',
+  'src-tauri/target/',
+];
 const artFiles = walk(ROOT)
   .map(normalized)
   .filter((path) => artExts.has(extname(path).toLowerCase()))

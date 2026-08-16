@@ -8,10 +8,7 @@ describe('TaskProgressBar — indeterminate → percentage transition', () => {
     // fully visible. The fill being present even now is what lets the width
     // animate later instead of the bar collapsing from a full-width sweep.
     const { rerender } = render(
-      <TaskProgressBar
-        progress={{ known: false, percent: 0, indeterminate: true, percentLabel: '…' }}
-        active
-      />,
+      <TaskProgressBar progress={{ known: false, percent: 0, indeterminate: true, percentLabel: '…' }} active />,
     );
     const fillBefore = screen.getByTestId('progress-fill');
     const sweepBefore = screen.getByTestId('progress-sweep');
@@ -22,10 +19,7 @@ describe('TaskProgressBar — indeterminate → percentage transition', () => {
     // The SAME nodes stay mounted: the sweep fades to 0 and the fill (which
     // was already in the DOM) transitions its width to the real percentage.
     rerender(
-      <TaskProgressBar
-        progress={{ known: true, percent: 8, indeterminate: false, percentLabel: '8%' }}
-        active
-      />,
+      <TaskProgressBar progress={{ known: true, percent: 8, indeterminate: false, percentLabel: '8%' }} active />,
     );
     expect(screen.getByTestId('progress-fill')).toBe(fillBefore);
     expect(screen.getByTestId('progress-sweep')).toBe(sweepBefore);
@@ -36,10 +30,7 @@ describe('TaskProgressBar — indeterminate → percentage transition', () => {
 
   it('keeps the width transition classes so the percentage glides, never snaps', () => {
     render(
-      <TaskProgressBar
-        progress={{ known: true, percent: 42, indeterminate: false, percentLabel: '42%' }}
-        active
-      />,
+      <TaskProgressBar progress={{ known: true, percent: 42, indeterminate: false, percentLabel: '42%' }} active />,
     );
     const fill = screen.getByTestId('progress-fill');
     // transition-all + duration-300 is what makes the 0% → real-percent
@@ -178,10 +169,7 @@ describe('TaskProgressBar — indeterminate → percentage transition', () => {
     expect(screen.queryByTestId('progress-head')).not.toBeInTheDocument();
 
     rerender(
-      <TaskProgressBar
-        progress={{ known: true, percent: 42, indeterminate: false, percentLabel: '42%' }}
-        active
-      />,
+      <TaskProgressBar progress={{ known: true, percent: 42, indeterminate: false, percentLabel: '42%' }} active />,
     );
     expect(screen.queryByTestId('progress-head')).not.toBeInTheDocument();
   });
@@ -258,10 +246,7 @@ describe('TaskProgressBar — indeterminate → percentage transition', () => {
 
   it('exposes the determinate bar as an accessible progressbar and hides the sweep', () => {
     const { rerender } = render(
-      <TaskProgressBar
-        progress={{ known: true, percent: 42, indeterminate: false, percentLabel: '42%' }}
-        active
-      />,
+      <TaskProgressBar progress={{ known: true, percent: 42, indeterminate: false, percentLabel: '42%' }} active />,
     );
     const track = screen.getByRole('progressbar');
     expect(track).toHaveAttribute('aria-valuenow', '42');
@@ -272,10 +257,7 @@ describe('TaskProgressBar — indeterminate → percentage transition', () => {
     // Indeterminate: no numeric value to announce (screen readers get nothing
     // instead of a bogus "0%").
     rerender(
-      <TaskProgressBar
-        progress={{ known: false, percent: 0, indeterminate: true, percentLabel: '…' }}
-        active
-      />,
+      <TaskProgressBar progress={{ known: false, percent: 0, indeterminate: true, percentLabel: '…' }} active />,
     );
     expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
   });

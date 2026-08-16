@@ -66,8 +66,7 @@ const SegmentHoverTooltip: React.FC<{
         <span className={`font-semibold ${stateColor}`}>{stateLabel}</span>
       </div>
       <div className="mt-0.5 font-mono text-[var(--text-muted)]">
-        {formatBytes(segDownloaded)} <span className="text-[var(--text-secondary)]">/</span>{' '}
-        {formatBytes(segTotal)}
+        {formatBytes(segDownloaded)} <span className="text-[var(--text-secondary)]">/</span> {formatBytes(segTotal)}
         <span className="mx-1 text-[var(--text-secondary)]">·</span>
         <span className="font-bold text-[var(--accent-primary)]">{formatSpeed(seg.speed)}</span>
         <span className="mx-1 text-[var(--text-secondary)]">·</span>
@@ -103,9 +102,7 @@ const SegmentCard: React.FC<{
     <div
       data-testid={`segment-card-${String(seg.id)}`}
       className={`relative group border rounded-lg overflow-hidden transition-all duration-300 ${
-        highlighted
-          ? 'ring-2 ring-[var(--accent-primary)]/60 shadow-lg border-[var(--accent-primary)]/40'
-          : ''
+        highlighted ? 'ring-2 ring-[var(--accent-primary)]/60 shadow-lg border-[var(--accent-primary)]/40' : ''
       } ${
         isActive
           ? `border-[var(--border-color)] bg-[var(--bg-surface-elevated)] shadow-md`
@@ -372,7 +369,10 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
                   )}
                   {/* Hover anchor dot — centres the tooltip over this cell. */}
                   {hoveredCellId === seg.id && (
-                    <div className="absolute -bottom-px left-0 right-0 h-[3px] bg-[var(--accent-primary)]" data-testid={`seg-hover-mark-${String(seg.id)}`} />
+                    <div
+                      className="absolute -bottom-px left-0 right-0 h-[3px] bg-[var(--accent-primary)]"
+                      data-testid={`seg-hover-mark-${String(seg.id)}`}
+                    />
                   )}
                 </div>
               );

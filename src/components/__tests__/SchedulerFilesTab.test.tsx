@@ -68,12 +68,7 @@ describe('SchedulerFilesTab — unified live progress', () => {
     // Phase 2: the engine discovers the size from headers — the SAME nodes
     // stay mounted and the sweep fades out while the fill glides to the real
     // percentage (identical cross-fade to the table/cards/dialog).
-    rerender(
-      <SchedulerFilesTab
-        {...props}
-        filteredTasks={[{ ...task, sizeBytes: 1000, downloadedBytes: 800 }]}
-      />,
-    );
+    rerender(<SchedulerFilesTab {...props} filteredTasks={[{ ...task, sizeBytes: 1000, downloadedBytes: 800 }]} />);
     expect(screen.getByTestId('progress-sweep')).toBe(sweep);
     expect(screen.getByTestId('progress-fill')).toBe(fill);
     expect(sweep.className).toContain('opacity-0');
@@ -82,7 +77,14 @@ describe('SchedulerFilesTab — unified live progress', () => {
   });
 
   it('shows the live size label and an inactive bar for non-downloading tasks', () => {
-    const task = { ...baseTask, id: 't2', name: 'done.zip', status: 'completed' as const, sizeBytes: 500, downloadedBytes: 500 };
+    const task = {
+      ...baseTask,
+      id: 't2',
+      name: 'done.zip',
+      status: 'completed' as const,
+      sizeBytes: 500,
+      downloadedBytes: 500,
+    };
     render(<SchedulerFilesTab {...props} filteredTasks={[task]} />);
 
     // 500 bytes → "500 B" via formatBytes; bar is determinate at 100%.

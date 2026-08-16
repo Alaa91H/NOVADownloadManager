@@ -43,9 +43,7 @@ interface ProgressLegendProps {
  */
 export function ProgressLegend({ entries, className }: ProgressLegendProps) {
   return (
-    <div
-      className={`flex items-center gap-3 text-[10px] text-[var(--text-muted)] ${className ?? ''}`}
-    >
+    <div className={`flex items-center gap-3 text-[10px] text-[var(--text-muted)] ${className ?? ''}`}>
       {entries.map((entry) => (
         <span key={entry.tone} className="flex items-center gap-1">
           <span

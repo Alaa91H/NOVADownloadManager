@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defaultSettings } from '../../contracts/settings.schema';
 
 type DownloadCreatedListener = (item: {
@@ -106,6 +106,10 @@ describe('download interceptor takeover', () => {
     });
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('hands off and cancels browser downloads even without an auto-send rule', async () => {
     const { registerDownloadInterceptor } = await import('../../background/download-interceptor');
     registerDownloadInterceptor();
@@ -124,6 +128,7 @@ describe('download interceptor takeover', () => {
   }, 15_000);
 
   it('cancels immediately even when the desktop bridge is offline', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     harness.sendCandidate.mockRejectedValueOnce(new Error('offline'));
     const { registerDownloadInterceptor } = await import('../../background/download-interceptor');
     registerDownloadInterceptor();
@@ -137,5 +142,9 @@ describe('download interceptor takeover', () => {
     });
 
     await waitFor(() => expect(harness.cancel).toHaveBeenCalledWith(88));
+    await waitFor(() => expect(warn).toHaveBeenCalledWith(
+      'download-interceptor: bridgeManager.sendCandidate failed',
+      expect.any(Error),
+    ));
   }, 15_000);
 });
