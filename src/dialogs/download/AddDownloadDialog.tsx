@@ -191,12 +191,28 @@ export const AddDownloadDialog: React.FC = () => {
       if (typeof dialog.payload === 'string') {
         setUrl(dialog.payload);
       } else if (typeof dialog.payload === 'object') {
-        const payload = dialog.payload as { url?: string; referer?: string };
+        const payload = dialog.payload as {
+          url?: string;
+          referer?: string;
+          name?: string;
+          fileType?: FileType;
+          sizeBytes?: number;
+        };
         if (payload.url) {
           setUrl(payload.url);
         }
         if (payload.referer) {
           setReferer(payload.referer);
+        }
+        if (payload.name) {
+          setFileName(payload.name);
+        }
+        if (payload.fileType) {
+          setFileType(payload.fileType);
+          setCategory(payload.fileType);
+        }
+        if (typeof payload.sizeBytes === 'number' && payload.sizeBytes >= 0) {
+          setSizeBytes(payload.sizeBytes);
         }
       }
     }
@@ -335,6 +351,13 @@ export const AddDownloadDialog: React.FC = () => {
     mediaRedirectToastShown.current = false;
   }, [detectedUrlType, url, openDialog, addToast, t]);
 
+  const captureReviewId =
+    dialog.payload &&
+    typeof dialog.payload === 'object' &&
+    typeof (dialog.payload as { reviewId?: unknown }).reviewId === 'string'
+      ? (dialog.payload as { reviewId: string }).reviewId
+      : undefined;
+
   const clearSensitiveDialogState = () => {
     setUrl('');
     setDetectedUrlType('unknown');
@@ -357,6 +380,11 @@ export const AddDownloadDialog: React.FC = () => {
     const currentUrl = latestUrlRef.current;
     clearSensitiveDialogState();
     cleanupSensitiveLink(currentUrl);
+    if (captureReviewId) {
+      void novaClient.discardCaptureReview(captureReviewId).catch(() => {
+        // The daemon TTL removes stale review requests even if it is shutting down.
+      });
+    }
     closeDialog();
   };
 
@@ -475,6 +503,8 @@ export const AddDownloadDialog: React.FC = () => {
           elapsedSeconds: 0,
         },
         downloadImmediately,
+        false,
+        captureReviewId,
       );
 
       if (task) {
@@ -499,6 +529,12 @@ export const AddDownloadDialog: React.FC = () => {
 
   return (
     <div className="space-y-4 max-w-full overflow-auto">
+      {captureReviewId && (
+        <div className="rounded-lg border border-[var(--accent-primary)]/35 bg-[var(--accent-primary)]/8 px-3 py-2 text-[11px] text-[var(--text-primary)]">
+          Review this browser capture, choose its destination, then explicitly queue it or start it. NOVA will not
+          create a download until you confirm.
+        </div>
+      )}
       {!directEngineReady && (
         <div className="rounded-lg border border-[var(--danger-border)] bg-[var(--danger-bg)] p-2 text-[11px] text-[var(--text-primary)]">
           {t('add_dl_direct_engine_error')}

@@ -69,12 +69,25 @@ http.createServer(async (req, res) => {
     return json(res, 200, { ok: true, capabilities, settings: {} });
   }
 
-  if (req.method === 'POST' && (url === '/v1/add' || url === '/v1/task/add' || url === '/captures')) {
+  if (
+    req.method === 'POST' &&
+    (url === '/v1/add' || url === '/v1/task/add' || url === '/captures' || url === '/v1/capture-reviews')
+  ) {
     if (unauthorized(req, res)) return;
     const body = await readBody(req);
     if (scenario === 'rejected-task') return json(res, 422, { ok: false, code: 'TASK_REJECTED', message: 'task rejected by fake daemon' });
     received.push({ url, body });
-    return json(res, 200, { ok: true, accepted: true, taskId: randomUUID() });
+    const reviewId = randomUUID();
+    // Protocol-v4 compatibility preserves taskId while making it explicit that
+    // the extension has delivered a review request, not started a task.
+    return json(res, 200, {
+      ok: true,
+      accepted: true,
+      reviewId,
+      taskId: reviewId,
+      taskIds: [reviewId],
+      message: 'Waiting for approval in NOVA',
+    });
   }
 
   if (req.method === 'POST' && url === '/v1/stream/resolve') {

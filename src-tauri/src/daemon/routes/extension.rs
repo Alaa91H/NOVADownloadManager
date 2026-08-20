@@ -4,7 +4,7 @@ use axum::response::{
     sse::{Event, KeepAlive, Sse},
     Json,
 };
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::Router;
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -15,8 +15,10 @@ use crate::daemon::curl::{
     create_curl_task as direct_create, delete_task, get_task, list_all_tasks, pause_task,
     resume_task,
 };
-use crate::daemon::state::SharedState;
-use crate::daemon::types::CreateDownloadBody;
+use crate::daemon::state::{
+    PendingCaptureReview, SharedState, CAPTURE_REVIEW_TTL, MAX_PENDING_CAPTURE_REVIEWS,
+};
+use crate::daemon::types::{CreateDownloadBody, Task};
 use crate::daemon::ytdlp::create_ytdlp_task;
 
 use super::common::hidden_output_timed;
@@ -580,59 +582,242 @@ pub(super) fn legacy_v1_body_to_download_body(
     })
 }
 
+fn capture_review_summary(review: &PendingCaptureReview) -> serde_json::Value {
+    serde_json::json!({
+        "reviewId": review.id,
+        "url": review.download.url,
+        "name": review.download.name,
+        "fileType": review.download.file_type,
+        "sizeBytes": review.download.size_bytes,
+        "referer": review.download.referer,
+        "createdAt": review.created_at.elapsed().as_secs(),
+    })
+}
+
+fn prune_capture_reviews(reviews: &mut std::collections::VecDeque<PendingCaptureReview>) {
+    reviews.retain(|review| review.created_at.elapsed() < CAPTURE_REVIEW_TTL);
+}
+
+/// Store a validated browser candidate until the desktop user explicitly chooses
+/// a destination and clicks Queue or Start. This is intentionally separate from
+/// the task store: a captured link is not a download task and must not appear in
+/// the queue or start any network transfer before consent.
+pub(super) fn queue_capture_review(
+    state: &SharedState,
+    download: CreateDownloadBody,
+    idempotency_key: Option<String>,
+) -> Result<(String, bool), String> {
+    let url = download
+        .url
+        .as_deref()
+        .ok_or_else(|| "Missing candidate URL".to_owned())?;
+    crate::daemon::utils::is_safe_target_url(url)
+        .map_err(|error| format!("Unsafe browser capture URL: {error}"))?;
+
+    let mut reviews = state
+        .capture_reviews
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    prune_capture_reviews(&mut reviews);
+    if let Some(key) = idempotency_key
+        .as_deref()
+        .filter(|key| !key.trim().is_empty())
+    {
+        if let Some(existing) = reviews
+            .iter()
+            .find(|review| review.idempotency_key.as_deref() == Some(key))
+        {
+            return Ok((existing.id.clone(), true));
+        }
+    }
+    while reviews.len() >= MAX_PENDING_CAPTURE_REVIEWS {
+        reviews.pop_front();
+    }
+    let review_id = uuid::Uuid::new_v4().to_string();
+    reviews.push_back(PendingCaptureReview {
+        id: review_id.clone(),
+        idempotency_key,
+        created_at: std::time::Instant::now(),
+        download,
+    });
+    Ok((review_id, false))
+}
+
+async fn create_download_from_body(
+    state: &SharedState,
+    download_body: &CreateDownloadBody,
+) -> Result<Task, String> {
+    let url = download_body
+        .url
+        .as_deref()
+        .ok_or_else(|| "Missing candidate URL".to_owned())?;
+    crate::daemon::utils::is_safe_target_url(url)?;
+    match state.extractor_registry.validate(download_body) {
+        Ok(extractor) if extractor.id() == "yt-dlp" => {
+            create_ytdlp_task(state, download_body).await
+        }
+        Ok(_) => direct_create(state, download_body).await,
+        Err(_) if download_body.media_options.is_some() => {
+            create_ytdlp_task(state, download_body).await
+        }
+        Err(_) => direct_create(state, download_body).await,
+    }
+}
+
+fn capture_review_response(review_id: String, duplicate: bool) -> Json<serde_json::Value> {
+    // `taskId`/`taskIds` remain populated for protocol-v4 clients that predate
+    // reviewId. They identify the accepted handoff request, never a task.
+    Json(serde_json::json!({
+        "ok": true,
+        "accepted": true,
+        "reviewId": review_id,
+        "taskId": review_id,
+        "taskIds": [review_id],
+        "duplicate": duplicate,
+        "message": "Waiting for approval in NOVA"
+    }))
+}
+
 pub async fn handle_v1_add(
     State(state): State<SharedState>,
     Json(body): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
-    let download_body = match legacy_v1_body_to_download_body(&body, true) {
-        Ok(v) => v,
+    let download = match legacy_v1_body_to_download_body(&body, true) {
+        Ok(value) => value,
         Err(message) => {
             return Json(
                 serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": message}),
             );
         }
     };
-    if let Some(ref url) = download_body.url {
-        if let Err(e) = crate::daemon::utils::is_safe_target_url(url) {
-            log::warn!("Blocked SSRF in v1/add for {url}: {e}");
-            return Json(
-                serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": e}),
-            );
-        }
+    match queue_capture_review(
+        &state,
+        download,
+        body.get("idempotencyKey")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned),
+    ) {
+        Ok((review_id, duplicate)) => capture_review_response(review_id, duplicate),
+        Err(message) => Json(
+            serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": message}),
+        ),
     }
-    let result = {
-        let extractor = state.extractor_registry.validate(&download_body);
-        match extractor {
-            Ok(ext) => match ext.id() {
-                "yt-dlp" => create_ytdlp_task(&state, &download_body).await,
-                _ => direct_create(&state, &download_body).await,
-            },
-            Err(_) => {
-                if download_body.media_options.is_some() {
-                    create_ytdlp_task(&state, &download_body).await
-                } else {
-                    direct_create(&state, &download_body).await
-                }
-            }
+}
+
+pub async fn handle_capture_reviews(State(state): State<SharedState>) -> Json<serde_json::Value> {
+    let mut reviews = state
+        .capture_reviews
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    prune_capture_reviews(&mut reviews);
+    let captures: Vec<_> = reviews.iter().map(capture_review_summary).collect();
+    Json(serde_json::json!({"ok": true, "reviews": captures}))
+}
+
+pub async fn handle_create_capture_review(
+    State(state): State<SharedState>,
+    Json(body): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    let download = match legacy_v1_body_to_download_body(&body, true) {
+        Ok(value) => value,
+        Err(message) => {
+            return Json(serde_json::json!({"ok": false, "accepted": false, "message": message}))
         }
     };
-    match result {
+    match queue_capture_review(
+        &state,
+        download,
+        body.get("idempotencyKey")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned),
+    ) {
+        Ok((review_id, duplicate)) => capture_review_response(review_id, duplicate),
+        Err(message) => {
+            Json(serde_json::json!({"ok": false, "accepted": false, "message": message}))
+        }
+    }
+}
+
+pub async fn handle_discard_capture_review(
+    State(state): State<SharedState>,
+    Path(review_id): Path<String>,
+) -> Json<serde_json::Value> {
+    let mut reviews = state
+        .capture_reviews
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    prune_capture_reviews(&mut reviews);
+    let original_len = reviews.len();
+    reviews.retain(|review| review.id != review_id);
+    Json(serde_json::json!({"ok": true, "discarded": reviews.len() != original_len}))
+}
+
+pub async fn handle_consume_capture_review(
+    State(state): State<SharedState>,
+    Path(review_id): Path<String>,
+    Json(mut requested): Json<CreateDownloadBody>,
+) -> Json<serde_json::Value> {
+    let pending = {
+        let mut reviews = state
+            .capture_reviews
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        prune_capture_reviews(&mut reviews);
+        let Some(position) = reviews.iter().position(|review| review.id == review_id) else {
+            return Json(
+                serde_json::json!({"ok": false, "accepted": false, "message": "Capture review was not found or has expired."}),
+            );
+        };
+        reviews
+            .remove(position)
+            .expect("capture review position must remain valid")
+    };
+
+    // The original URL stays authoritative. Users can adjust destination and
+    // task settings in the dialog, but a post-review request can never replace
+    // the URL that was validated during browser capture.
+    requested.url = pending.download.url.clone();
+    if requested.name.is_none() {
+        requested.name = pending.download.name.clone();
+    }
+    if requested.file_type.is_none() {
+        requested.file_type = pending.download.file_type.clone();
+    }
+    if requested.size_bytes.is_none() {
+        requested.size_bytes = pending.download.size_bytes;
+    }
+    if requested.category.is_none() {
+        requested.category = pending.download.category.clone();
+    }
+    if requested.referer.is_none() {
+        requested.referer = pending.download.referer.clone();
+    }
+    if requested.description.is_none() {
+        requested.description = pending.download.description.clone();
+    }
+
+    match create_download_from_body(&state, &requested).await {
         Ok(task) => Json(serde_json::json!({
             "ok": true,
             "accepted": true,
+            "task": task,
             "taskId": task.id,
             "taskIds": [task.id],
-            "message": "Added"
+            "message": "Download approved and added"
         })),
-        Err(e) => {
-            log::error!("v1/add failed: {e}");
-            Json(serde_json::json!({
-                "ok": false,
-                "accepted": false,
-                "taskId": "",
-                "taskIds": [],
-                "message": e
-            }))
+        Err(message) => {
+            // A transient engine error must not silently discard the user's
+            // capture. Reinsert it for retry, while still keeping the queue bounded.
+            let mut reviews = state
+                .capture_reviews
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            prune_capture_reviews(&mut reviews);
+            while reviews.len() >= MAX_PENDING_CAPTURE_REVIEWS {
+                reviews.pop_front();
+            }
+            reviews.push_front(pending);
+            Json(serde_json::json!({"ok": false, "accepted": false, "message": message}))
         }
     }
 }
@@ -1427,6 +1612,18 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
         .route("/v1/tasks/{id}/resume", post(handle_v1_resume_task_path))
         .route("/v1/tasks/{id}/cancel", post(handle_v1_cancel_task_path))
         .route("/v1/add", post(handle_v1_add))
+        .route(
+            "/v1/capture-reviews",
+            get(handle_capture_reviews).post(handle_create_capture_review),
+        )
+        .route(
+            "/v1/capture-reviews/{id}",
+            delete(handle_discard_capture_review),
+        )
+        .route(
+            "/v1/capture-reviews/{id}/consume",
+            post(handle_consume_capture_review),
+        )
         .route("/v1/stream/resolve", post(handle_v1_stream_resolve))
         .route("/v1/stream/add", post(handle_v1_stream_add))
         .route("/v1/analyze", post(handle_v1_analyze))
@@ -1435,7 +1632,82 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
 
 #[cfg(test)]
 mod tests {
-    use super::analyze_probe_body;
+    use super::*;
+    use axum::extract::{Path, State};
+    use axum::Json;
+    use std::sync::Arc;
+
+    fn pending_capture_body(url: &str) -> CreateDownloadBody {
+        CreateDownloadBody {
+            url: Some(url.to_owned()),
+            name: Some("captured-file.zip".to_owned()),
+            file_type: Some("compressed".to_owned()),
+            size_bytes: Some(42),
+            category: Some("compressed".to_owned()),
+            queue_id: Some("main".to_owned()),
+            connections: Some(4),
+            resumable: Some(true),
+            save_path: Some("/tmp/NOVA/captured-file.zip".to_owned()),
+            description: Some("browser capture".to_owned()),
+            referer: Some("https://page.example.test/download".to_owned()),
+            start_immediately: Some(false),
+            direct_options: None,
+            media_options: None,
+        }
+    }
+
+    fn review_test_state() -> SharedState {
+        let path =
+            std::env::temp_dir().join(format!("nova-capture-review-{}", uuid::Uuid::new_v4()));
+        Arc::new(crate::daemon::persist::tests::test_state(
+            &path.display().to_string(),
+        ))
+    }
+
+    #[tokio::test]
+    async fn capture_is_not_a_task_until_the_desktop_approves_it() {
+        let state = review_test_state();
+        let original_url = "https://example.com/captured-file.zip";
+        let (review_id, duplicate) = queue_capture_review(
+            &state,
+            pending_capture_body(original_url),
+            Some("capture-review-test-key".to_owned()),
+        )
+        .expect("queue capture review");
+        assert!(!duplicate);
+        assert!(state
+            .task_snapshot
+            .lock()
+            .expect("task snapshot")
+            .is_empty());
+
+        let Json(listed) = handle_capture_reviews(State(state.clone())).await;
+        assert_eq!(listed["reviews"].as_array().map(Vec::len), Some(1));
+        assert_eq!(listed["reviews"][0]["reviewId"], review_id);
+        assert_eq!(listed["reviews"][0]["url"], original_url);
+
+        // An attempted URL replacement must be ignored: the capture-time URL is
+        // authoritative, while the dialog may still adjust its file name/path.
+        let mut approved = pending_capture_body("https://example.org/replaced.zip");
+        approved.name = Some("approved-name.zip".to_owned());
+        let Json(result) =
+            handle_consume_capture_review(State(state.clone()), Path(review_id), Json(approved))
+                .await;
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["accepted"], true);
+        let tasks = state.task_snapshot.lock().expect("task snapshot");
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(
+            tasks.values().next().expect("created task").url,
+            original_url
+        );
+        drop(tasks);
+        assert!(state
+            .capture_reviews
+            .lock()
+            .expect("review queue")
+            .is_empty());
+    }
 
     #[test]
     fn analyze_probe_body_preserves_explicit_referrer_then_page_url() {

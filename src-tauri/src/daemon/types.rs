@@ -199,7 +199,7 @@ pub struct MediaDownloadOptions {
     pub extra_args: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct CreateDownloadBody {
     pub url: Option<String>,
     pub name: Option<String>,

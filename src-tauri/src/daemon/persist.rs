@@ -255,6 +255,7 @@ pub(crate) mod tests {
             media_jobs: Mutex::new(HashMap::new()),
             curl_jobs: Mutex::new(HashMap::new()),
             task_snapshot: Mutex::new(HashMap::new()),
+            capture_reviews: Mutex::new(std::collections::VecDeque::new()),
             persist_dirty: AtomicBool::new(false),
             telegram_config: Mutex::new(TelegramConfig::default()),
             http_client: reqwest::Client::new(),

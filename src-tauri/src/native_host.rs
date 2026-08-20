@@ -90,9 +90,24 @@ fn ensure_daemon_available(client: &reqwest::blocking::Client) -> String {
 }
 
 fn launch_desktop_daemon() -> Result<(), String> {
+    launch_desktop_process(None)
+}
+
+/// Bring the desktop window forward after an extension capture has been
+/// accepted for review. The payload remains inside the authenticated loopback
+/// daemon; command-line arguments contain only this inert activation marker.
+fn launch_capture_review_window() -> Result<(), String> {
+    launch_desktop_process(Some("--capture-review"))
+}
+
+fn launch_desktop_process(argument: Option<&str>) -> Result<(), String> {
     let executable = std::env::current_exe()
         .map_err(|error| format!("cannot resolve NOVA executable: {error}"))?;
-    std::process::Command::new(executable)
+    let mut command = std::process::Command::new(executable);
+    if let Some(argument) = argument {
+        command.arg(argument);
+    }
+    command
         // The native host is selected from argv, but removing conventional
         // launcher variables keeps packaged/integration environments from
         // accidentally inheriting a headless invocation mode.
@@ -305,7 +320,14 @@ fn handle_native_request(
         "task.pause" => task_command(client, state, "/v1/task/pause", params, needs_auth),
         "task.resume" => task_command(client, state, "/v1/task/resume", params, needs_auth),
         "task.cancel" => task_command(client, state, "/v1/task/cancel", params, needs_auth),
-        "candidate.send" => http_json(client, state, "POST", "/v1/add", Some(params), needs_auth),
+        "candidate.send" => http_json(
+            client,
+            state,
+            "POST",
+            "/v1/capture-reviews",
+            Some(params),
+            needs_auth,
+        ),
         "candidate.batch" => {
             http_json(client, state, "POST", "/captures", Some(params), needs_auth)
         }
@@ -358,6 +380,24 @@ fn handle_native_request(
         "external.tools" => http_json(client, state, "GET", "/api/external-tools", None, true),
         _ => Err(format!("Unsupported native method: {method}")),
     };
+
+    if matches!(method, "candidate.send" | "candidate.batch")
+        && result
+            .as_ref()
+            .ok()
+            .and_then(|value| value.get("accepted"))
+            .and_then(Value::as_bool)
+            == Some(true)
+    {
+        if let Err(error) = launch_capture_review_window() {
+            // The review is already stored in the daemon, so the UI will show
+            // it on the next foreground start. Do not turn a successful
+            // handoff into a retry that would duplicate the capture.
+            log::warn!(
+                "Native Messaging accepted capture review but could not focus NOVA: {error}"
+            );
+        }
+    }
 
     match result {
         Ok(value) => json!({ "id": id, "ok": true, "result": value }),

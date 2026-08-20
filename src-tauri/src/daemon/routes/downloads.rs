@@ -24,7 +24,9 @@ use crate::daemon::ytdlp::create_ytdlp_task;
 use crate::lock_or_err;
 
 use super::common::{daemon_error, fallback_file_name};
-use super::extension::{extension_candidate_to_download_body, legacy_v1_body_to_download_body};
+use super::extension::{
+    extension_candidate_to_download_body, legacy_v1_body_to_download_body, queue_capture_review,
+};
 use super::probes::probe_url_with_options;
 
 pub async fn handle_health(State(state): State<SharedState>) -> Json<serde_json::Value> {
@@ -976,44 +978,28 @@ pub async fn handle_captures(
         }
     }
 
-    let mut task_ids = Vec::new();
+    let mut review_ids = Vec::new();
     let mut errors = Vec::new();
-    for download_body in download_bodies {
-        if let Some(ref url) = download_body.url {
-            if let Err(e) = crate::daemon::utils::is_safe_target_url(url) {
-                log::warn!("Blocked SSRF in captures for {url}: {e}");
-                errors.push(format!("SSRF blocked: {e}"));
-                continue;
-            }
-        }
-        let result = {
-            let extractor = state.extractor_registry.validate(&download_body);
-            match extractor {
-                Ok(ext) => match ext.id() {
-                    "yt-dlp" => create_ytdlp_task(&state, &download_body).await,
-                    _ => direct_create(&state, &download_body).await,
-                },
-                Err(_) => {
-                    if download_body.media_options.is_some() {
-                        create_ytdlp_task(&state, &download_body).await
-                    } else {
-                        direct_create(&state, &download_body).await
-                    }
-                }
-            }
-        };
-        match result {
-            Ok(task) => task_ids.push(task.id),
+    let idempotency_base = body
+        .get("idempotencyKey")
+        .and_then(serde_json::Value::as_str)
+        .filter(|key| !key.trim().is_empty());
+    for (index, download_body) in download_bodies.into_iter().enumerate() {
+        let idempotency_key = idempotency_base.map(|key| format!("{key}:{index}"));
+        match queue_capture_review(&state, download_body, idempotency_key) {
+            Ok((review_id, _duplicate)) => review_ids.push(review_id),
             Err(error) => errors.push(error),
         }
     }
-    let first_id = task_ids.first().cloned().unwrap_or_default();
+    let first_id = review_ids.first().cloned().unwrap_or_default();
     Json(serde_json::json!({
         "ok": errors.is_empty(),
-        "accepted": !task_ids.is_empty(),
+        "accepted": !review_ids.is_empty(),
+        // Kept for protocol-v4 clients. These are review IDs, not task IDs.
         "taskId": first_id,
-        "taskIds": task_ids,
-        "message": if errors.is_empty() { "Captured".to_owned() } else { errors.join("; ") }
+        "taskIds": review_ids,
+        "reviewIds": review_ids,
+        "message": if errors.is_empty() { "Waiting for approval in NOVA".to_owned() } else { errors.join("; ") }
     }))
 }
 

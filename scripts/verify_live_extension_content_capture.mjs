@@ -51,6 +51,14 @@ function runtimeMessage(message) {
   }))`;
 }
 
+async function findLoadedExtensionPopup() {
+  const targets = await cdpJson(`${CDP_BASE}/json/list`);
+  const expectedUrl = `chrome-extension://${EXTENSION_ID}/popup.html`;
+  const target = targets.find((candidate) => candidate?.url === expectedUrl && candidate?.webSocketDebuggerUrl);
+  if (!target) throw new Error(`NOVA extension popup is not loaded at ${expectedUrl}.`);
+  return target;
+}
+
 function startFixture() {
   const sockets = new Set();
   const server = http.createServer((request, response) => {
@@ -83,7 +91,7 @@ function startFixture() {
   });
 }
 
-async function waitForCapturedTask(popupWsUrl) {
+async function waitForCapturedReview(popupWsUrl) {
   const deadline = Date.now() + 20_000;
   let lastOutbox;
   while (Date.now() < deadline) {
@@ -91,22 +99,28 @@ async function waitForCapturedTask(popupWsUrl) {
     const raw = await evaluate(popupWsUrl, `(async () => {
       const record = (await chrome.storage.local.get('nova.pairToken'))['nova.pairToken'];
       const token = typeof record === 'string' ? record : record?.token;
-      const response = await fetch('http://127.0.0.1:3199/v1/tasks', { headers: { Authorization: 'Bearer ' + token } });
-      return response.json();
+      const [reviewsResponse, tasksResponse] = await Promise.all([
+        fetch('http://127.0.0.1:3199/v1/capture-reviews', { headers: { Authorization: 'Bearer ' + token } }),
+        fetch('http://127.0.0.1:3199/v1/tasks', { headers: { Authorization: 'Bearer ' + token } }),
+      ]);
+      return { reviews: await reviewsResponse.json(), tasks: await tasksResponse.json() };
     })()`);
-    const task = Array.isArray(raw?.tasks)
-      ? raw.tasks.find((item) => item?.url === DOWNLOAD_URL)
+    const review = Array.isArray(raw?.reviews?.reviews)
+      ? raw.reviews.reviews.find((item) => item?.url === DOWNLOAD_URL)
       : undefined;
-    if (task) return { task, outbox: lastOutbox };
+    const task = Array.isArray(raw?.tasks?.tasks)
+      ? raw.tasks.tasks.find((item) => item?.url === DOWNLOAD_URL)
+      : undefined;
+    if (review && !task) return { review, outbox: lastOutbox };
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  throw new Error(`Content-script capture did not reach daemon. Last outbox state: ${JSON.stringify(lastOutbox)}`);
+  throw new Error(`Content-script capture did not reach the NOVA review queue without creating a task. Last outbox state: ${JSON.stringify(lastOutbox)}`);
 }
 
 let fixture;
 try {
   fixture = await startFixture();
-  const popup = await cdpJson(`${CDP_BASE}/json/new?${encodeURIComponent(`chrome-extension://${EXTENSION_ID}/popup.html`)}`, { method: 'PUT' });
+  const popup = await findLoadedExtensionPopup();
   const bridge = await evaluate(popup.webSocketDebuggerUrl, runtimeMessage({ type: 'AUTO_CONNECT' }));
   assert(bridge?.status === 'connected' && bridge?.canSend === true, `Bridge not connected: ${JSON.stringify(bridge)}`);
 
@@ -120,7 +134,7 @@ try {
   })()`);
   assert(clicked?.url === DOWNLOAD_URL, `Fixture click did not target the expected URL: ${JSON.stringify(clicked)}`);
 
-  const received = await waitForCapturedTask(popup.webSocketDebuggerUrl);
+  const received = await waitForCapturedReview(popup.webSocketDebuggerUrl);
   assert((received.outbox?.deadLetter ?? 0) === 0, `Capture reached a dead-letter state: ${JSON.stringify(received.outbox)}`);
   assert((received.outbox?.sent ?? 0) >= 1, `Capture was not handed off: ${JSON.stringify(received.outbox)}`);
 
@@ -130,7 +144,7 @@ try {
     source: 'content-script-download-attribute',
     fixturePage: fixture.pageUrl,
     candidateUrl: DOWNLOAD_URL,
-    receivedTask: { id: received.task.id, url: received.task.url, status: received.task.status },
+    pendingReview: { id: received.review.reviewId, url: received.review.url },
     outbox: received.outbox,
   }, null, 2));
 } catch (error) {

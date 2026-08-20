@@ -66,6 +66,9 @@ export const AddBatchRequestSchema = z.object({
 
 export const AddTaskResponseSchema = z.object({
   ok: z.boolean(),
+  // A reviewId means NOVA accepted the browser handoff but deliberately has
+  // not created a download task until the user confirms it in the desktop UI.
+  reviewId: z.string().optional(),
   taskId: z.string().optional(),
   taskIds: z.array(z.string()).optional(),
   accepted: z.boolean().default(true),

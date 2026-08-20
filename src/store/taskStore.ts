@@ -114,6 +114,7 @@ interface TaskState {
     >,
     downloadImmediately: boolean,
     silent?: boolean,
+    captureReviewId?: string,
   ) => Promise<DownloadItem | null>;
   pauseTask: (id: string) => Promise<void>;
   resumeTask: (id: string) => Promise<void>;
@@ -156,7 +157,7 @@ export const taskStore = create<TaskState>()((set, get) => ({
     set({ hasSyncedDownloads: v });
   },
 
-  addTask: async (newItem, downloadImmediately, silent = false) => {
+  addTask: async (newItem, downloadImmediately, silent = false, captureReviewId) => {
     const { status: bridgeStatus } = bridgeStore.getState();
     if (bridgeStatus === 'connecting' || bridgeStatus === 'disconnected') {
       uiStore
@@ -166,8 +167,11 @@ export const taskStore = create<TaskState>()((set, get) => ({
     }
     try {
       logger.info('TaskStore', `Creating download: ${newItem.url}`, { name: newItem.name, engine: newItem.engine });
+      const payload = { ...newItem, startImmediately: downloadImmediately };
       const normalizedTask = {
-        ...(await novaClient.createDownload({ ...newItem, startImmediately: downloadImmediately })),
+        ...(captureReviewId
+          ? await novaClient.createDownloadFromCaptureReview(captureReviewId, payload)
+          : await novaClient.createDownload(payload)),
       };
       set((p) => ({ tasks: [normalizedTask, ...p.tasks.filter((item) => item.id !== normalizedTask.id)] }));
       uiStore.getState().setSelectedTaskId(normalizedTask.id);

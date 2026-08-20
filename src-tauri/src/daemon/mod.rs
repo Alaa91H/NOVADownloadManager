@@ -364,6 +364,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     media_jobs: Mutex::new(HashMap::new()),
                     curl_jobs: Mutex::new(HashMap::new()),
                     task_snapshot: Mutex::new(HashMap::new()),
+                    capture_reviews: Mutex::new(std::collections::VecDeque::new()),
                     persist_dirty: std::sync::atomic::AtomicBool::new(false),
                     telegram_config: Mutex::new(TelegramConfig::default()),
                     telegram_last_update_id: Mutex::new(restored.telegram_last_update_id),

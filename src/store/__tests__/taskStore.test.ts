@@ -31,6 +31,20 @@ const { uiStoreMocks, queueStoreMocks, novaMock } = vi.hoisted(() => {
           segments: [],
         });
       }),
+      createDownloadFromCaptureReview: vi
+        .fn()
+        .mockImplementation((_reviewId: string, item: Record<string, unknown>) => {
+          taskCounter += 1;
+          return Promise.resolve({
+            ...item,
+            id: `review_task_${String(taskCounter)}`,
+            dateAdded: new Date().toISOString(),
+            downloadedBytes: 0,
+            speedBytesPerSec: 0,
+            timeLeftSeconds: 0,
+            segments: [],
+          });
+        }),
     },
   };
 });
@@ -38,6 +52,7 @@ const { uiStoreMocks, queueStoreMocks, novaMock } = vi.hoisted(() => {
 vi.mock('../../api/novaClient', () => ({
   novaClient: {
     createDownload: novaMock.createDownload,
+    createDownloadFromCaptureReview: novaMock.createDownloadFromCaptureReview,
     pauseDownload: vi
       .fn()
       .mockImplementation((id: string) => Promise.resolve({ id, status: 'paused', name: 'Paused File' })),
@@ -171,6 +186,8 @@ describe('mergeDaemonTasks', () => {
 describe('taskStore', () => {
   beforeEach(() => {
     novaMock.resetCounter();
+    novaMock.createDownload.mockClear();
+    novaMock.createDownloadFromCaptureReview.mockClear();
     taskStore.setState({
       tasks: [
         {
@@ -304,6 +321,36 @@ describe('taskStore', () => {
       expect(task).not.toBeNull();
       if (!task) return;
       expect(task.id).toBe('new_task_1');
+    });
+
+    it('consumes a browser capture review instead of creating a direct task', async () => {
+      const task = await taskStore.getState().addTask(
+        {
+          name: 'captured.zip',
+          url: 'https://example.com/captured.zip',
+          fileType: 'compressed',
+          status: 'queued',
+          sizeBytes: 42,
+          category: 'compressed',
+          queueId: 'main',
+          connections: 4,
+          resumable: true,
+          savePath: '/downloads/captured.zip',
+          description: 'browser capture',
+          directOptions: undefined,
+          elapsedSeconds: 0,
+        },
+        false,
+        false,
+        'review-123',
+      );
+
+      expect(task?.id).toBe('review_task_1');
+      expect(novaMock.createDownloadFromCaptureReview).toHaveBeenCalledWith(
+        'review-123',
+        expect.objectContaining({ startImmediately: false, url: 'https://example.com/captured.zip' }),
+      );
+      expect(novaMock.createDownload).not.toHaveBeenCalled();
     });
   });
 

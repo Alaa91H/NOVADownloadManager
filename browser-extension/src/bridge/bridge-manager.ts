@@ -309,7 +309,15 @@ export class BridgeManager implements BridgeGateway {
     this.requireCandidateCapabilities(candidate);
     this.caps.registry.require('task.add');
     const request = AddTaskRequestSchema.parse({ idempotencyKey, candidate, source: 'nova-extension' });
-    return assertTaskAccepted(await this.authenticatedHttp('/v1/add', request, AddTaskResponseSchema, 'POST'));
+    try {
+      // Native Messaging is preferred for browser captures even while loopback
+      // HTTP is healthy. It forwards the approved request to the daemon and
+      // focuses NOVA so the user immediately sees the confirmation dialog.
+      return assertTaskAccepted(await this.tm.requestNative('candidate.send', request, AddTaskResponseSchema));
+    } catch (nativeError) {
+      this.log.warn('native capture handoff unavailable; retaining loopback fallback', nativeError);
+      return assertTaskAccepted(await this.authenticatedHttp('/v1/add', request, AddTaskResponseSchema, 'POST'));
+    }
   }
 
   async sendBatchNow(candidates: Candidate[], idempotencyKey: string) {
@@ -318,7 +326,12 @@ export class BridgeManager implements BridgeGateway {
     this.caps.registry.require('task.addBatch');
     for (const candidate of candidates) this.requireCandidateCapabilities(candidate);
     const request = AddBatchRequestSchema.parse({ idempotencyKey, candidates, source: 'nova-extension' });
-    return assertTaskAccepted(await this.authenticatedHttp('/captures', request, AddTaskResponseSchema, 'POST'));
+    try {
+      return assertTaskAccepted(await this.tm.requestNative('candidate.batch', request, AddTaskResponseSchema));
+    } catch (nativeError) {
+      this.log.warn('native batch capture handoff unavailable; retaining loopback fallback', nativeError);
+      return assertTaskAccepted(await this.authenticatedHttp('/captures', request, AddTaskResponseSchema, 'POST'));
+    }
   }
 
 

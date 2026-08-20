@@ -110,8 +110,11 @@ describe('capture -> send -> receive', () => {
       });
       const added = await http.request('/v1/add', request, AddTaskResponseSchema, { method: 'POST', token: pair.pairToken });
       expect(added.accepted).toBe(true);
+      expect(added.reviewId).toEqual(expect.any(String));
+      expect(added.message).toContain('Waiting for approval');
 
-      // 3. Receive: the daemon recorded the exact candidate we captured.
+      // 3. Receive: the daemon recorded the exact candidate we captured as a
+      // review request; it must not represent an already-started download task.
       const ledger = await fetch(`${daemon.baseUrl}/v1/_debug/received`).then((response) => response.json()) as {
         count: number;
         received: Array<{ body: { candidate?: { url?: string }; source?: string } }>;

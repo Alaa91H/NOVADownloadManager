@@ -148,6 +148,16 @@ type CreateDownloadPayload = Omit<
   startImmediately: boolean;
 };
 
+export interface PendingCaptureReview {
+  reviewId: string;
+  url: string;
+  name?: string;
+  fileType?: DownloadItem['fileType'];
+  sizeBytes?: number;
+  referer?: string;
+  createdAt: number;
+}
+
 export interface BackendLogContextPair {
   key: string;
   value: string;
@@ -434,6 +444,42 @@ export const novaClient = {
       },
       15000,
     );
+  },
+
+  async listCaptureReviews(): Promise<PendingCaptureReview[]> {
+    const response = await request<{ ok: boolean; reviews?: PendingCaptureReview[]; message?: string }>(
+      '/v1/capture-reviews',
+      undefined,
+      5000,
+    );
+    if (!response.ok) throw new Error(response.message || 'Could not read browser capture reviews.');
+    return response.reviews || [];
+  },
+
+  async createDownloadFromCaptureReview(reviewId: string, payload: CreateDownloadPayload): Promise<DownloadItem> {
+    const response = await request<{ ok: boolean; accepted?: boolean; task?: DownloadItem; message?: string }>(
+      `/v1/capture-reviews/${encodeURIComponent(reviewId)}/consume`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+      15000,
+    );
+    if (!response.ok || !response.accepted || !response.task) {
+      throw new Error(response.message || 'NOVA could not approve the browser capture.');
+    }
+    return response.task;
+  },
+
+  async discardCaptureReview(reviewId: string): Promise<boolean> {
+    const response = await request<{ ok: boolean; discarded?: boolean; message?: string }>(
+      `/v1/capture-reviews/${encodeURIComponent(reviewId)}`,
+      { method: 'DELETE' },
+      5000,
+    );
+    if (!response.ok) throw new Error(response.message || 'Could not discard the browser capture.');
+    return response.discarded === true;
   },
 
   async pauseDownload(id: string): Promise<DownloadItem> {

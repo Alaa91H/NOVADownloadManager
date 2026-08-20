@@ -76,6 +76,7 @@ const isQueueInScheduleWindow = (
 
 function EffectsProvider({ children }: { children: ReactNode }) {
   const activeScheduleWindowsRef = useRef<Record<string, boolean>>({});
+  const displayedCaptureReviewIdRef = useRef<string | null>(null);
 
   // Initialize default download paths
   useEffect(() => {
@@ -107,6 +108,39 @@ function EffectsProvider({ children }: { children: ReactNode }) {
     });
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  // Browser captures are stored by the authenticated daemon until the user
+  // explicitly queues or starts them. Polling is intentionally modest and only
+  // opens a dialog when the desktop has no active dialog to avoid interrupting
+  // the user's current work.
+  useEffect(() => {
+    let cancelled = false;
+    const pollCaptureReviews = async () => {
+      try {
+        const reviews = await novaClient.listCaptureReviews();
+        if (cancelled) return;
+        if (reviews.length === 0) {
+          displayedCaptureReviewIdRef.current = null;
+          return;
+        }
+        const dialog = uiStore.getState().dialog;
+        if (dialog.active) return;
+        const next = reviews.find((review) => review.reviewId !== displayedCaptureReviewIdRef.current) ?? reviews[0];
+        if (next.reviewId === displayedCaptureReviewIdRef.current) return;
+        displayedCaptureReviewIdRef.current = next.reviewId;
+        uiStore.getState().openDialog('addDownload', next);
+      } catch {
+        // The normal daemon connection loop reports service availability. A
+        // failed optional review poll must never degrade the desktop UI.
+      }
+    };
+    void pollCaptureReviews();
+    const interval = window.setInterval(() => void pollCaptureReviews(), 800);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
     };
   }, []);
 

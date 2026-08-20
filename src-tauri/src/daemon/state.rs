@@ -1,9 +1,9 @@
 use reqwest::Client as HttpClient;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::daemon::external_tools::types::ToolId;
 use crate::daemon::external_tools::ExternalToolManager;
@@ -29,7 +29,21 @@ use crate::daemon::engine::retry::RetryState;
 use crate::daemon::engine::rules::DownloadRuleEngine;
 use crate::daemon::engine::scheduler::SmartScheduler;
 use crate::daemon::engine::self_healing::SelfHealer;
-use crate::daemon::types::{CurlJob, MediaJob, Task, TelegramConfig};
+use crate::daemon::types::{CreateDownloadBody, CurlJob, MediaJob, Task, TelegramConfig};
+
+/// Browser-originated download data that has passed daemon URL validation but
+/// still requires an explicit user decision in the desktop confirmation dialog.
+/// It deliberately lives only in memory: stale links and sensitive context must
+/// not survive a daemon restart.
+pub struct PendingCaptureReview {
+    pub id: String,
+    pub idempotency_key: Option<String>,
+    pub created_at: Instant,
+    pub download: CreateDownloadBody,
+}
+
+pub const MAX_PENDING_CAPTURE_REVIEWS: usize = 64;
+pub const CAPTURE_REVIEW_TTL: Duration = Duration::from_secs(15 * 60);
 
 /// Live engine-side tracking for one running download: adaptive connection
 /// tuning plus (for segmented transfers) dynamic segment accounting.
@@ -59,6 +73,8 @@ pub struct AppState {
     pub media_jobs: Mutex<HashMap<String, MediaJob>>,
     pub curl_jobs: Mutex<HashMap<String, CurlJob>>,
     pub task_snapshot: Mutex<HashMap<String, Task>>,
+    /// Bounded, ephemeral browser captures awaiting explicit desktop approval.
+    pub capture_reviews: Mutex<VecDeque<PendingCaptureReview>>,
     pub persist_dirty: AtomicBool,
     pub telegram_config: Mutex<TelegramConfig>,
     pub http_client: HttpClient,
