@@ -532,6 +532,54 @@ jobs:
           brew untap aws/tap 2>/dev/null || true
           brew install pkg-config cmake curl openssl brotli zstd nghttp2 libssh2 ffmpeg
 
+      - name: Prepare verified local Tauri NSIS toolchain
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $toolsRoot = Join-Path $env:GITHUB_WORKSPACE 'src-tauri\target\.tauri'
+          $nsisRoot = Join-Path $toolsRoot 'NSIS'
+          $pluginPath = Join-Path $nsisRoot 'Plugins\x86-unicode\additional\nsis_tauri_utils.dll'
+          $pluginSha1 = '75197FEE3C6A814FE035788D1C34EAD39349B860'
+          $nsisSha1 = 'EF7FF767E5CBD9EDD22ADD3A32C9B8F4500BB10D'
+
+          function Get-VerifiedDownload([string]$Uri, [string]$Destination, [string]$ExpectedSha1) {
+            for ($attempt = 1; $attempt -le 4; $attempt++) {
+              $temporary = "$Destination.partial"
+              Remove-Item -Force -ErrorAction SilentlyContinue $temporary
+              try {
+                Invoke-WebRequest -Uri $Uri -OutFile $temporary -UseBasicParsing -TimeoutSec 120
+                $actual = (Get-FileHash -Path $temporary -Algorithm SHA1).Hash.ToUpperInvariant()
+                if ($actual -ne $ExpectedSha1) {
+                  throw "SHA-1 mismatch for ${Uri}: expected $ExpectedSha1, got $actual"
+                }
+                Move-Item -Force $temporary $Destination
+                return
+              } catch {
+                Remove-Item -Force -ErrorAction SilentlyContinue $temporary
+                if ($attempt -eq 4) { throw }
+                Start-Sleep -Seconds (5 * $attempt)
+              }
+            }
+          }
+
+          if ((Test-Path (Join-Path $nsisRoot 'makensis.exe')) -and (Test-Path $pluginPath) -and
+              ((Get-FileHash -Path $pluginPath -Algorithm SHA1).Hash.ToUpperInvariant() -eq $pluginSha1)) {
+            Write-Host 'Verified local Tauri NSIS toolchain is already present.'
+            exit 0
+          }
+
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $nsisRoot
+          New-Item -ItemType Directory -Force $toolsRoot | Out-Null
+          $nsisArchive = Join-Path $toolsRoot 'nsis-3.11.zip'
+          Get-VerifiedDownload 'https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.11/nsis-3.11.zip' $nsisArchive $nsisSha1
+          Expand-Archive -Path $nsisArchive -DestinationPath $toolsRoot -Force
+          Move-Item -Force (Join-Path $toolsRoot 'nsis-3.11') $nsisRoot
+          Remove-Item -Force $nsisArchive
+
+          New-Item -ItemType Directory -Force (Split-Path -Parent $pluginPath) | Out-Null
+          Get-VerifiedDownload 'https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll' $pluginPath $pluginSha1
+          Write-Host 'Prepared and verified local Tauri NSIS toolchain.'
+
       - name: Record build start time
         id: timing
         run: echo "start=$(date -u +%s)" >> "$GITHUB_OUTPUT"

@@ -42,6 +42,7 @@
     "category": "Utility",
     "shortDescription": "Professional download manager for direct and media downloads.",
     "longDescription": "Nova Download Manager is a professional desktop download manager with direct downloads, media downloads, queues, scheduling, diagnostics, and advanced connection controls.",
+    "useLocalToolsDir": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
