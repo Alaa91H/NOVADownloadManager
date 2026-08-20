@@ -452,12 +452,33 @@ jobs:
           # libcurl is resolved through vcpkg below. Do not install Chocolatey's
           # pkgconfiglite package here: its obsolete SourceForge asset is
           # intermittently unavailable and is not used by the Windows vcpkg path.
-          choco install cmake ffmpeg -y --no-progress
-          foreach ($tool in @('cmake', 'ffmpeg')) {
-            if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
-              throw "Required Windows build helper '$tool' was not installed."
+          #
+          # `windows-latest` already includes CMake. Fetching it again made both
+          # Windows jobs dependent on Chocolatey's V2 feed even though neither
+          # build needed that download. FFmpeg is required only when it is absent;
+          # obtain it with bounded retries because that public feed periodically
+          # returns transient 503/504 responses.
+          function Ensure-ChocoTool([string]$Tool, [string]$Package) {
+            if (Get-Command $Tool -ErrorAction SilentlyContinue) {
+              Write-Host "$Tool is already available."
+              return
             }
+            for ($attempt = 1; $attempt -le 5; $attempt++) {
+              Write-Host "Installing $Package (attempt $attempt/5)..."
+              choco install $Package -y --no-progress --limit-output
+              if (Get-Command $Tool -ErrorAction SilentlyContinue) {
+                Write-Host "$Tool installed successfully."
+                return
+              }
+              if ($attempt -lt 5) {
+                Start-Sleep -Seconds (20 * $attempt)
+              }
+            }
+            throw "Required Windows build helper '$Tool' was not installed after 5 Chocolatey attempts."
           }
+
+          Ensure-ChocoTool 'cmake' 'cmake'
+          Ensure-ChocoTool 'ffmpeg' 'ffmpeg'
 
       - name: Prepare vcpkg binary cache
         if: runner.os == 'Windows'
