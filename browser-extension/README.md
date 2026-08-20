@@ -1,1 +1,0 @@
-../docs/extension/README.md

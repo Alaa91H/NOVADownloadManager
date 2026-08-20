@@ -27,10 +27,14 @@ async function readOptional(path: string): Promise<string | undefined> {
 }
 
 const warnings: string[] = [];
+const extensionReadmePath = '../docs/extension/README.md';
 
 const checks: Array<{ path: string; terms: string[] }> = [
   {
-    path: 'README.md',
+    // Extension documentation is intentionally centralized at the repository
+    // root. Do not require a duplicate browser-extension/README.md, which the
+    // final source audit correctly rejects.
+    path: extensionReadmePath,
     terms: [
       'NOVA Download Manager Extension',
       'Native Messaging',
@@ -97,7 +101,7 @@ const checks: Array<{ path: string; terms: string[] }> = [
     ],
   },
   {
-    path: '../docs/extension/README.md',
+    path: extensionReadmePath,
     terms: [
       'docs/extension/DESKTOP_RUNTIME_REQUIREMENTS.md',
       'docs/extension/ZERO_CLICK_PAIRING.md',
