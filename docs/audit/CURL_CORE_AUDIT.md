@@ -1,193 +1,193 @@
-# تدقيق نواة libcurl
+# libcurl core audit
 
-## C-AUD-001: تحقق SHA-256 غير صالح للنقل المجزأ أو المستأنف
+## C-AUD-001: Invalid SHA-256 verification for chunked or resumed transfers
 
-**الشدة:** عالية. **الحالة:** أصلح واختبر.
+**Severity:** High. **Status:** Fixed and tested.
 
-في `src-tauri/src/daemon/curl/easy_config.rs` ينشئ كل `SegmentWriter` هاشًا متدفقًا خاصًا به عند استقبال ترويسة `Content-Digest` أو `Digest` أو `Repr-Digest`. عند إسقاط الكاتب في `drop` يكتب كل مقطع ناتجه إلى نفس `streaming_digest_out`، وبالتالي تكون القيمة الأخيرة هي هاش آخر مقطع انتهى فقط. وفي `src-tauri/src/daemon/curl/transfer.rs` يمكن لمسار الإتمام أن يفضّل هذه القيمة على حساب هاش ملف الإخراج النهائي.
+In `src-tauri/src/daemon/curl/easy_config.rs` each `SegmentWriter` created its own streaming hash when seeing a `Content-Digest`, `Digest`, or `Repr-Digest` header. When a writer was dropped in `drop` it wrote its segment output into the same `streaming_digest_out`, so the final value could be the hash of the last-completed segment only. In `src-tauri/src/daemon/curl/transfer.rs` a completion path could prefer that value over the final output file hash.
 
-هذا لا يثبت سلامة الملف الكامل عندما يكون النقل مجزأً، أو عندما يستأنف من بيانات موجودة، أو عندما تتغير هندسة المقاطع. يلزم أن يكون قرار التحقق النهائي مبنيًا دائمًا على SHA-256 المحسوب من ملف الإخراج المدمج على القرص، لأن هذا هو تمثيل المحتوى الفعلي النهائي.
+This does not prove the integrity of the full file when the transfer is chunked, when resuming from existing data, or when the segment layout changes. The final verification decision must always be based on the SHA-256 computed from the merged output file on disk, because that is the actual final content representation.
 
-**العلاج المطبق:** تستدعي النواة الآن `verify_output_sha256` لحساب هاش ملف الإخراج المدمج حصراً، وتفشل العملية إذا تعذر الحساب. كما تميّز الدالة تمثيل SHA-256 السداسي قبل Base64 لأن 64 رمزًا سداسيًا صالح شكليًا كـBase64. يثبت اختبار الانحدار أن هاش مقطع أخير منفرد يُرفض بينما يمر هاش الملف الكامل.
+Fix implemented: The core now calls `verify_output_sha256` to compute the hash from the merged output file exclusively, and the transfer fails if that computation cannot be performed. The function also disambiguates a hexadecimal SHA-256 representation before Base64, because 64 hexadecimal characters are syntactically valid as Base64. A regression test demonstrates that a single-last-segment hash is rejected while the full-file hash passes.
 
-## C-AUD-002: أداة فحص التحديثات كانت تمرر Cargo.toml إلى cargo-audit كملف قفل
+## C-AUD-002: update checker was passing Cargo.toml to cargo-audit as a lock file
 
-**الشدة:** متوسطة. **الحالة:** أصلح وتحقق.
+**Severity:** Medium. **Status:** Fixed and verified.
 
-صحح `scripts/check-updates.mjs` الاستدعاء إلى `cargo audit --manifest-path src-tauri/Cargo.toml`. اختُبر الأمر بعد الإصلاح دون خطأ تحليل TOML، وأظهر نتيجة تدقيق الاعتمادات بنجاح.
+`scripts/check-updates.mjs` was corrected to call `cargo audit --manifest-path src-tauri/Cargo.toml`. The command was tested after the fix with no TOML parse errors and successfully showed the dependency audit result.
 
-## C-AUD-003: حل meta-refresh النسبي لا يطبق دلالات RFC 3986 كاملة
+## C-AUD-003: relative meta-refresh resolution did not implement full RFC 3986 semantics
 
-**الشدة:** متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Medium. **Status:** Fixed and tested.
 
-الدالة `refreshed_url` في `src-tauri/src/daemon/utils.rs` تبني الروابط النسبية يدويًا من دليل الصفحة. لذلك فإن قيمة مثل `?token=...` أو `#fragment` في `meta refresh` لا تُحل بالنسبة إلى المورد الحالي كما تفعل المتصفحات، بل تُلصق بدليل الصفحة. كذلك لا يطبق البناء اليدوي جميع حالات `../` وquery وfragment التي يدعمها محلل URL القياسي.
+The `refreshed_url` function in `src-tauri/src/daemon/utils.rs` constructed relative links manually from the page directory. Values such as `?token=...` or `#fragment` in a `meta refresh` were therefore not resolved relative to the current resource as browsers do, but were appended to the page directory. The manual construction also did not cover all `../`, query, and fragment cases supported by the standard URL parser.
 
-**العلاج المطبق:** تستعمل `refreshed_url` الآن `reqwest::Url::join` مع بديل محافظ عند فساد عنوان الصفحة. اجتازت أربعة اختبارات مركزة تغطي الرابط المطلق والنسبي والجذري و`../` وquery-only وfragment-only.
+Fix implemented: `refreshed_url` now uses `reqwest::Url::join` with a conservative fallback when the page URL is malformed. Four focused tests covering absolute, relative, root-relative, `../`, query-only, and fragment-only links passed.
 
-## C-AUD-004: حجز اسم بديل لم يكن ذريًا حتى لحظة فتح المخرج
+## C-AUD-004: alternate name reservation was not atomic until the outlet was opened
 
-**الشدة:** متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Medium. **Status:** Fixed and tested.
 
-كانت `auto_rename_path` تنشئ اسمًا بديلًا بـ`create_new` ثم تحذف الملف الحاجز قبل أن يفتحه عامل النقل. تسمح الفجوة بين الحذف والفتح لمهمة متزامنة بحجز الاسم نفسه، رغم أن التعليق يعلن إزالة سباق TOCTOU.
+`auto_rename_path` created an alternate name with `create_new` then deleted the reservation file before the transfer worker opened it. The gap between deletion and opening allowed a concurrent task to reserve the same name, despite the comment claiming TOCTOU was removed.
 
-**العلاج المطبق:** يحتفظ المسار الآن بملف حجز صفري أنشئ ذريًا حتى يعيد كاتب التنزيل فتحه، ولا يعيد مسارًا احتياطيًا إلا بعد حجزه بنجاح. يثبت اختبار الانحدار أن حجزي تعارض متتاليين ينتجان مسارين مختلفين محفوظين على القرص.
+Fix implemented: The path now retains a zero-byte reservation file created atomically until the download writer reopens it, and it returns an alternate path only after the reservation is successfully acquired. A regression test proves two conflicting reservations produce different preserved paths on disk.
 
-## C-AUD-005: بث مهام التنزيل كان يتجاهل بعض التغييرات المرئية للعميل
+## C-AUD-005: download task broadcasting ignored some client-visible changes
 
-**الشدة:** متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Medium. **Status:** Fixed and tested.
 
-كانت بصمة التغيير في `/api/downloads/events` تشمل التقدم العددي والحالة فقط تقريبًا. لذلك يمكن لتحديث التحليل الخلفي لاسم الملف الحقيقي أو الرابط النهائي أو مسار الحفظ أو حالة المحرك أو هندسة المقاطع ألا يصل للواجهة حتى المزامنة الكاملة بعد نحو دقيقة.
+The change fingerprint on `/api/downloads/events` included numeric progress and status only in most cases. Therefore a backend reanalysis updating the real filename, final URL, save path, engine state, or segment layout might not reach the frontend until a full sync roughly a minute later.
 
-**العلاج المطبق:** أصبحت البصمة تشمل جميع الحقول المتحولة التي يرسمها العميل، ومنها بيانات التعريف وهندسة المقاطع. يثبت اختبار انحدار أن تحديث التحليل الخلفي وتقدم مقطع يغيران البصمة فورًا.
+Fix implemented: The fingerprint now includes all mutable fields that the client renders, including metadata and segment layout. A regression test confirms that a backend reanalysis and a segment progress update both change the fingerprint immediately.
 
-## C-AUD-006: ذاكرة نتائج التحليل كانت تفقد بيانات النزاهة وأولويات المرايا
+## C-AUD-006: analysis cache lost integrity data and mirror priorities
 
-**الشدة:** متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Medium. **Status:** Fixed and tested.
 
-كان مسار التخزين المؤقت يحتفظ بعنوان المرآة فقط، ويتجاهل `digestSha256` و`mirrorPriorities`؛ لذا تصبح نتيجة تحليل الرابط عند الإعادة أفقر من أول تحليل وقد تفقد التحقق النهائي أو ترتيب المرآة. كما أن المفتاح كان الرابط فقط رغم أن الطلبات ذات cookies أو headers أو proxy قد ترى موردًا مختلفًا.
+The cache path stored only the mirror URL and ignored `digestSha256` and `mirrorPriorities`; thus a re-analyzed link could be poorer than the first analysis and might lose final verification or mirror ordering. The cache key was the URL only, even though requests with cookies, headers, or proxies can observe different resources.
 
-**العلاج المطبق:** تُخزن البصمة وأولويات المرايا وتستعاد مع النتيجة، وتقتصر الذاكرة المشتركة على الاستعلام العام بلا خيارات خاصة. يثبت اختبار الانحدار تطابق البصمة وترتيب المرايا في النتيجة المخزنة.
+Fix implemented: The fingerprint and mirror priorities are stored and restored with the result, and the shared cache is limited to the general query without request-specific options. A regression test verifies the fingerprint and mirror ordering match in the stored result.
 
-## C-AUD-007: تحليل امتداد المتصفح كان يستعمل HEAD مبسطًا ويتجاهل سياق الصفحة
+## C-AUD-007: browser-extension analysis used a simplified HEAD and ignored page context
 
-**الشدة:** متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Medium. **Status:** Fixed and tested.
 
-كان `/v1/analyze` يستعمل طلب HEAD محدودًا ويتجاهل فعليًا `referrer` و`pageUrl` الواردين من الامتداد. لا يكفي ذلك للروابط المحمية من hotlink أو الخوادم التي تدعم GET-range فقط أو صفحات meta-refresh وروابط SourceForge/GitHub الوسيطة.
+`/v1/analyze` used a limited HEAD request and effectively ignored the `referrer` and `pageUrl` supplied by the extension. That is insufficient for hotlink-protected links, servers that only support GET-range, meta-refresh pages, and intermediate SourceForge/GitHub redirects.
 
-**العلاج المطبق:** يستخدم التحليل الآن خط الاستعلام الكامل نفسه الذي تستعمله التنزيلات المباشرة، مع تمرير `referrer` الصريح ثم `pageUrl` كبديل. يثبت اختبار الانحدار أولوية المرجع وتمريره.
+Fix implemented: Analysis now uses the same full request pipeline as direct downloads, passing the explicit `referrer` and using `pageUrl` as a fallback. A regression test confirms referrer priority and propagation.
 
-## C-AUD-008: إعادة موازنة المقاطع كانت تنسب تقدمًا إلى ملف جزء غير موجود
+## C-AUD-008: segment rebalancing attributed progress to a non-existent part file
 
-**الشدة:** متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Medium. **Status:** Fixed and tested.
 
-كانت إعادة الموازنة تنشئ نطاق prefix جديدًا وتبدأ عداده بقيمة البايتات المنقولة، رغم أن هذه البايتات لا توجد إلا ـ إن وجدت ـ في ذيل ملف الجزء البطيء السابق. أثناء إعادة البناء تُقص أي زيادة من ذلك الملف ويُنشأ ملف مستقل للنطاق الجديد؛ لذلك كان العداد يعرض تقدمًا أعلى من البيانات المكتوبة فعليًا وقد يجعل التخطيط يتجاوز نطاقًا واجب التنزيل.
+Rebalancing created a new prefix range and initialized its counter with the bytes transferred value, even though those bytes existed only — if at all — in the tail of the previous slow part file. During reconstruction that extra portion is trimmed from that file and an independent file is created for the new range; therefore the counter could report progress higher than data written and could cause scheduling to skip a range that still required downloading.
 
-**العلاج المطبق:** يبدأ جزء prefix المستقل عند صفر، ويُقيد عداد الجزء البطيء بطول نطاقه الجديد. يثبت اختبار انحدار أن هندسة النطاقات تظل متجاورة بلا تداخل وأن الجزء الجديد لا يرث تقدم ملف آخر.
+Fix implemented: The independent prefix part starts at zero and the slow part counter is clamped to its new range length. A regression test shows range layouts remain adjacent without overlap and the new part does not inherit another file's progress.
 
-## C-AUD-009: عينة عدد المعالجات الصفرية كانت تصنع نطاق اتصال غير صالح
+## C-AUD-009: zero CPU sample produced an invalid connection range
 
-**الشدة:** متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Medium. **Status:** Fixed and tested.
 
-كان محول البروتوكولات يحسب الحد الأقصى لاتصالات HTTP بضرب `cpu_count` مباشرة. عند قيمة صفر مؤقتة من مراقب الموارد ينتج نطاق مثل `2..=0`، ثم قد يمر إلى `clamp` في محرك التكيف ويؤدي إلى ذعر أثناء تنزيل قائم.
+The protocol adapter computed the maximum HTTP connections by multiplying `cpu_count` directly. With a temporary zero value from the resource monitor this produced a range like `2..=0`, which could then pass into a clamp in the adaptation engine and panic during a live download.
 
-**العلاج المطبق:** يُطبع عدد المعالجات إلى واحد على الأقل مع ضرب مشبع، ويُضمن أن الحد الأقصى لا يقل عن الحد الأدنى. يثبت اختبار انحدار سلامة النطاق لـ HTTP/2 وHTTP/3 وHTTP/1.1 والبروتوكول المجهول عند قيمة صفر.
+Fix implemented: CPU count is bumped to at least one with saturated multiplication, and the maximum is ensured not to be less than the minimum. A regression test validates the HTTP/2, HTTP/3, HTTP/1.1, and unknown-protocol ranges remain sane at a zero sample.
 
-## C-AUD-010: حساب ميزانية الاتصالات كان قابلًا لفيضان قياس CPU شاذ
+## C-AUD-010: connection budget calculation was vulnerable to anomalous CPU multiplication overflow
 
-**الشدة:** منخفضة إلى متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Low to Medium. **Status:** Fixed and tested.
 
-كان مراقب الموارد يضاعف عدد المعالجات ثم يضربه في ثلاثة في مسار الذاكرة المتوسطة. رغم ندرة القيم الشاذة، كان ذلك قد يفيض في بناء التصحيح ويوقف قرار التكيف أثناء تنزيل حي.
+The resource monitor multiplied CPU count and then multiplied by three in the medium-memory path. Although anomalous values are rare, this could overflow in debug builds and stop adaptation decisions during a live download.
 
-**العلاج المطبق:** استُخدم الضرب المشبع مع قيمة دنيا واحدة للمعالجات قبل تطبيق حدود الذاكرة والحد الأقصى الصريح 32. يثبت اختبار انحدار أن `u32::MAX` ينتج الحد الآمن 32 بلا ذعر أو فيضان.
+Fix implemented: Saturating multiplication is used with a minimum CPU value of one before applying memory bounds and an explicit maximum of 32. A regression test proves `u32::MAX` yields the safe cap 32 without panic or overflow.
 
-## C-AUD-011: حد تعديلات التكيف كان قد يحظر التحسين بلا نهاية
+## C-AUD-011: adaptation adjustment cap could permanently block improvement
 
-**الشدة:** متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Medium. **Status:** Fixed and tested.
 
-كان فحص السماح بالتعديل يرفض أي محاولة بعد الوصول إلى الحد في الدقيقة، بينما لا يُصفّر العداد إلا داخل `record_adjustment`. بعد انقضاء الدقيقة لا يمكن تنفيذ تعديل جديد كي يصفّر العداد؛ فتظل قرارات التكيف محجوبة طوال المهمة.
+The check that allowed an adjustment rejected any attempt after reaching the per-minute cap, while the counter was only reset inside `record_adjustment`. After the minute elapsed no new adjustment could be performed to reset the counter; adaptation decisions remained blocked for the entire task.
 
-**العلاج المطبق:** أصبح فحص السماح يطبّق العداد فقط داخل نافذته ذات الستين ثانية، ثم يسمح بالتعديل التالي الذي يعيد تهيئة العداد. يثبت اختبار انحدار أن نافذة منتهية مع عداد ممتلئ لا تمنع التكيف.
+Fix implemented: The allow-check now applies the counter only within its 60-second window and then permits the next adjustment that reinitializes the counter. A regression test confirms that an expired window with a full counter does not prevent adaptation.
 
-## C-AUD-012: عدادات ونافذة سرعة ملف تعريف الخادم كانتا قابلتين للفيضان
+## C-AUD-012: server profile probe counters and window were overflowable
 
-**الشدة:** منخفضة إلى متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Low to Medium. **Status:** Fixed and tested.
 
-استخدم دمج القياس زيادات غير مشبعة لعدادات probes، واستخدم كشف plateau جمعًا مباشرًا لـ `u64` لسرعات النافذة. قيم طويلة العمر أو شاذة كانت قد تفيض في بناء التصحيح وتوقف طبقة التكيف.
+The measurement aggregation used unsaturated increments for probe counters and used a plateau detector that summed window speeds directly into `u64`. Long-lived or anomalous values could overflow in debug builds and stop the adaptation layer.
 
-**العلاج المطبق:** أصبحت العدادات مشبعة، ويُحسب متوسط السرعة في `u128` ثم يُقيد إلى `u64`. يثبت اختبار انحدار أن عدادات `u64::MAX` ومتوسط نافذة مكونة من سرعات قصوى لا يفيضان، مع حفظ سقف الاتصال بالقيمة الصحيحة.
+Fix implemented: Counters are saturated, the average speed is computed in `u128` and then clamped to `u64`. A regression test shows `u64::MAX` counters and a window of maximum speeds do not overflow while preserving the connection ceiling correctly.
 
-## C-AUD-013: محلل الخادم كان يقبل توصية اتصال صفرية وعدادات قابلة للفيضان
+## C-AUD-013: server analyzer accepted zero recommended connections and overflowable counters
 
-**الشدة:** متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Medium. **Status:** Fixed and tested.
 
-كان حساب الاتصالات الموصى بها يضرب `cpu_count` مباشرة؛ وعند عينة صفرية لخادم مستقر وملف كبير يمكن أن ينتج صفر اتصال. كما أن عدادات probes والفشل المتتالي استعملت زيادات غير مشبعة في عدة مسارات.
+The recommended connection count multiplied `cpu_count` directly; on a zero CPU sample for a stable server and a large file this could produce zero connections. Probe and consecutive-failure counters used unsaturated increments on several paths.
 
-**العلاج المطبق:** توحّد الحساب الدفاعي بعدد CPU لا يقل عن واحد وضرب مشبع وحدود بروتوكولية صحيحة، وأصبحت عدادات القياس مشبعة. اجتازت مجموعة اختبارات محلل الخادم كاملة، بما فيها اختبارات قيم CPU صفرية/قصوى وعدادات قصوى.
+Fix implemented: Defensive calculation uses CPU count at least one, saturated multiplication, correct protocol bounds, and measurement counters are saturated. The full server analyzer test suite passed, including zero/max CPU samples and maxed counters.
 
-## C-AUD-014: فرز المرايا كان قد يبدّل المصدر النشط بصمت
+## C-AUD-014: mirror sorting could silently change the active source
 
-**الشدة:** متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Medium. **Status:** Fixed and tested.
 
-كان مدير المرايا يخزن المصدر النشط كفهرس في متجه ثم يعيد فرز المتجه عند إضافة مرآة. إدراج مرآة ذات أولوية أعلى قد يغيّر الفهارس ويجعل التحميل القائم ينتقل بصمت إلى مصدر مختلف لم يختره قرار failover.
+The mirror manager stored the active source as an index into a vector and then re-sorted the vector when adding a mirror. Inserting a higher-priority mirror could change indices and cause an ongoing load to switch silently to a different source that was not selected by the failover decision.
 
-**العلاج المطبق:** يُحتفظ بعنوان المصدر النشط قبل الفرز ويُعاد إيجاد فهرسه بعده؛ ولا يُستبدل إلا إن اختفى المصدر. يثبت اختبار انحدار أن إضافة مرآة أعلى أولوية بعد failover لا تغيّر مصدر النسخة الاحتياطية النشط.
+Fix implemented: The active source URL is saved before sort and its index is re-found afterward; it is only replaced if the source disappears. A regression test shows adding a higher-priority mirror after a failover does not change the active fallback source.
 
-## C-AUD-015: سياسة إعادة المحاولة كانت قابلة للفيضان وjitter متحيزًا تحت النداء السريع
+## C-AUD-015: retry policy was overflowable and jitter-biased under fast calling
 
-**الشدة:** متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Medium. **Status:** Fixed and tested.
 
-كشف اختبار سياسة إعادة المحاولة أن jitter المعتمد على نانوثانية الساعة فقط يمكن أن ينحاز بشدة عندما تقع النداءات ضمن نبضة زمنية واحدة؛ كما استعملت مضاعفات المدد وزيادات العدادات عمليات قابلة للفيضان، ولم تُطبّع معاملات backoff غير المنتهية أو غير الموجبة.
+Retry policy tests showed the jitter derived solely from the nanosecond clock could be heavily biased when calls occurred within the same clock tick; multipliers and counter increments used operations that could overflow, and non-finite or non-positive backoff factors were not normalized.
 
-**العلاج المطبق:** استُخدم تسلسل ذري ممزوج بزمن النظام لتوزيع jitter، وطُبقت عمليات مشبعة على المدد والعدادات، وعوملت معاملات backoff غير الصالحة كقيمة آمنة 1.0. اجتازت جميع اختبارات سياسة إعادة المحاولة، بما فيها اختبار التماثل والتنوع الذي كان يفشل قبل العلاج.
+Fix implemented: An atomic sequence mixed with system time distributes jitter, saturated operations are used for durations and counters, and invalid backoff factors are treated as a safe 1.0. All retry policy tests passed, including the symmetry/diversity test that previously failed.
 
-## C-AUD-016: متوسط سرعة النطاق الترددي كان قابلًا لفيضان نافذة القياس
+## C-AUD-016: task bandwidth average was overflowable by the sample window
 
-**الشدة:** منخفضة إلى متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Low to Medium. **Status:** Fixed and tested.
 
-كان متوسط سرعة المهمة يجمع عينات `u64` مباشرة. نافذة سرعات عالية بما يكفي قد تفيض وتعرض رقم سرعة خاطئًا أو توقف بناء التصحيح، ما ينعكس على تقدم وETA المهمة.
+Task speed averaging summed `u64` samples directly. A sufficiently large window could overflow and expose an incorrect speed or halt debug builds, which would affect progress and ETA.
 
-**العلاج المطبق:** يجمع المتوسط في `u128` ثم يُقيد إلى `u64`. يثبت اختبار انحدار أن نافذة كاملة من عينات `u64::MAX` تعيد المتوسط الصحيح بلا فيضان.
+Fix implemented: The average is aggregated in `u128` and then clamped to `u64`. A regression test shows a full window of `u64::MAX` samples returns the correct average without overflow.
 
-## C-AUD-017: عداد التنزيلات النشطة في طابور الأولويات كان قد يلتف إلى الصفر
+## C-AUD-017: active downloads counter in priority queue could wrap to zero
 
-**الشدة:** متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Medium. **Status:** Fixed and tested.
 
-كانت عملية بدء تنزيل جديدة تزيد عداد `u32` ذريًا باستخدام `fetch_add`؛ عند وصول عداد خاطئ أو متزامن إلى حده الأقصى يلتف إلى صفر، فيسمح الطابور ببدء أعمال إضافية كما لو أنه لا توجد تنزيلات نشطة.
+Starting a new download incremented a `u32` counter atomically with `fetch_add`; on a concurrent or already-wrong counter reaching its maximum this wrapped to zero, allowing the queue to start additional work as if no active downloads existed.
 
-**العلاج المطبق:** أصبح الرفع ذريًا ومشبعًا باستخدام `fetch_update`، بحيث يبقى العداد عند `u32::MAX`. يثبت اختبار انحدار أن البدء الإضافي لا يعيد العداد إلى الصفر.
+Fix implemented: Increments are now atomic and saturating using `fetch_update`, so the counter stays at `u32::MAX`. A regression test verifies additional starts do not wrap the counter to zero.
 
-## C-AUD-018: هندسة المقاطع كانت تسمح بنطاقات فارغة وتقدم يتجاوز حجم الملف
+## C-AUD-018: segment layout allowed empty ranges and progress exceeding file size
 
-**الشدة:** مرتفعة. **الحالة:** أصلح واختبر.
+**Severity:** High. **Status:** Fixed and tested.
 
-كان مدير المقاطع يقبل عدد اتصالات أكبر من عدد بايتات ملف صغير، فينشئ مقاطع نشطة صفرية الطول. كما كان يخزن عداد البايتات الوارد كما هو ويجمعه بلا تشبيع؛ لذلك يمكن لتحديث متأخر أو هندسة جديدة أن تعرض نسبة تقدم تتجاوز 100٪، أو أن تُعاد عدادات نطاق سابق إلى نطاق مغاير بعد إعادة الموازنة.
+The segment manager accepted more connections than available bytes for a small file, creating active segments of zero length. It also stored incoming byte counters as-is and aggregated them without saturation; a late update or a new layout could display progress over 100% or reassign a previous range's counter to a different range after rebalancing.
 
-**العلاج المطبق:** يُقيَّد عدد المقاطع بعدد البايتات المتاحة، وتُشبَع عدادات كل مقطع عند طول نطاقه، ويُشبَع التقدم المجمع عند حجم الملف. ولا تُحفظ قيمة حية سابقة عند إعادة الهندسة إلا إذا بقي معرف المقطع وحداه كما هما. تغطي اختبارات الانحدار الملفات الصغيرة، وقيم التقدم الزائدة، وإعادة تشكيل نطاق مع معرف ثابت.
+Fix implemented: The number of segments is limited by available bytes, each segment counter is saturated at its range length, and aggregated progress is saturated at file size. A live value is not retained across a reshuffle unless the segment ID and its bounds remain identical. Regression tests cover small files, excessive progress values, and reshaping a range with a fixed identifier.
 
-## C-AUD-019: نجاح تنزيل لاحق لم يكن يسوّي تاريخ الأعطال الصحي كاملاً
+## C-AUD-019: later successful download did not fully settle host failure history
 
-**الشدة:** متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Medium. **Status:** Fixed and tested.
 
-كانت `SelfHealer::on_success` تصف آخر سجل عطل فقط بأنه ناجح، ثم تمحو العداد المضيفي. تبقى الأعطال الأقدم لنفس المضيف غير محلولة في السجل، فتستمر `health_status` في الإبلاغ عن حالة متدهورة رغم نجاح النقل، كما يمكن أن تنفصل خريطة العدادات عن نافذة الاحتفاظ عند حذف السجلات الأقدم.
+`SelfHealer::on_success` marked only the last failure record as resolved and then cleared the host counter. Older failures for the same host remained unresolved in the history, so `health_status` could continue reporting degraded condition despite the successful transfer, and the host failure map could diverge from retention windows when old records were removed.
 
-**العلاج المطبق:** يُعلَّم كل سجل محتفَظ به للمضيف الناجح على أنه محلول، وتستثني حالة الصحة الأعطال المحلولة، وتخضع خريطة الأعطال المضيفية لنفس حد الاحتفاظ بالسجل. كما أصبح عداد عمليات التعافي مشبعًا. تغطي اختبارات الانحدار تسوية الصحة بعد النجاح وحذف سجل قديم مع عدادات مضيفين متعددة.
+Fix implemented: Every stored record for the successful host is marked resolved, health state excludes resolved failures, and the host failure map follows the same retention window as the record store. The recovery counter is now saturated. Regression tests cover health settlement after success and deletion of an old record with multiple host counters.
 
-## C-AUD-020: منسق الاتصالات كان يتجاوز السقف عند عدم بقاء سعة
+## C-AUD-020: connection coordinator could exceed the cap when capacity was exhausted
 
-**الشدة:** متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Medium. **Status:** Fixed and tested.
 
-كان `recommended_connections_for_host` يقيّد التوصية بالسعة المتاحة ثم يفرض حدًا أدنى قدره اتصال واحد. عند امتلاء السقف العالمي أو سقف المضيف كانت النتيجة صفرًا قبل هذا الفرض، ثم تعود واحدًا وتسمح بتجاوز الميزانية. كما كان جمع اتصالات المضيفين وزيادة عداد مضيف قابلة للفيضان.
+`recommended_connections_for_host` limited recommendations by available capacity then enforced a minimum of one connection. When the global or host cap was exhausted the intermediate result was zero before that enforcement, then it returned one and allowed budget overruns. Host connection summation and host counter increment were also overflowable.
 
-**العلاج المطبق:** تعود التوصية الآن بصفر صريح عند انعدام السعة ليؤجل المستهلك المهمة، ويستعمل الجمع والزيادة عمليات مشبعة. تثبت اختبارات الانحدار السعة العالمية والمضيفية المستنفدة والعداد عند `u32::MAX`.
+Fix implemented: The recommendation now returns an explicit zero when no capacity remains to defer the consumer, and summation/increment use saturated operations. Regression tests verify exhausted global and host capacity and behavior at `u32::MAX`.
 
-## C-AUD-021: تسلسل أحداث متداخل عميق كان قد يستنفد مكدس خادم التقدم الحي
+## C-AUD-021: deep nested event sequencing could exhaust live-progress server stack
 
-**الشدة:** متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Medium. **Status:** Fixed and tested.
 
-بعد إتمام إعلام المشتركين، كان ناقل الأحداث يعيد استدعاء `publish` مباشرة لكل حدث متداخل في الطابور. مشترك ينشر حدث متابعة واحدًا لكل حدث يمكنه صنع سلسلة بلا حد عملي من الاستدعاءات المتداخلة؛ لا يصل ذلك إلى سقف قائمة الأحداث المعلقة، لكنه قد يستنفد مكدس الخيط ويوقف بث التقدم الحي. كما كانت سعة سجل صفرية ومعرّف مشترك عند الحد الأعلى تؤديان إلى فهرسة غير صالحة أو إعادة استخدام معرّف.
+After notifying subscribers, the event channel would re-invoke `publish` directly for each nested event in the queue. A subscriber that publishes one follow-up event per event could create a chain with no practical bound of nested calls; although this did not exhaust the pending event list, it could exhaust the thread stack and stop live progress broadcasting. A zero record capacity and a subscriber ID at the max value could also cause invalid indexing or reuse of an ID.
 
-**العلاج المطبق:** تُعالج الأحداث المتداخلة في طابور FIFO محلي تكراري يحفظ ترتيب النشر ولا ينمو معه المكدس. وتُطبع سعة السجل إلى واحد، ولا يصدر الناقل معرّفًا مكررًا عند استنفاد المجال بل يعيد القيمة الصفرية المحجوزة للفشل. يثبت اختبار سلسلة من 4097 حدث متابعة بقاء الترتيب والتسليم صحيحين.
+Fix implemented: Nested events are processed in a local iterative FIFO queue that preserves publish order without growing the stack. Record capacity is printed to at least one, and the bus does not issue duplicate IDs when the space is exhausted; it returns the reserved zero value to signal failure. A test of 4097 follow-up events preserves ordering and correct delivery.
 
-## C-AUD-022: اختيار محرك curl كان يرفض مخطط URI الصالح بحروف كبيرة أو مختلطة
+## C-AUD-022: curl engine selection rejected valid URI schemes with mixed-case
 
-**الشدة:** متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Medium. **Status:** Fixed and tested.
 
-كان `CurlExtractor::can_handle` يقارن بادئات نصية صغيرة فقط مثل `https://`. مخططات URI غير حساسة لحالة الأحرف، لذلك يمكن للرابط الصحيح `HTTPS://...` أو `FtP://...` أن يفشل قبل خط التحليل والتنزيل، رغم قدرة محلل URL والنقل على التعامل معه.
+`CurlExtractor::can_handle` compared lowercase prefixes only such as `https://`. URI schemes are case-insensitive, so a valid link like `HTTPS://...` or `FtP://...` could fail before parsing and download, despite the URL parser and transport being able to handle it.
 
-**العلاج المطبق:** يستخرج الاختيار المخطط ويقارنه بحالة أحرف غير حساسة عبر `eq_ignore_ascii_case` لجميع بروتوكولات curl المعتمدة، مع إبقاء استبعاد خيارات الوسائط. يغطي اختبار انحدار HTTP وHTTPS وFTP وSFTP وSCP بالحروف المختلطة، ويثبت رفض المخططات غير المدعومة.
+Fix implemented: The selector extracts the scheme and compares case-insensitively via `eq_ignore_ascii_case` for all supported curl protocols, while preserving media option exclusion. Regression tests cover mixed-case HTTP, HTTPS, FTP, SFTP, and SCP and confirm rejection of unsupported schemes.
 
-## C-AUD-023: واجهة الإضافات كانت تقبل إعدادات غير معرّفة وتطبق تحديثًا جزئيًا
+## C-AUD-023: plugin interface accepted undefined settings and applied partial updates
 
-**الشدة:** متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Medium. **Status:** Fixed and tested.
 
-تستقبل نقاط HTTP العامة للإضافات خريطة إعدادات من العميل. كان `update_plugin_settings` يضيف كل مفتاح مباشرة، حتى إن لم يكن موجودًا في `PluginManifest.settings`. ولأن الإدخال كان يُطبّق داخل الحلقة، فإن أي تحقق لاحق يمكن أن يترك حالة جزئية. كما كان بيان الإضافة يقبل معرفًا فارغًا، وهو غير صالح للاستخدام في المسارات أو إدارة الحالة.
+Public HTTP endpoints for plugins accepted a settings map from the client. `update_plugin_settings` added every key directly, even when not present in `PluginManifest.settings`. Because the input was applied inside the loop, subsequent validation could leave the state partially updated. The plugin manifest also accepted an empty identifier, which is invalid for paths or state management.
 
-**العلاج المطبق:** يُرفض المعرف الفارغ عند التسجيل، ويُتحقق من جميع مفاتيح الإعدادات مقابل البيان قبل تغيير أي حالة؛ ثم يُطبق التحديث دفعة واحدة. تثبت الاختبارات رفض المفتاح غير المعلن مع بقاء القيمة المعلنة السابقة دون تغيير.
+Fix implemented: Empty identifiers are rejected at registration, setting keys are validated against the manifest before changing any state, and updates are applied atomically. Tests prove an undeclared key is rejected while the previously declared value remains unchanged.
 
-## C-AUD-024: واجهة القواعد كانت تعلن النجاح لقواعد معطوبة وتفقد امتداد الروابط الموقعة
+## C-AUD-024: rules interface reported success for malformed rules and lost signed-link extension
 
-**الشدة:** متوسطة. **الحالة:** أصلح واختبر.
+**Severity:** Medium. **Status:** Fixed and tested.
 
-كانت `add_rule` تسجّل regex غير الصحيح ثم تعود بلا خطأ، بينما تعيد نقطة HTTP نجاحًا غير مشروط. كما كان بالإمكان إضافة معرّف قاعدة مكرر، فينتج تنفيذ الفعل نفسه أكثر من مرة. وفحص `UrlExtension` طبق نهاية الرابط كاملة؛ لذلك لا يطابق `archive.zip?signature=...#...`، مع أن الامتداد الحقيقي في المسار هو `.zip`.
+`add_rule` recorded an invalid regex then returned without error, while the HTTP endpoint unconditionally returned success. Duplicate rule identifiers could be added, causing the same action to execute multiple times. The `UrlExtension` check applied to the full link end; it therefore did not match `archive.zip?signature=...#...` even though the actual path extension is `.zip`.
 
-**العلاج المطبق:** تضيف الواجهة المتحققة `try_add_rule` تحقق المعرف والـ regex والتكرار وتعيد الخطأ إلى HTTP؛ وتبقى دالة الاختبار فقط للمسارات الداخلية. يستبعد فحص الامتداد الاستعلام والشظية قبل المطابقة. تغطي الاختبارات الأخطاء القابلة للإبلاغ، الذرية، التكرار، والرابط الموقّع.
+Fix implemented: The validated interface `try_add_rule` validates the identifier, the regex, and duplication and returns an error to HTTP; a separate test-only function remains for internal path checks. The extension check now strips query and fragment before matching. Tests cover reportable errors, atomicity, duplication, and signed links.

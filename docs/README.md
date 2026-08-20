@@ -25,6 +25,11 @@ This directory is the canonical documentation home for NOVA Download Manager. Th
 - [Zero-click pairing](extension/ZERO_CLICK_PAIRING.md)
 - [CI templates](extension/ci-templates/) — archived extension CI/build templates kept as documentation only; executable CI lives under root `.github/`.
 
+## Verification and research
+
+- [Managed tools and browser extension verification](verification/MANAGED_TOOLS_AND_EXTENSION_VERIFICATION_2026-08-20.md) — exact implementation scope, live acceptance evidence, quality gates, and platform boundaries for the current working-tree repair.
+- [yt-dlp installation source notes](research/ytdlp-installation-sources.md) — upstream release-file facts used by NOVA's managed-install design.
+
 ## Maintenance
 
 - [Dependabot and maintenance](maintenance/DEPENDABOT_AND_MAINTENANCE.md) — root Dependabot policy plus the auto-merge lane and its one-time GitHub settings.
@@ -46,6 +51,7 @@ Standard project metadata files are kept at the repository root because tooling 
 - `docs/architecture/ENGINE_COMPATIBILITY.md`
 - `docs/extension/README.md`
 - `docs/maintenance/DEPENDABOT_AND_MAINTENANCE.md`
+- `docs/verification/MANAGED_TOOLS_AND_EXTENSION_VERIFICATION_2026-08-20.md`
 
 ## Documentation policy
 

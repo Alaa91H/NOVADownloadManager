@@ -172,7 +172,8 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
 
     if let Some(job) = record {
         log::info!("Starting yt-dlp process for task {id}");
-        let mut cmd = Command::new(&state.ytdlp_bin);
+        let ytdlp_bin = state.ytdlp_binary();
+        let mut cmd = Command::new(&ytdlp_bin);
         hide_command_window(&mut cmd);
         match cmd
             .args(&job.args)
@@ -1027,14 +1028,12 @@ pub async fn create_ytdlp_task(
         }
     }
 
+    let ytdlp_bin = state.ytdlp_binary();
+    let ffmpeg_bin = state.ffmpeg_binary();
     if let Some(media_options) = body.media_options.as_ref() {
-        engine_capabilities::validate_ytdlp_media_options(
-            &state.ytdlp_bin,
-            &state.ffmpeg_bin,
-            media_options,
-        )?;
+        engine_capabilities::validate_ytdlp_media_options(&ytdlp_bin, &ffmpeg_bin, media_options)?;
     }
-    let args = build_ytdlp_args_with_engines(body, Some(&state.ffmpeg_bin))?;
+    let args = build_ytdlp_args_with_engines(body, Some(&ffmpeg_bin))?;
     let should_start = body.start_immediately.unwrap_or(true);
 
     let task = Task {

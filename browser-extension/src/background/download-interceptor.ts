@@ -10,6 +10,7 @@ import { installDnrRules, removeDnrRules } from './dnr-rules';
 const STORAGE_KEY = 'nova-download-state';
 const CANCEL_RETRIES = 5;
 const CANCEL_DELAY = 50;
+const RESTART_BYPASS_TTL_MS = 15_000;
 
 type ChromeDownloadItem = browser.Downloads.DownloadItem & {
   finalUrl?: string;
@@ -32,6 +33,22 @@ interface DownloadState {
 
 let interceptorReady = false;
 let pendingDownloads = new Set<number>();
+// A restarted browser download emits onCreated again. Without this one-shot
+// bypass, the interceptor cancels its own recovery request and the user loses
+// a download that policy intentionally declined to take over.
+const restartBypassUntil = new Map<string, number>();
+
+function restartBypassKey(item: ChromeDownloadItem): string {
+  return `${item.url}\u0000${item.filename ?? ''}`;
+}
+
+function consumeRestartBypass(item: ChromeDownloadItem): boolean {
+  const key = restartBypassKey(item);
+  const expiresAt = restartBypassUntil.get(key);
+  if (expiresAt === undefined) return false;
+  restartBypassUntil.delete(key);
+  return expiresAt >= Date.now();
+}
 
 async function loadState(): Promise<Map<number, DownloadState>> {
   try {
@@ -132,6 +149,7 @@ export async function unregisterDownloadInterceptor(): Promise<void> {
 export async function handleDownload(item: ChromeDownloadItem): Promise<void> {
   if (!item.url) return;
   if (typeof item.id !== 'number') return;
+  if (consumeRestartBypass(item)) return;
   if (pendingDownloads.has(item.id)) return;
 
   pendingDownloads.add(item.id);
@@ -395,6 +413,8 @@ export async function handleManualCapture(payload: {
 /// closely as possible (URL, filename, referrer) so the user experience is
 /// identical to having never intercepted.
 async function restartNativeDownload(item: ChromeDownloadItem): Promise<void> {
+  const key = restartBypassKey(item);
+  restartBypassUntil.set(key, Date.now() + RESTART_BYPASS_TTL_MS);
   try {
     await browser.downloads.download({
       url: item.url,
@@ -403,8 +423,9 @@ async function restartNativeDownload(item: ChromeDownloadItem): Promise<void> {
       saveAs: false,
     });
   } catch (e) {
-    // If restart fails (e.g. invalid URL, permission revoked), the user has
-    // lost the download. Log loudly so the issue is discoverable.
+    // Do not leave a bypass behind if the browser refused to create the
+    // replacement; a later user-initiated download must still be evaluated.
+    restartBypassUntil.delete(key);
     console.error('download-interceptor: failed to restart native download after cancel', e, item.url);
   }
 }

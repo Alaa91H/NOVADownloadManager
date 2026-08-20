@@ -29,12 +29,6 @@ impl CapabilityResolver {
         self.installations.remove(&tool_id);
     }
 
-    pub fn is_capable(&self, capability_id: &str) -> bool {
-        self.installations.values().any(|inst| {
-            inst.status.is_available() && inst.capabilities.iter().any(|c| c.id == capability_id)
-        })
-    }
-
     pub fn resolve_capability(&self, capability_id: &str) -> CapabilityAvailability {
         for installation in self.installations.values() {
             if installation.status.is_available() {

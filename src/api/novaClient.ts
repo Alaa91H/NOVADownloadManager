@@ -561,8 +561,19 @@ export const novaClient = {
     return request(`/api/external-tools/${toolId}/check-updates`, { method: 'POST' }, 30000);
   },
 
-  async installExternalTool(toolId: string): Promise<{ ok: boolean; path?: string; status?: string; error?: string }> {
-    return request(`/api/external-tools/${toolId}/install`, { method: 'POST' }, 120000);
+  async installExternalTool(
+    toolId: string,
+    scope: 'user' | 'system' = 'user',
+  ): Promise<{ ok: boolean; path?: string; status?: string; scope?: 'user' | 'system'; error?: string }> {
+    return request(
+      `/api/external-tools/${toolId}/install`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope }),
+      },
+      120000,
+    );
   },
 
   async updateExternalTool(toolId: string): Promise<{ ok: boolean; path?: string; status?: string; error?: string }> {

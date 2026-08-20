@@ -1,136 +1,102 @@
-﻿<p align="center">
-  <img src="public/icons/logo.png" alt="NOVA logo" width="128" />
-</p>
+﻿# NOVA Browser Extension
 
-# NOVA Browser Extension
+> The Manifest V3 browser companion for **NOVA Download Manager**. It discovers eligible download and media candidates in the browser, then hands them to the local NOVA desktop application through Native Messaging or the authenticated loopback bridge.
 
-> Browser companion for **NOVA Browser Extension** â€” detects downloads, media streams, HLS/DASH manifests, torrents, and magnets across all sites, then hands them to the desktop NOVA Browser Extension application via Native Messaging.
+## Product boundaries
+
+The extension is a companion, not a bypass mechanism. It does not circumvent DRM, account access controls, browser security boundaries, or service terms. A candidate can be handed to NOVA only when the desktop daemon advertises the relevant runtime capability and accepts the authenticated request.
+
+| Capability | What the extension does | What NOVA Desktop decides |
+|---|---|---|
+| Direct files | Detects links, browser downloads, and safe network evidence | Validates protocol and starts the libcurl task |
+| HLS and DASH | Detects manifests and presents available candidates | Resolves and downloads supported media through yt-dlp/FFmpeg |
+| Browser download takeover | Cancels an eligible browser download early and places a durable handoff job in the outbox | Accepts the candidate when the daemon is reachable; retries are safe and idempotent |
+| Recovery after a policy decline | Restarts the browser download once and bypasses its own restart event | Does not create a NOVA task |
+| Pairing and events | Performs trusted-local pairing and listens for daemon events | Issues and validates scoped loopback bearer tokens |
 
 ## Features
 
-- **Aggressive Capture Mode** â€” user-approved all-sites access for broader discovery beyond the default conservative profile; requests `<all_urls>` permission and enables expanded DOM scanning, network observation, and download interception
-- **Multiâ€‘protocol video detection** â€” intercepts `fetch()`, `XHR`, `MediaSource` (MSE), `WebSocket`, `EventSource` (SSE), and `URL.createObjectURL` in the page context to capture streaming manifests and segments
-- **Deep DOM scanning** â€” JSONâ€‘LD `VideoObject`, embedded iframe players (YouTube, Vimeo, Dailymotion, Twitch, Kick), `<video>` / `<audio>` / `<source>` / `<track>` elements, Open Graph / Twitter Card meta tags, and linkâ€‘rel manifests
-- **Noise filtering** â€” regexâ€‘based blocklist excludes ads, trackers, analytics, CDNs, and tracking pixels from candidate detection
-- **Resolution change monitoring** â€” observes `resize`, `ratechange`, `durationchange` events and 16 videoâ€‘related `data-*` attributes for adaptive bitrate switches
-- **Smart overlay** â€” draggable floating download button with pulseâ€‘glow animation; autoâ€‘positions near the first `<video>` element; shows candidate picker with quality / resolution / format badges
-- **HLS / DASH** â€” playlist parsing, variant resolution extraction, segment URL collection
-- **Torrent & magnet** â€” `.torrent` files and `magnet:` URI detection
-- **Pairing** â€” automatic zeroâ€‘click pairing via Native Messaging; fallback `Link with NOVA Browser Extension` in popup
-- **Privacyâ€‘first** â€” no remote code, no telemetry, no cookie collection; all communication is local (Native Messaging or loopback `127.0.0.1`)
-- **Manifest V3** â€” works on Chrome, Edge (116+), and Firefox (128+)
+The extension supports direct-link capture, context-menu capture, deep DOM scanning, media-element inspection, OpenGraph and JSON-LD discovery, HLS/DASH detection, and filtered candidate presentation. Its user-approved aggressive profile expands discovery through page-context `fetch`, XHR, `MediaSource`, WebSocket, EventSource, object-URL, and network-observer evidence. Platform-specific adapters improve extraction confidence for supported sites; they do not guarantee that every service or every protected stream can be downloaded.
 
-## Quick Start
+The floating video control is draggable, persists its position as a relative viewport location, and returns to its default upper-right placement on double click. The extension stores queued handoff requests in its outbox so a browser-captured item can be retried after the desktop application becomes reachable.
 
-```bash
-corepack enable
-pnpm install
-python -m pip install pytest ruff
-pnpm exec playwright install chromium
-pnpm dev
-```
+## Local bridge and pairing
+
+NOVA uses a local-only transport model. Chromium-family builds use a pinned extension origin for the loopback pairing fallback; the Native Messaging host `com.nova.downloadmanager` is preferred because it does not expose the pairing token to unrelated extensions. Firefox relies on the registered native host because its profile-specific extension origin is not a stable allowlist boundary.
+
+The complete protocol and security model are documented in the following canonical files:
+
+- [Extension architecture](ARCHITECTURE.md) — layer boundaries, lifecycle, capture pipeline, and transport roles. (`docs/extension/ARCHITECTURE.md`)
+- [Desktop runtime requirements](DESKTOP_RUNTIME_REQUIREMENTS.md) — daemon, Native Messaging, loopback, and diagnostics prerequisites. (`docs/extension/DESKTOP_RUNTIME_REQUIREMENTS.md`)
+- [Zero-click pairing](ZERO_CLICK_PAIRING.md) — trusted-local pairing and token lifecycle. (`docs/extension/ZERO_CLICK_PAIRING.md`)
+- [Protocol](PROTOCOL.md) — versioned API messages and capability contract.
+- [Security](SECURITY.md) — local trust boundary, permissions, redaction, and payload limits.
+- [Privacy](PRIVACY.md) — data handling and non-collection commitments.
 
 ## Requirements
 
-| Tool      | Version         |
-|-----------|-----------------|
-| Node.js   | `>=24 <27`      |
-| pnpm      | `>=11 <12` (pinned to `11.6.0`) |
-| Python    | 3.11+           |
-| Playwright| Chromium (for E2E tests) |
+| Tool or component | Supported requirement | Purpose |
+|---|---|---|
+| Node.js | `>=24 <27` | Build tools and automated tests |
+| pnpm | `>=11 <12` | Workspace package manager |
+| Python | 3.11+ | Policy and compatibility tests |
+| Chromium | Current Playwright-compatible version | Browser automation where enabled |
+| NOVA Desktop | Running local daemon and installed native host for full handoff | Pairing, capabilities, task delivery, and task events |
 
-## Development
+## Desktop launch and connection
 
-### Commands
+**NOVA Download Manager Extension** expects the desktop application to be installed and running. The desktop side maintains a `single-instance` runtime and exposes its local bridge at `http://127.0.0.1:3199` unless an alternate safe loopback port is selected. Browser integration is **Default: ON** when the daemon reports it available; the extension still verifies protocol compatibility and pairing before enabling task handoff.
 
-| Command                         | Purpose |
-|---------------------------------|---------|
-| `pnpm dev`                      | Start dev server (Chrome MV3) |
-| `pnpm typecheck`                | TypeScript strict check |
-| `pnpm lint`                     | ESLint |
-| `pnpm test`                     | Vitest unit + contract + integration |
-| `pnpm test:e2e`                 | Playwright E2E smoke tests |
-| `pnpm test:py`                  | Python policy / CI / compatibility tests |
-| `pnpm ci`                       | Full CI pipeline (typecheck, lint, test, build, E2E, verify) |
-| `pnpm fake-nova`                 | Start fake NOVA Browser Extension daemon for integration testing |
+The popup presents **Link with NOVA** when it needs to pair or repair a pairing. Keep the desktop application running; choosing **Minimize to system tray** is supported when closing its window, so background downloads and the browser bridge can remain available without leaving the main window open.
 
-### Build
+## Development commands
+
+Run commands from the repository root unless noted otherwise.
 
 ```bash
-pnpm build:chrome         # Chrome MV3
-pnpm build:edge           # Edge MV3
-pnpm build:firefox        # Firefox MV3
-pnpm build:store          # Storeâ€‘optimised build (minimal permissions)
-pnpm build:zip            # Full build + zip packaging
+# Extension development and routine checks
+pnpm --filter nova-browser-extension dev
+pnpm --filter nova-browser-extension typecheck
+pnpm --filter nova-browser-extension lint
+pnpm --filter nova-browser-extension test
+pnpm --filter nova-browser-extension test:e2e
+pnpm --filter nova-browser-extension run ci
+# Equivalent commands from browser-extension/:
+# pnpm test:e2e
+# pnpm run ci
+python3 -m pytest browser-extension/tests/ -q
+
+# Packaging and store-readiness checks
+pnpm --filter nova-browser-extension build:zip
+pnpm --filter nova-browser-extension verify:offline
+pnpm --filter nova-browser-extension verify:store
 ```
 
-Output artifacts are written to `dist/`.
+The `test` command executes unit, contract, and loopback-integration coverage. The actual daemon acceptance script at `scripts/verify_real_extension_handoff.sh` verifies ping, trusted pairing, bearer authentication, and direct candidate handoff against an integration daemon. Its exact scope and limitations are recorded in the [managed-tools and extension verification report](../verification/MANAGED_TOOLS_AND_EXTENSION_VERIFICATION_2026-08-20.md).
 
-### Verification
+## Project layout
 
-```bash
-pnpm verify:release:reuse-build    # 13 release gates (deps, transport, storage, runtime, permissions, architecture, package, hygiene, production)
-pnpm verify:highest                 # All gates including store readiness
-pnpm verify:store                   # Storeâ€‘specific policy checks
+```text
+browser-extension/
+├─ src/background/       Manifest V3 service worker and download interception
+├─ src/bridge/           pairing, capabilities, reconnect policy, and handoff gateway
+├─ src/capture/          page scan, network evidence, media and manifest capture
+├─ src/content/          isolated-world scanner and MAIN-world page tap
+├─ src/contracts/        protocol and candidate schemas
+├─ src/outbox/           durable, idempotent handoff queue and retry worker
+├─ src/transport/        Native Messaging, loopback HTTP, SSE, and WebSocket adapters
+├─ src/ui/               popup, options, overlay, and diagnostics interface
+├─ src/tests/            unit, contract, and integration tests
+├─ tests/                Python policy, compatibility, and packaging checks
+└─ native-messaging/     host manifest templates
 ```
 
-## Project Structure
+## Documentation and CI
 
-```
-src/                  Extension source
-  background/         Background service worker (message router, cache, transport)
-  capture/            Capture pipeline (page scanner, candidate extraction)
-  content/            Content scripts (DOM scanner, page-tap main/bridge)
-  contracts/          Message schemas & type definitions
-  pipeline/           Candidate classification, enrichment, evidence
-  ui/                 Popup, options, overlay, diagnostics panels
-  transport/          Native Messaging / WebSocket relay
-  tests/              Vitest unit, contract, integration tests
-tests/                Python policy, CI, and compatibility tests
-tools/                Build, release, policy, and hardening tools
-native-messaging/     Native host manifest template
-fake-nova-daemon/      Local loopback NOVA Browser Extension daemon for integration testing
-contracts/            JSON Schema desktop bridge contracts (generated)
-store/                Chrome, Edge, and Firefox store listings
-```
+Repository documentation is centralized under `docs/`; the executable workflow is `.github/workflows/ci.yml`. The CI guide is [docs/release/CI.md](../release/CI.md). It describes the relevant workflow stages, the distinction between source checks and platform builds, and the expected verification commands. (`docs/release/CI.md`)
 
-## Architecture
-
-The extension follows a multiâ€‘layer architecture:
-
-1. **Content layer** â€” two content scripts:
-   - `page-tap-main.ts` (MAIN world, `document_start`) â€” patches `fetch`, `XHR`, `MediaSource`, `WebSocket`, `EventSource`, `URL.createObjectURL`, observes performance resources and DOM mutations
-   - `scanner.ts` (isolated world) â€” DOMâ€‘based candidate scanning, JSONâ€‘LD parsing, iframe detection, overlay management
-2. **Bridge layer** â€” `page-tap-bridge.ts` validates and forwards postMessage events from the MAIN world to the background via `chrome.runtime.sendMessage`
-3. **Background layer** â€” `message-router.ts` receives candidates, enriches metadata, runs platformâ€‘specific confidence adjustment, merges into the candidate cache
-4. **Pipeline layer** â€” `CapturePipeline` orchestrates page scans, `MetadataEnricher` resolves resolutions, variant playlists, and format details
-5. **Transport layer** â€” `TransportManager` maintains the Native Messaging connection with the desktop daemon; `BridgeManager` handles pairing, capability exchange, and message relay
-
-## Intercepted Protocols
-
-| API                     | Initiator Type        | Detection Method |
-|-------------------------|-----------------------|------------------|
-| `fetch()`               | `fetch`               | Response URL + Contentâ€‘Type header |
-| `XMLHttpRequest`        | `xhr`                 | Response URL + Contentâ€‘Type header |
-| `MediaSource`           | `mediasource`         | `addSourceBuffer()` MIME type |
-| `WebSocket`             | `websocket`           | Constructor URL parameter |
-| `EventSource` (SSE)     | `eventsource`         | Constructor URL parameter |
-| `URL.createObjectURL`   | `blob-url`            | Blob / MediaSource MIME type |
-| `PerformanceObserver`   | `performance-resource`| Resource Timing API entries |
-| DOM elements            | `media-src` / `source-src` | `<video>` / `<audio>` / `<source>` src attributes |
-| Player configs          | `player-config`       | Global JS objects (e.g. `ytInitialPlayerResponse`) |
-
-## Privacy & Security
-
-- All NOVA Browser Extension communication is local â€” Native Messaging or loopback `127.0.0.1:3199`
-- Bearer tokens stored in extensionâ€‘local storage only
-- Tokens, cookies, Authorization headers, and sensitive query parameters are redacted from diagnostics
-- No remote code execution, no eval, no telemetry, no browsing history collection
-- Content Security Policy restricts scripts to `'self'`
-- DRM detection is entirely removed â€” no key system capture, no encryptedâ€‘media event logging
-- Permissionâ€‘minimal default profile; broader capture is optâ€‘in via settings
-- Store build uses optional permissions (`<all_urls>` is optional, granted at user request)
+For visual behavior, permissions, and user-facing capture settings, see [Overlay](OVERLAY.md), [Permissions](PERMISSIONS.md), [Aggressive Capture Mode](AGGRESSIVE_CAPTURE_MODE.md), and [DRM Guard](DRM_GUARD.md).
 
 ## License
 
-MIT — see [LICENSE](../../LICENSE)
+NOVA Browser Extension is distributed under the MIT License. See [LICENSE](../../LICENSE).

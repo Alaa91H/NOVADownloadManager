@@ -1,10 +1,17 @@
-use crate::daemon::external_tools::types::ToolId;
+use crate::daemon::external_tools::types::{InstallScope, ToolId};
 use crate::daemon::state::SharedState;
 use crate::lock_or_err;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
+
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InstallRequest {
+    #[serde(default)]
+    scope: InstallScope,
+}
 
 pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
     router
@@ -119,26 +126,47 @@ async fn handle_check_updates(
 async fn handle_install(
     State(state): State<SharedState>,
     Path(tool_id): Path<String>,
+    body: Option<Json<InstallRequest>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let id = parse_tool_id(&tool_id)?;
-    let manager = lock_or_err!(state.external_tools);
-    match manager.install(id) {
+    let scope = body.map(|Json(request)| request.scope).unwrap_or_default();
+    let manager = state.external_tools.clone();
+    let install_result = tokio::task::spawn_blocking(move || {
+        let manager = lock_or_err!(manager);
+        manager.install_in_scope(id, scope)
+    })
+    .await
+    .map_err(|error| {
+        log::error!("External-tool install worker panicked: {error}");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "External-tool install worker failed"})),
+        )
+    })?;
+
+    match install_result {
         Ok(path) => {
-            let installation = manager.discover(id);
-            drop(manager);
+            state
+                .activate_external_tool(id, path.clone())
+                .map_err(|error| {
+                    log::error!("Installed external tool could not be activated: {error}");
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"error": error})),
+                    )
+                })?;
             Ok(Json(serde_json::json!({
                 "ok": true,
                 "path": path,
-                "status": installation.status.display_text(),
+                "status": "Installed",
+                "scope": scope,
             })))
         }
-        Err(error) => {
-            drop(manager);
-            Ok(Json(serde_json::json!({
-                "ok": false,
-                "error": error,
-            })))
-        }
+        Err(error) => Ok(Json(serde_json::json!({
+            "ok": false,
+            "error": error,
+            "scope": scope,
+        }))),
     }
 }
 
@@ -147,24 +175,41 @@ async fn handle_update(
     Path(tool_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let id = parse_tool_id(&tool_id)?;
-    let manager = lock_or_err!(state.external_tools);
-    match manager.update(id) {
+    let manager = state.external_tools.clone();
+    let update_result = tokio::task::spawn_blocking(move || {
+        let manager = lock_or_err!(manager);
+        manager.update(id)
+    })
+    .await
+    .map_err(|error| {
+        log::error!("External-tool update worker panicked: {error}");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "External-tool update worker failed"})),
+        )
+    })?;
+
+    match update_result {
         Ok(path) => {
-            let installation = manager.discover(id);
-            drop(manager);
+            state
+                .activate_external_tool(id, path.clone())
+                .map_err(|error| {
+                    log::error!("Updated external tool could not be activated: {error}");
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"error": error})),
+                    )
+                })?;
             Ok(Json(serde_json::json!({
                 "ok": true,
                 "path": path,
-                "status": installation.status.display_text(),
+                "status": "Installed",
             })))
         }
-        Err(e) => {
-            drop(manager);
-            Ok(Json(serde_json::json!({
-                "ok": false,
-                "error": e,
-            })))
-        }
+        Err(error) => Ok(Json(serde_json::json!({
+            "ok": false,
+            "error": error,
+        }))),
     }
 }
 
@@ -226,21 +271,32 @@ async fn handle_uninstall(
     Path(tool_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let id = parse_tool_id(&tool_id)?;
-    let manager = lock_or_err!(state.external_tools);
-    match manager.uninstall(id) {
+    let manager = state.external_tools.clone();
+    let uninstall_result = tokio::task::spawn_blocking(move || {
+        let manager = lock_or_err!(manager);
+        manager.uninstall(id)
+    })
+    .await
+    .map_err(|error| {
+        log::error!("External-tool uninstall worker panicked: {error}");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "External-tool uninstall worker failed"})),
+        )
+    })?;
+
+    match uninstall_result {
         Ok(()) => {
-            drop(manager);
-            Ok(Json(serde_json::json!({
-                "ok": true,
-            })))
+            state.deactivate_external_tool(id).map_err(|error| {
+                log::error!("Uninstalled external tool could not be deactivated: {error}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": error})),
+                )
+            })?;
+            Ok(Json(serde_json::json!({"ok": true})))
         }
-        Err(e) => {
-            drop(manager);
-            Ok(Json(serde_json::json!({
-                "ok": false,
-                "error": e,
-            })))
-        }
+        Err(error) => Ok(Json(serde_json::json!({"ok": false, "error": error}))),
     }
 }
 

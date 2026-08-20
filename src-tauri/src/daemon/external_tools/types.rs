@@ -54,6 +54,17 @@ pub enum ToolStatus {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InstallScope {
+    /// A NOVA-owned, per-user directory that is writable without elevation.
+    #[default]
+    User,
+    /// A shared operating-system location. On Windows this is under
+    /// `%ProgramFiles%` and requires the daemon process to be elevated.
+    System,
+}
+
 impl ToolStatus {
     pub const fn is_available(&self) -> bool {
         matches!(self, Self::Installed)
@@ -256,6 +267,8 @@ pub struct ToolRegistryEntry {
     pub installed_at: Option<String>,
     pub custom_path: bool,
     pub auto_update: bool,
+    #[serde(default)]
+    pub install_scope: InstallScope,
     pub checksum_sha256: Option<String>,
 }
 

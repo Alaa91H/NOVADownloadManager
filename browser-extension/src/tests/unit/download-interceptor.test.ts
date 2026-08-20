@@ -15,6 +15,7 @@ const harness = vi.hoisted(() => {
   const changedListeners: Array<(delta: unknown) => void> = [];
   const sendCandidate = vi.fn();
   const cancel = vi.fn(() => Promise.resolve());
+  const download = vi.fn(() => Promise.resolve(9001));
   const sendMessage = vi.fn(() => Promise.resolve(undefined));
 
   const storageLocal = {
@@ -41,12 +42,14 @@ const harness = vi.hoisted(() => {
         onCreated: { addListener: (listener: DownloadCreatedListener) => createdListeners.push(listener) },
         onChanged: { addListener: (listener: (delta: unknown) => void) => changedListeners.push(listener) },
         cancel,
+        download,
         erase: vi.fn(() => Promise.resolve()),
       },
       storage: { local: storageLocal },
       tabs: { sendMessage },
     },
     cancel,
+    download,
     changedListeners,
     createdListeners,
     sendCandidate,
@@ -86,6 +89,7 @@ describe('download interceptor takeover', () => {
     harness.createdListeners.length = 0;
     harness.changedListeners.length = 0;
     harness.cancel.mockClear();
+    harness.download.mockClear();
     harness.sendMessage.mockClear();
     harness.sendCandidate.mockReset();
     harness.sendCandidate.mockResolvedValue({ status: 'sent' });
@@ -121,6 +125,41 @@ describe('download interceptor takeover', () => {
 
     await waitFor(() => expect(harness.sendCandidate).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(harness.cancel).toHaveBeenCalledWith(77));
+  }, 15_000);
+
+  it('allows the one-shot browser restart when takeover policy declines after cancellation', async () => {
+    harness.store.set('nova.settings', {
+      ...defaultSettings,
+      enabled: true,
+      capture: {
+        ...defaultSettings.capture,
+        downloads: true,
+        aggressiveMode: false,
+        takeoverEnabled: true,
+        takeoverMinSizeMB: 100,
+        takeoverFileTypes: [],
+        neverTakeoverHosts: [],
+        alwaysTakeoverHosts: [],
+      },
+    });
+    const { registerDownloadInterceptor } = await import('../../background/download-interceptor');
+    registerDownloadInterceptor();
+
+    const original = {
+      id: 91,
+      url: 'https://example.com/small.zip',
+      filename: 'small.zip',
+      totalBytes: 1024,
+      tabId: 1,
+    };
+    harness.createdListeners[0]?.(original);
+    await waitFor(() => expect(harness.cancel).toHaveBeenCalledWith(91));
+    await waitFor(() => expect(harness.download).toHaveBeenCalledWith(expect.objectContaining({ url: original.url })));
+
+    harness.createdListeners[0]?.({ ...original, id: 92 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(harness.cancel).not.toHaveBeenCalledWith(92);
+    expect(harness.download).toHaveBeenCalledTimes(1);
   }, 15_000);
 
   it('cancels immediately even when the desktop bridge is offline', async () => {

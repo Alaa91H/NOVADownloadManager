@@ -388,8 +388,10 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                         }),
                     resource_dir,
                     data_dir: data_dir.clone(),
-                    ytdlp_bin,
-                    ffmpeg_bin,
+                    ytdlp_bin: std::sync::RwLock::new(ytdlp_bin.clone()),
+                    ffmpeg_bin: std::sync::RwLock::new(ffmpeg_bin.clone()),
+                    bundled_ytdlp_bin: ytdlp_bin,
+                    bundled_ffmpeg_bin: ffmpeg_bin,
                     engine_capabilities_cache: std::sync::RwLock::new(None),
                     engine_capabilities_probe: Mutex::new(()),
                     task_generation: std::sync::atomic::AtomicU64::new(0),
@@ -457,30 +459,53 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
 
                 let state = Arc::new(state);
 
-                // Warm the engine-capability cache in the background so the very
-                // first /v1/ping from the browser extension does not have to wait
-                // for subprocess probing (yt-dlp --version, ffmpeg -version, …),
-                // which previously made the first extension connection take
-                // several seconds.
+                log::debug!("Daemon started with API auth enabled");
+
+                // Discover persisted NOVA-managed tools before probing engine
+                // capabilities. This makes a verified user-installed binary the
+                // active runtime immediately after a restart rather than merely
+                // displaying it in Settings.
+                let discovered_tools = {
+                    let et = state.external_tools.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let et = lock_or_err!(et);
+                        let yt_dlp =
+                            et.discover(crate::daemon::external_tools::types::ToolId::YtDlp);
+                        let ffmpeg =
+                            et.discover(crate::daemon::external_tools::types::ToolId::Ffmpeg);
+                        vec![yt_dlp, ffmpeg]
+                    })
+                    .await
+                    .unwrap_or_else(|e| {
+                        log::error!("External tool discovery panicked: {e}");
+                        Vec::new()
+                    })
+                };
+                for installation in discovered_tools {
+                    if installation.health_ok {
+                        if let Some(path) = installation.path {
+                            if let Err(error) = state.activate_external_tool(
+                                installation.tool_id,
+                                path.display().to_string(),
+                            ) {
+                                log::warn!(
+                                    "Verified {} but could not activate it: {error}",
+                                    installation.tool_id
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // Warm the engine-capability cache in the background only after
+                // managed tool activation, so the first extension connection
+                // observes the same binaries that the media engine will execute.
                 {
                     let warm_state = state.clone();
                     std::thread::spawn(move || {
                         let _ = warm_state.engine_capabilities();
                         log::debug!("Engine capability cache warmed");
                     });
-                }
-
-                log::debug!("Daemon started with API auth enabled");
-
-                // Discover external tools on startup.
-                {
-                    let et = state.external_tools.clone();
-                    tokio::task::spawn_blocking(move || {
-                        let et = lock_or_err!(et);
-                        et.discover_and_initialize();
-                    })
-                    .await
-                    .unwrap_or_else(|e| log::error!("External tool discovery panicked: {e}"));
                 }
 
                 if log::log_enabled!(log::Level::Debug) {

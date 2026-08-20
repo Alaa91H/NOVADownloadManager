@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Managed external-tool installation scopes.** Settings now offer the
+  recommended per-user NOVA-managed location and, on Windows, an explicit
+  `Program Files` option that requests administrator approval only after the
+  downloaded binary has passed digest and health validation.
+- A live, opt-in yt-dlp acceptance test that downloads the official release,
+  verifies its published SHA-256 digest, installs it atomically, and executes
+  its version check. The check is ignored by the regular offline-friendly Rust
+  suite and is run explicitly in release verification.
+- `scripts/verify_real_extension_handoff.sh`, which verifies a real integration
+  daemon's ping, trusted pairing, bearer authentication, and candidate handoff
+  contract.
 - Root `LICENSE` (MIT) and `THIRD_PARTY_NOTICES.md` documenting bundled
   curl/libcurl, yt-dlp, and FFmpeg license obligations.
 - Repository-standard governance files: `SECURITY.md`, `CONTRIBUTING.md`,
@@ -19,6 +30,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **External tools are active runtime dependencies, not just Settings entries.**
+  A verified managed yt-dlp or FFmpeg install/update now switches the daemon's
+  active executable path, invalidates cached capabilities, and makes new media
+  probes, extension resolutions, and downloads use it without a daemon restart.
+  Startup discovers registered NOVA-managed tools before capability warming; an
+  uninstall restores the bundled/fallback path rather than leaving a deleted
+  executable active.
 - **Repository unification.** Centralized all repository policy at the root
   (`.gitignore`, `.gitattributes`, `.editorconfig`, `.npmrc`, `.prettierrc`,
   `.node-version`, `pnpm-workspace.yaml`) and moved all documentation except the
@@ -29,6 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Browser-download recovery no longer self-cancels.** A browser download that
+  NOVA cancels early and then restarts because policy declines takeover receives
+  a short-lived, one-shot bypass. The extension therefore lets its own recovery
+  download proceed instead of intercepting and cancelling it again.
 - **Adaptive engine is now live.** Decisions (split/merge/rebalance, connection
   redistribution) are applied to active easy handles with a debounced rebuild
   loop; `adaptive` (default on) and `adaptiveEvalMs` options added.

@@ -129,6 +129,7 @@ mod tests {
                     installed_at: None,
                     custom_path: false,
                     auto_update: false,
+                    install_scope: crate::daemon::external_tools::types::InstallScope::User,
                     checksum_sha256: Some("a".repeat(64)),
                 },
             )]),

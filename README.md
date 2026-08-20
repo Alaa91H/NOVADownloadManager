@@ -227,6 +227,8 @@ This runtime-verified model keeps the product predictable, debuggable, and safe 
 - FFmpeg integration for merge, remux, metadata, thumbnails, subtitles, chapters, audio extraction, and post-processing workflows.
 - HLS/DASH candidates routed to the media engine instead of direct file download.
 - UI gating for media options through runtime-supported media capabilities.
+- Managed yt-dlp and FFmpeg installation from approved GitHub release assets, with SHA-256 verification, executable health validation, atomic replacement, and immediate daemon activation for new media operations.
+- Default per-user managed installation that does not require elevation; Windows additionally offers an explicit, UAC-approved `Program Files` destination. NOVA never silently substitutes another destination when system installation is declined or fails. See the [managed-tools verification record](docs/verification/MANAGED_TOOLS_AND_EXTENSION_VERIFICATION_2026-08-20.md).
 
 ### Browser companion
 
@@ -236,6 +238,7 @@ This runtime-verified model keeps the product predictable, debuggable, and safe 
 - 28 platform adapters (YouTube, Bilibili, Twitch, TikTok, Dailymotion, Vimeo, Reddit, Instagram, Facebook, Twitter, SoundCloud, LinkedIn, Telegram, and more).
 - Visual popup and overlay aligned with the desktop NOVA design system.
 - Local-only bridge using loopback HTTP and Native Messaging host `com.nova.downloadmanager`.
+- One-shot recovery protection for browser downloads that policy leaves in the browser, preventing NOVA from cancelling its own restarted download in a capture loop.
 
 ### Installer and desktop integration
 
@@ -318,6 +321,8 @@ The central principle is that all user-facing controls are derived from engine c
 │  ├─ architecture/                 Engine, capability, and source-tree architecture
 │  ├─ extension/                    Browser extension docs, CI templates, protocol specs
 │  ├─ maintenance/                  Dependabot and product-maintenance notes
+│  ├─ verification/                 Evidence-based local verification records
+│  ├─ research/                     Upstream source notes used by implementation
 │  └─ release/                      Release, store, testing, and publishing docs
 ├─ public/                          Desktop public assets (favicons)
 ├─ scripts/                         Build, audit, native curl, cleanup, and release helpers
@@ -496,6 +501,11 @@ Rust checks:
 ```bash
 cargo check --manifest-path src-tauri/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml
+# Opt-in network acceptance: official yt-dlp download, SHA-256 verification,
+# health check, and atomic managed installation.
+cargo test --manifest-path src-tauri/Cargo.toml \
+  external_tools::installer::tests::live_ytdlp_release_installs_verifies_and_executes \
+  -- --ignored --nocapture
 ```
 
 The source audit enforces:
@@ -572,6 +582,8 @@ All documentation except this root README is centralized under [`docs/`](docs/RE
 - [Aggressive capture](docs/extension/AGGRESSIVE_CAPTURE_MODE.md)
 - [Zero-click pairing](docs/extension/ZERO_CLICK_PAIRING.md)
 - [Dependabot and maintenance](docs/maintenance/DEPENDABOT_AND_MAINTENANCE.md)
+- [Managed tools and browser extension verification](docs/verification/MANAGED_TOOLS_AND_EXTENSION_VERIFICATION_2026-08-20.md)
+- [yt-dlp installation source notes](docs/research/ytdlp-installation-sources.md)
 - [Release process](docs/release/RELEASE.md) *(coming soon)*
 - [Testing](docs/release/TESTING.md) *(coming soon)*
 - [Store compliance](docs/release/STORE_COMPLIANCE.md) *(coming soon)*

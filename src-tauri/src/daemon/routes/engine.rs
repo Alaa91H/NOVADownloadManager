@@ -1320,8 +1320,8 @@ async fn handle_engine_verify(
     let engine = body.get("engine").and_then(|v| v.as_str()).unwrap_or("");
 
     let bin_path = match engine {
-        "ytdlp" | "yt-dlp" => &state.ytdlp_bin,
-        "ffmpeg" => &state.ffmpeg_bin,
+        "ytdlp" | "yt-dlp" => state.ytdlp_binary(),
+        "ffmpeg" => state.ffmpeg_binary(),
         _ => {
             return Json(serde_json::json!({
                 "ok": false,
@@ -1330,7 +1330,7 @@ async fn handle_engine_verify(
         }
     };
 
-    let exists = std::path::Path::new(bin_path).exists();
+    let exists = std::path::Path::new(&bin_path).exists();
     if !exists {
         return Json(serde_json::json!({
             "ok": false,
@@ -1339,7 +1339,7 @@ async fn handle_engine_verify(
         }));
     }
 
-    let mut verify_cmd = std::process::Command::new(bin_path);
+    let mut verify_cmd = std::process::Command::new(&bin_path);
     hide_command_window(&mut verify_cmd);
     let version = verify_cmd
         .arg("--version")
@@ -1398,7 +1398,8 @@ async fn handle_engine_latest_version(
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown")
                 .to_owned();
-            let mut current_cmd = std::process::Command::new(&state.ytdlp_bin);
+            let ytdlp_bin = state.ytdlp_binary();
+            let mut current_cmd = std::process::Command::new(&ytdlp_bin);
             hide_command_window(&mut current_cmd);
             let current = current_cmd
                 .arg("--version")

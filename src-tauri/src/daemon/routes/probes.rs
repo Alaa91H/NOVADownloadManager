@@ -799,7 +799,7 @@ pub async fn handle_ytdlp_probe(
         ));
     }
 
-    let ytdlp_bin = state.ytdlp_bin.clone();
+    let ytdlp_bin = state.ytdlp_binary();
     let url2 = url.to_owned();
     let output = tokio::task::spawn_blocking(move || {
         hidden_output_timed(
@@ -901,7 +901,7 @@ pub async fn handle_ytdlp_probe_playlist(
         ));
     }
 
-    let ytdlp_bin = state.ytdlp_bin.clone();
+    let ytdlp_bin = state.ytdlp_binary();
     let url2 = url.to_owned();
     let output = tokio::task::spawn_blocking(move || {
         hidden_output_timed(
@@ -1000,9 +1000,9 @@ pub async fn handle_ytdlp_probe_playlist(
 }
 
 pub async fn handle_ytdlp_ffmpeg(State(state): State<SharedState>) -> Json<serde_json::Value> {
-    let available =
-        hidden_output(&state.ffmpeg_bin, &["-version"]).is_ok_and(|o| o.status.success());
-    Json(serde_json::json!({"available": available, "binary": state.ffmpeg_bin.clone()}))
+    let ffmpeg_bin = state.ffmpeg_binary();
+    let available = hidden_output(&ffmpeg_bin, &["-version"]).is_ok_and(|o| o.status.success());
+    Json(serde_json::json!({"available": available, "binary": ffmpeg_bin}))
 }
 
 #[cfg(test)]

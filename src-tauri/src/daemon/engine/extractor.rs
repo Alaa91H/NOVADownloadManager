@@ -53,6 +53,22 @@ impl ExtractorRegistry {
         self.extractors.clone()
     }
 
+    /// Replaces an extractor in place, preserving the registry order used for
+    /// selection. Managed external-tool installation uses this to activate a
+    /// newly verified yt-dlp binary without a daemon restart.
+    pub fn replace(&mut self, id: &str, replacement: Arc<dyn Extractor>) -> bool {
+        if let Some(existing) = self
+            .extractors
+            .iter_mut()
+            .find(|extractor| extractor.id() == id)
+        {
+            *existing = replacement;
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn validate(&self, body: &CreateDownloadBody) -> Result<Arc<dyn Extractor>, ValidateError> {
         let has_media = body.media_options.is_some();
         let url = body.url.as_deref().unwrap_or("");
@@ -87,6 +103,18 @@ impl SharedExtractorRegistry {
 
     pub fn all(&self) -> Vec<Arc<dyn Extractor>> {
         self.0.lock().map(|r| r.all()).unwrap_or_default()
+    }
+
+    pub fn replace(
+        &self,
+        id: &str,
+        replacement: Arc<dyn Extractor>,
+    ) -> Result<bool, ValidateError> {
+        let mut registry = self
+            .0
+            .lock()
+            .map_err(|e| ValidateError(format!("Registry lock poisoned: {e}")))?;
+        Ok(registry.replace(id, replacement))
     }
 }
 

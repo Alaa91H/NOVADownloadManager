@@ -1,4 +1,4 @@
-use super::types::{ToolRegistry, ToolRegistryEntry};
+use super::types::{InstallScope, ToolRegistry, ToolRegistryEntry};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -40,6 +40,7 @@ pub fn register_tool(
     version: Option<&str>,
     installed_by_app: bool,
     custom_path: bool,
+    install_scope: InstallScope,
 ) {
     registry.tools.insert(
         tool_id.to_owned(),
@@ -51,6 +52,7 @@ pub fn register_tool(
             installed_at: Some(chrono::Utc::now().to_rfc3339()),
             custom_path,
             auto_update: false,
+            install_scope,
             checksum_sha256: None,
         },
     );

@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use std::time::Instant;
 
+use crate::daemon::external_tools::types::ToolId;
 use crate::daemon::external_tools::ExternalToolManager;
 use crate::daemon::persist::DownloadStats;
 use crate::daemon::resource_intelligence::ResourceIntelligenceEngine;
@@ -63,8 +64,15 @@ pub struct AppState {
     pub http_client: HttpClient,
     pub resource_dir: String,
     pub data_dir: String,
-    pub ytdlp_bin: String,
-    pub ffmpeg_bin: String,
+    /// Active media-engine paths. These may be replaced after NOVA verifies a
+    /// managed installation, so every new media operation observes the current
+    /// binary without requiring a daemon restart.
+    pub ytdlp_bin: RwLock<String>,
+    pub ffmpeg_bin: RwLock<String>,
+    /// Bundled/fallback paths resolved at daemon startup. These are restored
+    /// if a NOVA-managed binary is removed or fails a later health check.
+    pub bundled_ytdlp_bin: String,
+    pub bundled_ffmpeg_bin: String,
     pub telegram_last_update_id: Mutex<i64>,
     pub engine_capabilities_cache: RwLock<Option<(Arc<serde_json::Value>, Instant)>>,
     /// Serializes the subprocess probe in `engine_capabilities()` so concurrent
@@ -113,6 +121,93 @@ impl AppState {
         self.task_generation.fetch_add(1, Ordering::Release);
     }
 
+    pub fn ytdlp_binary(&self) -> String {
+        self.ytdlp_bin
+            .read()
+            .map(|path| path.clone())
+            .unwrap_or_else(|poison| poison.into_inner().clone())
+    }
+
+    pub fn ffmpeg_binary(&self) -> String {
+        self.ffmpeg_bin
+            .read()
+            .map(|path| path.clone())
+            .unwrap_or_else(|poison| poison.into_inner().clone())
+    }
+
+    /// Activates a verified NOVA-managed media tool for subsequent operations.
+    /// Existing child processes keep their original executable; newly created
+    /// analyses and downloads use the replacement immediately.
+    pub fn activate_external_tool(&self, tool_id: ToolId, path: String) -> Result<(), String> {
+        match tool_id {
+            ToolId::YtDlp => {
+                let mut ytdlp = self
+                    .ytdlp_bin
+                    .write()
+                    .map_err(|e| format!("yt-dlp path lock poisoned: {e}"))?;
+                *ytdlp = path;
+                drop(ytdlp);
+                let replacement = std::sync::Arc::new(crate::daemon::ytdlp::YtDlpExtractor::new(
+                    self.ytdlp_binary(),
+                    self.ffmpeg_binary(),
+                ));
+                if !self
+                    .extractor_registry
+                    .replace("yt-dlp", replacement)
+                    .map_err(|e| e.to_string())?
+                {
+                    return Err("yt-dlp extractor was not registered".to_owned());
+                }
+            }
+            ToolId::Ffmpeg => {
+                let mut ffmpeg = self
+                    .ffmpeg_bin
+                    .write()
+                    .map_err(|e| format!("FFmpeg path lock poisoned: {e}"))?;
+                *ffmpeg = path;
+            }
+        }
+        if let Ok(mut cache) = self.engine_capabilities_cache.write() {
+            *cache = None;
+        }
+        Ok(())
+    }
+
+    pub fn deactivate_external_tool(&self, tool_id: ToolId) -> Result<(), String> {
+        match tool_id {
+            ToolId::YtDlp => {
+                let mut ytdlp = self
+                    .ytdlp_bin
+                    .write()
+                    .map_err(|e| format!("yt-dlp path lock poisoned: {e}"))?;
+                *ytdlp = self.bundled_ytdlp_bin.clone();
+                drop(ytdlp);
+                let replacement = std::sync::Arc::new(crate::daemon::ytdlp::YtDlpExtractor::new(
+                    self.ytdlp_binary(),
+                    self.ffmpeg_binary(),
+                ));
+                if !self
+                    .extractor_registry
+                    .replace("yt-dlp", replacement)
+                    .map_err(|e| e.to_string())?
+                {
+                    return Err("yt-dlp extractor was not registered".to_owned());
+                }
+            }
+            ToolId::Ffmpeg => {
+                let mut ffmpeg = self
+                    .ffmpeg_bin
+                    .write()
+                    .map_err(|e| format!("FFmpeg path lock poisoned: {e}"))?;
+                *ffmpeg = self.bundled_ffmpeg_bin.clone();
+            }
+        }
+        if let Ok(mut cache) = self.engine_capabilities_cache.write() {
+            *cache = None;
+        }
+        Ok(())
+    }
+
     pub fn engine_capabilities(&self) -> Arc<serde_json::Value> {
         // Fast path: serve a still-fresh cached value without taking the
         // probe mutex.
@@ -142,8 +237,8 @@ impl AppState {
             }
         }
         let result = crate::daemon::engine_capabilities::all_engine_status(
-            &self.ytdlp_bin,
-            &self.ffmpeg_bin,
+            &self.ytdlp_binary(),
+            &self.ffmpeg_binary(),
         );
         let arc_result = Arc::new(result);
         if let Ok(mut cache) = self.engine_capabilities_cache.write() {

@@ -672,7 +672,7 @@ pub async fn handle_v1_stream_resolve(
         );
     }
 
-    let ytdlp_bin = state.ytdlp_bin.clone();
+    let ytdlp_bin = state.ytdlp_binary();
     let url2 = url.to_owned();
     let joined = tokio::task::spawn_blocking(move || {
         hidden_output_timed(
@@ -1339,7 +1339,7 @@ async fn http_probe_for_analyze(
 }
 
 async fn ytdlp_probe_for_analyze(state: &SharedState, url: &str) -> Option<serde_json::Value> {
-    let ytdlp_bin = state.ytdlp_bin.clone();
+    let ytdlp_bin = state.ytdlp_binary();
     let url2 = url.to_owned();
     let output = tokio::task::spawn_blocking(move || {
         hidden_output_timed(

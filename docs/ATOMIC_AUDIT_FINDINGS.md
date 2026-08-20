@@ -1,45 +1,45 @@
-# نتائج التدقيق الذري وإثباتات الإصلاح
+# Atomic Audit Results and Proofs of Fix
 
-**المشروع:** NOVA Download Manager  
-**فرع العمل:** `fix/verified-transfer-progress`  
-**تاريخ التدقيق:** 17 أغسطس 2026  
-**نطاق التحقق:** مصدر الواجهة، نواة Rust، امتداد المتصفح، سلاسل الاعتمادات، حزم Linux، ومسارات التحليل والتنزيل والتقدم.
+**Project:** NOVA Download Manager
+**Work branch:** `fix/verified-transfer-progress`
+**Audit date:** 17 August 2026
+**Scope of verification:** UI source, Rust core, browser extension, credential chains, Linux packages, and download/analysis/progress paths.
 
-## منهجية الإثبات
+## Proof methodology
 
-لا يُسجل بند بصفته عيبًا إلا بعد أن يثبت بأحد الآتي: اختبار متعثر قابل لإعادة الإنتاج، فحص آلي قياسي فاشل، سجل بناء صريح، أو مسح نصي حتمي. ولا يعد الإصلاح مكتملًا إلا بعد إعادة تشغيل البوابة ذاتها أو اختبار انحدار يغطي المسار.
+An item is not recorded as a defect unless demonstrated by one of: a reproducible failing test, a failed standard automated check, an explicit build log, or a deterministic text scan. A fix is not considered complete until the same gate is re-run or a regression test covering the path is executed.
 
-| المعرّف | العيب المثبت | دليل الإثبات | المعالجة | معيار التحقق |
+| Identifier | Proven defect | Proof / evidence | Mitigation | Verification criterion |
 |---|---|---|---|---|
-| `TR-001` | حلقة نقل libcurl متعددة المقابس لا تُتم طلب خادم HTTP محليًا وقد تعلق اختبار النقل. | اختبار نقل منفرد تجاوز المهلة، وأثر النظام أظهر اتصالًا قائمًا دون تقدم للطلب. | توحيد تنفيذ النقل على محرك libcurl المتعدد المدعوم وإزالة مسار المقابس غير الموثوق وبقاياه. | اجتياز جميع اختبارات Rust، ومنها التحميل المباشر والتقدم والتوقف/الاستئناف والروابط الوسيطة. |
-| `I18N-001` | ملفات امتداد المتصفح البنغالية والفارسية والتايلاندية تحتوي آلاف محارف الاستبدال `U+FFFD`، ما يجعل الواجهة غير مقروءة. | مسح Unicode حدد 1,435 محرفًا في `bn.ts` و2,004 في `fa.ts` و2,668 في `th.ts`. | إعادة توليد الترجمات من ملف الإنجليزية المرجعي مع تحقق دقيق من المفاتيح والمواضع مثل `{count}` وخلو الناتج من محرف التلف. | عدم وجود `U+FFFD` في أي مصدر تطبيق أو امتداد، واجتياز فحص أنواع الامتداد. |
-| `I18N-002` | مواضع نصية مرئية وتعليقات في الواجهة تحتوي محرف استبدال غير مقصود. | مسح Unicode حدد النصوص المتأثرة في صفحة الوسائط وتنبيه yt-dlp ومواضع واجهة أخرى. | استبدال الرمز بعلامة دلالية مناسبة: شرطة طويلة أو نقطة فصل، مع تنظيف التعليقات. | مسح المصدر لا يعيد أي نتيجة لمحرف `U+FFFD`. |
-| `FMT-001` | أربعة ملفات واجهة تخالف تنسيق Prettier المعتمد. | أمر `pnpm run ci:format` أخفق وسمّى الملفات صراحة. | تطبيق Prettier على الملفات المحددة فقط. | نجاح `pnpm run ci:format` بلا تحذيرات. |
-| `PKG-001` | أول بناء لتطبيق Linux أخفق في الربط بسبب مكتبات تطوير نظامية مفقودة. | سجل linker أظهر فقدان `idn2` و`rtmp` و`ssh` وKerberos وLDAP وsystemd. | تثبيت حزم التطوير الموافقة في بيئة البناء. | بناء DEB وRPM ناجحان وتحقق بياناتهما. |
-| `PKG-002` | بناء AppImage أخفق بعد البناء بسبب غياب `patchelf` في إضافة GStreamer الخاصة بـ linuxdeploy. | السجل المفصل: `Error: patchelf not found` ثم رمز خروج 2 من إضافة GStreamer. | تثبيت `patchelf` وإعادة تشغيل تغليف AppImage. | إنشاء AppImage وتشغيل أوامر معلومات runtime وarchive بنجاح. |
+| `TR-001` | The libcurl multi-socket transfer loop does not complete a local HTTP server request and can hang the transfer test. | A single transfer test timed out, and system activity showed a connection established with no request progress. | Consolidate transfer execution onto the supported libcurl multi engine and remove the unreliable socket path and its remnants. | All Rust tests pass, including direct download, progress, stop/resume, and intermediate links. |
+| `I18N-001` | The browser extension Bengali, Persian, and Thai files contain thousands of replacement characters `U+FFFD`, making the UI unreadable. | A Unicode scan identified 1,435 replacements in `bn.ts`, 2,004 in `fa.ts`, and 2,668 in `th.ts`. | Regenerate translations from the English reference file with strict key and placeholder verification (e.g., `{count}`) and ensure outputs contain no replacement character. | No `U+FFFD` exists in any app or extension source, and extension type checks pass. |
+| `I18N-002` | Visible text positions and comments in the UI contain an unintended replacement character. | A Unicode scan identified affected strings on the media page, a yt-dlp alert, and other UI locations. | Replace the character with an appropriate semantic marker (em dash or separator dot) and clean comments. | A source scan returns no results for `U+FFFD`. |
+| `FMT-001` | Four UI files violated the project's Prettier formatting. | `pnpm run ci:format` failed and named the files explicitly. | Apply Prettier to the specified files only. | `pnpm run ci:format` succeeds with no warnings. |
+| `PKG-001` | The initial Linux build failed linking due to missing system development libraries. | The linker log showed missing `idn2`, `rtmp`, `ssh`, Kerberos, LDAP, and systemd. | Install the corresponding development packages in the build environment. | DEB and RPM builds succeed and their metadata verify. |
+| `PKG-002` | AppImage packaging failed post-build because `patchelf` was missing in linuxdeploy's GStreamer plugin. | Detailed log: `Error: patchelf not found` then exit code 2 from the GStreamer plugin. | Install `patchelf` and re-run AppImage packaging. | AppImage is produced and runtime/archive info commands run successfully. |
 
-## عناصر تم فحصها ولم تثبت كأخطاء مصدرية مباشرة
+## Items inspected and not proven to be direct source defects
 
-| العنصر | النتيجة | القرار |
+| Item | Result | Decision |
 |---|---|---|
-| اعتماديات JavaScript الإنتاجية | لا توجد ثغرات عالية أو حرجة في تدقيق الحزم المقفلة. | لا يلزم تعديل. |
-| تدقيق RustSec | لا توجد ثغرات مصنفة كـ vulnerability في تقرير التدقيق؛ توجد 17 ملاحظة مسموحة، معظمها سلسلة GTK3/Wry العابرة، مع تحذير `glib` غير الآمن. | لا تُعد معالجة مناسبة بالترقيع المحلي لأن سلسلة Tauri المقفلة متوافقة بالفعل مع أحدث الإصدارات ضمن قيودها؛ يجب متابعة ترقية Tauri/Wry عند صدور مسار متوافق. |
-| اختبارات الواجهة | اجتازت 29 حزمة اختبار و458 اختبارًا. | لا يلزم تعديل. |
-| اختبارات Rust | اجتازت 647 اختبارًا. | لا يلزم تعديل. |
-| Clippy | اجتاز مع `-D warnings`. | لا يلزم تعديل. |
+| Production JavaScript dependencies | No high or critical vulnerabilities in the locked package audit. | No action required. |
+| RustSec audit | No advisories classified as vulnerabilities in the audit report; 17 allowed advisories exist, mostly in the GTK3/Wry transient chain, with an unsafe `glib` warning. | Local patching is not appropriate because the locked Tauri chain is already compatible with the latest releases within its constraints; follow Tauri/Wry upgrades when a compatible path is available. |
+| UI tests | 29 test suites and 458 tests passed. | No action required. |
+| Rust tests | 647 tests passed. | No action required. |
+| Clippy | Passed with `-D warnings`. | No action required. |
 
-## معايير القبول الوظيفية
+## Functional acceptance criteria
 
-سيعاد تنفيذ البنود التالية في دورة التحقق النهائية بعد دمج إصلاحات التدقيق:
+The following items will be re-executed in the final verification cycle after audit fixes are merged:
 
-| المسار | دليل النجاح المطلوب |
+| Path | Required success evidence |
 |---|---|
-| تنزيل رابط مباشر معروف الحجم | ملف مكتمل مطابق للمحتوى الاختباري، وملاحظة تقدم وسيط قبل 100%. |
-| تنزيل متدفق مجهول الحجم | محتوى صحيح مع تقدم غير محدد صادق بدل قيمة صفر ثابتة مضللة. |
-| رابط HTML وسيط أو إعادة توجيه أو بديل متعطل | وصول المحلل إلى الملف الحقيقي أو الانتقال إلى البديل السليم. |
-| صفحة واجهة التقدم | انتقال حي من غير المحدد إلى نسبة حقيقية دون قفز بصري أو إعلان اكتمال مبكر. |
-| حزمة التثبيت | ملفات DEB وRPM وAppImage موجودة، قابلة للفحص، ولها بيانات إصدار متسقة. |
+| Download of a direct link with known size | A complete file matching the test content, and an intermediate progress marker before 100%. |
+| Download of a streamed unknown-size resource | Correct content and progress reported as indeterminate (truthful) rather than a misleading fixed zero value. |
+| HTML intermediate link, redirect, or broken mirror | The parser reaches the real file or transitions to a healthy mirror. |
+| Progress UI page | Live transition from indeterminate to a real percentage without a visual jump or premature completion announcement. |
+| Installer package | DEB, RPM, and AppImage exist, are inspectable, and have consistent version metadata. |
 
-## تنبيه تشغيلي
+## Operational note
 
-تم إنشاء ملفات تثبيت Linux والتحقق منها في بيئة Linux x86_64. لا يثبت ذلك بديلًا عن اختبار تفاعل نافذة الرسوم الرسومية على جلسة سطح مكتب فعلية أو عن حزم Windows/macOS؛ لذا تبقى هذه بوابات منصة مستقلة يجب تنفيذها في بيئاتها الأصلية قبل إصدار متعدد المنصات.
+Linux installer files were created and verified in a Linux x86_64 environment. This does not substitute for testing GUI window interactions on a real desktop session or for Windows/macOS packages; those remain platform-specific gates to be executed in their native environments before a multi-platform release.

@@ -29,6 +29,7 @@ export const ExternalToolsSettings: React.FC<Props> = ({ onAddToast }) => {
   const [updateInfo, setUpdateInfo] = useState<
     Record<string, { available: boolean; latestVersion?: string } | undefined>
   >({});
+  const supportsSystemInstall = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent);
 
   const loadTools = useCallback(async () => {
     setLoading(true);
@@ -119,12 +120,14 @@ export const ExternalToolsSettings: React.FC<Props> = ({ onAddToast }) => {
     }
   };
 
-  const handleInstall = async (toolId: string) => {
-    setAction(toolId, 'install');
+  const handleInstall = async (toolId: string, scope: 'user' | 'system' = 'user') => {
+    const action = scope === 'system' ? 'install-system' : 'install';
+    setAction(toolId, action);
     try {
-      const result = await novaClient.installExternalTool(toolId);
+      const result = await novaClient.installExternalTool(toolId, scope);
       if (result.ok) {
-        onAddToast('success', 'Install', `${toolId} installed and verified successfully.`);
+        const destination = result.path ? ` at ${result.path}` : '';
+        onAddToast('success', 'Install verified', `${toolId} was downloaded, verified, and activated${destination}.`);
         setUpdateInfo((prev) => ({ ...prev, [toolId]: { available: false } }));
         await loadTools();
       } else {
@@ -133,7 +136,7 @@ export const ExternalToolsSettings: React.FC<Props> = ({ onAddToast }) => {
     } catch (error) {
       onAddToast('error', 'Install', extractErrorMessage(error, 'Installation failed.'));
     } finally {
-      clearAction(toolId, 'install');
+      clearAction(toolId, action);
     }
   };
 
@@ -317,19 +320,38 @@ export const ExternalToolsSettings: React.FC<Props> = ({ onAddToast }) => {
             {/* Actions */}
             <div className="flex flex-wrap gap-1.5 pt-2 border-t border-[var(--border-color)]/50">
               {!tool.healthOk && (
-                <button
-                  type="button"
-                  onClick={() => void handleInstall(tool.id)}
-                  disabled={isActionRunning(tool.id, 'install')}
-                  className="px-2 py-1 bg-[var(--accent-primary)]/10 border border-[var(--accent-border)] text-[var(--accent-primary)] rounded text-[10px] font-bold hover:bg-[var(--accent-primary)]/20 transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50"
-                >
-                  {isActionRunning(tool.id, 'install') ? (
-                    <RefreshCw className="w-3 h-3 animate-spin" />
-                  ) : (
-                    <Download className="w-3 h-3" />
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void handleInstall(tool.id, 'user')}
+                    disabled={isActionRunning(tool.id, 'install') || isActionRunning(tool.id, 'install-system')}
+                    className="px-2 py-1 bg-[var(--accent-primary)]/10 border border-[var(--accent-border)] text-[var(--accent-primary)] rounded text-[10px] font-bold hover:bg-[var(--accent-primary)]/20 transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                    title="Download from the approved upstream source, verify SHA-256, validate the executable, and activate it for this user."
+                  >
+                    {isActionRunning(tool.id, 'install') ? (
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Download className="w-3 h-3" />
+                    )}
+                    Install for Current User
+                  </button>
+                  {supportsSystemInstall && (
+                    <button
+                      type="button"
+                      onClick={() => void handleInstall(tool.id, 'system')}
+                      disabled={isActionRunning(tool.id, 'install') || isActionRunning(tool.id, 'install-system')}
+                      className="px-2 py-1 bg-[var(--bg-hover)] border border-[var(--border-color)] text-[var(--text-secondary)] rounded text-[10px] font-bold hover:bg-[var(--border-color)]/20 transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                      title="Install under Program Files. Windows will request administrator approval after NOVA verifies the downloaded binary."
+                    >
+                      {isActionRunning(tool.id, 'install-system') ? (
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Package className="w-3 h-3" />
+                      )}
+                      Install to Program Files
+                    </button>
                   )}
-                  Install & Verify
-                </button>
+                </>
               )}
               <button
                 type="button"

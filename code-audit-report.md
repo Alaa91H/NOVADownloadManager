@@ -1,185 +1,185 @@
-# NOVA — التقرير الهندسي النهائي للمراجعة الميكروسكوبية
+# NOVA — Final Engineering Report for Microscopic Review
 
-**التاريخ:** 2026-07-29  
-**النطاق:** 90+ ملف Rust، 15,000+ سطر  
-**الفريق:** Senior Systems Engineer, Senior Rust Engineer, Network Protocol Expert, Performance Engineer, Memory Safety Auditor, Concurrency Specialist, Software Architect, Static Analysis Expert
-
----
-
-## جدول المحتويات
-
-1. [الملخص التنفيذي](#1-الملخص-التنفيذي)
-2. [قائمة الأخطاء حسب الخطورة](#2-قائمة-الأخطاء-حسب-الخطورة)
-3. [خريطة تدفق التنفيذ الكاملة](#3-خريطة-تدفق-التنفيذ-الكاملة)
-4. [خريطة تدفق التحميل](#4-خريطة-تدفق-التحميل)
-5. [خريطة الاعتماديات](#5-خريطة-الاعتماديات)
-6. [تحليل الأكواد الميتة](#6-تحليل-الأكواد-الميتة)
-7. [تحليل الأداء](#7-تحليل-الأداء)
-8. [تحليل التزامن](#8-تحليل-التزامن)
-9. [تحليل إدارة الذاكرة](#9-تحليل-إدارة-الذاكرة)
-10. [تحليل الشبكة و libcurl](#10-تحليل-الشبكة-و-libcurl)
-11. [تحليل البنية](#11-تحليل-البنية)
-12. [خطة الإصلاح](#12-خطة-الإصلاح)
+**Date:** 2026-07-29
+**Scope:** 90+ Rust files, 15,000+ lines
+**Team:** Senior Systems Engineer, Senior Rust Engineer, Network Protocol Expert, Performance Engineer, Memory Safety Auditor, Concurrency Specialist, Software Architect, Static Analysis Expert
 
 ---
 
-## 1. الملخص التنفيذي
+## Table of Contents
 
-تم تحليل المشروع بالكامل سطراً بسطر عبر 5 فرق تحليل متوازية. تم اكتشاف **63 مشكلة** موزعة كالتالي:
-
-| الخطورة | العدد | الوصف |
-|---------|-------|-------|
-| **CRITICAL** | 12 | فقدان بيانات، توقف تام، تعطل غير قابل للاسترداد |
-| **HIGH** | 22 | تلف بيانات، تسريب موارد، أخطاء منطقية جسيمة |
-| **MEDIUM** | 31 | أخطاء أداء، مشاكل تزامن محتملة، كود ميت |
-| **LOW** | 20 | تحسينات، إعادة هيكلة، نمطية |
-| **INFO** | 14 | ملاحظات، توثيق، تغطية اختبارات |
-
-**المشاكل الأكثر خطورة:**
-1. إعادة تشغيل الـ Daemon يسرّب Tokio Runtime كامل (C1)
-2. `app.exit(0)` يقتل الـ Daemon دون حفظ الحالة — فقدان بيانات (C2)
-3. `SegmentWriter::write` يبلع أخطاء I/O بصمت — تلف بيانات (C3-Adaptive)
-4. `AsyncDiskWriter` لا ينفذ `Drop` — تسريب خيط الكتابة + فقدان بيانات عند الإغلاق (C4-Adaptive)
-5. Thread Pool: انفجار مهمة يقتل العامل ويسرب `active_count` (C5-Engine)
-6. EventBus: تسمم الـ Mutex في Phase 3 يوقف النشر للأبد (C6-Engine)
-7. `SegmentPlanner::plan` يوزع مقطع 4GB+ كـ `u32::MAX` مقطع — OOM (C7)
-8. yt-dlp pipe deadlock — توقف تام عند إخراج كبير (C8)
-9. Preallocated file: التقدم يقفز إلى 100% فوراً (C9-Transfer)
-10. Watchdog من الجيل القديم يدمّر الجيل الجديد (C10-Transfer)
-11. DNS resolution بدون timeout — تجمد واجهة المستخدم (C11)
-12. `resource_monitor.rs`: إحصائيات CPU غير ذرية — قراءات خاطئة (C12-Adaptive)
+1. [Executive Summary](#1-executive-summary)
+2. [Issue List by Severity](#2-issue-list-by-severity)
+3. [Full Execution Flow Map](#3-full-execution-flow-map)
+4. [Download Flow Map](#4-download-flow-map)
+5. [Dependency Map](#5-dependency-map)
+6. [Dead Code Analysis](#6-dead-code-analysis)
+7. [Performance Analysis](#7-performance-analysis)
+8. [Concurrency Analysis](#8-concurrency-analysis)
+9. [Memory Management Analysis](#9-memory-management-analysis)
+10. [Network and libcurl Analysis](#10-network-and-libcurl-analysis)
+11. [Architecture Analysis](#11-architecture-analysis)
+12. [Fix Plan](#12-fix-plan)
 
 ---
 
-## 2. قائمة الأخطاء حسب الخطورة
+## 1. Executive Summary
+
+The project was analyzed line-by-line across 5 parallel analysis teams. A total of **63 issues** were discovered, distributed as follows:
+
+| Severity | Count | Description |
+|---------|-------|-------------|
+| **CRITICAL** | 12 | Data loss, total hang, unrecoverable crash |
+| **HIGH** | 22 | Data corruption, resource leaks, severe logic bugs |
+| **MEDIUM** | 31 | Performance bugs, potential concurrency issues, dead code |
+| **LOW** | 20 | Improvements, refactoring, style |
+| **INFO** | 14 | Notes, documentation, test coverage |
+
+Most severe issues:
+1. Daemon restart leaks entire Tokio Runtime (C1)
+2. `app.exit(0)` kills the Daemon without persisting state — data loss (C2)
+3. `SegmentWriter::write` silently swallows I/O errors — data corruption (C3-Adaptive)
+4. `AsyncDiskWriter` does not implement `Drop` — writer thread leak + data loss on shutdown (C4-Adaptive)
+5. Thread Pool: a task panic kills the worker and leaks `active_count` (C5-Engine)
+6. EventBus: Mutex poison in Phase 3 stops publishing forever (C6-Engine)
+7. `SegmentPlanner::plan` assigns u32::MAX chunks for 4GB+ file — OOM (C7)
+8. yt-dlp pipe deadlock — complete stall with large output (C8)
+9. Preallocated file: progress jumps to 100% immediately (C9-Transfer)
+10. Old-generation Watchdog destroys the new generation (C10-Transfer)
+11. DNS resolution without timeout — UI freeze (C11)
+12. `resource_monitor.rs`: CPU stats non-atomic — incorrect readings (C12-Adaptive)
+
+---
+
+## 2. Issue List by Severity
 
 ### 2.1 CRITICAL
 
-| # | ملف:سطر | المشكلة | السبب الجذري | التأثير |
-|---|---------|---------|-------------|---------|
-| **C1** | `lib.rs:465-490`, `mod.rs:133-436` | إعادة تشغيل الـ Daemon يسرّب Tokio Runtime | `restart_daemon` لا يرسل إشارة إيقاف للخيط القديم قبل بدء خيط جديد | تسريب كامل لـ Tokio Runtime + Axum Server + جميع المهام غير القابلة للإيقاف |
-| **C2** | `lib.rs:641-648` | `app.exit(0)` يقتل الـ Daemon دون حفظ | معالج "quit" لا يرسل `SIGTERM`/`ctrl_c` للـ Daemon، بل ينهي العملية فوراً | التحميلات النشطة تُقتل، آخر N ثوانٍ من التقدم تُفقد، ملف port لا يُحذف |
-| **C3** | `adaptive/disk_writer.rs:199` | `drain_batch` يبلع فشل I/O بصمت | `seek()` و `write_all()` نتائجهما متجاهلة، و `pending_bytes` تتناقص رغم الفشل | فقدان بيانات مكتوب (data corruption صامت)، إحصائيات غير متناسقة |
-| **C4** | `adaptive/disk_writer.rs` (لا يوجد `Drop`) | تسريب خيط عند إسقاط `AsyncDiskWriter` | لا `Drop` ينفذ `join()` أو `shutdown()` — الخيط يُفصل | خيط يتسرب، لا ضمان لاكتمال الكتابات قبل خروج العملية |
-| **C5** | `thread_pool.rs:41-44` | انفجار مهمة يقتل العامل ويسرّب `active_count` | `task_fn()` بدون `catch_unwind` — الـ panic لا ينقص العداد، الخيط يموت | `active_count` يتضخم، التجمع يفقد عمالاً ولا يستبدلهم، يصبح ميتاً |
-| **C6** | `event_bus.rs:264-270` | تسمم Mutex في Phase 3 يوقف EventBus للأبد | فشل قفل ثانٍ يرجع بدون إعادة `publish_depth` إلى 0 | `publish()` تكتشف `publish_depth > 0` وتُخزّن الأحداث للأبد — انهيار كامل |
-| **C7** | `direct.rs:216` | `SegmentPlanner::plan` يوزع `u32::MAX` مقطع لملف 4GB+ `total_size / min_chunk_size` قد ينتج 4 مليار مقطع | استنزاف RAM + تعليق |
-| **C8** | `ytdlp.rs:176-199` | yt-dlp pipe deadlock — توقف تام مع إخراج كبير | الأنابيب stdout/stderr تُقرأ تسلسلياً وليس بالتوازي — pipe buffer 64KB يمتلئ ويتوقف | تعليق تام لتحميلات yt-dlp للإخراج الكبير |
-| **C9** | `transfer.rs:678,722-726` | تقدم التحميل يقفز إلى 100% فوراً مع preallocation | `FileWriter::current_size` يرجع `total_size` بعد preallocation، و `max()` يختاره على العداد الذري | شريط التقدم يظهر 100% فوراً للملفات المسبقة التخصيص |
-| **C10** | `transfer.rs:1756-1987` | Watchdog من الجيل القديم يدمّر الجيل الجديد | Watchdog يحتفظ بمرجع لـ `watchdog_cancel` القديم ولا يتحقق من `generation` | Watchdog القديم يرى توقفاً زائفاً ويستدعي `force_error_status` على التحميل الجديد |
-| **C11** | `lib.rs:357-360` | `to_socket_addrs()` بدون timeout — DNS بطيء يجمد التطبيق | `check_tcp_endpoint` تمنع خيط Tauri IPC | تجمد واجهة المستخدم إذا كان DNS بطيئاً |
-| **C12** | `adaptive/resource_monitor.rs:192-197` | إحصائيات CPU غير ذرية — قراءات خاطئة | متغيران static `AtomicU64` يُقرآن/يُكتبان بشكل غير ذري — تداخل الخيوط ينتج CPU % غير صحيح | قرارات المحرك التكيفي مبنية على قراءات CPU خاطئة |
+| # | File:Line | Issue | Root Cause | Impact |
+|---|-----------|-------|------------|--------|
+| **C1** | `lib.rs:465-490`, `mod.rs:133-436` | Daemon restart leaks Tokio Runtime | `restart_daemon` does not send a stop signal to the old thread before starting a new one | Full Tokio Runtime + Axum Server + all tasks leak and cannot be stopped |
+| **C2** | `lib.rs:641-648` | `app.exit(0)` kills the Daemon without persisting | The "quit" handler does not send `SIGTERM`/`ctrl_c` to the Daemon; it terminates the process immediately | Active downloads are killed, last N seconds of progress are lost, port file is not removed |
+| **C3** | `adaptive/disk_writer.rs:199` | `drain_batch` silently swallows I/O failures | Results of `seek()` and `write_all()` are ignored, and `pending_bytes` is decremented despite failures | Silent data corruption, inconsistent statistics |
+| **C4** | `adaptive/disk_writer.rs` (no `Drop`) | Thread leak when `AsyncDiskWriter` is dropped | No `Drop` that performs `join()` or `shutdown()` — thread is detached | Thread leaks; no guarantee writes complete before process exit |
+| **C5** | `thread_pool.rs:41-44` | Task panic kills worker and leaks `active_count` | `task_fn()` lacks `catch_unwind` — panic does not decrement the counter, thread dies | `active_count` inflates, pool loses workers and does not replace them, becomes stalled |
+| **C6** | `event_bus.rs:264-270` | Mutex poison in Phase 3 stops EventBus forever | Second lock failure returns without resetting `publish_depth` to 0 | `publish()` sees `publish_depth > 0` and stores events forever — total collapse |
+| **C7** | `direct.rs:216` | `SegmentPlanner::plan` assigns `u32::MAX` chunks for 4GB+ file | `total_size / min_chunk_size` may produce 4 billion chunks | RAM exhaustion + hang |
+| **C8** | `ytdlp.rs:176-199` | yt-dlp pipe deadlock — complete stall with large output | stdout/stderr pipes are read sequentially, not concurrently — pipe buffer (64KB) fills and blocks | Complete hang of yt-dlp downloads with large output |
+| **C9** | `transfer.rs:678,722-726` | Download progress jumps to 100% immediately with preallocation | `FileWriter::current_size` returns `total_size` after preallocation, and `max()` selects it over the atomic counter | Progress bar shows 100% immediately for preallocated files |
+| **C10** | `transfer.rs:1756-1987` | Old-generation Watchdog destroys the new generation | Watchdog holds a reference to the old `watchdog_cancel` and doesn't check `generation` | Old Watchdog sees a false stall and calls `force_error_status` on the new download |
+| **C11** | `lib.rs:357-360` | `to_socket_addrs()` without timeout — slow DNS freezes the app | `check_tcp_endpoint` blocks the Tauri IPC thread | UI freezes if DNS is slow |
+| **C12** | `adaptive/resource_monitor.rs:192-197` | CPU statistics non-atomic — incorrect readings | Two static `AtomicU64` variables are read/written non-atomically — thread interleaving yields wrong CPU % | Adaptive engine decisions are based on incorrect CPU readings |
 
 ### 2.2 HIGH
 
-| # | ملف:سطر | المشكلة | التأثير |
+| # | File:Line | Issue | Impact |
 |---|---------|---------|---------|
-| H1 | `mod.rs (daemon):280-288` | مهمة الـ Scheduler tick تموت بصمت عند panic | جميع القواعد المجدولة تتوقف حتى إعادة التشغيل |
-| H2 | `lib.rs:178-180,205-207` | Double canonicalize يضخّم TOCTOU | نافذة سباق بين التحقق الأول والثاني — يمكن استغلالها |
-| H3 | `mod.rs (daemon):227-238` | SelfHealer يستخدم PolicyEngine منفصل | تغييرات سياسات وقت التشغيل غير مرئية للمُعالج الذاتي |
-| H4 | `mod.rs (daemon):246,418-420` | Watchdog JoinHandles تُفصل ولا تُضم | تسريب خيوط Watchdog عند إعادة التشغيل |
-| H5 | `transfer.rs:1993-2018` | `force_error_status` يتجاوز فحص `generation` | Watchdog قديم يكتب "error" على مهمة جديدة |
-| H6 | `easy_config.rs:363-1142` | `apply_easy_options` — 780 سطر، مسؤولية واحدة منتهكة | صيانة مستحيلة، أخطاء سهلة الإدخال |
-| H7 | `transfer.rs:1224` | `plan.connections > 1` يكتشف عدد الاتصالات الأصلي بدلاً من الفعلي | خطأ غير صحيح "Server did not honor byte-range" مع اتصال واحد |
-| H8 | `task_api.rs:415-418` | `remove_file` قبل زيادة `generation` — TOCTOU | الخيط القديم يكتب بعد حذف الملف |
-| H9 | `adaptive/segment_controller.rs:133` | `unwrap()` على شرط هش — ينفجر إذا تغيرت الحالة بين الفحص والـ find | Panic |
-| H10 | `adaptive/profile_store.rs:328-334` | `save()` يتجاهل أخطاء الكتابة بصمت | فقدان بيانات الملف الشخصي |
-| H11 | `adaptive/disk_writer.rs:63-71` | `pending_bytes` لا يُنقص عند فشل الإرسال | إحصائيات غير صحيحة بشكل دائم |
-| H12 | `adaptive/server_profiler.rs:138-146` | `is_rate_limited` يرجع `true` للأبد إذا كان `cooldown_until = None` | الخادم يُعتبر محدوداً للأبد |
-| H13 | `adaptive/disk_writer.rs:106-115` | فتح ملف المقطع يفشل بصمت — بيانات تضيع | فقدان بيانات جزئي |
-| H14 | `adaptive/disk_writer.rs:153-159` | عند Shutdown، البيانات المتبقية في القناة تضيع | فقدان بيانات أثناء الإغلاق |
-| H15 | `adaptive/resource_monitor.rs:192-197` | Thread-unsafe CPU statics (C12 مكرر) | — |
-| H16 | `adaptive/mod.rs:209-219` | `set_alive` يعد `active_conns` بشكل خاطئ عند النداء المزدوج | إحصاء غير صحيح للاتصالات النشطة |
-| H17 | `thread_pool.rs:41-44` | Panic في المهمة يقتل العامل (C5 مكرر) | — |
-| H18 | `resource_manager.rs:161-163` | `is_disk_bottlenecked()` يستخدم وحدة خاطئة — يقارن MB/s مع bytes | كل قرص يُعتبر عنق زجاجة — throttle خاطئ |
-| H19 | `priority_queue.rs:144-155` | `update_size()` لا يستدعي `reallocate()` | التحميل يحصل على 0 bandwidth |
-| H20 | `policy_engine.rs:298-303` | `Merge(0, 1)` مُرمّز hardcoded — يدمج القطعتين الخطأ | القطعة الفاشلة لا تُدمج |
-| H21 | `profiles.rs:149-167` | `to_adaptive_config()` يتجاوز `min_connections` من الإعدادات الأساسية | إعدادات الملف الشخصي `default_connections` غير مؤثرة |
-| H22 | `external_tools/mod.rs:88-89` | قفل `self.resolver` مكرر داخل `discover_inner` (تم إصلاحه) | — |
+| H1 | `mod.rs (daemon):280-288` | Scheduler tick task dies silently on panic | All scheduled rules stop until restart |
+| H2 | `lib.rs:178-180,205-207` | Double canonicalize increases TOCTOU window | Race window between first and second check — exploitable |
+| H3 | `mod.rs (daemon):227-238` | SelfHealer uses separate PolicyEngine | Runtime policy changes are invisible to the self-healer |
+| H4 | `mod.rs (daemon):246,418-420` | Watchdog JoinHandles are detached, not joined | Watchdog threads leak on restart |
+| H5 | `transfer.rs:1993-2018` | `force_error_status` bypasses `generation` check | Old Watchdog may write "error" on a new task |
+| H6 | `easy_config.rs:363-1142` | `apply_easy_options` — 780 lines, single-responsibility violated | Unmaintainable, easy to introduce bugs |
+| H7 | `transfer.rs:1224` | `plan.connections > 1` uses original connection count instead of actual | False "Server did not honor byte-range" with a single connection |
+| H8 | `task_api.rs:415-418` | `remove_file` before incrementing `generation` — TOCTOU | Old thread may write after file deletion |
+| H9 | `adaptive/segment_controller.rs:133` | `unwrap()` on a fragile condition — panics if state changes between check and find | Panic |
+| H10 | `adaptive/profile_store.rs:328-334` | `save()` silently ignores write errors | Profile data loss |
+| H11 | `adaptive/disk_writer.rs:63-71` | `pending_bytes` not decremented on send failure | Persistent incorrect statistics |
+| H12 | `adaptive/server_profiler.rs:138-146` | `is_rate_limited` returns `true` forever if `cooldown_until = None` | Server considered rate-limited forever |
+| H13 | `adaptive/disk_writer.rs:106-115` | Segment file open fails silently — data lost | Partial data loss |
+| H14 | `adaptive/disk_writer.rs:153-159` | On shutdown, remaining data in channel is dropped | Data loss on shutdown |
+| H15 | `adaptive/resource_monitor.rs:192-197` | Thread-unsafe CPU statics (duplicate of C12) | — |
+| H16 | `adaptive/mod.rs:209-219` | `set_alive` miscounts `active_conns` on double call | Incorrect active connection counts |
+| H17 | `thread_pool.rs:41-44` | Task panic kills worker (duplicate of C5) | — |
+| H18 | `resource_manager.rs:161-163` | `is_disk_bottlenecked()` uses wrong unit — compares MB/s with bytes | Every disk considered bottleneck — wrong throttling |
+| H19 | `priority_queue.rs:144-155` | `update_size()` does not call `reallocate()` | Download gets 0 bandwidth |
+| H20 | `policy_engine.rs:298-303` | `Merge(0, 1)` hardcoded — merges wrong chunks | Failing chunk not merged |
+| H21 | `profiles.rs:149-167` | `to_adaptive_config()` overrides `min_connections` from base config | Profile `default_connections` ineffective |
+| H22 | `external_tools/mod.rs:88-89` | Duplicate lock of `self.resolver` inside `discover_inner` (fixed) | — |
 
 ### 2.3 MEDIUM
 
-| # | ملف:سطر | المشكلة |
+| # | File:Line | Issue |
 |---|---------|---------|
-| M1 | `lib.rs:109-114` | `find_available_daemon_port` يرجع port مشغول عند استنفاد النطاق |
-| M2 | `lib.rs:281-291` | استخدام `cmd.exe /C start` — shell غير ضروري |
-| M3 | `mod.rs (daemon):299, telegram.rs:182` | Tokio Runtime ثانٍ + عميل blocking |
-| M4 | `mod.rs (daemon):177-182` | عميل HTTP الاحتياطي يفقد كل إعدادات timeout |
-| M5 | `mod.rs (daemon):267-270` | قفل `external_tools` محمول عبر init بطيء |
-| M6 | `mod.rs (daemon):119-131` | الاحتياطي إلى PATH مع خطر أمني معروف |
-| M7 | `transfer.rs:78-104` | ترتيب قفل `curl_jobs` ≠ `engine_trackers` عبر الدوال — AB-BA |
-| M8 | `transfer.rs:230-236` | `.clone()` غير ضروري في `plan_from_job` |
-| M9 | `transfer.rs:153-160` | `infer_file_type` يُنادى مرتين |
-| M10 | `transfer.rs:372` | `plan.clone()` على كل hop redirect — استنساخ كبير |
-| M11 | `transfer.rs:287-289` | `part_size` غلاف غير ضروري |
-| M12 | `transfer.rs:382` | `easy.timeout()` نتيجته متجاهلة — قد يعلق preflight |
-| M13 | `transfer.rs:958,1024` | عدد القطع لا يتطابق مع `plan.connections` للمحرك التكيفي |
-| M14 | `transfer.rs:1256,1360-1365` | حد 24 ساعة يتجاوز `retryMaxTimeSec` بصمت |
-| M15 | `multi.rs:240-241` | `next_token` يتشبع عند `usize::MAX` |
+| M1 | `lib.rs:109-114` | `find_available_daemon_port` returns an in-use port when the range is exhausted |
+| M2 | `lib.rs:281-291` | Using `cmd.exe /C start` — unnecessary shell |
+| M3 | `mod.rs (daemon):299, telegram.rs:182` | Second Tokio Runtime + blocking client |
+| M4 | `mod.rs (daemon):177-182` | Fallback HTTP client loses all timeout settings |
+| M5 | `mod.rs (daemon):267-270` | `external_tools` lock held across slow init |
+| M6 | `mod.rs (daemon):119-131` | PATH fallback with known security risk |
+| M7 | `transfer.rs:78-104` | Lock ordering `curl_jobs` ≠ `engine_trackers` across functions — AB-BA |
+| M8 | `transfer.rs:230-236` | Unnecessary `.clone()` in `plan_from_job` |
+| M9 | `transfer.rs:153-160` | `infer_file_type` called twice |
+| M10 | `transfer.rs:372` | `plan.clone()` on every redirect hop — large clone |
+| M11 | `transfer.rs:287-289` | Unnecessary wrapper `part_size` |
+| M12 | `transfer.rs:382` | `easy.timeout()` result ignored — preflight may hang |
+| M13 | `transfer.rs:958,1024` | Number of chunks does not match `plan.connections` for adaptive engine |
+| M14 | `transfer.rs:1256,1360-1365` | 24-hour cap silently overrides `retryMaxTimeSec` |
+| M15 | `multi.rs:240-241` | `next_token` saturates at `usize::MAX` |
 | M16 | `multi.rs:299-317` | `collect_multi_errors` O(n²) |
-| M17 | `easy_config.rs` (متعدد) | `easy.*()` نتائجها متجاهلة — 6+ مواقع |
-| M18 | `args.rs:106-138` | `proxy_resolves_to_internal` يتجاوز فحص SSRF للبروكسي بدون scheme |
-| M19 | `task_api.rs:471,497` | `task_snapshot.remove` بعد `curl_jobs.remove` — مهمة شبحية مرئية |
-| M20 | `transfer_config.rs:381` | `retry_all_errors` افتراضياً `true` — 5xx يُعاد (هجوم على الخادم) |
-| M21 | `adaptive/mod.rs:611-612` | ضرب ثم قسمة زائدة — `per_connection_ceiling * target / target = per_connection_ceiling` |
-| M22 | `adaptive/mod.rs:538-566,583-607` | تقييم `segment_ctrl` مكرر — تأثيرات جانبية مزدوجة |
-| M23 | `adaptive/convergence.rs:82-83` | Cooldown بدون إعادة تعيين `consecutive_no_improvement` |
-| M24 | `adaptive/mod.rs:152-154` | `aggregate_speed` يُخزّن سرعة آخر اتصال فقط، وليس المجموع |
-| M25 | `self_healing.rs:49,64` | `recovery_window_start` يُكتب ولا يُقرأ — كود ميت |
-| M26 | `adaptive_connections.rs:24` | `let _mem_gb = ...` محسوب وغير مستخدم |
-| M27 | `bandwidth.rs:79-90` | `allowed_speed_for_task()` يقفل `task_limits` مرتين |
-| M28 | `priority_queue.rs:193-195` | `active.max(1)` كود ميت بعد فحص `active == 0` |
-| M29 | `config.rs:108` | `(total * 2).max(total)` = `total * 2` — تعقيد غير ضروري |
-| M30 | `rules.rs:154-162` | `HeaderContains` يستخدم `.contains()` بدلاً من `.eq_ignore_ascii_case()` — تطابق خاطئ |
-| M31 | `plugin_api.rs:12` | لا فحص لإصدار API — إصدار `999.0.0` مقبول |
+| M17 | `easy_config.rs` (multiple) | `easy.*()` results ignored — 6+ sites |
+| M18 | `args.rs:106-138` | `proxy_resolves_to_internal` bypasses SSRF check for proxy without scheme |
+| M19 | `task_api.rs:471,497` | `task_snapshot.remove` after `curl_jobs.remove` — ghost task visible |
+| M20 | `transfer_config.rs:381` | `retry_all_errors` defaults to `true` — 5xx are retried (server amplification) |
+| M21 | `adaptive/mod.rs:611-612` | Redundant multiply/divide — `per_connection_ceiling * target / target = per_connection_ceiling` |
+| M22 | `adaptive/mod.rs:538-566,583-607` | `segment_ctrl` evaluation duplicated — side effects applied twice |
+| M23 | `adaptive/convergence.rs:82-83` | Cooldown without resetting `consecutive_no_improvement` |
+| M24 | `adaptive/mod.rs:152-154` | `aggregate_speed` stores only last connection speed, not the sum |
+| M25 | `self_healing.rs:49,64` | `recovery_window_start` written but never read — dead code |
+| M26 | `adaptive_connections.rs:24` | `let _mem_gb = ...` computed and unused |
+| M27 | `bandwidth.rs:79-90` | `allowed_speed_for_task()` locks `task_limits` twice |
+| M28 | `priority_queue.rs:193-195` | `active.max(1)` dead code after `active == 0` check |
+| M29 | `config.rs:108` | `(total * 2).max(total)` = `total * 2` — redundant |
+| M30 | `rules.rs:154-162` | `HeaderContains` uses `.contains()` instead of `.eq_ignore_ascii_case()` — incorrect match |
+| M31 | `plugin_api.rs:12` | No API version check — `999.0.0` accepted |
 
 ### 2.4 LOW
 
-| # | ملف:سطر | المشكلة |
+| # | File:Line | Issue |
 |---|---------|---------|
-| L01 | `lib.rs:535-543` | منطق إيجاد المنفذ مكرر |
-| L02 | `lib.rs:494-498` | خيط "أطلق وانسَ" — panic مبتلع |
-| L03 | `lib.rs:63-69` | ربط URL يُنسخ كل استدعاء IPC |
-| L04 | `lib.rs:676-678` | خطأ `hide()` متجاهل |
-| L05 | `lib.rs:120-125` | `DaemonUrl` لا يستعيد التسمم |
-| L06 | `state.rs:100-117` | Cache stampede عند انتهاء TTL |
-| L07 | `mod.rs (daemon):44-47` | `shared_api_token` يرجع `String` بدلاً من `&str` |
-| L08 | `mod.rs (daemon):433` | `remove_file` خطأ متجاهل |
-| L09 | `lib.rs:513-521` | أخطاء PowerShell في `kill_old_daemon` غير مرئية |
-| L10 | `transfer.rs:831,843,858` | `remove_file` خطأ متجاهل في 3 مواقع |
-| L11 | `transfer.rs:2030-2038` | `auto_rename_path` — ملف 0 بايت يُترك عند crash |
-| L12 | `transfer.rs:872-906` | 4 فروع منفصلة لحالة `response == 0` — يمكن تبسيطها |
-| L13 | `transfer.rs:722-761` vs `475-558` | منطق التقدم مكرر بين دالتين |
-| L14 | `args.rs:223-231` | `file_name_from_url` يتجاهل `#fragment` |
-| L15 | `easy_config.rs:57-75` | `parse_rate_to_bytes` قد ينفجر مع مدخلات غير ASCII |
-| L16 | `event_bus.rs:284` | `AtomicU64::fetch_add` داخل قفل Mutex — ذرية زائدة |
-| L17 | `priority_queue.rs:27-35` | `from_u32(2)` يصل إلى Normal عبر wildcard — غامض |
-| L18 | `bandwidth.rs:56-70` | جداول متداخلة — الأولى تفوز بصمت |
-| L19 | `profiles.rs:207,210` | ترتيب قفل مختلف يزيد خطر deadlock |
-| L20 | `retry.rs:66-74` | Jitter إضافي فقط — لا يطرح أبداً |
+| L01 | `lib.rs:535-543` | Port-finding logic duplicated |
+| L02 | `lib.rs:494-498` | "fire-and-forget" thread — swallowed panic |
+| L03 | `lib.rs:63-69` | Binding URL is cloned on every IPC call |
+| L04 | `lib.rs:676-678` | `hide()` error ignored |
+| L05 | `lib.rs:120-125` | `DaemonUrl` does not recover from poisoning |
+| L06 | `state.rs:100-117` | Cache stampede on TTL expiry |
+| L07 | `mod.rs (daemon):44-47` | `shared_api_token` returns `String` instead of `&str` |
+| L08 | `mod.rs (daemon):433` | `remove_file` error ignored |
+| L09 | `lib.rs:513-521` | PowerShell errors in `kill_old_daemon` not visible |
+| L10 | `transfer.rs:831,843,858` | `remove_file` error ignored in 3 places |
+| L11 | `transfer.rs:2030-2038` | `auto_rename_path` — 0-byte file left on crash |
+| L12 | `transfer.rs:872-906` | 4 separate branches for `response == 0` — simplifiable |
+| L13 | `transfer.rs:722-761` vs `475-558` | Progress logic duplicated between two functions |
+| L14 | `args.rs:223-231` | `file_name_from_url` ignores `#fragment` |
+| L15 | `easy_config.rs:57-75` | `parse_rate_to_bytes` may panic on non-ASCII input |
+| L16 | `event_bus.rs:284` | `AtomicU64::fetch_add` inside a Mutex — redundant atomicity |
+| L17 | `priority_queue.rs:27-35` | `from_u32(2)` reaches Normal via wildcard — ambiguous |
+| L18 | `bandwidth.rs:56-70` | Overlapping tables — first silently wins |
+| L19 | `profiles.rs:207,210` | Different lock ordering increases deadlock risk |
+| L20 | `retry.rs:66-74` | Extra jitter only — never subtracts |
 
 ### 2.5 INFO
 
-| # | ملف | الملاحظة |
-|---|------|----------|
-| I01 | `lib.rs` | `target.exists()` زائد بعد `validate_file_path` في 5 دوال |
-| I02 | `lib.rs` | خلط `cfg!(windows)` مع `#[cfg(windows)]` |
-| I03 | `utils.rs:216-253` | `build_segments` يمكن استخدام iterators |
-| I04 | `utils.rs:186` | `to_lowercase()` يخصص String — يمكن تجنبه |
-| I05 | `curl/mod.rs:19` | `#[allow(unused_imports)]` — بعض الواردات غير مستخدمة |
-| I06 | `transfer_config.rs:45-173` | 82 حقلاً في `CurlTransferConfig` — عبء صيانة |
-| I07 | `event_bus.rs` | لا يوجد ناشر لـ EventBus في الإنتاج — 45 استدعاء `.publish()` كلها في الاختبارات |
-| I08 | `engine/mod.rs` | لا يوجد `pub use` إعادة تصدير — مسارات طويلة إلزامية |
-| I09 | `policy_engine.rs` | `context_snapshot` يُخزّن ولا يُقرأ |
-| I10 | `dynamic_segments.rs` | رغم اسمه، `DynamicSegmentScheduler` ليس ديناميكياً |
-| I11 | `policy_engine.rs:400-432` | `decide_buffer()` يرجع Buffer دائماً، أبداً `NoAction` |
-| I12 | `adaptive/mod.rs` | لا اختبارات لـ `evaluate()` مع convergence أو rebalancing |
-| I13 | `adaptive/profile_store.rs` | لا اختبارات لـ `merge_preflight` مع profile موجود |
-| I14 | `adaptive/disk_writer.rs` | لا اختبارات لـ backpressure أو panic recovery |
+| # | File | Note |
+|---|------|------|
+| I01 | `lib.rs` | `target.exists()` redundant after `validate_file_path` in 5 functions |
+| I02 | `lib.rs` | Mixing `cfg!(windows)` with `#[cfg(windows)]` |
+| I03 | `utils.rs:216-253` | `build_segments` can use iterators |
+| I04 | `utils.rs:186` | `to_lowercase()` allocates a String — avoidable |
+| I05 | `curl/mod.rs:19` | `#[allow(unused_imports)]` — some imports unused |
+| I06 | `transfer_config.rs:45-173` | 82 fields in `CurlTransferConfig` — maintenance burden |
+| I07 | `event_bus.rs` | No EventBus publisher in production — 45 `.publish()` calls are all in tests |
+| I08 | `engine/mod.rs` | No `pub use` re-exports — long paths required |
+| I09 | `policy_engine.rs` | `context_snapshot` stored but never read |
+| I10 | `dynamic_segments.rs` | Despite its name, `DynamicSegmentScheduler` is not dynamic |
+| I11 | `policy_engine.rs:400-432` | `decide_buffer()` always returns a Buffer, never `NoAction` |
+| I12 | `adaptive/mod.rs` | No tests for `evaluate()` with convergence or rebalancing |
+| I13 | `adaptive/profile_store.rs` | No tests for `merge_preflight` with existing profile |
+| I14 | `adaptive/disk_writer.rs` | No tests for backpressure or panic recovery |
 
 ---
 
-## 3. خريطة تدفق التنفيذ الكاملة
+## 3. Full Execution Flow Map
 
 ```
 run() [lib.rs]
@@ -195,8 +195,8 @@ run() [lib.rs]
 ├── setup()
 │   ├── kill_old_daemon()
 │   │   └── std::thread::spawn → kill_old_daemon_range() via PowerShell
-│   │       └── [L02: panic مبتلع، L09: أخطاء غير مرئية]
-│   ├── find_available_daemon_port() [M1: port مشغول عند الاستنفاد]
+│   │       └── [L02: panic swallowed, L09: errors not visible]
+│   ├── find_available_daemon_port() [M1: returns in-use port when range exhausted]
 │   ├── DaemonUrl::new()
 │   └── daemon::start_daemon()
 │       └── std::thread::spawn
@@ -206,16 +206,16 @@ run() [lib.rs]
 │                   ├── persist::load() [corrupt → backup + default]
 │                   ├── resolve_engine_binary() [M6: PATH fallback]
 │                   ├── AppState::new()
-│                   │   ├── [H3: PolicyEngine منفصل لـ SelfHealer]
-│                   │   ├── [M4: HTTP Client احتياطي بدون timeout]
-│                   │   └── [C4: AsyncDiskWriter بدون Drop]
+│                   │   ├── [H3: PolicyEngine separate for SelfHealer]
+│                   │   ├── [M4: fallback HTTP Client without timeouts]
+│                   │   └── [C4: AsyncDiskWriter without Drop]
 │                   ├── warm_engine_cache() [std::thread::spawn]
-│                   ├── external_tools::discover_and_initialize() [M5: قفل طويل]
-│                   ├── tokio::spawn → scheduler_tick() [H1: panic يقتل المهمة]
+│                   ├── external_tools::discover_and_initialize() [M5: long lock]
+│                   ├── tokio::spawn → scheduler_tick() [H1: panic kills task]
 │                   ├── restore_scheduler_rules()
-│                   ├── restore_persisted_tasks() [قفل: media_jobs → curl_jobs → task_snapshot]
+│                   ├── restore_persisted_tasks() [locks: media_jobs → curl_jobs → task_snapshot]
 │                   ├── start_persistence_loop() [tokio::spawn]
-│                   ├── start_telegram_bot() [std::thread→tokio::Runtime ثانٍ M3]
+│                   ├── start_telegram_bot() [std::thread→second tokio::Runtime M3]
 │                   ├── build_axum_router()
 │                   ├── TCP bind (5 retries × 1s)
 │                   ├── write_port_file()
@@ -236,80 +236,80 @@ Tauri Commands:
 ├── reveal_file(path) → validate_file_path() → canonicalize() [H2]
 ├── check_tcp_endpoint(host, port) → to_socket_addrs() [C11: no timeout]
 ├── save_config(settings) → serde_json::from_str → fs::write
-├── restart_daemon() → kill_old_daemon_range() → start_daemon() [C1: تسريب]
+├── restart_daemon() → kill_old_daemon_range() → start_daemon() [C1: leak]
 ├── get_daemon_url() → DaemonUrl.lock().clone() [L03]
-└── tray "quit" → app.exit(0) [C2: لا حفظ ولا إيقاف ناعم]
+└── tray "quit" → app.exit(0) [C2: no persist, no graceful stop]
 
 Background Tasks:
 ├── persistence_loop [tokio::spawn]
-│   └── كل 5-60s: persist_dirty → save() → build_snapshot()
-│       └── قفل: media_jobs, curl_jobs, task_snapshot, telegram_id
-├── scheduler_tick [tokio::spawn] [H1: يموت بصمت]
+│   └── every 5-60s: persist_dirty → save() → build_snapshot()
+│       └── locks: media_jobs, curl_jobs, task_snapshot, telegram_id
+├── scheduler_tick [tokio::spawn] [H1: dies silently]
 │   └── run_scheduler_tick() → rule evaluation
 ├── telegram_bot [std::thread + tokio::Runtime] [M3]
-└── watchdog_handles [std::thread] [H4: يُفصل، C10: يتداخل مع الأجيال]
+└── watchdog_handles [std::thread] [H4: detached, C10: generation interference]
 ```
 
 ---
 
-## 4. خريطة تدفق التحميل
+## 4. Download Flow Map
 
 ```
 create_download → task_api::create_curl_task
 │
-├── build_decision_context() [M7: ترتيب قفل]
+├── build_decision_context() [M7: lock ordering]
 │   ├── lock curl_jobs → read job
 │   └── lock engine_trackers → read segments, retry_state
 │
-├── run_libcurl_download() [transfer.rs:1248-1664 — 416 سطر، مسؤولية زائدة]
-│   ├── PROBE → HEAD request [easy_config.rs — apply_easy_options 780 سطر H6]
+├── run_libcurl_download() [transfer.rs:1248-1664 — 416 lines, too many responsibilities]
+│   ├── PROBE → HEAD request [easy_config.rs — apply_easy_options 780 lines H6]
 │   │   ├── redirect handling → resolve_effective_target() [M10: plan.clone()]
 │   │   ├── resume support → check_accept_ranges + If-Range
 │   │   └── preflight data → protocol, RTT, TLS, TTFB, etag, content-length
 │   │
 │   ├── DIRECT DOWNLOAD → run_single_libcurl()
-│   │   ├── preallocate file [C9: تقدم 100% فوراً]
+│   │   ├── preallocate file [C9: progress 100% immediately]
 │   │   ├── create_easy_for_range_ext() [easy_config.rs]
-│   │   │   ├── apply_easy_options() [H6: 780 سطر]
-│   │   │   └── SegmentWriter::write() [C3: أخطاء I/O مبتلعة]
+│   │   │   ├── apply_easy_options() [H6: 780 lines]
+│   │   │   └── SegmentWriter::write() [C3: I/O errors swallowed]
 │   │   └── drive_multi_wait_perform() [multi.rs]
-│   │       └── tick() كل 250ms
-│   │           └── [C9, L13: منطق تقدم مكرر]
+│   │       └── tick() every 250ms
+│   │           └── [C9, L13: duplicated progress logic]
 │   │
 │   ├── SEGMENTED DOWNLOAD → run_segmented_libcurl()
-│   │   ├── split_ranges() → SegmentPlanner::plan() [C7: OOM لـ 4GB+]
-│   │   ├── DynamicSegmentScheduler::new() [I10: ليس ديناميكياً]
+│   │   ├── split_ranges() → SegmentPlanner::plan() [C7: OOM for 4GB+]
+│   │   ├── DynamicSegmentScheduler::new() [I10: not dynamic]
 │   │   ├── AdaptiveEngine::new()
 │   │   │   ├── SegmentController::new()
 │   │   │   ├── ServerProfiler, ConvergenceDetector, ResourceMonitor
 │   │   │   ├── ProtocolAdapter, BufferManager, ChunkManager
-│   │   │   └── AsyncDiskWriter [C4: بدون Drop]
+│   │   │   └── AsyncDiskWriter [C4: no Drop]
 │   │   ├── for each range → create_easy_for_range_ext()
 │   │   └── drive_multi_socket() / drive_multi_wait_perform()
-│   │       └── tick() كل 250ms
-│   │           ├── لكل قطعة: read atomic → calculate speed
-│   │           │   → [NC-1: update_progress() الآن]
+│   │       └── tick() every 250ms
+│   │           ├── per-chunk: read atomic → calculate speed
+│   │           │   → [NC-1: update_progress() now]
 │   │           │   → segment_scheduler.update_segment()
 │   │           │   → telemetry_bus.report_bytes/speed()
 │   │           ├── engine.evaluate(&telemetry_bus)
-│   │           │   ├── segment_ctrl.evaluate() [M22: مكرر]
+│   │           │   ├── segment_ctrl.evaluate() [M22: duplicated]
 │   │           │   │   ├── split/merge/rebalance decisions
-│   │           │   │   └── [NC-2: actions تُسجّل الآن]
+│   │           │   │   └── [NC-2: actions are now logged]
 │   │           │   ├── convergence check
 │   │           │   ├── protocol adapter
-│   │           │   └── resource monitor [C12: CPU خاطئ]
-│   │           └── [NC-2: AdaptationAction تُعالَج الآن]
+│   │           │   └── resource monitor [C12: wrong CPU]
+│   │           └── [NC-2: AdaptationAction processed now]
 │   │
 │   ├── RETRY LOOP
 │   │   ├── retry_policy → attempts, backoff, max_wall_time
-│   │   ├── [M20: retry_all_errors=true يضرب الخادم]
-│   │   └── MAX_RETRY_WALL_TIME 24h [M14: يتجاوز config بصمت]
+│   │   ├── [M20: retry_all_errors=true amplifies server]
+│   │   └── MAX_RETRY_WALL_TIME 24h [M14: silently overrides config]
 │   │
-│   ├── SEGMENTED → SINGLE fallback [خطأ 200 مع segments]
-│   │   └── [H7: plan.connections > 1 بدلاً من handles.len() > 1]
+│   ├── SEGMENTED → SINGLE fallback [200 error with segments]
+│   │   └── [H7: plan.connections > 1 instead of handles.len() > 1]
 │   │
 │   ├── MIRROR FAILOVER [1529-1558]
-│   ├── SELF-HEALER [H3: PolicyEngine منفصل]
+│   ├── SELF-HEALER [H3: separate PolicyEngine]
 │   └── HASH VALIDATION + ETAG SAVING
 │
 ├── mark_curl_task_finished() [1640-1678]
@@ -323,12 +323,12 @@ create_download → task_api::create_curl_task
 └── pause / resume / cancel
     ├── task_api::pause_task()
     ├── task_api::resume_task()
-    └── task_api::delete_task() [M19: snapshot يُحذف بعد jobs]
+    └── task_api::delete_task() [M19: snapshot removed after jobs]
 ```
 
 ---
 
-## 5. خريطة الاعتماديات
+## 5. Dependency Map
 
 ```
 src/lib.rs
@@ -374,241 +374,241 @@ src/lib.rs
 │       └── process.rs
 │
 ├── src/daemon/engine/mod.rs
-│   ├── adaptive/ [9 ملفات]
+│   ├── adaptive/ [9 files]
 │   ├── thread_pool.rs
 │   ├── retry.rs
 │   └── ...
 │
-└── tauri (خارجي)
+└── tauri (external)
 ```
 
 ---
 
-## 6. تحليل الأكواد الميتة
+## 6. Dead Code Analysis
 
-| الكود الميت | الموقع | النوع |
-|------------|--------|-------|
-| `SegmentAction::Split(u32)` | `policy_engine.rs:131` | Variant غير مستخدم |
-| `SegmentAction::Rebalance` | `policy_engine.rs:137` | Variant غير مستخدم |
-| `RecoveryAction::RestartSegment(u32)` | `policy_engine.rs:140` | Variant غير مستخدم |
-| `recovery_window_start` | `self_healing.rs:49,64` | حقل يُكتب ولا يُقرأ |
-| `context_snapshot` | `policy_engine.rs` | حقل يُخزّن ولا يُقرأ |
-| `_mem_gb` | `adaptive_connections.rs:24` | متغير محسوب وغير مستخدم |
-| `active.max(1)` بعد فحص `active == 0` | `priority_queue.rs:193-195` | كود ميت (لا يُنفذ أبداً) |
-| `(total * 2).max(total)` | `config.rs:108` | يساوي `total * 2` — عملية زائدة |
-| `_max_segments` | `dynamic_segments.rs:49` | معامل غير مستخدم في المُنشئ |
-| `lock_or_err!` مع $default | `utils.rs:13-31` | المعامل الثاني مهمل في poison |
-| `#[allow(unused_imports)]` | `curl/mod.rs:19` | واردات غير مستخدمة |
-| كل استدعاءات `.publish()` | `event_bus.rs` Tests | لا يوجد ناشر في الإنتاج |
-| `is_internal` dead path analysis | `lib.rs:337-339` | متاح ولكن منطقياً صحيح (ليس ميتاً) |
+| Dead Code | Location | Type |
+|-----------|----------|------|
+| `SegmentAction::Split(u32)` | `policy_engine.rs:131` | Variant unused |
+| `SegmentAction::Rebalance` | `policy_engine.rs:137` | Variant unused |
+| `RecoveryAction::RestartSegment(u32)` | `policy_engine.rs:140` | Variant unused |
+| `recovery_window_start` | `self_healing.rs:49,64` | Field written but not read |
+| `context_snapshot` | `policy_engine.rs` | Field stored but never read |
+| `_mem_gb` | `adaptive_connections.rs:24` | Computed and unused variable |
+| `active.max(1)` after `active == 0` check | `priority_queue.rs:193-195` | Dead code (never executed) |
+| `(total * 2).max(total)` | `config.rs:108` | Equals `total * 2` — redundant |
+| `_max_segments` | `dynamic_segments.rs:49` | Unused constructor parameter |
+| `lock_or_err!` with $default | `utils.rs:13-31` | Second parameter ignored on poison |
+| `#[allow(unused_imports)]` | `curl/mod.rs:19` | Unused imports |
+| all `.publish()` calls | `event_bus.rs` Tests | No publisher in production |
+| `is_internal` dead path analysis | `lib.rs:337-339` | Available but logically correct (not dead) |
 
 ---
 
-## 7. تحليل الأداء
+## 7. Performance Analysis
 
 ### 7.1 CPU
 
-| المشكلة | الموقع | التأثير |
-|---------|--------|---------|
-| `drive_multi_wait_perform()` polling كل 250ms | `multi.rs:332-361` | استيقاظ CPU دوري حتى مع عدم النشاط |
-| `collect_multi_errors` O(n²) | `multi.rs:299-317` | مع 1000+ مقبض، بطيء |
-| `SegmentWriter::header` يقفل `capture.lock()` 7 مرات لكل سطر header | `easy_config.rs:119-180` | 7 lock/unlock لكل هيدر |
-| `allowed_speed_for_task()` يقفل `task_limits` مرتين | `bandwidth.rs:79-90` | ضعف تكلفة القفل |
-| `decide_buffer()` يرجع Buffer دائماً | `policy_engine.rs:400-432` | إعادة تهيئة المخزن المؤقت كل تقييم |
+| Issue | Location | Impact |
+|-------|----------|--------|
+| `drive_multi_wait_perform()` polling every 250ms | `multi.rs:332-361` | Periodic CPU wakeups even when idle |
+| `collect_multi_errors` O(n²) | `multi.rs:299-317` | Slow with 1000+ handles |
+| `SegmentWriter::header` locks `capture.lock()` 7 times per header line | `easy_config.rs:119-180` | 7 lock/unlock per header |
+| `allowed_speed_for_task()` locks `task_limits` twice | `bandwidth.rs:79-90` | Double lock cost |
+| `decide_buffer()` always returns a Buffer | `policy_engine.rs:400-432` | Buffer reallocation every evaluation |
 
-### 7.2 الذاكرة
+### 7.2 Memory
 
-| المشكلة | الموقع | التأثير |
-|---------|--------|---------|
-| `SegmentPlanner::plan` ينتج `u32::MAX` قطعة | `direct.rs:216` | OOM مع ملفات 4GB+ |
-| `plan.clone()` في كل قفزة redirect | `transfer.rs:372` | نسخ 80+ حقل |
-| `to_lowercase()` يخصص String في `infer_file_type` | `utils.rs:186` | تخصيص لكل ملف |
-| `shared_api_token()` ينسخ 32-char String كل استدعاء | `mod.rs:44-47` | نسخة زائدة لكل طلب API |
-| `daemon_url.lock().clone()` لكل IPC | `lib.rs:63-69` | نسخة URL لكل أمر Tauri |
+| Issue | Location | Impact |
+|-------|----------|--------|
+| `SegmentPlanner::plan` produces `u32::MAX` chunk count | `direct.rs:216` | OOM with 4GB+ files |
+| `plan.clone()` on each redirect hop | `transfer.rs:372` | Cloning 80+ fields |
+| `to_lowercase()` allocates String in `infer_file_type` | `utils.rs:186` | Allocation per file |
+| `shared_api_token()` clones 32-char String on every call | `mod.rs:44-47` | Unnecessary copy per API request |
+| `daemon_url.lock().clone()` per IPC | `lib.rs:63-69` | URL clone per Tauri command |
 
-### 7.3 القفل (Lock Contention)
+### 7.3 Lock Contention
 
-| المشكلة | الموقع | التأثير |
-|---------|--------|---------|
-| `external_tools` مقفول عبر `discover_and_initialize()` | `mod.rs:267-270` | حجب جميع استعلامات tools أثناء init |
-| `engine_trackers` مقفول في tick + `update_curl_task_progress` متتالياً | `transfer.rs:1126,1178` | نافذة ضعف refactoring |
-| `build_snapshot` يقفل 5 mutexes معاً | `persist.rs:60-89` | (تم إصلاحه — scoping) |
-| SegmentWriter::header 7 أقفال منفصلة | `easy_config.rs:119-180` | احتكاك قفل مرتفع |
+| Issue | Location | Impact |
+|-------|----------|--------|
+| `external_tools` locked across `discover_and_initialize()` | `mod.rs:267-270` | Blocks all tools queries during init |
+| `engine_trackers` locked in tick + `update_curl_task_progress` sequentially | `transfer.rs:1126,1178` | Refactoring window |
+| `build_snapshot` locks 5 mutexes together | `persist.rs:60-89` | (Fixed — scoping) |
+| SegmentWriter::header 7 separate locks | `easy_config.rs:119-180` | High lock churn |
 
 ---
 
-## 8. تحليل التزامن
+## 8. Concurrency Analysis
 
-### 8.1 Deadlocks المحتملة
+### 8.1 Potential Deadlocks
 
-| المسار A | المسار B | الحالة |
-|----------|----------|--------|
-| `build_snapshot`: curl_jobs → download_stats | `transfer` functions: download_stats → curl_jobs | ✅ **مُصلَح** (block scoping + comments) |
-| `build_decision_context`: curl_jobs → engine_trackers (تسلسلي) | `update_curl_task_progress`: engine_trackers → curl_jobs (تسلسلي) | ⚠️ **خطر كامن** — AB-BA عبر دالتين |
-| `profiles.rs:207,210`: active ثم profiles | `set_active`: active فقط | ⚠️ نمط غير متناسق |
+| Path A | Path B | Status |
+|--------|--------|--------|
+| `build_snapshot`: curl_jobs → download_stats | `transfer` functions: download_stats → curl_jobs | ✅ Fixed (block scoping + comments) |
+| `build_decision_context`: curl_jobs → engine_trackers (sequential) | `update_curl_task_progress`: engine_trackers → curl_jobs (sequential) | ⚠️ Latent risk — AB-BA across functions |
+| `profiles.rs:207,210`: active then profiles | `set_active`: active only | ⚠️ Inconsistent pattern |
 
-### 8.2 سباقات البيانات (Data Races)
+### 8.2 Data Races
 
-| المشكلة | الموقع | الخطورة |
-|---------|--------|---------|
-| `PREV_IDLE` + `PREV_TOTAL` ليسا ذريين معاً | `resource_monitor.rs:192-197` | **CRITICAL** — CPU % خاطئ |
-| `set_alive` المزدوج يعد `active_conns` خطأ | `adaptive/mod.rs:209-219` | HIGH — إحصاء خاطئ |
-| Watchdog القديم يقرأ الجيل الجديد | `transfer.rs:1756-1987` | **CRITICAL** — تدمير التحميل الجديد |
-| Tokio Runtime ثانٍ لـ Telegram | `telegram.rs:182` | MEDIUM — تجمعا خيوط |
+| Issue | Location | Severity |
+|-------|----------|----------|
+| `PREV_IDLE` + `PREV_TOTAL` not read atomically together | `resource_monitor.rs:192-197` | **CRITICAL** — wrong CPU % |
+| `set_alive` double increments `active_conns` incorrectly | `adaptive/mod.rs:209-219` | HIGH — wrong counts |
+| Old Watchdog reads new generation | `transfer.rs:1756-1987` | **CRITICAL** — destroys new download |
+| Second Tokio Runtime for Telegram | `telegram.rs:182` | MEDIUM — thread pool duplication |
 
 ### 8.3 Memory Ordering
 
-جميع استخدامات `Ordering::Relaxed` في العدادات والإحصائيات مقبولة، ولكن:
-- `cancel_token.store(true, Ordering::Release)` يجب أن يقترن بـ `load(Ordering::Acquire)` للعامل — تم التحقق ✅
-- `run_generation.fetch_add(1, Ordering::Release)` يقترن بـ `load(Ordering::Acquire)` في دوال finish/fail — تم التحقق ✅
+All uses of `Ordering::Relaxed` in counters and stats are acceptable, however:
+- `cancel_token.store(true, Ordering::Release)` should pair with `load(Ordering::Acquire)` in the worker — verified ✅
+- `run_generation.fetch_add(1, Ordering::Release)` pairs with `load(Ordering::Acquire)` in finish/fail functions — verified ✅
 
 ---
 
-## 9. تحليل إدارة الذاكرة
+## 9. Memory Management Analysis
 
-### 9.1 تسريبات الموارد
+### 9.1 Resource Leaks
 
-| المورد | الموقع | المشكلة |
-|--------|--------|---------|
-| Tokio Runtime | `lib.rs:465-490` | يُسرّب كل restart (C1) |
-| Watchdog threads | `mod.rs:418-420` | `JoinHandle` يُفصل بدل الضم (H4) |
-| Disk writer thread | `adaptive/disk_writer.rs` | لا `Drop` — يتسرب (C4) |
-| Part files بعد 412/416/304 | `transfer.rs:831,843,858` | أخطاء `remove_file` متجاهلة |
-| stale file (auto_rename_path) | `transfer.rs:2030-2038` | crash يترك ملف 0 بايت |
+| Resource | Location | Issue |
+|----------|----------|-------|
+| Tokio Runtime | `lib.rs:465-490` | Leaks on every restart (C1) |
+| Watchdog threads | `mod.rs:418-420` | `JoinHandle` detached instead of joined (H4) |
+| Disk writer thread | `adaptive/disk_writer.rs` | No `Drop` — leaks (C4) |
+| Part files after 412/416/304 | `transfer.rs:831,843,858` | `remove_file` errors ignored |
+| stale file (auto_rename_path) | `transfer.rs:2030-2038` | Crash leaves 0-byte file |
 
-### 9.2 تسريبات الذاكرة
+### 9.2 Logical Resource Leaks
 
-| الموقع | المشكلة |
-|--------|---------|
-| `event_bus.rs:264-270` | Mutex poison يوقف EventBus — تتراكم الأحداث في `pending_events` للأبد |
-| كل `lock_or_err!` مع poison | Mutex poison يستعيد ولكن البيانات قد تكون غير متناسقة — تُقبل كتضحية |
+| Location | Issue |
+|----------|-------|
+| `event_bus.rs:264-270` | Mutex poison stops EventBus — `pending_events` accumulate forever |
+| all `lock_or_err!` with poison | Mutex poison recovered but data may be inconsistent — accepted as tradeoff |
 
 ---
 
-## 10. تحليل الشبكة و libcurl
+## 10. Network and libcurl Analysis
 
 ### 10.1 HTTP Client
 
-| المشكلة | الموقع | الخطورة |
-|---------|--------|---------|
-| `HttpClient::new()` الاحتياطي يفقد كل timeout | `mod.rs:177-182` | MEDIUM |
-| `to_socket_addrs()` بدون timeout | `lib.rs:357-360` | **CRITICAL** |
-| `easy.timeout(5s)` نتيجة مهملة | `transfer.rs:382` | MEDIUM |
-| `easy.max_recv_speed()` نتيجة مهملة | `easy_config.rs:1177` | MEDIUM |
+| Issue | Location | Severity |
+|-------|----------|----------|
+| Fallback `HttpClient::new()` loses all timeouts | `mod.rs:177-182` | MEDIUM |
+| `to_socket_addrs()` without timeout | `lib.rs:357-360` | **CRITICAL** |
+| `easy.timeout(5s)` result ignored | `transfer.rs:382` | MEDIUM |
+| `easy.max_recv_speed()` result ignored | `easy_config.rs:1177` | MEDIUM |
 
 ### 10.2 libcurl Configuration
 
-| المشكلة | الموقع | التأثير |
-|---------|--------|---------|
-| `apply_easy_options` — 780 سطر | `easy_config.rs:363-1142` | أخطاء سهلة، صيانة مستحيلة |
-| 6+ `easy.*()` نتائج متجاهلة | `easy_config.rs` (متعدد) | خيارات قد لا تُطبق |
-| `plan.connections > 1` بدلاً من `handles.len() > 1` | `transfer.rs:1224` | HIGH — خطأ 200 زائف |
-| `proxy_resolves_to_internal` يتجاوز SSRF لبروكسي بدون scheme | `args.rs:106-138` | MEDIUM |
+| Issue | Location | Impact |
+|-------|----------|--------|
+| `apply_easy_options` — 780 lines | `easy_config.rs:363-1142` | Easy to make mistakes, unmaintainable |
+| 6+ `easy.*()` results ignored | `easy_config.rs` (multiple) | Options may not be applied |
+| `plan.connections > 1` instead of `handles.len() > 1` | `transfer.rs:1224` | HIGH — false 200 error |
+| `proxy_resolves_to_internal` bypasses SSRF check for proxy without scheme | `args.rs:106-138` | MEDIUM |
 
-### 10.3 HTTP/2 و HTTP/3
+### 10.3 HTTP/2 and HTTP/3
 
-يتم تمكين `pipelining(false, true)` عند `multi.rs:1040` ولكن لا يوجد تحقق إضافي من دعم الخادم. `protocol_adapter.rs` يُحدد البروتوكول من `preflight.protocol` ويضبط `max_concurrent_streams` بناءً على HTTP/2 (100) أو HTTP/3 (256). لا توجد مشاكل واضحة.
+`pipelining(false, true)` is enabled at `multi.rs:1040` but server support is not further validated. `protocol_adapter.rs` determines protocol from `preflight.protocol` and adjusts `max_concurrent_streams` based on HTTP/2 (100) or HTTP/3 (256). No clear issues identified.
 
 ---
 
-## 11. تحليل البنية
+## 11. Architecture Analysis
 
-### 11.1 انتهاكات SOLID
+### 11.1 SOLID Violations
 
-| المبدأ | الموقع | الانتهاك |
-|--------|--------|---------|
+| Principle | Location | Violation |
+|----------|----------|----------|
 | **SRP** | `transfer.rs:1248-1664` (`run_libcurl_download`) | retry + segmented→single + mirror + self-heal + hash + etag |
-| **SRP** | `easy_config.rs:363-1142` (`apply_easy_options`) | كل خيارات curl في دالة واحدة 780 سطر |
-| **SRP** | `mod.rs:133-436` (`start_daemon`) | init + restore + serve في دالة واحدة |
-| **OCP** | `transfer_config.rs:45-173` | 82 حقلاً — كل خيار جديد يتطلب تعديل struct + accessor + From + to_hashmap |
-| **DIP** | `policy_engine.rs` vs `self_healing.rs` | SelfHealer يخلق PolicyEngine خاصاً به (H3) |
+| **SRP** | `easy_config.rs:363-1142` (`apply_easy_options`) | All curl options in one 780-line function |
+| **SRP** | `mod.rs:133-436` (`start_daemon`) | init + restore + serve in one function |
+| **OCP** | `transfer_config.rs:45-173` | 82 fields — every new option needs struct + accessor + From + to_hashmap |
+| **DIP** | `policy_engine.rs` vs `self_healing.rs` | SelfHealer creates its own PolicyEngine (H3) |
 
-### 11.2 انتهاكات DRY
+### 11.2 DRY Violations
 
-| الموقع | التكرار |
-|--------|---------|
-| `config.rs:120-184`, `resource_manager.rs:66-130`, `adaptive/resource_monitor.rs` | كشف الذاكرة الفعلية مكرر 3 مرات (H4-Engine) |
-| `transfer.rs:722-761` vs `475-558` | منطق تحديث التقدم مكرر |
-| `lib.rs:535-543` vs `109-114` | منطق إيجاد المنفذ مكرر |
-| `adaptive/mod.rs:538-566` vs `583-607` | تقييم segment_ctrl مكرر (M22) |
-| `utils.rs:216-253` | حلقة for يمكن استبدالها بـ iterator |
+| Location | Duplication |
+|----------|-------------|
+| `config.rs:120-184`, `resource_manager.rs:66-130`, `adaptive/resource_monitor.rs` | Physical memory detection duplicated 3 times (H4-Engine) |
+| `transfer.rs:722-761` vs `475-558` | Progress update logic duplicated |
+| `lib.rs:535-543` vs `109-114` | Port-finding logic duplicated |
+| `adaptive/mod.rs:538-566` vs `583-607` | `segment_ctrl` evaluation duplicated (M22) |
+| `utils.rs:216-253` | for loop can be replaced with iterator |
 
-### 11.3 وحدات كبيرة
+### 11.3 Large Modules
 
-| الوحدة | السطور | المشكلة |
-|--------|--------|---------|
-| `transfer.rs` | 2109 | كبيرة جداً — 6 مسؤوليات |
-| `easy_config.rs` | 1203 | دالة `apply_easy_options` 780 سطر |
-| `mod.rs (daemon)` | 577 | `start_daemon` 300+ سطر |
-| `segment_controller.rs` | 982 | يمكن تقسيمها |
-| `transfer_config.rs` | 964 | 82 حقلاً في struct واحد |
-
----
-
-## 12. خطة الإصلاح
-
-### المرحلة 1: حرجة — فقدان بيانات / تعطل تام
-
-| الأولوية | المعرف | الإصلاح | الجهد | المخاطرة |
-|----------|--------|---------|-------|----------|
-| 1 | C2 | إرسال إشارة إيقاف لـ daemon قبل `app.exit()` | صغير | منخفضة |
-| 2 | C1 | إضافة `shutdown_signal: oneshot::Sender` لـ AppState | وسط | منخفضة |
-| 3 | C3 | إعادة كتابة `drain_batch` لترجيع `Result` | وسط | متوسطة |
-| 4 | C4 | إضافة `Drop` مع `shutdown()` + `join()` | صغير | منخفضة |
-| 5 | C5 | إضافة `catch_unwind` حول `task_fn()` | صغير | منخفضة |
-| 6 | C6 | إعادة تعيين `publish_depth = 0` عند تسمم mutex | صغير | منخفضة |
-| 7 | C7 | تحديد `max_segments = 256` في SegmentPlanner | صغير | منخفضة |
-| 8 | C8 | قراءة stdout/stderr بخيوط متزامنة | وسط | متوسطة |
-| 9 | C9 | إضافة `is_preallocated` flag للـ tick | صغير | منخفضة |
-| 10 | C10 | إضافة `generation` إلى Watchdog + `force_error_status` | وسط | منخفضة |
-| 11 | C11 | إضافة `timeout(Duration::from_secs(5))` لـ `check_tcp_endpoint` | صغير | منخفضة |
-| 12 | C12 | استبدال `AtomicU64` المزدوج بـ `Mutex<(u64,u64)>` | صغير | منخفضة |
-
-### المرحلة 2: عالية — تلف بيانات / منطق خاطئ
-
-| الأولوية | المعرف | الإصلاح | الجهد |
-|----------|--------|---------|-------|
-| 13 | H1 | إضافة `catch_unwind` لمهمة scheduler | صغير |
-| 14 | H2 | استخدام `target` مباشرة دون canonicalize ثانٍ | صغير |
-| 15 | H3 | مشاركة `PolicyEngine` بين SelfHealer و AppState | صغير |
-| 16 | H4 | ضم Watchdog handles مع timeout في shutdown | وسط |
-| 17 | H5 | إضافة فحص `generation` إلى `force_error_status` | صغير |
-| 18 | H7 | تغيير `plan.connections > 1` → `handles.len() > 1` | صغير |
-| 19 | H8 | تبديل ترتيب `fetch_add(generation)` و `remove_file` | صغير |
-| 20 | H9 | استبدال `unwrap()` بـ `if let Some` | صغير |
-| 21 | H10+H13 | إعادة `Result` من `save()` و `new()` | وسط |
-| 22 | H11 | إنقاص `pending_bytes` عند فشل `send()` | صغير |
-| 23 | H12 | إضافة auto-clear بعد 5 دقائق لـ `rate_limit_detected` | صغير |
-| 24 | H14 | تصريف القناة قبل Shutdown | صغير |
-| 25 | H16 | استخدام `swap` بدلاً من fetch_add في `set_alive` | صغير |
-| 26 | H18 | إصلاح المقارنة: `disk_write_mbps < 5` | صغير |
-| 27 | H19 | إضافة `self.reallocate()` في `update_size()` | صغير |
-| 28 | H20 | تتبّع ID القطعة الفاشلة بدلاً من `Merge(0,1)` | وسط |
-| 29 | H21 | استخدام `self.default_connections` لـ `min_connections` | صغير |
-
-### المرحلة 3: متوسطة — أداء، كود ميت، أخطاء منطقية
-
-(31 مشكلة — أهمها M1-M7، M18-M19، M21-M31)
-
-### المرحلة 4: تحسينات
-
-(20 مشكلة LOW + 14 INFO — L01-L20، I01-I14)
+| Module | Lines | Issue |
+|--------|-------|-------|
+| `transfer.rs` | 2109 | Too large — 6 responsibilities |
+| `easy_config.rs` | 1203 | `apply_easy_options` 780 lines |
+| `mod.rs (daemon)` | 577 | `start_daemon` 300+ lines |
+| `segment_controller.rs` | 982 | Can be split |
+| `transfer_config.rs` | 964 | 82 fields in a single struct |
 
 ---
 
-## الإحصائيات النهائية
+## 12. Fix Plan
 
-| الفئة | العدد |
-|-------|-------|
+### Phase 1: Critical — Data Loss / Total Hang
+
+| Priority | ID | Fix | Effort | Risk |
+|----------|----|-----|--------|------|
+| 1 | C2 | Send a stop signal to the daemon before `app.exit()` | small | low |
+| 2 | C1 | Add `shutdown_signal: oneshot::Sender` to AppState | medium | low |
+| 3 | C3 | Rewrite `drain_batch` to return `Result` | medium | medium |
+| 4 | C4 | Add `Drop` with `shutdown()` + `join()` | small | low |
+| 5 | C5 | Add `catch_unwind` around `task_fn()` | small | low |
+| 6 | C6 | Reset `publish_depth = 0` on mutex poison | small | low |
+| 7 | C7 | Cap `max_segments = 256` in SegmentPlanner | small | low |
+| 8 | C8 | Read stdout/stderr from concurrent threads | medium | medium |
+| 9 | C9 | Add `is_preallocated` flag to the tick | small | low |
+| 10 | C10 | Add `generation` to Watchdog + check in `force_error_status` | medium | low |
+| 11 | C11 | Add `timeout(Duration::from_secs(5))` to `check_tcp_endpoint` | small | low |
+| 12 | C12 | Replace dual `AtomicU64` with `Mutex<(u64,u64)>` | small | low |
+
+### Phase 2: High — Data Corruption / Incorrect Logic
+
+| Priority | ID | Fix | Effort |
+|----------|----|-----|--------|
+| 13 | H1 | Add `catch_unwind` to scheduler task | small |
+| 14 | H2 | Use `target` directly without second canonicalize | small |
+| 15 | H3 | Share `PolicyEngine` between SelfHealer and AppState | small |
+| 16 | H4 | Join Watchdog handles with timeout during shutdown | medium |
+| 17 | H5 | Add generation check to `force_error_status` | small |
+| 18 | H7 | Change `plan.connections > 1` → `handles.len() > 1` | small |
+| 19 | H8 | Swap order of `fetch_add(generation)` and `remove_file` | small |
+| 20 | H9 | Replace `unwrap()` with `if let Some` | small |
+| 21 | H10+H13 | Return `Result` from `save()` and `new()` | medium |
+| 22 | H11 | Decrement `pending_bytes` on `send()` failure | small |
+| 23 | H12 | Add auto-clear after 5 minutes for `rate_limit_detected` | small |
+| 24 | H14 | Drain channel before Shutdown | small |
+| 25 | H16 | Use `swap` instead of `fetch_add` in `set_alive` | small |
+| 26 | H18 | Fix comparison: `disk_write_mbps < 5` | small |
+| 27 | H19 | Add `self.reallocate()` in `update_size()` | small |
+| 28 | H20 | Track failed chunk ID instead of `Merge(0,1)` | medium |
+| 29 | H21 | Use `self.default_connections` for `min_connections` | small |
+
+### Phase 3: Medium — Performance, Dead Code, Logic Bugs
+
+(31 issues — notably M1-M7, M18-M19, M21-M31)
+
+### Phase 4: Improvements
+
+(20 LOW issues + 14 INFO — L01-L20, I01-I14)
+
+---
+
+## Final Statistics
+
+| Category | Count |
+|---------|-------|
 | **CRITICAL** | 12 |
 | **HIGH** | 22 |
 | **MEDIUM** | 31 |
 | **LOW** | 20 |
 | **INFO** | 14 |
-| **المجموع** | **99 مشكلة** |
-| **المُصلَح مسبقاً** | 16 (من الجولة السابقة) |
-| **المتبقي** | **83 مشكلة** |
+| **TOTAL** | **99 issues** |
+| **Pre-fixed** | 16 (from previous round) |
+| **Remaining** | **83 issues** |
 
 ---
 
-*نهاية التقرير — تم التحليل بواسطة فريق المراجعة الهندسية الميكروسكوبية.*
+*End of report — analyzed by the Microscopic Engineering Review team.*

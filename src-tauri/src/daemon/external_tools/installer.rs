@@ -1,5 +1,5 @@
 use super::health;
-use super::types::{ExternalTool, ToolId, UpdateInfo};
+use super::types::{ExternalTool, InstallScope, ToolId, UpdateInfo};
 use crate::daemon::external_tools::registry;
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
@@ -329,12 +329,62 @@ fn atomic_replace(staged_path: &Path, destination: &Path) -> Result<(), String> 
     Ok(())
 }
 
+#[cfg(windows)]
+fn powershell_single_quoted(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+#[cfg(windows)]
+fn install_system_executable(staged_path: &Path, destination: &Path) -> Result<(), String> {
+    use crate::daemon::utils::hide_command_window;
+    use std::process::Command;
+
+    let parent = destination
+        .parent()
+        .ok_or("System installation destination has no parent directory")?;
+    let backup = destination.with_extension(format!("nova-backup-{}", Uuid::new_v4()));
+    let script_path = staged_path.with_extension("nova-install.ps1");
+    let script = format!(
+        "$ErrorActionPreference = 'Stop'\n$source = {}\n$destination = {}\n$parent = {}\n$backup = {}\nNew-Item -ItemType Directory -Force -Path $parent | Out-Null\n$hadExisting = Test-Path -LiteralPath $destination\nif ($hadExisting) {{ Move-Item -LiteralPath $destination -Destination $backup -Force }}\ntry {{ Move-Item -LiteralPath $source -Destination $destination -Force; if ($hadExisting) {{ Remove-Item -LiteralPath $backup -Force }} }} catch {{ if ($hadExisting -and (Test-Path -LiteralPath $backup)) {{ Move-Item -LiteralPath $backup -Destination $destination -Force }}; throw }}\n",
+        powershell_single_quoted(&staged_path.display().to_string()),
+        powershell_single_quoted(&destination.display().to_string()),
+        powershell_single_quoted(&parent.display().to_string()),
+        powershell_single_quoted(&backup.display().to_string()),
+    );
+    fs::write(&script_path, script)
+        .map_err(|error| format!("Failed to create elevated installation script: {error}"))?;
+    let launcher = format!(
+        "$p = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',{}); if ($null -eq $p -or $p.ExitCode -ne 0) {{ exit 1 }}",
+        powershell_single_quoted(&script_path.display().to_string()),
+    );
+    let mut command = Command::new("powershell.exe");
+    command.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+    ]);
+    command.arg(launcher);
+    hide_command_window(&mut command);
+    let result = command.status().map_err(|error| {
+        format!("Failed to request administrator approval for system installation: {error}")
+    });
+    let _ = fs::remove_file(&script_path);
+    match result {
+        Ok(status) if status.success() && destination.is_file() => Ok(()),
+        Ok(_) => Err("System installation was cancelled, denied, or did not create the requested executable.".to_owned()),
+        Err(error) => Err(error),
+    }
+}
+
 pub fn download_and_install(
     tool: &dyn ExternalTool,
     update_info: &UpdateInfo,
     install_dir: &Path,
     http: &reqwest::Client,
     data_dir: &str,
+    scope: InstallScope,
 ) -> Result<String, String> {
     let download_url = update_info
         .download_url
@@ -351,19 +401,37 @@ pub fn download_and_install(
     {
         return Err("Release metadata contains an invalid SHA-256 digest".to_owned());
     }
-    fs::create_dir_all(install_dir)
-        .map_err(|error| format!("Failed to create install directory: {error}"))?;
+    // System directories require elevation on Windows. Keep the downloaded
+    // binary in a user-writable NOVA staging directory until its digest and
+    // health are verified, then request an explicit UAC-approved final move.
+    let staging_dir = match scope {
+        InstallScope::User => install_dir.to_path_buf(),
+        InstallScope::System => Path::new(data_dir)
+            .join("external_tools")
+            .join(".staging")
+            .join(tool.id().as_str()),
+    };
+    fs::create_dir_all(&staging_dir)
+        .map_err(|error| format!("Failed to create installation staging directory: {error}"))?;
 
-    let runtime = tokio::runtime::Handle::try_current()
-        .map_err(|_| "No tokio runtime available for async operation".to_owned())?;
-    let response = tokio::task::block_in_place(|| runtime.block_on(http.get(download_url).send()))
+    // Installation runs in a dedicated blocking worker. A blocking client
+    // avoids nesting or dropping a Tokio runtime, so the same verified path is
+    // safe in the daemon, test suite, and command-line contexts.
+    let _ = http;
+    let response = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(90))
+        .build()
+        .map_err(|error| format!("Failed to create release download client: {error}"))?
+        .get(download_url)
+        .send()
         .map_err(|error| format!("Download request failed: {error}"))?
         .error_for_status()
         .map_err(|error| format!("Release download failed: {error}"))?;
     if !is_trusted_release_asset_url(response.url().as_str()) {
         return Err("Release download redirected to an untrusted source".to_owned());
     }
-    let bytes = tokio::task::block_in_place(|| runtime.block_on(response.bytes()))
+    let bytes = response
+        .bytes()
         .map_err(|error| format!("Failed to read release download: {error}"))?;
     let checksum = sha256_hex(&bytes);
     if !checksum.eq_ignore_ascii_case(expected_sha256) {
@@ -373,7 +441,10 @@ pub fn download_and_install(
     }
 
     let executable_name = tool_executable_name(tool)?;
-    let staged_path = install_dir.join(format!(".nova-install-{}", Uuid::new_v4()));
+    let staged_path = staging_dir.join(format!(
+        ".nova-install-{}-{executable_name}",
+        Uuid::new_v4()
+    ));
     let install_result = (|| {
         materialize_executable(&bytes, download_url, executable_name, &staged_path)?;
         mark_executable(&staged_path)?;
@@ -384,7 +455,15 @@ pub fn download_and_install(
             }));
         }
         let destination = install_dir.join(executable_name);
-        atomic_replace(&staged_path, &destination)?;
+        match scope {
+            InstallScope::User => atomic_replace(&staged_path, &destination)?,
+            InstallScope::System => {
+                #[cfg(windows)]
+                install_system_executable(&staged_path, &destination)?;
+                #[cfg(not(windows))]
+                return Err("System-wide installation is supported on Windows only. Choose the current-user location.".to_owned());
+            }
+        }
         let path_str = destination.display().to_string();
         let version = report
             .version_detected
@@ -398,6 +477,7 @@ pub fn download_and_install(
             version,
             true,
             false,
+            scope,
         );
         if let Some(entry) = registry.tools.get_mut(tool.id().as_str()) {
             entry.checksum_sha256 = Some(checksum.clone());
@@ -436,7 +516,13 @@ pub fn uninstall_tool(
 
 #[cfg(test)]
 mod tests {
-    use super::{archive_entry_matches, asset_sha256, is_trusted_release_asset_url, sha256_hex};
+    use super::{
+        archive_entry_matches, asset_sha256, check_ytdlp_latest, download_and_install,
+        is_trusted_release_asset_url, sha256_hex,
+    };
+    use crate::daemon::external_tools::health;
+    use crate::daemon::external_tools::tools::yt_dlp::YtDlpTool;
+    use crate::daemon::external_tools::types::InstallScope;
     use std::path::Path;
 
     #[test]
@@ -472,5 +558,51 @@ mod tests {
             Path::new("ffmpeg/readme.txt"),
             "ffmpeg"
         ));
+    }
+
+    #[test]
+    #[ignore = "downloads the current official yt-dlp release and is run as a live acceptance check"]
+    fn live_ytdlp_release_installs_verifies_and_executes() {
+        if !cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+            return;
+        }
+        let root = std::env::temp_dir().join(format!(
+            "nova-live-ytdlp-install-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let install_dir = root.join("install");
+        let data_dir = root.join("data");
+        std::fs::create_dir_all(&data_dir).expect("create data directory");
+        let update =
+            check_ytdlp_latest("linux", "x86_64").expect("fetch official release metadata");
+        assert!(
+            update.available,
+            "official yt-dlp binary must publish a SHA-256 digest"
+        );
+        let result = download_and_install(
+            &YtDlpTool,
+            &update,
+            &install_dir,
+            &reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(90))
+                .build()
+                .expect("create HTTP client"),
+            &data_dir.display().to_string(),
+            InstallScope::User,
+        );
+        let installed =
+            result.expect("download, digest verification, health check, and atomic install");
+        let report = health::check_health(&YtDlpTool, Path::new(&installed));
+        assert!(
+            report.executable_works && report.status.is_available(),
+            "installed yt-dlp failed health check: {:?}",
+            report.error_message
+        );
+        assert!(
+            report.version_detected.is_some(),
+            "installed yt-dlp must report a version"
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 }

@@ -7,7 +7,10 @@ pub mod tools;
 pub mod types;
 
 use capabilities::CapabilityResolver;
-use types::{ExternalTool, ToolId, ToolInstallation, ToolRegistry, ToolState, UpdateInfo, Version};
+use types::{
+    ExternalTool, InstallScope, ToolId, ToolInstallation, ToolRegistry, ToolState, UpdateInfo,
+    Version,
+};
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -128,6 +131,7 @@ impl ExternalToolManager {
                     ver_display.as_deref(),
                     false,
                     false,
+                    InstallScope::User,
                 );
                 let _ = registry::save_registry(&self.data_dir, reg);
             }
@@ -156,7 +160,7 @@ impl ExternalToolManager {
     /// absent or unhealthy. System-managed tools are never overwritten: users
     /// may adopt one explicitly through a custom path, while NOVA manages only
     /// files it installs under its data directory.
-    pub fn install(&self, tool_id: ToolId) -> Result<String, String> {
+    pub fn install_in_scope(&self, tool_id: ToolId, scope: InstallScope) -> Result<String, String> {
         let existing = self.discover(tool_id);
         if existing.health_ok && !existing.installed_by_app {
             return Err(format!(
@@ -169,7 +173,7 @@ impl ExternalToolManager {
                     .unwrap_or_else(|| "the system path".to_owned())
             ));
         }
-        self.install_verified_release(tool_id)
+        self.install_verified_release(tool_id, scope)
     }
 
     pub fn update(&self, tool_id: ToolId) -> Result<String, String> {
@@ -180,10 +184,19 @@ impl ExternalToolManager {
                 self.tool_for_id(tool_id).name()
             ));
         }
-        self.install_verified_release(tool_id)
+        let scope = lock_or_err!(self.registry)
+            .tools
+            .get(tool_id.as_str())
+            .map(|entry| entry.install_scope)
+            .unwrap_or_default();
+        self.install_verified_release(tool_id, scope)
     }
 
-    fn install_verified_release(&self, tool_id: ToolId) -> Result<String, String> {
+    fn install_verified_release(
+        &self,
+        tool_id: ToolId,
+        scope: InstallScope,
+    ) -> Result<String, String> {
         let tool = self.tool_for_id(tool_id);
         let update_info = self.check_for_updates(tool_id);
 
@@ -194,13 +207,14 @@ impl ExternalToolManager {
             );
         }
 
-        let install_dir = self.get_install_dir(tool_id);
+        let install_dir = self.get_install_dir(tool_id, scope)?;
         let path = installer::download_and_install(
             tool,
             &update_info,
             &install_dir,
             &self.http,
             &self.data_dir,
+            scope,
         )?;
         // Re-discover immediately so the capability resolver and Settings UI
         // observe an app-managed binary without requiring a restart.
@@ -279,11 +293,29 @@ impl ExternalToolManager {
         Ok(())
     }
 
-    pub fn get_install_dir(&self, tool_id: ToolId) -> PathBuf {
-        let base = PathBuf::from(&self.data_dir).join("external_tools");
-        match tool_id {
-            ToolId::Ffmpeg => base.join("ffmpeg"),
-            ToolId::YtDlp => base.join("yt-dlp"),
+    pub fn get_install_dir(&self, tool_id: ToolId, scope: InstallScope) -> Result<PathBuf, String> {
+        let tool_dir = match tool_id {
+            ToolId::Ffmpeg => "FFmpeg",
+            ToolId::YtDlp => "YT-DLP",
+        };
+        match scope {
+            InstallScope::User => Ok(PathBuf::from(&self.data_dir)
+                .join("external_tools")
+                .join(tool_id.as_str())),
+            InstallScope::System => {
+                #[cfg(windows)]
+                {
+                    let program_files = std::env::var_os("PROGRAMFILES").ok_or(
+                        "Program Files is unavailable; choose the current-user installation instead.",
+                    )?;
+                    Ok(PathBuf::from(program_files).join(tool_dir))
+                }
+                #[cfg(not(windows))]
+                {
+                    let _ = tool_dir;
+                    Err("System-wide external-tool installation is currently supported on Windows only. Choose the current-user installation on this platform.".to_owned())
+                }
+            }
         }
     }
 
@@ -337,11 +369,6 @@ impl ExternalToolManager {
         ]
     }
 
-    pub fn has_capability(&self, capability_id: &str) -> bool {
-        let resolver = lock_or_err!(self.resolver);
-        resolver.is_capable(capability_id)
-    }
-
     pub fn resolve_capability(&self, capability_id: &str) -> capabilities::CapabilityAvailability {
         let resolver = lock_or_err!(self.resolver);
         resolver.resolve_capability(capability_id)
@@ -357,22 +384,5 @@ impl ExternalToolManager {
     pub fn ffmpeg_path(&self) -> Option<String> {
         let resolver = lock_or_err!(self.resolver);
         resolver.tool_path(ToolId::Ffmpeg)
-    }
-
-    pub fn is_ytdlp_available(&self) -> bool {
-        self.has_capability("media.resolve")
-    }
-
-    pub fn is_ffmpeg_available(&self) -> bool {
-        self.has_capability("media.merge")
-    }
-
-    pub fn discover_and_initialize(&self) {
-        let _ = self.discover_all();
-        log::info!(
-            "External tools initialized: yt-dlp={}, ffmpeg={}",
-            self.is_ytdlp_available(),
-            self.is_ffmpeg_available()
-        );
     }
 }
