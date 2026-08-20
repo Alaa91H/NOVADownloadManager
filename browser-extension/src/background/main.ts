@@ -11,6 +11,7 @@ import { registerLifecycle } from './lifecycle';
 import { registerDownloadInterceptor } from './download-interceptor';
 import { registerNetworkObserver } from './network-observer';
 import { enforceAggressivePermissions, registerAggressivePermissionRevocationWatcher } from '../profiles/aggressive-permission-enforcer';
+import { setBackgroundInitialization } from './initialization-gate';
 import './message-router';
 
 const log = new Logger('background');
@@ -27,7 +28,9 @@ export default defineBackground(() => {
   registerCommands();
   registerAlarms();
   registerAggressivePermissionRevocationWatcher();
-  void boot().catch((error) => log.error('background boot failed', error));
+  const initialization = boot();
+  setBackgroundInitialization(initialization);
+  void initialization.catch((error) => log.error('background boot failed', error));
 });
 
 async function boot(): Promise<void> {

@@ -384,10 +384,18 @@ export async function handleManualCapture(payload: {
   filename?: string;
   referrer?: string;
   source: string;
-}): Promise<void> {
-  if (!payload.url) return;
+}): Promise<boolean> {
+  if (!payload.url) return false;
   const settings = await new SettingsStore().get().catch(() => null);
-  if (!settings?.enabled) return;
+  if (!settings?.enabled) return false;
+  // Content scripts can wake an MV3 worker before their asynchronous settings
+  // read settles. Enforce the complete takeover policy again at the trusted
+  // background boundary so a CAPTURE_DOWNLOAD message can never override a
+  // user's explicit download-capture opt-out.
+  const capture = settings.capture;
+  const captureAllowed = capture.downloads || capture.aggressiveMode;
+  const takeoverAllowed = capture.takeoverEnabled || capture.aggressiveMode;
+  if (!captureAllowed || !takeoverAllowed) return false;
 
   const raw = downloadEntryToCandidate(
     {
@@ -403,9 +411,11 @@ export async function handleManualCapture(payload: {
   try {
     await bridgeManager.sendCandidate(candidate);
   } catch {
-    // NOVA not available — candidate stays in outbox for retry
+    // NOVA not available — the candidate has already been staged in the
+    // outbox for retry, so the extension still owns this takeover.
   }
   void ensureBridgeForHandoff();
+  return true;
 }
 
 /// Re-trigger a native browser download after we cancelled it, used when

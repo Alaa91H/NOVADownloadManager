@@ -32,6 +32,7 @@ import { registerDownloadInterceptor, handleManualCapture } from './download-int
 import { AGGRESSIVE_CAPTURE_PERMISSION_BUNDLE } from '../profiles/aggressive-capture-profile';
 import { enforceAggressivePermissions, getAggressivePermissionIntegrity } from '../profiles/aggressive-permission-enforcer';
 import { mediaTypeFromPageTapHint, buildPageTapFilename } from './page-tap-utils';
+import { waitForBackgroundInitialization } from './initialization-gate';
 
 const cache = new CandidateCache();
 const pipeline = new CandidatePipeline();
@@ -51,7 +52,16 @@ browser.runtime.onMessage.addListener((raw: unknown, sender: RuntimeMessageSende
   }
   const parsed = RuntimeMessageSchema.safeParse(raw);
   if (!parsed.success) return Promise.resolve({ ok: false, code: 'VALIDATION_FAILED', message: 'Runtime message schema validation failed.', issues: parsed.error.issues });
-  return dispatchMessage(parsed.data, sender).catch((error) => normalizeRouterError(error));
+  // GET_BRIDGE_STATE is a passive snapshot and may be served immediately for
+  // early UI paint. All mutations and capture work wait for migration/bootstrap
+  // so a first-run storage migration cannot overwrite a just-saved preference
+  // or race an intercepted download.
+  const ready = parsed.data.type === 'GET_BRIDGE_STATE'
+    ? Promise.resolve()
+    : waitForBackgroundInitialization();
+  return ready
+    .then(() => dispatchMessage(parsed.data, sender))
+    .catch((error) => normalizeRouterError(error));
 });
 
 async function directDownload(url: string, filename?: string): Promise<{ ok: boolean; downloadId?: number }> {
@@ -511,8 +521,7 @@ async function maybeOpenNova(captureUrl?: string): Promise<void> {
 
 async function handleCaptureDownload(payload: { url: string; filename?: string; referrer?: string; source: string }): Promise<{ ok: boolean }> {
   try {
-    await handleManualCapture(payload);
-    return { ok: true };
+    return { ok: await handleManualCapture(payload) };
   } catch {
     return { ok: false };
   }

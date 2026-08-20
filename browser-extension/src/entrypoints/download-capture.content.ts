@@ -1,4 +1,5 @@
 import browser from 'webextension-polyfill';
+import { isContentDownloadCaptureEnabled, type DownloadCaptureSettingsSnapshot } from '../capture/download-capture-policy';
 import { defineContentScript } from 'wxt/utils/define-content-script';
 
 const DOWNLOAD_EXTS = new Set([
@@ -22,6 +23,8 @@ const DOWNLOAD_EXTS = new Set([
 ]);
 
 const SETTINGS_KEY = 'nova.settings';
+const NATIVE_REPLAY_TTL_MS = 1_000;
+const nativeReplayUntil = new Map<string, number>();
 
 const STREAM_SEGMENT_RE = /(?:\.ts(?:\?|$)|\.segment(?:\?|$)|\/segment\/|\/hls\/|\/dash\/|\/video\/.*\/seg(?:ment)?[s]?\/|\/media\/.*\.(?:m4s|cmfv|cmfa))/i;
 
@@ -41,7 +44,34 @@ function isDownloadUrl(url: string): boolean {
   }
 }
 
-function captureUrl(url: string, source: string, filename?: string): void {
+function replayKey(anchor: HTMLAnchorElement | HTMLAreaElement): string {
+  return `${anchor.href}\u0000${anchor.getAttribute('download') ?? ''}`;
+}
+
+function isNativeReplay(anchor: HTMLAnchorElement | HTMLAreaElement): boolean {
+  const key = replayKey(anchor);
+  const expiresAt = nativeReplayUntil.get(key);
+  if (expiresAt === undefined) return false;
+  if (expiresAt < Date.now()) {
+    nativeReplayUntil.delete(key);
+    return false;
+  }
+  return true;
+}
+
+function resumeNativeAnchorDownload(anchor: HTMLAnchorElement | HTMLAreaElement): void {
+  const key = replayKey(anchor);
+  nativeReplayUntil.set(key, Date.now() + NATIVE_REPLAY_TTL_MS);
+  // The marker deliberately survives the synchronous click dispatch so both
+  // the document capture listener and any dynamic-anchor listener allow the
+  // native action through. It is removed shortly after to avoid affecting a
+  // later user click on the same link.
+  window.setTimeout(() => nativeReplayUntil.delete(key), NATIVE_REPLAY_TTL_MS);
+  if (anchor instanceof HTMLAnchorElement) anchor.click();
+  else anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, view: window }));
+}
+
+function captureUrl(url: string, source: string, filename?: string, onRejected?: () => void): void {
   browser.runtime.sendMessage({
     type: 'CAPTURE_DOWNLOAD',
     payload: {
@@ -51,7 +81,12 @@ function captureUrl(url: string, source: string, filename?: string): void {
       tabId: undefined,
       source,
     },
-  }).catch(() => {});
+  }).then((response: unknown) => {
+    const accepted = typeof response === 'object'
+      && response !== null
+      && (response as { ok?: unknown }).ok === true;
+    if (!accepted) onRejected?.();
+  }).catch(() => onRejected?.());
 }
 
 export default defineContentScript({
@@ -59,23 +94,38 @@ export default defineContentScript({
   runAt: 'document_start',
   main() {
     let isNovaEnabled = true;
+    // Fail open for the browser, not for interception: until asynchronous
+    // storage has supplied the user's settings, never swallow an early click.
+    // This closes a document-start race where a disabled capture setting could
+    // be read after the first download link had already been intercepted.
+    let isDownloadTakeoverEnabled = false;
+
+    // Content-script interception prevents the browser's native request, so it
+    // must honour exactly the same enabled/downloads/takeover policy as the
+    // background Downloads API path. Previously it checked only `enabled`,
+    // which meant a user who disabled download capture could still have an
+    // ordinary click swallowed and sent to NOVA.
+    function applySettings(setting: DownloadCaptureSettingsSnapshot | undefined): void {
+      isNovaEnabled = setting?.enabled !== false;
+      isDownloadTakeoverEnabled = isContentDownloadCaptureEnabled(setting);
+    }
 
     browser.storage.onChanged.addListener((changes: Record<string, browser.Storage.StorageChange>) => {
-      const setting = changes[SETTINGS_KEY]?.newValue as { enabled?: boolean } | undefined;
-      if (setting) {
-        isNovaEnabled = setting.enabled !== false;
-      }
+      applySettings(changes[SETTINGS_KEY]?.newValue as DownloadCaptureSettingsSnapshot | undefined);
     });
 
     browser.storage.local.get(SETTINGS_KEY).then((r: Record<string, unknown>) => {
-      const setting = r[SETTINGS_KEY] as { enabled?: boolean } | undefined;
-      if (setting) isNovaEnabled = setting.enabled !== false;
+      applySettings(r[SETTINGS_KEY] as DownloadCaptureSettingsSnapshot | undefined);
     }).catch(() => {});
+
+    function canCaptureDownloads(): boolean {
+      return isNovaEnabled && isDownloadTakeoverEnabled;
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic event guard wrapper
     function guard(fn: (...args: any[]) => void): (...args: any[]) => void {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (...args: any[]) => { if (isNovaEnabled) fn(...args); };
+      return (...args: any[]) => { if (canCaptureDownloads()) fn(...args); };
     }
 
     // ── 1. Click handler (existing) ──────────────────────────────────────
@@ -89,13 +139,14 @@ export default defineContentScript({
       if (!anchor?.href) return;
       const href = anchor.href;
       if (!href) return;
+      if (isNativeReplay(anchor)) return;
       if (mouseEvent.button !== 0 && mouseEvent.button !== 1) return;
 
       if (anchor.hasAttribute('download')) {
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        captureUrl(href, 'download-attribute', anchor.getAttribute('download') || undefined);
+        captureUrl(href, 'download-attribute', anchor.getAttribute('download') || undefined, () => resumeNativeAnchorDownload(anchor));
         return;
       }
 
@@ -120,8 +171,12 @@ export default defineContentScript({
     // on <a> elements pointing to download URLs (used by many sites including VLC).
     const OriginalAnchorClick = HTMLAnchorElement.prototype.click;
     HTMLAnchorElement.prototype.click = function click() {
-      if (this.href && (this.hasAttribute('download') || isDownloadUrl(this.href))) {
-        captureUrl(this.href, 'programmatic-click', this.getAttribute('download') || undefined);
+      if (isNativeReplay(this)) {
+        OriginalAnchorClick.call(this);
+        return;
+      }
+      if (canCaptureDownloads() && this.href && (this.hasAttribute('download') || isDownloadUrl(this.href))) {
+        captureUrl(this.href, 'programmatic-click', this.getAttribute('download') || undefined, () => resumeNativeAnchorDownload(this));
         return;
       }
       OriginalAnchorClick.call(this);
@@ -131,7 +186,7 @@ export default defineContentScript({
     const OriginalOpen = window.open;
     window.open = function open(url?: string | URL, target?: string, features?: string) {
       const urlStr = url?.toString() || '';
-      if (urlStr && isDownloadUrl(urlStr)) {
+      if (canCaptureDownloads() && urlStr && isDownloadUrl(urlStr)) {
         captureUrl(urlStr, 'window-open');
         return null;
       }
@@ -145,7 +200,7 @@ export default defineContentScript({
       const originalReplace = locProto.replace.bind(window.location);
       locProto.assign = function assign(url: string | URL) {
         const urlStr = url.toString();
-        if (isDownloadUrl(urlStr)) {
+        if (canCaptureDownloads() && isDownloadUrl(urlStr)) {
           captureUrl(urlStr, 'location-assign');
           return;
         }
@@ -153,7 +208,7 @@ export default defineContentScript({
       };
       locProto.replace = function replace(url: string | URL) {
         const urlStr = url.toString();
-        if (isDownloadUrl(urlStr)) {
+        if (canCaptureDownloads() && isDownloadUrl(urlStr)) {
           captureUrl(urlStr, 'location-replace');
           return;
         }
@@ -170,9 +225,10 @@ export default defineContentScript({
         if (!a.dataset.novaCaptured && a.href) {
           a.dataset.novaCaptured = 'true';
           a.addEventListener('click', guard((e: Event) => {
+            if (isNativeReplay(a)) return;
             e.preventDefault();
             e.stopPropagation();
-            captureUrl(a.href, 'dynamic-download-attr', a.getAttribute('download') || undefined);
+            captureUrl(a.href, 'dynamic-download-attr', a.getAttribute('download') || undefined, () => resumeNativeAnchorDownload(a));
           }), true);
         }
       });
@@ -242,9 +298,10 @@ export default defineContentScript({
         const blobType = blobUrlTypeMap.get(a.href);
         if (a.hasAttribute('download') || isDownloadableMime(blobType)) {
           a.addEventListener('click', guard((e: Event) => {
+            if (isNativeReplay(a)) return;
             e.preventDefault();
             e.stopPropagation();
-            captureUrl(a.href, 'blob-download', a.getAttribute('download') || undefined);
+            captureUrl(a.href, 'blob-download', a.getAttribute('download') || undefined, () => resumeNativeAnchorDownload(a));
           }), true);
         }
       });
@@ -259,7 +316,7 @@ export default defineContentScript({
       const origReplace2 = locProto2.replace.bind(window.location);
       locProto2.assign = function assign(url: string | URL) {
         const urlStr = url.toString();
-        if (urlStr.startsWith('blob:') && isDownloadableMime(blobUrlTypeMap.get(urlStr))) {
+        if (canCaptureDownloads() && urlStr.startsWith('blob:') && isDownloadableMime(blobUrlTypeMap.get(urlStr))) {
           captureUrl(urlStr, 'location-assign-blob');
           return;
         }
@@ -267,7 +324,7 @@ export default defineContentScript({
       };
       locProto2.replace = function replace(url: string | URL) {
         const urlStr = url.toString();
-        if (urlStr.startsWith('blob:') && isDownloadableMime(blobUrlTypeMap.get(urlStr))) {
+        if (canCaptureDownloads() && urlStr.startsWith('blob:') && isDownloadableMime(blobUrlTypeMap.get(urlStr))) {
           captureUrl(urlStr, 'location-replace-blob');
           return;
         }

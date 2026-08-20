@@ -162,6 +162,56 @@ describe('download interceptor takeover', () => {
     expect(harness.download).toHaveBeenCalledTimes(1);
   }, 15_000);
 
+  it('does not hand off when download capture and aggressive mode are disabled', async () => {
+    harness.store.set('nova.settings', {
+      ...defaultSettings,
+      enabled: true,
+      capture: {
+        ...defaultSettings.capture,
+        downloads: false,
+        aggressiveMode: false,
+        takeoverEnabled: false,
+      },
+    });
+    const { registerDownloadInterceptor } = await import('../../background/download-interceptor');
+    registerDownloadInterceptor();
+
+    const original = {
+      id: 103,
+      url: 'https://example.com/user-owned-download.zip',
+      filename: 'user-owned-download.zip',
+      totalBytes: 2048,
+      tabId: 1,
+    };
+    harness.createdListeners[0]?.(original);
+
+    await waitFor(() => expect(harness.cancel).toHaveBeenCalledWith(103));
+    await waitFor(() => expect(harness.download).toHaveBeenCalledWith(expect.objectContaining({ url: original.url })));
+    expect(harness.sendCandidate).not.toHaveBeenCalled();
+  }, 15_000);
+
+  it('rejects a manual content-script capture when download capture is disabled', async () => {
+    harness.store.set('nova.settings', {
+      ...defaultSettings,
+      enabled: true,
+      capture: {
+        ...defaultSettings.capture,
+        downloads: false,
+        aggressiveMode: false,
+        takeoverEnabled: false,
+      },
+    });
+    const { handleManualCapture } = await import('../../background/download-interceptor');
+
+    await handleManualCapture({
+      url: 'https://example.com/disabled-content-capture.zip',
+      filename: 'disabled-content-capture.zip',
+      source: 'download-attribute',
+    });
+
+    expect(harness.sendCandidate).not.toHaveBeenCalled();
+  });
+
   it('cancels immediately even when the desktop bridge is offline', async () => {
     harness.sendCandidate.mockRejectedValueOnce(new Error('offline'));
     const { registerDownloadInterceptor } = await import('../../background/download-interceptor');
