@@ -448,7 +448,16 @@ jobs:
       - name: Install Windows build helpers
         if: runner.os == 'Windows'
         shell: pwsh
-        run: choco install pkgconfiglite cmake ffmpeg -y --no-progress
+        run: |
+          # libcurl is resolved through vcpkg below. Do not install Chocolatey's
+          # pkgconfiglite package here: its obsolete SourceForge asset is
+          # intermittently unavailable and is not used by the Windows vcpkg path.
+          choco install cmake ffmpeg -y --no-progress
+          foreach ($tool in @('cmake', 'ffmpeg')) {
+            if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+              throw "Required Windows build helper '$tool' was not installed."
+            }
+          }
 
       - name: Prepare vcpkg binary cache
         if: runner.os == 'Windows'
