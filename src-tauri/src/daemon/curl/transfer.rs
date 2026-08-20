@@ -3685,14 +3685,30 @@ mod tests {
                             // segment therefore receives its own gzip body.
                             let (s, e) = r.split_once('-').unwrap_or((r.as_str(), ""));
                             let start: u64 = s.trim().parse().unwrap_or(0);
+                            let max_index = (gz.len() as u64).saturating_sub(1);
+                            // The engine initially plans ranges against the advertised
+                            // uncompressed size. When a server then applies gzip to its
+                            // ranged responses, later segment starts can legitimately be
+                            // beyond the compressed representation. A real HTTP server
+                            // must report that as an unsatisfiable range rather than let
+                            // the test fixture panic in a detached request thread.
+                            if start > max_index {
+                                send(
+                                    &mut stream,
+                                    format!(
+                                        "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */{}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                                        gz.len()
+                                    ),
+                                    &[],
+                                );
+                                return;
+                            }
                             let end: u64 = if e.is_empty() {
-                                (gz.len() as u64).saturating_sub(1)
+                                max_index
                             } else {
-                                e.trim()
-                                    .parse()
-                                    .unwrap_or((gz.len() as u64).saturating_sub(1))
+                                e.trim().parse().unwrap_or(max_index)
                             };
-                            let end = end.min((gz.len() as u64).saturating_sub(1));
+                            let end = end.min(max_index);
                             let body = &gz[start as usize..=end as usize];
                             send(
                                 &mut stream,
