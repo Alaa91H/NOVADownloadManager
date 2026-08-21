@@ -145,15 +145,26 @@ fn discover_daemon_port(client: &reqwest::blocking::Client) -> String {
     format!("http://127.0.0.1:{DEFAULT_PORT}")
 }
 
+/// Parse the daemon port-file format: the first line is the loopback port and
+/// the optional second line is the daemon PID. Keeping this parser separate
+/// prevents a PID from making a valid dynamically selected port undiscoverable.
+fn parse_daemon_port_file(content: &str) -> Option<u16> {
+    content
+        .lines()
+        .next()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .and_then(|line| line.parse::<u16>().ok())
+        .filter(|port| *port >= 1024)
+}
+
 /// Read the port number the daemon wrote to its well-known port file.
 fn read_port_file() -> Option<u16> {
     let candidates = port_file_paths();
     for path in candidates {
         if let Ok(content) = std::fs::read_to_string(&path) {
-            if let Ok(port) = content.trim().parse::<u16>() {
-                if port >= 1024 {
-                    return Some(port);
-                }
+            if let Some(port) = parse_daemon_port_file(&content) {
+                return Some(port);
             }
         }
     }
@@ -566,4 +577,26 @@ fn http_json(
             .to_owned());
     }
     Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_daemon_port_file;
+
+    #[test]
+    fn parses_current_port_file_format_with_pid_on_second_line() {
+        assert_eq!(parse_daemon_port_file("43210\n9876"), Some(43210));
+    }
+
+    #[test]
+    fn accepts_legacy_single_line_port_file() {
+        assert_eq!(parse_daemon_port_file("3199\n"), Some(3199));
+    }
+
+    #[test]
+    fn rejects_invalid_or_privileged_port_file_values() {
+        assert_eq!(parse_daemon_port_file("not-a-port\n123"), None);
+        assert_eq!(parse_daemon_port_file("443\n123"), None);
+        assert_eq!(parse_daemon_port_file("\n123"), None);
+    }
 }
