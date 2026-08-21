@@ -83,7 +83,7 @@ if (winX64) {
   "checkver": { "github": "${HOMEPAGE}" },
   "autoupdate": {
     "architecture": {
-      "64bit": { "url": "${HOMEPAGE}/releases/download/v$version/Nova.Download.Manager_$version\\u005fx64-setup.exe#/dl.exe" }
+      "64bit": { "url": "${HOMEPAGE}/releases/download/v$version/Nova.Download.Manager_$version\u005fwindows_x64-setup.exe#/dl.exe" }
     }
   }
 }

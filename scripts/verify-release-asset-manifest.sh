@@ -53,6 +53,16 @@ if find . -maxdepth 1 -type f -name '* *' -print -quit | grep -q .; then
 fi
 
 sha256sum --check --strict SHA256SUMS.txt >/dev/null
+
+# Generate the package-manager metadata from the same canonical assets and
+# verify that Scoop's future-update URL preserves the platform segment of the
+# installer filename. A missing `_windows_` here makes `scoop update` fetch a
+# non-existent release asset even though first-time installation works.
+node "$repo_root/scripts/generate-package-manifests.mjs" 2.4.3-alpha "$workspace" >/dev/null
+jq -e '.autoupdate.architecture["64bit"].url | contains("_windows_x64-setup.exe")' \
+  packaging/nova-download-manager.json >/dev/null
+rm -rf packaging
+
 manifest_assets=$(awk '{print $2}' SHA256SUMS.txt | sort)
 release_assets=$(find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\n' | sort)
 if ! diff -u <(printf '%s\n' "$release_assets") <(printf '%s\n' "$manifest_assets"); then
