@@ -34,4 +34,17 @@ describe('tauriClient updater configuration', () => {
     expect(invoke).toHaveBeenCalledWith('get_updater_configuration_status', undefined);
     expect(invoke).toHaveBeenCalledTimes(2);
   });
+
+  it('does not bypass a rejected desktop URL policy with window.open', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    invoke.mockRejectedValue(new Error('Internal URLs cannot be opened in the browser.'));
+
+    const opened = await tauriClient.openExternalUrl('https://private-host.example/download');
+
+    expect(opened).toBe(false);
+    expect(invoke).toHaveBeenCalledWith('open_external_url', {
+      url: 'https://private-host.example/download',
+    });
+    expect(openSpy).not.toHaveBeenCalled();
+  });
 });

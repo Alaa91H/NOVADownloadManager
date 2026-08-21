@@ -4,7 +4,7 @@
 #![recursion_limit = "512"]
 
 use serde::Serialize;
-use std::net::{IpAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
@@ -328,55 +328,74 @@ fn open_browser_extensions(browser: String) -> Result<(), String> {
         .map_err(|error| format!("Could not open browser extensions page: {error}"))
 }
 
-#[tauri::command]
-fn open_external_url(url: String) -> Result<(), String> {
-    if !url.starts_with("https://") && !url.starts_with("http://") {
-        return Err("Only web links can be opened.".to_owned());
+/// Ensure that a browser-launch target cannot resolve to the local network.
+///
+/// The frontend can pass a task's source URL to this command. Checking only a
+/// literal IP address is insufficient because a hostname may resolve to a
+/// loopback or private address. Resolve every address first and reject the
+/// whole target if any answer is not safe to hand to the system browser.
+fn ensure_external_browser_addresses(addresses: &[SocketAddr]) -> Result<(), String> {
+    if addresses.is_empty() {
+        return Err("The link host did not resolve to an address.".to_owned());
     }
-    // Parse the URL properly to handle IPv6 brackets, decimal IPs, etc.
-    let parsed = reqwest::Url::parse(&url).map_err(|e| format!("Invalid URL: {e}"))?;
-    let host_str = parsed.host_str().unwrap_or("");
-    // Strip IPv6 brackets for IP checks
-    let host_clean = host_str.trim_start_matches('[').trim_end_matches(']');
-    let is_internal = match host_clean {
-        "localhost" | "127.0.0.1" | "0.0.0.0" | "::1" => true,
-        h if h.starts_with("192.168.") || h.starts_with("10.") => true,
-        h if h.starts_with("172.") => h
-            .split('.')
-            .nth(1)
-            .and_then(|s| s.parse::<u8>().ok())
-            .is_some_and(|octet| (16..=31).contains(&octet)),
-        h if h.starts_with("169.254.") => true,
-        // Handle IPv6 ULA (fc00::/7), link-local (fe80::/10), loopback (::1)
-        h if h.starts_with("fc") || h.starts_with("fd") => true,
-        h if h.starts_with("fe80") => true,
-        _ => false,
-    };
-    // Also check the host as a raw IP via std::net to catch IPv4-mapped IPv6
-    // (e.g. [::ffff:127.0.0.1]) and decimal/hex encodings.
-    if !is_internal {
-        use std::net::IpAddr;
-        if let Ok(ip) = host_clean.parse::<IpAddr>() {
-            if ip.is_loopback()
-                || ip.is_unspecified()
-                || match ip {
-                    IpAddr::V4(v) => v.is_private() || v.is_link_local() || v.is_broadcast(),
-                    IpAddr::V6(v) => {
-                        v.segments()[0] & 0xfe00 == 0xfc00 // ULA
-                            || v.segments()[0] == 0xfe80    // link-local
-                            || v == std::net::Ipv6Addr::LOCALHOST
-                    }
-                }
-            {
-                return Err("Internal URLs cannot be opened in the browser.".to_owned());
-            }
-        }
-    }
-    if is_internal {
+
+    if addresses
+        .iter()
+        .any(|address| crate::daemon::utils::is_internal_ip(address.ip()))
+    {
         return Err("Internal URLs cannot be opened in the browser.".to_owned());
     }
-    // Re-serialize through reqwest::Url to strip any embedded shell metacharacters
-    let clean_url = parsed.as_str().to_owned();
+
+    Ok(())
+}
+
+fn resolve_external_browser_host(host: String, port: u16) -> Result<(), String> {
+    let socket_target = if host.contains(':') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    };
+    let (sender, receiver) = std::sync::mpsc::channel();
+
+    std::thread::Builder::new()
+        .name("nova-external-url-dns".to_owned())
+        .spawn(move || {
+            let result = socket_target
+                .to_socket_addrs()
+                .map(|addresses| addresses.collect::<Vec<_>>())
+                .map_err(|error| format!("Could not resolve link host: {error}"));
+            let _ = sender.send(result);
+        })
+        .map_err(|error| format!("Could not start link-host validation: {error}"))?;
+
+    let addresses = receiver
+        .recv_timeout(Duration::from_secs(5))
+        .map_err(|_| "Could not resolve link host: timeout".to_owned())??;
+    ensure_external_browser_addresses(&addresses)
+}
+
+fn validated_external_url(url: &str) -> Result<String, String> {
+    let parsed = reqwest::Url::parse(url).map_err(|error| format!("Invalid URL: {error}"))?;
+    if !matches!(parsed.scheme(), "https" | "http") {
+        return Err("Only web links can be opened.".to_owned());
+    }
+
+    let host = parsed
+        .host_str()
+        .filter(|host| !host.is_empty())
+        .ok_or_else(|| "A link host is required.".to_owned())?;
+    let port = parsed
+        .port_or_known_default()
+        .ok_or_else(|| "A link port is required.".to_owned())?;
+
+    resolve_external_browser_host(host.to_owned(), port)?;
+    // Re-serialize through reqwest::Url to strip embedded shell metacharacters.
+    Ok(parsed.into())
+}
+
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    let clean_url = validated_external_url(&url)?;
     let mut launcher = Command::new("rundll32.exe");
     hide_command_window(&mut launcher);
     launcher
@@ -884,5 +903,32 @@ mod port_selection_tests {
         assert!(status
             .message
             .is_some_and(|message| message.contains("not configured")));
+    }
+
+    #[test]
+    fn browser_launch_address_guard_rejects_loopback_and_private_ips() {
+        let addresses = [
+            "127.0.0.1:443".parse().expect("parse loopback address"),
+            "192.168.1.5:443".parse().expect("parse private address"),
+        ];
+
+        let error = ensure_external_browser_addresses(&addresses).expect_err("reject internal IPs");
+
+        assert!(error.contains("Internal URLs"));
+    }
+
+    #[test]
+    fn browser_launch_address_guard_accepts_public_ip() {
+        let addresses = ["1.1.1.1:443".parse().expect("parse public address")];
+
+        assert!(ensure_external_browser_addresses(&addresses).is_ok());
+    }
+
+    #[test]
+    fn browser_launch_url_guard_rejects_non_web_schemes_before_dns() {
+        let error =
+            validated_external_url("file:///C:/Windows/System32").expect_err("reject file URL");
+
+        assert!(error.contains("Only web links"));
     }
 }

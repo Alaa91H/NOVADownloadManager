@@ -191,23 +191,31 @@ export const tauriClient = {
   },
 
   async openExternalUrl(url: string): Promise<boolean> {
-    try {
-      await invoke('open_external_url', { url });
-      return true;
-    } catch {
+    if (window.__TAURI_INTERNALS__) {
       try {
-        const parsed = new URL(url);
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:' && parsed.protocol !== 'mailto:') {
-          logger.warn('tauriClient', 'openExternalUrl: blocked non-http(s) URL', parsed.protocol);
-          return false;
-        }
-      } catch {
-        logger.warn('tauriClient', 'openExternalUrl: invalid URL');
+        await invoke('open_external_url', { url });
+        return true;
+      } catch (error) {
+        // The desktop command validates target schemes and blocks internal
+        // network addresses after DNS resolution. Do not bypass that decision
+        // with window.open while running inside the trusted Tauri webview.
+        logger.warn('tauriClient', 'openExternalUrl: desktop command rejected URL', error);
         return false;
       }
-      window.open(url, '_blank', 'noopener,noreferrer');
-      return true;
     }
+
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:' && parsed.protocol !== 'mailto:') {
+        logger.warn('tauriClient', 'openExternalUrl: blocked non-http(s) URL', parsed.protocol);
+        return false;
+      }
+    } catch {
+      logger.warn('tauriClient', 'openExternalUrl: invalid URL');
+      return false;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+    return true;
   },
 
   async validateVpnRoute(settings: AppSettings): Promise<VpnRouteValidation> {
