@@ -16,6 +16,7 @@ import { detectUrlType } from '../../utils/urlDetector';
 import { clearClipboardIfTextMatches, readClipboardText } from '../../utils/clipboard';
 import { formatBytes } from '../../initialData';
 import { isMagnetLink } from '../../utils/formatUtils';
+import { joinLocalPath, parentLocalPath } from '../../utils/localPathUtils';
 import { useEngineCapabilities } from '../../capabilities/EngineCapabilityContext';
 
 export const AddDownloadDialog: React.FC = () => {
@@ -389,11 +390,11 @@ export const AddDownloadDialog: React.FC = () => {
   };
 
   const handlePickDirectory = async () => {
-    const defaultDir = savePath ? savePath.substring(0, savePath.lastIndexOf('\\')) : undefined;
+    const defaultDir = parentLocalPath(savePath);
     const picked = await tauriClient.showDirectoryPicker(defaultDir);
     if (picked) {
       savePathEdited.current = true;
-      setSavePath(`${picked}\\${fileName || 'download'}`);
+      setSavePath(joinLocalPath(picked, fileName || 'download'));
     } else {
       addToast('info', t('add_dl_browse_folders'), t('add_dl_directory_picker_error'));
     }
