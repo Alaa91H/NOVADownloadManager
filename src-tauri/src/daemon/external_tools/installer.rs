@@ -8,6 +8,9 @@ use std::path::{Component, Path};
 use uuid::Uuid;
 
 const GITHUB_API_USER_AGENT: &str = "NOVA-DownloadManager";
+// yt-dlp upstream recommends its nightly channel for regular use because
+// extractors such as YouTube change independently of monthly stable releases.
+const YTDLP_RELEASE_REPOSITORY: &str = "yt-dlp/yt-dlp-nightly-builds";
 
 pub fn check_latest_version(tool: &dyn ExternalTool, _http: &reqwest::Client) -> UpdateInfo {
     let os_pattern = match std::env::consts::OS {
@@ -152,7 +155,7 @@ fn check_ffmpeg_latest(os: &str, arch: &str) -> Result<UpdateInfo, String> {
 }
 
 fn check_ytdlp_latest(os: &str, arch: &str) -> Result<UpdateInfo, String> {
-    let json = latest_release("yt-dlp/yt-dlp")?;
+    let json = latest_release(YTDLP_RELEASE_REPOSITORY)?;
     let (latest_version, published_at) = release_metadata(&json);
     let asset = selected_asset(&json, |name| match (os, arch) {
         ("windows", "x86_64") => name == "yt-dlp.exe",
@@ -165,7 +168,7 @@ fn check_ytdlp_latest(os: &str, arch: &str) -> Result<UpdateInfo, String> {
         .get("body")
         .and_then(|value| value.as_str())
         .map(str::to_owned)
-        .unwrap_or_else(|| "yt-dlp GitHub release.".to_owned());
+        .unwrap_or_else(|| "Official yt-dlp nightly build.".to_owned());
     Ok(update_info_from_asset(
         latest_version,
         published_at,

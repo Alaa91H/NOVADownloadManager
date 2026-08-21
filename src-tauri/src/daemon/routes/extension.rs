@@ -1042,6 +1042,132 @@ pub async fn handle_v1_stream_resolve(
     Json(serde_json::Value::Object(payload))
 }
 
+pub async fn handle_v1_media_add(
+    State(state): State<SharedState>,
+    Json(body): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    let url = body
+        .get("url")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if url.is_empty() || url.starts_with('-') {
+        return Json(
+            serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": "Invalid media URL"}),
+        );
+    }
+    if let Err(error) = crate::daemon::utils::is_safe_target_url(url) {
+        log::warn!("Blocked SSRF in media/add for {url}: {error}");
+        return Json(
+            serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": error}),
+        );
+    }
+
+    let selected = body
+        .get("selectedFormat")
+        .unwrap_or(&serde_json::Value::Null);
+    let (format_selector, has_video) = match ytdlp_selector_for_selected_format(selected) {
+        Ok(selection) => selection,
+        Err(message) => {
+            return Json(
+                serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": message}),
+            );
+        }
+    };
+    let mut media_options = crate::daemon::types::MediaDownloadOptions {
+        mode: Some(if has_video { "video" } else { "audio" }.to_owned()),
+        playlist: Some(false),
+        ffmpeg_enabled: Some(true),
+        embed_metadata: Some(true),
+        concurrent_fragments: Some(8),
+        retries: Some(5),
+        fragment_retries: Some(10),
+        format_selector: Some(format_selector),
+        referer: body
+            .get("referrer")
+            .or_else(|| body.get("pageUrl"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned),
+        ..Default::default()
+    };
+    if let Some(height) = selected
+        .get("height")
+        .and_then(serde_json::Value::as_u64)
+        .filter(|height| *height > 0)
+    {
+        media_options.quality = Some(format!("{height}p"));
+    }
+
+    let body = CreateDownloadBody {
+        url: Some(url.to_owned()),
+        name: body
+            .get("title")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .or_else(|| Some("media".to_owned())),
+        file_type: Some(if has_video { "video" } else { "audio" }.to_owned()),
+        size_bytes: selected
+            .get("estimatedSizeBytes")
+            .or_else(|| selected.get("filesize"))
+            .and_then(serde_json::Value::as_u64),
+        category: Some(if has_video { "video" } else { "audio" }.to_owned()),
+        queue_id: None,
+        connections: Some(1),
+        resumable: Some(true),
+        save_path: None,
+        description: Some("Browser extension selected yt-dlp format".to_owned()),
+        referer: media_options.referer.clone(),
+        start_immediately: Some(true),
+        direct_options: None,
+        media_options: Some(media_options),
+    };
+    match create_ytdlp_task(&state, &body).await {
+        Ok(task) => Json(
+            serde_json::json!({"ok": true, "accepted": true, "taskId": task.id, "taskIds": [task.id], "message": "Media added"}),
+        ),
+        Err(error) => Json(
+            serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": error}),
+        ),
+    }
+}
+
+fn ytdlp_selector_for_selected_format(
+    selected: &serde_json::Value,
+) -> Result<(String, bool), &'static str> {
+    let format_id = selected
+        .get("formatId")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or("The selected media format has no yt-dlp format id.")?;
+    let has_video = selected
+        .get("hasVideo")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or_else(|| {
+            selected
+                .get("height")
+                .and_then(serde_json::Value::as_u64)
+                .is_some()
+        });
+    let has_audio = selected
+        .get("hasAudio")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(!has_video);
+    let selector = if has_video && !has_audio {
+        // YouTube commonly exposes video-only tracks. Let yt-dlp merge the
+        // selected video with the best compatible audio rather than producing
+        // a silent file from the stream URL shown in the browser.
+        format!("{format_id}+bestaudio/best")
+    } else {
+        format_id.to_owned()
+    };
+    Ok((selector, has_video))
+}
+
 pub async fn handle_v1_stream_add(
     State(state): State<SharedState>,
     Json(body): Json<serde_json::Value>,
@@ -1612,6 +1738,7 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
         .route("/v1/tasks/{id}/resume", post(handle_v1_resume_task_path))
         .route("/v1/tasks/{id}/cancel", post(handle_v1_cancel_task_path))
         .route("/v1/add", post(handle_v1_add))
+        .route("/v1/media/add", post(handle_v1_media_add))
         .route(
             "/v1/capture-reviews",
             get(handle_capture_reviews).post(handle_create_capture_review),
@@ -1707,6 +1834,49 @@ mod tests {
             .lock()
             .expect("review queue")
             .is_empty());
+    }
+
+    #[test]
+    fn ytdlp_selected_video_only_format_merges_best_audio() {
+        let (selector, has_video) = ytdlp_selector_for_selected_format(&serde_json::json!({
+            "formatId": "137",
+            "height": 1080,
+            "hasVideo": true,
+            "hasAudio": false,
+        }))
+        .expect("video-only format should be selectable");
+        assert!(has_video);
+        assert_eq!(selector, "137+bestaudio/best");
+    }
+
+    #[test]
+    fn ytdlp_selected_muxed_or_audio_format_preserves_format_id() {
+        let (muxed, muxed_is_video) = ytdlp_selector_for_selected_format(&serde_json::json!({
+            "formatId": "22",
+            "hasVideo": true,
+            "hasAudio": true,
+        }))
+        .expect("muxed format should be selectable");
+        assert!(muxed_is_video);
+        assert_eq!(muxed, "22");
+
+        let (audio, audio_is_video) = ytdlp_selector_for_selected_format(&serde_json::json!({
+            "formatId": "251",
+            "hasVideo": false,
+            "hasAudio": true,
+        }))
+        .expect("audio format should be selectable");
+        assert!(!audio_is_video);
+        assert_eq!(audio, "251");
+    }
+
+    #[test]
+    fn ytdlp_selected_format_requires_format_id() {
+        assert!(ytdlp_selector_for_selected_format(&serde_json::json!({
+            "hasVideo": true,
+            "hasAudio": false,
+        }))
+        .is_err());
     }
 
     #[test]

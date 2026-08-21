@@ -587,11 +587,27 @@ export function PopupApp() {
     setDropdownOpen(false);
   }
 
-  function handleAnalyzeDownload(url: string, filename: string): void {
+  function handleAnalyzeDownload(format: AnalyzeResponse['formats'][number]): void {
+    const sourceUrl = analyzeResult?.url;
+    if (!sourceUrl) {
+      setNotice({ kind: 'error', message: 'The analyzed media URL is unavailable. Please analyze the page again.' });
+      return;
+    }
     setBusy(true);
     void (async () => {
       try {
-        await runtimeRequest({ type: 'DOWNLOAD_DIRECT', url, filename });
+        await runtimeRequest({
+          type: 'ADD_YTDLP_MEDIA',
+          url: sourceUrl,
+          title: analyzeResult?.title,
+          pageUrl: sourceUrl,
+          selectedFormat: {
+            ...format,
+            // The desktop deliberately uses sourceUrl and formatId. This URL is
+            // retained only for the validated protocol contract and may expire.
+            url: format.url || sourceUrl,
+          },
+        });
         setNotice({ kind: 'success', message: t('popup.sentResult', { count: 1 }) });
       } catch (error) {
         setNotice({ kind: 'error', message: messageFromError(error) });

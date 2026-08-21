@@ -17,6 +17,7 @@ import {
   StreamResolveRequestSchema,
   StreamResolveResponseSchema,
   StreamAddRequestSchema,
+  YtdlpAddRequestSchema,
   YtdlpProbeResponseSchema,
   AnalyzeResponseSchema,
   NOVA_PROTOCOL_VERSION,
@@ -24,6 +25,7 @@ import {
   type StreamManifestCandidate,
   type AddTaskResponse,
   type YtdlpProbeResponse,
+  type YtdlpAddRequest,
   type AnalyzeResponse,
 } from '../contracts/nova.protocol.v4';
 import { type Candidate } from '../contracts/candidate.schema';
@@ -294,6 +296,13 @@ export class BridgeManager implements BridgeGateway {
       YtdlpProbeResponseSchema,
       'GET',
     );
+  }
+
+  async addYtdlpMedia(request: YtdlpAddRequest): Promise<AddTaskResponse> {
+    await this.ensureReadyToSend();
+    this.caps.registry.require('media.analyze');
+    const payload = YtdlpAddRequestSchema.parse(request);
+    return this.authenticatedHttp('/v1/media/add', payload, AddTaskResponseSchema, 'POST');
   }
 
   async analyzeMedia(url: string, context?: { pageUrl?: string; referrer?: string; title?: string; mediaType?: string }): Promise<AnalyzeResponse> {

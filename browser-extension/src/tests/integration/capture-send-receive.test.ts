@@ -8,6 +8,7 @@ import {
   AddTaskResponseSchema,
   AuthCheckResponseSchema,
   PairResponseSchema,
+  YtdlpAddRequestSchema,
 } from '../../contracts/nova.protocol.v4';
 
 // End-to-end of the real flow the extension performs: capture a candidate from a
@@ -122,6 +123,47 @@ describe('capture -> send -> receive', () => {
       expect(ledger.count).toBe(1);
       expect(ledger.received[0]!.body.source).toBe('nova-extension');
       expect(ledger.received[0]!.body.candidate?.url).toBe(targetUrl);
+    } finally {
+      restoreFetch();
+      await daemon.stop();
+    }
+  }, 20_000);
+
+  it('sends a selected YouTube format as a managed yt-dlp task', async () => {
+    const daemon = await startFakeNova();
+    const restoreFetch = redirectOfficialLoopbackFetch(daemon.baseUrl);
+    try {
+      const http = new HttpTransport();
+      const pair = await http.request('/v1/pair/auto', { clientId: 'youtube-format-test' }, PairResponseSchema, { method: 'POST' });
+      const request = YtdlpAddRequestSchema.parse({
+        idempotencyKey: 'youtube-managed-format-0001',
+        url: 'https://www.youtube.com/watch?v=BaW_jenozKc',
+        pageUrl: 'https://www.youtube.com/watch?v=BaW_jenozKc',
+        title: 'yt-dlp integration test',
+        selectedFormat: {
+          url: 'https://r1.googlevideo.com/videoplayback?expire=123',
+          formatId: '137',
+          width: 1920,
+          height: 1080,
+          bandwidth: 5_000_000,
+          hasVideo: true,
+          hasAudio: false,
+          estimatedSizeBytes: 345_000_000,
+        },
+        source: 'nova-extension',
+      });
+      const added = await http.request('/v1/media/add', request, AddTaskResponseSchema, { method: 'POST', token: pair.pairToken });
+      expect(added.accepted).toBe(true);
+
+      const ledger = await fetch(`${daemon.baseUrl}/v1/_debug/received`).then((response) => response.json()) as {
+        count: number;
+        received: Array<{ url: string; body: { url?: string; selectedFormat?: { formatId?: string; estimatedSizeBytes?: number } } }>;
+      };
+      expect(ledger.count).toBe(1);
+      expect(ledger.received[0]?.url).toBe('/v1/media/add');
+      expect(ledger.received[0]?.body.url).toContain('youtube.com/watch');
+      expect(ledger.received[0]?.body.selectedFormat?.formatId).toBe('137');
+      expect(ledger.received[0]?.body.selectedFormat?.estimatedSizeBytes).toBe(345_000_000);
     } finally {
       restoreFetch();
       await daemon.stop();

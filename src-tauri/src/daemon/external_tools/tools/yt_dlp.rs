@@ -96,8 +96,8 @@ impl ExternalTool for YtDlpTool {
 
     fn source(&self) -> ToolSource {
         ToolSource {
-            name: "yt-dlp GitHub",
-            base_url: "https://github.com/yt-dlp/yt-dlp/releases/latest",
+            name: "yt-dlp Nightly GitHub",
+            base_url: "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest",
             platform_patterns: &[
                 PlatformPattern {
                     os: "windows",

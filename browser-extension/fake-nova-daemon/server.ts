@@ -71,7 +71,7 @@ http.createServer(async (req, res) => {
 
   if (
     req.method === 'POST' &&
-    (url === '/v1/add' || url === '/v1/task/add' || url === '/captures' || url === '/v1/capture-reviews')
+    (url === '/v1/add' || url === '/v1/task/add' || url === '/captures' || url === '/v1/capture-reviews' || url === '/v1/media/add')
   ) {
     if (unauthorized(req, res)) return;
     const body = await readBody(req);

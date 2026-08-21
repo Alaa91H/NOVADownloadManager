@@ -31,6 +31,7 @@ interface YtdlpFormat {
   hasAudio?: boolean;
   hasVideo?: boolean;
   estimatedSizeBytes?: number;
+  filesize?: number;
   codecs?: string;
   ext?: string;
   format?: string;
@@ -160,20 +161,31 @@ async function doProbe(): Promise<void> {
 
 function sendFormat(f: YtdlpFormat): void {
   if (!bridgeConnected) { showToast('NOVA desktop not connected', true); return; }
-  const candidate = {
-    id: `ytdlp-${f.formatId || btoa(f.url).slice(0, 16)}`,
-    url: f.url,
+  if (!f.formatId) {
+    showToast('This format cannot be selected. Please refresh video information.', true);
+    return;
+  }
+  // Never send a transient googlevideo URL as a generic candidate. NOVA receives
+  // the stable watch URL and exact yt-dlp format id, then resolves, merges audio
+  // where needed, and owns the download task.
+  const url = probeData?.webpageUrl || location.href;
+  void browser.runtime.sendMessage({
+    type: 'ADD_YTDLP_MEDIA',
+    url,
+    title: probeData?.title,
     pageUrl: location.href,
-    source: 'ytdlp-probe' as const,
-    mediaType: (f.hasVideo !== false && f.height ? 'video' : 'audio') as 'video' | 'audio',
-    sizeBytes: f.estimatedSizeBytes,
-    width: f.width,
-    height: f.height,
-    confidence: 95,
-  };
-  void browser.runtime.sendMessage({ type: 'SEND_CANDIDATE', candidate })
-    .then(() => showToast(`Sent ${qLabel(f)} to NOVA`))
-    .catch(() => showToast('Failed to send to NOVA', true));
+    referrer: document.referrer || undefined,
+    selectedFormat: f,
+  })
+    .then((value: unknown) => {
+      const result = value as { accepted?: boolean; message?: string } | undefined;
+      if (!result?.accepted) throw new Error(result?.message || 'NOVA did not accept the selected format.');
+      showToast(`${qLabel(f)} added to NOVA`);
+    })
+    .catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : 'Failed to send the selected format to NOVA';
+      showToast(message, true);
+    });
 }
 
 function sendBest(): void {
@@ -472,7 +484,7 @@ function render(): void {
       html += `<span style="color:#a1a1aa">${resStr(f)}</span>`;
       html += `<span class="nova-cdr">${esc(codecStr(f))}</span>`;
       html += `<span style="color:#a1a1aa">${f.fps ? `${f.fps}` : '\u2014'}</span>`;
-      html += `<span style="color:#a1a1aa;font-variant-numeric:tabular-nums">${fmtBytes(f.estimatedSizeBytes) || '\u2014'}</span>`;
+      html += `<span style="color:#a1a1aa;font-variant-numeric:tabular-nums">${fmtBytes(f.estimatedSizeBytes ?? f.filesize) || '\u2014'}</span>`;
       html += `<span style="text-align:center"><button class="nova-sbtn" data-action="send" data-fid="${esc(f.formatId || '')}">Download</button></span>`;
       html += '</div>';
     }

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { CandidateSchema } from './candidate.schema';
-import { StreamQualitySchema } from './nova.protocol.v4';
+import { StreamQualitySchema, YtdlpFormatSchema } from './nova.protocol.v4';
 import { SettingsSchema } from './settings.schema';
 import { DrmIndicatorsSchema, DrmInfoSchema } from './drm.schema';
 import { SiteRuleSchema } from '../rules/site-rules';
@@ -44,6 +44,16 @@ export const RuntimeMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('PROBE_YTDLP'),
     url: z.string().url(),
+  }),
+  // Explicit quality selection from a yt-dlp catalog. The page URL, not a
+  // short-lived CDN stream URL, is sent to NOVA for managed downloading.
+  z.object({
+    type: z.literal('ADD_YTDLP_MEDIA'),
+    url: z.string().url(),
+    title: z.string().trim().min(1).max(512).optional(),
+    pageUrl: z.string().url().optional(),
+    referrer: z.string().url().optional(),
+    selectedFormat: YtdlpFormatSchema,
   }),
   z.object({
     type: z.literal('DOWNLOAD_DIRECT'),

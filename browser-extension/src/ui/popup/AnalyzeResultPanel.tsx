@@ -38,7 +38,7 @@ function sizeEstimate(f: AnalyzeFormat): string {
 
 interface AnalyzeResultPanelProps {
   result: AnalyzeResponse;
-  onDownload: (url: string, filename: string) => void;
+  onDownload: (format: AnalyzeFormat) => void;
   busy: boolean;
 }
 
@@ -48,13 +48,7 @@ export function AnalyzeResultPanel({ result, onDownload, busy }: AnalyzeResultPa
   const videoFormats = result.formats.filter((f) => f.hasVideo);
 
   function handleDownload(f: AnalyzeFormat): void {
-    const title = (result.title || 'download').replace(/[/\\:*?"<>|]/g, '_').trim().slice(0, 100);
-    const quality = f.height ? `${f.height}p` : f.label || f.formatId || 'direct';
-    const ext = f.container || 'mp4';
-    const filename = result.title
-      ? `${title} [${quality}].${ext}`
-      : `${quality}.${ext}`;
-    onDownload(f.url, filename);
+    onDownload(f);
     setSelectedFormat(f.formatId || f.url);
   }
 

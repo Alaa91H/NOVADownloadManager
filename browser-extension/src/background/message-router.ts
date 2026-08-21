@@ -179,6 +179,8 @@ async function dispatchMessage(msg: RuntimeMessage, sender?: RuntimeMessageSende
       return sendStream(msg.candidateId, msg.selectedQualityUrl, msg.selectedQuality);
     case 'PROBE_YTDLP':
       return bridgeManager.probeYtdlp(msg.url);
+    case 'ADD_YTDLP_MEDIA':
+      return addYtdlpMedia(msg);
     case 'ANALYZE_MEDIA':
       return bridgeManager.analyzeMedia(msg.url, msg.context);
     case 'DOWNLOAD_DIRECT':
@@ -242,6 +244,40 @@ async function scanCurrentPage(tabId: number | undefined, userActivated: boolean
   const candidates = await pipeline.run({ tabId: activeTabId, pageUrl: content.url, content, userActivated });
   const merged = await cache.replaceWithScan(activeTabId, candidates);
   return { ok: true, candidates: merged, capturedAt: content.capturedAt };
+}
+
+async function addYtdlpMedia(message: Extract<RuntimeMessage, { type: 'ADD_YTDLP_MEDIA' }>): Promise<unknown> {
+  const format = message.selectedFormat;
+  const mediaType: 'video' | 'audio' =
+    format.hasVideo === false && format.hasAudio !== false ? 'audio' : 'video';
+  const seed = {
+    id: `ytdlp-${format.formatId ?? format.url}`,
+    url: message.url,
+    pageUrl: message.pageUrl,
+    source: 'platform' as const,
+    mediaType,
+    width: format.width,
+    height: format.height,
+    bitrate: format.bandwidth,
+    sizeBytes: format.estimatedSizeBytes ?? format.filesize,
+    confidence: 100,
+    createdAt: new Date().toISOString(),
+  };
+  const idempotencyKey = await idempotencyKeyFor([seed]);
+  const result = await bridgeManager.addYtdlpMedia({
+    idempotencyKey,
+    url: message.url,
+    title: message.title,
+    pageUrl: message.pageUrl,
+    referrer: message.referrer,
+    selectedFormat: format,
+    source: 'nova-extension',
+  });
+  // The quality click is already an explicit user confirmation. Open NOVA
+  // without a capture parameter so the application is focused but does not
+  // create a second capture-review dialog for the same page URL.
+  await maybeOpenNova();
+  return result;
 }
 
 // SEND_STREAM: build a stream.manifest candidate from a cached HLS/DASH candidate

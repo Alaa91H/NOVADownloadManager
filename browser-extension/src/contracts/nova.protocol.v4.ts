@@ -200,6 +200,20 @@ export const YtdlpProbeResponseSchema = z.object({
 }).passthrough();
 export type YtdlpProbeResponse = z.infer<typeof YtdlpProbeResponseSchema>;
 
+// An explicit user selection from a yt-dlp catalog. The desktop receives the
+// stable webpage URL and selects the format itself, so expiring CDN URLs never
+// leak from the extension into the download engine.
+export const YtdlpAddRequestSchema = z.object({
+  idempotencyKey: z.string().min(16),
+  url: z.string().url(),
+  title: z.string().trim().min(1).max(512).optional(),
+  pageUrl: z.string().url().optional(),
+  referrer: z.string().url().optional(),
+  selectedFormat: YtdlpFormatSchema,
+  source: z.literal('nova-extension'),
+});
+export type YtdlpAddRequest = z.infer<typeof YtdlpAddRequestSchema>;
+
 // ---------------------------------------------------------------------------
 // Unified Media Analysis (v1/analyze)
 // The extension sends a URL; the daemon probes HTTP + yt-dlp and returns a

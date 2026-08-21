@@ -4,6 +4,7 @@ import {
   StreamResolveResponseSchema,
   StreamAddRequestSchema,
   StreamManifestCandidateSchema,
+  YtdlpAddRequestSchema,
 } from '../../contracts/nova.protocol.v4';
 
 // Mirror the qualityLabel helper from QualitySelector for pure-logic testing.
@@ -36,6 +37,47 @@ describe('quality selector — resolve contract', () => {
     const parsed = StreamResolveResponseSchema.safeParse(resp);
     expect(parsed.success).toBe(true);
     if (parsed.success) expect(parsed.data.qualities).toHaveLength(3);
+  });
+});
+
+describe('quality selector — yt-dlp managed download contract', () => {
+  const selectedYouTubeFormat = {
+    url: 'https://r1.googlevideo.com/videoplayback?expire=123',
+    formatId: '137',
+    width: 1920,
+    height: 1080,
+    bandwidth: 5_000_000,
+    container: 'mp4',
+    hasVideo: true,
+    hasAudio: false,
+    estimatedSizeBytes: 345_000_000,
+  };
+
+  it('sends the stable watch URL and the user-selected yt-dlp format', () => {
+    const request = {
+      idempotencyKey: 'y'.repeat(16),
+      url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      pageUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      title: 'Example video',
+      selectedFormat: selectedYouTubeFormat,
+      source: 'nova-extension' as const,
+    };
+    const parsed = YtdlpAddRequestSchema.safeParse(request);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.url).toContain('youtube.com/watch');
+    expect(parsed.data.selectedFormat.formatId).toBe('137');
+    expect(parsed.data.selectedFormat.estimatedSizeBytes).toBe(345_000_000);
+  });
+
+  it('rejects a malformed quality URL before it can be handed to NOVA', () => {
+    const request = {
+      idempotencyKey: 'z'.repeat(16),
+      url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      selectedFormat: { ...selectedYouTubeFormat, url: 'not-a-url' },
+      source: 'nova-extension' as const,
+    };
+    expect(YtdlpAddRequestSchema.safeParse(request).success).toBe(false);
   });
 });
 
