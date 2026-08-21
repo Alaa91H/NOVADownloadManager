@@ -25,6 +25,9 @@ require_workflow_fragment 'Manual dispatch accepts the documented X.Y.Z[-prerele
 require_workflow_fragment 'VERSION="v$VERSION"'
 require_workflow_fragment "prerelease: \${{ contains(github.ref_name, '-') }}"
 require_workflow_fragment "make_latest: \${{ !contains(github.ref_name, '-') }}"
+require_workflow_fragment 'function Ensure-WingetFfmpeg'
+require_workflow_fragment 'winget install --exact --id Gyan.FFmpeg'
+require_workflow_fragment 'Chocolatey could not install ffmpeg; attempting winget fallback.'
 
 workspace=$(mktemp -d)
 trap 'rm -rf "$workspace"' EXIT

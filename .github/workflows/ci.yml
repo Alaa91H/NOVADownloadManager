@@ -461,24 +461,61 @@ jobs:
           function Ensure-ChocoTool([string]$Tool, [string]$Package) {
             if (Get-Command $Tool -ErrorAction SilentlyContinue) {
               Write-Host "$Tool is already available."
-              return
+              return $true
             }
             for ($attempt = 1; $attempt -le 5; $attempt++) {
               Write-Host "Installing $Package (attempt $attempt/5)..."
               choco install $Package -y --no-progress --limit-output
               if (Get-Command $Tool -ErrorAction SilentlyContinue) {
                 Write-Host "$Tool installed successfully."
-                return
+                return $true
               }
               if ($attempt -lt 5) {
                 Start-Sleep -Seconds (20 * $attempt)
               }
             }
-            throw "Required Windows build helper '$Tool' was not installed after 5 Chocolatey attempts."
+            return $false
           }
 
-          Ensure-ChocoTool 'cmake' 'cmake'
-          Ensure-ChocoTool 'ffmpeg' 'ffmpeg'
+          function Ensure-WingetFfmpeg {
+            if (Get-Command 'ffmpeg' -ErrorAction SilentlyContinue) {
+              return $true
+            }
+            if (-not (Get-Command 'winget' -ErrorAction SilentlyContinue)) {
+              Write-Warning 'winget is unavailable; cannot use the FFmpeg fallback.'
+              return $false
+            }
+            for ($attempt = 1; $attempt -le 3; $attempt++) {
+              Write-Host "Installing Gyan.FFmpeg with winget (attempt $attempt/3)..."
+              winget install --exact --id Gyan.FFmpeg --scope user --accept-source-agreements --accept-package-agreements --disable-interactivity
+              $ffmpeg = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Microsoft\\WinGet\\Packages') -Filter 'ffmpeg.exe' -File -Recurse -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+              if ($ffmpeg) {
+                $ffmpegDirectory = $ffmpeg.Directory.FullName
+                $env:Path = "$ffmpegDirectory;$env:Path"
+                $ffmpegDirectory | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8NoBOM
+                Write-Host "ffmpeg installed through winget at $ffmpegDirectory."
+                return $true
+              }
+              if ($attempt -lt 3) {
+                Start-Sleep -Seconds (30 * $attempt)
+              }
+            }
+            return $false
+          }
+
+          if (-not (Ensure-ChocoTool 'cmake' 'cmake')) {
+            throw "Required Windows build helper 'cmake' was not installed after Chocolatey retries."
+          }
+          if (-not (Ensure-ChocoTool 'ffmpeg' 'ffmpeg')) {
+            Write-Warning 'Chocolatey could not install ffmpeg; attempting winget fallback.'
+            if (-not (Ensure-WingetFfmpeg)) {
+              throw "Required Windows build helper 'ffmpeg' was not installed through Chocolatey or winget."
+            }
+          }
+          if (-not (Get-Command 'ffmpeg' -ErrorAction SilentlyContinue)) {
+            throw "ffmpeg is not available on PATH after installation."
+          }
 
       - name: Prepare vcpkg binary cache
         if: runner.os == 'Windows'
