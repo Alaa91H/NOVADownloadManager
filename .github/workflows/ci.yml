@@ -691,13 +691,34 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "::group::Tauri build output"
           set -o pipefail
-          pnpm run tauri:build --bundles ${{ matrix.bundle_targets }} 2>&1 | tee tauri-build.log || {
-            grep -iE '(^|\s)(error|failed)' tauri-build.log | tail -10 | sed 's/^/::error::/'
-            exit 1
+          run_tauri_build() {
+            local log_file="$1"
+            pnpm run tauri:build --bundles ${{ matrix.bundle_targets }} 2>&1 | tee "$log_file"
           }
-          echo "::endgroup::"
+
+          echo "::group::Tauri build output"
+          if run_tauri_build tauri-build.log; then
+            echo "::endgroup::"
+            exit 0
+          fi
+
+          # Tauri's bundled DMG script can leave a stale disk-image work file on
+          # hosted macOS runners. Retry once after clearing only its generated
+          # output. A second failure remains fatal and emits both attempt logs.
+          if [ "${RUNNER_OS:-}" = "macOS" ]; then
+            echo "::warning::Initial macOS DMG bundle failed; clearing generated DMG output and retrying once."
+            rm -rf src-tauri/target/release/bundle/dmg
+            sleep 5
+            if run_tauri_build tauri-build-retry.log; then
+              echo "::endgroup::"
+              exit 0
+            fi
+            cat tauri-build-retry.log >> tauri-build.log
+          fi
+
+          grep -iE '(^|\s)(error|failed)' tauri-build.log | tail -20 | sed 's/^/::error::/'
+          exit 1
 
       - name: Code sign installer (Windows only)
         if: runner.os == 'Windows' && env.WINDOWS_CERT_BASE64 != ''
