@@ -3,7 +3,7 @@
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAp1X9l08RaHv5Mc9FvtpHMOHGNYGqx2Xn80cowOb4teg8FWnkOrgasSwKhyLeuPMqEqLWatr+36PSs1Gof6gw9JI9GUkmbMPGMMXjggqkwHBSaXi598H202vTTlUMvSNKBGYo8JGD6gVCgE5GU6i8mMtNJBTdouKPDgBz1/PkS4cuKedFN831CHWHYzNFQuQzYoUpS4NCQ/EbalUzKsIDAgKJTTWpmfFMuFWgMVF79hGTcL/G5JvrmI4iNDSgyiNV+WiQ97+BnOtieLPYRahxi9sG6DDgp4F/YsvlJ2qQnNFOhP18uqNyR0RX8gKVFrq/HpCeUgdNxno5MZVHe5zz2wIDAQAB",
   "name": "__MSG_extensionName__",
   "short_name": "__MSG_extensionShortName__",
-  "version": "2.4.17.0",
+  "version": "2.4.18.0",
   "description": "__MSG_extensionDescription__",
   "minimum_chrome_version": "116",
   "permissions": [
