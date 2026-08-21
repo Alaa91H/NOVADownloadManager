@@ -77,6 +77,7 @@ const isQueueInScheduleWindow = (
 function EffectsProvider({ children }: { children: ReactNode }) {
   const activeScheduleWindowsRef = useRef<Record<string, boolean>>({});
   const displayedCaptureReviewIdRef = useRef<string | null>(null);
+  const captureReviewPollInFlightRef = useRef(false);
 
   // Initialize default download paths
   useEffect(() => {
@@ -118,14 +119,22 @@ function EffectsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     const pollCaptureReviews = async () => {
+      // Do not let a delayed, older response race a newer interval tick. In
+      // particular, an old empty response must never clear the displayed ID
+      // after a newer response has opened its confirmation dialog.
+      if (captureReviewPollInFlightRef.current) return;
+      captureReviewPollInFlightRef.current = true;
       try {
         const reviews = await novaClient.listCaptureReviews();
         if (cancelled) return;
+        const dialog = uiStore.getState().dialog;
         if (reviews.length === 0) {
-          displayedCaptureReviewIdRef.current = null;
+          // Keep the current ID while its dialog is open. The same review may
+          // still be visible to a just-completed poll while consume/discard is
+          // being processed by the daemon.
+          if (!dialog.active) displayedCaptureReviewIdRef.current = null;
           return;
         }
-        const dialog = uiStore.getState().dialog;
         if (dialog.active) return;
         const next = reviews.find((review) => review.reviewId !== displayedCaptureReviewIdRef.current) ?? reviews[0];
         if (next.reviewId === displayedCaptureReviewIdRef.current) return;
@@ -134,6 +143,8 @@ function EffectsProvider({ children }: { children: ReactNode }) {
       } catch {
         // The normal daemon connection loop reports service availability. A
         // failed optional review poll must never degrade the desktop UI.
+      } finally {
+        captureReviewPollInFlightRef.current = false;
       }
     };
     void pollCaptureReviews();
