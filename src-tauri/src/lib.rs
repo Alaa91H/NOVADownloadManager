@@ -17,6 +17,7 @@ use tauri::{
 
 const DEFAULT_DAEMON_PORT: u16 = 3199;
 const DAEMON_PORT_SCAN_LIMIT: u16 = 30;
+const TAURI_CONFIG_JSON: &str = include_str!("../tauri.conf.json");
 
 fn validate_file_path(path: &str) -> Result<PathBuf, String> {
     if path.contains('\0') {
@@ -68,6 +69,28 @@ struct BrowserExtensionPaths {
 #[tauri::command]
 fn get_version() -> String {
     env!("CARGO_PKG_VERSION").to_owned()
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdaterConfigurationStatus {
+    configured: bool,
+    message: Option<&'static str>,
+}
+
+/// Do not invoke the updater plugin with repository placeholder values. The
+/// updater is only safe to use after a release endpoint and the matching
+/// public signing key have both been compiled into the application.
+#[tauri::command]
+fn get_updater_configuration_status() -> UpdaterConfigurationStatus {
+    let placeholders_present = TAURI_CONFIG_JSON.contains("__UPDATER_ENDPOINT__")
+        || TAURI_CONFIG_JSON.contains("__UPDATER_PUBKEY__");
+    UpdaterConfigurationStatus {
+        configured: !placeholders_present,
+        message: placeholders_present.then_some(
+            "Signed in-app updates are not configured for this build. Use the official release page instead.",
+        ),
+    }
 }
 
 #[tauri::command]
@@ -813,6 +836,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_version,
+            get_updater_configuration_status,
             get_daemon_url,
             get_daemon_token,
             get_downloads_dir,
@@ -850,5 +874,15 @@ mod port_selection_tests {
 
         assert_ne!(selected, preferred);
         assert!(selected >= 1024);
+    }
+
+    #[test]
+    fn updater_status_rejects_repository_placeholder_configuration() {
+        let status = get_updater_configuration_status();
+
+        assert!(!status.configured);
+        assert!(status
+            .message
+            .is_some_and(|message| message.contains("not configured")));
     }
 }

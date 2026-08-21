@@ -47,6 +47,14 @@ export interface VpnRouteValidation {
   message: string;
 }
 
+export interface TauriUpdateResult {
+  hasUpdate: boolean;
+  currentVersion: string;
+  latestVersion: string;
+  performUpdate?: () => Promise<void>;
+  unavailableMessage?: string;
+}
+
 async function invoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
   const tauri = window.__TAURI_INTERNALS__;
   if (tauri) {
@@ -137,14 +145,21 @@ export const tauriClient = {
     }
   },
 
-  async checkTauriUpdate(onProgress?: (downloaded: number, total: number) => void): Promise<{
-    hasUpdate: boolean;
-    currentVersion: string;
-    latestVersion: string;
-    performUpdate?: () => Promise<void>;
-  }> {
+  async checkTauriUpdate(onProgress?: (downloaded: number, total: number) => void): Promise<TauriUpdateResult> {
     const currentVersion = await getBuildVersion();
     try {
+      const status = (await invoke('get_updater_configuration_status')) as {
+        configured?: boolean;
+        message?: string;
+      };
+      if (!status.configured) {
+        return {
+          hasUpdate: false,
+          currentVersion,
+          latestVersion: currentVersion,
+          unavailableMessage: status.message || 'Signed in-app updates are not configured for this build.',
+        };
+      }
       const { check } = await import('@tauri-apps/plugin-updater');
       const update = await check();
       if (!update) {

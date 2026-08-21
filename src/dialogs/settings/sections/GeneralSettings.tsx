@@ -5,7 +5,7 @@ import { Switch, SelectField, Button } from '../../../components/primitives';
 import { Settings, RefreshCw } from 'lucide-react';
 import { WORLD_LANGUAGES } from '../../../lib/languages';
 import { useToastActions, useI18n } from '../../../store/selectors';
-import { tauriClient } from '../../../api/tauriClient';
+import { tauriClient, type TauriUpdateResult } from '../../../api/tauriClient';
 import { extractErrorMessage } from '../../../utils/formatUtils';
 
 interface Props {
@@ -19,12 +19,7 @@ export const GeneralSettings: React.FC<Props> = ({ settings, updateSetting }) =>
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateDownloading, setUpdateDownloading] = useState(false);
   const [updateProgress, setUpdateProgress] = useState<{ downloaded: number; total: number } | null>(null);
-  const [updateResult, setUpdateResult] = useState<{
-    hasUpdate: boolean;
-    currentVersion: string;
-    latestVersion: string;
-    performUpdate?: () => Promise<void>;
-  } | null>(null);
+  const [updateResult, setUpdateResult] = useState<TauriUpdateResult | null>(null);
 
   const handleCheckUpdates = async () => {
     setUpdateChecking(true);
@@ -39,6 +34,8 @@ export const GeneralSettings: React.FC<Props> = ({ settings, updateSetting }) =>
           t('settings_update_available'),
           t('settings_update_available_msg', { version: result.latestVersion }),
         );
+      } else if (result.unavailableMessage) {
+        addToast('info', 'Signed in-app updates unavailable', result.unavailableMessage);
       } else {
         addToast(
           'success',
@@ -121,6 +118,19 @@ export const GeneralSettings: React.FC<Props> = ({ settings, updateSetting }) =>
               >
                 {updateChecking ? t('settings_checking_updates') : t('settings_check_now')}
               </Button>
+              {updateResult?.unavailableMessage && (
+                <Button
+                  type="button"
+                  onClick={() => {
+                    void tauriClient.openExternalUrl('https://github.com/Alaa91H/NOVADownloadManager/releases');
+                  }}
+                  disabled={updateDownloading}
+                  variant="secondary"
+                  size="md"
+                >
+                  Open releases
+                </Button>
+              )}
               {updateResult?.hasUpdate && (
                 <Button
                   type="button"
@@ -141,12 +151,17 @@ export const GeneralSettings: React.FC<Props> = ({ settings, updateSetting }) =>
             </div>
           </div>
           {updateResult && (
-            <p className="text-[10px] text-[var(--text-secondary)] font-mono">
-              {t('settings_update_versions', {
-                current: updateResult.currentVersion,
-                latest: updateResult.latestVersion,
-              })}
-            </p>
+            <div className="space-y-1">
+              <p className="text-[10px] text-[var(--text-secondary)] font-mono">
+                {t('settings_update_versions', {
+                  current: updateResult.currentVersion,
+                  latest: updateResult.latestVersion,
+                })}
+              </p>
+              {updateResult.unavailableMessage && (
+                <p className="text-[10px] text-[var(--warning)] leading-relaxed">{updateResult.unavailableMessage}</p>
+              )}
+            </div>
           )}
         </div>
 
