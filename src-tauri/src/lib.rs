@@ -616,9 +616,13 @@ fn restart_daemon(
     // of spawning a PowerShell process for every port in the scan range, which
     // froze the UI for seconds. Fall back to the range scan only when no PID
     // is on file.
+    let data_dir_path = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."));
     let our_pid = std::process::id();
     let preferred = requested_daemon_port();
-    if !kill_pid_from_port_file(our_pid) {
+    if !kill_pid_from_port_file(&data_dir_path, our_pid) {
         kill_old_daemon_range(our_pid, preferred);
     }
     let port = find_available_daemon_port(requested_daemon_port());
@@ -629,30 +633,48 @@ fn restart_daemon(
         .unwrap_or_else(|_| std::path::PathBuf::from("."))
         .display()
         .to_string();
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .display()
-        .to_string();
-    daemon::start_daemon(resource_dir, data_dir, port);
+    daemon::start_daemon(resource_dir, data_dir_path.display().to_string(), port);
     Ok(())
 }
 
-/// Read the daemon PID recorded in the port file and kill it. Returns true
-/// when a PID was found (and killed); false means the caller should fall back
-/// to scanning the port range.
-fn kill_pid_from_port_file(our_pid: u32) -> bool {
-    let data_dir = std::env::var("APPDATA")
+/// Read the daemon PID from the second line of the current port-file format.
+/// The first line is the loopback port; an absent or malformed PID is not trusted.
+fn parse_daemon_pid_from_port_file(content: &str) -> Option<u32> {
+    content
+        .lines()
+        .nth(1)
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .and_then(|line| line.parse::<u32>().ok())
+        .filter(|pid| *pid != 0)
+}
+
+fn legacy_daemon_data_dir() -> Option<PathBuf> {
+    std::env::var("APPDATA")
         .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_else(|_| ".".to_owned());
-    let data_dir = std::path::Path::new(&data_dir).join("nova-download-manager");
-    let port_file = data_dir.join("nova-daemon.port");
-    if let Ok(content) = std::fs::read_to_string(&port_file) {
-        let lines: Vec<&str> = content.lines().collect();
-        if lines.len() >= 2 {
-            if let Ok(old_pid) = lines[1].trim().parse::<u32>() {
-                if old_pid != 0 && old_pid != our_pid {
+        .ok()
+        .map(|base| PathBuf::from(base).join("nova-download-manager"))
+}
+
+/// Read the daemon PID recorded in the actual Tauri app-data port file and
+/// kill it. Legacy integration-mode storage is consulted only as a fallback.
+/// Returns true when a PID was found (and killed); false means the caller
+/// should fall back to scanning the port range.
+fn kill_pid_from_port_file(data_dir: &Path, our_pid: u32) -> bool {
+    let mut data_dirs = vec![data_dir.to_path_buf()];
+    if let Some(legacy_dir) = legacy_daemon_data_dir() {
+        if !data_dirs.iter().any(|candidate| candidate == &legacy_dir) {
+            data_dirs.push(legacy_dir);
+        }
+    }
+
+    for port_file in data_dirs
+        .into_iter()
+        .map(|candidate| candidate.join("nova-daemon.port"))
+    {
+        if let Ok(content) = std::fs::read_to_string(&port_file) {
+            if let Some(old_pid) = parse_daemon_pid_from_port_file(&content) {
+                if old_pid != our_pid {
                     crate::daemon::utils::kill_process(old_pid);
                     return true;
                 }
@@ -664,13 +686,13 @@ fn kill_pid_from_port_file(our_pid: u32) -> bool {
 
 /// Kill any orphaned daemon process by reading the stored PID from the port file,
 /// or fall back to scanning the port range. Non-blocking: spawns a background thread.
-fn kill_old_daemon() {
+fn kill_old_daemon(data_dir: PathBuf) {
     let our_pid = std::process::id();
     let preferred = requested_daemon_port();
     std::thread::spawn(move || {
         if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             // Prefer the recorded PID; fall back to scanning the port range.
-            if !kill_pid_from_port_file(our_pid) {
+            if !kill_pid_from_port_file(&data_dir, our_pid) {
                 kill_old_daemon_range(our_pid, preferred);
             }
         })) {
@@ -765,7 +787,11 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            kill_old_daemon();
+            let daemon_data_dir = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| PathBuf::from("."));
+            kill_old_daemon(daemon_data_dir.clone());
             let default_port = requested_daemon_port();
             let deadline = std::time::Instant::now() + Duration::from_secs(2);
             loop {
@@ -791,13 +817,11 @@ pub fn run() {
                 .unwrap_or_else(|_| PathBuf::from("."))
                 .display()
                 .to_string();
-            let data_dir = app
-                .path()
-                .app_data_dir()
-                .unwrap_or_else(|_| PathBuf::from("."))
-                .display()
-                .to_string();
-            daemon::start_daemon(resource_dir, data_dir, startup_port);
+            daemon::start_daemon(
+                resource_dir,
+                daemon_data_dir.display().to_string(),
+                startup_port,
+            );
 
             let show = MenuItem::with_id(app, "show", "Show NOVA", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
@@ -893,6 +917,17 @@ mod port_selection_tests {
 
         assert_ne!(selected, preferred);
         assert!(selected >= 1024);
+    }
+
+    #[test]
+    fn parses_daemon_pid_from_current_port_file_format() {
+        assert_eq!(
+            parse_daemon_pid_from_port_file("3199\n12345\n"),
+            Some(12345)
+        );
+        assert_eq!(parse_daemon_pid_from_port_file("3199\n"), None);
+        assert_eq!(parse_daemon_pid_from_port_file("3199\n0\n"), None);
+        assert_eq!(parse_daemon_pid_from_port_file("3199\ninvalid\n"), None);
     }
 
     #[test]
