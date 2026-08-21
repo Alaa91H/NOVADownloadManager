@@ -17,6 +17,8 @@ use tauri::{
 
 const DEFAULT_DAEMON_PORT: u16 = 3199;
 const DAEMON_PORT_SCAN_LIMIT: u16 = 30;
+const DAEMON_GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
+const DAEMON_GRACEFUL_SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const TAURI_CONFIG_JSON: &str = include_str!("../tauri.conf.json");
 
 fn validate_file_path(path: &str) -> Result<PathBuf, String> {
@@ -609,21 +611,27 @@ fn restart_daemon(
     daemon_url: tauri::State<DaemonUrl>,
 ) -> Result<(), String> {
     log::info!("NOVA daemon restart requested");
-    // Signal the running daemon to shut down gracefully (saves state, etc.).
-    crate::daemon::signal_shutdown();
-    std::thread::sleep(std::time::Duration::from_millis(800));
-    // M-3: kill only the recorded daemon PID (read from the port file) instead
-    // of spawning a PowerShell process for every port in the scan range, which
-    // froze the UI for seconds. Fall back to the range scan only when no PID
-    // is on file.
     let data_dir_path = app
         .path()
         .app_data_dir()
         .unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let our_pid = std::process::id();
-    let preferred = requested_daemon_port();
-    if !kill_pid_from_port_file(&data_dir_path, our_pid) {
-        kill_old_daemon_range(our_pid, preferred);
+    // Signal the running daemon to shut down gracefully. It saves paused state
+    // and removes its port file after the listener has stopped. Do not hard-kill
+    // it while that flush is still in progress.
+    crate::daemon::signal_shutdown();
+    let stopped_cleanly =
+        wait_for_daemon_port_file_removal(&data_dir_path, DAEMON_GRACEFUL_SHUTDOWN_TIMEOUT);
+    if !stopped_cleanly {
+        // M-3: kill only the recorded daemon PID (read from the port file) instead
+        // of spawning a PowerShell process for every port in the scan range, which
+        // froze the UI for seconds. Fall back to the range scan only when no PID
+        // is on file.
+        log::warn!("Daemon did not stop cleanly before restart timeout; forcing shutdown");
+        let our_pid = std::process::id();
+        let preferred = requested_daemon_port();
+        if !kill_pid_from_port_file(&data_dir_path, our_pid) {
+            kill_old_daemon_range(our_pid, preferred);
+        }
     }
     let port = find_available_daemon_port(requested_daemon_port());
     set_daemon_url(&daemon_url, port);
@@ -635,6 +643,21 @@ fn restart_daemon(
         .to_string();
     daemon::start_daemon(resource_dir, data_dir_path.display().to_string(), port);
     Ok(())
+}
+
+fn daemon_port_file_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("nova-daemon.port")
+}
+
+/// Wait for a graceful daemon shutdown to remove its discovery marker. A stale
+/// marker after the bounded wait means the caller may escalate to a hard kill.
+fn wait_for_daemon_port_file_removal(data_dir: &Path, timeout: Duration) -> bool {
+    let port_file = daemon_port_file_path(data_dir);
+    let deadline = std::time::Instant::now() + timeout;
+    while port_file.exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(DAEMON_GRACEFUL_SHUTDOWN_POLL_INTERVAL);
+    }
+    !port_file.exists()
 }
 
 /// Read the daemon PID from the second line of the current port-file format.
@@ -670,7 +693,7 @@ fn kill_pid_from_port_file(data_dir: &Path, our_pid: u32) -> bool {
 
     for port_file in data_dirs
         .into_iter()
-        .map(|candidate| candidate.join("nova-daemon.port"))
+        .map(|candidate| daemon_port_file_path(&candidate))
     {
         if let Ok(content) = std::fs::read_to_string(&port_file) {
             if let Some(old_pid) = parse_daemon_pid_from_port_file(&content) {
@@ -928,6 +951,18 @@ mod port_selection_tests {
         assert_eq!(parse_daemon_pid_from_port_file("3199\n"), None);
         assert_eq!(parse_daemon_pid_from_port_file("3199\n0\n"), None);
         assert_eq!(parse_daemon_pid_from_port_file("3199\ninvalid\n"), None);
+    }
+
+    #[test]
+    fn daemon_shutdown_is_complete_when_app_data_has_no_port_file() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "nova-daemon-shutdown-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        assert!(wait_for_daemon_port_file_removal(
+            &data_dir,
+            Duration::from_millis(0)
+        ));
     }
 
     #[test]
