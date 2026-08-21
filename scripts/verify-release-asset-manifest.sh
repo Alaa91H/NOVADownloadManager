@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Verify the canonical release-asset naming policy used by CI before SHA-256 sums
-# are generated and published.
+# Verify the canonical release-asset naming policy used by CI. The release
+# pipeline must generate its package-manager metadata before the final SHA-256
+# manifest so the manifest enumerates every uploaded release asset.
 set -Eeuo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -17,6 +18,9 @@ require_workflow_fragment() {
 require_workflow_fragment 'canonical="${f// /.}"'
 require_workflow_fragment 'Release filename collision:'
 require_workflow_fragment 'names exactly the downloadable release assets'
+require_workflow_fragment 'Collect release files and generate final manifest'
+require_workflow_fragment 'node ../_repo/scripts/generate-package-manifests.mjs'
+require_workflow_fragment "diff -u <(printf '%s\\n' \"\$release_assets\") <(printf '%s\\n' \"\$manifest_assets\")"
 
 workspace=$(mktemp -d)
 trap 'rm -rf "$workspace"' EXIT

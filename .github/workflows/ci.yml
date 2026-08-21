@@ -886,7 +886,14 @@ jobs:
           pattern: Nova-*
           merge-multiple: true
 
-      - name: Collect release files
+      - name: Checkout packaging scripts
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          path: _repo
+
+      - name: Collect release files and generate final manifest
         run: |
           mkdir -p release
           find artifacts -type f \( \
@@ -904,9 +911,30 @@ jobs:
             [ ! -e "$canonical" ] || { echo "::error::Release filename collision: $f -> $canonical"; exit 1; }
             mv -- "$f" "$canonical"
           done
-          for f in *; do
-            [ -f "$f" ] && echo "$(sha256sum "$f" | cut -d' ' -f1)  $f" >> SHA256SUMS.txt
+
+          write_sums() {
+            rm -f SHA256SUMS.txt
+            for f in *; do
+              [ -f "$f" ] && echo "$(sha256sum "$f" | cut -d' ' -f1)  $f" >> SHA256SUMS.txt
+            done
+          }
+
+          # Package metadata embeds hashes of the downloadable installers, so
+          # give its generator a verified bootstrap manifest first. Move the
+          # generated metadata into the release root and then regenerate the
+          # canonical manifest so it enumerates every uploaded release asset.
+          write_sums
+          node ../_repo/scripts/generate-package-manifests.mjs "${GITHUB_REF_NAME#v}" .
+          for f in packaging/*; do
+            [ -f "$f" ] && mv -- "$f" .
           done
+          rmdir packaging
+          write_sums
+          sha256sum --check --strict SHA256SUMS.txt
+          manifest_assets=$(awk '{print $2}' SHA256SUMS.txt | sort)
+          release_assets=$(find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\n' | sort)
+          diff -u <(printf '%s\n' "$release_assets") <(printf '%s\n' "$manifest_assets")
+
           echo "## Collected artifacts" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           ls -la >> "$GITHUB_STEP_SUMMARY"
@@ -917,16 +945,6 @@ jobs:
         with:
           subject-path: release/*
 
-      - name: Checkout packaging scripts
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-          path: _repo
-
-      - name: Generate package manifests (winget / Scoop / Homebrew)
-        run: node _repo/scripts/generate-package-manifests.mjs "${GITHUB_REF_NAME#v}" release || true
-
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v3
         with:
@@ -935,9 +953,7 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
-          files: |
-            release/*
-            release/packaging/*
+          files: release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
