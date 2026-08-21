@@ -753,7 +753,7 @@ fn restore_persisted_tasks(
     for mut task in restored.tasks {
         let was_running = matches!(
             task.status.as_str(),
-            "downloading" | "queued" | "waiting" | "starting"
+            "downloading" | "queued" | "waiting" | "starting" | "pausing" | "stopping"
         );
         if was_running {
             task.status = "paused".to_owned();
@@ -876,6 +876,7 @@ fn restore_persisted_tasks(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::daemon::types::Task;
 
     #[test]
     fn cors_allows_local_ui_and_pinned_chromium_extension_only() {
@@ -891,6 +892,68 @@ mod tests {
             "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         )));
         assert!(!is_allowed_cors_origin(&HeaderValue::from_static("null")));
+    }
+
+    fn restoration_test_task(id: &str, status: &str) -> Task {
+        Task {
+            id: id.to_owned(),
+            name: format!("restoration-{id}"),
+            url: format!("https://example.com/{id}"),
+            file_type: "other".to_owned(),
+            status: status.to_owned(),
+            size_bytes: 100,
+            downloaded_bytes: 25,
+            speed_bytes_per_sec: 42,
+            time_left_seconds: 2,
+            elapsed_seconds: 1,
+            date_added: "2026-08-21".to_owned(),
+            category: "other".to_owned(),
+            queue_id: "main".to_owned(),
+            connections: 1,
+            resumable: true,
+            save_path: std::env::temp_dir()
+                .join(format!("{id}.bin"))
+                .display()
+                .to_string(),
+            description: "Direct download".to_owned(),
+            segments: Vec::new(),
+            referer: None,
+            engine: "libcurl-multi".to_owned(),
+            engine_id: id.to_owned(),
+            engine_status: Some(status.to_owned()),
+            error_message: None,
+        }
+    }
+
+    #[test]
+    fn restoration_converts_transitioning_tasks_to_paused_after_crash() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "nova-restore-transition-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&data_dir).expect("create test data directory");
+        let data_dir_string = data_dir.display().to_string();
+        let state = Arc::new(persist::tests::test_state(&data_dir_string));
+        let restored = persist::PersistedState {
+            tasks: vec![
+                restoration_test_task("pausing", "pausing"),
+                restoration_test_task("stopping", "stopping"),
+            ],
+            ..Default::default()
+        };
+
+        restore_persisted_tasks(&state, restored);
+
+        let snapshot = state.task_snapshot.lock().expect("lock restored snapshot");
+        for id in ["pausing", "stopping"] {
+            let task = snapshot.get(id).expect("restored transition task");
+            assert_eq!(task.status, "paused");
+            assert_eq!(task.engine_status.as_deref(), Some("interrupted"));
+            assert_eq!(task.speed_bytes_per_sec, 0);
+        }
+        drop(snapshot);
+        assert_eq!(state.curl_jobs.lock().expect("lock curl jobs").len(), 2);
+        std::fs::remove_dir_all(&data_dir).ok();
     }
 
     #[test]
