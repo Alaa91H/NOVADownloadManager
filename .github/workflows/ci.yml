@@ -609,7 +609,14 @@ jobs:
         run: |
           VERSION="${{ github.event.inputs.version }}"
           if [ -z "$VERSION" ]; then VERSION="${{ github.ref_name }}"; fi
-          if [ -z "$VERSION" ] || ! echo "$VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+'; then
+          # Manual dispatch accepts the documented X.Y.Z[-prerelease] input,
+          # whereas a tag ref already carries the v prefix. Canonicalize both
+          # forms before stamping artifacts so every build reports its release
+          # version instead of a temporary run-number fallback.
+          if echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
+            VERSION="v$VERSION"
+          fi
+          if ! echo "$VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
             VERSION="v0.1.0+${{ github.run_number }}"
           fi
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)

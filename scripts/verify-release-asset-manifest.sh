@@ -21,6 +21,8 @@ require_workflow_fragment 'names exactly the downloadable release assets'
 require_workflow_fragment 'Collect release files and generate final manifest'
 require_workflow_fragment 'node ../_repo/scripts/generate-package-manifests.mjs'
 require_workflow_fragment "diff -u <(printf '%s\\n' \"\$release_assets\") <(printf '%s\\n' \"\$manifest_assets\")"
+require_workflow_fragment 'Manual dispatch accepts the documented X.Y.Z[-prerelease] input'
+require_workflow_fragment 'VERSION="v$VERSION"'
 
 workspace=$(mktemp -d)
 trap 'rm -rf "$workspace"' EXIT
