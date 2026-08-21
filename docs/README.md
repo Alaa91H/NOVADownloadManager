@@ -30,6 +30,7 @@ This directory is the canonical documentation home for NOVA Download Manager. Th
 - [v2.4.3-alpha delivery record](verification/RELEASE_V2.4.3_ALPHA_DELIVERY.md) — published-release status, platform-build evidence, asset integrity verification, and the disclosed checksum-manifest correction.
 - [Managed tools and browser extension verification](verification/MANAGED_TOOLS_AND_EXTENSION_VERIFICATION_2026-08-20.md) — exact implementation scope, live acceptance evidence, quality gates, and platform boundaries for the current working-tree repair.
 - [Signed updater readiness](verification/SIGNED_UPDATER_READINESS_2026-08-21.md) — verified update-channel gap analysis, release integrity evidence, and the exact trusted inputs required before in-app updates can be enabled.
+- [Daemon lifecycle live verification](verification/DAEMON_LIFECYCLE_LIVE_VERIFICATION_2026-08-21.md) — real dynamic-port, native-messaging pairing, port-file, and graceful-shutdown acceptance evidence.
 - [yt-dlp installation source notes](research/ytdlp-installation-sources.md) — upstream release-file facts used by NOVA's managed-install design.
 
 ## Maintenance
@@ -56,6 +57,7 @@ Standard project metadata files are kept at the repository root because tooling 
 - `docs/verification/RELEASE_V2.4.3_ALPHA_DELIVERY.md`
 - `docs/verification/MANAGED_TOOLS_AND_EXTENSION_VERIFICATION_2026-08-20.md`
 - `docs/verification/SIGNED_UPDATER_READINESS_2026-08-21.md`
+- `docs/verification/DAEMON_LIFECYCLE_LIVE_VERIFICATION_2026-08-21.md`
 
 ## Documentation policy
 
