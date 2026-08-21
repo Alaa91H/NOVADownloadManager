@@ -531,6 +531,38 @@ fn open_with_explorer(path: &Path) -> Result<(), String> {
         .map_err(|error| format!("Could not open folder: {error}"))
 }
 
+fn write_config_atomically(data_dir: &Path, settings: &str) -> Result<(), String> {
+    std::fs::create_dir_all(data_dir).map_err(|e| format!("Failed to create app data dir: {e}"))?;
+    let config_path = data_dir.join("config.json");
+    let tmp_path = data_dir.join("config.json.tmp");
+    std::fs::write(&tmp_path, settings).map_err(|e| format!("Failed to save config: {e}"))?;
+
+    let sync_result = std::fs::File::open(&tmp_path)
+        .map_err(|e| format!("Failed to reopen temporary config: {e}"))
+        .and_then(|file| {
+            file.sync_all()
+                .map_err(|e| format!("Failed to sync temporary config: {e}"))
+        });
+    if let Err(error) = sync_result {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(error);
+    }
+
+    if let Err(error) = std::fs::rename(&tmp_path, &config_path) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(format!("Failed to atomically replace config: {error}"));
+    }
+    if let Some(parent) = config_path
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        if let Ok(directory) = std::fs::File::open(parent) {
+            let _ = directory.sync_all();
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn save_config(app: tauri::AppHandle, settings: String) -> Result<(), String> {
     const MAX_CONFIG_SIZE: usize = 1024 * 1024;
@@ -550,13 +582,7 @@ fn save_config(app: tauri::AppHandle, settings: String) -> Result<(), String> {
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to resolve app data dir: {e}"))?;
-    std::fs::create_dir_all(&data_dir)
-        .map_err(|e| format!("Failed to create app data dir: {e}"))?;
-    let config_path = data_dir.join("config.json");
-    let tmp_path = data_dir.join("config.json.tmp");
-    std::fs::write(&tmp_path, &settings).map_err(|e| format!("Failed to save config: {e}"))?;
-    std::fs::rename(&tmp_path, &config_path)
-        .map_err(|e| format!("Failed to atomically replace config: {e}"))
+    write_config_atomically(&data_dir, &settings)
 }
 
 /// Write a text file to a user-selected location (e.g. exported log files).
@@ -963,6 +989,24 @@ mod port_selection_tests {
             &data_dir,
             Duration::from_millis(0)
         ));
+    }
+
+    #[test]
+    fn atomic_config_writer_replaces_existing_config_without_temp_leftover() {
+        let data_dir =
+            std::env::temp_dir().join(format!("nova-config-writer-test-{}", uuid::Uuid::new_v4()));
+        let initial = r#"{"version":1,"theme":"dark"}"#;
+        let replacement = r#"{"version":2,"theme":"light"}"#;
+
+        write_config_atomically(&data_dir, initial).expect("write initial config");
+        write_config_atomically(&data_dir, replacement).expect("replace config");
+
+        assert_eq!(
+            std::fs::read_to_string(data_dir.join("config.json")).expect("read config"),
+            replacement
+        );
+        assert!(!data_dir.join("config.json.tmp").exists());
+        std::fs::remove_dir_all(&data_dir).ok();
     }
 
     #[test]

@@ -153,10 +153,33 @@ export const settingsStore = create<SettingsState>()((set) => ({
   updateSettings: (updated, silent = false) => {
     const sanitized = mergeStoredSettings(updated);
     set({ settings: sanitized });
-    void tauriClient.saveConfigToDisk(sanitized);
-    if (!silent) {
-      uiStore.getState().addToast('success', 'Settings Saved', 'Preferences and settings were saved.');
-    }
+    void tauriClient.saveConfigToDisk(sanitized).then(
+      (saved) => {
+        if (silent) return;
+        if (saved) {
+          uiStore.getState().addToast('success', 'Settings Saved', 'Preferences and settings were saved.');
+        } else {
+          uiStore
+            .getState()
+            .addToast(
+              'error',
+              'Settings Not Saved',
+              'Your changes are active for this session, but could not be saved to disk.',
+            );
+        }
+      },
+      () => {
+        if (!silent) {
+          uiStore
+            .getState()
+            .addToast(
+              'error',
+              'Settings Not Saved',
+              'Your changes are active for this session, but could not be saved to disk.',
+            );
+        }
+      },
+    );
   },
 
   updateThemeSettings: (key, value) => {

@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { settingsStore, mergeStoredSettings } from '../settingsStore';
 import { initialSettings } from '../../initialData';
+import { tauriClient } from '../../api/tauriClient';
 import type { AppSettings, AppThemeSettings } from '../../types/desktop-ui.types';
+
+const { addToast } = vi.hoisted(() => ({ addToast: vi.fn() }));
 
 vi.mock('../../api/tauriClient', () => ({
   tauriClient: {
@@ -15,9 +18,7 @@ vi.mock('../../api/tauriClient', () => ({
 vi.mock('../../utils/sound', () => ({ playAppSound: vi.fn() }));
 vi.mock('../uiStore', () => ({
   uiStore: {
-    getState: () => ({
-      addToast: vi.fn(),
-    }),
+    getState: () => ({ addToast }),
   },
 }));
 
@@ -59,6 +60,8 @@ describe('mergeStoredSettings', () => {
 
 describe('settingsStore', () => {
   beforeEach(() => {
+    vi.mocked(tauriClient).saveConfigToDisk.mockResolvedValue(true);
+    addToast.mockReset();
     settingsStore.setState({
       settings: { ...initialSettings, extra: { ...initialSettings.extra, browserPairingToken: 'test_token_abc' } },
       themeSettings: { theme: 'system', density: 'compact', accent: 'blue', progress: 'bar', contrast: 'normal' },
@@ -80,6 +83,25 @@ describe('settingsStore', () => {
     };
     settingsStore.getState().updateSettings(updated, true);
     expect(settingsStore.getState().settings.general.monitorClipboard).toBe(true);
+  });
+
+  it('reports a persistence failure instead of a false save confirmation', async () => {
+    vi.mocked(tauriClient).saveConfigToDisk.mockResolvedValue(false);
+    const updated = {
+      ...settingsStore.getState().settings,
+      general: { ...settingsStore.getState().settings.general, monitorClipboard: true },
+    };
+
+    settingsStore.getState().updateSettings(updated);
+
+    await vi.waitFor(() => {
+      expect(addToast).toHaveBeenCalledWith(
+        'error',
+        'Settings Not Saved',
+        'Your changes are active for this session, but could not be saved to disk.',
+      );
+    });
+    expect(addToast).not.toHaveBeenCalledWith('success', 'Settings Saved', expect.any(String));
   });
 
   it('updateThemeSettings updates a single key', () => {
