@@ -958,7 +958,10 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: Nova Download Manager ${{ github.ref_name }}
           draft: false
-          prerelease: false
+          # SemVer prerelease tags (for example v2.4.10-alpha) must never be
+          # advertised as stable/latest releases to existing installations.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}
           generate_release_notes: true
           files: release/*
         env:

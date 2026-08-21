@@ -23,6 +23,8 @@ require_workflow_fragment 'node ../_repo/scripts/generate-package-manifests.mjs'
 require_workflow_fragment "diff -u <(printf '%s\\n' \"\$release_assets\") <(printf '%s\\n' \"\$manifest_assets\")"
 require_workflow_fragment 'Manual dispatch accepts the documented X.Y.Z[-prerelease] input'
 require_workflow_fragment 'VERSION="v$VERSION"'
+require_workflow_fragment "prerelease: \${{ contains(github.ref_name, '-') }}"
+require_workflow_fragment "make_latest: \${{ !contains(github.ref_name, '-') }}"
 
 workspace=$(mktemp -d)
 trap 'rm -rf "$workspace"' EXIT
