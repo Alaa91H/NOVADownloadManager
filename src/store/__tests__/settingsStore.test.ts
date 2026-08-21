@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { settingsStore, mergeStoredSettings, restoreSettingsFromDisk } from '../settingsStore';
+import {
+  settingsStore,
+  mergeSettingsPatch,
+  mergeStoredSettings,
+  parseSettingsBackup,
+  restoreSettingsFromDisk,
+} from '../settingsStore';
 import { initialSettings } from '../../initialData';
 import { tauriClient } from '../../api/tauriClient';
 import type { AppSettings, AppThemeSettings } from '../../types/desktop-ui.types';
@@ -55,6 +61,33 @@ describe('mergeStoredSettings', () => {
     const merged = mergeStoredSettings({});
     expect(merged.general).toEqual(initialSettings.general);
     expect(merged.connection).toEqual(initialSettings.connection);
+  });
+
+  it('rejects malformed backups and removes unknown fields', () => {
+    expect(parseSettingsBackup({ general: { monitorClipboard: 'yes' } })).toBeNull();
+    expect(parseSettingsBackup(['not', 'an', 'object'])).toBeNull();
+    expect(parseSettingsBackup({ futureOption: true })).toEqual({});
+  });
+
+  it('applies a partial backup without resetting untouched nested preferences', () => {
+    const base = {
+      ...initialSettings,
+      general: { ...initialSettings.general, checkUpdates: true },
+      connection: {
+        ...initialSettings.connection,
+        defaults: { ...initialSettings.connection.defaults, retryCount: 9 },
+      },
+    };
+    const partialBackup = {
+      general: { monitorClipboard: false },
+      connection: { defaults: { timeoutSec: 120 } },
+    } as unknown as Partial<AppSettings>;
+    const merged = mergeSettingsPatch(base, partialBackup);
+
+    expect(merged.general.monitorClipboard).toBe(false);
+    expect(merged.general.checkUpdates).toBe(true);
+    expect(merged.connection.defaults.timeoutSec).toBe(120);
+    expect(merged.connection.defaults.retryCount).toBe(9);
   });
 });
 

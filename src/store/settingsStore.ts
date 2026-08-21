@@ -46,55 +46,97 @@ const ensureBrowserPairingToken = (s: AppSettings): AppSettings => {
   return { ...s, extra: { ...s.extra, browserPairingToken: generateBrowserPairingToken() } };
 };
 
-export const mergeStoredSettings = (parsed: Partial<AppSettings>): AppSettings => {
-  const parsedSave = parsed.saveAndCategories;
+const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+function sanitizeSettingsPatch(value: unknown, template: unknown): Record<string, unknown> | null {
+  if (!isPlainRecord(value) || !isPlainRecord(template)) return null;
+
+  const patch: Record<string, unknown> = {};
+  for (const [key, candidate] of Object.entries(value)) {
+    if (!Object.hasOwn(template, key)) continue;
+    const expected = template[key];
+    if (Array.isArray(expected)) {
+      if (!Array.isArray(candidate)) return null;
+      patch[key] = candidate;
+    } else if (isPlainRecord(expected)) {
+      const nested = sanitizeSettingsPatch(candidate, expected);
+      if (!nested) return null;
+      patch[key] = nested;
+    } else if (typeof candidate !== typeof expected) {
+      return null;
+    } else {
+      patch[key] = candidate;
+    }
+  }
+  return patch;
+}
+
+export function parseSettingsBackup(value: unknown): Partial<AppSettings> | null {
+  return sanitizeSettingsPatch(value, initialSettings);
+}
+
+function mergeSettings(base: AppSettings, parsed: Partial<AppSettings>): AppSettings {
+  const safe = parseSettingsBackup(parsed) ?? {};
+  const parsedSave = safe.saveAndCategories;
   const safeSaveAndCategories: Partial<AppSettings['saveAndCategories']> = parsedSave ?? {};
   return ensureBrowserPairingToken({
-    ...initialSettings,
-    ...parsed,
+    ...base,
+    ...safe,
     general: {
-      ...initialSettings.general,
-      ...(parsed.general || {}),
+      ...base.general,
+      ...(safe.general || {}),
       integrateWithBrowsers: {
-        ...initialSettings.general.integrateWithBrowsers,
-        ...(parsed.general?.integrateWithBrowsers || {}),
+        ...base.general.integrateWithBrowsers,
+        ...(safe.general?.integrateWithBrowsers || {}),
       },
     },
+    fileTypes: {
+      ...base.fileTypes,
+      ...(safe.fileTypes || {}),
+      extensions: { ...base.fileTypes.extensions, ...(safe.fileTypes?.extensions || {}) },
+    },
     connection: {
-      ...initialSettings.connection,
-      ...(parsed.connection || {}),
-      speedLimiter: { ...initialSettings.connection.speedLimiter, ...(parsed.connection?.speedLimiter || {}) },
-      defaults: { ...initialSettings.connection.defaults, ...(parsed.connection?.defaults || {}) },
+      ...base.connection,
+      ...(safe.connection || {}),
+      speedLimiter: { ...base.connection.speedLimiter, ...(safe.connection?.speedLimiter || {}) },
+      defaults: { ...base.connection.defaults, ...(safe.connection?.defaults || {}) },
     },
     saveAndCategories: {
-      ...initialSettings.saveAndCategories,
+      ...base.saveAndCategories,
       ...safeSaveAndCategories,
       categoryFolders: {
-        ...initialSettings.saveAndCategories.categoryFolders,
+        ...base.saveAndCategories.categoryFolders,
         ...(safeSaveAndCategories.categoryFolders || {}),
       },
     },
-    sounds: { ...initialSettings.sounds, ...(parsed.sounds || {}) },
+    sounds: { ...base.sounds, ...(safe.sounds || {}) },
     ui: {
-      ...initialSettings.ui,
-      ...(parsed.ui || {}),
-      toolbar: { ...initialSettings.ui.toolbar, ...(parsed.ui?.toolbar || {}) },
-      statusBar: { ...initialSettings.ui.statusBar, ...(parsed.ui?.statusBar || {}) },
-      customButtons: parsed.ui?.customButtons || initialSettings.ui.customButtons,
+      ...base.ui,
+      ...(safe.ui || {}),
+      toolbar: { ...base.ui.toolbar, ...(safe.ui?.toolbar || {}) },
+      statusBar: { ...base.ui.statusBar, ...(safe.ui?.statusBar || {}) },
+      customButtons: safe.ui?.customButtons || base.ui.customButtons,
     },
     keyboardShortcuts: {
-      ...initialSettings.keyboardShortcuts,
-      ...(parsed.keyboardShortcuts || {}),
-      bindings: { ...initialSettings.keyboardShortcuts.bindings, ...(parsed.keyboardShortcuts?.bindings || {}) },
+      ...base.keyboardShortcuts,
+      ...(safe.keyboardShortcuts || {}),
+      bindings: { ...base.keyboardShortcuts.bindings, ...(safe.keyboardShortcuts?.bindings || {}) },
     },
-    advanced: { ...initialSettings.advanced, ...(parsed.advanced || {}) },
+    advanced: { ...base.advanced, ...(safe.advanced || {}) },
     extra: {
-      ...initialSettings.extra,
-      ...(parsed.extra || {}),
-      language: parsed.extra?.language || detectSystemLanguage(),
+      ...base.extra,
+      ...(safe.extra || {}),
+      language: safe.extra?.language || base.extra.language || detectSystemLanguage(),
     },
   });
-};
+}
+
+export const mergeStoredSettings = (parsed: Partial<AppSettings>): AppSettings =>
+  mergeSettings(initialSettings, parsed);
+
+export const mergeSettingsPatch = (base: AppSettings, patch: Partial<AppSettings>): AppSettings =>
+  mergeSettings(base, patch);
 
 const initSettings = (): AppSettings => {
   const cached = localStorage.getItem('nova_settings_v1');

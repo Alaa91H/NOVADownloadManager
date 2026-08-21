@@ -3,6 +3,9 @@ import React, { useRef } from 'react';
 import type { AppSettings } from '../../../types/desktop-ui.types';
 import { Database, AlertTriangle, Upload } from 'lucide-react';
 import { useSettingsActions, useI18n } from '../../../store/selectors';
+import { mergeSettingsPatch, parseSettingsBackup } from '../../../store/settingsStore';
+
+const MAX_BACKUP_FILE_SIZE = 1024 * 1024;
 
 interface Props {
   settings: AppSettings;
@@ -43,20 +46,28 @@ export const BackupResetSettings: React.FC<Props> = ({ settings, onAddToast, onF
 
   const handleImportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
+    if (file.size > MAX_BACKUP_FILE_SIZE) {
+      onAddToast('error', t('settings_import_error'), t('settings_import_error_msg'));
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const parsed = JSON.parse(reader.result as string) as Partial<AppSettings>;
-        const merged = { ...settings, ...parsed };
-        updateSettings(merged, true);
+        const parsed = parseSettingsBackup(JSON.parse(reader.result as string));
+        if (!parsed) throw new Error('Invalid settings backup schema');
+        updateSettings(mergeSettingsPatch(settings, parsed), true);
         onAddToast('success', t('settings_import_success'), t('settings_import_success_msg'));
       } catch {
         onAddToast('error', t('settings_import_error'), t('settings_import_error_msg'));
       }
     };
+    reader.onerror = () => {
+      onAddToast('error', t('settings_import_error'), t('settings_import_error_msg'));
+    };
     reader.readAsText(file);
-    e.target.value = '';
   };
 
   return (
