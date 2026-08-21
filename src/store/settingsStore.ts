@@ -186,3 +186,11 @@ export const settingsStore = create<SettingsState>()((set) => ({
     set((p) => ({ themeSettings: { ...p.themeSettings, [key]: value } }));
   },
 }));
+
+export async function restoreSettingsFromDisk(): Promise<{ warnings: string[]; error?: string }> {
+  const loaded = await tauriClient.loadConfigFromDisk();
+  if (loaded.settings) {
+    settingsStore.getState()._setSettings(mergeStoredSettings(loaded.settings));
+  }
+  return { warnings: loaded.warnings, error: loaded.error };
+}

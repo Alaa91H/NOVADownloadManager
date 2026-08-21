@@ -10,13 +10,21 @@ interface Props {
   onFactoryReset: () => void;
 }
 
+export function sanitizeSettingsBackup(settings: AppSettings): AppSettings {
+  return {
+    ...settings,
+    connection: { ...settings.connection, proxyUser: '', proxyPass: '' },
+    extra: { ...settings.extra, tgBotToken: '', browserPairingToken: '' },
+  };
+}
+
 export const BackupResetSettings: React.FC<Props> = ({ settings, onAddToast, onFactoryReset }) => {
   const t = useI18n();
   const { updateSettings } = useSettingsActions();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleExportSettings = () => {
-    const jsonString = JSON.stringify(settings, null, 2);
+    const jsonString = JSON.stringify(sanitizeSettingsBackup(settings), null, 2);
     const blob = new Blob([jsonString], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const downloadAnchor = document.createElement('a');

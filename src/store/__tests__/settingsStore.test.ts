@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { settingsStore, mergeStoredSettings } from '../settingsStore';
+import { settingsStore, mergeStoredSettings, restoreSettingsFromDisk } from '../settingsStore';
 import { initialSettings } from '../../initialData';
 import { tauriClient } from '../../api/tauriClient';
 import type { AppSettings, AppThemeSettings } from '../../types/desktop-ui.types';
@@ -9,7 +9,7 @@ const { addToast } = vi.hoisted(() => ({ addToast: vi.fn() }));
 vi.mock('../../api/tauriClient', () => ({
   tauriClient: {
     saveConfigToDisk: vi.fn().mockResolvedValue(undefined),
-    loadConfigFromDisk: vi.fn().mockResolvedValue(null),
+    loadConfigFromDisk: vi.fn().mockResolvedValue({ settings: null, warnings: [] }),
     openDownloadedFile: vi.fn().mockResolvedValue(true),
     revealDownloadedFile: vi.fn().mockResolvedValue(true),
     getSystemInfo: vi.fn().mockResolvedValue({ os: 'Windows', arch: 'x86_64' }),
@@ -61,12 +61,26 @@ describe('mergeStoredSettings', () => {
 describe('settingsStore', () => {
   beforeEach(() => {
     vi.mocked(tauriClient).saveConfigToDisk.mockResolvedValue(true);
+    vi.mocked(tauriClient).loadConfigFromDisk.mockResolvedValue({ settings: null, warnings: [] });
     addToast.mockReset();
     settingsStore.setState({
       settings: { ...initialSettings, extra: { ...initialSettings.extra, browserPairingToken: 'test_token_abc' } },
       themeSettings: { theme: 'system', density: 'compact', accent: 'blue', progress: 'bar', contrast: 'normal' },
       i18nRevision: 0,
     });
+  });
+
+  it('restores persisted settings before the application mounts', async () => {
+    vi.mocked(tauriClient).loadConfigFromDisk.mockResolvedValue({
+      settings: { general: { ...initialSettings.general, monitorClipboard: true } },
+      warnings: ['A legacy credential was cleared.'],
+    });
+
+    const result = await restoreSettingsFromDisk();
+
+    expect(settingsStore.getState().settings.general.monitorClipboard).toBe(true);
+    expect(settingsStore.getState().settings.connection).toEqual(initialSettings.connection);
+    expect(result).toEqual({ warnings: ['A legacy credential was cleared.'], error: undefined });
   });
 
   it('has correct initial state shape', () => {

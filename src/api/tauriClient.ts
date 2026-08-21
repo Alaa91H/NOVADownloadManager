@@ -473,13 +473,30 @@ export const tauriClient = {
     }
   },
 
+  async loadConfigFromDisk(): Promise<{ settings: Partial<AppSettings> | null; warnings: string[]; error?: string }> {
+    try {
+      const loaded = (await invoke('load_config')) as { settings?: string | null; warnings?: string[] };
+      if (!loaded.settings) return { settings: null, warnings: loaded.warnings ?? [] };
+      return {
+        settings: JSON.parse(loaded.settings) as Partial<AppSettings>,
+        warnings: loaded.warnings ?? [],
+      };
+    } catch (error) {
+      logger.warn('tauriClient', 'loadConfigFromDisk failed', error);
+      return {
+        settings: null,
+        warnings: [],
+        error: extractErrorMessage(error, 'The saved settings could not be loaded.'),
+      };
+    }
+  },
+
   async saveConfigToDisk(settings: AppSettings): Promise<boolean> {
     try {
-      const { encryptCredentials } = await import('../utils/crypto');
-      const encrypted = await encryptCredentials(settings as unknown as Record<string, unknown>);
-      await invoke('save_config', { settings: JSON.stringify(encrypted) });
+      await invoke('save_config', { settings: JSON.stringify(settings) });
       return true;
-    } catch {
+    } catch (error) {
+      logger.warn('tauriClient', 'saveConfigToDisk failed', error);
       return false;
     }
   },

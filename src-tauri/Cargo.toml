@@ -41,6 +41,9 @@ regex = "1"
 sha2 = "0.10"
 sha1 = "0.10"
 md-5 = "0.10"
+# Persists sensitive settings in the platform credential store instead of JSON.
+# Features are explicit because keyring enables no credential store by default.
+keyring = { version = "3.6.2", default-features = false, features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-rust", "vendored"] }
 zip = "8.6.0"
 tar = "0.4"
 xz2 = "0.1"

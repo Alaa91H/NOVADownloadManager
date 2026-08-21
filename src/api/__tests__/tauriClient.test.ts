@@ -35,6 +35,21 @@ describe('tauriClient updater configuration', () => {
     expect(invoke).toHaveBeenCalledTimes(2);
   });
 
+  it('loads persisted settings and secure-storage warnings from the desktop core', async () => {
+    invoke.mockResolvedValue({
+      settings: JSON.stringify({ general: { monitorClipboard: false } }),
+      warnings: ['A legacy credential was cleared.'],
+    });
+
+    const loaded = await tauriClient.loadConfigFromDisk();
+
+    expect(loaded).toEqual({
+      settings: { general: { monitorClipboard: false } },
+      warnings: ['A legacy credential was cleared.'],
+    });
+    expect(invoke).toHaveBeenCalledWith('load_config', undefined);
+  });
+
   it('does not bypass a rejected desktop URL policy with window.open', async () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
     invoke.mockRejectedValue(new Error('Internal URLs cannot be opened in the browser.'));

@@ -20,6 +20,22 @@ const DAEMON_PORT_SCAN_LIMIT: u16 = 30;
 const DAEMON_GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const DAEMON_GRACEFUL_SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const TAURI_CONFIG_JSON: &str = include_str!("../tauri.conf.json");
+const MAX_CONFIG_SIZE: usize = 1024 * 1024;
+const SECURE_CONFIG_VALUE: &str = "__nova_secure_store_v1__";
+const SECURE_SETTINGS_SERVICE: &str = "com.nova-download-manager.settings";
+const SENSITIVE_CONFIG_FIELDS: [(&str, &str); 4] = [
+    ("connection", "proxyUser"),
+    ("connection", "proxyPass"),
+    ("extra", "tgBotToken"),
+    ("extra", "browserPairingToken"),
+];
+
+// Platform credential stores can reject simultaneous operations on the same
+// entry, particularly on Windows and Linux. Serialize all settings-secret I/O.
+static SECURE_SETTINGS_LOCK: Mutex<()> = Mutex::new(());
+// `write_config_atomically` uses a deterministic temporary filename, so all
+// config reads, migrations, and writes must share one in-process transaction.
+static CONFIG_IO_LOCK: Mutex<()> = Mutex::new(());
 
 fn validate_file_path(path: &str) -> Result<PathBuf, String> {
     if path.contains('\0') {
@@ -531,6 +547,236 @@ fn open_with_explorer(path: &Path) -> Result<(), String> {
         .map_err(|error| format!("Could not open folder: {error}"))
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LoadedConfig {
+    settings: Option<String>,
+    warnings: Vec<String>,
+}
+
+fn config_value_mut<'a>(
+    settings: &'a mut serde_json::Value,
+    section: &str,
+    field: &str,
+) -> Option<&'a mut serde_json::Value> {
+    settings.get_mut(section)?.get_mut(field)
+}
+
+fn secure_setting_entry(section: &str, field: &str) -> Result<keyring::Entry, String> {
+    keyring::Entry::new(SECURE_SETTINGS_SERVICE, &format!("{section}.{field}"))
+        .map_err(|error| format!("Failed to access secure credential entry: {error}"))
+}
+
+fn read_secure_setting(section: &str, field: &str) -> Result<Option<String>, String> {
+    match secure_setting_entry(section, field)?.get_password() {
+        Ok(secret) => Ok(Some(secret)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(error) => Err(format!("Failed to read secure credential: {error}")),
+    }
+}
+
+fn delete_secure_setting(section: &str, field: &str) -> Result<(), String> {
+    match secure_setting_entry(section, field)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(format!("Failed to remove secure credential: {error}")),
+    }
+}
+
+#[derive(Debug)]
+struct SecureSettingMutation {
+    section: String,
+    field: String,
+    previous: Option<String>,
+}
+
+fn rollback_secure_setting_mutations(mutations: &[SecureSettingMutation]) {
+    for mutation in mutations.iter().rev() {
+        let result = match &mutation.previous {
+            Some(previous) => {
+                secure_setting_entry(&mutation.section, &mutation.field).and_then(|entry| {
+                    entry.set_password(previous).map_err(|error| {
+                        format!("Failed to restore secure credential during rollback: {error}")
+                    })
+                })
+            }
+            None => delete_secure_setting(&mutation.section, &mutation.field),
+        };
+        if let Err(error) = result {
+            log::error!(
+                "Failed to roll back secure credential {}.{}: {error}",
+                mutation.section,
+                mutation.field
+            );
+        }
+    }
+}
+
+fn is_secure_settings_enabled(settings: &serde_json::Value) -> bool {
+    settings
+        .pointer("/extra/encryptAccessTokens")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn protect_sensitive_config_fields(
+    settings: &mut serde_json::Value,
+) -> Result<Vec<SecureSettingMutation>, String> {
+    if !is_secure_settings_enabled(settings) {
+        return Ok(Vec::new());
+    }
+
+    let mut mutations = Vec::new();
+    for (section, field) in SENSITIVE_CONFIG_FIELDS {
+        let Some(secret) = config_value_mut(settings, section, field)
+            .and_then(|value| value.as_str().map(str::to_owned))
+        else {
+            continue;
+        };
+        if secret == SECURE_CONFIG_VALUE {
+            continue;
+        }
+        if secret.starts_with("enc:") {
+            rollback_secure_setting_mutations(&mutations);
+            return Err(
+                "A legacy session-encrypted credential cannot be saved. Re-enter the credential before saving."
+                    .to_owned(),
+            );
+        }
+
+        let previous = match read_secure_setting(section, field) {
+            Ok(previous) => previous,
+            Err(error) => {
+                rollback_secure_setting_mutations(&mutations);
+                return Err(error);
+            }
+        };
+        if previous.as_deref() != Some(secret.as_str()) {
+            let update_result = if secret.is_empty() {
+                delete_secure_setting(section, field)
+            } else {
+                secure_setting_entry(section, field).and_then(|entry| {
+                    entry.set_password(&secret).map_err(|error| {
+                        format!("Failed to save credential in secure storage: {error}")
+                    })
+                })
+            };
+            if let Err(error) = update_result {
+                rollback_secure_setting_mutations(&mutations);
+                return Err(error);
+            }
+            mutations.push(SecureSettingMutation {
+                section: section.to_owned(),
+                field: field.to_owned(),
+                previous,
+            });
+        }
+        *config_value_mut(settings, section, field).expect("field remains present") =
+            serde_json::Value::String(if secret.is_empty() {
+                String::new()
+            } else {
+                SECURE_CONFIG_VALUE.to_owned()
+            });
+    }
+    Ok(mutations)
+}
+
+fn clear_secure_config_fields() {
+    let Ok(_lock) = SECURE_SETTINGS_LOCK.lock() else {
+        log::warn!("Secure credential storage lock is unavailable while clearing credentials");
+        return;
+    };
+    for (section, field) in SENSITIVE_CONFIG_FIELDS {
+        if let Err(error) = delete_secure_setting(section, field) {
+            log::warn!("Failed to clear secure credential {section}.{field}: {error}");
+        }
+    }
+}
+
+fn hydrate_secure_config_fields(
+    persisted: &mut serde_json::Value,
+) -> Result<(serde_json::Value, Vec<String>, bool), String> {
+    let mut runtime = persisted.clone();
+    if !is_secure_settings_enabled(persisted) {
+        return Ok((runtime, Vec::new(), false));
+    }
+
+    let _lock = SECURE_SETTINGS_LOCK
+        .lock()
+        .map_err(|_| "Secure credential storage lock is unavailable".to_owned())?;
+    let mut warnings = Vec::new();
+    let mut needs_rewrite = false;
+    for (section, field) in SENSITIVE_CONFIG_FIELDS {
+        let stored = config_value_mut(persisted, section, field)
+            .and_then(|value| value.as_str().map(str::to_owned));
+        let Some(stored) = stored else {
+            continue;
+        };
+        let Some(runtime_value) = config_value_mut(&mut runtime, section, field) else {
+            continue;
+        };
+
+        if stored == SECURE_CONFIG_VALUE {
+            match secure_setting_entry(section, field)?.get_password() {
+                Ok(secret) => *runtime_value = serde_json::Value::String(secret),
+                Err(keyring::Error::NoEntry) => {
+                    *config_value_mut(persisted, section, field).expect("field remains present") =
+                        serde_json::Value::String(String::new());
+                    *runtime_value = serde_json::Value::String(String::new());
+                    warnings.push(format!(
+                        "The secure credential {section}.{field} was unavailable and has been cleared."
+                    ));
+                    needs_rewrite = true;
+                }
+                Err(error) => {
+                    return Err(format!(
+                        "Failed to load credential from secure storage: {error}"
+                    ));
+                }
+            }
+        } else if stored.starts_with("enc:") {
+            *config_value_mut(persisted, section, field).expect("field remains present") =
+                serde_json::Value::String(String::new());
+            *runtime_value = serde_json::Value::String(String::new());
+            warnings.push(format!(
+                "A legacy session-encrypted credential ({section}.{field}) could not be recovered and was cleared."
+            ));
+            needs_rewrite = true;
+        } else if !stored.is_empty() {
+            secure_setting_entry(section, field)?
+                .set_password(&stored)
+                .map_err(|error| {
+                    format!("Failed to migrate credential to secure storage: {error}")
+                })?;
+            *config_value_mut(persisted, section, field).expect("field remains present") =
+                serde_json::Value::String(SECURE_CONFIG_VALUE.to_owned());
+            needs_rewrite = true;
+        }
+    }
+    Ok((runtime, warnings, needs_rewrite))
+}
+
+fn read_config_from_disk(data_dir: &Path) -> Result<Option<serde_json::Value>, String> {
+    let config_path = data_dir.join("config.json");
+    let bytes = match std::fs::read(&config_path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("Failed to read config: {error}")),
+    };
+    if bytes.len() > MAX_CONFIG_SIZE {
+        return Err(format!(
+            "Config size ({} bytes) exceeds limit ({} bytes)",
+            bytes.len(),
+            MAX_CONFIG_SIZE
+        ));
+    }
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|error| format!("Invalid JSON config: {error}"))?;
+    if !parsed.is_object() {
+        return Err("Config must be a JSON object".to_owned());
+    }
+    Ok(Some(parsed))
+}
+
 fn write_config_atomically(data_dir: &Path, settings: &str) -> Result<(), String> {
     std::fs::create_dir_all(data_dir).map_err(|e| format!("Failed to create app data dir: {e}"))?;
     let config_path = data_dir.join("config.json");
@@ -565,7 +811,6 @@ fn write_config_atomically(data_dir: &Path, settings: &str) -> Result<(), String
 
 #[tauri::command]
 fn save_config(app: tauri::AppHandle, settings: String) -> Result<(), String> {
-    const MAX_CONFIG_SIZE: usize = 1024 * 1024;
     if settings.len() > MAX_CONFIG_SIZE {
         return Err(format!(
             "Config size ({} bytes) exceeds limit ({} bytes)",
@@ -573,16 +818,71 @@ fn save_config(app: tauri::AppHandle, settings: String) -> Result<(), String> {
             MAX_CONFIG_SIZE
         ));
     }
-    let parsed: serde_json::Value =
-        serde_json::from_str(&settings).map_err(|e| format!("Invalid JSON config: {e}"))?;
+    let mut parsed: serde_json::Value =
+        serde_json::from_str(&settings).map_err(|error| format!("Invalid JSON config: {error}"))?;
     if !parsed.is_object() {
         return Err("Config must be a JSON object".to_owned());
     }
     let data_dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| format!("Failed to resolve app data dir: {e}"))?;
-    write_config_atomically(&data_dir, &settings)
+        .map_err(|error| format!("Failed to resolve app data dir: {error}"))?;
+    let _config_lock = CONFIG_IO_LOCK
+        .lock()
+        .map_err(|_| "Config storage lock is unavailable".to_owned())?;
+    let use_secure_storage = is_secure_settings_enabled(&parsed);
+    if use_secure_storage {
+        let _secure_lock = SECURE_SETTINGS_LOCK
+            .lock()
+            .map_err(|_| "Secure credential storage lock is unavailable".to_owned())?;
+        let mutations = protect_sensitive_config_fields(&mut parsed)?;
+        let serialized = serde_json::to_string(&parsed)
+            .map_err(|error| format!("Failed to serialize config: {error}"))?;
+        if let Err(error) = write_config_atomically(&data_dir, &serialized) {
+            rollback_secure_setting_mutations(&mutations);
+            return Err(error);
+        }
+    } else {
+        let serialized = serde_json::to_string(&parsed)
+            .map_err(|error| format!("Failed to serialize config: {error}"))?;
+        write_config_atomically(&data_dir, &serialized)?;
+    }
+    if !use_secure_storage {
+        // The user explicitly opted out of encryption; leave the plaintext config
+        // authoritative and remove stale OS-keystore copies without converting a
+        // successful config write into a false failure if deletion is unavailable.
+        clear_secure_config_fields();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn load_config(app: tauri::AppHandle) -> Result<LoadedConfig, String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Failed to resolve app data dir: {error}"))?;
+    let _config_lock = CONFIG_IO_LOCK
+        .lock()
+        .map_err(|_| "Config storage lock is unavailable".to_owned())?;
+    let Some(mut persisted) = read_config_from_disk(&data_dir)? else {
+        return Ok(LoadedConfig {
+            settings: None,
+            warnings: Vec::new(),
+        });
+    };
+    let (runtime, warnings, needs_rewrite) = hydrate_secure_config_fields(&mut persisted)?;
+    if needs_rewrite {
+        let serialized = serde_json::to_string(&persisted)
+            .map_err(|error| format!("Failed to serialize migrated config: {error}"))?;
+        write_config_atomically(&data_dir, &serialized)?;
+    }
+    let settings = serde_json::to_string(&runtime)
+        .map_err(|error| format!("Failed to serialize loaded config: {error}"))?;
+    Ok(LoadedConfig {
+        settings: Some(settings),
+        warnings,
+    })
 }
 
 /// Write a text file to a user-selected location (e.g. exported log files).
@@ -945,6 +1245,7 @@ pub fn run() {
             validate_source_address,
             detect_vpn_interface,
             save_config,
+            load_config,
             write_text_file,
             restart_daemon
         ])
@@ -1007,6 +1308,30 @@ mod port_selection_tests {
         );
         assert!(!data_dir.join("config.json.tmp").exists());
         std::fs::remove_dir_all(&data_dir).ok();
+    }
+
+    #[test]
+    fn legacy_session_encrypted_credentials_are_cleared_with_a_warning() {
+        let mut persisted = serde_json::json!({
+            "connection": {
+                "proxyUser": "",
+                "proxyPass": ""
+            },
+            "extra": {
+                "encryptAccessTokens": true,
+                "tgBotToken": "enc:legacy-session-ciphertext"
+            }
+        });
+
+        let (runtime, warnings, needs_rewrite) =
+            hydrate_secure_config_fields(&mut persisted).expect("migrate legacy config");
+
+        assert!(needs_rewrite);
+        assert_eq!(persisted["extra"]["tgBotToken"], "");
+        assert_eq!(runtime["extra"]["tgBotToken"], "");
+        assert!(warnings
+            .iter()
+            .any(|warning| warning.contains("legacy session-encrypted credential")));
     }
 
     #[test]
