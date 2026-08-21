@@ -14,6 +14,7 @@ use crate::daemon::curl::{
     create_curl_task as direct_create, delete_task, list_all_tasks, pause_task, redownload_task,
     resume_task, update_task_metadata,
 };
+use crate::daemon::direct::DirectUrl;
 use crate::daemon::engine::mirror::{MirrorManager, MirrorSource};
 use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
 use crate::daemon::engine::rules::RuleAction;
@@ -521,12 +522,7 @@ pub async fn handle_redownload_task(
 }
 
 fn supported_direct_url(url: &str) -> bool {
-    url.starts_with("http://")
-        || url.starts_with("https://")
-        || url.starts_with("ftp://")
-        || url.starts_with("ftps://")
-        || url.starts_with("sftp://")
-        || url.starts_with("scp://")
+    DirectUrl::parse(url).is_ok()
 }
 
 /// Synchronous fast-path: if we already have a specific filename and the URL
@@ -1064,7 +1060,7 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
 
 #[cfg(test)]
 mod tests {
-    use super::{has_recognizable_extension, task_event_fingerprint};
+    use super::{has_recognizable_extension, supported_direct_url, task_event_fingerprint};
     use crate::daemon::types::{Segment, Task};
 
     fn sample_task() -> Task {
@@ -1102,6 +1098,19 @@ mod tests {
             engine_status: Some("starting".to_owned()),
             error_message: None,
         }
+    }
+
+    #[test]
+    fn supported_direct_urls_follow_libcurl_scheme_normalization() {
+        for url in [
+            "HTTPS://example.test/archive.zip",
+            "hTtP://example.test/archive.zip",
+            "FtPs://example.test/archive.zip",
+        ] {
+            assert!(supported_direct_url(url), "expected supported URL: {url}");
+        }
+        assert!(!supported_direct_url("file:///tmp/archive.zip"));
+        assert!(!supported_direct_url("magnet:?xt=urn:btih:example"));
     }
 
     #[test]
