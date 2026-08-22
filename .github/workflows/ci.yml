@@ -321,7 +321,11 @@ jobs:
     name: Playwright E2E tests
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
-    timeout-minutes: 20
+    # Cold release runners compile the daemon before a serial, stateful suite of
+    # 563 browser tests. The former 20-minute job limit cancelled that suite
+    # mid-run even after the daemon was healthy, so retain the gate with a
+    # bounded 45-minute budget rather than publishing from an incomplete run.
+    timeout-minutes: 45
     permissions:
       contents: read
 
