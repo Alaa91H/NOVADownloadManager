@@ -220,16 +220,16 @@ test.describe('NOVA Extension popup artifact smoke', () => {
     await closeServer(server);
   });
 
-  test('loads the built popup and exposes connection panel actions', async ({ page }) => {
+  test('loads the built popup into its compact idle state when no media is captured', async ({ page }) => {
     await page.addInitScript(installExtensionApiMock);
     await page.goto(`${baseUrl}/popup.html`);
 
-    await expect(page.getByRole('heading', { name: /NOVA/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /NOVA/i })).toBeVisible();
-    await expect(page.getByText(/Transport/i)).toBeVisible();
-    await expect(page.getByText(/Protocol/i)).toBeVisible();
-    await expect(page.getByText(/Outbox/i)).toBeVisible();
-    await expect(page.getByRole('button', { name: /Scan page/i })).toHaveCount(0);
+    // The production popup intentionally stays unobtrusive until it has captured
+    // downloadable media. The mocked runtime returns no candidates, so the
+    // rendered artifact must expose the compact empty shell rather than legacy
+    // connection diagnostics or capture actions.
+    await expect(page.locator('main.nova-popup-compact-empty')).toHaveCount(1);
+    await expect(page.getByRole('button')).toHaveCount(0);
   });
 });
 
@@ -253,9 +253,8 @@ test.describe('NOVA Extension real browser profile smoke', () => {
 
       const popup = await context.newPage();
       await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-      await expect(popup.getByRole('heading', { name: /NOVA/i })).toBeVisible();
-      await expect(popup.getByText(/Transport/i)).toBeVisible();
-      await expect(popup.getByText(/Outbox/i)).toHaveCount(0);
+      await expect(popup.locator('main.nova-popup-compact-empty')).toHaveCount(1);
+      await expect(popup.getByRole('button')).toHaveCount(0);
     } finally {
       await closeContext(context);
       removeUserDataDir(userDataDir);

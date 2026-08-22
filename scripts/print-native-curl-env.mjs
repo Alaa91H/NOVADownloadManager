@@ -19,6 +19,7 @@ const env = {
   NOVA_LIBCURL_FEATURE_PROFILE: manifest.featureProfile || 'maximum-stable',
   NOVA_LIBCURL_LINK_MODE: 'static-ci-built-from-curl-curl',
   PKG_CONFIG_PATH: manifest.pkgConfigPath,
+  PATH: `${join(manifest.prefix, 'bin')}:$PATH`,
   PKG_CONFIG_ALL_STATIC: '1',
   PKG_CONFIG_ALLOW_CROSS: '1',
 };

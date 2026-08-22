@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Nova Download Manager",
-  "version": "2.4.21-alpha",
+  "version": "2.4.22-alpha",
   "identifier": "com.nova.downloadmanager",
   "build": {
     "frontendDist": "../dist",

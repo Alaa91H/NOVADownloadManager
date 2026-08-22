@@ -1,6 +1,6 @@
 {
   "name": "nova-browser-extension",
-  "version": "2.4.21-alpha",
+  "version": "2.4.22-alpha",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.6.0",
@@ -48,7 +48,7 @@
     "release:metadata": "tsx tools/release-metadata.ts && pnpm release:sbom",
     "release:check": "pnpm release:metadata && pnpm validate:package && pnpm guard:production",
     "release:checks": "tsx tools/release-checks.ts --package-only",
-    "ci": "pnpm verify:offline && pnpm typecheck && pnpm lint && pnpm test && pnpm test:py && pnpm build:zip && pnpm validate:manifests && pnpm test:e2e && pnpm verify:release:reuse-build",
+    "ci": "pnpm verify:offline && pnpm typecheck && pnpm lint && pnpm test && pnpm test:py && pnpm build:zip && pnpm validate:manifests && pnpm test:e2e && pnpm build:store && pnpm verify:release:reuse-build",
     "ci:quick": "pnpm typecheck && pnpm lint && pnpm test",
     "ci:package": "pnpm build:zip && pnpm verify:highest",
     "fake-nova": "tsx fake-nova-daemon/server.ts",

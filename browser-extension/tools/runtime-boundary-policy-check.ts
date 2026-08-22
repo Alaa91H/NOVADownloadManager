@@ -24,10 +24,25 @@ assert(scanPolicy.includes('TRUSTED_EXTENSION_UI_PATHS'), 'Scan policy must decl
 assert(scanPolicy.includes("'/popup.html'"), 'Scan policy must pin exact extension UI pages.');
 assert(!scanPolicy.includes('pathname.includes(surface)'), 'Trusted UI sender matching must not be substring-based.');
 
+const loopbackPorts = Array.from({ length: 10 }, (_, offset) => 3199 + offset);
+const loopbackOrigins = ['http', 'ws'].flatMap((scheme) =>
+  ['127.0.0.1', 'localhost'].flatMap((host) =>
+    loopbackPorts.map((port) => `${scheme}://${host}:${port}`),
+  ),
+);
+
 for (const source of [wxt, manifest]) {
   assert(!source.includes('127.0.0.1:*'), 'Loopback CSP must not allow wildcard ports.');
   assert(!source.includes('localhost:*'), 'Loopback CSP must not allow wildcard localhost ports.');
-  assert(source.includes('http://127.0.0.1:3199') && source.includes('ws://127.0.0.1:3199'), 'Loopback CSP must pin NOVA HTTP and WebSocket port 3199.');
+}
+assert(
+  wxt.includes('const NOVA_LOOPBACK_PORTS = Array.from({ length: 10 }, (_, offset) => 3199 + offset);') &&
+    wxt.includes("const NOVA_LOOPBACK_CONNECT_SOURCES = ['http', 'ws']") &&
+    wxt.includes("['127.0.0.1', 'localhost']"),
+  'WXT CSP must derive explicit HTTP and WebSocket origins for the NOVA failover range 3199-3208.',
+);
+for (const origin of loopbackOrigins) {
+  assert(manifest.includes(origin), `Source-manifest CSP must allow the explicit NOVA loopback origin ${origin}.`);
 }
 
 assert(!contentScanner.includes('drmIndicators:'), 'Content scanner must not collect DRM indicators by default.');

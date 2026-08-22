@@ -30,8 +30,14 @@ assert(/optional_host_permissions:\s*store\s*\?\s*\['<all_urls>'\]/s.test(wxt), 
 assert(manifest.manifest_version === 3, 'src/manifest.json must remain MV3-compatible for NOVA-extension layout compatibility.');
 const csp = typeof manifest.content_security_policy === 'string' ? manifest.content_security_policy : manifest.content_security_policy?.extension_pages ?? '';
 assert(!/unsafe-inline|unsafe-eval/i.test(csp), 'src/manifest.json CSP must not contain unsafe-inline or unsafe-eval.');
-assert(!/127\.0\.0\.1:\*/.test(csp) && !/localhost:\*/.test(csp), 'Loopback CSP must pin NOVA port 3199 and must not use wildcard ports.');
-assert(csp.includes('http://127.0.0.1:3199') && csp.includes('ws://127.0.0.1:3199'), 'CSP must allow only the official NOVA loopback port for HTTP and WebSocket.');
+assert(!/127\.0\.0\.1:\*/.test(csp) && !/localhost:\*/.test(csp), 'Loopback CSP must enumerate NOVA failover ports and must not use wildcard ports.');
+for (const port of Array.from({ length: 10 }, (_, offset) => 3199 + offset)) {
+  for (const scheme of ['http', 'ws']) {
+    for (const host of ['127.0.0.1', 'localhost']) {
+      assert(csp.includes(`${scheme}://${host}:${port}`), `CSP must allow the explicit NOVA ${scheme.toUpperCase()} failover origin ${host}:${port}.`);
+    }
+  }
+}
 assert((manifest.permissions ?? []).includes('activeTab'), 'src/manifest.json must keep activeTab for user-activated scans.');
 assert((manifest.host_permissions ?? []).includes('http://127.0.0.1/*'), 'src/manifest.json must declare loopback bridge host permission.');
 

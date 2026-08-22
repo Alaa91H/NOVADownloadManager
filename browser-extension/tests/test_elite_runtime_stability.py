@@ -50,15 +50,17 @@ def test_all_user_triggered_scan_paths_share_rate_limit() -> None:
     assert 'assertScanRateLimit(tabId)' in commands
 
 
-def test_csp_pins_nova_loopback_port_and_guard_rejects_wildcards() -> None:
+def test_csp_enumerates_nova_loopback_failover_range_and_rejects_wildcards() -> None:
     manifest = read('src/manifest.json')
     wxt = read('wxt.config.ts')
     guard = read('tools/manifest-source-policy-check.ts')
 
-    assert 'http://127.0.0.1:3199' in manifest
-    assert 'ws://127.0.0.1:3199' in manifest
+    for port in range(3199, 3209):
+        assert f'http://127.0.0.1:{port}' in manifest
+        assert f'ws://127.0.0.1:{port}' in manifest
     assert '127.0.0.1:*' not in manifest
     assert '127.0.0.1:*' not in wxt
+    assert 'NOVA_LOOPBACK_CONNECT_SOURCES' in wxt
     assert 'must not use wildcard ports' in guard
 
 

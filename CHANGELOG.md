@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.22-alpha] - 2026-08-22
+
+### Fixed
+
+- **Native libcurl is now selected consistently by Rust/Tauri builds.** The
+  generated build environment exposes the freshly built `curl-config`, so
+  `curl-sys` retains the audited native prefix instead of falling back to a
+  vendored library with a different capability profile.
+- **Linux PIE linking is reliable.** The static native curl archive is built
+  with position-independent code, allowing the daemon and Tauri application to
+  link successfully as modern PIE executables.
+- **AppImage release verification is complete.** The Linux packaging path has
+  been verified end to end for DEB, RPM, and AppImage output using the
+  repository's declared `patchelf` build dependency.
+- **Extension release checks inspect the correct artifact.** The extension CI
+  now produces the Chromium store build before evaluating store-readiness,
+  preventing ordinary development artifacts from being mistaken for a
+  store-ready package.
+
+### Security
+
+- **Browser extension CSP no longer admits arbitrary loopback ports.** The
+  policy enumerates only the transport's documented failover origins on
+  `127.0.0.1` and `localhost` for ports `3199` through `3208`, for both HTTP
+  and WebSocket connections. Source-policy and runtime checks now prevent a
+  wildcard regression.
+
+### Quality
+
+- Extension popup end-to-end coverage now asserts the intentional idle state
+  when no media context is available, while retaining a measurable popup shell
+  and matching the release-readiness contract.
+
+## [2.4.21-alpha]
+
 ### Added
 
 - **Managed external-tool installation scopes.** Settings now offer the
@@ -90,5 +125,7 @@ Initial development baseline:
   lifecycle and Native Messaging registration.
 - Runtime capability gating across desktop UI, extension, and daemon.
 
-[Unreleased]: https://github.com/Alaa91H/NovaDownloadManager/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/Alaa91H/NovaDownloadManager/releases/tag/v0.1.0
+[Unreleased]: https://github.com/Alaa91H/NOVADownloadManager/compare/v2.4.22-alpha...HEAD
+[2.4.22-alpha]: https://github.com/Alaa91H/NOVADownloadManager/compare/v2.4.21-alpha...v2.4.22-alpha
+[2.4.21-alpha]: https://github.com/Alaa91H/NOVADownloadManager/compare/v2.4.20-alpha...v2.4.21-alpha
+[0.1.0]: https://github.com/Alaa91H/NOVADownloadManager/releases/tag/v0.1.0

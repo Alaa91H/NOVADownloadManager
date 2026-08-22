@@ -53,6 +53,14 @@ const target = process.env.WXT_TARGET ?? 'chrome';
 
 const corePermissions = ['storage', 'contextMenus', 'nativeMessaging', 'alarms', 'notifications', 'activeTab', 'declarativeNetRequest'];
 const integrationPermissions = ['downloads', 'webRequest', 'scripting', 'tabs', 'declarativeNetRequestWithHostAccess'];
+const NOVA_LOOPBACK_PORTS = Array.from({ length: 10 }, (_, offset) => 3199 + offset);
+const NOVA_LOOPBACK_CONNECT_SOURCES = ['http', 'ws']
+  .flatMap((scheme) =>
+    ['127.0.0.1', 'localhost'].flatMap((host) =>
+      NOVA_LOOPBACK_PORTS.map((port) => `${scheme}://${host}:${port}`),
+    ),
+  )
+  .join(' ');
 
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
@@ -104,12 +112,11 @@ export default defineConfig({
       host_permissions: store ? ['http://127.0.0.1/*'] : ['<all_urls>', 'http://127.0.0.1/*'],
       optional_host_permissions: store ? ['<all_urls>'] : undefined,
       content_security_policy: {
-        // Loopback-only connect-src. The desktop daemon binds 127.0.0.1:3199
-        // but may fall back to higher ports (3199-3229) when occupied, and
-        // the extension scans 3199-3208 — restricting connect-src to a single
-        // port permanently broke the bridge whenever the daemon moved ports.
+        // Loopback-only connect-src. The transport probes the explicit
+        // failover range 3199-3208, so enumerate only those origins instead
+        // of widening the extension's CSP to arbitrary local services.
         extension_pages:
-          "default-src 'self'; style-src 'self'; font-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; frame-src 'none'; worker-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*",
+          `default-src 'self'; style-src 'self'; font-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; frame-src 'none'; worker-src 'self'; connect-src 'self' ${NOVA_LOOPBACK_CONNECT_SOURCES}`,
       },
       browser_specific_settings: isFirefox
         ? {

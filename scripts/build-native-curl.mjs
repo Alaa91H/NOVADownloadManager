@@ -220,11 +220,22 @@ function writeEnvFiles(manifest) {
     'PKG_CONFIG_ALL_STATIC=1',
     'PKG_CONFIG_ALLOW_CROSS=1',
   ];
+  const curlBin = join(manifest.prefix, 'bin');
+  // curl-sys probes curl-config after finding libcurl via pkg-config when HTTP/2
+  // is requested. Expose the freshly built tool so Cargo does not silently
+  // discard the native prefix and compile a vendored libcurl with different
+  // capability flags.
+  if (process.platform !== 'win32') {
+    envLines.push(`PATH=${JSON.stringify(curlBin)}:$PATH`);
+  }
   writeFileSync(join(BIN_DIR, 'native-curl.env'), `${envLines.join('\n')}\n`);
   const psLines = envLines.map((line) => {
     const [key, ...rest] = line.split('=');
     return `$env:${key} = '${rest.join('=').replaceAll("'", "''")}'`;
   });
+  if (process.platform === 'win32') {
+    psLines.push(`$env:PATH = '${curlBin.replaceAll("'", "''")}' + [System.IO.Path]::PathSeparator + $env:PATH`);
+  }
   writeFileSync(join(BIN_DIR, 'native-curl.ps1'), `${psLines.join('\n')}\n`);
 }
 
@@ -325,6 +336,9 @@ async function main() {
     '-B', buildDir,
     `-DCMAKE_INSTALL_PREFIX=${PREFIX_DIR}`,
     '-DCMAKE_BUILD_TYPE=Release',
+    // Rust/Tauri executables are PIE on modern Linux distributions. Keep the
+    // static archive PIC so curl-sys can link the daemon, not only test binaries.
+    '-DCMAKE_POSITION_INDEPENDENT_CODE=ON',
     '-DBUILD_SHARED_LIBS=OFF',
     // Build the curl tool too: running `curl --version` is the authoritative
     // way to record the built library's protocols/features in the manifest,
