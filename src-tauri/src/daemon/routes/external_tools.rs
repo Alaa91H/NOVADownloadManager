@@ -49,14 +49,31 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
         .route("/api/external-tools/health", get(handle_health_all))
 }
 
-async fn handle_list_tools(State(state): State<SharedState>) -> Json<serde_json::Value> {
-    let manager = lock_or_err!(state.external_tools);
-    let tool_states = manager.all_tool_states();
-    drop(manager);
+fn external_tool_worker_error(
+    operation: &str,
+    error: tokio::task::JoinError,
+) -> (StatusCode, Json<serde_json::Value>) {
+    log::error!("External-tool {operation} worker failed: {error}");
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({"error": "External-tool worker failed"})),
+    )
+}
 
-    Json(serde_json::json!({
+async fn handle_list_tools(
+    State(state): State<SharedState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let manager = state.external_tools.clone();
+    let tool_states = tokio::task::spawn_blocking(move || {
+        let manager = lock_or_err!(manager);
+        manager.all_tool_states()
+    })
+    .await
+    .map_err(|error| external_tool_worker_error("list", error))?;
+
+    Ok(Json(serde_json::json!({
         "tools": tool_states,
-    }))
+    })))
 }
 
 async fn handle_get_tool(
@@ -64,9 +81,13 @@ async fn handle_get_tool(
     Path(tool_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let id = parse_tool_id(&tool_id)?;
-    let manager = lock_or_err!(state.external_tools);
-    let tool_state = manager.tool_state(id);
-    drop(manager);
+    let manager = state.external_tools.clone();
+    let tool_state = tokio::task::spawn_blocking(move || {
+        let manager = lock_or_err!(manager);
+        manager.tool_state(id)
+    })
+    .await
+    .map_err(|error| external_tool_worker_error("details", error))?;
 
     Ok(Json(serde_json::json!(tool_state)))
 }
@@ -76,9 +97,13 @@ async fn handle_discover(
     Path(tool_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let id = parse_tool_id(&tool_id)?;
-    let manager = lock_or_err!(state.external_tools);
-    let installation = manager.discover(id);
-    drop(manager);
+    let manager = state.external_tools.clone();
+    let installation = tokio::task::spawn_blocking(move || {
+        let manager = lock_or_err!(manager);
+        manager.discover(id)
+    })
+    .await
+    .map_err(|error| external_tool_worker_error("discovery", error))?;
 
     Ok(Json(serde_json::json!({
         "ok": true,
@@ -94,9 +119,13 @@ async fn handle_health_check(
     Path(tool_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let id = parse_tool_id(&tool_id)?;
-    let manager = lock_or_err!(state.external_tools);
-    let installation = manager.check_health(id);
-    drop(manager);
+    let manager = state.external_tools.clone();
+    let installation = tokio::task::spawn_blocking(move || {
+        let manager = lock_or_err!(manager);
+        manager.check_health(id)
+    })
+    .await
+    .map_err(|error| external_tool_worker_error("health check", error))?;
 
     Ok(Json(serde_json::json!({
         "ok": installation.health_ok,
@@ -110,9 +139,13 @@ async fn handle_check_updates(
     Path(tool_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let id = parse_tool_id(&tool_id)?;
-    let manager = lock_or_err!(state.external_tools);
-    let update_info = manager.check_for_updates(id);
-    drop(manager);
+    let manager = state.external_tools.clone();
+    let update_info = tokio::task::spawn_blocking(move || {
+        let manager = lock_or_err!(manager);
+        manager.check_for_updates(id)
+    })
+    .await
+    .map_err(|error| external_tool_worker_error("update check", error))?;
 
     Ok(Json(serde_json::json!({
         "available": update_info.available,
@@ -245,24 +278,26 @@ async fn handle_set_path(
         }
     }
 
-    let manager = lock_or_err!(state.external_tools);
-    match manager.set_custom_path(id, path) {
-        Ok(installation) => {
-            drop(manager);
-            Ok(Json(serde_json::json!({
-                "ok": true,
-                "status": installation.status.display_text(),
-                "version": installation.version.as_ref().map(std::string::ToString::to_string),
-                "path": installation.path.as_ref().map(|p| p.display().to_string()),
-            })))
-        }
-        Err(e) => {
-            drop(manager);
-            Ok(Json(serde_json::json!({
-                "ok": false,
-                "error": e,
-            })))
-        }
+    let manager = state.external_tools.clone();
+    let path = path.to_owned();
+    let set_path_result = tokio::task::spawn_blocking(move || {
+        let manager = lock_or_err!(manager);
+        manager.set_custom_path(id, &path)
+    })
+    .await
+    .map_err(|error| external_tool_worker_error("set path", error))?;
+
+    match set_path_result {
+        Ok(installation) => Ok(Json(serde_json::json!({
+            "ok": true,
+            "status": installation.status.display_text(),
+            "version": installation.version.as_ref().map(std::string::ToString::to_string),
+            "path": installation.path.as_ref().map(|p| p.display().to_string()),
+        }))),
+        Err(error) => Ok(Json(serde_json::json!({
+            "ok": false,
+            "error": error,
+        }))),
     }
 }
 
@@ -303,23 +338,33 @@ async fn handle_uninstall(
 async fn handle_check_capability(
     State(state): State<SharedState>,
     Path(capability_id): Path<String>,
-) -> Json<serde_json::Value> {
-    let manager = lock_or_err!(state.external_tools);
-    let availability = manager.resolve_capability(&capability_id);
-    drop(manager);
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let manager = state.external_tools.clone();
+    let availability = tokio::task::spawn_blocking(move || {
+        let manager = lock_or_err!(manager);
+        manager.resolve_capability(&capability_id)
+    })
+    .await
+    .map_err(|error| external_tool_worker_error("capability check", error))?;
 
-    Json(serde_json::json!({
+    Ok(Json(serde_json::json!({
         "capabilityId": availability.capability_id,
         "available": availability.available,
         "toolId": availability.tool_id.as_str(),
         "requiresMessage": availability.requires_message,
-    }))
+    })))
 }
 
-async fn handle_health_all(State(state): State<SharedState>) -> Json<serde_json::Value> {
-    let manager = lock_or_err!(state.external_tools);
-    let installations = manager.discover_all();
-    drop(manager);
+async fn handle_health_all(
+    State(state): State<SharedState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let manager = state.external_tools.clone();
+    let installations = tokio::task::spawn_blocking(move || {
+        let manager = lock_or_err!(manager);
+        manager.discover_all()
+    })
+    .await
+    .map_err(|error| external_tool_worker_error("health summary", error))?;
 
     let results: Vec<serde_json::Value> = installations
         .iter()
@@ -333,9 +378,9 @@ async fn handle_health_all(State(state): State<SharedState>) -> Json<serde_json:
         })
         .collect();
 
-    Json(serde_json::json!({
+    Ok(Json(serde_json::json!({
         "tools": results,
-    }))
+    })))
 }
 
 fn parse_tool_id(id: &str) -> Result<ToolId, (StatusCode, Json<serde_json::Value>)> {

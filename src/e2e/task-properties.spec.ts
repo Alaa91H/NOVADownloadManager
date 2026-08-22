@@ -7,6 +7,38 @@ const goto = async (page: Page) => {
 
 const propertiesDialog = (page: Page) => page.getByRole('dialog', { name: /properties|الخصائص/i });
 
+const SEEDED_TASK = {
+  id: 'task-properties-e2e',
+  name: 'properties-fixture.zip',
+  url: 'https://example.com/properties-fixture.zip',
+  fileType: 'compressed',
+  status: 'paused',
+  sizeBytes: 1024,
+  downloadedBytes: 0,
+  speedBytesPerSec: 0,
+  timeLeftSeconds: 0,
+  elapsedSeconds: 0,
+  dateAdded: '2024-01-01T00:00:00.000Z',
+  category: 'other',
+  queueId: 'main',
+  connections: 1,
+  resumable: true,
+  savePath: '/tmp/properties-fixture.zip',
+  description: '',
+  segments: [],
+};
+
+const seedTask = async (page: Page) => {
+  await page.evaluate(async (task) => {
+    const storeUrl = '/src/store/taskStore.ts';
+    const mod = (await import(storeUrl)) as {
+      taskStore: { getState: () => { setTasks: (tasks: unknown[]) => void } };
+    };
+    mod.taskStore.getState().setTasks([task]);
+  }, SEEDED_TASK);
+  await expect(page.locator('tr.desktop-table-row').first()).toBeVisible();
+};
+
 const openProperties = async (page: Page) => {
   const firstRow = page.locator('tr.desktop-table-row').first();
   await expect(firstRow).toBeVisible();
@@ -20,6 +52,7 @@ const openProperties = async (page: Page) => {
 test.describe('Task Properties', () => {
   test.beforeEach(async ({ page }) => {
     await goto(page);
+    await seedTask(page);
   });
 
   test('opens from a task context menu', async ({ page }) => {

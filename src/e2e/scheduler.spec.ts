@@ -21,9 +21,7 @@ test.describe('Scheduler — panel structure', () => {
   });
 
   test('queue list shows at least one queue', async ({ page }) => {
-    const queues = page.locator('[class*="sortable"], [draggable="true"]');
-    const count = await queues.count();
-    expect(count).toBeGreaterThanOrEqual(1);
+    await expect(page.getByTestId('download-queue').first()).toBeVisible();
   });
 
   test('main queue exists', async ({ page }) => {

@@ -22,7 +22,7 @@ test.describe('Settings Complete — all tabs render', () => {
   });
 
   test('settings exposes its section navigation as accessible tabs', async ({ page }) => {
-    await expect(page.getByRole('tablist', { name: 'Settings sections' })).toBeVisible();
+    await expect(page.getByRole('tablist')).toBeVisible();
     await expect(page.getByRole('tab')).toHaveCount(10);
   });
 

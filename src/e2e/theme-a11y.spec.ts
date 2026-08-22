@@ -5,6 +5,38 @@ const goto = async (page: import('@playwright/test').Page) => {
   await page.waitForLoadState('networkidle');
 };
 
+const seedContextMenuTask = async (page: import('@playwright/test').Page) => {
+  await page.evaluate(async () => {
+    const storeUrl = '/src/store/taskStore.ts';
+    const mod = (await import(storeUrl)) as {
+      taskStore: { getState: () => { setTasks: (tasks: unknown[]) => void } };
+    };
+    mod.taskStore.getState().setTasks([
+      {
+        id: 'context-menu-a11y-e2e',
+        name: 'context-menu-fixture.zip',
+        url: 'https://example.com/context-menu-fixture.zip',
+        fileType: 'compressed',
+        status: 'paused',
+        sizeBytes: 1024,
+        downloadedBytes: 0,
+        speedBytesPerSec: 0,
+        timeLeftSeconds: 0,
+        elapsedSeconds: 0,
+        dateAdded: '2024-01-01T00:00:00.000Z',
+        category: 'other',
+        queueId: 'main',
+        connections: 1,
+        resumable: true,
+        savePath: '/tmp/context-menu-fixture.zip',
+        description: '',
+        segments: [],
+      },
+    ]);
+  });
+  await expect(page.locator('tr.desktop-table-row').first()).toBeVisible();
+};
+
 test.describe('Theme — design tokens', () => {
   test('defines the core color tokens on the document root', async ({ page }) => {
     await goto(page);
@@ -90,6 +122,7 @@ test.describe('Accessibility — keyboard and ARIA contracts', () => {
 
   test('uses menu and menuitem roles for a task context menu', async ({ page }) => {
     await goto(page);
+    await seedContextMenuTask(page);
     const firstRow = page.locator('tr.desktop-table-row').first();
     await expect(firstRow).toBeVisible();
     await firstRow.click({ button: 'right' });

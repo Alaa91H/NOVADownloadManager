@@ -56,6 +56,7 @@ const SortableQueueItem: React.FC<SortableQueueItemProps> = ({
     <div
       ref={setNodeRef}
       style={style}
+      data-testid="download-queue"
       className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-semibold border transition-all cursor-pointer select-none ${
         isDragging
           ? 'opacity-40 border-dashed border-[var(--accent-primary)] bg-[var(--bg-hover)] z-50'

@@ -1083,9 +1083,27 @@ fn kill_old_daemon_range(our_pid: u32, preferred: u16) {
     }
 }
 
+fn is_integration_argument(argument: &str) -> bool {
+    argument == "--integration"
+}
+
 #[must_use]
 pub fn is_integration_mode() -> bool {
-    std::env::args().any(|arg| arg == "--integration" || arg == "--background")
+    std::env::args().any(|argument| is_integration_argument(&argument))
+}
+
+fn default_integration_data_dir() -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "nova-download-manager-integration-{}",
+        std::process::id()
+    ))
+}
+
+fn integration_data_dir() -> PathBuf {
+    std::env::var_os("NOVA_INTEGRATION_DATA_DIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(default_integration_data_dir)
 }
 
 pub fn run_integration_mode() {
@@ -1104,21 +1122,24 @@ pub fn run_integration_mode() {
         .display()
         .to_string();
 
-    let data_dir = {
-        let home = std::env::var("APPDATA")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .or_else(|_| std::env::var("HOME"))
-            .unwrap_or_else(|_| ".".to_owned());
-        format!("{home}/nova-download-manager")
-    };
+    // Integration must never reuse a real user's persistent downloads state.
+    // Callers can provide a dedicated temporary directory; otherwise scope one
+    // to this process below the OS temporary directory.
+    let data_dir = integration_data_dir();
 
-    log::info!("Integration mode: starting daemon on port {port} (no GUI)");
-    daemon::start_daemon(resource_dir, data_dir, port);
+    log::info!(
+        "Integration mode: starting isolated daemon on port {port} with data at {} (no GUI)",
+        data_dir.display()
+    );
+    daemon::start_daemon(resource_dir, data_dir.display().to_string(), port);
 
-    // Keep the process alive
-    loop {
-        std::thread::sleep(std::time::Duration::from_secs(60));
+    // Keep the test host alive only while its daemon thread is running. A
+    // graceful SIGTERM stops the server, removes its port file, then lets this
+    // process exit instead of leaving a background integration process behind.
+    while daemon::is_running() {
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
+    log::info!("Integration daemon stopped; exiting host process.");
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1256,6 +1277,23 @@ pub fn run() {
 #[cfg(test)]
 mod port_selection_tests {
     use super::*;
+
+    #[test]
+    fn integration_mode_requires_the_explicit_test_flag() {
+        assert!(is_integration_argument("--integration"));
+        assert!(!is_integration_argument("--background"));
+        assert!(!is_integration_argument("--integration=true"));
+    }
+
+    #[test]
+    fn default_integration_data_dir_is_temp_scoped_per_process() {
+        let data_dir = default_integration_data_dir();
+        assert!(data_dir.starts_with(std::env::temp_dir()));
+        assert_eq!(
+            data_dir.file_name().and_then(|name| name.to_str()),
+            Some(format!("nova-download-manager-integration-{}", std::process::id()).as_str())
+        );
+    }
 
     #[test]
     fn occupied_preferred_port_selects_a_different_loopback_port() {

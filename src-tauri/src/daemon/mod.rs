@@ -69,6 +69,13 @@ fn is_allowed_cors_origin(origin: &axum::http::HeaderValue) -> bool {
 /// External shutdown signal, set by the host process (Tauri) to trigger
 /// graceful daemon shutdown via the `graceful_shutdown` future.
 static SHUTDOWN_TX: std::sync::Mutex<Option<oneshot::Sender<()>>> = std::sync::Mutex::new(None);
+/// Whether the daemon thread is alive. The integration host uses this to exit
+/// after a graceful signal-driven shutdown rather than lingering indefinitely.
+static DAEMON_RUNNING: AtomicBool = AtomicBool::new(false);
+
+pub fn is_running() -> bool {
+    DAEMON_RUNNING.load(std::sync::atomic::Ordering::Acquire)
+}
 
 /// Request the running daemon to shut down gracefully. Safe from any thread.
 pub fn signal_shutdown() {
@@ -318,9 +325,37 @@ fn verify_authenticode_signature(path: &std::path::Path) -> bool {
     }
 }
 
+async fn wait_for_daemon_shutdown(shutdown_rx: oneshot::Receiver<()>) {
+    #[cfg(unix)]
+    {
+        let mut sigterm =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = async {
+                if let Some(signal) = sigterm.as_mut() {
+                    signal.recv().await;
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            } => {},
+            _ = shutdown_rx => {},
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = shutdown_rx => {},
+        }
+    }
+}
+
 pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
     // Initialise SSL for the curl engine (bundled CA cert)
     crate::daemon::curl::init_download_ssl();
+    DAEMON_RUNNING.store(true, std::sync::atomic::Ordering::Release);
     std::thread::spawn(move || {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let rt = match tokio::runtime::Runtime::new() {
@@ -651,11 +686,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 *SHUTDOWN_TX.lock().unwrap() = Some(shutdown_tx);
                 let shutdown_state = state.clone();
                 let shutdown_signal = async move {
-                    let ctrl_c = tokio::signal::ctrl_c();
-                    tokio::select! {
-                        _ = ctrl_c => {},
-                        _ = shutdown_rx => {},
-                    }
+                    wait_for_daemon_shutdown(shutdown_rx).await;
                     log::info!("Shutdown signal received; pausing active downloads...");
                     // Lock in documented order: media_jobs, curl_jobs, task_snapshot
                     {
@@ -732,6 +763,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
             };
             log::error!("Daemon thread panicked: {msg}");
         }
+        DAEMON_RUNNING.store(false, std::sync::atomic::Ordering::Release);
     });
 }
 
