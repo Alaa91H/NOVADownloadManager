@@ -5,16 +5,11 @@ const goto = async (page: import('@playwright/test').Page) => {
   await page.waitForLoadState('networkidle');
 };
 
-const dispatchFileDragEvent = async (
-  page: import('@playwright/test').Page,
-  type: 'dragenter' | 'dragleave',
-) => {
+const dispatchFileDragEvent = async (page: import('@playwright/test').Page, type: 'dragenter' | 'dragleave') => {
   await page.evaluate((eventType) => {
     const transfer = new DataTransfer();
     transfer.items.add(new File(['nova'], 'drop-test.txt', { type: 'text/plain' }));
-    document.body.dispatchEvent(
-      new DragEvent(eventType, { bubbles: true, cancelable: true, dataTransfer: transfer }),
-    );
+    document.body.dispatchEvent(new DragEvent(eventType, { bubbles: true, cancelable: true, dataTransfer: transfer }));
   }, type);
 };
 

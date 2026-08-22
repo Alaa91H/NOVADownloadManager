@@ -6,10 +6,7 @@ const goto = async (page: import('@playwright/test').Page) => {
 };
 
 const speedLimiter = (page: import('@playwright/test').Page) =>
-  page
-    .getByTestId('status-bar')
-    .locator('button[title*="speed" i], button[title*="سرعة" i]')
-    .first();
+  page.getByTestId('status-bar').locator('button[title*="speed" i], button[title*="سرعة" i]').first();
 
 test.describe('Status Bar — live download summary', () => {
   test.beforeEach(async ({ page }) => {
@@ -29,7 +26,6 @@ test.describe('Status Bar — live download summary', () => {
     await daemonButton.click();
     await expect(page.locator('[role="status"]')).toContainText(/service|daemon|connected|خدمة/i);
   });
-
 });
 
 test.describe('Status Bar — speed limiter', () => {

@@ -92,7 +92,11 @@ test.describe('UI Responsive — drag and design-system contracts', () => {
   test('defines core CSS variables on the root element', async ({ page }) => {
     const values = await page.evaluate(() => {
       const style = window.getComputedStyle(document.documentElement);
-      return [style.getPropertyValue('--bg-app'), style.getPropertyValue('--accent-primary'), style.getPropertyValue('--text-primary')];
+      return [
+        style.getPropertyValue('--bg-app'),
+        style.getPropertyValue('--accent-primary'),
+        style.getPropertyValue('--text-primary'),
+      ];
     });
     values.forEach((value) => {
       expect(value.trim()).toBeTruthy();
