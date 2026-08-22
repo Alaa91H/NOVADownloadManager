@@ -38,8 +38,13 @@ export function assertNovaLoopbackOrigin(url: string | URL, expectedProtocol: 'h
   if (!ALLOWED_LOOPBACK_HOSTS.has(parsed.hostname)) {
     invalidLoopback('NOVA loopback URL must target localhost only.', { hostname: parsed.hostname });
   }
-  if (!isNovaPort(parsed.port || '3199')) {
-    invalidLoopback('NOVA loopback URL must use a valid NOVA daemon port (3199-3208).', { port: parsed.port });
+  // A missing port on HTTP/WS resolves to the protocol default (80/443), not
+  // the NOVA daemon port. Require an explicit port so the extension cannot
+  // accidentally send requests to an unrelated local service.
+  if (!parsed.port || !isNovaPort(parsed.port)) {
+    invalidLoopback('NOVA loopback URL must use an explicit valid NOVA daemon port (3199-3208).', {
+      port: parsed.port,
+    });
   }
   if (parsed.username || parsed.password) {
     invalidLoopback('NOVA loopback URL must not include credentials.');

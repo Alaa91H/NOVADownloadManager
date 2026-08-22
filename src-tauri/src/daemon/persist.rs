@@ -18,10 +18,16 @@ pub struct PersistedState {
     #[serde(default)]
     pub curl_args: HashMap<String, Vec<String>>,
     /// Per-task libcurl options are persisted separately from diagnostic CLI
-    /// arguments. They contain the effective proxy, headers, validators and
-    /// DNS pinning needed to resume with the same security and behavior.
+    /// arguments. Authentication-bearing options are removed before writing
+    /// this state, while non-sensitive validators and DNS settings remain
+    /// available for safe resume.
     #[serde(default)]
     pub curl_direct_options: HashMap<String, HashMap<String, serde_json::Value>>,
+    /// Tasks whose authenticated request material was intentionally omitted
+    /// from disk. They need a fresh user-authorized download request after a
+    /// restart instead of a best-effort resume with missing credentials.
+    #[serde(default)]
+    pub resume_requires_reauth: Vec<String>,
     #[serde(default)]
     pub telegram_last_update_id: i64,
     #[serde(default)]
@@ -40,6 +46,94 @@ pub struct DownloadStats {
 
 pub fn state_file_path(data_dir: &str) -> PathBuf {
     Path::new(data_dir).join("downloads-state.json")
+}
+
+/// Arguments that can contain credentials, session cookies, authentication
+/// material, or proxy credentials. They must never be copied into the JSON
+/// resume snapshot because the snapshot is readable as a regular local file.
+const SENSITIVE_RESUME_ARGUMENT_FLAGS: &[&str] = &[
+    "--add-header",
+    "--cookie",
+    "--cookie-jar",
+    "--cookies",
+    "--cookies-from-browser",
+    "--header",
+    "--netrc",
+    "--oauth2-bearer",
+    "--password",
+    "--preproxy",
+    "--proxy",
+    "--referer",
+    "--twofactor",
+    "--user",
+    "--username",
+    "-H",
+    "-u",
+];
+
+/// Keys in direct-download configuration that can disclose authenticated
+/// sessions or credentials. The request still uses them in memory, but an
+/// interrupted authenticated download must be re-authorized instead of
+/// writing its credentials to `downloads-state.json`.
+const SENSITIVE_DIRECT_OPTION_KEYS: &[&str] = &[
+    "cookies", "headers", "password", "proxy", "preproxy", "referer", "username",
+];
+
+fn is_sensitive_resume_argument(arg: &str) -> bool {
+    // curl accepts both `-u user:password` and the attached `-uuser:password`
+    // form (likewise `-HHeader: value`). Treat both forms as secret-bearing.
+    if (arg.starts_with("-u") || arg.starts_with("-H")) && arg.len() > 2 {
+        return true;
+    }
+
+    SENSITIVE_RESUME_ARGUMENT_FLAGS.iter().any(|flag| {
+        arg == *flag
+            || arg
+                .strip_prefix(flag)
+                .is_some_and(|suffix| suffix.starts_with('='))
+    })
+}
+
+/// Returns a copy of an argument vector without credential-bearing options.
+///
+/// The following value is removed for flags that take a value. Boolean flags
+/// such as `--netrc` are removed on their own. This deliberately favors
+/// confidentiality over unattended resume for authenticated downloads.
+fn sanitize_resume_args(args: &[String]) -> Vec<String> {
+    let mut sanitized = Vec::with_capacity(args.len());
+    let mut skip_next = false;
+
+    for arg in args {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if is_sensitive_resume_argument(arg) {
+            if !arg.contains('=') && arg != "--netrc" {
+                skip_next = true;
+            }
+            continue;
+        }
+        sanitized.push(arg.clone());
+    }
+
+    sanitized
+}
+
+fn direct_options_require_reauth(options: &HashMap<String, serde_json::Value>) -> bool {
+    options
+        .keys()
+        .any(|key| SENSITIVE_DIRECT_OPTION_KEYS.contains(&key.as_str()))
+}
+
+fn sanitize_direct_options(
+    options: &HashMap<String, serde_json::Value>,
+) -> HashMap<String, serde_json::Value> {
+    options
+        .iter()
+        .filter(|(key, _)| !SENSITIVE_DIRECT_OPTION_KEYS.contains(&key.as_str()))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
 }
 
 pub fn load(data_dir: &str) -> PersistedState {
@@ -66,29 +160,53 @@ fn build_snapshot(state: &AppState) -> PersistedState {
     // Acquire locks in documented order (media_jobs → curl_jobs → task_snapshot)
     // within a block scope so curl_jobs is released before download_stats,
     // preventing AB-BA deadlock with transfer.rs (which locks download_stats → curl_jobs).
-    let (media_args, curl_args, curl_direct_options, tasks, telegram_last_update_id) = {
+    let (
+        media_args,
+        curl_args,
+        curl_direct_options,
+        resume_requires_reauth,
+        tasks,
+        telegram_last_update_id,
+    ) = {
         let media_jobs = lock_or_err!(state.media_jobs);
         let curl_jobs = lock_or_err!(state.curl_jobs);
         let snapshot = lock_or_err!(state.task_snapshot);
 
         let media_args: HashMap<String, Vec<String>> = media_jobs
             .iter()
-            .map(|(id, job)| (id.clone(), job.args.clone()))
+            .map(|(id, job)| (id.clone(), sanitize_resume_args(&job.args)))
             .collect();
         let curl_args: HashMap<String, Vec<String>> = curl_jobs
             .iter()
-            .map(|(id, job)| (id.clone(), job.args.clone()))
+            .map(|(id, job)| (id.clone(), sanitize_resume_args(&job.args)))
             .collect();
         let curl_direct_options: HashMap<String, HashMap<String, serde_json::Value>> = curl_jobs
             .iter()
-            .map(|(id, job)| (id.clone(), job.direct_options.clone()))
+            .map(|(id, job)| (id.clone(), sanitize_direct_options(&job.direct_options)))
             .collect();
+        let mut resume_requires_reauth: Vec<String> = media_jobs
+            .iter()
+            .filter(|(_, job)| job.args.iter().any(|arg| is_sensitive_resume_argument(arg)))
+            .map(|(id, _)| id.clone())
+            .collect();
+        resume_requires_reauth.extend(
+            curl_jobs
+                .iter()
+                .filter(|(_, job)| {
+                    job.args.iter().any(|arg| is_sensitive_resume_argument(arg))
+                        || direct_options_require_reauth(&job.direct_options)
+                })
+                .map(|(id, _)| id.clone()),
+        );
+        resume_requires_reauth.sort();
+        resume_requires_reauth.dedup();
         let tasks: Vec<Task> = snapshot.values().cloned().collect();
         let telegram_last_update_id = *lock_or_err!(state.telegram_last_update_id);
         (
             media_args,
             curl_args,
             curl_direct_options,
+            resume_requires_reauth,
             tasks,
             telegram_last_update_id,
         )
@@ -102,6 +220,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         media_args,
         curl_args,
         curl_direct_options,
+        resume_requires_reauth,
         telegram_last_update_id,
         scheduler_rules,
         stats,
@@ -345,7 +464,15 @@ pub(crate) mod tests {
             MediaJob {
                 task: sample_task("m1", "yt-dlp", "downloading"),
                 child: None,
-                args: vec!["-f".to_string(), "best".to_string()],
+                args: vec![
+                    "-f".to_string(),
+                    "best".to_string(),
+                    "--username".to_string(),
+                    "private-user".to_string(),
+                    "--password=private-password".to_string(),
+                    "--add-header".to_string(),
+                    "Cookie: session=private-cookie".to_string(),
+                ],
                 start_time: Instant::now(),
             },
         );
@@ -357,8 +484,13 @@ pub(crate) mod tests {
                     let mut options = HashMap::new();
                     options.insert(
                         "headers".to_owned(),
-                        serde_json::Value::String("X-Resume: persisted".to_owned()),
+                        serde_json::Value::String("Authorization: Bearer private-token".to_owned()),
                     );
+                    options.insert(
+                        "cookies".to_owned(),
+                        serde_json::Value::String("session=private-cookie".to_owned()),
+                    );
+                    options.insert("retries".to_owned(), serde_json::Value::Number(3.into()));
                     options
                 },
                 cancel_token: Arc::new(AtomicBool::new(false)),
@@ -368,6 +500,10 @@ pub(crate) mod tests {
                 args: vec![
                     "--location".to_string(),
                     "https://example.com/c1".to_string(),
+                    "--user".to_string(),
+                    "private-user:private-password".to_string(),
+                    "-uprivate-user:private-password".to_string(),
+                    "-HAuthorization: Bearer private-token".to_string(),
                 ],
             },
         );
@@ -388,14 +524,28 @@ pub(crate) mod tests {
             ])
         );
         assert_eq!(
-            loaded
-                .curl_direct_options
-                .get("c1")
-                .and_then(|options| options.get("headers"))
-                .and_then(serde_json::Value::as_str),
-            Some("X-Resume: persisted")
+            loaded.resume_requires_reauth,
+            vec!["c1".to_string(), "m1".to_string()]
         );
-
+        let direct_options = loaded.curl_direct_options.get("c1").unwrap();
+        assert_eq!(
+            direct_options.get("retries"),
+            Some(&serde_json::Value::Number(3.into()))
+        );
+        assert!(!direct_options.contains_key("headers"));
+        assert!(!direct_options.contains_key("cookies"));
+        let persisted = std::fs::read_to_string(state_file_path(&dir_str)).unwrap();
+        for secret in [
+            "private-user",
+            "private-password",
+            "private-cookie",
+            "private-token",
+        ] {
+            assert!(
+                !persisted.contains(secret),
+                "persisted state leaked {secret}"
+            );
+        }
         std::fs::remove_dir_all(&dir).ok();
     }
 

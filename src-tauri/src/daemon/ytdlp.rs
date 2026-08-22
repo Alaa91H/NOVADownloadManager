@@ -776,6 +776,9 @@ pub fn build_ytdlp_args_with_engines(
     }
 
     if let Some(proxy) = trimmed(&media.proxy) {
+        if crate::daemon::curl::proxy_resolves_to_internal(proxy) {
+            return Err("Rejected proxy pointing to internal address for --proxy".to_owned());
+        }
         push_arg(&mut args, "--proxy", proxy);
     }
     if let Some(source_address) = trimmed(&media.source_address) {
@@ -1220,7 +1223,7 @@ mod tests {
             write_description: Some(true),
             split_chapters: Some(true),
             sponsor_block: Some("sponsor,selfpromo".to_string()),
-            proxy: Some("http://127.0.0.1:8080".to_string()),
+            proxy: Some("http://8.8.8.8:8080".to_string()),
             source_address: Some("10.8.0.2".to_string()),
             cookies: Some("sid=abc".to_string()),
             cookies_from_browser: Some("chrome".to_string()),
@@ -1262,6 +1265,7 @@ mod tests {
             "--sponsorblock-remove",
             "sponsor,selfpromo"
         ));
+        assert!(has_pair(&args, "--proxy", "http://8.8.8.8:8080"));
         assert!(has_pair(&args, "--source-address", "10.8.0.2"));
         assert!(has_pair(&args, "--add-header", "Cookie: sid=abc"));
         assert!(has_pair(&args, "--cookies-from-browser", "chrome"));
@@ -1274,6 +1278,16 @@ mod tests {
             args.last().map(String::as_str),
             Some("https://example.com/watch?v=1")
         );
+    }
+
+    #[test]
+    fn ytdlp_rejects_internal_proxy() {
+        let mut options = MediaDownloadOptions::default();
+        options.proxy = Some("http://127.0.0.1:8080".to_owned());
+
+        let error = build_ytdlp_args_with_engines(&media_body(options), None)
+            .expect_err("internal proxy must be rejected");
+        assert!(error.contains("internal address"));
     }
 
     #[test]

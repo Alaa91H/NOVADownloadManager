@@ -148,23 +148,28 @@ export const Modal: React.FC<ModalProps> = ({
 
         // Trap focus
         if (e.key === 'Tab' && modalRef.current) {
-          const focusables = modalRef.current.querySelectorAll(
-            'button, [href], input, select, textarea, [tabindex="0"]',
-          );
+          const focusables = Array.from(
+            modalRef.current.querySelectorAll<HTMLElement>(
+              'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            ),
+          ).filter((element) => element.getAttribute('aria-hidden') !== 'true');
           if (focusables.length === 0) return;
-          const first = focusables[0] as HTMLElement;
-          const last = focusables[focusables.length - 1] as HTMLElement;
+          const first = focusables[0];
+          const last = focusables[focusables.length - 1];
+          const activeElement = document.activeElement as HTMLElement | null;
 
-          if (e.shiftKey) {
-            if (document.activeElement === first) {
-              last.focus();
-              e.preventDefault();
-            }
-          } else {
-            if (document.activeElement === last) {
-              first.focus();
-              e.preventDefault();
-            }
+          // The dialog receives focus when it opens. Explicitly route the
+          // first Tab from that container so Shift+Tab cannot escape to the
+          // browser chrome or an element behind the overlay.
+          if (activeElement === modalRef.current || !modalRef.current.contains(activeElement)) {
+            (e.shiftKey ? last : first).focus();
+            e.preventDefault();
+          } else if (e.shiftKey && activeElement === first) {
+            last.focus();
+            e.preventDefault();
+          } else if (!e.shiftKey && activeElement === last) {
+            first.focus();
+            e.preventDefault();
           }
         }
       };
@@ -259,7 +264,7 @@ export const Modal: React.FC<ModalProps> = ({
             <h3
               id={titleId}
               className="text-[11px] font-bold text-[var(--text-primary)] font-sans tracking-wide truncate"
-              style={{ direction: 'ltr' }}
+              dir="auto"
             >
               {title}
             </h3>

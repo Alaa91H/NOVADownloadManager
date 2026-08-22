@@ -7,15 +7,13 @@ use std::time::{Duration, Instant};
 use ::curl::easy::Easy2;
 use ::curl::multi::Easy2Handle;
 
+use super::completion::{merge_parts, part_size, validate_transfer_size, verify_output_sha256};
 use super::{
     apply_easy_options, create_easy_for_range_ext, drive_multi_wait_perform,
     drive_multi_wait_perform_until, requested_connections, CurlMultiGuard, CurlTransferConfig,
     DirectDownloadPlan, HtmlHeadCapture, ResponseCapture, SegmentProgress,
 };
-use crate::daemon::direct::{
-    FileWriter, IntegrityMetadata, IntegrityValidator, RetryPolicy, SegmentPlanner,
-    SegmentRange as ByteRange,
-};
+use crate::daemon::direct::{FileWriter, RetryPolicy, SegmentPlanner, SegmentRange as ByteRange};
 
 use crate::daemon::engine::config::global_config;
 use crate::daemon::engine::policy_engine::{DecisionCategory, DecisionContext};
@@ -305,47 +303,8 @@ pub fn split_ranges(total_size: u64, connections: u32, output_path: &Path) -> Ve
     )
 }
 
-const fn part_size(range: &ByteRange) -> u64 {
-    range.len()
-}
-
 pub fn remove_stale_parts_for(output_path: &Path) {
     FileWriter::remove_stale_parts_for(output_path);
-}
-
-fn merge_parts(output_path: &Path, ranges: &[ByteRange]) -> Result<u64, String> {
-    FileWriter::merge_parts(output_path, ranges)
-}
-
-/// Verify the complete on-disk output against a SHA-256 digest supplied by
-/// the server or caller. A per-handle streaming digest cannot be authoritative:
-/// segmented transfers hash independent ranges, and resumed transfers omit the
-/// already-present prefix. The merged output file is the only complete source
-/// of truth for integrity verification.
-fn verify_output_sha256(output_path: &Path, expected_raw: &str) -> Result<String, String> {
-    use crate::daemon::engine::checksum::{compute_checksum, ChecksumAlgorithm};
-
-    let actual_hex = compute_checksum(output_path, &ChecksumAlgorithm::Sha256)
-        .map_err(|e| format!("Could not calculate SHA-256 for completed output: {e}"))?;
-    let expected_value = expected_raw.trim().trim_matches(':');
-    // A 64-character hexadecimal SHA-256 is also syntactically valid Base64.
-    // Recognize it first; otherwise a hex digest would be decoded as Base64 and
-    // transformed into an unrelated, longer byte sequence.
-    let expected_hex = if expected_value.len() == 64
-        && expected_value.bytes().all(|byte| byte.is_ascii_hexdigit())
-    {
-        expected_value.to_ascii_lowercase()
-    } else if let Some(bytes) = crate::daemon::utils::base64_decode(expected_value) {
-        bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
-    } else {
-        expected_value.to_owned()
-    };
-    if !actual_hex.eq_ignore_ascii_case(&expected_hex) {
-        return Err(format!(
-            "Content-Digest verification failed: expected sha-256={expected_hex}, got {actual_hex}"
-        ));
-    }
-    Ok(actual_hex)
 }
 
 fn resolve_effective_target(plan: &DirectDownloadPlan) -> (String, bool, PreflightData) {
@@ -743,20 +702,6 @@ impl TransferOutcome {
             content_encoded: false,
         }
     }
-}
-
-/// Validate the final on-disk size against the probed size. Skipped only
-/// when the server actually used Content-Encoding for this transfer.
-fn validate_transfer_size(
-    total_size: u64,
-    content_encoded: bool,
-    actual: u64,
-) -> Result<(), String> {
-    IntegrityValidator::new(IntegrityMetadata {
-        expected_size: (total_size > 0).then_some(total_size),
-        compressed_transfer: content_encoded,
-    })
-    .validate_size(actual)
 }
 
 /// Decide the effective total size to report for the next progress tick.

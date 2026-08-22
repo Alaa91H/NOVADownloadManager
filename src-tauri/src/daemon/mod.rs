@@ -750,6 +750,7 @@ fn restore_persisted_tasks(
         restored.tasks.len()
     );
 
+    let resume_requires_reauth = restored.resume_requires_reauth.clone();
     for mut task in restored.tasks {
         let was_running = matches!(
             task.status.as_str(),
@@ -761,7 +762,16 @@ fn restore_persisted_tasks(
             task.speed_bytes_per_sec = 0;
         }
 
-        if task.engine == "yt-dlp" {
+        let requires_reauth = resume_requires_reauth.contains(&task.id);
+        if requires_reauth && task.status != "completed" {
+            task.status = "error".to_owned();
+            task.engine_status = Some("reauth-required".to_owned());
+            task.error_message = Some(
+                "This interrupted download used credentials or session data that were not saved to disk. Re-add it and authorize again to continue."
+                    .to_owned(),
+            );
+            task.speed_bytes_per_sec = 0;
+        } else if task.engine == "yt-dlp" {
             let args = restored
                 .media_args
                 .get(&task.id)
@@ -953,6 +963,42 @@ mod tests {
         }
         drop(snapshot);
         assert_eq!(state.curl_jobs.lock().expect("lock curl jobs").len(), 2);
+        std::fs::remove_dir_all(&data_dir).ok();
+    }
+
+    #[test]
+    fn restoration_marks_sanitized_authenticated_task_for_reauthorization() {
+        let data_dir =
+            std::env::temp_dir().join(format!("nova-restore-reauth-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&data_dir).expect("create test data directory");
+        let data_dir_string = data_dir.display().to_string();
+        let state = Arc::new(persist::tests::test_state(&data_dir_string));
+        let restored = persist::PersistedState {
+            tasks: vec![restoration_test_task("credentialed", "downloading")],
+            curl_args: HashMap::from([(
+                "credentialed".to_owned(),
+                vec![
+                    "--location".to_owned(),
+                    "https://example.com/credentialed".to_owned(),
+                ],
+            )]),
+            resume_requires_reauth: vec!["credentialed".to_owned()],
+            ..Default::default()
+        };
+
+        restore_persisted_tasks(&state, restored);
+
+        let snapshot = state.task_snapshot.lock().expect("lock restored snapshot");
+        let task = snapshot.get("credentialed").expect("restored task");
+        assert_eq!(task.status, "error");
+        assert_eq!(task.engine_status.as_deref(), Some("reauth-required"));
+        assert!(task
+            .error_message
+            .as_deref()
+            .is_some_and(|message| message.contains("authorize again")));
+        drop(snapshot);
+        assert!(state.curl_jobs.lock().expect("lock curl jobs").is_empty());
+        assert!(state.priority_queue.entries().is_empty());
         std::fs::remove_dir_all(&data_dir).ok();
     }
 

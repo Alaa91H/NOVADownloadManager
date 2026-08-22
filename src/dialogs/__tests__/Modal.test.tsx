@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../store/selectors', () => ({
@@ -19,5 +19,25 @@ describe('Modal accessibility', () => {
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(dialog).toHaveAttribute('aria-labelledby', 'download-details-title');
     expect(screen.getByRole('button', { name: 'Close dialog' })).toBeInTheDocument();
+    expect(screen.getByText('Download details')).toHaveAttribute('dir', 'auto');
+  });
+
+  it('keeps keyboard focus inside the dialog from the initial dialog container', () => {
+    render(
+      <Modal isOpen onClose={vi.fn()} title="Keyboard controls">
+        <button type="button">Continue</button>
+      </Modal>,
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Keyboard controls' });
+    const closeButton = screen.getByRole('button', { name: 'Close dialog' });
+    const continueButton = screen.getByRole('button', { name: 'Continue' });
+    expect(dialog).toHaveFocus();
+
+    fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
+    expect(continueButton).toHaveFocus();
+
+    fireEvent.keyDown(window, { key: 'Tab' });
+    expect(closeButton).toHaveFocus();
   });
 });

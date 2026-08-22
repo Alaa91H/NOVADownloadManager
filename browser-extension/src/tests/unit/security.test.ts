@@ -131,6 +131,11 @@ describe('loopback URL policy', () => {
     expect(() => assertNovaLoopbackOrigin('http://127.0.0.1:8080', 'http:')).toThrow();
   });
 
+  it('rejects a loopback URL without an explicit NOVA port', () => {
+    expect(() => assertNovaLoopbackOrigin('http://127.0.0.1', 'http:')).toThrow();
+    expect(() => assertNovaLoopbackOrigin('ws://localhost', 'ws:')).toThrow();
+  });
+
   it('rejects URLs with credentials', () => {
     expect(() => assertNovaLoopbackOrigin('http://user:pass@127.0.0.1:3199', 'http:')).toThrow();
   });
