@@ -131,9 +131,9 @@ test.describe('UI Components — TextField', () => {
     await page.keyboard.press('Control+n');
     const dialog = page.locator('[role="dialog"]');
     if (await dialog.isVisible().catch(() => false)) {
-      const inputs = dialog.locator('input[type="text"]');
-      const count = await inputs.count();
-      expect(count).toBeGreaterThanOrEqual(1);
+      const urlInput = dialog.getByRole('textbox').first();
+      await expect(urlInput).toBeVisible();
+      await expect(urlInput).toHaveAttribute('aria-label', /.+/);
       await page.keyboard.press('Escape');
     }
   });

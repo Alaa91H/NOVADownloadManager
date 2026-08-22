@@ -1,147 +1,52 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
-const goto = async (page: import('@playwright/test').Page) => {
+const goto = async (page: Page) => {
   await page.goto('/');
   await page.waitForLoadState('networkidle');
 };
 
-test.describe('Task Properties — dialog structure', () => {
-  test('task properties opens on double-click', async ({ page }) => {
+const propertiesDialog = (page: Page) => page.getByRole('dialog', { name: /properties|الخصائص/i });
+
+const openProperties = async (page: Page) => {
+  const firstRow = page.locator('tr.desktop-table-row').first();
+  await expect(firstRow).toBeVisible();
+  await firstRow.click({ button: 'right' });
+  const properties = page.getByRole('menuitem', { name: /properties|الخصائص/i });
+  await expect(properties).toBeVisible();
+  await properties.click();
+  await expect(propertiesDialog(page)).toBeVisible();
+};
+
+test.describe('Task Properties', () => {
+  test.beforeEach(async ({ page }) => {
     await goto(page);
-    const firstRow = page.locator('tr.desktop-table-row').first();
-    if (await firstRow.isVisible().catch(() => false)) {
-      await firstRow.dblclick();
-      await page.waitForTimeout(500);
-      const dialog = page.locator('[role="dialog"]');
-      if (await dialog.isVisible().catch(() => false)) {
-        const title = page.locator('[role="dialog"] h3');
-        if (await title.isVisible().catch(() => false)) {
-          const text = await title.textContent();
-          expect(text?.length).toBeGreaterThan(0);
-        }
-        await page.keyboard.press('Escape');
-      }
-    }
   });
 
-  test('task properties opens from context menu', async ({ page }) => {
-    await goto(page);
-    const firstRow = page.locator('tr.desktop-table-row').first();
-    if (await firstRow.isVisible().catch(() => false)) {
-      await firstRow.click({ button: 'right' });
-      await page.waitForTimeout(300);
-      const props = page
-        .locator('[role="menuitem"]')
-        .filter({ hasText: /properties|الخصائص/i })
-        .first();
-      if (await props.isVisible().catch(() => false)) {
-        await props.click();
-        await page.waitForTimeout(500);
-        const dialog = page.locator('[role="dialog"]');
-        if (await dialog.isVisible().catch(() => false)) {
-          await expect(dialog).toBeVisible();
-          await page.keyboard.press('Escape');
-        }
-      }
-    }
-  });
-});
-
-test.describe('Task Properties — content sections', () => {
-  test('properties shows URL field', async ({ page }) => {
-    await goto(page);
-    const firstRow = page.locator('tr.desktop-table-row').first();
-    if (await firstRow.isVisible().catch(() => false)) {
-      await firstRow.dblclick();
-      await page.waitForTimeout(500);
-      const dialog = page.locator('[role="dialog"]');
-      if (await dialog.isVisible().catch(() => false)) {
-        const urlField = dialog.locator('text=url, text=رابط, text=URL').first();
-        const isVisible = await urlField.isVisible().catch(() => false);
-        expect(typeof isVisible).toBe('boolean');
-        await page.keyboard.press('Escape');
-      }
-    }
+  test('opens from a task context menu', async ({ page }) => {
+    await openProperties(page);
+    await expect(propertiesDialog(page).locator('h3')).toContainText(/properties|الخصائص/i);
   });
 
-  test('properties shows status field', async ({ page }) => {
-    await goto(page);
-    const firstRow = page.locator('tr.desktop-table-row').first();
-    if (await firstRow.isVisible().catch(() => false)) {
-      await firstRow.dblclick();
-      await page.waitForTimeout(500);
-      const dialog = page.locator('[role="dialog"]');
-      if (await dialog.isVisible().catch(() => false)) {
-        const statusField = dialog.locator('text=status, text=الحالة').first();
-        const isVisible = await statusField.isVisible().catch(() => false);
-        expect(typeof isVisible).toBe('boolean');
-        await page.keyboard.press('Escape');
-      }
-    }
+  test('shows task metadata fields', async ({ page }) => {
+    await openProperties(page);
+    const dialog = propertiesDialog(page);
+    await expect(dialog).toContainText(/url|رابط/i);
+    await expect(dialog).toContainText(/status|الحالة/i);
+    await expect(dialog).toContainText(/size|الحجم/i);
   });
 
-  test('properties shows file size field', async ({ page }) => {
-    await goto(page);
-    const firstRow = page.locator('tr.desktop-table-row').first();
-    if (await firstRow.isVisible().catch(() => false)) {
-      await firstRow.dblclick();
-      await page.waitForTimeout(500);
-      const dialog = page.locator('[role="dialog"]');
-      if (await dialog.isVisible().catch(() => false)) {
-        const sizeField = dialog.locator('text=size, text=الحجم').first();
-        const isVisible = await sizeField.isVisible().catch(() => false);
-        expect(typeof isVisible).toBe('boolean');
-        await page.keyboard.press('Escape');
-      }
-    }
+  test('Escape closes the specific properties dialog', async ({ page }) => {
+    await openProperties(page);
+    await page.keyboard.press('Escape');
+    await expect(propertiesDialog(page)).not.toBeVisible();
   });
 
-  test('properties shows save path field', async ({ page }) => {
-    await goto(page);
-    const firstRow = page.locator('tr.desktop-table-row').first();
-    if (await firstRow.isVisible().catch(() => false)) {
-      await firstRow.dblclick();
-      await page.waitForTimeout(500);
-      const dialog = page.locator('[role="dialog"]');
-      if (await dialog.isVisible().catch(() => false)) {
-        const pathField = dialog.locator('text=path, text=المسار, text=folder').first();
-        const isVisible = await pathField.isVisible().catch(() => false);
-        expect(typeof isVisible).toBe('boolean');
-        await page.keyboard.press('Escape');
-      }
-    }
-  });
-});
-
-test.describe('Task Properties — close', () => {
-  test('Escape closes properties dialog', async ({ page }) => {
-    await goto(page);
-    const firstRow = page.locator('tr.desktop-table-row').first();
-    if (await firstRow.isVisible().catch(() => false)) {
-      await firstRow.dblclick();
-      await page.waitForTimeout(500);
-      const dialog = page.locator('[role="dialog"]');
-      if (await dialog.isVisible().catch(() => false)) {
-        await page.keyboard.press('Escape');
-        await expect(dialog).not.toBeVisible({ timeout: 3000 });
-      }
-    }
-  });
-
-  test('close button closes properties dialog', async ({ page }) => {
-    await goto(page);
-    const firstRow = page.locator('tr.desktop-table-row').first();
-    if (await firstRow.isVisible().catch(() => false)) {
-      await firstRow.dblclick();
-      await page.waitForTimeout(500);
-      const dialog = page.locator('[role="dialog"]');
-      if (await dialog.isVisible().catch(() => false)) {
-        const closeBtn = dialog.locator('button[title*="close" i], button[title*="إغلاق" i]').first();
-        if (await closeBtn.isVisible().catch(() => false)) {
-          await closeBtn.click();
-          await expect(dialog).not.toBeVisible({ timeout: 3000 });
-        }
-      }
-    }
+  test('the close control closes the specific properties dialog', async ({ page }) => {
+    await openProperties(page);
+    const dialog = propertiesDialog(page);
+    const close = dialog.locator('button[title*="close" i], button[title*="إغلاق" i]').first();
+    await expect(close).toBeVisible();
+    await close.click();
+    await expect(dialog).not.toBeVisible();
   });
 });

@@ -195,7 +195,11 @@ export const SettingsDialog: React.FC = () => {
       </div>
 
       <div className="flex flex-row flex-1 min-h-0 overflow-hidden gap-4">
-        <div className="w-48 shrink-0 border-e pe-2 border-[var(--border-color)] overflow-y-auto scrollbar-none select-none flex flex-col gap-1">
+        <div
+          role="tablist"
+          aria-label={t('set_control_center_title')}
+          className="w-48 shrink-0 border-e pe-2 border-[var(--border-color)] overflow-y-auto scrollbar-none select-none flex flex-col gap-1"
+        >
           {filteredTabs.map((tab) => {
             const TabIcon = tab.icon;
             const isSelected = activeTab === tab.id;
@@ -203,6 +207,10 @@ export const SettingsDialog: React.FC = () => {
               <button
                 key={tab.id}
                 type="button"
+                role="tab"
+                id={`settings-tab-${tab.id}`}
+                aria-selected={isSelected}
+                aria-controls={`settings-panel-${tab.id}`}
                 onClick={() => {
                   setActiveTab(tab.id);
                 }}
@@ -222,7 +230,12 @@ export const SettingsDialog: React.FC = () => {
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-1 scrollbar-thin">
+        <div
+          role="tabpanel"
+          id={`settings-panel-${activeTab}`}
+          aria-labelledby={`settings-tab-${activeTab}`}
+          className="flex-1 overflow-y-auto px-1 scrollbar-thin"
+        >
           {activeTab === 'general' && <GeneralSettings settings={localSettings} updateSetting={updateLocalSetting} />}
           {activeTab === 'downloads' && (
             <DownloadSettings

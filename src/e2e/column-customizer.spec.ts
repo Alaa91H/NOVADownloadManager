@@ -42,37 +42,29 @@ test.describe('Column Customizer — column list', () => {
       .first();
     if (await customizeBtn.isVisible().catch(() => false)) {
       await customizeBtn.click();
-      await page.waitForTimeout(300);
+      await expect(page.getByText('Customize & Reorder Columns')).toBeVisible();
     }
   });
 
   test('column list shows available columns', async ({ page }) => {
-    const columns = page.locator('[class*="column"] label, [class*="Column"] label, [class*="customiz"] label');
-    const count = await columns.count();
-    expect(count).toBeGreaterThanOrEqual(3);
+    const panel = page.getByRole('dialog', { name: 'Customize & Reorder Columns' });
+    await expect(panel.getByRole('checkbox')).toHaveCount(15);
   });
 
   test('columns can be toggled on/off', async ({ page }) => {
-    const checkboxes = page.locator(
-      '[class*="column"] input[type="checkbox"], [class*="Column"] input[type="checkbox"], [class*="customiz"] input[type="checkbox"]',
-    );
+    const panel = page.getByRole('dialog', { name: 'Customize & Reorder Columns' });
+    const checkboxes = panel.getByRole('checkbox');
     const count = await checkboxes.count();
-    for (let i = 0; i < Math.min(count, 3); i++) {
-      const cb = checkboxes.nth(i);
-      if (await cb.isVisible().catch(() => false)) {
-        const wasChecked = await cb.isChecked();
-        await cb.click();
-        await page.waitForTimeout(200);
-        const isNowChecked = await cb.isChecked();
-        expect(isNowChecked).toBe(!wasChecked);
-      }
+    for (let i = 1; i < Math.min(count, 4); i++) {
+      const checkbox = checkboxes.nth(i);
+      const wasChecked = await checkbox.getAttribute('aria-checked');
+      await checkbox.click();
+      await expect(checkbox).toHaveAttribute('aria-checked', wasChecked === 'true' ? 'false' : 'true');
     }
   });
 
   test('column order is preserved', async ({ page }) => {
-    const headers = page.locator('thead th');
-    const firstText = await headers.first().textContent();
-    expect(firstText).toBeTruthy();
+    await expect(page.getByRole('columnheader', { name: 'File Name', exact: true })).toBeVisible();
   });
 });
 

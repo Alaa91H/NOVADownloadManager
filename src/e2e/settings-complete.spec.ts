@@ -21,10 +21,9 @@ test.describe('Settings Complete — all tabs render', () => {
     await expect(title).toBeVisible({ timeout: 3000 });
   });
 
-  test('settings has at least 3 tab buttons', async ({ page }) => {
-    const tabs = page.locator('button[role="tab"], [class*="tab"]');
-    const count = await tabs.count();
-    expect(count).toBeGreaterThanOrEqual(3);
+  test('settings exposes its section navigation as accessible tabs', async ({ page }) => {
+    await expect(page.getByRole('tablist', { name: 'Settings sections' })).toBeVisible();
+    await expect(page.getByRole('tab')).toHaveCount(10);
   });
 
   test('General tab renders without errors', async ({ page }) => {
@@ -215,24 +214,16 @@ test.describe('Settings Complete — sound selection', () => {
   test.beforeEach(async ({ page }) => {
     await goto(page);
     await openSettings(page);
+    await page.getByRole('tab', { name: 'Downloads' }).click();
+    await expect(page.getByRole('tabpanel').locator('select').first()).toBeVisible();
   });
 
   test('sound selection dropdown exists', async ({ page }) => {
-    const soundSelect = page
-      .locator('select')
-      .filter({ hasText: /sound|صوت/i })
-      .first();
-    const soundLabel = page.locator('text=sound, text=صوت, text=completion sound').first();
-    const hasSelect = await soundSelect.isVisible().catch(() => false);
-    const hasLabel = await soundLabel.isVisible().catch(() => false);
-    expect(hasSelect || hasLabel).toBeTruthy();
+    await expect(page.getByRole('tabpanel').locator('select').first()).toBeVisible();
   });
 
   test('sound selector has multiple options', async ({ page }) => {
-    const soundSelect = page
-      .locator('select')
-      .filter({ hasText: /sound|صوت/i })
-      .first();
+    const soundSelect = page.getByRole('tabpanel').locator('select').first();
     if (await soundSelect.isVisible().catch(() => false)) {
       const optionCount = await soundSelect.locator('option').count();
       expect(optionCount).toBeGreaterThanOrEqual(1);

@@ -60,12 +60,25 @@ test.describe('Windowed rendering (500 tasks)', () => {
   test.beforeEach(async ({ page }) => {
     // Fake a healthy daemon so the connecting splash clears and the shell
     // renders the task table deterministically (no real daemon in e2e).
+    const tasks = makeTasks(TASK_COUNT);
     await page.route('**/api/health', (route) => {
       void route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(HEALTH_PAYLOAD),
       });
+    });
+    await page.route('**/api/downloads', (route) => {
+      if (route.request().method() === 'GET') {
+        void route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tasks) });
+      } else {
+        void route.continue();
+      }
+    });
+    // Keep the production SSE listener from replacing the deterministic local
+    // fixture with downloads created by concurrently running E2E specs.
+    await page.route('**/api/downloads/events**', (route) => {
+      void route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' });
     });
     await page.goto('/');
     // The task table is only mounted once the bridge is connected.
@@ -80,8 +93,8 @@ test.describe('Windowed rendering (500 tasks)', () => {
         taskStore: { getState: () => { setTasks: (t: unknown[]) => void } };
       };
       mod.taskStore.getState().setTasks(tasks);
-    }, makeTasks(TASK_COUNT));
-    await expect(page.locator('tr.desktop-table-row').first()).toBeVisible({ timeout: 5000 });
+    }, tasks);
+    await expect(page.locator('tr.desktop-table-row').first()).toContainText('file-0499.zip', { timeout: 5000 });
   });
 
   test('renders only a bounded slice of rows for a 500-task list', async ({ page }) => {

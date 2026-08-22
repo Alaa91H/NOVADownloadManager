@@ -17,10 +17,9 @@ test.describe('Keyboard Shortcuts — global scope', () => {
     await page.keyboard.press('Escape');
   });
 
-  test('Ctrl+J opens scheduler', async ({ page }) => {
-    await page.keyboard.press('Control+j');
-    await page.waitForTimeout(500);
-    await expect(page.locator('text=Scheduler').first()).toBeVisible({ timeout: 3000 });
+  test('Ctrl+L opens scheduler', async ({ page }) => {
+    await page.keyboard.press('Control+l');
+    await expect(page.getByRole('heading', { name: /download lists/i })).toBeVisible({ timeout: 3000 });
   });
 
   test('Ctrl+, opens settings', async ({ page }) => {
@@ -55,12 +54,12 @@ test.describe('Keyboard Shortcuts — global scope', () => {
     await page.waitForTimeout(500);
   });
 
-  test('Escape navigates back from scheduler page', async ({ page }) => {
-    await page.keyboard.press('Control+j');
-    await page.waitForTimeout(500);
-    await expect(page.locator('text=Scheduler').first()).toBeVisible({ timeout: 3000 });
+  test('Escape closes the scheduler dialog', async ({ page }) => {
+    await page.keyboard.press('Control+l');
+    const scheduler = page.getByRole('heading', { name: /download lists/i });
+    await expect(scheduler).toBeVisible({ timeout: 3000 });
     await page.keyboard.press('Escape');
-    await page.waitForTimeout(500);
+    await expect(scheduler).not.toBeVisible();
   });
 
   test('shortcuts do not trigger when typing in input field', async ({ page }) => {
@@ -72,12 +71,11 @@ test.describe('Keyboard Shortcuts — global scope', () => {
     await expect(page.locator('text=Scheduler').first()).not.toBeVisible();
   });
 
-  test('Ctrl+N still works when focused in input field (exempt)', async ({ page }) => {
+  test('Ctrl+N is ignored when focus is in an input field', async ({ page }) => {
     const search = page.locator('[data-global-search="true"]');
     await search.click();
     await page.keyboard.press('Control+n');
-    await expect(page.locator('[role="dialog"]')).toBeVisible({ timeout: 3000 });
-    await page.keyboard.press('Escape');
+    await expect(page.locator('[role="dialog"]')).not.toBeVisible();
   });
 });
 

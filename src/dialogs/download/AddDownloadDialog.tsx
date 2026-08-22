@@ -547,6 +547,7 @@ export const AddDownloadDialog: React.FC = () => {
         <div className="relative">
           <input
             type="text"
+            aria-label={t('add_dl_enter_valid_link')}
             placeholder=""
             value={url}
             onChange={(e) => {

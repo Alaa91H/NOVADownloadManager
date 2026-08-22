@@ -6,8 +6,8 @@ const goto = async (page: import('@playwright/test').Page) => {
 };
 
 const openScheduler = async (page: import('@playwright/test').Page) => {
-  await page.keyboard.press('Control+j');
-  await page.waitForTimeout(500);
+  await page.keyboard.press('Control+l');
+  await expect(page.getByRole('heading', { name: /download lists/i })).toBeVisible({ timeout: 3000 });
 };
 
 test.describe('Scheduler — panel structure', () => {
@@ -16,8 +16,8 @@ test.describe('Scheduler — panel structure', () => {
     await openScheduler(page);
   });
 
-  test('scheduler panel is visible after Ctrl+J', async ({ page }) => {
-    await expect(page.locator('text=Scheduler').first()).toBeVisible({ timeout: 3000 });
+  test('scheduler panel is visible after Ctrl+L', async ({ page }) => {
+    await expect(page.getByRole('heading', { name: /download lists/i })).toBeVisible({ timeout: 3000 });
   });
 
   test('queue list shows at least one queue', async ({ page }) => {

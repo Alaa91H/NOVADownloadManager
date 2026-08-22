@@ -5,6 +5,19 @@ const goto = async (page: import('@playwright/test').Page) => {
   await page.waitForLoadState('networkidle');
 };
 
+const dispatchFileDragEvent = async (
+  page: import('@playwright/test').Page,
+  type: 'dragenter' | 'dragleave',
+) => {
+  await page.evaluate((eventType) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['nova'], 'drop-test.txt', { type: 'text/plain' }));
+    document.body.dispatchEvent(
+      new DragEvent(eventType, { bubbles: true, cancelable: true, dataTransfer: transfer }),
+    );
+  }, type);
+};
+
 test.describe('Drag & Drop — queue reordering', () => {
   test.beforeEach(async ({ page }) => {
     await goto(page);
@@ -88,8 +101,7 @@ test.describe('Drag & Drop — URL overlay', () => {
   });
 
   test('dragover shows drop overlay', async ({ page }) => {
-    const body = page.locator('body');
-    await body.dispatchEvent('dragenter', { dataTransfer: { types: ['Files'] } });
+    await dispatchFileDragEvent(page, 'dragenter');
     await page.waitForTimeout(300);
     const overlay = page.locator('[class*="z-[100]"], [class*="drop-overlay"]');
     const isVisible = await overlay.isVisible().catch(() => false);
@@ -97,16 +109,14 @@ test.describe('Drag & Drop — URL overlay', () => {
   });
 
   test('drop overlay disappears on dragleave', async ({ page }) => {
-    const body = page.locator('body');
-    await body.dispatchEvent('dragenter', { dataTransfer: { types: ['Files'] } });
+    await dispatchFileDragEvent(page, 'dragenter');
     await page.waitForTimeout(200);
-    await body.dispatchEvent('dragleave', { dataTransfer: { types: ['Files'] } });
+    await dispatchFileDragEvent(page, 'dragleave');
     await page.waitForTimeout(200);
   });
 
   test('drop overlay shows file zone indicator', async ({ page }) => {
-    const body = page.locator('body');
-    await body.dispatchEvent('dragenter', { dataTransfer: { types: ['Files'] } });
+    await dispatchFileDragEvent(page, 'dragenter');
     await page.waitForTimeout(300);
     const dropText = page.locator('text=drop, text=إفلات, text=ドロップ').first();
     const isVisible = await dropText.isVisible().catch(() => false);

@@ -12,7 +12,7 @@ test.describe('Speed Limit — speed limiter menu', () => {
 
   test('speed limiter menu opens with preset buttons', async ({ page }) => {
     const gaugeBtn = page
-      .locator('[role="status"] button[title*="speed" i], [role="status"] button[title*="سرعة" i]')
+      .locator('[data-testid="status-bar"] button[title*="speed" i], [data-testid="status-bar"] button[title*="سرعة" i]')
       .first();
     if (await gaugeBtn.isVisible().catch(() => false)) {
       await gaugeBtn.click();
@@ -27,7 +27,7 @@ test.describe('Speed Limit — speed limiter menu', () => {
 
   test('clicking a preset speed applies it', async ({ page }) => {
     const gaugeBtn = page
-      .locator('[role="status"] button[title*="speed" i], [role="status"] button[title*="سرعة" i]')
+      .locator('[data-testid="status-bar"] button[title*="speed" i], [data-testid="status-bar"] button[title*="سرعة" i]')
       .first();
     if (await gaugeBtn.isVisible().catch(() => false)) {
       await gaugeBtn.click();
@@ -45,7 +45,7 @@ test.describe('Speed Limit — speed limiter menu', () => {
 
   test('custom speed input appears when custom is clicked', async ({ page }) => {
     const gaugeBtn = page
-      .locator('[role="status"] button[title*="speed" i], [role="status"] button[title*="سرعة" i]')
+      .locator('[data-testid="status-bar"] button[title*="speed" i], [data-testid="status-bar"] button[title*="سرعة" i]')
       .first();
     if (await gaugeBtn.isVisible().catch(() => false)) {
       await gaugeBtn.click();
@@ -66,7 +66,7 @@ test.describe('Speed Limit — speed limiter menu', () => {
 
   test('KB/MB unit toggle works', async ({ page }) => {
     const gaugeBtn = page
-      .locator('[role="status"] button[title*="speed" i], [role="status"] button[title*="سرعة" i]')
+      .locator('[data-testid="status-bar"] button[title*="speed" i], [data-testid="status-bar"] button[title*="سرعة" i]')
       .first();
     if (await gaugeBtn.isVisible().catch(() => false)) {
       await gaugeBtn.click();
@@ -94,7 +94,7 @@ test.describe('Speed Limit — speed limiter menu', () => {
 
   test('enable/disable toggle exists', async ({ page }) => {
     const gaugeBtn = page
-      .locator('[role="status"] button[title*="speed" i], [role="status"] button[title*="سرعة" i]')
+      .locator('[data-testid="status-bar"] button[title*="speed" i], [data-testid="status-bar"] button[title*="سرعة" i]')
       .first();
     if (await gaugeBtn.isVisible().catch(() => false)) {
       await gaugeBtn.click();
@@ -110,7 +110,7 @@ test.describe('Speed Limit — speed limiter menu', () => {
 
   test('cancel button closes menu', async ({ page }) => {
     const gaugeBtn = page
-      .locator('[role="status"] button[title*="speed" i], [role="status"] button[title*="سرعة" i]')
+      .locator('[data-testid="status-bar"] button[title*="speed" i], [data-testid="status-bar"] button[title*="سرعة" i]')
       .first();
     if (await gaugeBtn.isVisible().catch(() => false)) {
       await gaugeBtn.click();
@@ -128,7 +128,7 @@ test.describe('Speed Limit — speed limiter menu', () => {
 
   test('apply button applies speed limit', async ({ page }) => {
     const gaugeBtn = page
-      .locator('[role="status"] button[title*="speed" i], [role="status"] button[title*="سرعة" i]')
+      .locator('[data-testid="status-bar"] button[title*="speed" i], [data-testid="status-bar"] button[title*="سرعة" i]')
       .first();
     if (await gaugeBtn.isVisible().catch(() => false)) {
       await gaugeBtn.click();
@@ -148,7 +148,7 @@ test.describe('Speed Limit — speed limiter menu', () => {
 test.describe('Speed Limit — speed display', () => {
   test('current speed limit is displayed in status bar', async ({ page }) => {
     await goto(page);
-    const statusBar = page.locator('[role="status"]').first();
+    const statusBar = page.locator('[data-testid="status-bar"]');
     const text = await statusBar.textContent();
     expect(text).toMatch(/\d/);
   });
@@ -161,7 +161,7 @@ test.describe('Speed Limit — preset values', () => {
     test(`preset "${preset}" is clickable`, async ({ page }) => {
       await goto(page);
       const gaugeBtn = page
-        .locator('[role="status"] button[title*="speed" i], [role="status"] button[title*="سرعة" i]')
+        .locator('[data-testid="status-bar"] button[title*="speed" i], [data-testid="status-bar"] button[title*="سرعة" i]')
         .first();
       if (await gaugeBtn.isVisible().catch(() => false)) {
         await gaugeBtn.click();

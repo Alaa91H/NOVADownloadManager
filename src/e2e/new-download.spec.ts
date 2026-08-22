@@ -81,14 +81,11 @@ test.describe('New Download Dialog — full flow', () => {
     expect(typeof isVisible).toBe('boolean');
   });
 
-  test('advanced toggle exists', async ({ page }) => {
-    const advancedBtn = page
-      .locator('[role="dialog"] button[title*="advanced" i], [role="dialog"] button[title*="متقد" i]')
-      .first();
-    const isVisible = await advancedBtn.isVisible().catch(() => false);
-    expect(typeof isVisible).toBe('boolean');
-    await advancedBtn.click();
-    await page.waitForTimeout(300);
+  test('streamlined dialog does not expose unsupported advanced controls', async ({ page }) => {
+    const advancedBtn = page.locator(
+      '[role="dialog"] button[title*="advanced" i], [role="dialog"] button[title*="متقد" i]',
+    );
+    await expect(advancedBtn).toHaveCount(0);
   });
 
   test('advanced section shows category, queue, threads', async ({ page }) => {

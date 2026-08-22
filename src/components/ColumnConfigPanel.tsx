@@ -134,7 +134,14 @@ const ColumnConfigPanel: React.FC<ColumnConfigPanelProps> = ({
   };
 
   return (
-    <div className="absolute top-full mt-1.5 ltr:right-0 rtl:left-0 z-[100] w-72 p-3 bg-[var(--bg-surface-elevated)] border border-[var(--border-color)] rounded-lg shadow-2xl space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
+    <div
+      role="dialog"
+      aria-label={t('col_customize_title')}
+      onClick={(event) => {
+        event.stopPropagation();
+      }}
+      className="absolute top-full mt-1.5 ltr:right-0 rtl:left-0 z-[100] w-72 p-3 bg-[var(--bg-surface-elevated)] border border-[var(--border-color)] rounded-lg shadow-2xl space-y-2 animate-in fade-in slide-in-from-top-1 duration-150"
+    >
       {/* Header with close */}
       <div className="flex items-center justify-between border-b border-[var(--border-color)] pb-2">
         <div className="flex items-center gap-1.5">
@@ -236,6 +243,8 @@ const ColumnConfigPanel: React.FC<ColumnConfigPanelProps> = ({
                     ? 'bg-[var(--accent-primary)] border-[var(--accent-primary)]'
                     : 'bg-[var(--bg-input)] border-[var(--border-color)]'
                 }`}
+                role="checkbox"
+                aria-checked={isVisible}
                 aria-label={`Toggle ${label}`}
               >
                 {isVisible && <Check className="w-2.5 h-2.5 text-white" strokeWidth={4} />}

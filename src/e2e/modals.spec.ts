@@ -47,11 +47,11 @@ test.describe('Modals — open and close', () => {
     await page.keyboard.press('Control+n');
     const dialog = page.locator('[role="dialog"]');
     await expect(dialog).toBeVisible({ timeout: 3000 });
-    const overlay = page.locator('.modal-overlay, [class*="fixed inset-0"]').first();
-    if (await overlay.isVisible().catch(() => false)) {
-      await overlay.click({ position: { x: 5, y: 5 } });
-      await page.waitForTimeout(300);
-    }
+    // The visual overlay intentionally ignores pointer events. Dispatching the
+    // document-level outside press mirrors a pointer press beyond the dialog
+    // without relying on a coordinate behind the application header.
+    await page.locator('body').dispatchEvent('mousedown');
+    await expect(dialog).not.toBeVisible({ timeout: 3000 });
   });
 
   test('dialog content prevents body scroll', async ({ page }) => {
@@ -159,7 +159,9 @@ test.describe('Dialogs — New Download Dialog content', () => {
   test.beforeEach(async ({ page }) => {
     await goto(page);
     await page.keyboard.press('Control+n');
-    await expect(page.locator('[role="dialog"]')).toBeVisible({ timeout: 3000 });
+    const dialog = page.locator('[role="dialog"]');
+    await expect(dialog).toBeVisible({ timeout: 3000 });
+    await expect(dialog.locator('input').first()).toBeVisible({ timeout: 5000 });
   });
 
   test.afterEach(async ({ page }) => {
@@ -234,15 +236,12 @@ test.describe('Dialogs — New Download Dialog content', () => {
     }
   });
 
-  test('clicking Download Now without URL shows validation', async ({ page }) => {
+  test('Download Now is disabled without a URL', async ({ page }) => {
     const downloadBtn = page
       .locator('[role="dialog"] button')
       .filter({ hasText: /download now|بدء|تنزيل/i })
       .first();
-    if (await downloadBtn.isVisible().catch(() => false)) {
-      await downloadBtn.click();
-      await page.waitForTimeout(500);
-    }
+    await expect(downloadBtn).toBeDisabled();
   });
 
   test('advanced section shows category, queue, threads selectors', async ({ page }) => {

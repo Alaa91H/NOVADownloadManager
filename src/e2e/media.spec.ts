@@ -172,15 +172,12 @@ test.describe('Media Download — start download', () => {
     expect(typeof isVisible).toBe('boolean');
   });
 
-  test('clicking Start without URL shows validation', async ({ page }) => {
+  test('Start is disabled without a URL', async ({ page }) => {
     const startBtn = page
       .locator('button')
       .filter({ hasText: /start download|بدء|تنزيل/i })
       .first();
-    if (await startBtn.isVisible().catch(() => false)) {
-      await startBtn.click();
-      await page.waitForTimeout(500);
-    }
+    await expect(startBtn).toBeDisabled();
   });
 });
 

@@ -232,6 +232,7 @@ export const StatusBar: React.FC = () => {
 
   return (
     <footer
+      data-testid="status-bar"
       className="bg-[var(--bg-sidebar)] border-t border-[var(--border-color)] h-9 px-2 flex items-center justify-between gap-1 text-[11px] font-semibold text-[var(--text-secondary)] select-none shrink-0"
       style={{ direction: 'ltr' }}
     >

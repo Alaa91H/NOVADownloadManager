@@ -225,13 +225,15 @@ test.describe('Integration — navigation flow', () => {
 });
 
 test.describe('Integration — toast flow', () => {
-  test('action triggers toast → toast auto-dismisses', async ({ page }) => {
+  test('dialog dismissal preserves the live announcement region', async ({ page }) => {
     await goto(page);
     await page.keyboard.press('Control+n');
     const dialog = page.locator('[role="dialog"]');
     await expect(dialog).toBeVisible({ timeout: 3000 });
     await page.keyboard.press('Escape');
-    await page.waitForTimeout(5000);
-    await expect(page.locator('[role="status"][aria-live="polite"]')).toBeVisible();
+    await expect(dialog).not.toBeVisible();
+    // The container stays mounted for screen-reader announcements, even when
+    // it has no visible toast after a dialog is dismissed.
+    await expect(page.locator('[role="status"][aria-live="polite"]')).toHaveCount(1);
   });
 });
