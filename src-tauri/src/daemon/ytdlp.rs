@@ -1282,8 +1282,10 @@ mod tests {
 
     #[test]
     fn ytdlp_rejects_internal_proxy() {
-        let mut options = MediaDownloadOptions::default();
-        options.proxy = Some("http://127.0.0.1:8080".to_owned());
+        let options = MediaDownloadOptions {
+            proxy: Some("http://127.0.0.1:8080".to_owned()),
+            ..Default::default()
+        };
 
         let error = build_ytdlp_args_with_engines(&media_body(options), None)
             .expect_err("internal proxy must be rejected");
