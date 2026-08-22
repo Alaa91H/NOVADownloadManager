@@ -19,10 +19,18 @@ const env = {
   NOVA_LIBCURL_FEATURE_PROFILE: manifest.featureProfile || 'maximum-stable',
   NOVA_LIBCURL_LINK_MODE: 'static-ci-built-from-curl-curl',
   PKG_CONFIG_PATH: manifest.pkgConfigPath,
-  PATH: `${join(manifest.prefix, 'bin')}:$PATH`,
   PKG_CONFIG_ALL_STATIC: '1',
   PKG_CONFIG_ALLOW_CROSS: '1',
 };
+
+// GitHub Actions writes this script's output directly to GITHUB_ENV on
+// Windows. A POSIX `$PATH` literal there replaces the runner path and hides
+// cargo. curl-sys discovers the Windows library through vcpkg/pkg-config, so
+// only Unix builds need curl-config prepended for native-prefix discovery.
+if (process.platform !== 'win32') {
+  env.PATH = `${join(manifest.prefix, 'bin')}:$PATH`;
+}
+
 for (const [key, value] of Object.entries(env)) {
   console.log(`${key}=${value}`);
 }
