@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dependencies.** This gives the integration daemon access to the required
   GTK/GObject development metadata before browser E2E tests start, preventing
   release verification from failing on a clean runner.
+- **Cold release runners receive a realistic daemon startup allowance.** The
+  integration health check now waits long enough for the first Rust/Tauri build
+  before declaring browser E2E startup unsuccessful.
 
 ### Security
 

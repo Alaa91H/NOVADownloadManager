@@ -28,7 +28,9 @@ export default defineConfig({
       env: { ...process.env, NOVA_INTEGRATION_API_TOKEN: integrationApiToken },
       url: 'http://127.0.0.1:3199/api/health',
       reuseExistingServer: !process.env.CI,
-      timeout: 120000,
+      // A clean release-tag runner compiles the Rust/Tauri daemon before the
+      // health endpoint exists; its first build routinely exceeds two minutes.
+      timeout: 600000,
     },
     {
       command: 'pnpm run dev',
