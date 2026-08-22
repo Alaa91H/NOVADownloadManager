@@ -227,6 +227,11 @@ jobs:
         continue-on-error: true
         run: pnpm run audit:final
 
+      - name: Verify project documentation facts
+        id: facts_verify
+        continue-on-error: true
+        run: pnpm run facts:verify
+
       - name: Browser extension typecheck
         id: ext_typecheck
         continue-on-error: true
@@ -293,6 +298,7 @@ jobs:
             printf "%-9s %s\n" "$icon" "$name"
           }
           check "Final source audit"               "${{ steps.audit_final.outcome }}"
+          check "Project documentation facts"       "${{ steps.facts_verify.outcome }}"
           check "Browser extension typecheck"       "${{ steps.ext_typecheck.outcome }}"
           check "Browser extension release checks"  "${{ steps.ext_release_checks.outcome }}"
           check "Browser extension production build" "${{ steps.ext_build.outcome }}"

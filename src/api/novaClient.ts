@@ -1,5 +1,7 @@
 import type { DownloadItem } from '../types/desktop-ui.types';
 import { logger } from '../utils/logger';
+import type { EngineCapabilitiesResponse } from './engineCapabilities';
+import { parseEngineCapabilitiesResponse } from './engineCapabilities';
 import type { DiagnosticData } from './tauriClient';
 
 interface NovaHealth {
@@ -282,8 +284,8 @@ export const novaClient = {
     return request<NovaHealth>('/api/health', undefined, 8000);
   },
 
-  async engineCapabilities(): Promise<unknown> {
-    return request<unknown>('/api/engines/capabilities', undefined, 8000);
+  async engineCapabilities(): Promise<EngineCapabilitiesResponse> {
+    return parseEngineCapabilitiesResponse(await request<unknown>('/api/engines/capabilities', undefined, 8000));
   },
 
   async diagnostics(): Promise<DiagnosticData> {

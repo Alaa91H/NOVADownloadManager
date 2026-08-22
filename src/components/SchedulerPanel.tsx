@@ -581,10 +581,10 @@ export const SchedulerPanel: React.FC = () => {
       </div>
 
       {/* 2. SIDEBAR + CONTENT */}
-      <div className="flex flex-row flex-1 min-h-0 overflow-hidden gap-4" dir="ltr">
+      <div className="flex flex-row flex-1 min-h-0 overflow-hidden gap-4">
         <SchedulerSidebar activeTab={activeTab} onChange={setActiveTab} fileCount={filteredTasks.length} />
 
-        <div className="flex-1 overflow-y-auto pr-1 pl-1 scrollbar-thin flex flex-col min-h-0" dir={'ltr'}>
+        <div className="flex-1 overflow-y-auto px-1 scrollbar-thin flex flex-col min-h-0">
           {activeTab === 'files' && (
             <SchedulerFilesTab
               filteredTasks={filteredTasks}

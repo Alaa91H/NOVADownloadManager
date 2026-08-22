@@ -26,7 +26,7 @@ export const DiagnosticsDialog: React.FC = () => {
   }, []);
 
   return (
-    <div className="space-y-4 text-left" dir="ltr">
+    <div className="space-y-4 text-start">
       <div className="flex items-center justify-between border-b border-[var(--border-color)] pb-2">
         <p className="text-[11px] text-[var(--text-muted)]">
           Report refreshed through the local service diagnostics API.

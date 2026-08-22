@@ -548,7 +548,6 @@ const AppShellInner: React.FC = () => {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       className="flex flex-col h-screen w-screen overflow-hidden bg-[var(--bg-app)] text-[var(--text-primary)] relative"
-      dir="ltr"
     >
       {/* Visual Drag and Drop Overlay */}
       {isDraggingOver && (

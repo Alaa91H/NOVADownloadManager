@@ -134,7 +134,7 @@ export const BrowserIntegrationDialog: React.FC = () => {
   const devFirefoxPath = extensionPaths ? `${extensionPaths.devPath}\\dist\\firefox` : '';
 
   return (
-    <div className="space-y-4 text-left text-ui" dir="ltr">
+    <div className="space-y-4 text-start text-ui">
       <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-start border border-[var(--border-color)] rounded-lg bg-[var(--bg-hover)]/40 p-3">
         <div className="flex items-start gap-2.5">
           <ShieldCheck className="w-5 h-5 text-[var(--accent-primary)] shrink-0 mt-0.5" />

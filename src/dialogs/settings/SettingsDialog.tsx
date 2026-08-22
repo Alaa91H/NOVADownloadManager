@@ -165,7 +165,7 @@ export const SettingsDialog: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col h-full min-h-0 text-left" dir="ltr">
+    <div className="flex flex-col h-full min-h-0 text-start">
       <div className="flex items-center justify-end border-b border-[var(--border-color)] pb-3 mb-4 gap-3">
         <div className="relative w-full sm:w-72">
           <input
@@ -175,7 +175,7 @@ export const SettingsDialog: React.FC = () => {
               setSearchQuery(e.target.value);
             }}
             placeholder={t('set_search_placeholder')}
-            className="w-full bg-[var(--bg-hover)] border border-[var(--border-color)] hover:border-[var(--border-color-hover)] focus:border-[var(--accent-primary)] focus:ring-1 focus:ring-[var(--accent-primary)] rounded-lg px-3 py-1.5 pr-8 text-left text-xs font-semibold text-[var(--text-primary)]"
+            className="w-full bg-[var(--bg-hover)] border border-[var(--border-color)] hover:border-[var(--border-color-hover)] focus:border-[var(--accent-primary)] focus:ring-1 focus:ring-[var(--accent-primary)] rounded-lg px-3 py-1.5 pe-8 text-start text-xs font-semibold text-[var(--text-primary)]"
           />
           {searchQuery ? (
             <button
@@ -183,19 +183,19 @@ export const SettingsDialog: React.FC = () => {
               onClick={() => {
                 setSearchQuery('');
               }}
-              className="absolute right-2 top-1.5 p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+              className="absolute end-2 top-1.5 p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
               title={t('set_search_clear')}
             >
               <X className="w-3.5 h-3.5" />
             </button>
           ) : (
-            <Search className="w-3.5 h-3.5 absolute right-2.5 top-2.5 text-[var(--text-muted)]" />
+            <Search className="w-3.5 h-3.5 absolute end-2.5 top-2.5 text-[var(--text-muted)]" />
           )}
         </div>
       </div>
 
       <div className="flex flex-row flex-1 min-h-0 overflow-hidden gap-4">
-        <div className="w-48 shrink-0 border-r pr-2 border-[var(--border-color)] overflow-y-auto scrollbar-none select-none flex flex-col gap-1">
+        <div className="w-48 shrink-0 border-e pe-2 border-[var(--border-color)] overflow-y-auto scrollbar-none select-none flex flex-col gap-1">
           {filteredTabs.map((tab) => {
             const TabIcon = tab.icon;
             const isSelected = activeTab === tab.id;
@@ -206,7 +206,7 @@ export const SettingsDialog: React.FC = () => {
                 onClick={() => {
                   setActiveTab(tab.id);
                 }}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all duration-150 hover:scale-[1.02] active:scale-[0.98] text-xs font-bold text-left w-full border ${
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all duration-150 hover:scale-[1.02] active:scale-[0.98] text-xs font-bold text-start w-full border ${
                   isSelected
                     ? 'text-[var(--accent-primary)] bg-[var(--accent-primary)]/10 font-extrabold border-[var(--accent-border)]'
                     : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)]'
@@ -222,7 +222,7 @@ export const SettingsDialog: React.FC = () => {
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto pr-1 pl-1 scrollbar-thin" dir="ltr">
+        <div className="flex-1 overflow-y-auto px-1 scrollbar-thin">
           {activeTab === 'general' && <GeneralSettings settings={localSettings} updateSetting={updateLocalSetting} />}
           {activeTab === 'downloads' && (
             <DownloadSettings

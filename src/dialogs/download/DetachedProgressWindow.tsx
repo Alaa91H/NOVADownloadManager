@@ -61,10 +61,7 @@ export const DetachedProgressWindow: React.FC<{ taskId: string }> = ({ taskId })
   }, [task, progress.indeterminate, progress.percent, t]);
 
   return (
-    <div
-      className="flex flex-col h-screen w-screen overflow-hidden bg-[var(--bg-app)] text-[var(--text-primary)]"
-      dir="ltr"
-    >
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[var(--bg-app)] text-[var(--text-primary)]">
       {/* Custom draggable title bar */}
       <div
         data-tauri-drag-region

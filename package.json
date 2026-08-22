@@ -54,6 +54,7 @@
     "ci:audit": "pnpm run audit:final && pnpm run audit:installer",
     "ci:test": "pnpm run test && pnpm run test:coverage",
     "security:check": "node scripts/security-check.mjs",
+    "facts:verify": "node scripts/verify-project-facts.mjs",
     "deps:check-updates": "node scripts/check-updates.mjs"
   },
   "dependencies": {

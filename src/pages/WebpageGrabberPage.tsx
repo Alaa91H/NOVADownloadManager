@@ -100,7 +100,7 @@ export const WebpageGrabberPage: React.FC = () => {
   const validPreviewUrl = url.trim().startsWith('http');
 
   return (
-    <div className="app-page flex-1 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-app)]" dir="ltr">
+    <div className="app-page flex-1 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-app)]">
       {/* HEADER */}
       <div className="flex items-center gap-3 px-3 py-2 border-b border-[var(--border-color)] bg-[var(--bg-sidebar)] shrink-0 select-none">
         <button type="button" onClick={handleBack} className="toolbar-btn shrink-0" title={t('page_back_tip')}>

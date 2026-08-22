@@ -4,7 +4,7 @@ import React, { useEffect, useRef } from 'react';
 import type { DownloadItem, AppSettings } from '../types/desktop-ui.types';
 import { tauriClient, getDaemonUrl, getDaemonToken } from '../api/tauriClient';
 import { novaClient, setApiBase, setAuthToken } from '../api/novaClient';
-import { isLanguageLoaded, loadLanguage } from '../lib/i18n/translations';
+import { usePresentationSettingsEffects } from './effects/usePresentationSettingsEffects';
 import { playAppSound } from '../utils/sound';
 import { logger } from '../utils/logger';
 import { isDetachedWindow } from '../utils/windowMode';
@@ -75,6 +75,8 @@ const isQueueInScheduleWindow = (
 };
 
 function EffectsProvider({ children }: { children: ReactNode }) {
+  usePresentationSettingsEffects();
+
   const activeScheduleWindowsRef = useRef<Record<string, boolean>>({});
   const displayedCaptureReviewIdRef = useRef<string | null>(null);
   const captureReviewPollInFlightRef = useRef(false);
@@ -152,78 +154,6 @@ function EffectsProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
       window.clearInterval(interval);
-    };
-  }, []);
-
-  // Theme
-  useEffect(() => {
-    const unsub = settingsStore.subscribe((state, prev) => {
-      if (
-        state.themeSettings !== prev.themeSettings ||
-        state.settings.extra.language !== prev.settings.extra.language
-      ) {
-        applyTheme(state.themeSettings, state.settings.extra.language || 'en');
-      }
-    });
-    const { themeSettings, settings } = settingsStore.getState();
-    applyTheme(themeSettings, settings.extra.language || 'en');
-    return unsub;
-  }, []);
-
-  // i18n
-  useEffect(() => {
-    const unsub = settingsStore.subscribe((state, prev) => {
-      if (state.settings.extra.language !== prev.settings.extra.language) {
-        const lang = state.settings.extra.language || 'en';
-        if (!isLanguageLoaded(lang)) {
-          void loadLanguage(lang).then(() => {
-            settingsStore.getState().incrementI18nRevision();
-          });
-        }
-      }
-    });
-    const lang = settingsStore.getState().settings.extra.language || 'en';
-    if (!isLanguageLoaded(lang)) {
-      void loadLanguage(lang).then(() => {
-        settingsStore.getState().incrementI18nRevision();
-      });
-    }
-    return unsub;
-  }, []);
-
-  // Initialize logger from settings
-  useEffect(() => {
-    const { loggingEnabled, logLevel } = settingsStore.getState().settings.advanced;
-    logger.setEnabled(loggingEnabled);
-    logger.setMinLevel(logLevel);
-    logger.info('AppStore', 'Application initialized', {
-      loggingEnabled,
-      logLevel,
-      timestamp: new Date().toISOString(),
-    });
-
-    const unsub = settingsStore.subscribe((state, prev) => {
-      if (state.settings.advanced !== prev.settings.advanced) {
-        const { loggingEnabled: en, logLevel: ll } = state.settings.advanced;
-        logger.setEnabled(en);
-        logger.setMinLevel(ll);
-      }
-    });
-    return unsub;
-  }, []);
-
-  // Settings persistence
-  useEffect(() => {
-    let pendingCleanup: (() => void) | null = null;
-    const unsub = settingsStore.subscribe((state, prev) => {
-      if (state.settings !== prev.settings || state.themeSettings !== prev.themeSettings) {
-        pendingCleanup?.();
-        pendingCleanup = persistSettings(state.settings, state.themeSettings);
-      }
-    });
-    return () => {
-      pendingCleanup?.();
-      unsub();
     };
   }, []);
 
@@ -747,42 +677,6 @@ function EffectsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return <>{children}</>;
-}
-
-function applyTheme(
-  themeSettings: { theme: string; density: string; accent: string; progress: string; contrast: string },
-  language: string,
-) {
-  const root = document.documentElement;
-  let activeTheme = themeSettings.theme;
-  if (activeTheme === 'system') {
-    activeTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  }
-  root.setAttribute('data-theme', activeTheme);
-  root.setAttribute('data-density', themeSettings.density);
-  root.setAttribute('data-accent', themeSettings.accent);
-  root.setAttribute('data-progress', themeSettings.progress);
-  root.setAttribute('data-contrast', themeSettings.contrast);
-  root.setAttribute('dir', 'ltr');
-  root.setAttribute('lang', language || 'en');
-}
-
-function persistSettings(
-  settings: AppSettings,
-  themeSettings: { theme: string; density: string; accent: string; progress: string; contrast: string },
-) {
-  const timer = setTimeout(() => {
-    const safeSettings = {
-      ...settings,
-      connection: { ...settings.connection, proxyUser: '', proxyPass: '' },
-      extra: { ...settings.extra, tgBotToken: '', tgChatId: '', smtpUser: '', smtpPass: '' },
-    };
-    localStorage.setItem('nova_settings_v1', JSON.stringify(safeSettings));
-    localStorage.setItem('nova_theme_settings_v1', JSON.stringify(themeSettings));
-  }, 300);
-  return () => {
-    clearTimeout(timer);
-  };
 }
 
 function pushBrowserConfig(status: string) {

@@ -10,6 +10,7 @@ const I18N_DIR = join(ROOT, 'src', 'lib', 'i18n');
 const STAGING_DIR = join(ROOT, '.cache', 'i18n-staging');
 const entries = Object.entries(en);
 const sourceKeys = Object.keys(en);
+const RTL_LANGUAGE_CODES = new Set(['ar', 'ckb', 'dv', 'fa', 'he', 'ps', 'sd', 'ug', 'ur', 'yi']);
 
 // Load the project Prettier config once so generated files match committed style.
 const prettierOptions = await prettier.resolveConfig(join(ROOT, '.prettierrc'));
@@ -28,10 +29,7 @@ function fileStem(code) {
 }
 
 function escapeTs(value) {
-  return String(value)
-    .replace(/\\/g, '\\\\')
-    .replace(/'/g, "\\'")
-    .replace(/\r?\n/g, '\\n');
+  return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\r?\n/g, '\\n');
 }
 
 function writeEnglishFallback(lang, targetDir) {
@@ -40,7 +38,7 @@ function writeEnglishFallback(lang, targetDir) {
     `export const ${name}: Record<string, string> = {`,
     ...entries.map(([key, value]) => `  '${escapeTs(key)}': '${escapeTs(value)}',`),
     '};',
-    ''
+    '',
   ];
   return writeFormatted(join(targetDir, `${fileStem(lang.code)}.ts`), lines.join('\n'));
 }
@@ -49,10 +47,26 @@ function writeMetadata(targetDir) {
   const lines = [
     "import type { Language } from './translations';",
     '',
-    'export const LANGUAGE_METADATA: Array<{ value: Language; label: string; subLabel: string }> = [',
-    ...LANGUAGES.map(lang => `  { value: '${escapeTs(lang.code)}' as Language, label: '${escapeTs(lang.label)}', subLabel: '${escapeTs(lang.label)}' },`),
+    "export type TextDirection = 'ltr' | 'rtl';",
+    '',
+    'export interface LanguageMetadata {',
+    '  value: Language;',
+    '  label: string;',
+    '  subLabel: string;',
+    '  direction: TextDirection;',
+    '}',
+    '',
+    'export const LANGUAGE_METADATA: LanguageMetadata[] = [',
+    ...LANGUAGES.map((lang) => {
+      const direction = RTL_LANGUAGE_CODES.has(lang.code) ? 'rtl' : 'ltr';
+      return `  { value: '${escapeTs(lang.code)}' as Language, label: '${escapeTs(lang.label)}', subLabel: '${escapeTs(lang.label)}', direction: '${direction}' },`;
+    }),
     '];',
-    ''
+    '',
+    'export function getLanguageDirection(language: string): TextDirection {',
+    "  return LANGUAGE_METADATA.find(entry => entry.value === language)?.direction ?? 'ltr';",
+    '}',
+    '',
   ];
   return writeFormatted(join(targetDir, 'languageMetadata.ts'), lines.join('\n'));
 }
@@ -110,7 +124,7 @@ function writeTranslationsIndex(targetDir) {
     '  }',
     '  return text;',
     '}',
-    ''
+    '',
   ];
   return writeFormatted(join(targetDir, 'translations.ts'), lines.join('\n'));
 }
@@ -119,12 +133,12 @@ function writeLanguagesFacade() {
   const lines = [
     "import { LANGUAGE_METADATA } from './i18n/languageMetadata';",
     '',
-    "export const WORLD_LANGUAGES = [...LANGUAGE_METADATA].sort((a, b) => {",
+    'export const WORLD_LANGUAGES = [...LANGUAGE_METADATA].sort((a, b) => {',
     "  if (a.value === 'en') return -1;",
     "  if (b.value === 'en') return 1;",
     '  return a.label.localeCompare(b.label);',
     '});',
-    ''
+    '',
   ];
   return writeFormatted(join(ROOT, 'src', 'lib', 'languages.ts'), lines.join('\n'));
 }
@@ -138,7 +152,7 @@ for (const lang of LANGUAGES) {
   const staged = join(STAGING_DIR, `${fileStem(lang.code)}.ts`);
   if (existsSync(staged)) {
     const stagedDict = await loadDict(lang.code, STAGING_DIR);
-    const stagedIsCurrent = stagedDict && sourceKeys.every(key => key in stagedDict);
+    const stagedIsCurrent = stagedDict && sourceKeys.every((key) => key in stagedDict);
     if (stagedIsCurrent) {
       copyFileSync(staged, target);
       translatedCount += 1;
@@ -163,4 +177,6 @@ await writeTranslationsIndex(I18N_DIR);
 await writeLanguagesFacade();
 
 const staleNote = staleStagedCount > 0 ? ` Ignored ${staleStagedCount} stale staged file(s).` : '';
-console.log(`[i18n:sync] Synced ${translatedCount}/${LANGUAGES.length} translated files. Missing languages use English fallback until i18n:update -- --resume completes.${staleNote}`);
+console.log(
+  `[i18n:sync] Synced ${translatedCount}/${LANGUAGES.length} translated files. Missing languages use English fallback until i18n:update -- --resume completes.${staleNote}`,
+);

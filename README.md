@@ -253,7 +253,7 @@ This runtime-verified model keeps the product predictable, debuggable, and safe 
 - Dark-first design system with 6 themes (Dark, Midnight, Graphite, Nord, Solar, Light) and 5 accent colors (Blue, Emerald, Amber, Crimson, Violet).
 - 3 density modes (Compact, Dense, Normal) with reduced-motion support.
 - Glassmorphism panels, custom scrollbars, and CSS containment for optimal rendering performance.
-- 35 supported interface languages with lazy-loaded translation chunks.
+- 132 supported interface languages with lazy-loaded translation chunks.
 - Download queues, scheduling, batch import, and smart categories.
 - Active progress dialog, task properties, diagnostics panel, and comprehensive settings.
 
@@ -326,7 +326,7 @@ The central principle is that all user-facing controls are derived from engine c
 │  └─ release/                      Release, store, testing, and publishing docs
 ├─ public/                          Desktop public assets (favicons)
 ├─ scripts/                         Build, audit, native curl, cleanup, and release helpers
-├─ src/                             Desktop React interface (35 languages, 6 themes)
+├─ src/                             Desktop React interface (132 languages, 6 themes)
 ├─ src-tauri/                       Rust daemon, libcurl engine, NSIS config, icons
 ├─ .editorconfig                    Repository-wide editor rules
 ├─ .gitattributes                   Line-ending and binary file policy
@@ -352,13 +352,13 @@ The browser extension is a product submodule in source layout only. It no longer
 
 ## Requirements
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| Node.js | 24.x | Frontend build, scripts, extension |
-| pnpm | 11.x | Package manager (workspace) |
-| Rust | stable | Daemon, libcurl engine, Tauri |
-| CMake | 3.x | Native libcurl builds |
-| FFmpeg | 7.x | Media post-processing (bundled at build time) |
+| Tool    | Version | Purpose                                       |
+| ------- | ------- | --------------------------------------------- |
+| Node.js | 24.x    | Frontend build, scripts, extension            |
+| pnpm    | 11.x    | Package manager (workspace)                   |
+| Rust    | stable  | Daemon, libcurl engine, Tauri                 |
+| CMake   | 3.x     | Native libcurl builds                         |
+| FFmpeg  | 7.x     | Media post-processing (bundled at build time) |
 
 Node.js and pnpm versions are pinned by `.node-version` and `packageManager` in `package.json`. The Rust edition is 2021 with minimum version 1.77.
 
@@ -366,13 +366,13 @@ Node.js and pnpm versions are pinned by `.node-version` and `packageManager` in 
 
 Every release is built natively for each operating system and CPU architecture — no cross-compilation, no emulation at build time.
 
-| OS | Architectures | Packages |
-|----|---------------|----------|
-| Windows 10 / 11 | x64, ARM64 | NSIS installer (`.exe`) |
-| macOS | Intel (x64), Apple Silicon (ARM64) | `.dmg`, `.app` |
-| Linux — Debian, Ubuntu, Linux Mint, Pop!\_OS, elementary | x64, ARM64 | `.deb` |
-| Linux — Fedora, RHEL, CentOS Stream, openSUSE | x64, ARM64 | `.rpm` |
-| Linux — Arch, Gentoo, and any other distribution | x64, ARM64 | AppImage (universal, no install needed) |
+| OS                                                       | Architectures                      | Packages                                |
+| -------------------------------------------------------- | ---------------------------------- | --------------------------------------- |
+| Windows 10 / 11                                          | x64, ARM64                         | NSIS installer (`.exe`)                 |
+| macOS                                                    | Intel (x64), Apple Silicon (ARM64) | `.dmg`, `.app`                          |
+| Linux — Debian, Ubuntu, Linux Mint, Pop!\_OS, elementary | x64, ARM64                         | `.deb`                                  |
+| Linux — Fedora, RHEL, CentOS Stream, openSUSE            | x64, ARM64                         | `.rpm`                                  |
+| Linux — Arch, Gentoo, and any other distribution         | x64, ARM64                         | AppImage (universal, no install needed) |
 
 All artifacts ship with SHA-256 checksums and build metadata.
 
@@ -447,8 +447,8 @@ lto = "fat"              # Whole-program link-time optimization
 codegen-units = 1        # Single codegen unit for maximum optimization
 strip = "symbols"        # Strip debug symbols from binary
 opt-level = 3            # Maximum optimization level
-panic = "abort"          # No unwinding overhead
-overflow-checks = false  # No bounds-check overhead in release
+panic = "unwind"             # Preserves controlled panic recovery and diagnostics
+overflow-checks = true    # Retains arithmetic safety checks in release builds
 debug = false            # No debug info in release
 incremental = false      # Full rebuild for release
 
@@ -461,7 +461,7 @@ opt-level = 3            # Optimize all dependencies
 - CSS `will-change: transform` on animated interactive elements for GPU compositing.
 - CSS `contain: layout style` on table rows, glass panels, and segment blocks for layout isolation.
 - `text-rendering: optimizeLegibility` and `font-feature-settings` with tabular numerals (`tnum`) for download statistics.
-- Lazy-loaded i18n translation chunks (35 languages, loaded on demand).
+- Lazy-loaded i18n translation chunks (132 languages, loaded on demand).
 - Manual chunk splitting: `vendor` (React), `ui` (Lucide icons).
 
 ### HTTP client tuning
@@ -511,7 +511,7 @@ cargo test --manifest-path src-tauri/Cargo.toml \
 The source audit enforces:
 
 - `lto = "fat"` in the release profile
-- `overflow-checks = false` for release builds
+- `overflow-checks = true` for release builds
 - `[profile.release.package."*"]` for dependency optimization
 - Panic hook in `main.rs` for crash diagnostics
 - No committed `node_modules`, `dist/`, `target/`, or generated bundles
@@ -557,7 +557,7 @@ CI fallback builds use SemVer build metadata (`v0.1.0+<run>`) instead of prerele
 
 ## Internationalization
 
-NOVA supports **35 interface languages** with lazy-loaded translation chunks:
+NOVA supports **132 interface languages** with lazy-loaded translation chunks:
 
 English, Arabic, Bengali, Bulgarian, Chinese (Simplified), Chinese (Traditional), Czech, Danish, Dutch, Finnish, French, German, Greek, Hebrew, Hindi, Hungarian, Indonesian, Italian, Japanese, Korean, Malay, Norwegian, Persian, Polish, Portuguese, Romanian, Russian, Slovak, Spanish, Swedish, Thai, Turkish, Ukrainian, Urdu, Vietnamese.
 
@@ -584,9 +584,9 @@ All documentation except this root README is centralized under [`docs/`](docs/RE
 - [Dependabot and maintenance](docs/maintenance/DEPENDABOT_AND_MAINTENANCE.md)
 - [Managed tools and browser extension verification](docs/verification/MANAGED_TOOLS_AND_EXTENSION_VERIFICATION_2026-08-20.md)
 - [yt-dlp installation source notes](docs/research/ytdlp-installation-sources.md)
-- [Release process](docs/release/RELEASE.md) *(coming soon)*
-- [Testing](docs/release/TESTING.md) *(coming soon)*
-- [Store compliance](docs/release/STORE_COMPLIANCE.md) *(coming soon)*
+- [Release process](docs/release/RELEASE.md) _(coming soon)_
+- [Testing](docs/release/TESTING.md) _(coming soon)_
+- [Store compliance](docs/release/STORE_COMPLIANCE.md) _(coming soon)_
 
 ## Support and community
 
