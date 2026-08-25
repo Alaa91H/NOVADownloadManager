@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.23-alpha] - 2026-08-25
+
+### Fixed
+
+- **External-tool PATH discovery now ignores non-executable shadow files.** A
+  regular file without executable permission can no longer prevent NOVA from
+  finding a valid `yt-dlp` or FFmpeg binary in a later PATH directory. This
+  avoids false-negative tool health checks and makes managed tool activation
+  more reliable on Unix-like systems.
+
+### Fixed
+
+- **Production Tauri builds now load the verified native libcurl environment.**
+  The build command passes the generated prefix, package metadata, and static
+  pkg-config settings directly to Tauri, avoiding accidental fallback to an
+  incomplete system libcurl link line.
+- **Local packaging no longer rolls back the declared version to an older Git
+  tag.** Version stamping remains an explicit release operation, while the
+  build command consistently honors the versions already present in the source
+  manifests.
+- **Linux AppImage retries start from a clean generated staging directory.**
+  This prevents stale GTK-plugin symlinks from a failed linuxdeploy run from
+  contaminating a subsequent packaging attempt; the tool is also run in its
+  supported extraction mode where FUSE is unavailable.
+
+### Quality
+
+- Added an isolated Rust regression test that proves PATH resolution skips a
+  non-executable candidate and selects the subsequent executable candidate
+  without mutating the process-wide PATH.
+- Synchronized the desktop application, Rust package, Tauri configuration,
+  browser extension, and extension manifest at `2.4.23-alpha`.
+
 ## [2.4.22-alpha] - 2026-08-22
 
 ### Fixed
@@ -132,7 +165,8 @@ Initial development baseline:
   lifecycle and Native Messaging registration.
 - Runtime capability gating across desktop UI, extension, and daemon.
 
-[Unreleased]: https://github.com/Alaa91H/NOVADownloadManager/compare/v2.4.22-alpha...HEAD
+[Unreleased]: https://github.com/Alaa91H/NOVADownloadManager/compare/v2.4.23-alpha...HEAD
+[2.4.23-alpha]: https://github.com/Alaa91H/NOVADownloadManager/compare/v2.4.22-alpha...v2.4.23-alpha
 [2.4.22-alpha]: https://github.com/Alaa91H/NOVADownloadManager/compare/v2.4.21-alpha...v2.4.22-alpha
 [2.4.21-alpha]: https://github.com/Alaa91H/NOVADownloadManager/compare/v2.4.20-alpha...v2.4.21-alpha
 [0.1.0]: https://github.com/Alaa91H/NOVADownloadManager/releases/tag/v0.1.0

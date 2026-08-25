@@ -84,8 +84,12 @@ fn is_executable_path(path: &std::path::Path) -> bool {
 fn which_on_path(name: &str) -> Option<PathBuf> {
     // Manually search PATH to avoid CWD hijack on Windows (where.exe checks CWD first)
     let path_var = std::env::var_os("PATH")?;
+    which_on_path_in(&path_var, name)
+}
+
+fn which_on_path_in(path_var: &std::ffi::OsStr, name: &str) -> Option<PathBuf> {
     let is_windows = cfg!(target_os = "windows");
-    for dir in std::env::split_paths(&path_var) {
+    for dir in std::env::split_paths(path_var) {
         // Skip empty entries (which represent CWD on Windows)
         if dir.as_os_str().is_empty() || dir == std::path::Path::new(".") {
             continue;
@@ -100,7 +104,10 @@ fn which_on_path(name: &str) -> Option<PathBuf> {
         } else {
             dir.join(name)
         };
-        if candidate.exists() && candidate.is_file() {
+        // A regular but non-executable file must not shadow a valid tool in a
+        // later PATH entry. Returning it would make the health probe fail with
+        // a permission error and incorrectly hide the usable candidate.
+        if candidate.is_file() && is_executable_path(&candidate) {
             return Some(candidate);
         }
     }
@@ -109,7 +116,7 @@ fn which_on_path(name: &str) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::discover_tool;
+    use super::{discover_tool, which_on_path_in};
     use crate::daemon::external_tools::tools::yt_dlp::YtDlpTool;
     use crate::daemon::external_tools::types::{ToolRegistry, ToolRegistryEntry};
     use crate::daemon::external_tools::ToolId;
@@ -149,6 +156,41 @@ mod tests {
                 .map(|candidate| candidate.source.as_str()),
             Some("registry (managed)")
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn path_lookup_skips_non_executable_file_before_executable_candidate() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock is before the Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("nova-path-lookup-{nonce}"));
+        let blocked_dir = root.join("blocked");
+        let valid_dir = root.join("valid");
+        fs::create_dir_all(&blocked_dir).expect("create blocked directory");
+        fs::create_dir_all(&valid_dir).expect("create valid directory");
+
+        let blocked = blocked_dir.join("yt-dlp");
+        let valid = valid_dir.join("yt-dlp");
+        fs::write(&blocked, "#!/bin/sh\nexit 0\n").expect("write blocked candidate");
+        fs::write(&valid, "#!/bin/sh\nexit 0\n").expect("write valid candidate");
+        fs::set_permissions(&blocked, fs::Permissions::from_mode(0o644))
+            .expect("make blocked candidate non-executable");
+        fs::set_permissions(&valid, fs::Permissions::from_mode(0o755))
+            .expect("make valid candidate executable");
+
+        let path = std::env::join_paths([&blocked_dir, &valid_dir]).expect("compose PATH");
+        assert_eq!(
+            which_on_path_in(path.as_os_str(), "yt-dlp"),
+            Some(valid.clone())
+        );
+
+        fs::remove_dir_all(root).expect("remove temporary lookup directories");
     }
 
     #[test]
