@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   metadata converts a semantic prerelease label to its equivalent numeric
   prerelease identifier, as required by WiX/MSI, while the application and
   browser-extension packages retain the full user-facing semantic version.
+- **Linux CI dependency installation now retries safely after mirror rotation.**
+  A bounded helper refreshes stale APT indexes and retries package downloads,
+  preventing transient Ubuntu archive 404 responses from failing ARM64 builds.
 
 ### Quality
 
