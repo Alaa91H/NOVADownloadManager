@@ -4,6 +4,7 @@ import {
   expandUrlList,
   countUrlPattern,
   countUrlList,
+  deduplicateUrlList,
   MAX_EXPANDED_URLS,
 } from '../urlPatternExpander';
 
@@ -92,6 +93,36 @@ describe('countUrlList', () => {
   it('throws when lines together exceed the cap, like expansion', () => {
     const half = `file[1-${String(MAX_EXPANDED_URLS / 2 + 1)}].zip`;
     expect(() => countUrlList(`${half}\n${half}`)).toThrow(RangeError);
+  });
+});
+
+describe('deduplicateUrlList', () => {
+  it('keeps the first occurrence of every exact URL in input order', () => {
+    expect(
+      deduplicateUrlList([
+        'https://example.com/a.zip',
+        'https://example.com/b.zip',
+        'https://example.com/a.zip',
+        'https://example.com/c.zip',
+        'https://example.com/b.zip',
+      ]),
+    ).toEqual({
+      urls: ['https://example.com/a.zip', 'https://example.com/b.zip', 'https://example.com/c.zip'],
+      duplicateCount: 2,
+    });
+  });
+
+  it('uses exact matching without rewriting signed or case-sensitive URLs', () => {
+    expect(
+      deduplicateUrlList([
+        'https://example.com/file?signature=ABC',
+        'https://example.com/file?signature=abc',
+        'https://example.com/file?signature=ABC',
+      ]),
+    ).toEqual({
+      urls: ['https://example.com/file?signature=ABC', 'https://example.com/file?signature=abc'],
+      duplicateCount: 1,
+    });
   });
 });
 

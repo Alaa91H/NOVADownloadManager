@@ -179,6 +179,38 @@ export function expandUrlList(input: string): string[] {
   return out;
 }
 
+export interface DeduplicatedUrlList {
+  /** Concrete URLs in first-seen order. */
+  urls: string[];
+  /** Number of repeated concrete URLs omitted from {@link urls}. */
+  duplicateCount: number;
+}
+
+/**
+ * Remove exact repeated URLs while preserving the first occurrence of each URL.
+ *
+ * This deliberately runs after pattern expansion. It does not rewrite or
+ * canonicalize URLs, so signed URLs and case-sensitive paths retain their
+ * semantics; it only prevents identical concrete requests from entering the
+ * same batch more than once.
+ */
+export function deduplicateUrlList(urls: readonly string[]): DeduplicatedUrlList {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  let duplicateCount = 0;
+
+  for (const url of urls) {
+    if (seen.has(url)) {
+      duplicateCount += 1;
+      continue;
+    }
+    seen.add(url);
+    unique.push(url);
+  }
+
+  return { urls: unique, duplicateCount };
+}
+
 /** Number of URLs a multi-line batch would produce, without allocating them. */
 export function countUrlList(input: string): number {
   let total = 0;

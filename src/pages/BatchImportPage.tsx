@@ -12,7 +12,7 @@ import {
 } from '../store/selectors';
 import { Button, SelectField, TextField } from '../components/primitives';
 import { readClipboardText } from '../utils/clipboard';
-import { expandUrlList, countUrlList, MAX_EXPANDED_URLS } from '../utils/urlPatternExpander';
+import { deduplicateUrlList, expandUrlList, countUrlList, MAX_EXPANDED_URLS } from '../utils/urlPatternExpander';
 
 const TOO_MANY_URLS_MESSAGE = `Too many URLs — reduce the range size or number of lines (max ${String(MAX_EXPANDED_URLS)}).`;
 import { useEngineCapabilities } from '../capabilities/EngineCapabilityContext';
@@ -82,7 +82,8 @@ export const BatchImportPage: React.FC = () => {
       addToast('error', t('toast_error_title'), TOO_MANY_URLS_MESSAGE);
       return;
     }
-    const urls = expandedUrls.filter((line) => engineCapabilities.supportsDirectProtocol(line));
+    const supportedUrls = expandedUrls.filter((line) => engineCapabilities.supportsDirectProtocol(line));
+    const { urls, duplicateCount } = deduplicateUrlList(supportedUrls);
 
     if (!engineCapabilities.directReady) {
       addToast('error', t('toast_error_title'), t('batch_direct_engine_not_ready'));
@@ -116,6 +117,13 @@ export const BatchImportPage: React.FC = () => {
       description: 'Batch import',
       directOptions,
     });
+    if (duplicateCount > 0) {
+      addToast(
+        'info',
+        t('action_add_batch'),
+        `Skipped ${String(duplicateCount)} duplicate URL${duplicateCount === 1 ? '' : 's'}.`,
+      );
+    }
     setActivePage('downloads');
   };
 

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.25-alpha] - 2026-08-25
+
+### Added
+
+- **Batch imports now skip exact duplicate concrete URLs before queueing.**
+  URL-pattern expansion keeps the first occurrence in input order and reports
+  how many repeated requests were omitted, preventing redundant transfers
+  without canonicalizing signed or case-sensitive URLs.
+
+### Quality
+
+- Added regression tests for first-seen ordering and exact-match handling of
+  signed and case-sensitive URLs in batch deduplication.
+
 ## [2.4.24-alpha] - 2026-08-25
 
 ### Fixed
@@ -187,7 +201,8 @@ Initial development baseline:
   lifecycle and Native Messaging registration.
 - Runtime capability gating across desktop UI, extension, and daemon.
 
-[Unreleased]: https://github.com/Alaa91H/NOVADownloadManager/compare/v2.4.24-alpha...HEAD
+[Unreleased]: https://github.com/Alaa91H/NOVADownloadManager/compare/v2.4.25-alpha...HEAD
+[2.4.25-alpha]: https://github.com/Alaa91H/NOVADownloadManager/compare/v2.4.24-alpha...v2.4.25-alpha
 [2.4.24-alpha]: https://github.com/Alaa91H/NOVADownloadManager/compare/v2.4.23-alpha...v2.4.24-alpha
 [2.4.23-alpha]: https://github.com/Alaa91H/NOVADownloadManager/compare/v2.4.22-alpha...v2.4.23-alpha
 [2.4.22-alpha]: https://github.com/Alaa91H/NOVADownloadManager/compare/v2.4.21-alpha...v2.4.22-alpha
