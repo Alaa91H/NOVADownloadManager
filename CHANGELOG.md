@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.24-alpha] - 2026-08-25
+
+### Fixed
+
+- **Windows MSI packaging now accepts alpha and beta release tags.** Tauri bundle
+  metadata converts a semantic prerelease label to its equivalent numeric
+  prerelease identifier, as required by WiX/MSI, while the application and
+  browser-extension packages retain the full user-facing semantic version.
+
+### Quality
+
+- Version stamping now derives the distinct package, browser-manifest, and
+  Tauri bundle representations for prerelease releases, preventing an invalid
+  installer version from reaching the platform build matrix.
+
 ## [2.4.23-alpha] - 2026-08-25
 
 ### Fixed
@@ -165,7 +180,8 @@ Initial development baseline:
   lifecycle and Native Messaging registration.
 - Runtime capability gating across desktop UI, extension, and daemon.
 
-[Unreleased]: https://github.com/Alaa91H/NOVADownloadManager/compare/v2.4.23-alpha...HEAD
+[Unreleased]: https://github.com/Alaa91H/NOVADownloadManager/compare/v2.4.24-alpha...HEAD
+[2.4.24-alpha]: https://github.com/Alaa91H/NOVADownloadManager/compare/v2.4.23-alpha...v2.4.24-alpha
 [2.4.23-alpha]: https://github.com/Alaa91H/NOVADownloadManager/compare/v2.4.22-alpha...v2.4.23-alpha
 [2.4.22-alpha]: https://github.com/Alaa91H/NOVADownloadManager/compare/v2.4.21-alpha...v2.4.22-alpha
 [2.4.21-alpha]: https://github.com/Alaa91H/NOVADownloadManager/compare/v2.4.20-alpha...v2.4.21-alpha

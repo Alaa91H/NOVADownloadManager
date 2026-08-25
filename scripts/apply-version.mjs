@@ -69,6 +69,24 @@ function toManifestVersion(version) {
   throw new Error(`Cannot express "${version}" as a browser manifest version.`);
 }
 
+// WiX/MSI accepts a SemVer prerelease only when its identifier is numeric and
+// no greater than 65535. Keep the user-facing alpha/beta label in the app and
+// extension packages, but stamp Tauri's bundle metadata with the equivalent
+// numeric prerelease so Windows installers remain buildable.
+/** @param {string} version */
+function toTauriBundleVersion(version) {
+  const [base = ''] = version.split('+', 1);
+  const prerelease = /^(\d+\.\d+\.\d+)-([0-9A-Za-z][0-9A-Za-z.-]*)$/.exec(base);
+  if (!prerelease) return base;
+
+  const numeric =
+    prerelease[2]
+      .split('.')
+      .filter((part) => /^\d+$/.test(part) && Number(part) <= 65535)
+      .at(-1) ?? '0';
+  return `${prerelease[1]}-${numeric}`;
+}
+
 // Replaces only the top-level "version" line so the file keeps its original
 // formatting (root package.json is 4-space indented, the rest 2-space).
 /** @param {string} path @param {string} version */
@@ -118,11 +136,17 @@ if (!tag) {
 
 const version = tag.replace(/^v/, '');
 const manifestVersion = toManifestVersion(version);
-console.log(`[apply-version] Stamping version ${version} (tag ${tag}, manifest ${manifestVersion})`);
+const tauriBundleVersion = toTauriBundleVersion(version);
+console.log(
+  `[apply-version] Stamping version ${version} (tag ${tag}, manifest ${manifestVersion}, Tauri ${tauriBundleVersion})`,
+);
 
 const targets = [
   ['package.json', () => updateJsonVersion(join(ROOT, 'package.json'), version)],
-  ['src-tauri/tauri.conf.json', () => updateJsonVersion(join(ROOT, 'src-tauri', 'tauri.conf.json'), version)],
+  [
+    'src-tauri/tauri.conf.json',
+    () => updateJsonVersion(join(ROOT, 'src-tauri', 'tauri.conf.json'), tauriBundleVersion),
+  ],
   ['src-tauri/Cargo.toml', () => updateCargoToml(join(ROOT, 'src-tauri', 'Cargo.toml'), version)],
   ['src-tauri/Cargo.lock', () => updateCargoLock(join(ROOT, 'src-tauri', 'Cargo.lock'), version)],
   ['browser-extension/package.json', () => updateJsonVersion(join(ROOT, 'browser-extension', 'package.json'), version)],
