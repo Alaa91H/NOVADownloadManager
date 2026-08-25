@@ -841,13 +841,15 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $version = $env:BUILD_TAG -replace '^v', ''
           New-Item -ItemType Directory -Force release | Out-Null
           $nsisDir = "src-tauri\target\release\bundle\nsis"
-          if (Test-Path -LiteralPath $nsisDir) {
-            Get-ChildItem -LiteralPath $nsisDir -File -Filter "*.exe" |
-              Where-Object { $_.BaseName -like "*_${version}*" } |
-              ForEach-Object { Copy-Item $_.FullName "release\$($_.Name)" -Force }
+          $installers = Get-ChildItem -LiteralPath $nsisDir -File -Filter "*.exe" -ErrorAction SilentlyContinue
+          if (-not $installers) {
+            throw "NSIS installer was not produced in $nsisDir."
+          }
+          foreach ($installer in $installers) {
+            Copy-Item $installer.FullName "release\$($installer.Name)" -Force
+            Write-Host "Prepared installer asset: $($installer.Name)"
           }
           Get-ChildItem browser-extension\dist\release-assets\* -File -ErrorAction SilentlyContinue |
             ForEach-Object { Copy-Item $_.FullName "release\$($_.Name)" -Force }

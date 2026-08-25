@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Linux CI dependency installation now retries safely after mirror rotation.**
   A bounded helper refreshes stale APT indexes and retries package downloads,
   preventing transient Ubuntu archive 404 responses from failing ARM64 builds.
+- **Windows NSIS installers are now always staged as release assets.** The
+  packaging workflow no longer filters executable filenames against the
+  user-facing alpha tag, which differs intentionally from the MSI-compatible
+  numeric prerelease used by Tauri.
 
 ### Quality
 
