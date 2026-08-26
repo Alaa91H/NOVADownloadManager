@@ -17,6 +17,12 @@ import { clearClipboardIfTextMatches, readClipboardText } from '../../utils/clip
 import { formatBytes } from '../../initialData';
 import { isMagnetLink } from '../../utils/formatUtils';
 import { joinLocalPath, parentLocalPath } from '../../utils/localPathUtils';
+import {
+  abbreviateSha256,
+  shouldShowDownloadProbeInspection,
+  summarizeDownloadProbe,
+  type DownloadProbeInspection,
+} from '../../utils/downloadProbeInspection';
 import { useEngineCapabilities } from '../../capabilities/EngineCapabilityContext';
 
 export const AddDownloadDialog: React.FC = () => {
@@ -45,6 +51,7 @@ export const AddDownloadDialog: React.FC = () => {
   const [fileType, setFileType] = useState<FileType>('other');
   const [sizeBytes, setSizeBytes] = useState(0);
   const [probeError, setProbeError] = useState('');
+  const [probeInspection, setProbeInspection] = useState<DownloadProbeInspection | null>(null);
   const [savePath, setSavePath] = useState(settings.saveAndCategories.defaultFolder || '');
   const [defaultDownloadsDir, setDefaultDownloadsDir] = useState('');
   const [category, setCategory] = useState<FileType>('other');
@@ -231,9 +238,11 @@ export const AddDownloadDialog: React.FC = () => {
       setCategory('other');
       setFileType('other');
       setSizeBytes(0);
+      setProbeInspection(null);
       setInfoFetched(false);
       setIsFetchingInfo(false);
     } else {
+      setProbeInspection(null);
       setIsFetchingInfo(true);
     }
   }
@@ -277,6 +286,17 @@ export const AddDownloadDialog: React.FC = () => {
           setSizeBytes(probedSize);
           setProbeError(probedSize > 0 ? '' : 'The server did not report a file size.');
           setResumable(probed.resumable);
+          setProbeInspection(
+            summarizeDownloadProbe({
+              url,
+              finalUrl: probed.finalUrl,
+              contentType: probed.contentType,
+              resumable: probed.resumable,
+              digestSha256: probed.digestSha256,
+              httpStatus: probed.httpStatus,
+              linkMirrors: probed.linkMirrors,
+            }),
+          );
           if (probed.supportsSegments === false) setConnections(1);
           if (!savePathEdited.current) setSavePath(buildSavePath(detectedType, detectedName));
           setInfoFetched(true);
@@ -295,6 +315,7 @@ export const AddDownloadDialog: React.FC = () => {
           setCategory(detectedType);
           setSizeBytes(0);
           setProbeError(message);
+          setProbeInspection(null);
           setResumable(false);
           if (!savePathEdited.current) setSavePath(buildSavePath(detectedType, detectedName));
           setInfoFetched(!!detectedName);
@@ -367,6 +388,7 @@ export const AddDownloadDialog: React.FC = () => {
     setCategory('other');
     setSizeBytes(0);
     setProbeError('');
+    setProbeInspection(null);
     setInfoFetched(false);
     setIsFetchingInfo(false);
   };
@@ -625,6 +647,29 @@ export const AddDownloadDialog: React.FC = () => {
             <span>{t('add_dl_open_media_downloader')}</span>
             <ArrowRight className="w-3 h-3" />
           </button>
+        </div>
+      )}
+
+      {shouldShowDownloadProbeInspection(probeInspection, infoFetched, isFetchingInfo) && (
+        <div
+          data-testid="download-probe-inspection"
+          aria-live="polite"
+          className="flex flex-wrap items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-hover)]/30 px-2 py-1.5 font-mono text-[9px] text-[var(--text-secondary)]"
+        >
+          {probeInspection.httpStatus && <span title="HTTP response status">HTTP {probeInspection.httpStatus}</span>}
+          {probeInspection.contentType && <span title="Server content type">MIME {probeInspection.contentType}</span>}
+          <span title="Accept-Ranges capability">Range {probeInspection.resumable ? 'bytes' : '—'}</span>
+          {probeInspection.digestSha256 && (
+            <span title={probeInspection.digestSha256}>SHA-256 {abbreviateSha256(probeInspection.digestSha256)}</span>
+          )}
+          {probeInspection.redirected && probeInspection.sourceOrigin && probeInspection.finalOrigin && (
+            <span title={`${probeInspection.sourceOrigin} → ${probeInspection.finalOrigin}`}>
+              {probeInspection.sourceOrigin} → {probeInspection.finalOrigin}
+            </span>
+          )}
+          {probeInspection.mirrorCount > 0 && (
+            <span title="RFC 6249 duplicate-link mirrors">Link {probeInspection.mirrorCount}</span>
+          )}
         </div>
       )}
 

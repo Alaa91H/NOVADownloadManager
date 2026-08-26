@@ -64,6 +64,9 @@ interface NovaProbeResult {
   contentDisposition?: string;
   acceptRanges?: string;
   contentRange?: string;
+  digestSha256?: string;
+  linkMirrors?: string[];
+  mirrorPriorities?: number[];
   etag?: string;
   lastModified?: string;
   httpStatus?: number;

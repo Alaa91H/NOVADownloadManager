@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.33-alpha] - 2026-08-26
+
+### Added
+
+- **Added a safe source-inspection summary to Add Download.** After NOVA completes its staged URL probe, the dialog now exposes the HTTP response status, normalized MIME type, byte-range capability, server-advertised SHA-256 digest, redirect origins, and RFC 6249 duplicate-link mirror count when those values are available.
+
+### Security and reliability
+
+- **Kept signed redirect details out of the UI.** Redirect inspection renders origins only; credentials, paths, query parameters, and fragments are deliberately removed before presentation.
+- **Preserved native integrity enforcement.** The new summary reports a server-provided SHA-256 only as technical metadata. NOVA's native curl transfer path remains responsible for validating an advertised Content-Digest against the completed output.
+
+### Quality
+
+- Added focused unit and dialog tests for probe-summary derivation, redirect sanitization, malformed metadata rejection, and lifecycle visibility.
+- Documented a comparative review of aria2, JDownloader, Free Download Manager, and Persepolis to keep the improvement scoped to a proven reliability pattern rather than adding speculative protocol support.
+
 ## [2.4.32-alpha] - 2026-08-26
 
 ### Fixed
