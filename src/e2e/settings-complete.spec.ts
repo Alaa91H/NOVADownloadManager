@@ -214,7 +214,7 @@ test.describe('Settings Complete — sound selection', () => {
   test.beforeEach(async ({ page }) => {
     await goto(page);
     await openSettings(page);
-    await page.getByRole('tab', { name: 'Downloads' }).click();
+    await page.locator('#settings-tab-downloads').click();
     await expect(page.getByRole('tabpanel').locator('select').first()).toBeVisible();
   });
 

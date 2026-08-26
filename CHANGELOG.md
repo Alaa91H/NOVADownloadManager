@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.32-alpha] - 2026-08-26
+
+### Fixed
+
+- **Made the Settings sound-selection E2E path independent of translated text.** The test now selects the stable Downloads-tab identifier instead of a partial English accessible name that became ambiguous after the localized labels `General & Downloads` and `All Downloads` were introduced. This restores the release-tag Playwright gate without changing the product control.
+
+### Quality
+
+- Re-ran the three affected Playwright sound-selection scenarios locally against the integration daemon and Vite application; all passed.
+
 ## [2.4.31-alpha] - 2026-08-26
 
 ### Fixed
