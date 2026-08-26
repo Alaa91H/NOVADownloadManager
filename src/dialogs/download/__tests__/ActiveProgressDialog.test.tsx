@@ -6,9 +6,10 @@ import type { DownloadItem } from '../../../types/desktop-ui.types';
 // All state referenced by the hoisted vi.mock factories must come from
 // vi.hoisted (declared before the mocks run) — same pattern as the
 // DetachedProgressWindow test.
-const { tasksMock, noop } = vi.hoisted(() => ({
+const { tasksMock, noop, closeDialog } = vi.hoisted(() => ({
   tasksMock: [] as DownloadItem[],
   noop: vi.fn(),
+  closeDialog: vi.fn(),
 }));
 
 vi.mock('../../../store/engineStore', () => ({
@@ -25,6 +26,7 @@ vi.mock('../../../store/selectors', () => ({
   useTaskActions: () => ({ pauseTask: noop, resumeTask: noop }),
   useSettingsData: () => initialSettings,
   useSettingsActions: () => ({ updateSettings: noop }),
+  useDialogActions: () => ({ closeDialog }),
   useEngineAdaptive: () => null,
   useI18n: () => (k: string) => {
     if (k === 'progress_seg_number') return 'Segment';
@@ -90,6 +92,24 @@ const baseTask: DownloadItem = {
 describe('ActiveProgressDialog — unified segment progress', () => {
   beforeEach(() => {
     tasksMock.length = 0;
+    closeDialog.mockReset();
+  });
+
+  it('renders Finished as a button that dismisses a completed progress dialog', () => {
+    tasksMock.push({
+      ...baseTask,
+      status: 'completed',
+      downloadedBytes: baseTask.sizeBytes,
+      speedBytesPerSec: 0,
+      timeLeftSeconds: 0,
+      segments: baseTask.segments.map((segment) => ({ ...segment, progress: 1, active: false, speed: 0 })),
+    });
+    render(<ActiveProgressDialog taskId="t1" />);
+
+    const finished = screen.getByRole('button', { name: 'Finished' });
+    expect(finished).toBeEnabled();
+    fireEvent.click(finished);
+    expect(closeDialog).toHaveBeenCalledTimes(1);
   });
 
   it('renders each segment card through the shared TaskProgressBar with the matching tone', () => {

@@ -6,6 +6,7 @@ import {
   useTaskActions,
   useSettingsData,
   useSettingsActions,
+  useDialogActions,
   useI18n,
 } from '../../store/selectors';
 import { useEngineAdaptive } from '../../store/selectors';
@@ -181,6 +182,7 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
   const { pauseTask, resumeTask } = useTaskActions();
   const settings = useSettingsData();
   const { updateSettings } = useSettingsActions();
+  const { closeDialog } = useDialogActions();
   const t = useI18n();
   const taskFromPayload = dialog.payload as DownloadItem | null | undefined;
   // Always use the live store version of the task so progress bars and segment
@@ -648,9 +650,13 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
             {t('progress_resume_btn')}
           </button>
         ) : (
-          <div className="px-6 py-1.5 bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-muted)] text-[11px] font-bold select-none min-w-[80px] text-center rounded-lg">
+          <button
+            type="button"
+            onClick={closeDialog}
+            className="px-6 py-1.5 bg-[var(--success-bg)] hover:bg-[var(--success)]/15 active:scale-95 border border-[var(--success-border)] text-[var(--success)] text-[11px] font-bold cursor-pointer min-w-[80px] text-center rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)]"
+          >
             {t('progress_finished')}
-          </div>
+          </button>
         )}
 
         {/* Show / Hide details — next to the Stop button, clearly visible */}

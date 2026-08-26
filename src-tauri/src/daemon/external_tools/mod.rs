@@ -192,6 +192,14 @@ impl ExternalToolManager {
         self.install_verified_release(tool_id, scope)
     }
 
+    fn reload_registry_from_disk(&self) {
+        // The verified installer persists the managed path itself. Refresh the
+        // in-memory registry before rediscovery so post-install health probes
+        // inspect the just-installed executable rather than stale PATH state.
+        let mut registry = lock_or_err!(self.registry);
+        *registry = registry::load_registry(&self.data_dir);
+    }
+
     fn install_verified_release(
         &self,
         tool_id: ToolId,
@@ -216,6 +224,7 @@ impl ExternalToolManager {
             &self.data_dir,
             scope,
         )?;
+        self.reload_registry_from_disk();
         // Re-discover immediately so the capability resolver and Settings UI
         // observe an app-managed binary without requiring a restart.
         let installation = self.discover(tool_id);

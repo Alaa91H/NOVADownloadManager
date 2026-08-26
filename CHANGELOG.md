@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.27-alpha] - 2026-08-26
+
+### Fixed
+
+- **Windows FFmpeg installation now selects BtbN's static archive rather than a
+  shared archive.** NOVA extracts and validates a standalone `ffmpeg.exe`, so
+  Windows no longer fails to start the managed tool because companion
+  `av*.dll` files from a shared build were absent.
+- **Managed external-tool installation now refreshes its in-memory registry
+  before the post-install health check.** This prevents a successfully saved
+  `yt-dlp` installation from being misreported as unhealthy until the daemon
+  restarts.
+- **The completed-download `Finished` control is now a real button.** It is
+  keyboard accessible and dismisses the completed progress dialog instead of
+  rendering as a non-interactive status label.
+
+### Quality
+
+- Added regression coverage that rejects shared FFmpeg Windows archives and
+  verifies that `Finished` is enabled and dismisses a completed progress dialog.
+
 ## [2.4.26-alpha] - 2026-08-26
 
 ### Added

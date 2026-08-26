@@ -134,18 +134,32 @@ fn update_info_from_asset(
     }
 }
 
+fn is_ffmpeg_static_asset(name: &str, os: &str, arch: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    match (os, arch) {
+        // BtbN publishes shared Windows archives before the matching static
+        // archive. We extract only ffmpeg.exe, so accepting a shared archive
+        // leaves av*.dll beside the executable and Windows cannot start it.
+        ("windows", "x86_64") => {
+            name.contains("win64")
+                && name.contains("ffmpeg")
+                && name.ends_with(".zip")
+                && !name.contains("shared")
+        }
+        ("linux", "x86_64") => {
+            name.contains("linux64")
+                && name.contains("ffmpeg")
+                && name.ends_with(".tar.xz")
+                && !name.contains("shared")
+        }
+        _ => false,
+    }
+}
+
 fn check_ffmpeg_latest(os: &str, arch: &str) -> Result<UpdateInfo, String> {
     let json = latest_release("BtbN/FFmpeg-Builds")?;
     let (latest_version, published_at) = release_metadata(&json);
-    let asset = selected_asset(&json, |name| match (os, arch) {
-        ("windows", "x86_64") => {
-            name.contains("win64") && name.contains("ffmpeg") && name.ends_with(".zip")
-        }
-        ("linux", "x86_64") => {
-            name.contains("linux64") && name.contains("ffmpeg") && name.ends_with(".tar.xz")
-        }
-        _ => false,
-    });
+    let asset = selected_asset(&json, |name| is_ffmpeg_static_asset(name, os, arch));
     Ok(update_info_from_asset(
         latest_version,
         published_at,
@@ -521,7 +535,7 @@ pub fn uninstall_tool(
 mod tests {
     use super::{
         archive_entry_matches, asset_sha256, check_ytdlp_latest, download_and_install,
-        is_trusted_release_asset_url, sha256_hex,
+        is_ffmpeg_static_asset, is_trusted_release_asset_url, sha256_hex,
     };
     use crate::daemon::external_tools::health;
     use crate::daemon::external_tools::tools::yt_dlp::YtDlpTool;
@@ -548,6 +562,25 @@ mod tests {
             "http://github.com/yt-dlp/yt-dlp/releases/download/v1/yt-dlp"
         ));
         assert!(!is_trusted_release_asset_url("https://example.test/tool"));
+    }
+
+    #[test]
+    fn ffmpeg_windows_selector_rejects_shared_archives() {
+        assert!(is_ffmpeg_static_asset(
+            "ffmpeg-master-latest-win64-gpl.zip",
+            "windows",
+            "x86_64"
+        ));
+        assert!(!is_ffmpeg_static_asset(
+            "ffmpeg-master-latest-win64-gpl-shared.zip",
+            "windows",
+            "x86_64"
+        ));
+        assert!(!is_ffmpeg_static_asset(
+            "ffmpeg-master-latest-win64-lgpl-shared.zip",
+            "windows",
+            "x86_64"
+        ));
     }
 
     #[test]
