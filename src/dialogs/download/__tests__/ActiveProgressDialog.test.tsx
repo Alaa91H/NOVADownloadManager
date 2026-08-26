@@ -180,30 +180,20 @@ describe('ActiveProgressDialog — unified segment progress', () => {
     expect(screen.getAllByText('(1)')).toHaveLength(3);
   });
 
-  it('composite bar rides a clamp-positioned head badge on each active segment only', () => {
+  it('renders a clean composite multi-connection bar without visible percentage badges', () => {
     tasksMock.push(baseTask);
     render(<ActiveProgressDialog taskId="t1" />);
 
-    // The composite distribution bar is always visible (no details expansion
-    // needed). Only the active segment (1 at 50%) gets a head badge — the
-    // completed (2) and idle (3) segments must not show one.
-    const segHeads = screen.getAllByTestId('seg-head');
-    expect(segHeads).toHaveLength(1);
-    expect(segHeads[0]).toHaveTextContent('50%');
-    // Positioned with the same clamp math as the shared TaskProgressBar badge:
-    // centred on the fill edge, clamped to the cell bounds at 0%/100%.
-    expect(segHeads[0].style.left).toContain('clamp(');
-    expect(segHeads[0].style.left).toContain('50%');
-    expect(segHeads[0].style.left).toContain('calc(100% - 15px)');
+    // The compact composite strip remains visible, but per-connection percent
+    // pills are intentionally omitted so it shows only transfer cells.
+    expect(screen.getByTestId('seg-bar')).toBeInTheDocument();
+    expect(screen.queryByTestId('seg-head')).not.toBeInTheDocument();
 
-    // The badge is a live duplicate of the fill edge, so the per-segment cell
-    // itself announces its value (role="img" + aria-label) to assistive tech.
-    const activeCell = screen.getByRole('img', { name: 'Segment 1: 50%' });
-    expect(activeCell).toBeInTheDocument();
-    const completedCell = screen.getByRole('img', { name: 'Segment 2: 100%' });
-    expect(completedCell).toBeInTheDocument();
-    const idleCell = screen.getByRole('img', { name: 'Segment 3: 0%' });
-    expect(idleCell).toBeInTheDocument();
+    // Keep the values available to assistive technology and hover details even
+    // though they are no longer printed inside the narrow connection cells.
+    expect(screen.getByRole('img', { name: 'Segment 1: 50%' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Segment 2: 100%' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Segment 3: 0%' })).toBeInTheDocument();
   });
 
   it('hovering a composite cell shows a rich tooltip and highlights its card', () => {
@@ -295,7 +285,7 @@ describe('ActiveProgressDialog — unified segment progress', () => {
     expect(leftFirst).toBeLessThanOrEqual(90);
   });
 
-  it('composite bar head badge glides within the cell bounds and never exceeds 100%', () => {
+  it('updates a composite cell fill without rendering a percentage badge', () => {
     const moving: DownloadItem = {
       ...baseTask,
       segments: [
@@ -306,24 +296,15 @@ describe('ActiveProgressDialog — unified segment progress', () => {
     tasksMock.push(moving);
     const { rerender } = render(<ActiveProgressDialog taskId="t1" />);
 
-    const head = screen.getByTestId('seg-head');
-    expect(head.style.left).toContain('20%');
-    expect(head.style.left).toContain('calc(100% - 15px)');
-    const nodeBefore = head;
+    const cell = screen.getByTestId('seg-cell-1');
+    const fillBefore = cell.querySelector('div[style]') as HTMLDivElement;
+    expect(fillBefore.style.width).toBe('20%');
+    expect(screen.queryByTestId('seg-head')).not.toBeInTheDocument();
 
-    // Glide to 90% — the SAME DOM node keeps riding the fill edge, still
-    // clamped to the cell's right bound (never beyond 100% of the cell).
     moving.segments[0] = { ...moving.segments[0], progress: 0.9, downloadedBytes: 900 };
     rerender(<ActiveProgressDialog taskId="t1" />);
-    const headAfter = screen.getByTestId('seg-head');
-    expect(headAfter).toBe(nodeBefore);
-    expect(headAfter.style.left).toContain('90%');
-    expect(headAfter.style.left).toContain('calc(100% - 15px)');
-
-    // Segment completes → the head badge is removed (only active segments
-    // show it), so a finished segment can never overhang its cell.
-    moving.segments[0] = { ...moving.segments[0], progress: 1, downloadedBytes: 1000, active: false };
-    rerender(<ActiveProgressDialog taskId="t1" />);
+    const fillAfter = screen.getByTestId('seg-cell-1').querySelector('div[style]') as HTMLDivElement;
+    expect(fillAfter.style.width).toBe('90%');
     expect(screen.queryByTestId('seg-head')).not.toBeInTheDocument();
   });
 });

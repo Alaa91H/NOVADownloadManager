@@ -1985,6 +1985,20 @@ impl Drop for DownloadConnectionLease {
     }
 }
 
+/// Return whether the destination itself contains a usable partial checkpoint.
+///
+/// Segment parts are handled independently by `run_segmented_libcurl`. This
+/// helper covers the single-file checkpoint produced by a previous
+/// single-connection run, including a run that later learns a remote size and
+/// would otherwise be promoted to the segmented strategy on resume.
+fn has_partial_output_checkpoint(plan: &DirectDownloadPlan) -> bool {
+    if !plan.resumable {
+        return false;
+    }
+    let existing = FileWriter::current_size(&plan.output_path).unwrap_or(0);
+    existing > 0 && (plan.total_size == 0 || existing < plan.total_size)
+}
+
 fn run_libcurl_download(
     state: &SharedState,
     id: &str,
@@ -2183,12 +2197,27 @@ fn run_libcurl_download(
             plan.segmented = true;
         }
     }
-    // Auto-resolve filename conflicts before downloading. Professional download
-    // managers (IDM, browser built-in) never block the user with "file exists"
-    // errors; they append " (1)", " (2)" etc. to the filename. This also fixes
-    // the reported bug where NOVA "detects size but never downloads" because a
-    // stale partial file from a previous failed attempt blocked the new one.
-    if !plan.allow_overwrite && plan.output_path.exists() {
+    // A partial destination is a resume checkpoint, not a duplicate-file
+    // conflict. In particular, the default "rename on duplicate" policy must
+    // never rename a paused download to `file (1)` and then fetch byte zero
+    // into that new path. Preserve the original path and force the matching
+    // single-file resume mode when its checkpoint came from a previous
+    // single-connection run.
+    let has_partial_output = has_partial_output_checkpoint(&plan);
+    if has_partial_output && plan.segmented {
+        log::info!(
+            "Task {id}: retaining {} bytes at {} for a single-file resume instead of replacing the checkpoint with new segments",
+            FileWriter::current_size(&plan.output_path).unwrap_or(0),
+            plan.output_path.display()
+        );
+        plan.segmented = false;
+    }
+
+    // Auto-resolve genuine filename conflicts before downloading. A resumable
+    // partial file is deliberately excluded: it is owned by this task and must
+    // retain its path so libcurl can issue a Range request from its on-disk
+    // offset.
+    if !plan.allow_overwrite && plan.output_path.exists() && !has_partial_output {
         let existing_size = FileWriter::current_size(&plan.output_path)?;
         // A full-size file is only trusted as "already complete" when the user
         // explicitly opted in via skipExisting. Otherwise an on-disk file whose
@@ -2651,6 +2680,13 @@ pub fn mark_curl_task_failed(
         }
         lock_or_err!(state.task_snapshot).insert(id.to_owned(), task);
         state.mark_dirty();
+        // A manual pause is a user-visible checkpoint. Persist it immediately
+        // after the worker has stopped and the latest segment snapshot has been
+        // recorded, rather than waiting for the periodic flush. This protects
+        // partial bytes if the user closes NOVA straight after pressing Stop.
+        if cancelled {
+            crate::daemon::persist::save_now(state.as_ref());
+        }
     }
 }
 
@@ -4840,6 +4876,57 @@ mod tests {
     }
 
     #[test]
+    fn no_clobber_partial_checkpoint_resumes_in_place() {
+        // Regression: a paused partial file is owned by its task. The default
+        // duplicate policy must not rename it to `resume (1).zip` and restart
+        // byte zero merely because the output path already exists.
+        let payload: Vec<u8> = (0..(1024 * 1024)).map(|i| (i % 251) as u8).collect();
+        let addr = spawn_range_server(std::sync::Arc::new(payload.clone()));
+        let url = format!("http://{addr}/resume.zip");
+        let dir = std::env::temp_dir().join(format!(
+            "nova_test_resume_checkpoint_{}",
+            std::process::id()
+        ));
+        let out = dir.join("resume.zip");
+        std::fs::create_dir_all(&dir).unwrap();
+        let partial = 256 * 1024usize;
+        std::fs::write(&out, &payload[..partial]).unwrap();
+
+        let state = std::sync::Arc::new(crate::daemon::persist::tests::test_state(
+            &dir.to_string_lossy(),
+        ));
+        let id = "noclob-partial-resume-test";
+        let body = download_body(&url, "resume.zip", payload.len() as u64, 1);
+        let mut direct_options = std::collections::HashMap::new();
+        direct_options.insert("allowOverwrite".to_string(), serde_json::json!(false));
+        let job = task_from_body(
+            &body,
+            id,
+            "resume.zip".to_string(),
+            &out,
+            direct_options,
+            Vec::new(),
+        );
+        {
+            let mut jobs = state.curl_jobs.lock().unwrap();
+            jobs.insert(id.to_string(), job);
+        }
+        state.mark_dirty();
+
+        let st = state.clone();
+        std::thread::spawn(move || start_curl_process(&st, id));
+        let task = run_task_to_completion(&state, id, std::time::Duration::from_secs(60));
+
+        assert_eq!(task.save_path, out.to_string_lossy());
+        assert_eq!(std::fs::read(&out).unwrap(), payload);
+        assert!(
+            !dir.join("resume (1).zip").exists(),
+            "a resumable checkpoint must not be renamed into a fresh download"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn segmented_resume_of_preallocated_parts_repairs_content() {
         use crate::daemon::types::Segment;
         use std::io::Write;
@@ -5058,6 +5145,107 @@ mod tests {
         assert_eq!(task.status, "completed");
         let written = std::fs::read(&out).unwrap();
         assert_eq!(written, payload, "resumed download is corrupt");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn user_pause_and_resume_preserves_segmented_checkpoint() {
+        // Exercise the actual API used by the Stop/Resume controls, not the
+        // global bandwidth pause. The task must retain its part files and resume
+        // them into a byte-for-byte correct final output.
+        let payload: Vec<u8> = (0..(16 * 1024 * 1024)).map(|i| (i % 251) as u8).collect();
+        let addr = spawn_slow_range_server(std::sync::Arc::new(payload.clone()), 16 * 1024, 4);
+        let url = format!("http://{addr}/user-pause.zip");
+        let dir = std::env::temp_dir().join(format!("nova_test_user_pause_{}", std::process::id()));
+        let out = dir.join("user-pause.zip");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let state = std::sync::Arc::new(crate::daemon::persist::tests::test_state(
+            &dir.to_string_lossy(),
+        ));
+        let id = "user-pause-resume-test";
+        let body = download_body(&url, "user-pause.zip", payload.len() as u64, 4);
+        let job = task_from_body(
+            &body,
+            id,
+            "user-pause.zip".to_string(),
+            &out,
+            std::collections::HashMap::new(),
+            Vec::new(),
+        );
+        state.curl_jobs.lock().unwrap().insert(id.to_string(), job);
+        state.mark_dirty();
+        start_curl_process(&state, id);
+
+        let checkpointed = (0..300).any(|_| {
+            let part_bytes = std::fs::read_dir(&dir)
+                .ok()
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter_map(|entry| {
+                    let is_part = entry
+                        .file_name()
+                        .to_str()
+                        .is_some_and(|name| name.starts_with("user-pause.zip.part"));
+                    is_part.then(|| entry.metadata().ok().map(|meta| meta.len()).unwrap_or(0))
+                })
+                .sum::<u64>();
+            if part_bytes >= 64 * 1024 {
+                true
+            } else {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                false
+            }
+        });
+        assert!(
+            checkpointed,
+            "segmented transfer never produced a resumable checkpoint"
+        );
+
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime
+            .block_on(crate::daemon::curl::pause_task(&state, id))
+            .expect("user pause request succeeds");
+        let paused = (0..300).any(|_| {
+            let status = state
+                .curl_jobs
+                .lock()
+                .unwrap()
+                .get(id)
+                .map(|job| job.task.status.clone())
+                .unwrap_or_default();
+            if status == "paused" {
+                true
+            } else {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                false
+            }
+        });
+        assert!(paused, "user pause did not settle into the paused state");
+
+        let bytes_before_resume = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter_map(|entry| {
+                let is_part = entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.starts_with("user-pause.zip.part"));
+                is_part.then(|| entry.metadata().ok().map(|meta| meta.len()).unwrap_or(0))
+            })
+            .sum::<u64>();
+        assert!(
+            bytes_before_resume > 0,
+            "pause removed the segmented checkpoint"
+        );
+
+        runtime
+            .block_on(crate::daemon::curl::resume_task(&state, id))
+            .expect("user resume request succeeds");
+        let task = run_task_to_completion(&state, id, std::time::Duration::from_secs(120));
+        assert_eq!(task.status, "completed");
+        assert_eq!(std::fs::read(&out).unwrap(), payload);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

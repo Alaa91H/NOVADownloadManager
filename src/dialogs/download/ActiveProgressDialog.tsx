@@ -17,7 +17,6 @@ import { formatSpeed, formatElapsed, formatTimeLeft } from '../../utils/formatUt
 import { taskProgressInfo } from '../../utils/progressUtils';
 import {
   TaskProgressBar,
-  ProgressHeadBadge,
   ProgressLegend,
   progressToneFillClass,
   type ProgressTone,
@@ -359,13 +358,10 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
                     className={`h-full absolute top-0 left-0 transition-all duration-300 ${progressToneFillClass[segmentTone(seg)]}`}
                     style={{ width: `${String(segPercent)}%` }}
                   />
-                  {/* Per-segment download-head badge — the exact shared pill used
-                      by the cards and every other surface (same clamp math, same
-                      glide, same live pulse). Only active segments carry one, so
-                      a finished segment can never overhang its cell. */}
-                  {seg.active && seg.progress < 1 && (
-                    <ProgressHeadBadge percent={segPercent} label={`${String(segPercent)}%`} dataTestId="seg-head" />
-                  )}
+                  {/* The compact multi-connection strip deliberately shows only
+                      the coloured transfer cells. Per-connection percentages stay
+                      available through the accessible label and hover details,
+                      while the overall progress value remains above this strip. */}
                   {isDownloading && seg.active && seg.progress < 1 && (
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.06] to-transparent animate-[shimmer_2s_ease-in-out_infinite]" />
                   )}

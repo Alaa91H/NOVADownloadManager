@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.29-alpha] - 2026-08-26
+
+### Changed
+
+- **The compact multi-connection progress strip now shows only its coloured transfer cells.** Per-connection percentage pills were removed from the narrow strip, while overall progress, accessible segment labels, hover details, and expanded segment cards retain their progress information.
+
+### Fixed
+
+- **Paused partial downloads are now treated as owned resume checkpoints rather than duplicate-file conflicts.** When the duplicate policy is set to rename, NOVA preserves the original partial output path and resumes it with HTTP Range instead of renaming it to a new file and restarting at byte zero.
+- **A resumable partial output now remains on its matching single-file transfer path** if a later preflight would otherwise promote the task to a new segmented layout, preventing previously downloaded bytes from being ignored.
+- **User-initiated pauses now persist their final task and segment checkpoint immediately** once the worker stops, reducing the chance of losing resumable state if NOVA is closed immediately afterwards.
+
+### Quality
+
+- Added regression coverage for a no-clobber partial checkpoint resuming in place and for the actual user pause/resume API on a multi-connection transfer.
+- Updated progress-dialog tests to require a clean multi-connection strip with no visible percentage badges while retaining accessible progress text.
+
 ## [2.4.28-alpha] - 2026-08-26
 
 ### Changed
