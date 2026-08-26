@@ -15,7 +15,9 @@ const TAG_PATTERN = /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?(?:\+[0-9A-Z
 
 const args = process.argv.slice(2);
 const optional = args.includes('--optional');
-const explicitTag = args.find((arg) => arg !== '--optional');
+// `pnpm run <script> -- <value>` forwards the separator to Node. Ignore it so
+// a caller-supplied release tag always takes precedence over local git state.
+const explicitTag = args.find((arg) => arg !== '--optional' && arg !== '--');
 
 function resolveTag() {
   const candidates = [explicitTag, process.env.BUILD_TAG, process.env.VITE_APP_VERSION, process.env.GITHUB_REF_NAME];

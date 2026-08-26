@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.26-alpha] - 2026-08-26
+
 ### Added
 
 - **Introduced a buildable native Android foundation.** The new Kotlin + Jetpack
@@ -33,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Release version stamping now honors a tag passed through pnpm.** The script
+  ignores pnpm's `--` separator instead of falling back to an older local tag,
+  preventing accidental version rollback during release preparation.
 - Propagated ordinary preflight range detection into adaptive transfer metadata.
   Servers that return `206 Partial Content` now seed the profile with the same
   range capability that the dispatcher uses to select segmented transfers.
