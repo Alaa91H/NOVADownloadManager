@@ -13,6 +13,34 @@ const PLATFORM_ID = `${process.platform}-${process.arch}`;
 const PREFIX_DIR = join(NATIVE_ROOT, PLATFORM_ID);
 const MANIFEST_PATH = join(BIN_DIR, 'native-curl-manifest.json');
 const CURL_REPO = 'curl/curl';
+const NETWORK_RETRY_ATTEMPTS = 3;
+const NETWORK_RETRY_BASE_DELAY_MS = 1500;
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function isTransientNetworkError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /timed out|econnreset|econnrefused|eai_again|enotfound|socket hang up|http (408|429|5\d\d)/i.test(message);
+}
+
+async function withNetworkRetries(label, operation) {
+  let lastError;
+  for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientNetworkError(error) || attempt === NETWORK_RETRY_ATTEMPTS) break;
+      const delayMs = NETWORK_RETRY_BASE_DELAY_MS * attempt;
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `[native-curl] ${label} failed on attempt ${attempt}/${NETWORK_RETRY_ATTEMPTS}: ${message}. Retrying in ${delayMs}ms.`,
+      );
+      await delay(delayMs);
+    }
+  }
+  throw lastError;
+}
 
 function githubHeaders() {
   const headers = {
@@ -287,7 +315,10 @@ async function main() {
     throw new Error('unzip is required to extract curl source archives.');
   }
 
-  const release = await httpsGetJson(`https://api.github.com/repos/${CURL_REPO}/releases/latest`);
+  const release = await withNetworkRetries(
+    `Fetch latest ${CURL_REPO} release metadata`,
+    () => httpsGetJson(`https://api.github.com/repos/${CURL_REPO}/releases/latest`),
+  );
   const tag = release.tag_name || release.name;
   if (!tag) throw new Error('curl/curl latest release did not include a tag');
   const version = normalizeCurlTag(tag);
@@ -310,7 +341,7 @@ async function main() {
   const buildDir = join(TMP_DIR, 'build');
   const archiveUrl = release.zipball_url || `https://github.com/curl/curl/archive/refs/tags/${tag}.zip`;
   console.log(`[native-curl] Downloading ${tag} from ${CURL_REPO}...`);
-  await download(archiveUrl, archivePath);
+  await withNetworkRetries(`Download curl source archive ${tag}`, () => download(archiveUrl, archivePath));
   const sourceSha = sha256(archivePath);
   const expectedSourceSha = process.env.NOVA_EXPECT_CURL_SOURCE_SHA256 || '';
   if (expectedSourceSha && expectedSourceSha.toLowerCase() !== sourceSha.toLowerCase()) {
