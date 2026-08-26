@@ -78,7 +78,9 @@ jobs:
       - name: Build Kotlin for CodeQL
         if: matrix.language == 'java-kotlin'
         working-directory: android
-        run: ./gradlew --no-daemon :app:compileDebugKotlin
+        # CodeQL must observe a real Kotlin compiler process. A cached task
+        # produces no traceable compilation and leaves the Java/Kotlin database empty.
+        run: ./gradlew --no-daemon --no-build-cache --rerun-tasks :app:compileDebugKotlin
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@v4
