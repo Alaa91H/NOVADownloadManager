@@ -2991,6 +2991,7 @@ dependencies = [
  "keyring",
  "log",
  "md-5",
+ "nova-core-model",
  "regex",
  "reqwest",
  "serde",
@@ -3013,6 +3014,14 @@ dependencies = [
  "windows-sys 0.61.2",
  "xz2",
  "zip 8.6.0",
+]
+
+[[package]]
+name = "nova-core-model"
+version = "2.4.25-alpha"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

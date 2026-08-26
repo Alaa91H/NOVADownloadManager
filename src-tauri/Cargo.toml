@@ -16,6 +16,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+nova-core-model = { path = "../crates/nova-core-model" }
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 log = "0.4"

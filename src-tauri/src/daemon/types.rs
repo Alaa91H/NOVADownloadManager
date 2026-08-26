@@ -1,66 +1,10 @@
+pub use nova_core_model::{Segment, Task};
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
 use std::time::Instant;
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Task {
-    pub id: String,
-    pub name: String,
-    pub url: String,
-    #[serde(rename = "fileType")]
-    pub file_type: String,
-    pub status: String,
-    #[serde(rename = "sizeBytes")]
-    pub size_bytes: u64,
-    #[serde(rename = "downloadedBytes")]
-    pub downloaded_bytes: u64,
-    #[serde(rename = "speedBytesPerSec")]
-    pub speed_bytes_per_sec: u64,
-    #[serde(rename = "timeLeftSeconds")]
-    pub time_left_seconds: u64,
-    #[serde(rename = "elapsedSeconds")]
-    pub elapsed_seconds: u64,
-    #[serde(rename = "dateAdded")]
-    pub date_added: String,
-    pub category: String,
-    #[serde(rename = "queueId")]
-    pub queue_id: String,
-    pub connections: u32,
-    pub resumable: bool,
-    #[serde(rename = "savePath")]
-    pub save_path: String,
-    pub description: String,
-    pub segments: Vec<Segment>,
-    pub referer: Option<String>,
-    pub engine: String,
-    #[serde(rename = "engineId")]
-    pub engine_id: String,
-    #[serde(rename = "engineStatus")]
-    pub engine_status: Option<String>,
-    #[serde(rename = "errorMessage")]
-    pub error_message: Option<String>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Segment {
-    pub id: u32,
-    pub progress: f64,
-    #[serde(rename = "downloadedBytes")]
-    pub downloaded_bytes: u64,
-    #[serde(rename = "totalBytes")]
-    pub total_bytes: u64,
-    pub active: bool,
-    pub speed: u64,
-    /// Absolute byte range this segment covers in the output file. Absent in
-    /// legacy snapshots (defaults to 0/0) — the resume path must derive the
-    /// range from `total_bytes`/position for old data.
-    #[serde(default)]
-    pub start_byte: u64,
-    #[serde(default)]
-    pub end_byte: u64,
-}
 
 #[derive(Clone, Default, Deserialize)]
 #[serde(default)]
@@ -276,40 +220,4 @@ pub struct CurlJob {
     pub segment_prev_bytes: Vec<u64>,
     /// Curl command-line arguments for this job, persisted across restarts.
     pub args: Vec<String>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn legacy_segment_without_byte_range_deserializes() {
-        // Phase-4 schema compatibility: snapshots written before
-        // start_byte/end_byte existed must still load (fields default to 0).
-        let legacy = r#"{"id":0,"progress":0.5,"downloadedBytes":50,"totalBytes":100,"active":true,"speed":10}"#;
-        let seg: Segment = serde_json::from_str(legacy).expect("legacy segment must load");
-        assert_eq!(seg.id, 0);
-        assert_eq!(seg.downloaded_bytes, 50);
-        assert_eq!(seg.total_bytes, 100);
-        assert_eq!(seg.start_byte, 0, "missing start_byte must default to 0");
-        assert_eq!(seg.end_byte, 0, "missing end_byte must default to 0");
-    }
-
-    #[test]
-    fn new_segment_with_byte_range_roundtrips() {
-        let seg = Segment {
-            id: 2,
-            progress: 0.25,
-            downloaded_bytes: 25,
-            total_bytes: 100,
-            active: true,
-            speed: 7,
-            start_byte: 100,
-            end_byte: 199,
-        };
-        let json = serde_json::to_string(&seg).expect("serialize");
-        let back: Segment = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(back.start_byte, 100);
-        assert_eq!(back.end_byte, 199);
-    }
 }

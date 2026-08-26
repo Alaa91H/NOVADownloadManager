@@ -192,3 +192,12 @@ metadata.json
 
 # Local app database (not part of the source tree)
 .freebuff/
+
+# Android local SDK configuration and generated build/native outputs
+android/local.properties
+android/.gradle/
+android/**/build/
+android/app/src/main/jniLibs/
+.build/android-rust/
+crates/*/target/
+crates/*/Cargo.lock

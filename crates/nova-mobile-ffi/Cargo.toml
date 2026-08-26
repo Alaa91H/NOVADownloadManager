@@ -1,0 +1,18 @@
+[package]
+name = "nova-mobile-ffi"
+version = "2.4.25-alpha"
+description = "Typed Rust-to-Kotlin bridge for NOVA mobile clients"
+authors = ["NOVA"]
+license = "MIT"
+repository = "https://github.com/Alaa91H/NOVADownloadManager"
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "nova_mobile_ffi"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[dependencies]
+nova-core-model = { path = "../nova-core-model" }
+thiserror = "2"
+uniffi = "0.32.0"

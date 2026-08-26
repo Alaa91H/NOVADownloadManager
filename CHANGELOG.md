@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Introduced a buildable native Android foundation.** The new Kotlin + Jetpack
+  Compose + Material 3 client includes adaptive navigation, a centralized NOVA
+  theme and Material Symbol mapping, immutable `StateFlow` UI state, and a
+  repository boundary that explicitly prevents a second Kotlin download engine.
+- Added validated `ACTION_SEND` text sharing for the first HTTP(S) URL in shared
+  content. Links are surfaced for review only; no Android task is fabricated
+  until the typed Rust task contract exists.
+- Added a versioned UniFFI bridge handshake and a reproducible NDK-backed
+  `arm64-v8a` build script for the narrow Rust mobile bridge.
+- Added Android build, bridge, background-execution, storage, media, testing,
+  architecture, and feature-parity documentation, including explicit platform
+  limitations and device-validation gates.
+
+### Changed
+
+- Extracted the portable `Task` and `Segment` schemas into `nova-core-model` and
+  made the desktop daemon consume those shared records through a local Rust
+  dependency, preserving the existing serialized field behavior.
+
+### Security
+
+- Android share input accepts HTTP(S) links only, and the design establishes a
+  typed in-process bridge with an API-version compatibility check rather than a
+  desktop loopback control plane.
+- Android storage and diagnostics designs use capability-scoped destinations and
+  require redaction of headers, tokens, persisted URI grants, and private paths.
+
+### Quality
+
+- Added a checksum-pinned Gradle 9.5.0 Wrapper, AGP 9 built-in Kotlin migration,
+  JVM tests for shared-link validation and ViewModel state, and a dedicated
+  Android CI workflow for the debug APK, JVM tests, and ARM64 bridge-link proof.
+- Verified the Android debug APK/JVM test build and local ARM64 native-link
+  proof. Android runtime loading, real downloads, background work, SAF/MediaStore,
+  emulator testing, and physical-device testing remain intentionally unclaimed.
+
 ## [2.4.25-alpha] - 2026-08-25
 
 ### Added
