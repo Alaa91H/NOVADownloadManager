@@ -3,6 +3,7 @@ import React from 'react';
 import type { AppSettings } from '../../../types/desktop-ui.types';
 import { Switch, SelectField } from '../../../components/primitives';
 import { Globe, Keyboard } from 'lucide-react';
+import { useI18n } from '../../../store/selectors';
 
 interface Props {
   settings: AppSettings;
@@ -10,11 +11,12 @@ interface Props {
 }
 
 export const BrowserSettings: React.FC<Props> = ({ settings, updateSetting }) => {
+  const t = useI18n();
   const browsers: Array<{ key: 'chrome' | 'edge' | 'firefox' | 'safari'; label: string }> = [
-    { key: 'chrome', label: 'Google Chrome' },
-    { key: 'edge', label: 'Microsoft Edge' },
-    { key: 'firefox', label: 'Mozilla Firefox' },
-    { key: 'safari', label: 'Safari' },
+    { key: 'chrome', label: t('settings_browser_chrome') },
+    { key: 'edge', label: t('settings_browser_edge') },
+    { key: 'firefox', label: t('settings_browser_firefox') },
+    { key: 'safari', label: t('settings_browser_safari') },
   ];
 
   return (
@@ -23,7 +25,7 @@ export const BrowserSettings: React.FC<Props> = ({ settings, updateSetting }) =>
       <div className="space-y-4">
         <div className="flex items-center gap-2 border-b border-[var(--border-color)] pb-2">
           <Globe className="w-4 h-4 text-[var(--info)]" />
-          <h3 className="text-sm font-extrabold text-[var(--info)]">Browser Integration</h3>
+          <h3 className="text-sm font-extrabold text-[var(--info)]">{t('settings_browser_integration')}</h3>
         </div>
 
         <div className="bg-[var(--bg-hover)]/30 p-3.5 rounded-lg border border-[var(--border-color)] space-y-3">
@@ -48,12 +50,12 @@ export const BrowserSettings: React.FC<Props> = ({ settings, updateSetting }) =>
       <div className="space-y-4">
         <div className="flex items-center gap-2 border-b border-[var(--border-color)] pb-2">
           <Keyboard className="w-4 h-4 text-[var(--warning)]" />
-          <h3 className="text-sm font-extrabold text-[var(--warning)]">Monitoring</h3>
+          <h3 className="text-sm font-extrabold text-[var(--warning)]">{t('settings_monitor_clipboard')}</h3>
         </div>
 
         <div className="bg-[var(--bg-hover)]/30 p-3.5 rounded-lg border border-[var(--border-color)] space-y-3">
           <div className="flex items-center justify-between py-2">
-            <span className="text-xs font-bold text-[var(--text-primary)]">Clipboard Monitoring</span>
+            <span className="text-xs font-bold text-[var(--text-primary)]">{t('settings_monitor_clipboard')}</span>
             <Switch
               checked={settings.general.monitorClipboard}
               onChange={(v) => {
@@ -68,26 +70,25 @@ export const BrowserSettings: React.FC<Props> = ({ settings, updateSetting }) =>
       <div className="space-y-4">
         <div className="flex items-center gap-2 border-b border-[var(--border-color)] pb-2">
           <Keyboard className="w-4 h-4 text-[var(--accent-primary)]" />
-          <h3 className="text-sm font-extrabold text-[var(--accent-primary)]">Intercept Keys</h3>
+          <h3 className="text-sm font-extrabold text-[var(--accent-primary)]">
+            {t('settings_browser_intercept_keys')}
+          </h3>
         </div>
 
         <div className="bg-[var(--bg-hover)]/30 p-3.5 rounded-lg border border-[var(--border-color)] space-y-3">
           <SelectField
-            label="Browser Intercept Modifier Keys"
+            label={t('settings_browser_intercept_keys')}
             value={settings.advanced.browserInterceptKeys}
             onChange={(e) => {
               updateSetting('advanced', 'browserInterceptKeys', e.target.value);
             }}
             options={[
-              { value: 'Alt', label: 'Alt' },
-              { value: 'Ctrl', label: 'Ctrl' },
-              { value: 'Shift', label: 'Shift' },
-              { value: 'Alt+Ctrl', label: 'Alt + Ctrl' },
+              { value: 'Alt', label: t('settings_intercept_alt') },
+              { value: 'Ctrl', label: t('settings_intercept_ctrl') },
+              { value: 'Shift', label: t('settings_intercept_shift') },
+              { value: 'Alt+Ctrl', label: t('settings_intercept_alt_ctrl') },
             ]}
           />
-          <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
-            Modifier key to hold while clicking a link to send it to NOVA instead of opening in the browser.
-          </p>
         </div>
       </div>
     </div>

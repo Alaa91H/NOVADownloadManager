@@ -1,6 +1,7 @@
 import React from 'react';
 import { Subtitles, Settings2, Wifi, Gauge } from 'lucide-react';
 import { TextField, Switch } from '../primitives';
+import { useI18n } from '../../store/selectors';
 import type { AdvancedTab } from './mediaHelpers';
 
 export interface AdvancedState {
@@ -48,16 +49,32 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
   onChange,
   supportsMediaOption,
 }) => {
+  const t = useI18n();
   const tabs: { id: AdvancedTab; label: string; icon: React.ReactNode; activeColor: string }[] = [
-    { id: 'subtitles', label: 'Subtitles', icon: <Subtitles className="w-3 h-3" />, activeColor: 'text-[var(--info)]' },
+    {
+      id: 'subtitles',
+      label: t('media_adv_tab_subtitles'),
+      icon: <Subtitles className="w-3 h-3" />,
+      activeColor: 'text-[var(--info)]',
+    },
     {
       id: 'format',
-      label: 'Format',
+      label: t('media_adv_tab_format'),
       icon: <Settings2 className="w-3 h-3" />,
       activeColor: 'text-[var(--accent-primary)]',
     },
-    { id: 'network', label: 'Network', icon: <Wifi className="w-3 h-3" />, activeColor: 'text-cyan-400' },
-    { id: 'perf', label: 'Perf', icon: <Gauge className="w-3 h-3" />, activeColor: 'text-[var(--warning)]' },
+    {
+      id: 'network',
+      label: t('media_adv_tab_network'),
+      icon: <Wifi className="w-3 h-3" />,
+      activeColor: 'text-cyan-400',
+    },
+    {
+      id: 'perf',
+      label: t('media_adv_tab_performance'),
+      icon: <Gauge className="w-3 h-3" />,
+      activeColor: 'text-[var(--warning)]',
+    },
   ];
 
   return (
@@ -89,56 +106,56 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
           <div className="space-y-2.5">
             <div className="grid grid-cols-2 gap-x-3 gap-y-2">
               <Switch
-                label="Download Subtitles"
+                label={t('media_adv_download_subtitles')}
                 checked={state.downloadSubtitles}
                 onChange={(v) => {
                   onChange('downloadSubtitles', v);
                 }}
               />
               <Switch
-                label="Auto-generated"
+                label={t('media_adv_auto_generated')}
                 checked={state.autoSubtitles}
                 onChange={(v) => {
                   onChange('autoSubtitles', v);
                 }}
               />
               <Switch
-                label="Embed Subtitles"
+                label={t('media_adv_embed_subtitles')}
                 checked={state.embedSubtitles}
                 onChange={(v) => {
                   onChange('embedSubtitles', v);
                 }}
               />
               <Switch
-                label="Write Thumbnail"
+                label={t('media_adv_write_thumbnail')}
                 checked={state.writeThumbnail}
                 onChange={(v) => {
                   onChange('writeThumbnail', v);
                 }}
               />
               <Switch
-                label="Embed Thumbnail"
+                label={t('media_adv_embed_thumbnail')}
                 checked={state.embedThumbnail}
                 onChange={(v) => {
                   onChange('embedThumbnail', v);
                 }}
               />
               <Switch
-                label="Info JSON"
+                label={t('media_adv_write_info_json')}
                 checked={state.writeInfoJson}
                 onChange={(v) => {
                   onChange('writeInfoJson', v);
                 }}
               />
               <Switch
-                label="Description"
+                label={t('media_adv_write_description')}
                 checked={state.writeDescription}
                 onChange={(v) => {
                   onChange('writeDescription', v);
                 }}
               />
               <Switch
-                label="Split Chapters"
+                label={t('media_adv_split_chapters')}
                 checked={state.splitChapters}
                 onChange={(v) => {
                   onChange('splitChapters', v);
@@ -146,12 +163,12 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
               />
             </div>
             <TextField
-              label="Subtitle Languages"
+              label={t('media_adv_subtitle_languages')}
               value={state.subtitleLanguages}
               onChange={(e) => {
                 onChange('subtitleLanguages', e.target.value);
               }}
-              placeholder="en, ar, all"
+              placeholder={t('media_adv_subtitle_languages_placeholder')}
               className="font-mono"
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
@@ -161,7 +178,7 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
         {advancedTab === 'format' && (
           <div className="space-y-2">
             <TextField
-              label="Format Selector Override"
+              label={t('media_adv_format_selector')}
               disabled={!supportsMediaOption('formatSelector')}
               value={state.formatSelectorOverride}
               onChange={(e) => {
@@ -172,7 +189,7 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
-              label="Format Sort"
+              label={t('media_adv_format_sort')}
               disabled={!supportsMediaOption('formatSort')}
               value={state.formatSort}
               onChange={(e) => {
@@ -183,7 +200,7 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
-              label="Download Sections"
+              label={t('media_adv_download_sections')}
               disabled={!supportsMediaOption('downloadSections')}
               value={state.downloadSections}
               onChange={(e) => {
@@ -194,7 +211,7 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
-              label="Match Filter"
+              label={t('media_adv_match_filter')}
               disabled={!supportsMediaOption('matchFilter')}
               value={state.matchFilter}
               onChange={(e) => {
@@ -205,7 +222,7 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
-              label="Remux Format"
+              label={t('media_adv_remux_format')}
               disabled={!supportsMediaOption('remuxFormat')}
               value={state.remuxFormat}
               onChange={(e) => {
@@ -214,7 +231,7 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
               placeholder="mp4, mkv, webm"
             />
             <TextField
-              label="SponsorBlock Segments"
+              label={t('media_adv_sponsorblock_segments')}
               disabled={!supportsMediaOption('sponsorBlock')}
               value={state.sponsorBlock}
               onChange={(e) => {
@@ -228,7 +245,7 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
         {advancedTab === 'network' && (
           <div className="space-y-2">
             <TextField
-              label="Proxy"
+              label={t('media_adv_proxy')}
               disabled={!supportsMediaOption('proxy')}
               value={state.mediaProxy}
               onChange={(e) => {
@@ -239,7 +256,7 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
-              label="Cookies From Browser"
+              label={t('media_adv_cookies_from_browser')}
               disabled={!supportsMediaOption('cookiesFromBrowser')}
               value={state.cookiesFromBrowser}
               onChange={(e) => {
@@ -250,7 +267,7 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
-              label="User-Agent"
+              label={t('media_adv_user_agent')}
               disabled={!supportsMediaOption('userAgent')}
               value={state.mediaUserAgent}
               onChange={(e) => {
@@ -261,7 +278,7 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <TextField
-              label="Referer"
+              label={t('media_adv_referer')}
               disabled={!supportsMediaOption('referer')}
               value={state.mediaReferer}
               onChange={(e) => {
@@ -272,7 +289,9 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
             <div className="flex flex-col gap-1">
-              <label className="text-[var(--text-secondary)] text-[11px] font-bold">Custom Headers</label>
+              <label className="text-[var(--text-secondary)] text-[11px] font-bold">
+                {t('media_adv_custom_headers')}
+              </label>
               <textarea
                 rows={2}
                 value={state.mediaHeaders}
@@ -286,7 +305,7 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-[var(--text-secondary)] text-[11px] font-bold">Cookies</label>
+              <label className="text-[var(--text-secondary)] text-[11px] font-bold">{t('media_adv_cookies')}</label>
               <textarea
                 rows={2}
                 value={state.mediaCookies}
@@ -305,17 +324,17 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
         {advancedTab === 'perf' && (
           <div className="grid grid-cols-2 gap-2">
             <TextField
-              label="Rate Limit (KB/s)"
+              label={t('media_adv_rate_limit_kbs')}
               disabled={!supportsMediaOption('rateLimitKbs')}
               type="number"
               value={state.rateLimitKbs}
               onChange={(e) => {
                 onChange('rateLimitKbs', Number(e.target.value));
               }}
-              placeholder="0 = unlimited"
+              placeholder={t('media_adv_unlimited')}
             />
             <TextField
-              label="Retries"
+              label={t('media_adv_retries')}
               disabled={!supportsMediaOption('retries')}
               type="number"
               value={state.retries}
@@ -324,7 +343,7 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
               }}
             />
             <TextField
-              label="Fragment Retries"
+              label={t('media_adv_fragment_retries')}
               disabled={!supportsMediaOption('fragmentRetries')}
               type="number"
               value={state.fragmentRetries}
@@ -333,7 +352,7 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
               }}
             />
             <TextField
-              label="Concurrent Frags"
+              label={t('media_adv_concurrent_fragments')}
               disabled={!supportsMediaOption('concurrentFragments')}
               type="number"
               value={state.concurrentFragments}
@@ -342,7 +361,7 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
               }}
             />
             <TextField
-              label="Sleep Interval (s)"
+              label={t('media_adv_sleep_interval_seconds')}
               disabled={!supportsMediaOption('sleepIntervalSec')}
               type="number"
               value={state.sleepIntervalSec}
@@ -352,7 +371,7 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
               placeholder="0"
             />
             <TextField
-              label="Max Sleep (s)"
+              label={t('media_adv_max_sleep_seconds')}
               disabled={!supportsMediaOption('maxSleepIntervalSec')}
               type="number"
               value={state.maxSleepIntervalSec}

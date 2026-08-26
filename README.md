@@ -5,7 +5,7 @@
 <h1 align="center">NOVA Download Manager</h1>
 
 <p align="center">
-  A professional desktop download manager built around a verified <strong>libcurl multi</strong> core, a matching Manifest V3 browser companion, and a branded Windows installer.
+  An open-source desktop download manager built around a runtime-validated <strong>libcurl multi</strong> core, optional media tooling, and a paired Manifest V3 browser companion.
 </p>
 
 <p align="center">
@@ -24,7 +24,8 @@
 </p>
 <p align="center">
   <!-- Community & Support -->
-  <a href="https://t.me/NOVADownloadManager"><img alt="Telegram" src="https://img.shields.io/badge/Telegram-Channel-2CA5E0?logo=telegram&logoColor=white" /></a>&nbsp;
+  <a href="https://github.com/Alaa91H"><img alt="Developer GitHub" src="https://img.shields.io/badge/GitHub-Alaa91H-181717?logo=github&logoColor=white" /></a>&nbsp;
+  <a href="https://t.me/Alaa91h"><img alt="Telegram" src="https://img.shields.io/badge/Telegram-Alaa91h-2CA5E0?logo=telegram&logoColor=white" /></a>&nbsp;
   <a href="https://ko-fi.com/alaa91h"><img alt="Ko-fi" src="https://img.shields.io/badge/Support%20NOVA%20on-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white" /></a>
 </p>
 
@@ -182,6 +183,7 @@
 
 - [Overview](#overview)
 - [Why NOVA is different](#why-nova-is-different)
+- [Product scope and limitations](#product-scope-and-limitations)
 - [Core capabilities](#core-capabilities)
 - [Architecture](#architecture)
 - [Security](#security)
@@ -199,7 +201,7 @@
 
 ## Overview
 
-NOVA Download Manager is an integrated desktop download manager for direct files, browser-captured links, and media workflows. It combines a Tauri desktop shell, a Rust daemon, an in-process `libcurl multi` direct-download engine, `yt-dlp + FFmpeg` media processing, and a browser companion that uses a strict local bridge to hand off download candidates.
+NOVA Download Manager is an integrated open-source desktop download manager for direct files, browser-captured links, and media workflows. It combines a Tauri desktop shell, a Rust daemon, an in-process `libcurl multi` direct-download engine, optional `yt-dlp + FFmpeg` media processing, and a browser companion that uses a local bridge to hand off download candidates.
 
 The project is designed as a single product rather than separate disconnected tools. The desktop UI, daemon, browser extension, Native Messaging host, NSIS installer, scripts, audits, and documentation share one repository policy and one release pipeline.
 
@@ -209,13 +211,19 @@ NOVA does not expose fake capabilities. The application asks the daemon which en
 
 This runtime-verified model keeps the product predictable, debuggable, and safe across release builds.
 
+## Product scope and limitations
+
+NOVA is not a cloud-storage service, torrent client, VPN, DRM bypass tool, or a substitute for website permissions. Direct-file features, segmented transfers, and resume behavior depend on both the linked runtime engine and the remote server. In particular, a server must honor HTTP Range requests for an existing partial file to continue byte-accurately; a server that always returns a full response cannot provide ordinary Range resume.
+
+Media options require `yt-dlp` and, where post-processing is requested, FFmpeg. The interface gates unavailable options and does not claim that a missing runtime dependency is active. Browser capture requires the desktop application, the appropriate browser companion, and local pairing. See the detailed [product scope and support guide](docs/PRODUCT_SCOPE_AND_SUPPORT.md) for verification guidance, security boundaries, and contact channels.
+
 ## Core capabilities
 
 ### Direct download engine
 
 - In-process Rust download engine using linked `libcurl multi`.
 - Segmented byte-range downloads when the server and runtime engine support ranges.
-- Pause/resume guarded by generation tokens to prevent stale workers from writing into resumed tasks.
+- Pause/resume guarded by generation tokens to prevent stale workers from writing into resumed tasks, with durable partial-output and segmented-part checkpoints.
 - Safe single-connection resume for servers that do not support reliable segmentation.
 - Atomic segment merge with final-size verification.
 - Runtime validation of linked `libcurl` version, protocols, and features against the build manifest.
@@ -373,6 +381,7 @@ Every release is built natively for each operating system and CPU architecture �
 | Linux — Debian, Ubuntu, Linux Mint, Pop!\_OS, elementary | x64, ARM64                         | `.deb`                                  |
 | Linux — Fedora, RHEL, CentOS Stream, openSUSE            | x64, ARM64                         | `.rpm`                                  |
 | Linux — Arch, Gentoo, and any other distribution         | x64, ARM64                         | AppImage (universal, no install needed) |
+| Android                                                   | ARM64                              | APK release asset                         |
 
 All artifacts ship with SHA-256 checksums and build metadata.
 
@@ -569,6 +578,7 @@ The browser extension ships with 25 languages in its bundle (a subset optimized 
 
 All documentation except this root README is centralized under [`docs/`](docs/README.md):
 
+- [Product scope and support](docs/PRODUCT_SCOPE_AND_SUPPORT.md)
 - [Project structure](docs/architecture/PROJECT_STRUCTURE.md)
 - [Capability gating](docs/architecture/CAPABILITY_GATING.md)
 - [Engine compatibility](docs/architecture/ENGINE_COMPATIBILITY.md)
@@ -590,12 +600,16 @@ All documentation except this root README is centralized under [`docs/`](docs/RE
 
 ## Support and community
 
-NOVA is an independent project. Support helps fund maintenance, browser-store packaging, testing, and engine integration work.
+NOVA is an independent project. Voluntary support helps fund maintenance, browser-store packaging, testing, and engine integration work. Use the following maintainer channels for feedback, bug reports, collaboration, or support.
 
-<p align="center">
-  <a href="https://t.me/NOVADownloadManager"><img alt="Telegram" src="https://img.shields.io/badge/Telegram-Channel-2CA5E0?logo=telegram&logoColor=white" /></a>&nbsp;
-  <a href="https://ko-fi.com/alaa91h"><img alt="Ko-fi" src="https://img.shields.io/badge/Support%20NOVA%20on-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white" /></a>
-</p>
+| Channel | Link | Use |
+| --- | --- | --- |
+| GitHub | [github.com/Alaa91H](https://github.com/Alaa91H) | Source code, issues, and release information. |
+| Email | [alahus2591@gmail.com](mailto:alahus2591@gmail.com) | Private contact and detailed bug reports. |
+| Telegram | [t.me/Alaa91h](https://t.me/Alaa91h) | Community contact and project updates. |
+| Ko-fi | [ko-fi.com/alaa91h](https://ko-fi.com/alaa91h) | Voluntary maintenance support. |
+
+When reporting a problem, include the NOVA version, operating system, task state or error message, and a redacted diagnostic log. Never publish passwords, tokens, signed URLs, or private paths in a public issue.
 
 ## License and third-party notices
 

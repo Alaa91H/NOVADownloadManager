@@ -12,41 +12,48 @@ interface Props {
   onAddToast: (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => void;
 }
 
-const DNS_PRESETS: Record<string, { primary: string; secondary: string; description: string } | undefined> = {
-  system: { primary: '', secondary: '', description: 'Use operating system DNS settings' },
-  cloudflare: { primary: '1.1.1.1', secondary: '1.0.0.1', description: 'Fast & privacy-focused (1.1.1.1)' },
-  google: { primary: '8.8.8.8', secondary: '8.8.4.4', description: 'Reliable public DNS by Google' },
-  opendns: {
-    primary: '208.67.222.222',
-    secondary: '208.67.220.220',
-    description: 'Cisco Umbrella / Parental controls',
-  },
-  quad9: { primary: '9.9.9.9', secondary: '149.112.112.112', description: 'Security-focused, blocks threats' },
-  comodo: { primary: '8.26.56.26', secondary: '8.20.247.20', description: 'Comodo Secure DNS with malware filtering' },
-  adguard: { primary: '94.140.14.14', secondary: '94.140.15.15', description: 'AdGuard DNS — ad/tracker blocking' },
-  cleanbrowsing: {
-    primary: '185.228.168.9',
-    secondary: '185.228.169.9',
-    description: 'CleanBrowsing — family-friendly filter',
-  },
-  custom: { primary: '', secondary: '', description: 'Manually specify DNS servers' },
-};
+type DnsPreset = { primary: string; secondary: string; description: string };
 
-const DNS_MODE_OPTIONS = [
-  { value: 'system', label: 'System Default' },
-  { value: 'cloudflare', label: 'Cloudflare (1.1.1.1)' },
-  { value: 'google', label: 'Google DNS (8.8.8.8)' },
-  { value: 'opendns', label: 'OpenDNS (208.67.222.222)' },
-  { value: 'quad9', label: 'Quad9 (9.9.9.9)' },
-  { value: 'comodo', label: 'Comodo Secure (8.26.56.26)' },
-  { value: 'adguard', label: 'AdGuard DNS (94.140.14.14)' },
-  { value: 'cleanbrowsing', label: 'CleanBrowsing (185.228.168.9)' },
-  { value: 'custom', label: 'Custom — manual entry' },
-];
+const DNS_PRESET_ENDPOINTS: Record<string, Omit<DnsPreset, 'description'>> = {
+  system: { primary: '', secondary: '' },
+  cloudflare: { primary: '1.1.1.1', secondary: '1.0.0.1' },
+  google: { primary: '8.8.8.8', secondary: '8.8.4.4' },
+  opendns: { primary: '208.67.222.222', secondary: '208.67.220.220' },
+  quad9: { primary: '9.9.9.9', secondary: '149.112.112.112' },
+  comodo: { primary: '8.26.56.26', secondary: '8.20.247.20' },
+  adguard: { primary: '94.140.14.14', secondary: '94.140.15.15' },
+  cleanbrowsing: { primary: '185.228.168.9', secondary: '185.228.169.9' },
+  custom: { primary: '', secondary: '' },
+};
 
 export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting, onAddToast }) => {
   const t = useI18n();
   const [proxyTestStatus, setProxyTestStatus] = useState<'idle' | 'testing' | 'pass' | 'fail'>('idle');
+  const dnsPresets = useMemo<Record<string, DnsPreset>>(
+    () => ({
+      system: { ...DNS_PRESET_ENDPOINTS.system, description: t('settings_dns_desc_system') },
+      cloudflare: { ...DNS_PRESET_ENDPOINTS.cloudflare, description: t('settings_dns_desc_cloudflare') },
+      google: { ...DNS_PRESET_ENDPOINTS.google, description: t('settings_dns_desc_google') },
+      opendns: { ...DNS_PRESET_ENDPOINTS.opendns, description: t('settings_dns_desc_opendns') },
+      quad9: { ...DNS_PRESET_ENDPOINTS.quad9, description: t('settings_dns_desc_quad9') },
+      comodo: { ...DNS_PRESET_ENDPOINTS.comodo, description: t('settings_dns_desc_comodo') },
+      adguard: { ...DNS_PRESET_ENDPOINTS.adguard, description: t('settings_dns_desc_adguard') },
+      cleanbrowsing: { ...DNS_PRESET_ENDPOINTS.cleanbrowsing, description: t('settings_dns_desc_cleanbrowsing') },
+      custom: { ...DNS_PRESET_ENDPOINTS.custom, description: t('settings_dns_desc_custom') },
+    }),
+    [t],
+  );
+  const dnsModeOptions = [
+    { value: 'system', label: t('settings_dns_system_default') },
+    { value: 'cloudflare', label: 'Cloudflare (1.1.1.1)' },
+    { value: 'google', label: 'Google DNS (8.8.8.8)' },
+    { value: 'opendns', label: 'OpenDNS (208.67.222.222)' },
+    { value: 'quad9', label: 'Quad9 (9.9.9.9)' },
+    { value: 'comodo', label: 'Comodo Secure (8.26.56.26)' },
+    { value: 'adguard', label: 'AdGuard DNS (94.140.14.14)' },
+    { value: 'cleanbrowsing', label: 'CleanBrowsing (185.228.168.9)' },
+    { value: 'custom', label: t('settings_dns_custom_manual') },
+  ];
   const [proxyErrorMessage, setProxyErrorMessage] = useState('');
   const [dnsCustomPrimary, setDnsCustomPrimary] = useState(() => settings.extra.dnsCustomResolver.split(',')[0] ?? '');
   const [dnsCustomSecondary, setDnsCustomSecondary] = useState(
@@ -54,14 +61,14 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
   );
 
   const activeDnsPreset = useMemo(
-    () => DNS_PRESETS[settings.extra.dnsResolver] ?? { primary: '', secondary: '', description: '' },
-    [settings.extra.dnsResolver],
+    () => dnsPresets[settings.extra.dnsResolver] ?? { primary: '', secondary: '', description: '' },
+    [dnsPresets, settings.extra.dnsResolver],
   );
 
   const handleDnsModeChange = (mode: string) => {
     updateSetting('extra', 'dnsResolver', mode);
-    const preset = DNS_PRESETS[mode];
-    if (preset && mode !== 'custom') {
+    const preset = dnsPresets[mode];
+    if (mode !== 'custom') {
       const servers = [preset.primary, preset.secondary].filter(Boolean).join(',');
       // Real consumer: AddDownloadDialog reads connection.defaults.dnsServers.
       updateSetting('connection', 'defaults', {
@@ -81,25 +88,29 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
       ...settings.connection.defaults,
       dnsServers: servers,
     });
-    onAddToast('success', 'DNS', 'Custom DNS servers applied.');
+    onAddToast('success', t('settings_dns_configuration'), t('settings_dns_custom_applied'));
   };
 
   const handleDnsTest = async () => {
     try {
       const data = await novaClient.pingDnsProviders();
       const resolver = settings.extra.dnsResolver;
-      const preset = DNS_PRESETS[resolver];
-      const currentIp = resolver === 'custom' ? settings.extra.dnsCustomResolver.split(',')[0] : preset?.primary || '';
+      const preset = dnsPresets[resolver];
+      const currentIp = resolver === 'custom' ? settings.extra.dnsCustomResolver.split(',')[0] : preset.primary;
       const match = currentIp ? data.results.find((r) => r.ip === currentIp) : null;
       if (match && match.latencyMs !== null) {
-        onAddToast('success', 'DNS Test', `${resolver}: ${match.ip} — ${match.latencyMs.toFixed(1)} ms`);
+        onAddToast(
+          'success',
+          t('settings_dns_test_title'),
+          t('settings_dns_test_result', { resolver, ip: match.ip, latency: match.latencyMs.toFixed(1) }),
+        );
       } else if (match) {
-        onAddToast('warning', 'DNS Test', `${resolver}: ${match.ip} — timed out`);
+        onAddToast('warning', t('settings_dns_test_title'), t('settings_dns_test_timeout', { resolver, ip: match.ip }));
       } else {
-        onAddToast('info', 'DNS Test', 'Use "Ping All Providers" to test all DNS servers.');
+        onAddToast('info', t('settings_dns_test_title'), t('settings_dns_test_hint'));
       }
     } catch {
-      onAddToast('error', 'DNS Test', 'Failed to test DNS.');
+      onAddToast('error', t('settings_dns_test_title'), t('settings_dns_test_failed'));
     }
   };
 
@@ -117,11 +128,11 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
       const reachable = data.results.filter((r) => r.latencyMs !== null).length;
       onAddToast(
         'info',
-        'DNS Ping',
-        `Pinged ${String(data.results.length)} providers, ${String(reachable)} reachable.`,
+        t('settings_dns_ping_title'),
+        t('settings_dns_ping_summary', { total: data.results.length, reachable }),
       );
     } catch {
-      onAddToast('error', 'DNS Ping', 'Failed to ping DNS providers.');
+      onAddToast('error', t('settings_dns_ping_title'), t('settings_dns_ping_failed'));
     } finally {
       setPingLoading(false);
     }
@@ -143,18 +154,18 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
       const port = Number(settings.connection.proxyPort);
       if (!host) {
         setProxyTestStatus('fail');
-        setProxyErrorMessage('Proxy host is empty.');
+        setProxyErrorMessage(t('settings_proxy_host_empty'));
         onAddToast('error', t('settings_toast_proxy_test'), t('settings_toast_proxy_fail'));
         return;
       }
       if (!Number.isFinite(port) || port < 1 || port > 65535) {
         setProxyTestStatus('fail');
-        setProxyErrorMessage('Proxy port must be between 1 and 65535.');
+        setProxyErrorMessage(t('settings_proxy_port_invalid'));
         onAddToast('error', t('settings_toast_proxy_test'), t('settings_toast_proxy_fail'));
         return;
       }
       setProxyTestStatus('pass');
-      setProxyErrorMessage('Configuration looks valid. Start a download to verify the live proxy connection.');
+      setProxyErrorMessage(t('settings_proxy_configuration_valid'));
       onAddToast('success', t('settings_toast_proxy_test'), t('settings_toast_proxy_pass'));
     }, 400);
   };
@@ -188,7 +199,7 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
                     onChange={(e) => {
                       updateSetting('connection', 'proxyHost', e.target.value);
                     }}
-                    placeholder="127.0.0.1 or proxy.company.com"
+                    placeholder={t('settings_proxy_host_placeholder')}
                     style={{ direction: 'ltr', textAlign: 'left' }}
                   />
                   <TextField
@@ -204,7 +215,7 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
 
                 <div className="grid grid-cols-2 gap-3">
                   <SelectField
-                    label="Proxy Type"
+                    label={t('settings_proxy_type')}
                     value={settings.connection.proxyType}
                     onChange={(e) => {
                       updateSetting('connection', 'proxyType', e.target.value);
@@ -219,7 +230,7 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
                   />
                   <div className="flex items-center gap-6 pt-5">
                     <Checkbox
-                      label="Proxy Tunnel (CONNECT)"
+                      label={t('settings_proxy_tunnel')}
                       checked={settings.connection.proxyTunnel}
                       onChange={(v) => {
                         updateSetting('connection', 'proxyTunnel', v);
@@ -236,7 +247,7 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
                   onChange={(e) => {
                     updateSetting('connection', 'proxyUser', e.target.value);
                   }}
-                  placeholder="Username"
+                  placeholder={t('settings_proxy_username')}
                   style={{ direction: 'ltr', textAlign: 'left' }}
                 />
                 <TextField
@@ -246,7 +257,7 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
                   onChange={(e) => {
                     updateSetting('connection', 'proxyPass', e.target.value);
                   }}
-                  placeholder="Password"
+                  placeholder={t('settings_proxy_password')}
                   style={{ direction: 'ltr', textAlign: 'left' }}
                 />
               </div>
@@ -358,17 +369,17 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
       <div className="space-y-4">
         <div className="flex items-center gap-2 border-b border-[var(--border-color)] pb-2">
           <Network className="w-4 h-4 text-[var(--accent-primary)]" />
-          <h3 className="text-sm font-extrabold text-[var(--accent-primary)]">DNS Configuration</h3>
+          <h3 className="text-sm font-extrabold text-[var(--accent-primary)]">{t('settings_dns_configuration')}</h3>
         </div>
 
         <div className="bg-[var(--bg-hover)]/30 p-3.5 rounded-lg border border-[var(--border-color)] space-y-3">
           <SelectField
-            label="DNS Provider"
+            label={t('settings_dns_provider')}
             value={settings.extra.dnsResolver}
             onChange={(e) => {
               handleDnsModeChange(e.target.value);
             }}
-            options={DNS_MODE_OPTIONS}
+            options={dnsModeOptions}
           />
 
           {settings.extra.dnsResolver !== 'system' && (
@@ -385,7 +396,7 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
               {settings.extra.dnsResolver === 'custom' && (
                 <div className="grid grid-cols-2 gap-3 p-2.5 bg-[var(--bg-hover)]/50 rounded border border-[var(--border-color)]/50">
                   <TextField
-                    label="Primary DNS"
+                    label={t('settings_dns_primary')}
                     value={dnsCustomPrimary}
                     onChange={(e) => {
                       setDnsCustomPrimary(e.target.value);
@@ -394,7 +405,7 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
                     style={{ direction: 'ltr', textAlign: 'left' }}
                   />
                   <TextField
-                    label="Secondary DNS"
+                    label={t('settings_dns_secondary')}
                     value={dnsCustomSecondary}
                     onChange={(e) => {
                       setDnsCustomSecondary(e.target.value);
@@ -408,14 +419,14 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
                       onClick={handleDnsCustomApply}
                       className="px-3 py-1.5 bg-[var(--accent-primary)]/10 border border-[var(--accent-border)] text-[var(--accent-primary)] rounded text-[10px] font-bold hover:bg-[var(--accent-primary)]/20 transition-all cursor-pointer"
                     >
-                      Apply Custom DNS
+                      {t('settings_dns_apply_custom')}
                     </button>
                   </div>
                 </div>
               )}
 
               <div className="grid grid-cols-2 gap-3">
-                <FormRow label="Cache timeout (sec)">
+                <FormRow label={t('settings_dns_cache_timeout')}>
                   <input
                     type="number"
                     min={0}
@@ -440,7 +451,7 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
                   className="px-3 py-1.5 bg-[var(--info-bg)] border border-[var(--info-border)] text-[var(--info)] rounded text-[10px] font-bold hover:bg-[var(--info-bg)] transition-all cursor-pointer flex items-center gap-1"
                 >
                   <Server className="w-3 h-3" />
-                  Test DNS
+                  {t('settings_dns_test')}
                 </button>
                 <button
                   type="button"
@@ -449,7 +460,7 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
                   className="px-3 py-1.5 bg-[var(--bg-hover)] border border-[var(--border-color)] text-[var(--text-secondary)] rounded text-[10px] font-bold hover:bg-[var(--border-color)]/20 transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50"
                 >
                   {pingLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Activity className="w-3 h-3" />}
-                  Ping All Providers
+                  {t('settings_dns_ping_all')}
                 </button>
               </div>
 
@@ -459,13 +470,13 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
                     <thead>
                       <tr className="border-b border-[var(--border-color)]/50">
                         <th className="text-left py-1.5 pr-2 text-[var(--text-muted)] font-bold uppercase tracking-wider">
-                          Provider
+                          {t('settings_dns_provider_column')}
                         </th>
                         <th className="text-left py-1.5 pr-2 text-[var(--text-muted)] font-bold uppercase tracking-wider">
                           IP
                         </th>
                         <th className="text-right py-1.5 text-[var(--text-muted)] font-bold uppercase tracking-wider">
-                          Latency
+                          {t('settings_dns_latency')}
                         </th>
                       </tr>
                     </thead>
@@ -493,7 +504,7 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
                               ) : (
                                 <span className="flex items-center justify-end gap-1">
                                   <XCircle className="w-2.5 h-2.5" />
-                                  Timeout
+                                  {t('settings_dns_timeout')}
                                 </span>
                               )}
                             </td>
@@ -505,7 +516,7 @@ export const NetworkAndPerformance: React.FC<Props> = ({ settings, updateSetting
                   {bestPing && (
                     <p className="text-[9px] text-[var(--success)] font-bold mt-2 flex items-center gap-1">
                       <Zap className="w-2.5 h-2.5" />
-                      Fastest: {bestPing.name} — {bestPing.latencyMs.toFixed(1)} ms
+                      {t('settings_dns_fastest', { name: bestPing.name, latency: bestPing.latencyMs.toFixed(1) })}
                     </p>
                   )}
                 </div>

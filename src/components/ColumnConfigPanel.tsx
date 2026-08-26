@@ -155,7 +155,7 @@ const ColumnConfigPanel: React.FC<ColumnConfigPanelProps> = ({
             document.body.dispatchEvent(evt);
           }}
           className="p-0.5 text-[var(--text-muted)] hover:text-[var(--text-primary)] rounded transition-colors cursor-pointer"
-          aria-label="Close"
+          aria-label={t('ui_close')}
         >
           <X className="w-3.5 h-3.5" />
         </button>
@@ -171,7 +171,7 @@ const ColumnConfigPanel: React.FC<ColumnConfigPanelProps> = ({
           className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold rounded text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
         >
           <Eye className="w-3 h-3" />
-          All
+          {t('ui_all')}
         </button>
         <button
           type="button"
@@ -179,7 +179,7 @@ const ColumnConfigPanel: React.FC<ColumnConfigPanelProps> = ({
           className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold rounded text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
         >
           <EyeOff className="w-3 h-3" />
-          None
+          {t('ui_none')}
         </button>
         <button
           type="button"
@@ -187,7 +187,7 @@ const ColumnConfigPanel: React.FC<ColumnConfigPanelProps> = ({
           className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold rounded text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
         >
           <RotateCcw className="w-3 h-3" />
-          Reset
+          {t('ui_reset')}
         </button>
       </div>
 
@@ -245,7 +245,7 @@ const ColumnConfigPanel: React.FC<ColumnConfigPanelProps> = ({
                 }`}
                 role="checkbox"
                 aria-checked={isVisible}
-                aria-label={`Toggle ${label}`}
+                aria-label={t('ui_toggle', { label })}
               >
                 {isVisible && <Check className="w-2.5 h-2.5 text-white" strokeWidth={4} />}
               </button>
@@ -272,7 +272,7 @@ const ColumnConfigPanel: React.FC<ColumnConfigPanelProps> = ({
                     }}
                     disabled={idx === 0}
                     className="p-0.5 text-[var(--text-muted)] hover:text-[var(--accent-primary)] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                    aria-label="Move up"
+                    aria-label={t('ui_move_up')}
                   >
                     <ChevronUp className="w-2.5 h-2.5" />
                   </button>
@@ -283,7 +283,7 @@ const ColumnConfigPanel: React.FC<ColumnConfigPanelProps> = ({
                     }}
                     disabled={idx === colOrder.length - 1}
                     className="p-0.5 text-[var(--text-muted)] hover:text-[var(--accent-primary)] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                    aria-label="Move down"
+                    aria-label={t('ui_move_down')}
                   >
                     <ChevronDown className="w-2.5 h-2.5" />
                   </button>
@@ -295,7 +295,7 @@ const ColumnConfigPanel: React.FC<ColumnConfigPanelProps> = ({
       </div>
 
       <p className="text-[9px] text-[var(--text-muted)] leading-relaxed border-t border-[var(--border-color)]/50 pt-1.5">
-        Drag rows to reorder • Click ✓ to toggle • Use ↑↓ for fine control
+        {t('col_customize_hint')}
       </p>
     </div>
   );

@@ -94,11 +94,14 @@ requireContains('README.md', '[LICENSE](LICENSE)', 'README links to the MIT lice
 requireContains('README.md', 'THIRD_PARTY_NOTICES.md', 'README links to third-party notices');
 requireContains('scripts/build-tauri-assets.mjs', 'copyLegalNotices', 'installer stages legal notices into resources');
 requireContains('README.md', 'https://ko-fi.com/alaa91h', 'Ko-fi support link');
-requireContains('README.md', 'https://t.me/NOVADownloadManager', 'Telegram community link');
+requireContains('README.md', 'https://github.com/Alaa91H', 'maintainer GitHub link');
+requireContains('README.md', 'mailto:alahus2591@gmail.com', 'maintainer email link');
+requireContains('README.md', 'https://t.me/Alaa91h', 'maintainer Telegram link');
 requireContains('README.md', 'The browser extension is a product submodule in source layout only', 'README repository centralization policy');
 requireContains('pnpm-workspace.yaml', '  - browser-extension', 'browser extension is part of the unified pnpm workspace');
 requireContains('.gitignore', 'browser-extension/.wxt/', 'root gitignore covers extension generated outputs');
 requireContains('.gitignore', 'src-tauri/target/', 'root gitignore covers Tauri build output');
+requireContains('docs/README.md', 'docs/PRODUCT_SCOPE_AND_SUPPORT.md', 'product scope and support docs link');
 requireContains('docs/README.md', 'docs/architecture/ENGINE_COMPATIBILITY.md', 'centralized engine compatibility docs link');
 requireContains('docs/README.md', 'docs/extension/README.md', 'centralized browser extension docs link');
 requireContains('docs/extension/ci-templates/legacy-extension-ci.yml', 'NOVA Browser Extension Unified Pipeline', 'extension CI template archived under docs/extension/ci-templates');

@@ -44,7 +44,10 @@ fun NOVAApp(
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedDestinationName by rememberSaveable { mutableStateOf(AppDestination.Downloads.name) }
-    val selectedDestination = AppDestination.valueOf(selectedDestinationName)
+    // Saved UI state can outlive a destination rename or a previous preview build.
+    // Never let an unknown restored value abort composition during application launch.
+    val selectedDestination = AppDestination.entries.firstOrNull { it.name == selectedDestinationName }
+        ?: AppDestination.Downloads
 
     LaunchedEffect(incomingSharedUrl) {
         incomingSharedUrl?.let(viewModel::receiveSharedUrl)

@@ -2,6 +2,10 @@
 
 This directory is the canonical documentation home for NOVA Download Manager. The Markdown files intentionally kept outside this directory are the root `README.md` (public product landing page) and the standard repository metadata files listed under [Repository root files](#repository-root-files).
 
+## Product scope and support
+
+- [Product scope and support](PRODUCT_SCOPE_AND_SUPPORT.md) — implemented capabilities, runtime and server boundaries, installation verification, and maintainer contact channels.
+
 ## Architecture
 
 - [Project structure](architecture/PROJECT_STRUCTURE.md) — canonical source tree, generated-file policy, and repository ownership model.
@@ -48,9 +52,11 @@ Standard project metadata files are kept at the repository root because tooling 
 - `CODE_OF_CONDUCT.md` — community code of conduct.
 - `SECURITY.md` — security reporting policy.
 - `THIRD_PARTY_NOTICES.md` — bundled curl/yt-dlp/FFmpeg license notices.
+- `docs/PRODUCT_SCOPE_AND_SUPPORT.md` — transparent product scope, known boundaries, verification guidance, and support channels.
 
 ## Canonical paths
 
+- `docs/PRODUCT_SCOPE_AND_SUPPORT.md`
 - `docs/architecture/ENGINE_COMPATIBILITY.md`
 - `docs/extension/README.md`
 - `docs/maintenance/DEPENDABOT_AND_MAINTENANCE.md`

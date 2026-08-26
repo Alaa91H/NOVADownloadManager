@@ -284,4 +284,15 @@ writeFile('browser-extension/public/icons/logo.png', resizePNG(sourceBuf, 512, 5
 console.log('Generating src/assets logo...');
 writeFile('src/assets/logo.png', resizePNG(sourceBuf, 512, 512));
 
-console.log('\nDone. All icons regenerated from same source with transparent background.');
+console.log('Generating Android launcher icons...');
+for (const [density, size] of [
+  ['mdpi', 48],
+  ['hdpi', 72],
+  ['xhdpi', 96],
+  ['xxhdpi', 144],
+  ['xxxhdpi', 192],
+]) {
+  writeFile(`android/app/src/main/res/mipmap-${density}/ic_nova_launcher.png`, resizePNG(sourceBuf, size, size));
+}
+
+console.log('\nDone. All icons regenerated from the same source with transparent background.');

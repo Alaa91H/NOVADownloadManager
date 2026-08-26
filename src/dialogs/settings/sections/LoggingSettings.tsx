@@ -353,8 +353,8 @@ export const LoggingSettings: React.FC<Props> = ({ settings, updateSetting, onAd
                 }}
                 className="bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1 text-[10px] font-bold text-[var(--text-primary)] cursor-pointer"
               >
-                <option value="frontend">UI logs</option>
-                <option value="backend">Engine logs (daemon)</option>
+                <option value="frontend">{t('settings_logging_source_ui')}</option>
+                <option value="backend">{t('settings_logging_source_daemon')}</option>
               </select>
               <select
                 value={filterLevel}
@@ -364,10 +364,10 @@ export const LoggingSettings: React.FC<Props> = ({ settings, updateSetting, onAd
                 className="bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1 text-[10px] font-bold text-[var(--text-primary)] cursor-pointer"
               >
                 <option value="">{t('settings_logging_all_levels')}</option>
-                <option value="debug">Debug</option>
-                <option value="info">Info</option>
-                <option value="warn">Warn</option>
-                <option value="error">Error</option>
+                <option value="debug">{t('settings_logging_level_debug')}</option>
+                <option value="info">{t('settings_logging_level_info')}</option>
+                <option value="warn">{t('settings_logging_level_warn')}</option>
+                <option value="error">{t('settings_logging_level_error')}</option>
               </select>
               <input
                 value={filterSource}
@@ -383,7 +383,7 @@ export const LoggingSettings: React.FC<Props> = ({ settings, updateSetting, onAd
                 onChange={(e) => {
                   setSearchText(e.target.value);
                 }}
-                placeholder="Search logs..."
+                placeholder={t('settings_logging_search_placeholder')}
                 className="bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1 text-[10px] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] w-36"
                 style={{ direction: 'ltr' }}
               />
@@ -428,7 +428,7 @@ export const LoggingSettings: React.FC<Props> = ({ settings, updateSetting, onAd
                 className="px-2 py-1 text-[10px] font-bold text-[var(--info)] bg-[var(--info)]/10 border border-[var(--info)]/30 rounded hover:opacity-80 cursor-pointer flex items-center gap-1"
               >
                 <Download className="w-3 h-3" />
-                Export JSON
+                {t('settings_logging_export_json')}
               </button>
               <button
                 type="button"
@@ -436,20 +436,22 @@ export const LoggingSettings: React.FC<Props> = ({ settings, updateSetting, onAd
                 className="px-2 py-1 text-[10px] font-bold text-[var(--info)] bg-[var(--info)]/10 border border-[var(--info)]/30 rounded hover:opacity-80 cursor-pointer flex items-center gap-1"
               >
                 <FileText className="w-3 h-3" />
-                Save as TXT
+                {t('settings_logging_save_txt')}
               </button>
             </div>
 
             <div className="flex items-center gap-2 text-[10px] text-[var(--text-muted)] font-bold">
               <span>
                 {source === 'backend'
-                  ? `${String(filteredBackendLogs.length)} entries`
-                  : `${String(filteredLogs.length)} entries`}
+                  ? t('settings_logging_entries', { count: filteredBackendLogs.length })
+                  : t('settings_logging_entries', { count: filteredLogs.length })}
               </span>
               <span className="text-[var(--border-color)]">|</span>
               {source === 'backend' ? (
                 <>
-                  <span>daemon level: {backendLevel || 'unknown'}</span>
+                  <span>
+                    {t('settings_logging_daemon_level', { level: backendLevel || t('settings_logging_unknown') })}
+                  </span>
                   <span className="text-[var(--border-color)]">|</span>
                   <span>{t('settings_logging_buffer')}: 5000 max</span>
                 </>
@@ -465,7 +467,7 @@ export const LoggingSettings: React.FC<Props> = ({ settings, updateSetting, onAd
             >
               {source === 'backend' && backendError && (
                 <div className="p-2 text-[10px] text-[var(--danger)] border-b border-[var(--danger-border)] bg-[var(--danger-bg)]">
-                  Daemon logs unavailable: {backendError}
+                  {t('settings_logging_daemon_unavailable', { error: backendError })}
                 </div>
               )}
               {source === 'backend' && filteredBackendLogs.length === 0 && !backendError && (
@@ -553,7 +555,9 @@ export const LoggingSettings: React.FC<Props> = ({ settings, updateSetting, onAd
                 <div className="space-y-2 border-t border-[var(--border-color)] pt-2 mt-2">
                   <div className="flex items-center gap-2">
                     <FileSearch className="w-4 h-4 text-[var(--info)]" />
-                    <h4 className="text-[10px] font-extrabold text-[var(--info)]">Log files (daemon)</h4>
+                    <h4 className="text-[10px] font-extrabold text-[var(--info)]">
+                      {t('settings_logging_files_daemon')}
+                    </h4>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <select
@@ -581,7 +585,7 @@ export const LoggingSettings: React.FC<Props> = ({ settings, updateSetting, onAd
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') void loadLogFile();
                       }}
-                      placeholder="Grep (substring, e.g. ERROR-PATH)"
+                      placeholder={t('settings_logging_grep_placeholder')}
                       className="bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1 text-[10px] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] w-44"
                       style={{ direction: 'ltr' }}
                     />
@@ -592,10 +596,10 @@ export const LoggingSettings: React.FC<Props> = ({ settings, updateSetting, onAd
                       }}
                       className="bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1 text-[10px] font-bold text-[var(--text-primary)] cursor-pointer"
                     >
-                      <option value={0}>0 ctx</option>
-                      <option value={2}>2 ctx</option>
-                      <option value={3}>3 ctx</option>
-                      <option value={5}>5 ctx</option>
+                      <option value={0}>{t('settings_logging_context_lines', { count: 0 })}</option>
+                      <option value={2}>{t('settings_logging_context_lines', { count: 2 })}</option>
+                      <option value={3}>{t('settings_logging_context_lines', { count: 3 })}</option>
+                      <option value={5}>{t('settings_logging_context_lines', { count: 5 })}</option>
                     </select>
                     <button
                       type="button"
@@ -604,7 +608,7 @@ export const LoggingSettings: React.FC<Props> = ({ settings, updateSetting, onAd
                       className="px-2 py-1 text-[10px] font-bold text-[var(--text-secondary)] bg-[var(--bg-hover)] border border-[var(--border-color)] rounded hover:opacity-80 cursor-pointer flex items-center gap-1 disabled:opacity-50"
                     >
                       <RefreshCw className={`w-3 h-3 ${fileLoading ? 'animate-spin' : ''}`} />
-                      {grepText.trim() ? 'Search' : 'Refresh'}
+                      {grepText.trim() ? t('settings_logging_search') : t('settings_logging_refresh')}
                     </button>
                   </div>
 
@@ -621,13 +625,15 @@ export const LoggingSettings: React.FC<Props> = ({ settings, updateSetting, onAd
                           {logFile.path}
                         </span>
                         <span>|</span>
-                        <span>{logFile.totalLines} lines</span>
+                        <span>{t('settings_logging_lines', { count: logFile.totalLines })}</span>
                         {grepText.trim() && (
                           <>
                             <span>|</span>
                             <span>
-                              {logFile.matches.length} matches
-                              {logFile.truncatedMatches > 0 ? ` (+${String(logFile.truncatedMatches)} more)` : ''}
+                              {t('settings_logging_matches', { count: logFile.matches.length })}
+                              {logFile.truncatedMatches > 0
+                                ? ` ${t('settings_logging_more', { count: logFile.truncatedMatches })}`
+                                : ''}
                             </span>
                           </>
                         )}
@@ -636,7 +642,7 @@ export const LoggingSettings: React.FC<Props> = ({ settings, updateSetting, onAd
                         {grepText.trim() ? (
                           logFile.matches.length === 0 ? (
                             <div className="text-center text-[var(--text-muted)] italic py-4">
-                              No matches for &quot;{grepText.trim()}&quot;
+                              {t('settings_logging_no_matches', { query: grepText.trim() })}
                             </div>
                           ) : (
                             logFile.matches.map((m, i) => (
@@ -659,7 +665,9 @@ export const LoggingSettings: React.FC<Props> = ({ settings, updateSetting, onAd
                             ))
                           )
                         ) : logFile.tail.length === 0 ? (
-                          <div className="text-center text-[var(--text-muted)] italic py-4">File is empty</div>
+                          <div className="text-center text-[var(--text-muted)] italic py-4">
+                            {t('settings_logging_file_empty')}
+                          </div>
                         ) : (
                           logFile.tail.map((line, i) => (
                             <div key={i} className="whitespace-pre-wrap break-all">
@@ -674,7 +682,9 @@ export const LoggingSettings: React.FC<Props> = ({ settings, updateSetting, onAd
                 <div className="space-y-2 border-t border-[var(--border-color)] pt-2 mt-2">
                   <div className="flex items-center gap-2">
                     <GitBranch className="w-4 h-4 text-[var(--info)]" />
-                    <h4 className="text-[10px] font-extrabold text-[var(--info)]">Task trace (daemon)</h4>
+                    <h4 className="text-[10px] font-extrabold text-[var(--info)]">
+                      {t('settings_logging_task_trace')}
+                    </h4>
                   </div>
                   {tasksError && (
                     <div className="text-[10px] text-[var(--danger)] bg-[var(--danger-bg)] border border-[var(--danger-border)] rounded px-2 py-1">
@@ -689,7 +699,7 @@ export const LoggingSettings: React.FC<Props> = ({ settings, updateSetting, onAd
                       }}
                       className="bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1 text-[10px] font-bold text-[var(--text-primary)] cursor-pointer max-w-[260px]"
                     >
-                      <option value="">— select task —</option>
+                      <option value="">— {t('settings_logging_select_task')} —</option>
                       {taskSummaries.map((s) => (
                         <option key={s.taskId} value={s.taskId}>
                           {s.taskId} · {s.entries} entries{s.errors > 0 ? ` · ${String(s.errors)} ERR` : ''}
@@ -702,7 +712,7 @@ export const LoggingSettings: React.FC<Props> = ({ settings, updateSetting, onAd
                       className="px-2 py-1 text-[10px] font-bold text-[var(--text-secondary)] bg-[var(--bg-hover)] border border-[var(--border-color)] rounded hover:opacity-80 cursor-pointer flex items-center gap-1"
                     >
                       <RefreshCw className="w-3 h-3" />
-                      Reload
+                      {t('settings_logging_reload')}
                     </button>
                   </div>
                   {taskTrace && (
@@ -710,12 +720,16 @@ export const LoggingSettings: React.FC<Props> = ({ settings, updateSetting, onAd
                       <div className="flex items-center gap-2 text-[10px] text-[var(--text-muted)] font-bold flex-wrap">
                         <span className="text-[var(--accent-primary)] font-mono">{taskTrace.taskId}</span>
                         <span>|</span>
-                        <span>{taskTrace.entries.length} entries</span>
+                        <span>{t('settings_logging_entries', { count: taskTrace.entries.length })}</span>
                         {taskTrace.errors.length > 0 && (
-                          <span className="text-[var(--danger)]">{taskTrace.errors.length} errors</span>
+                          <span className="text-[var(--danger)]">
+                            {t('settings_logging_errors', { count: taskTrace.errors.length })}
+                          </span>
                         )}
                         <span>|</span>
-                        <span>{(taskTrace.lastMs - taskTrace.firstMs).toFixed(0)}ms span</span>
+                        <span>
+                          {t('settings_logging_span', { count: (taskTrace.lastMs - taskTrace.firstMs).toFixed(0) })}
+                        </span>
                         <span>|</span>
                         <span>{taskTrace.threads.join(', ')}</span>
                       </div>
@@ -740,7 +754,9 @@ export const LoggingSettings: React.FC<Props> = ({ settings, updateSetting, onAd
                       </div>
                       <div className="bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg overflow-auto font-mono text-[10px] leading-tight p-2 max-h-56">
                         {taskTrace.entries.length === 0 ? (
-                          <div className="text-center text-[var(--text-muted)] italic py-4">No entries</div>
+                          <div className="text-center text-[var(--text-muted)] italic py-4">
+                            {t('settings_logging_no_entries')}
+                          </div>
                         ) : (
                           taskTrace.entries.map((e, i) => {
                             const isError = e.level.toLowerCase() === 'error';

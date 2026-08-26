@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.30-alpha] - 2026-08-26
+
+### Changed
+
+- **Expanded localized UI coverage across the maintained language catalog.** Previously hard-coded labels, buttons, tooltips, logging controls, browser controls, media settings, column controls, speed controls, and DNS/proxy settings now use shared translation keys.
+- **Reworked About into a localized maintainer contact and support panel.** It exposes direct GitHub, email, Telegram, and Ko-fi links through NOVA's existing external-link bridge.
+- **Rewrote the public README and added a product-scope guide.** The documentation now distinguishes implemented capabilities from runtime, remote-server, browser, and external-tool constraints, and includes the maintainer's support channels.
+- **Unified Android launcher artwork with NOVA's primary branding source.** The branding generator now creates density-specific Android mipmap icons, which the Android Manifest uses for normal and round launcher icons.
+
+### Fixed
+
+- **Hardened Android startup against stale saved navigation state.** An unknown restored destination now falls back to Downloads instead of throwing during Compose composition and closing the application.
+- **Restored the Android release-build configuration.** The missing project R8/ProGuard rules file is now present, and explicitly preserves Manifest-instantiated entry points during release shrinking.
+- **Updated Android CI to `android-actions/setup-android@v4`,** removing the Node 20 deprecation warning by using the action's Node 24 migration.
+
+### Quality
+
+- The primary Android CI job now builds both the installable debug APK and a release APK before it stages the debug APK release asset, catching release-only minification/configuration regressions.
+- Validated all 132 interface dictionaries at 1,317 keys each, passed the full frontend test suite, TypeScript, ESLint, production build, documentation-fact check, installer audit, Android debug/release builds, and Android JVM tests locally.
+- Physical-device and emulator launch validation remain unclaimed because no Android device or emulator was available in this environment. The release retains diagnostics for any device-specific startup report.
+
 ## [2.4.29-alpha] - 2026-08-26
 
 ### Changed

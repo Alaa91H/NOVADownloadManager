@@ -12,9 +12,9 @@
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:name=".app.NovaApplication"
-        android:icon="@drawable/ic_nova_launcher"
+        android:icon="@mipmap/ic_nova_launcher"
         android:label="@string/app_name"
-        android:roundIcon="@drawable/ic_nova_launcher"
+        android:roundIcon="@mipmap/ic_nova_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.NOVA">
         <activity
