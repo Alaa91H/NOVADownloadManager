@@ -431,7 +431,15 @@ jobs:
 
       - name: Install Android build dependencies
         run: |
+          # GitHub's bash shell enables pipefail. `sdkmanager --licenses` exits
+          # after consuming its prompts, so `yes` correctly receives SIGPIPE;
+          # preserve the sdkmanager result rather than failing on that expected
+          # producer-side exit.
+          set +o pipefail
           yes | sdkmanager --licenses >/dev/null
+          sdkmanager_exit=${PIPESTATUS[1]}
+          set -o pipefail
+          test "$sdkmanager_exit" -eq 0
           sdkmanager --install \
             'platform-tools' \
             'platforms;android-37.0' \
