@@ -188,6 +188,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
   refreshProfiles: async () => {
     try {
       const p = await novaClient.listProfiles();
+      if (!p.ok) throw new Error('The download engine did not return a profile list');
       set({ profiles: { profiles: p.profiles, activeProfile: p.activeProfile } });
     } catch (e) {
       set({ error: e instanceof Error ? e.message : 'Failed to load profiles' });
@@ -332,7 +333,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
   },
 
   setActiveProfile: async (profileId) => {
-    await novaClient.setActiveProfile(profileId);
+    const result = await novaClient.setActiveProfile(profileId);
+    if (!result.ok) throw new Error('The download engine rejected the selected profile');
     await get().refreshProfiles();
   },
 

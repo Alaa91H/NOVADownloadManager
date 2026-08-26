@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.34-alpha] - 2026-08-27
+
+### Added
+
+- **Exposed daemon-backed download profiles in the Scheduler speed workspace.** Users can now select the engine's available policy profile, including the built-in Maximum Speed, Balanced, Economical, and Background profiles, from a compact accessible control. The active profile's daemon-provided description remains visible with the selection.
+
+### Fixed
+
+- **Rejected profile switches no longer look successful in the frontend state layer.** A false `ok` response from the engine now rejects the activation operation, preserving the server-authoritative active selection and showing an accessible failure state instead of silently refreshing as though the switch worked.
+
+### Reliability and scope
+
+- **Kept policy selection separate from scheduler list limits.** A profile selects the native engine policy for connections, adaptive behavior, retry behavior, segmentation, and its optional rate cap. The existing scheduler list speed limiter remains a distinct time-window rule and is not overwritten by the profile selector.
+- Normalized daemon-supplied profile metadata before display, dropping malformed or duplicate entries, constraining display text, and never allowing an unknown active identifier to become a selectable value.
+
+### Quality
+
+- Added unit coverage for malformed profile metadata, duplicate suppression, display normalization, active-profile membership, successful selection, rejected selection, and the existing list-speed-limiter path.
+- Documented the comparative rationale from Free Download Manager, Motrix Next, and aria2: user-facing traffic modes should be understandable policy choices while concurrency, per-item connections, and explicit speed limits remain independently scoped.
+
 ## [2.4.33-alpha] - 2026-08-26
 
 ### Added

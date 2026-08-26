@@ -10,6 +10,7 @@ import {
   useI18n,
 } from '../store/selectors';
 import { novaClient } from '../api/novaClient';
+import { useEngineStore } from '../store/engineStore';
 import { Button } from './primitives';
 import { DndContext, closestCenter, DragOverlay, type DragStartEvent, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
@@ -131,6 +132,8 @@ export const SchedulerPanel: React.FC = () => {
   const { resumeTask, pauseTask } = useTaskActions();
   const { addToast } = useToastActions();
   const t = useI18n();
+  const engineProfiles = useEngineStore((state) => state.profiles);
+  const setActiveEngineProfile = useEngineStore((state) => state.setActiveProfile);
 
   const [selectedQueueId, setSelectedQueueId] = useState<string>('main');
   const [prevQueuesCount, setPrevQueuesCount] = useState(queues.length);
@@ -637,6 +640,9 @@ export const SchedulerPanel: React.FC = () => {
                     onSpeedLimitChange={setSpeedLimitKbs}
                     oneTimeLimit={oneTimeLimit}
                     onOneTimeLimitChange={setOneTimeLimit}
+                    downloadProfiles={engineProfiles?.profiles}
+                    activeDownloadProfile={engineProfiles?.activeProfile}
+                    onActiveDownloadProfileChange={setActiveEngineProfile}
                   />
                 )}
                 {activeTab === 'actions' && (

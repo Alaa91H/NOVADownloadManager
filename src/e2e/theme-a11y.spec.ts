@@ -117,7 +117,12 @@ test.describe('Accessibility — keyboard and ARIA contracts', () => {
 
   test('uses an explicit live region for transient notifications', async ({ page }) => {
     await goto(page);
-    await expect(page.locator('[aria-live="polite"]')).toBeVisible();
+    const liveRegion = page.locator('[aria-live="polite"]');
+    // An empty notification stack has no layout box, but it must remain in the
+    // accessibility tree so future toast text is announced without remounting.
+    await expect(liveRegion).toBeAttached();
+    await expect(liveRegion).toHaveAttribute('role', 'status');
+    await expect(liveRegion).toHaveAttribute('aria-live', 'polite');
   });
 
   test('uses menu and menuitem roles for a task context menu', async ({ page }) => {
