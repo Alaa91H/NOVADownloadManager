@@ -1,7 +1,7 @@
 {
   "name": "nova",
   "private": true,
-  "version": "2.4.27-alpha",
+  "version": "2.4.28-alpha",
   "description": "NOVA download manager UI powered by local direct and media download engines.",
   "type": "module",
   "engines": {

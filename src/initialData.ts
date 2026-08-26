@@ -155,6 +155,7 @@ export const initialSettings: AppSettings = {
     duplicateAction: 'rename',
     openOnComplete: false,
     openFolderOnComplete: false,
+    showCompletionDialog: true,
     virusScan: false,
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) NOVA/0.1.0',
     dnsResolver: 'system',

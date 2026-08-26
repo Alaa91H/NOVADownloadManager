@@ -1189,4 +1189,8 @@ export const eo: Record<string, string> = {
   'settings_logging_saved_msg': 'Application logs were saved to the selected location.',
   'settings_logging_save_error': 'Save Failed',
   'settings_logging_save_error_msg': 'Could not save the log file to the selected location.',
+  'settings_show_completion_dialog': 'Show the completion window with file actions',
+  'download_complete_title': 'Download Complete',
+  'download_complete_message': 'Your download is ready.',
+  'download_complete_do_not_show_again': 'Do not show this completion window again',
 };

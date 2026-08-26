@@ -325,19 +325,26 @@ fn scan_downloaded_file(path: String) -> Result<(), String> {
         .map_err(|error| format!("Could not start antivirus scan: {error}"))
 }
 
+fn browser_extension_launch_target(browser: &str) -> Result<(&'static str, &'static str), String> {
+    match browser {
+        "chrome" => Ok(("chrome.exe", "chrome://extensions")),
+        "edge" => Ok(("msedge.exe", "edge://extensions")),
+        "firefox" => Ok(("firefox.exe", "about:debugging#/runtime/this-firefox")),
+        _ => Err("Unsupported browser.".to_owned()),
+    }
+}
+
 #[tauri::command]
 fn open_browser_extensions(browser: String) -> Result<(), String> {
-    let (command, url) = match browser.as_str() {
-        "chrome" => ("chrome.exe", "chrome://extensions"),
-        "edge" => ("msedge.exe", "edge://extensions"),
-        "firefox" => ("firefox.exe", "about:debugging#/runtime/this-firefox"),
-        _ => return Err("Unsupported browser.".to_owned()),
-    };
+    let (command, url) = browser_extension_launch_target(&browser)?;
 
-    let mut launcher = Command::new("cmd");
+    // Launch the browser process directly.  Routing this through `cmd /C start`
+    // can briefly surface a console window on Windows even with CREATE_NO_WINDOW
+    // set, which is both distracting and unnecessary for an internal browser URL.
+    let mut launcher = Command::new(command);
     hide_command_window(&mut launcher);
     launcher
-        .args(["/C", "start", "", command, url])
+        .arg(url)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -1277,6 +1284,23 @@ pub fn run() {
 #[cfg(test)]
 mod port_selection_tests {
     use super::*;
+
+    #[test]
+    fn browser_extension_pages_launch_the_browser_directly_without_cmd() {
+        assert_eq!(
+            browser_extension_launch_target("chrome").expect("chrome launch target"),
+            ("chrome.exe", "chrome://extensions")
+        );
+        assert_eq!(
+            browser_extension_launch_target("edge").expect("edge launch target"),
+            ("msedge.exe", "edge://extensions")
+        );
+        assert_eq!(
+            browser_extension_launch_target("firefox").expect("firefox launch target"),
+            ("firefox.exe", "about:debugging#/runtime/this-firefox")
+        );
+        assert!(browser_extension_launch_target("unknown").is_err());
+    }
 
     #[test]
     fn integration_mode_requires_the_explicit_test_flag() {

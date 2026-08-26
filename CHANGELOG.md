@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.28-alpha] - 2026-08-26
+
+### Changed
+
+- **Browser extension pages now launch their target browser directly on Windows.**
+  The former `cmd /C start` relay was removed so opening Chrome, Edge, or Firefox
+  extension management no longer flashes a black command window.
+- **Completed downloads now show an actionable completion dialog instead of
+  leaving the progress window on a `Finished` action.** The dialog displays the
+  saved file, offers **Open File** and **Open File Location**, and provides a
+  persistent **Do not show this completion window again** option. The preference
+  can be re-enabled from **Settings → After Download Completes**.
+- **The primary CI workflow now builds an ARM64 Android debug APK after building
+  the Rust bridge and publishes that `.apk` as a tagged-release asset.** Android
+  APK packaging is a release-readiness gate rather than a separate tag workflow.
+- **GitHub releases now contain installable packages and `SHA256SUMS.txt` only.**
+  Scoop, Homebrew, and Winget metadata files are no longer uploaded as release
+  assets.
+
+### Quality
+
+- Added automated coverage for the completion dialog's file actions, opt-out
+  persistence, completion-dialog queueing, and direct browser-launch mapping.
+- Extended release-asset policy verification to require the Android APK and to
+  reject non-installable package-manager metadata from the final manifest.
+
 ## [2.4.27-alpha] - 2026-08-26
 
 ### Fixed

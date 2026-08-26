@@ -280,6 +280,13 @@ export const DownloadSettings: React.FC<Props> = ({
               }}
             />
             <Checkbox
+              label={t('settings_show_completion_dialog')}
+              checked={settings.extra.showCompletionDialog}
+              onChange={(v) => {
+                updateSetting('extra', 'showCompletionDialog', v);
+              }}
+            />
+            <Checkbox
               label={t('settings_show_notification')}
               checked={settings.sounds.enabled}
               onChange={(v) => {

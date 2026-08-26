@@ -16,6 +16,7 @@ describe('uiStore', () => {
       isNotificationsMuted: false,
       activeProgressMinimizedToTaskbar: false,
       minimizedProgressTask: null,
+      completionDialogQueue: [],
     });
   });
 
@@ -105,6 +106,45 @@ describe('uiStore', () => {
       uiStore.setState({ activePage: 'scheduler', dialog: { active: 'some' } });
       uiStore.getState().closeDialog();
       expect(uiStore.getState().activePage).toBe('scheduler');
+    });
+  });
+
+  describe('download completion dialogs', () => {
+    const firstCompletion = { id: 'complete-1', name: 'first.zip', status: 'completed' } as DownloadItem;
+    const secondCompletion = { id: 'complete-2', name: 'second.zip', status: 'completed' } as DownloadItem;
+
+    it('replaces active progress for the same task with the completion dialog', () => {
+      uiStore.getState().openDialog('activeProgress', firstCompletion);
+      uiStore.getState().presentDownloadCompletion(firstCompletion);
+
+      expect(uiStore.getState().dialog).toEqual({ active: 'downloadCompleted', payload: firstCompletion });
+      expect(uiStore.getState().completionDialogQueue).toEqual([]);
+    });
+
+    it('queues completion dialogs behind unrelated dialogs and presents the next one on close', () => {
+      uiStore.getState().openDialog('confirmDelete', { id: 'other' });
+      uiStore.getState().presentDownloadCompletion(firstCompletion);
+      uiStore.getState().presentDownloadCompletion(secondCompletion);
+
+      expect(uiStore.getState().dialog.active).toBe('confirmDelete');
+      expect(uiStore.getState().completionDialogQueue).toEqual([firstCompletion, secondCompletion]);
+
+      uiStore.getState().closeDialog();
+      expect(uiStore.getState().dialog).toEqual({ active: 'downloadCompleted', payload: firstCompletion });
+      expect(uiStore.getState().completionDialogQueue).toEqual([secondCompletion]);
+
+      uiStore.getState().closeDialog();
+      expect(uiStore.getState().dialog).toEqual({ active: 'downloadCompleted', payload: secondCompletion });
+      expect(uiStore.getState().completionDialogQueue).toEqual([]);
+    });
+
+    it('closes only the matching active progress dialog when completion popups are disabled', () => {
+      uiStore.getState().openDialog('activeProgress', firstCompletion);
+      uiStore.getState().dismissActiveProgressForTask(secondCompletion.id);
+      expect(uiStore.getState().dialog.active).toBe('activeProgress');
+
+      uiStore.getState().dismissActiveProgressForTask(firstCompletion.id);
+      expect(uiStore.getState().dialog.active).toBeNull();
     });
   });
 

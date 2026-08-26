@@ -1192,4 +1192,8 @@ set_tab_direct_download: '直接下载',
   'settings_logging_saved_msg': '应用程序日志已保存到所选位置。',
   'settings_logging_save_error': '保存失败',
   'settings_logging_save_error_msg': '无法将日志文件保存到所选位置。',
+  'settings_show_completion_dialog': '显示带文件操作的完成窗口',
+  'download_complete_title': '下载完成',
+  'download_complete_message': '您的下载已准备就绪。',
+  'download_complete_do_not_show_again': '不再显示此完成窗口',
 };

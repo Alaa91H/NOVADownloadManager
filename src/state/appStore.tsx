@@ -375,6 +375,13 @@ function EffectsProvider({ children }: { children: ReactNode }) {
         pendingCompletionIds.delete(task.id);
         logger.info('AppStore', `Download completed: ${task.name}`, { id: task.id, size: task.sizeBytes });
         void tauriClient.triggerNativeNotification('Download complete', `"${task.name}" finished downloading.`);
+        if (settings.extra.showCompletionDialog) {
+          uiStore.getState().presentDownloadCompletion(task);
+        } else {
+          // When the user has opted out, a progress dialog must not be left in
+          // its completed "Finished" state for this task.
+          uiStore.getState().dismissActiveProgressForTask(task.id);
+        }
         if (!task.savePath) continue;
         if (settings.extra.virusScan) void tauriClient.scanDownloadedFile(task.savePath);
         if (settings.extra.openOnComplete) void tauriClient.openDownloadedFile(task.savePath);

@@ -18,6 +18,9 @@ const TaskPropertiesDialog = lazy(() =>
 const ActiveProgressDialog = lazy(() =>
   import('./download/ActiveProgressDialog').then((m) => ({ default: m.ActiveProgressDialog })),
 );
+const DownloadCompletedDialog = lazy(() =>
+  import('./download/DownloadCompletedDialog').then((m) => ({ default: m.DownloadCompletedDialog })),
+);
 const AboutDialog = lazy(() => import('./system/AboutDialog').then((m) => ({ default: m.AboutDialog })));
 const BrowserIntegrationDialog = lazy(() =>
   import('./integration/BrowserIntegrationDialog').then((m) => ({ default: m.BrowserIntegrationDialog })),
@@ -95,6 +98,11 @@ export default function DialogRoot() {
       childComponent = <ActiveProgressDialog />;
       break;
     }
+    case 'downloadCompleted':
+      title = t('download_complete_title');
+      size = 'md';
+      childComponent = <DownloadCompletedDialog />;
+      break;
     case 'about':
       title = t('nav_about');
       size = 'md';

@@ -421,6 +421,8 @@ export interface AppSettings {
     duplicateAction: string;
     openOnComplete: boolean;
     openFolderOnComplete: boolean;
+    /** Whether NOVA shows the actionable in-app completion dialog for newly finished downloads. */
+    showCompletionDialog: boolean;
     virusScan: boolean;
     userAgent: string;
     dnsResolver: string;

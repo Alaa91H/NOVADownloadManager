@@ -115,6 +115,16 @@ export function useDialogActions() {
   );
 }
 
+export function useCompletionDialogActions() {
+  return useMemo(
+    () => ({
+      presentDownloadCompletion: uiStore.getState().presentDownloadCompletion,
+      dismissActiveProgressForTask: uiStore.getState().dismissActiveProgressForTask,
+    }),
+    [],
+  );
+}
+
 export function useToastData() {
   return useStore(uiStore, (s) => s.toasts);
 }

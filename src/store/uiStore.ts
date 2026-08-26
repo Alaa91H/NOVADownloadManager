@@ -16,6 +16,7 @@ interface UIState {
   isNotificationsMuted: boolean;
   activeProgressMinimizedToTaskbar: boolean;
   minimizedProgressTask: DownloadItem | null;
+  completionDialogQueue: DownloadItem[];
 
   setSelectedTaskId: (id: string | null) => void;
   setWorkspaceView: (view: WorkspaceView) => void;
@@ -34,6 +35,9 @@ interface UIState {
   setActiveProgressMinimizedToTaskbar: (minimized: boolean) => void;
   setMinimizedProgressTask: (task: DownloadItem | null) => void;
   minimizeActiveProgressToTaskbar: (task?: DownloadItem | null) => void;
+  presentDownloadCompletion: (task: DownloadItem) => void;
+  dismissActiveProgressForTask: (taskId: string) => void;
+  clearCompletionDialogQueue: () => void;
 }
 
 export const uiStore = create<UIState>()((set, get) => ({
@@ -46,6 +50,7 @@ export const uiStore = create<UIState>()((set, get) => ({
   isNotificationsMuted: localStorage.getItem('nova_notifications_muted') === 'true',
   activeProgressMinimizedToTaskbar: false,
   minimizedProgressTask: null,
+  completionDialogQueue: [],
 
   setSelectedTaskId: (id) => {
     set({ selectedTaskId: id });
@@ -79,7 +84,17 @@ export const uiStore = create<UIState>()((set, get) => ({
   },
 
   closeDialog: () => {
-    set({ activeProgressMinimizedToTaskbar: false, minimizedProgressTask: null, dialog: { active: null } });
+    set((previous) => {
+      const hasQueuedCompletion = previous.completionDialogQueue.length > 0;
+      const nextCompletion = hasQueuedCompletion ? previous.completionDialogQueue[0] : null;
+      const remainingCompletions = hasQueuedCompletion ? previous.completionDialogQueue.slice(1) : [];
+      return {
+        activeProgressMinimizedToTaskbar: false,
+        minimizedProgressTask: null,
+        completionDialogQueue: remainingCompletions,
+        dialog: nextCompletion ? { active: 'downloadCompleted', payload: nextCompletion } : { active: null },
+      };
+    });
     const page = get().activePage;
     if (page === 'mediaDownload' || page === 'webpageGrabber' || page === 'batchImport') {
       get().setActivePage('downloads');
@@ -130,5 +145,51 @@ export const uiStore = create<UIState>()((set, get) => ({
         : null);
     if (!fallbackTask) return;
     set({ minimizedProgressTask: fallbackTask, activeProgressMinimizedToTaskbar: true, dialog: { active: null } });
+  },
+
+  presentDownloadCompletion: (task) => {
+    set((previous) => {
+      const activeProgressTaskId =
+        previous.dialog.active === 'activeProgress'
+          ? ((previous.dialog.payload as { id?: string } | null | undefined)?.id ?? null)
+          : null;
+      const alreadyActive =
+        previous.dialog.active === 'downloadCompleted' &&
+        (previous.dialog.payload as { id?: string } | null | undefined)?.id === task.id;
+      const alreadyQueued = previous.completionDialogQueue.some((queued) => queued.id === task.id);
+      if (alreadyActive || alreadyQueued) return previous;
+
+      // Replacing the progress view of the same task avoids leaving the obsolete
+      // Finished action on screen. Other active dialogs are respected and receive
+      // this completion when they close.
+      if (previous.dialog.active === null || activeProgressTaskId === task.id) {
+        return {
+          ...previous,
+          activeProgressMinimizedToTaskbar: false,
+          minimizedProgressTask: null,
+          dialog: { active: 'downloadCompleted', payload: task },
+        };
+      }
+
+      return { ...previous, completionDialogQueue: [...previous.completionDialogQueue, task] };
+    });
+  },
+
+  dismissActiveProgressForTask: (taskId) => {
+    set((previous) => {
+      if (previous.dialog.active !== 'activeProgress') return previous;
+      const activeTaskId = (previous.dialog.payload as { id?: string } | null | undefined)?.id;
+      if (activeTaskId !== taskId) return previous;
+      return {
+        ...previous,
+        activeProgressMinimizedToTaskbar: false,
+        minimizedProgressTask: null,
+        dialog: { active: null },
+      };
+    });
+  },
+
+  clearCompletionDialogQueue: () => {
+    set({ completionDialogQueue: [] });
   },
 }));

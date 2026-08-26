@@ -1192,4 +1192,8 @@ set_tab_direct_download: '直接下載',
   'settings_logging_saved_msg': '應用程式記錄已儲存到所選位置。',
   'settings_logging_save_error': '儲存失敗',
   'settings_logging_save_error_msg': '無法將記錄檔儲存到所選位置。',
+  'settings_show_completion_dialog': '顯示含檔案操作的完成視窗',
+  'download_complete_title': '下載完成',
+  'download_complete_message': '您的下載已準備就緒。',
+  'download_complete_do_not_show_again': '不再顯示此完成視窗',
 };
