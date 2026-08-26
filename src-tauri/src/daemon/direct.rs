@@ -519,15 +519,26 @@ fn host_conn_ceilings() -> &'static std::sync::Mutex<HashMap<String, usize>> {
     CEILINGS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
 }
 
-/// Lowercase host of a URL.
+/// Normalized network-origin key for a direct-download URL.
+///
+/// This deliberately derives the key from libcurl's parsed host and effective
+/// port instead of splitting the original string. Raw splitting could include
+/// user info, query text, or fragments in an in-memory scheduling key and
+/// treated equivalent origins as different hosts. Keeping the port prevents a
+/// learned ceiling for one service on a shared hostname from throttling another.
 pub fn host_key(url: &str) -> Option<String> {
-    Some(
-        url.split("://")
-            .nth(1)?
-            .split('/')
-            .next()?
-            .to_ascii_lowercase(),
-    )
+    let parsed = DirectUrl::parse(url).ok()?;
+    let host = parsed
+        .host?
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_ascii_lowercase();
+    let authority = if host.contains(':') {
+        format!("[{host}]")
+    } else {
+        host
+    };
+    parsed.port.map(|port| format!("{authority}:{port}"))
 }
 
 /// The learned per-host connection ceiling, if the host previously misbehaved.
@@ -633,5 +644,30 @@ mod tests {
     fn segment_planner_returns_no_ranges_for_zero_size() {
         let ranges = SegmentPlanner::new(32).plan(0, 8, Path::new("empty.bin"));
         assert!(ranges.is_empty());
+    }
+
+    #[test]
+    fn host_key_uses_normalized_origin_without_user_info_or_resource_parts() {
+        assert_eq!(
+            host_key("HTTPS://user:secret@Example.COM:8443/path/file?token=redacted#part"),
+            Some("example.com:8443".to_owned())
+        );
+        assert_eq!(
+            host_key("https://example.com/another/path?another=value"),
+            Some("example.com:443".to_owned())
+        );
+    }
+
+    #[test]
+    fn host_key_keeps_ports_and_formats_ipv6_authorities_unambiguously() {
+        assert_eq!(
+            host_key("https://example.com:9443/file"),
+            Some("example.com:9443".to_owned())
+        );
+        assert_eq!(
+            host_key("https://[2001:db8::1]/file"),
+            Some("[2001:db8::1]:443".to_owned())
+        );
+        assert_eq!(host_key("not a direct-download URL"), None);
     }
 }

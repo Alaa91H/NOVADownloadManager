@@ -30,20 +30,11 @@ fn build_decision_context(
     current_speed: u64,
     supports_range: bool,
 ) -> DecisionContext {
-    let host = {
-        let url_str = &plan.url;
-        if let Some(start) = url_str.find("://") {
-            let rest = &url_str[start + 3..];
-            if let Some(end) = rest.find('/') {
-                &rest[..end]
-            } else {
-                rest
-            }
-        } else {
-            ""
-        }
-    }
-    .to_owned();
+    // Use the same normalized origin key as connection learning. The former
+    // string split kept URL user info in this value, which could leak a secret
+    // into profiler state or diagnostics and caused equivalent origins to be
+    // learned independently.
+    let host = crate::daemon::direct::host_key(&plan.url).unwrap_or_default();
 
     // Acquire locks in documented order: curl_jobs (2), engine_trackers (4),
     // then die_orchestrator/resource_manager (10).
@@ -557,7 +548,8 @@ fn resolve_effective_target(plan: &DirectDownloadPlan) -> (String, bool, Preflig
                 preflight.total_size = len;
             }
         }
-        return (effective, code == 206, preflight);
+        preflight.supports_range = code == 206;
+        return (effective, preflight.supports_range, preflight);
     }
 
     (current, false, preflight)
@@ -2092,10 +2084,7 @@ fn run_libcurl_download(
     // H-4: account for this download's connection usage in the orchestrator
     // so concurrent downloads respect the global connection budget. Released
     // automatically on every exit path via the RAII lease.
-    let lease_host = reqwest::Url::parse(&plan.url)
-        .ok()
-        .and_then(|u| u.host_str().map(str::to_owned))
-        .unwrap_or_else(|| "unknown".into());
+    let lease_host = crate::daemon::direct::host_key(&plan.url).unwrap_or_else(|| "unknown".into());
     let lease_count = plan.connections.max(1);
     if let Ok(mut die) = state.die_orchestrator.lock() {
         die.register_connection(&lease_host, lease_count);
@@ -3119,6 +3108,37 @@ mod tests {
         assert_eq!(p2.ttfb_us, 55000);
         assert!(p2.uses_tls);
         assert!(p2.supports_range);
+    }
+
+    #[test]
+    fn preflight_propagates_range_support_to_adaptive_metadata() {
+        let payload = std::sync::Arc::new(vec![42_u8; 4096]);
+        let addr = spawn_slow_range_server(payload, 1024, 0);
+        let url = format!("http://{addr}/range-metadata.bin");
+        let body = download_body(&url, "range-metadata.bin", 4096, 2);
+        let output = std::env::temp_dir().join(format!(
+            "nova_preflight_range_metadata_{}",
+            std::process::id()
+        ));
+        let job = task_from_body(
+            &body,
+            "preflight-range-metadata",
+            "range-metadata.bin".to_owned(),
+            &output,
+            std::collections::HashMap::new(),
+            Vec::new(),
+        );
+
+        let (_, supports_range, metadata) = resolve_effective_target(&plan_from_job(&job));
+
+        assert!(
+            supports_range,
+            "range probe must report a 206-capable server"
+        );
+        assert!(
+            metadata.supports_range,
+            "adaptive metadata must match the preflight range result"
+        );
     }
 
     #[test]

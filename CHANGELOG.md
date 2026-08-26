@@ -27,9 +27,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Extracted the portable `Task` and `Segment` schemas into `nova-core-model` and
   made the desktop daemon consume those shared records through a local Rust
   dependency, preserving the existing serialized field behavior.
+- Normalized direct-download origin keys through libcurl's URL API before they
+  reach adaptive profiling or connection leasing. Equivalent origins now share
+  a stable host-and-port identity, including IPv6 literals.
+
+### Fixed
+
+- Propagated ordinary preflight range detection into adaptive transfer metadata.
+  Servers that return `206 Partial Content` now seed the profile with the same
+  range capability that the dispatcher uses to select segmented transfers.
 
 ### Security
 
+- Removed URL user-info, paths, queries, and fragments from adaptive host keys.
+  This prevents credentials embedded in a direct URL from entering connection
+  leases or adaptive profiling identifiers.
 - Android share input accepts HTTP(S) links only, and the design establishes a
   typed in-process bridge with an API-version compatibility check rather than a
   desktop loopback control plane.
@@ -38,6 +50,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Quality
 
+- Added loopback range-preflight coverage and origin-key regression tests for
+  credentials, query and fragment stripping, explicit ports, malformed URLs,
+  and IPv6 formatting.
 - Added a checksum-pinned Gradle 9.5.0 Wrapper, AGP 9 built-in Kotlin migration,
   JVM tests for shared-link validation and ViewModel state, and a dedicated
   Android CI workflow for the debug APK, JVM tests, and ARM64 bridge-link proof.
