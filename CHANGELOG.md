@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.31-alpha] - 2026-08-26
+
+### Fixed
+
+- **Stopped healthy, quiet download event streams from being treated as stale.** The daemon's SSE keep-alive comments are not surfaced as browser message events, so NOVA no longer synthesizes an error and reconnects merely because no download payload arrived during an idle period.
+- **Restored normal reconciliation polling after a real SSE reconnection.** A successful stream open now clears the temporary fallback state, preventing a recovered connection from remaining on unnecessary high-frequency polling.
+- **Localized the complete Settings navigation list.** The side navigation now renders established catalog keys rather than hard-coded English labels; the Arabic list, including the application-log label, is fully Arabic.
+- **Hardened Windows configuration replacement and recovery.** When a destination config already exists, the Windows-specific writer retains a recoverable `.bak` copy while promoting the new file, and startup can read that backup if an interruption leaves the primary file absent. This is a durable recovery-oriented replacement path rather than a claim of atomic NTFS replacement.
+
+### Quality
+
+- Added regression coverage for an idle SSE stream, a genuine-error reconnect, connection callbacks after reconnect, and the localized Arabic Settings navigation.
+- Added native coverage for reading a recovery backup when `config.json` is temporarily absent. Local validation passed 487 frontend tests, 741 Rust tests with one ignored, Rust Clippy, production build/audits, and Android debug/release/JVM builds.
+
 ## [2.4.30-alpha] - 2026-08-26
 
 ### Changed

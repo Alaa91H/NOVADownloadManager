@@ -47,7 +47,7 @@ const isSettingsPayload = (payload: unknown): payload is SettingsDialogPayload =
 
 interface TabDef {
   id: SettingsTabId;
-  label: string;
+  labelKey: string;
   icon: typeof Settings;
   keywords: string[];
 }
@@ -106,47 +106,62 @@ export const SettingsDialog: React.FC = () => {
   const mainTabs: TabDef[] = [
     {
       id: 'general',
-      label: 'General',
+      labelKey: 'set_tab_general',
       icon: Settings,
       keywords: ['general', 'language', 'update'],
     },
     {
       id: 'downloads',
-      label: 'Downloads',
+      labelKey: 'all_downloads',
       icon: Globe,
       keywords: ['download', 'folder', 'category', 'file type', 'duplicate', 'sound', 'reset'],
     },
     {
       id: 'network',
-      label: 'Network',
+      labelKey: 'set_tab_network',
       icon: Globe,
       keywords: ['network', 'proxy', 'vpn', 'connection', 'dns', 'speed', 'bandwidth'],
     },
     {
       id: 'appearance',
-      label: 'Appearance',
+      labelKey: 'settings_appearance',
       icon: Palette,
       keywords: ['appearance', 'theme', 'density', 'accent', 'color', 'contrast', 'progress'],
     },
     {
       id: 'browser',
-      label: 'Browser',
+      labelKey: 'browser',
       icon: Monitor,
       keywords: ['browser', 'extension', 'chrome', 'edge', 'firefox', 'clipboard', 'intercept', 'hls', 'dash'],
     },
-    { id: 'media', label: 'Media', icon: Video, keywords: ['media', 'video', 'quality', 'subtitle', 'ffmpeg'] },
-    { id: 'telegram', label: 'Telegram Bot', icon: Bot, keywords: ['telegram', 'bot', 'tg', 'chat', 'command', 'cli'] },
+    {
+      id: 'media',
+      labelKey: 'grabber_filter_media',
+      icon: Video,
+      keywords: ['media', 'video', 'quality', 'subtitle', 'ffmpeg'],
+    },
+    {
+      id: 'telegram',
+      labelKey: 'set_sub_telegram',
+      icon: Bot,
+      keywords: ['telegram', 'bot', 'tg', 'chat', 'command', 'cli'],
+    },
     {
       id: 'external_tools',
-      label: 'External Tools',
+      labelKey: 'set_tab_engines',
       icon: Package,
       keywords: ['external', 'tool', 'yt-dlp', 'ytdlp', 'ffmpeg', 'install', 'update'],
     },
 
-    { id: 'logging', label: 'Logging', icon: ScrollText, keywords: ['logging', 'log', 'debug', 'trace', 'error'] },
+    {
+      id: 'logging',
+      labelKey: 'settings_logging_title',
+      icon: ScrollText,
+      keywords: ['logging', 'log', 'debug', 'trace', 'error'],
+    },
     {
       id: 'backup',
-      label: 'Backup & Reset',
+      labelKey: 'settings_backup_restore',
       icon: Database,
       keywords: ['backup', 'restore', 'export', 'import', 'factory', 'reset'],
     },
@@ -155,7 +170,7 @@ export const SettingsDialog: React.FC = () => {
   const filteredTabs = searchQuery
     ? mainTabs.filter((tab) => {
         const term = searchQuery.toLowerCase();
-        if (tab.label.toLowerCase().includes(term)) return true;
+        if (t(tab.labelKey).toLocaleLowerCase().includes(term)) return true;
         return tab.keywords.some((k) => k.includes(term));
       })
     : mainTabs;
@@ -221,7 +236,7 @@ export const SettingsDialog: React.FC = () => {
                 }`}
               >
                 <TabIcon className="w-3.5 h-3.5 shrink-0 text-[var(--accent-primary)]" />
-                <span className="truncate">{tab.label}</span>
+                <span className="truncate">{t(tab.labelKey)}</span>
               </button>
             );
           })}

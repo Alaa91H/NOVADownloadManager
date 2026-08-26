@@ -296,25 +296,24 @@ export const novaClient = {
     return request<DownloadItem[]>('/api/downloads', undefined, 2000);
   },
 
-  streamDownloads(onDownloads: (downloads: DownloadItem[]) => void, onError?: (event: Event) => void): () => void {
+  streamDownloads(
+    onDownloads: (downloads: DownloadItem[]) => void,
+    onError?: (event: Event) => void,
+    onConnected?: () => void,
+  ): () => void {
     if (typeof window === 'undefined' || typeof window.EventSource === 'undefined') {
       return () => {};
     }
 
     let source: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let retryDelay = 500;
     const MAX_RETRY_DELAY = 10000;
     let cancelled = false;
-    let healthTimer: ReturnType<typeof setInterval> | null = null;
-    let lastEventTime = Date.now();
-
-    const HEALTH_CHECK_INTERVAL = 10000;
-    const STALE_THRESHOLD = 10000;
 
     // Delta sync: merge changed/removed into current list.
     let currentTasks: DownloadItem[] = [];
     const handleDelta = (event: MessageEvent<string>) => {
-      lastEventTime = Date.now();
       try {
         const delta = JSON.parse(event.data) as {
           changed: DownloadItem[];
@@ -345,7 +344,6 @@ export const novaClient = {
 
     // When a full sync arrives, update our local cache.
     const handleFullAndUpdate = (event: MessageEvent<string>) => {
-      lastEventTime = Date.now();
       try {
         const tasks = JSON.parse(event.data) as DownloadItem[];
         currentTasks = tasks;
@@ -355,58 +353,58 @@ export const novaClient = {
       }
     };
 
+    const detachAndClose = (eventSource: EventSource) => {
+      eventSource.removeEventListener('downloads', handleFullAndUpdate as EventListener);
+      eventSource.removeEventListener('downloads-delta', handleDelta as EventListener);
+      eventSource.close();
+    };
+
     const connect = () => {
-      if (cancelled) return;
+      if (cancelled || source) return;
       // EventSource cannot send an Authorization header, so pass the token as a
       // query parameter (the daemon accepts it for streaming endpoints).
       const tokenParam = _authToken ? `?token=${encodeURIComponent(_authToken)}` : '';
-      source = new EventSource(`${getApiBase()}/api/downloads/events${tokenParam}`);
-      source.addEventListener('downloads', handleFullAndUpdate as EventListener);
-      source.addEventListener('downloads-delta', handleDelta as EventListener);
-      source.onerror = (event) => {
+      const eventSource = new EventSource(`${getApiBase()}/api/downloads/events${tokenParam}`);
+      source = eventSource;
+      eventSource.addEventListener('downloads', handleFullAndUpdate as EventListener);
+      eventSource.addEventListener('downloads-delta', handleDelta as EventListener);
+      eventSource.onerror = (event) => {
+        // Ignore close/error events from a connection that has already been
+        // replaced or deliberately stopped.
+        if (cancelled || source !== eventSource) return;
+
         onError?.(event);
         logger.warn('NovaClient', `SSE connection error, reconnecting in ${String(retryDelay)}ms`);
-        // Close current source and schedule reconnection with exponential backoff
-        if (source) {
-          source.removeEventListener('downloads', handleFullAndUpdate as EventListener);
-          source.removeEventListener('downloads-delta', handleDelta as EventListener);
-          source.close();
-          source = null;
-        }
-        if (!cancelled) {
-          setTimeout(connect, retryDelay);
+        detachAndClose(eventSource);
+        source = null;
+
+        if (reconnectTimer === null) {
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
+            connect();
+          }, retryDelay);
           retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY);
         }
       };
-      // On open, reset backoff
-      source.onopen = () => {
+      eventSource.onopen = () => {
         retryDelay = 500;
-        lastEventTime = Date.now();
+        onConnected?.();
         logger.info('NovaClient', 'SSE stream connected');
       };
     };
 
-    // Health monitor: if no SSE events received within STALE_THRESHOLD,
-    // force a full sync via polling to detect silent disconnections.
-    healthTimer = setInterval(() => {
-      if (cancelled) return;
-      if (Date.now() - lastEventTime > STALE_THRESHOLD) {
-        // SSE might be silently dead — trigger an error to reconnect
-        if (source) {
-          source.dispatchEvent(new Event('error'));
-        }
-      }
-    }, HEALTH_CHECK_INTERVAL);
-
+    // The daemon emits SSE keep-alive comments while there are no task deltas.
+    // Comments are not exposed as MessageEvents, so activity must not be judged
+    // from data events alone: doing so repeatedly disconnected healthy idle
+    // streams and forced unnecessary polling/retries every few seconds.
     connect();
 
     return () => {
       cancelled = true;
-      if (healthTimer) clearInterval(healthTimer); // eslint-disable-line @typescript-eslint/no-unnecessary-condition
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+      reconnectTimer = null;
       if (source) {
-        source.removeEventListener('downloads', handleFullAndUpdate as EventListener);
-        source.removeEventListener('downloads-delta', handleDelta as EventListener);
-        source.close();
+        detachAndClose(source);
         source = null;
       }
     };

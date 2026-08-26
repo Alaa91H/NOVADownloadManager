@@ -249,4 +249,55 @@ describe('novaClient streamDownloads delta merge (REPAIR 0.3)', () => {
     novaClient.streamDownloads(vi.fn());
     expect(latest().url).toContain('/api/downloads/events?token=tok123');
   });
+
+  it('keeps an idle SSE connection open while the daemon sends keep-alive comments', async () => {
+    vi.useFakeTimers();
+    const stop = novaClient.streamDownloads(vi.fn());
+    const source = latest();
+    source.onopen?.(new Event('open'));
+
+    // Keep-alive comments are intentionally not exposed as MessageEvents by
+    // EventSource. An idle task list must not therefore be treated as a broken
+    // stream and reconnected every 10–20 seconds.
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(EventSourceStub.instances).toHaveLength(1);
+    expect(source.closed).toBe(false);
+
+    stop();
+    vi.useRealTimers();
+  });
+
+  it('notifies consumers whenever the SSE stream opens or reconnects', async () => {
+    vi.useFakeTimers();
+    const onConnected = vi.fn();
+    const stop = novaClient.streamDownloads(vi.fn(), undefined, onConnected);
+    const first = latest();
+
+    first.onopen?.(new Event('open'));
+    expect(onConnected).toHaveBeenCalledTimes(1);
+    first.onerror?.(new Event('error'));
+    await vi.advanceTimersByTimeAsync(500);
+    latest().onopen?.(new Event('open'));
+    expect(onConnected).toHaveBeenCalledTimes(2);
+
+    stop();
+    vi.useRealTimers();
+  });
+
+  it('schedules only one reconnect after an actual SSE error', async () => {
+    vi.useFakeTimers();
+    const stop = novaClient.streamDownloads(vi.fn());
+    const source = latest();
+
+    source.onerror?.(new Event('error'));
+    source.onerror?.(new Event('error'));
+    expect(source.closed).toBe(true);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(EventSourceStub.instances).toHaveLength(2);
+
+    stop();
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(EventSourceStub.instances).toHaveLength(2);
+    vi.useRealTimers();
+  });
 });

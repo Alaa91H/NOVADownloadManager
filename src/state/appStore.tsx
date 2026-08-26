@@ -518,6 +518,12 @@ function EffectsProvider({ children }: { children: ReactNode }) {
           () => {
             sseFailed = true;
           },
+          () => {
+            if (!cancelled && syncActive) {
+              sseFailed = false;
+              fallbackTick = 0;
+            }
+          },
         );
       }
       initialTimer = setTimeout(() => {

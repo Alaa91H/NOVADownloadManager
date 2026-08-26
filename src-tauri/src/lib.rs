@@ -764,9 +764,23 @@ fn hydrate_secure_config_fields(
 
 fn read_config_from_disk(data_dir: &Path) -> Result<Option<serde_json::Value>, String> {
     let config_path = data_dir.join("config.json");
+    let backup_path = data_dir.join("config.json.bak");
     let bytes = match std::fs::read(&config_path) {
         Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        // Windows replacement first moves the old file to a short-lived backup.
+        // Recover it if the application was interrupted before the new file was
+        // promoted, rather than silently presenting a fresh configuration.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            match std::fs::read(&backup_path) {
+                Ok(bytes) => bytes,
+                Err(backup_error) if backup_error.kind() == std::io::ErrorKind::NotFound => {
+                    return Ok(None)
+                }
+                Err(backup_error) => {
+                    return Err(format!("Failed to read config backup: {backup_error}"))
+                }
+            }
+        }
         Err(error) => return Err(format!("Failed to read config: {error}")),
     };
     if bytes.len() > MAX_CONFIG_SIZE {
@@ -801,6 +815,31 @@ fn write_config_atomically(data_dir: &Path, settings: &str) -> Result<(), String
         return Err(error);
     }
 
+    // On Unix, rename replaces an existing destination atomically. Windows
+    // rejects that form of rename when `config.json` already exists, which made
+    // every later settings save fail after the initial successful write. Move
+    // the previous file aside first on Windows, restore it if promotion fails,
+    // and remove the short-lived backup after a successful replacement.
+    #[cfg(windows)]
+    {
+        let backup_path = data_dir.join("config.json.bak");
+        let had_existing_config = config_path.exists();
+        let _ = std::fs::remove_file(&backup_path);
+        if had_existing_config {
+            std::fs::rename(&config_path, &backup_path)
+                .map_err(|error| format!("Failed to prepare config replacement: {error}"))?;
+        }
+        if let Err(error) = std::fs::rename(&tmp_path, &config_path) {
+            if had_existing_config {
+                let _ = std::fs::rename(&backup_path, &config_path);
+            }
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err(format!("Failed to replace config: {error}"));
+        }
+        let _ = std::fs::remove_file(&backup_path);
+    }
+
+    #[cfg(not(windows))]
     if let Err(error) = std::fs::rename(&tmp_path, &config_path) {
         let _ = std::fs::remove_file(&tmp_path);
         return Err(format!("Failed to atomically replace config: {error}"));
@@ -1352,6 +1391,25 @@ mod port_selection_tests {
             &data_dir,
             Duration::from_millis(0)
         ));
+    }
+
+    #[test]
+    fn config_reader_recovers_the_replacement_backup_when_primary_is_missing() {
+        let data_dir =
+            std::env::temp_dir().join(format!("nova-config-backup-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&data_dir).expect("create config directory");
+        std::fs::write(
+            data_dir.join("config.json.bak"),
+            r#"{"version":2,"theme":"light"}"#,
+        )
+        .expect("write backup config");
+
+        let loaded = read_config_from_disk(&data_dir)
+            .expect("read backup config")
+            .expect("backup config is present");
+        assert_eq!(loaded["version"], serde_json::json!(2));
+        assert_eq!(loaded["theme"], serde_json::json!("light"));
+        std::fs::remove_dir_all(&data_dir).ok();
     }
 
     #[test]
