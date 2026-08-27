@@ -496,8 +496,10 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           source_apk=android/app/build/outputs/apk/release/app-release.apk
+          apksigner_path="${ANDROID_HOME:?}/build-tools/36.0.0/apksigner"
           test -s "$source_apk"
-          apksigner verify --verbose --print-certs "$source_apk"
+          test -x "$apksigner_path"
+          "$apksigner_path" verify --verbose --print-certs "$source_apk"
           mkdir -p release
           cp "$source_apk" "release/Nova.Download.Manager_${version}_android_arm64-v8a.apk"
 
