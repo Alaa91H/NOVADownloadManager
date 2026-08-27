@@ -5,6 +5,7 @@ import { tauriClient } from '../api/tauriClient';
 import { bridgeStore } from './bridgeStore';
 import { extractErrorMessage } from '../utils/formatUtils';
 import { logger } from '../utils/logger';
+import { logSafeUrlOrigin } from '../utils/logSafeUrl';
 import { playAppSound } from '../utils/sound';
 import { uiStore } from './uiStore';
 import { queueStore } from './queueStore';
@@ -171,7 +172,10 @@ export const taskStore = create<TaskState>()((set, get) => ({
       return null;
     }
     try {
-      logger.info('TaskStore', `Creating download: ${newItem.url}`, { name: newItem.name, engine: newItem.engine });
+      logger.info('TaskStore', `Creating download for ${logSafeUrlOrigin(newItem.url)}`, {
+        name: newItem.name,
+        engine: newItem.engine,
+      });
       const payload = { ...newItem, startImmediately: downloadImmediately };
       const normalizedTask = {
         ...(captureReviewId
@@ -195,9 +199,8 @@ export const taskStore = create<TaskState>()((set, get) => ({
       }
       return normalizedTask;
     } catch (error) {
-      logger.error('TaskStore', `Failed to create download: ${newItem.url}`, {
-        error: extractErrorMessage(error, 'Unknown error'),
-      });
+      const errorMessage = extractErrorMessage(error, 'Unknown error');
+      logger.error('TaskStore', `Failed to create download for ${logSafeUrlOrigin(newItem.url)}: ${errorMessage}`);
       bridgeStore.getState().setIsDegradedMode(true);
       uiStore
         .getState()

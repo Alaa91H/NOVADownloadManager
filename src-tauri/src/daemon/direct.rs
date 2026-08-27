@@ -263,11 +263,51 @@ impl SegmentPlanner {
 pub struct FileWriter;
 
 impl FileWriter {
+    /// Ensure a file destination has a usable parent directory without ever
+    /// treating an existing file as a directory. Windows reports the latter as
+    /// OS error 183 (`AlreadyExists`), which used to produce an opaque toast.
     pub fn ensure_parent(path: &Path) -> Result<(), String> {
+        if let Ok(metadata) = std::fs::metadata(path) {
+            if metadata.is_dir() {
+                return Err(format!(
+                    "Destination path is a folder; choose a file name instead: {}",
+                    path.display()
+                ));
+            }
+        }
+
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("Could not create destination folder: {e}"))?;
+                if let Ok(metadata) = std::fs::metadata(parent) {
+                    if !metadata.is_dir() {
+                        return Err(format!(
+                            "Destination parent is a file, not a folder: {}",
+                            parent.display()
+                        ));
+                    }
+                    return Ok(());
+                }
+
+                std::fs::create_dir_all(parent).map_err(|error| {
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::AlreadyExists | std::io::ErrorKind::NotADirectory
+                    ) {
+                        format!(
+                            "Destination path contains a file where a folder is required: {}",
+                            parent.display()
+                        )
+                    } else {
+                        format!("Could not create destination folder: {error}")
+                    }
+                })?;
+
+                if !parent.is_dir() {
+                    return Err(format!(
+                        "Destination parent is not a folder: {}",
+                        parent.display()
+                    ));
+                }
             }
         }
         Ok(())
@@ -600,6 +640,33 @@ impl IntegrityValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ensure_parent_rejects_file_in_destination_directory_chain() {
+        let root =
+            std::env::temp_dir().join(format!("nova-destination-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("create temporary root");
+        let blocking_file = root.join("not-a-folder");
+        std::fs::write(&blocking_file, "blocker").expect("create blocking file");
+
+        let error = FileWriter::ensure_parent(&blocking_file.join("download.zip"))
+            .expect_err("a file cannot be used as a destination directory");
+        assert!(error.contains("Destination parent is a file, not a folder"));
+        std::fs::remove_dir_all(root).expect("clean temporary root");
+    }
+
+    #[test]
+    fn ensure_parent_rejects_directory_as_file_destination() {
+        let root =
+            std::env::temp_dir().join(format!("nova-destination-test-{}", uuid::Uuid::new_v4()));
+        let directory_target = root.join("selected-folder");
+        std::fs::create_dir_all(&directory_target).expect("create directory target");
+
+        let error = FileWriter::ensure_parent(&directory_target)
+            .expect_err("a directory cannot be used as a file destination");
+        assert!(error.contains("Destination path is a folder"));
+        std::fs::remove_dir_all(root).expect("clean temporary root");
+    }
 
     #[test]
     fn segment_planner_covers_file_contiguously() {

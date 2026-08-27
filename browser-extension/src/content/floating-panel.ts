@@ -1,4 +1,5 @@
 import browser from 'webextension-polyfill';
+import { hasActiveExtensionContext, sendRuntimeMessageIfActive } from './extension-context';
 
 const HOST_ID = 'nova-media-panel-host';
 const CHECK_INTERVAL_MS = 3000;
@@ -19,6 +20,17 @@ let dragOffsetY = 0;
 let savedPosition: SavedPanelPosition | null = null;
 let toastEl: HTMLDivElement | null = null;
 let probeData: YtdlpProbeData | null = null;
+
+type ContentScriptLifecycle = {
+  readonly signal: AbortSignal;
+  readonly isInvalid: boolean;
+  setInterval(handler: () => void, timeout?: number): number;
+  addEventListener<TTarget extends EventTarget>(
+    target: TTarget,
+    ...params: Parameters<TTarget['addEventListener']>
+  ): void;
+  onInvalidated(callback: () => void): () => void;
+};
 
 interface YtdlpFormat {
   url: string;
@@ -121,7 +133,7 @@ function showToast(msg: string, isError = false): void {
 
 async function checkBridge(): Promise<void> {
   try {
-    const s = await browser.runtime.sendMessage({ type: 'GET_BRIDGE_STATE' }) as { canSend?: boolean } | undefined;
+    const s = await sendRuntimeMessageIfActive<{ canSend?: boolean }>({ type: 'GET_BRIDGE_STATE' });
     const prev = bridgeConnected;
     bridgeConnected = Boolean(s?.canSend);
     if (prev !== bridgeConnected && panelVisible) render();
@@ -141,7 +153,8 @@ async function doProbe(): Promise<void> {
   probing = true;
   render();
   try {
-    const r = await browser.runtime.sendMessage({ type: 'PROBE_YTDLP', url: location.href }) as YtdlpProbeData | null;
+    const r = await sendRuntimeMessageIfActive<YtdlpProbeData | null>({ type: 'PROBE_YTDLP', url: location.href });
+    if (r === undefined && !hasActiveExtensionContext()) return;
     if (r?.formats?.length) {
       probeData = r;
       dropdownVisible = true;
@@ -169,7 +182,7 @@ function sendFormat(f: YtdlpFormat): void {
   // the stable watch URL and exact yt-dlp format id, then resolves, merges audio
   // where needed, and owns the download task.
   const url = probeData?.webpageUrl || location.href;
-  void browser.runtime.sendMessage({
+  void sendRuntimeMessageIfActive<{ accepted?: boolean; message?: string }>({
     type: 'ADD_YTDLP_MEDIA',
     url,
     title: probeData?.title,
@@ -177,8 +190,8 @@ function sendFormat(f: YtdlpFormat): void {
     referrer: document.referrer || undefined,
     selectedFormat: f,
   })
-    .then((value: unknown) => {
-      const result = value as { accepted?: boolean; message?: string } | undefined;
+    .then((result) => {
+      if (result === undefined && !hasActiveExtensionContext()) return;
       if (!result?.accepted) throw new Error(result?.message || 'NOVA did not accept the selected format.');
       showToast(`${qLabel(f)} added to NOVA`);
     })
@@ -214,7 +227,7 @@ function sortFormats(fmts: YtdlpFormat[]): YtdlpFormat[] {
 
 // --- Shadow DOM ---
 
-function ensurePanel(): ShadowRoot {
+function ensurePanel(signal?: AbortSignal): ShadowRoot {
   if (panelHost && panelHost.host.isConnected) return panelHost;
   const host = document.createElement('div');
   host.id = HOST_ID;
@@ -323,7 +336,7 @@ function ensurePanel(): ShadowRoot {
   panelEl = document.createElement('div');
   panelEl.className = 'nova-p';
   panelHost.appendChild(panelEl);
-  setupDrag(panelEl);
+  setupDrag(panelEl, signal);
   render();
   return panelHost;
 }
@@ -380,7 +393,7 @@ function resetPositionToVideo(): void {
   positionAtVideo();
 }
 
-function setupDrag(el: HTMLDivElement): void {
+function setupDrag(el: HTMLDivElement, signal?: AbortSignal): void {
   el.addEventListener('mousedown', (e) => {
     if (!(e.target instanceof Element)) return;
     if (e.target.closest('.nova-dl, .nova-x, .nova-sbtn, .nova-best, button')) return;
@@ -390,7 +403,7 @@ function setupDrag(el: HTMLDivElement): void {
     dragOffsetY = e.clientY - rect.top;
     el.style.transition = 'none';
     e.preventDefault();
-  });
+  }, { signal });
   document.addEventListener('mousemove', (e) => {
     if (!isDragging || !panelEl) return;
     const x = clampPanelCoordinate(
@@ -405,17 +418,17 @@ function setupDrag(el: HTMLDivElement): void {
     panelEl.style.bottom = 'auto';
     panelEl.style.left = `${x}px`;
     panelEl.style.top = `${y}px`;
-  });
+  }, { signal });
   document.addEventListener('mouseup', () => {
     if (isDragging && panelEl) {
       isDragging = false;
       panelEl.style.transition = '';
       persistSavedPosition(parseFloat(panelEl.style.left), parseFloat(panelEl.style.top));
     }
-  });
+  }, { signal });
   el.addEventListener('dblclick', (e) => {
     if (e.target instanceof Element && !e.target.closest('button')) resetPositionToVideo();
-  });
+  }, { signal });
 }
 
 function positionAtVideo(): void {
@@ -547,26 +560,39 @@ function scanMedia(): void {
 
 // --- Init ---
 
-function init(): void {
-  ensurePanel();
+export function initFloatingPanel(context?: ContentScriptLifecycle): void {
+  if (context?.isInvalid) return;
+  ensurePanel(context?.signal);
   void restoreSavedPosition();
-  checkBridge();
+  void checkBridge();
   scanMedia();
-  setInterval(scanMedia, CHECK_INTERVAL_MS);
-  setInterval(checkBridge, 5000);
-  window.addEventListener('scroll', () => positionAtVideo(), { passive: true });
-  window.addEventListener('resize', () => {
+
+  const setManagedInterval = context?.setInterval.bind(context) ?? window.setInterval;
+  setManagedInterval(scanMedia, CHECK_INTERVAL_MS);
+  setManagedInterval(checkBridge, 5000);
+
+  const onViewportChange = () => {
     if (savedPosition) applySavedPosition();
     else positionAtVideo();
-  }, { passive: true });
-  new MutationObserver(() => scanMedia()).observe(
-    document.body ?? document.documentElement,
-    { childList: true, subtree: true },
-  );
-}
+  };
+  if (context) {
+    context.addEventListener(window, 'scroll', () => positionAtVideo(), { passive: true });
+    context.addEventListener(window, 'resize', onViewportChange, { passive: true });
+  } else {
+    window.addEventListener('scroll', () => positionAtVideo(), { passive: true });
+    window.addEventListener('resize', onViewportChange, { passive: true });
+  }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
-} else {
-  init();
+  const mediaObserver = new MutationObserver(() => scanMedia());
+  mediaObserver.observe(document.body ?? document.documentElement, { childList: true, subtree: true });
+  context?.onInvalidated(() => {
+    mediaObserver.disconnect();
+    panelHost?.host.remove();
+    panelHost = null;
+    panelEl = null;
+    toastEl = null;
+    panelVisible = false;
+    dropdownVisible = false;
+    probeData = null;
+  });
 }

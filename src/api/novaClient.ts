@@ -1095,7 +1095,12 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 2500): P
     const httpStatus = statusMatch ? Number(statusMatch[1]) : 0;
     const isClientError = httpStatus >= 400 && httpStatus < 500;
     if (isIdempotent && err instanceof Error && !isClientError) {
-      logger.warn('NovaClient', `Retrying ${method} ${path} after transient error: ${err.message}`);
+      // A short request deadline is an expected readiness transition while the
+      // local daemon starts or an owning view changes. Retry idempotent reads,
+      // but do not export an alarming warning for the browser's abort wording.
+      if (!isExpectedAbortError(err)) {
+        logger.warn('NovaClient', `Retrying ${method} ${path} after transient error: ${err.message}`);
+      }
       await new Promise<void>((resolve) => {
         const timer = setTimeout(resolve, 500);
         retryController.signal.addEventListener(
@@ -1115,6 +1120,13 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 2500): P
     // Ensure any pending wait/abort listeners are released promptly.
     retryController.abort();
   }
+}
+
+function isExpectedAbortError(error: Error): boolean {
+  const message = error.message.toLowerCase();
+  return error.name === 'AbortError'
+    || message.includes('signal is aborted')
+    || message.includes('the operation was aborted');
 }
 
 interface CombinedAbortSignal {

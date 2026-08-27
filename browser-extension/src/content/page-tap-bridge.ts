@@ -15,9 +15,9 @@
  */
 
 import { defineContentScript } from 'wxt/utils/define-content-script';
-import browser from 'webextension-polyfill';
 import { z } from 'zod';
 import { MAX_CANDIDATE_URL_CHARS } from '../contracts/limits';
+import { sendRuntimeMessageIfActive } from './extension-context';
 // ---------------------------------------------------------------------------
 // Schema (mirrors page-tap-main constants)
 // ---------------------------------------------------------------------------
@@ -103,8 +103,8 @@ function normalizeUrl(raw: string): string {
 // ---------------------------------------------------------------------------
 
 function forwardToBackground(events: PageTapEvent[]): void {
-  browser.runtime.sendMessage({ type: 'PAGE_TAP_CANDIDATES_FOUND', events }).catch(() => {
-    // Background service worker may be sleeping; best-effort.
+  void sendRuntimeMessageIfActive({ type: 'PAGE_TAP_CANDIDATES_FOUND', events }).catch(() => {
+    // Background service worker may be unavailable; page-tap discovery is best-effort.
   });
 }
 

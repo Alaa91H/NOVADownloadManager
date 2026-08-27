@@ -23,8 +23,8 @@ android {
         applicationId = "com.nova.downloadmanager"
         minSdk = 26
         targetSdk = 37
-        versionCode = 12
-        versionName = "2.4.40-alpha"
+        versionCode = 13
+        versionName = "2.4.41-alpha"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

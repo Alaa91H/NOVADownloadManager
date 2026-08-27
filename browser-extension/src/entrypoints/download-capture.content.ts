@@ -1,6 +1,7 @@
 import browser from 'webextension-polyfill';
 import { isContentDownloadCaptureEnabled, type DownloadCaptureSettingsSnapshot } from '../capture/download-capture-policy';
 import { defineContentScript } from 'wxt/utils/define-content-script';
+import { sendRuntimeMessageIfActive } from '../content/extension-context';
 
 const DOWNLOAD_EXTS = new Set([
   'zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz', 'zst', 'lz', 'lz4', 'cab',
@@ -72,7 +73,7 @@ function resumeNativeAnchorDownload(anchor: HTMLAnchorElement | HTMLAreaElement)
 }
 
 function captureUrl(url: string, source: string, filename?: string, onRejected?: () => void): void {
-  browser.runtime.sendMessage({
+  void sendRuntimeMessageIfActive<unknown>({
     type: 'CAPTURE_DOWNLOAD',
     payload: {
       url,
@@ -81,10 +82,12 @@ function captureUrl(url: string, source: string, filename?: string, onRejected?:
       tabId: undefined,
       source,
     },
-  }).then((response: unknown) => {
+  }).then((response) => {
     const accepted = typeof response === 'object'
       && response !== null
       && (response as { ok?: unknown }).ok === true;
+    // A reloaded extension has no receiver for this document's old script.
+    // Resume the browser-native action instead of swallowing the user click.
     if (!accepted) onRejected?.();
   }).catch(() => onRejected?.());
 }

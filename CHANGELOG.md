@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.41-alpha] - 2026-08-27
+
+### Fixed
+
+- **Restored the independent Android foundation and CodeQL Java/Kotlin checks.** Release-signing enforcement is now evaluated only when a release Gradle task is requested, so debug-only CI and fork-safe CodeQL compilation no longer require release secrets. The primary distribution workflow retains its explicit secret checks and signed-release APK verification. The affected workflows now use `android-actions/setup-android@v4`.
+- **Made desktop destination conflicts diagnosable before a transfer starts.** The native file writer now rejects a destination that is a directory and a parent path component that is a file, replacing the generic Windows “file already exists” creation failure with a direct corrective message. It never creates through, overwrites, or reinterprets an existing file as a folder.
+- **Stopped signed direct-download URLs from being written to the desktop application log.** Task creation records the HTTP(S) origin only and preserves a bounded daemon error summary, preventing query tokens, URL fragments, paths, and embedded credentials from appearing in exported logs. Expected request cancellation is no longer retried as a transient request failure.
+- **Accepted valid FFmpeg nightly version identifiers.** The verified external-tool health check recognises the strict official `N-<build>-g<commit>` format as a compatible FFmpeg snapshot while continuing to reject malformed or non-numeric executable banners.
+- **Hardened browser-extension reload behavior.** Content scripts now remove listeners, observers, timers, and the floating UI when their WXT context is invalidated. Runtime messages made by an old context fail safely, and only the browser-defined `ResizeObserver` loop diagnostic is suppressed; unrelated page and extension errors remain visible for diagnosis.
+
+### Added
+
+- **Added a functional Android direct-download foundation.** The Android app now accepts an explicit HTTP(S) link, validates it before enqueueing, derives a safe file name, and hands the transfer to Android’s platform download manager under the user-visible `Downloads/NOVA` location. The task list polls the system service for queued, active, paused, completed, and failed state.
+- **Added Android download progress and completion notification handling.** Platform download notifications are enabled for accepted transfers. On Android 13 and later, NOVA asks for notification permission only in response to the user pressing the download action; a declined permission does not fabricate failure or prevent the system-managed transfer from being tracked in the app.
+- **Added focused regression coverage.** New tests cover destination-file conflicts, signed URL log redaction, FFmpeg stable/nightly/invalid version parsing, extension lifecycle diagnostics, and Android direct-link intake with a ready or unavailable repository.
+
+### Scope and safety
+
+- Android direct downloads in this alpha use the platform `DownloadManager` for ordinary HTTP(S) files. This bounded milestone does not claim a packaged shared Rust segmented engine, media-site extraction, DRM disabling, cookie/token export, CAPTCHA/PO-token bypass, or access-control circumvention.
+- The next Android milestones are deliberately separate: a fully localized theme and language preference implementation, an explicit permission-center screen, and a durable, configurable scheduler with Android power/network constraints. They will be shipped only after their resources and platform behavior are testable across the maintained locale set.
+
 ## [2.4.40-alpha] - 2026-08-27
 
 ### Fixed
