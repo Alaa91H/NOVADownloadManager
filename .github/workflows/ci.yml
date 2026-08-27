@@ -466,15 +466,40 @@ jobs:
           scripts/build-android-ffi.sh arm64-v8a
           test -f android/app/src/main/jniLibs/arm64-v8a/libnova_mobile_ffi.so
 
-      - name: Build debug and release APKs; run JVM tests
+      - name: Restore Android release signing key
+        env:
+          NOVA_ANDROID_KEYSTORE_BASE64: ${{ secrets.NOVA_ANDROID_KEYSTORE_BASE64 }}
+          NOVA_ANDROID_STORE_PASSWORD: ${{ secrets.NOVA_ANDROID_STORE_PASSWORD }}
+          NOVA_ANDROID_KEY_ALIAS: ${{ secrets.NOVA_ANDROID_KEY_ALIAS }}
+          NOVA_ANDROID_KEY_PASSWORD: ${{ secrets.NOVA_ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$NOVA_ANDROID_KEYSTORE_BASE64"
+          test -n "$NOVA_ANDROID_STORE_PASSWORD"
+          test -n "$NOVA_ANDROID_KEY_ALIAS"
+          test -n "$NOVA_ANDROID_KEY_PASSWORD"
+          umask 077
+          printf '%s' "$NOVA_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/nova-android-release.jks"
+          test -s "$RUNNER_TEMP/nova-android-release.jks"
+
+      - name: Build debug tests and signed release APK
         working-directory: android
+        env:
+          NOVA_ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/nova-android-release.jks
+          NOVA_ANDROID_STORE_PASSWORD: ${{ secrets.NOVA_ANDROID_STORE_PASSWORD }}
+          NOVA_ANDROID_KEY_ALIAS: ${{ secrets.NOVA_ANDROID_KEY_ALIAS }}
+          NOVA_ANDROID_KEY_PASSWORD: ${{ secrets.NOVA_ANDROID_KEY_PASSWORD }}
         run: ./gradlew --no-daemon :app:assembleDebug :app:assembleRelease :app:testDebugUnitTest
 
-      - name: Stage Android APK
+      - name: Stage and verify signed Android release APK
         run: |
+          set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
+          source_apk=android/app/build/outputs/apk/release/app-release.apk
+          test -s "$source_apk"
+          apksigner verify --verbose --print-certs "$source_apk"
           mkdir -p release
-          cp android/app/build/outputs/apk/debug/app-debug.apk "release/Nova.Download.Manager_${version}_android_arm64-v8a.apk"
+          cp "$source_apk" "release/Nova.Download.Manager_${version}_android_arm64-v8a.apk"
 
       - name: Upload Android release artifact
         uses: actions/upload-artifact@v7

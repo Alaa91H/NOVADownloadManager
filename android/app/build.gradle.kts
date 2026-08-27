@@ -3,6 +3,17 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val releaseKeystorePath = System.getenv("NOVA_ANDROID_KEYSTORE_PATH")
+val releaseStorePassword = System.getenv("NOVA_ANDROID_STORE_PASSWORD")
+val releaseKeyAlias = System.getenv("NOVA_ANDROID_KEY_ALIAS")
+val releaseKeyPassword = System.getenv("NOVA_ANDROID_KEY_PASSWORD")
+val hasReleaseSigning = listOf(
+    releaseKeystorePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { !it.isNullOrBlank() }
+
 android {
     namespace = "com.nova.downloadmanager"
     compileSdk = 37
@@ -12,11 +23,22 @@ android {
         applicationId = "com.nova.downloadmanager"
         minSdk = 26
         targetSdk = 37
-        versionCode = 10
-        versionName = "2.4.38-alpha"
+        versionCode = 11
+        versionName = "2.4.39-alpha"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseKeystorePath!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
     }
 
     buildTypes {
@@ -25,6 +47,12 @@ android {
             versionNameSuffix = "-debug"
         }
         release {
+            check(hasReleaseSigning || System.getenv("CI").isNullOrBlank()) {
+                "Release signing is required in CI. Configure the NOVA_ANDROID_* signing secrets."
+            }
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -56,7 +84,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.navigation.compose)
-    implementation(libs.androidx.work.runtime)
     implementation(libs.kotlinx.coroutines.android)
 
     implementation(platform(libs.androidx.compose.bom))

@@ -11,7 +11,6 @@
     <application
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
-        android:name=".app.NovaApplication"
         android:icon="@mipmap/ic_nova_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_nova_launcher"
@@ -30,16 +29,6 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
-
-        <provider
-            android:name="androidx.startup.InitializationProvider"
-            android:authorities="${applicationId}.androidx-startup"
-            android:exported="false"
-            tools:node="merge">
-            <meta-data
-                android:name="androidx.work.WorkManagerInitializer"
-                tools:node="remove" />
-        </provider>
 
         <service
             android:name=".service.NovaUserInitiatedTransferJobService"

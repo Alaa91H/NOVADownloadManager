@@ -1,6 +1,8 @@
 package com.nova.downloadmanager.downloads
 
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
+import com.nova.downloadmanager.R
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,7 +17,7 @@ enum class CoreReadiness {
 data class DownloadsUiState(
     val readiness: CoreReadiness = CoreReadiness.Initializing,
     val pendingSharedUrl: String? = null,
-    val statusMessage: String? = null,
+    @param:StringRes val statusMessageRes: Int? = null,
     val tasks: List<DownloadSummary> = emptyList(),
 )
 
@@ -36,10 +38,22 @@ class DownloadsViewModel(
     val uiState: StateFlow<DownloadsUiState> = mutableUiState.asStateFlow()
 
     fun receiveSharedUrl(url: String) {
-        mutableUiState.value = mutableUiState.value.copy(
-            pendingSharedUrl = url,
-            statusMessage = "Link ready for NOVA download review",
-        )
+        receiveLinkForReview(url)
+    }
+
+    fun receiveBrowserDownload(url: String) {
+        receiveLinkForReview(url)
+    }
+
+    fun requestDownload() {
+        val message = when (mutableUiState.value.readiness) {
+            CoreReadiness.Ready -> R.string.nova_download_captured
+            CoreReadiness.Initializing,
+            CoreReadiness.BridgeNotPackaged,
+            CoreReadiness.Unavailable,
+            -> R.string.nova_download_unavailable
+        }
+        mutableUiState.value = mutableUiState.value.copy(statusMessageRes = message)
     }
 
     fun clearSharedUrl() {
@@ -47,6 +61,13 @@ class DownloadsViewModel(
     }
 
     fun acknowledgeStatusMessage() {
-        mutableUiState.value = mutableUiState.value.copy(statusMessage = null)
+        mutableUiState.value = mutableUiState.value.copy(statusMessageRes = null)
+    }
+
+    private fun receiveLinkForReview(url: String) {
+        mutableUiState.value = mutableUiState.value.copy(
+            pendingSharedUrl = url,
+            statusMessageRes = R.string.nova_download_captured,
+        )
     }
 }

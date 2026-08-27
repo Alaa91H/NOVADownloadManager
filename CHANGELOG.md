@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.39-alpha] - 2026-08-27
+
+### Fixed
+
+- **Reduced Android cold-start risk.** Removed an unused custom `Application`/WorkManager startup path and its stale release-shrinker rules. The launcher now reaches a compact Compose shell with a safe fallback for restored navigation state, while the Android transfer-job service remains isolated from UI startup.
+- **Stopped publishing a debug APK as the Android release asset.** Android CI now builds JVM-tested debug code for development validation but stages only `app-release.apk` after `apksigner` verification. Release signing is supplied solely through GitHub Actions secrets; no keystore, password, or key material is committed.
+
+### Added
+
+- **Added a lightweight in-app Android browser foundation.** It accepts normal HTTP(S) pages only, rejects local/intent/JavaScript URL schemes and credential-bearing navigation, enables Android Safe Browsing, disables multiple-window popups, and captures ordinary browser download callbacks into NOVA's explicit download-review path. Captured link displays redact query and fragment data while preserving the original value internally for future transfer execution.
+- **Added clean-browsing controls with a small deterministic tracker/ad host blocklist.** The feature is local, opt-out, and applies only to the integrated browser; it does not inspect other apps or change device-wide network traffic. A terminated WebView renderer is recreated safely rather than terminating the host application.
+- **Added constrained user-script support for the integrated browser.** Scripts are disabled by default, stored locally, limited to eight entries and 64 KB each, and run only after a user opt-in on an explicitly matching top-level HTTPS host. NOVA exposes no native JavaScript bridge, Android API, cookies, download queue, or cross-tab privilege to these scripts.
+- **Added Android locale generation and enforcement from NOVA's existing catalog.** Android now carries resource bundles for all 132 maintained NOVA languages and 49 Android-visible catalog strings. The generator and validator fail when a language or mapped resource is absent, preserving Android RTL/resource qualification support without adding an English-only partial locale.
+- **Added DNS privacy-profile foundations.** The Android settings model contains system, Cloudflare, Google, Quad9, AdGuard, and validated custom DNS-over-HTTPS endpoints as local preferences. It intentionally does not alter device DNS, run a VPN, or claim to route WebView traffic until a separately consented private-routing implementation exists.
+
+### Security and scope
+
+- NOVA does not disable or bypass DRM, access controls, account requirements, geographic restrictions, or protected-media playback. The Android browser forwards only ordinary HTTP(S) download callbacks for user review; protected or service-controlled media remains outside this implementation.
+- Android's shared Rust transfer bridge is packaged but has not yet been connected to the Compose intake path in this bounded milestone. The UI therefore remains truthful when an actual transfer cannot be submitted instead of fabricating a successful download.
+- The browser test environment could not complete a software-rendered emulator boot without hardware acceleration. This release validates Android JVM tests, resource compilation, release shrinking, APK signing, and package contents; it does not claim a physical-device or booted-emulator launch result.
+
 ## [2.4.38-alpha] - 2026-08-27
 
 ### Fixed

@@ -1,6 +1,6 @@
 {
   "name": "nova-browser-extension",
-  "version": "2.4.38-alpha",
+  "version": "2.4.39-alpha",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.6.0",

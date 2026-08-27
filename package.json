@@ -1,7 +1,7 @@
 {
   "name": "nova",
   "private": true,
-  "version": "2.4.38-alpha",
+  "version": "2.4.39-alpha",
   "description": "NOVA download manager UI powered by local direct and media download engines.",
   "type": "module",
   "engines": {
@@ -36,6 +36,8 @@
     "i18n:dicts": "tsx scripts/i18n-dicts.mjs",
     "i18n:sync": "tsx scripts/sync-i18n-index.mjs",
     "i18n:validate": "tsx scripts/validate-i18n.mjs",
+    "android:i18n:generate": "tsx scripts/generate-android-locales.mts",
+    "android:i18n:validate": "tsx scripts/generate-android-locales.mts --check && tsx scripts/validate-android-locales.mts",
     "extension:install": "pnpm install --frozen-lockfile",
     "extension:build": "pnpm --filter nova-browser-extension build",
     "extension:package": "pnpm --filter nova-browser-extension build:zip",
