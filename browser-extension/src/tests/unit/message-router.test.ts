@@ -80,6 +80,17 @@ describe('message-router dispatch + policy', () => {
     expect(typeof state.canSend).toBe('boolean');
   });
 
+  it('returns the scanned page URL with candidates to a trusted extension UI caller', async () => {
+    const response = (await harness.invoke(
+      { type: 'SCAN_PAGE', userActivated: true },
+      harness.uiSender,
+    )) as { ok: boolean; candidates: unknown[]; pageUrl?: string; capturedAt?: string };
+    expect(response.ok).toBe(true);
+    expect(Array.isArray(response.candidates)).toBe(true);
+    expect(response.pageUrl).toBe('https://example.com/watch');
+    expect(typeof response.capturedAt).toBe('string');
+  });
+
   it('rejects SCAN_PAGE from a content-script sender even when userActivated is claimed', async () => {
     const response = (await harness.invoke({ type: 'SCAN_PAGE', userActivated: true }, harness.pageSender)) as { ok: boolean; code: string };
     expect(response.ok).toBe(false);

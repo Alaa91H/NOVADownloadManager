@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useI18n } from '../../i18n/react';
 import { qualityBadge, formatBitrate, formatFileSize } from '../../pipeline/quality-detector';
 
 export interface StreamQualityItem {
@@ -97,6 +98,7 @@ export function QualityTable({
   busy = false,
   sentIds,
 }: QualityTableProps) {
+  const { t } = useI18n();
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   const allSorted = [...qualities].sort((a, b) => {
@@ -111,12 +113,12 @@ export function QualityTable({
     return (
       <thead>
         <tr>
-          <th>Quality</th>
-          <th>Resolution</th>
-          <th>Codec</th>
+          <th>{t('quality.column.quality')}</th>
+          <th>{t('candidate.detail.resolution')}</th>
+          <th>{t('candidate.detail.codecs')}</th>
           <th>FPS</th>
-          <th>Container</th>
-          <th>Size</th>
+          <th>{t('quality.column.format')}</th>
+          <th>{t('candidate.detail.size')}</th>
           <th></th>
         </tr>
       </thead>
@@ -171,7 +173,7 @@ export function QualityTable({
             disabled={busy || isSent}
             onClick={() => onSendQuality(itemWithTitle)}
           >
-            {isSent ? 'Done' : 'Download'}
+            {isSent ? t('quality.sent') : t('quality.download')}
           </button>
         </td>
       </tr>
@@ -204,11 +206,11 @@ export function QualityTable({
             )}
             {hasDuration && (
               <div style={{ fontSize: 10, color: 'var(--nova-text-muted)', marginTop: 2 }}>
-                Duration: {formatDuration(durationSec)}
+                {t('candidate.detail.duration')}: {formatDuration(durationSec)}
               </div>
             )}
             <div style={{ fontSize: 10, color: 'var(--nova-text-muted)', marginTop: 1 }}>
-              {qualities.length} format{qualities.length !== 1 ? 's' : ''}
+              {t('quality.header', { n: qualities.length })}
             </div>
           </div>
         </div>
@@ -238,13 +240,13 @@ export function QualityTable({
           disabled={busy || qualities.length === 0}
           onClick={onSendBest}
         >
-          Best Quality
+          {t('quality.bestQuality')}
         </button>
       </div>
 
       {!hasDuration && qualities.length > 0 && (
         <div className="nova-quality-hint">
-          Sizes are estimated from bitrate — actual size may vary
+          {t('quality.localHint')}
         </div>
       )}
     </div>

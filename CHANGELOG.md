@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.37-alpha] - 2026-08-27
+
+### Fixed
+
+- **Routed YouTube captures through NOVA's managed media workflow.** The browser-extension popup now resolves a stable YouTube watch, Shorts, live, embed, short-link, or playlist page through the local engine before a format is queued. It no longer treats transient `googlevideo`/`videoplayback` delivery URLs as ordinary direct browser downloads.
+- **Restored a visible, actionable YouTube flow when initial capture is empty.** A trusted popup scan now receives its page URL as well as captured candidates. On a supported YouTube page, the compact popup presents the existing localized “Resolve via NOVA” action even when the generic scan has not produced a direct media candidate.
+- **Made managed-media success daemon-authoritative.** The selected format remains retryable when NOVA rejects it. The popup reports success and marks a format sent only after the local engine returns `accepted: true`.
+
+### User experience and localization
+
+- Opening a YouTube format now expands the popup into the already-available analysis and format-selection view, rather than leaving the result hidden in collapsed state. The selected format carries the engine-returned format identifier while the stable page URL remains the task source.
+- Replaced hard-coded labels in the analyzed-format panel, quality table, and dense candidate actions with existing extension translation keys. No partial or English-only locale keys were added.
+
+### Quality and scope
+
+- Added regression coverage for stable-page resolution with and without generic candidates, the absence of `DOWNLOAD_DIRECT` on the YouTube route, accepted and rejected managed-media additions, and the popup scan page-URL contract. Existing YouTube-adapter and message-router coverage remains in the focused suite.
+- This improvement does not manufacture or export cookies, bypass DRM or access controls, or expose authorization data. The local media engine remains responsible for current yt-dlp/FFmpeg availability, supported content, download execution, and merge behavior.
+
 ## [2.4.36-alpha] - 2026-08-27
 
 ### Fixed

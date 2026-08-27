@@ -51,9 +51,29 @@ function isVideoCand(c: Candidate): boolean {
   return c.mediaType === 'video' || c.mediaType === 'audio';
 }
 
+function isYouTubePageUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === 'youtu.be') return /^\/[a-zA-Z0-9_-]{11}(?:\/|$)/.test(parsed.pathname);
+    const isYoutubeHost = hostname === 'youtube.com' || hostname.endsWith('.youtube.com');
+    if (!isYoutubeHost) return false;
+    if (/^\/(?:shorts|live|embed|v)\/[a-zA-Z0-9_-]{11}(?:\/|$)/.test(parsed.pathname)) return true;
+    if (parsed.pathname === '/watch') return Boolean(parsed.searchParams.get('v'));
+    return parsed.pathname === '/playlist' && Boolean(parsed.searchParams.get('list'));
+  } catch {
+    return false;
+  }
+}
+
+function stableYouTubePageUrl(c: Candidate): string | undefined {
+  const urls = [c.pageUrl, c.finalUrl, c.url];
+  return urls.find((url): url is string => typeof url === 'string' && isYouTubePageUrl(url));
+}
+
 function isYouTubeCandidate(c: Candidate): boolean {
-  const url = c.url ?? '';
-  return /youtube\.com\/watch|youtu\.be\/|googlevideo\.com|videoplayback/i.test(url);
+  const url = c.finalUrl ?? c.url ?? '';
+  return Boolean(stableYouTubePageUrl(c)) || /googlevideo\.com|videoplayback/i.test(url);
 }
 
 function hasVideoQualities(candidate: Candidate): boolean {
@@ -120,7 +140,7 @@ function groupYouTubeCandidates(candidates: Candidate[]): Map<string, Candidate[
   const groups = new Map<string, Candidate[]>();
   for (const c of candidates) {
     if (!isYouTubeCandidate(c)) continue;
-    const vid = (c.metadata?.videoId as string) || c.url || c.id;
+    const vid = (c.metadata?.videoId as string) || stableYouTubePageUrl(c) || c.url || c.id;
     const existing = groups.get(vid);
     if (existing) {
       existing.push(c);
@@ -154,6 +174,7 @@ export function PopupApp() {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [sentQualityIds, setSentQualityIds] = useState<Set<string>>(() => new Set());
   const [analyzeResult, setAnalyzeResult] = useState<AnalyzeResponse | null>(null);
+  const [scannedPageUrl, setScannedPageUrl] = useState<string>();
   const [analyzeBusy, setAnalyzeBusy] = useState(false);
 
   /** Start collapsed — only expand on explicit user action. */
@@ -258,12 +279,13 @@ export function PopupApp() {
   async function scan(options: { quiet?: boolean } = {}): Promise<Candidate[]> {
     setBusy(true);
     try {
-      const result = await runtimeRequest<{ candidates?: Candidate[] }>({
+      const result = await runtimeRequest<{ candidates?: Candidate[]; pageUrl?: string }>({
         type: 'SCAN_PAGE',
         userActivated: true,
       });
       const found = Array.isArray(result?.candidates) ? result.candidates : [];
       setCandidates(found);
+      setScannedPageUrl(typeof result?.pageUrl === 'string' ? result.pageUrl : undefined);
       setSelected(new Set());
       setSentQualityIds(new Set());
       if (!options.quiet) {
@@ -285,6 +307,21 @@ export function PopupApp() {
   }
 
   /** Toggle dense dropdown under compact bar. */
+  async function handlePrimaryDownload(): Promise<void> {
+    const youtubeCandidate = videoCandidates.find(isYouTubeCandidate);
+    if (youtubeCandidate) {
+      await analyzeFromDropdown(youtubeCandidate);
+      return;
+    }
+    if (scannedPageUrl && isYouTubePageUrl(scannedPageUrl)) {
+      setExpanded(true);
+      setDropdownOpen(false);
+      await analyzeUrl(scannedPageUrl, { pageUrl: scannedPageUrl });
+      return;
+    }
+    await handleDropdownToggle();
+  }
+
   async function handleDropdownToggle(): Promise<void> {
     if (dropdownOpen) {
       setDropdownOpen(false);
@@ -302,6 +339,10 @@ export function PopupApp() {
   async function sendFromDropdown(candidate: Candidate): Promise<void> {
     setBusy(true);
     try {
+      if (isYouTubeCandidate(candidate)) {
+        await analyzeFromDropdown(candidate);
+        return;
+      }
       const isManifest = /\.(m3u8|mpd)$/i.test(candidate.url);
       if (isManifest) {
         await runtimeRequest({ type: 'SEND_CANDIDATE', candidate });
@@ -333,6 +374,11 @@ export function PopupApp() {
   async function sendAllFromDropdown(source: Candidate[]): Promise<void> {
     setBusy(true);
     try {
+      const youtubeCandidate = source.find(isYouTubeCandidate);
+      if (youtubeCandidate) {
+        await analyzeFromDropdown(youtubeCandidate);
+        return;
+      }
       const manifestCandidates = source.filter((c) => /\.(m3u8|mpd)$/i.test(c.url));
       const directCandidates = source.filter((c) => !/\.(m3u8|mpd)$/i.test(c.url));
       if (manifestCandidates.length > 0) {
@@ -386,6 +432,11 @@ export function PopupApp() {
   }
 
   async function sendAll(source: Candidate[] = videoCandidates): Promise<void> {
+    const youtubeCandidate = source.find(isYouTubeCandidate);
+    if (youtubeCandidate) {
+      await analyzeFromDropdown(youtubeCandidate);
+      return;
+    }
     const handoffable = source
       .filter((c) => isHandoffable(c) && isSupportedByRuntime(c, bridge))
       .slice(0, MAX_HANDOFF_CANDIDATES);
@@ -460,6 +511,18 @@ export function PopupApp() {
   }
 
   async function handleSendQuality(qualityItem: StreamQualityItem): Promise<void> {
+    const candidateId = qualityItem.id.replace(/-v\d+$/, '');
+    const sourceCandidate = videoCandidates.find(
+      (candidate) =>
+        candidate.id === candidateId ||
+        candidate.url === qualityItem.url ||
+        candidate.finalUrl === qualityItem.url,
+    );
+    if (sourceCandidate && isYouTubeCandidate(sourceCandidate)) {
+      await analyzeFromDropdown(sourceCandidate);
+      return;
+    }
+
     const isManifest = qualityItem.url.endsWith('.m3u8') || qualityItem.url.endsWith('.mpd');
 
     if (isManifest) {
@@ -556,7 +619,7 @@ export function PopupApp() {
 
   async function analyzeUrl(url: string, context?: { pageUrl?: string; referrer?: string; title?: string }): Promise<void> {
     if (!bridge?.canSend) {
-      setNotice({ kind: 'error', message: 'NOVA desktop is not connected.' });
+      setNotice({ kind: 'error', message: t('popup.message.cannotSend') });
       return;
     }
     setAnalyzeBusy(true);
@@ -567,8 +630,9 @@ export function PopupApp() {
         url,
         context,
       });
+      if (!result.ok) throw new Error(result.message || t('quality.noneFromNOVA'));
       setAnalyzeResult(result);
-      setNotice({ kind: 'success', message: `Found ${result.formats.length} format${result.formats.length !== 1 ? 's' : ''}` });
+      setNotice({ kind: 'success', message: t('quality.header', { n: result.formats.length }) });
     } catch (error) {
       setNotice({ kind: 'error', message: messageFromError(error) });
     } finally {
@@ -577,44 +641,49 @@ export function PopupApp() {
   }
 
   async function analyzeFromDropdown(candidate: Candidate): Promise<void> {
-    const url = candidate.finalUrl ?? candidate.url;
+    const url = stableYouTubePageUrl(candidate) ?? candidate.finalUrl ?? candidate.url;
     if (!url) return;
+    setExpanded(true);
+    setDropdownOpen(false);
     await analyzeUrl(url, {
-      pageUrl: candidate.pageUrl,
+      pageUrl: candidate.pageUrl ?? url,
       referrer: candidate.referrer,
       title: candidate.filename || candidate.metadata?.title as string | undefined,
     });
-    setDropdownOpen(false);
   }
 
-  function handleAnalyzeDownload(format: AnalyzeResponse['formats'][number]): void {
+  async function handleAnalyzeDownload(format: AnalyzeResponse['formats'][number]): Promise<boolean> {
     const sourceUrl = analyzeResult?.url;
-    if (!sourceUrl) {
-      setNotice({ kind: 'error', message: 'The analyzed media URL is unavailable. Please analyze the page again.' });
-      return;
+    if (!sourceUrl || !format.formatId) {
+      setNotice({ kind: 'error', message: t('quality.noneFromNOVA') });
+      return false;
     }
     setBusy(true);
-    void (async () => {
-      try {
-        await runtimeRequest({
-          type: 'ADD_YTDLP_MEDIA',
-          url: sourceUrl,
-          title: analyzeResult?.title,
-          pageUrl: sourceUrl,
-          selectedFormat: {
-            ...format,
-            // The desktop deliberately uses sourceUrl and formatId. This URL is
-            // retained only for the validated protocol contract and may expire.
-            url: format.url || sourceUrl,
-          },
-        });
-        setNotice({ kind: 'success', message: t('popup.sentResult', { count: 1 }) });
-      } catch (error) {
-        setNotice({ kind: 'error', message: messageFromError(error) });
-      } finally {
-        setBusy(false);
+    try {
+      const result = await runtimeRequest<{ accepted?: boolean; message?: string }>({
+        type: 'ADD_YTDLP_MEDIA',
+        url: sourceUrl,
+        title: analyzeResult?.title,
+        pageUrl: sourceUrl,
+        selectedFormat: {
+          ...format,
+          // The desktop deliberately receives the stable page URL and a format
+          // identifier. A CDN delivery URL can expire and is never used as the
+          // managed-media task URL.
+          url: format.url || sourceUrl,
+        },
+      });
+      if (!result?.accepted) {
+        throw new Error(result?.message || t('quality.novaNotAccepted'));
       }
-    })();
+      setNotice({ kind: 'success', message: t('popup.sentResult', { count: 1 }) });
+      return true;
+    } catch (error) {
+      setNotice({ kind: 'error', message: messageFromError(error) });
+      return false;
+    } finally {
+      setBusy(false);
+    }
   }
 
   function closeAnalyze(): void {
@@ -638,7 +707,22 @@ export function PopupApp() {
   if (!expanded) {
     // No videos → render nothing
     if (videoCandidates.length === 0 && !busy) {
-      return <main className="nova-popup-compact nova-popup-compact-empty" />;
+      if (scannedPageUrl && isYouTubePageUrl(scannedPageUrl)) {
+        return (
+          <main className="nova-popup-compact nova-popup-compact-youtube" data-tone={tone}>
+            <button
+              type="button"
+              className="nova-compact-btn nova-compact-btn-download"
+              onClick={() => void handlePrimaryDownload()}
+              title={t('quality.resolveViaNOVA')}
+            >
+              <Download style={{ width: 14, height: 14 }} aria-hidden />
+              <span>{t('quality.resolveViaNOVA')}</span>
+            </button>
+          </main>
+        );
+      }
+      return <main className="nova-popup-compact nova-popup-compact-empty" aria-hidden="true" />;
     }
 
     // Videos captured → show download bar + dropdown
@@ -650,7 +734,7 @@ export function PopupApp() {
               type="button"
               className="nova-compact-btn nova-compact-btn-download"
               disabled={busy}
-              onClick={() => void handleDropdownToggle()}
+              onClick={() => void handlePrimaryDownload()}
               title={t('popup.action.download')}
             >
               <Download style={{ width: 14, height: 14 }} aria-hidden />
@@ -713,12 +797,12 @@ export function PopupApp() {
               type="button"
               className="nova-mini-btn-text"
               onClick={() => setViewMode(viewMode === 'quality' ? 'list' : 'quality')}
-              title={viewMode === 'quality' ? 'List' : 'Qualities'}
+              title={viewMode === 'quality' ? t('popup.tab.candidates') : t('quality.header', { n: videoCandidates.length })}
             >
               {viewMode === 'quality' ? (
-                <><List style={{ width: 12, height: 12 }} /> List</>
+                <><List style={{ width: 12, height: 12 }} /> {t('popup.tab.candidates')}</>
               ) : (
-                <><Table2 style={{ width: 12, height: 12 }} /> Qualities</>
+                <><Table2 style={{ width: 12, height: 12 }} /> {t('quality.header', { n: videoCandidates.length })}</>
               )}
             </button>
           )}
@@ -835,7 +919,7 @@ export function PopupApp() {
               }
             >
               {viewMode === 'quality' && nonYouTubeCandidates.length > 0 && (
-                <div className="nova-expanded-other-label">Other Media</div>
+                <div className="nova-expanded-other-label">{t('candidate.filter.other')}</div>
               )}
               {videoCandidates.length > 0 && viewMode === 'list' && (
                 <CandidateFilters value={filter} onChange={setFilter} />
@@ -856,12 +940,13 @@ export function PopupApp() {
       {analyzeResult && (
         <div className="nova-analyze-wrap">
           <div className="nova-analyze-bar">
-            <span className="nova-analyze-title">Analysis Result</span>
+            <span className="nova-analyze-title">{t('quality.resolveViaNOVA')}</span>
             <button
               type="button"
               className="nova-mini-btn-text"
               onClick={closeAnalyze}
-              title="Close analysis"
+              title={t('popup.action.close')}
+              aria-label={t('popup.action.close')}
             >
               <X style={{ width: 12, height: 12 }} />
             </button>
@@ -878,7 +963,7 @@ export function PopupApp() {
       {analyzeBusy && !analyzeResult && (
         <div className="nova-analyze-loading">
           <Loader2 style={{ width: 14, height: 14, animation: 'spin 1s linear infinite' }} />
-          <span>Analyzing media formats...</span>
+          <span>{t('quality.resolving')}</span>
         </div>
       )}
 
@@ -923,7 +1008,7 @@ export function PopupApp() {
                 });
               }}
             >
-              {analyzeBusy ? '…' : 'Analyze'}
+              {analyzeBusy ? '…' : t('quality.resolveViaNOVA')}
             </button>
           )}
         </div>

@@ -243,7 +243,7 @@ async function scanCurrentPage(tabId: number | undefined, userActivated: boolean
   const content = await scanTab(activeTabId, scanProfile);
   const candidates = await pipeline.run({ tabId: activeTabId, pageUrl: content.url, content, userActivated });
   const merged = await cache.replaceWithScan(activeTabId, candidates);
-  return { ok: true, candidates: merged, capturedAt: content.capturedAt };
+  return { ok: true, candidates: merged, pageUrl: content.url, capturedAt: content.capturedAt };
 }
 
 async function addYtdlpMedia(message: Extract<RuntimeMessage, { type: 'ADD_YTDLP_MEDIA' }>): Promise<unknown> {

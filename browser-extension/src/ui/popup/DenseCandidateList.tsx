@@ -4,6 +4,7 @@ import { handoffPolicyDecision } from '../../security/handoff-policy';
 import { capabilitiesForCandidate } from '../../contracts/capabilities.schema';
 import { formatFileSize, formatDuration, qualityBadge } from '../../pipeline/quality-detector';
 import { type BridgeState } from '../../core/app-state';
+import { useI18n } from '../../i18n/react';
 import { Download, Send, Search } from 'lucide-react';
 
 function mediaIcon(type: Candidate['mediaType']): string {
@@ -50,10 +51,12 @@ export type DenseCandidateListProps = {
 };
 
 export function DenseCandidateList({ candidates, bridge, busy, onSend, onSendAll, onAnalyze }: DenseCandidateListProps) {
+  const { t } = useI18n();
+
   if (candidates.length === 0) {
     return (
       <div className="nova-dropdown-empty">
-        No media captured
+        {t('candidate.empty.title')}
       </div>
     );
   }
@@ -103,7 +106,7 @@ export function DenseCandidateList({ candidates, bridge, busy, onSend, onSendAll
                 className="nova-dense-dl"
                 disabled={busy || !supported}
                 onClick={() => onSend(c)}
-                title={supported ? 'Download' : caps.supported ? 'Blocked' : 'Not supported'}
+                title={supported ? t('popup.action.download') : t('popup.needsCheck')}
               >
                 <Download style={{ width: 10, height: 10 }} />
               </button>
@@ -113,7 +116,7 @@ export function DenseCandidateList({ candidates, bridge, busy, onSend, onSendAll
                   className="nova-dense-dl"
                   disabled={busy}
                   onClick={() => onAnalyze(c)}
-                  title="Analyze formats"
+                  title={t('quality.resolveViaNOVA')}
                   style={{ opacity: 0.6 }}
                 >
                   <Search style={{ width: 10, height: 10 }} />
@@ -132,7 +135,7 @@ export function DenseCandidateList({ candidates, bridge, busy, onSend, onSendAll
             onClick={() => onSendAll(handoffable)}
           >
             <Send style={{ width: 10, height: 10 }} />
-            <span>Send All ({handoffable.length})</span>
+            <span>{t('taskActions.sendAll')} ({handoffable.length})</span>
           </button>
         </div>
       )}

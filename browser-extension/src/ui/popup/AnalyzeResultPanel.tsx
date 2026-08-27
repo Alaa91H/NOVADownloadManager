@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { type AnalyzeFormat, type AnalyzeResponse } from '../../contracts/nova.protocol.v4';
+import { useI18n } from '../../i18n/react';
 import { formatFileSize } from '../../pipeline/quality-detector';
 import { Download, AlertCircle } from 'lucide-react';
 
@@ -38,23 +39,24 @@ function sizeEstimate(f: AnalyzeFormat): string {
 
 interface AnalyzeResultPanelProps {
   result: AnalyzeResponse;
-  onDownload: (format: AnalyzeFormat) => void;
+  onDownload: (format: AnalyzeFormat) => Promise<boolean> | boolean;
   busy: boolean;
 }
 
 export function AnalyzeResultPanel({ result, onDownload, busy }: AnalyzeResultPanelProps) {
+  const { t } = useI18n();
   const [selectedFormat, setSelectedFormat] = useState<string | null>(null);
 
   const videoFormats = result.formats.filter((f) => f.hasVideo);
 
-  function handleDownload(f: AnalyzeFormat): void {
-    onDownload(f);
-    setSelectedFormat(f.formatId || f.url);
+  async function handleDownload(f: AnalyzeFormat): Promise<void> {
+    const accepted = await onDownload(f);
+    if (accepted) setSelectedFormat(f.formatId || f.url);
   }
 
-  function handleBestDownload() {
+  function handleBestDownload(): void {
     const best = videoFormats[0] ?? result.formats[0];
-    if (best) handleDownload(best);
+    if (best) void handleDownload(best);
   }
 
   return (
@@ -81,9 +83,9 @@ export function AnalyzeResultPanel({ result, onDownload, busy }: AnalyzeResultPa
             </div>
           )}
           <div style={{ fontSize: 10, color: 'var(--nova-text-muted)', marginTop: 2 }}>
-            {result.formats.length} format{result.formats.length !== 1 ? 's' : ''}
+            {t('quality.header', { n: result.formats.length })}
             {result.durationSec ? ` · ${formatDuration(result.durationSec)}` : ''}
-            {result.isLive ? ' · Live' : ''}
+            {result.isLive ? ` · ${t('quality.liveStream')}` : ''}
           </div>
         </div>
       </div>
@@ -102,10 +104,11 @@ export function AnalyzeResultPanel({ result, onDownload, busy }: AnalyzeResultPa
           <table className="nova-quality-table">
             <thead>
               <tr>
-                <th>Quality</th>
-                <th>Resolution</th>
-                <th>Codec</th>
-                <th>Size</th>
+                                  <th>{t('quality.column.quality')}</th>
+                  <th>{t('candidate.detail.resolution')}</th>
+                  <th>{t('candidate.detail.codecs')}</th>
+                  <th>{t('candidate.detail.size')}</th>
+
                 <th></th>
               </tr>
             </thead>
@@ -135,9 +138,9 @@ export function AnalyzeResultPanel({ result, onDownload, busy }: AnalyzeResultPa
                         className="nova-quality-download"
                         data-sent={isSent ? 'true' : undefined}
                         disabled={busy || isSent}
-                        onClick={() => handleDownload(f)}
+                        onClick={() => void handleDownload(f)}
                       >
-                        {isSent ? 'Done' : <><Download style={{ width: 10, height: 10 }} /> Download</>}
+                        {isSent ? t('quality.sent') : <><Download style={{ width: 10, height: 10 }} /> {t('quality.download')}</>}
                       </button>
                     </td>
                   </tr>
@@ -157,7 +160,7 @@ export function AnalyzeResultPanel({ result, onDownload, busy }: AnalyzeResultPa
             disabled={busy}
             onClick={() => void handleBestDownload()}
           >
-            Best Quality
+            {t('quality.bestQuality')}
           </button>
         </div>
       )}
@@ -165,7 +168,7 @@ export function AnalyzeResultPanel({ result, onDownload, busy }: AnalyzeResultPa
       {/* No formats found */}
       {result.formats.length === 0 && !result.drmProtected && (
         <div className="nova-analyze-empty">
-          <p>No downloadable formats found.</p>
+          <p>{t('quality.noneFromNOVA')}</p>
           {result.message && <p className="nova-analyze-hint">{result.message}</p>}
         </div>
       )}
