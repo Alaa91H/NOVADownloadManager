@@ -40,7 +40,7 @@ jobs:
           cache: gradle
 
       - name: Set up Android SDK command-line tools
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Install Android build dependencies
         run: |

@@ -57,12 +57,18 @@ jobs:
 
       - name: Set up Android SDK command-line tools
         if: matrix.language == 'java-kotlin'
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Install Android compile dependencies
         if: matrix.language == 'java-kotlin'
         run: |
+          # sdkmanager closes stdin after accepting its prompts. Ignore the
+          # expected SIGPIPE from `yes`, but keep sdkmanager failures fatal.
+          set +o pipefail
           yes | sdkmanager --licenses >/dev/null
+          sdkmanager_exit=${PIPESTATUS[1]}
+          set -o pipefail
+          test "$sdkmanager_exit" -eq 0
           sdkmanager --install \
             'platform-tools' \
             'platforms;android-37.0' \

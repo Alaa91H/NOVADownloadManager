@@ -47,9 +47,6 @@ android {
             versionNameSuffix = "-debug"
         }
         release {
-            check(hasReleaseSigning || System.getenv("CI").isNullOrBlank()) {
-                "Release signing is required in CI. Configure the NOVA_ANDROID_* signing secrets."
-            }
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -75,6 +72,18 @@ android {
 
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+    }
+}
+
+// A debug/JVM-only CI job must not receive release-signing secrets. Delay the
+// invariant until Gradle knows that a release artifact was actually requested;
+// the distribution workflow still fails closed before assembling a release.
+gradle.taskGraph.whenReady {
+    val isReleaseBuild = allTasks.any { task ->
+        task.project.path == ":app" && task.name.contains("Release", ignoreCase = true)
+    }
+    check(!isReleaseBuild || hasReleaseSigning || System.getenv("CI").isNullOrBlank()) {
+        "Release signing is required in CI. Configure the NOVA_ANDROID_* signing secrets."
     }
 }
 
