@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.42-alpha] - 2026-08-27
+
+### Fixed
+
+- **Restored the floating browser video panel as a constrained, functional NOVA workflow.** Its Download action now uses the same authenticated `/v1/analyze` contract as the extension popup rather than the retired generic yt-dlp probe. The panel receives bounded analysis outcomes, never treats an empty catalog as a successful result, and displays existing localized feedback instead of the opaque “No downloadable formats found” failure.
+- **Bound the overlay to its real browser tab.** A content-panel analysis derives the current HTTP(S) page from its trusted sender, not from a page-provided URL. Selecting a quality submits only its format identifier; the background re-analyses the stable page and verifies that the format is still present before requesting the daemon-owned media task. Expiring delivery URLs, cookies, headers, and raw extractor output never cross this boundary.
+- **Accepted dated official FFmpeg nightly identifiers.** Health checks now accept `N-<build>-g<commit>-<YYYYMMDD>` only when its build, hexadecimal commit, and eight-digit date are valid. Malformed banners and arbitrary suffixes remain rejected, resolving the observed FFmpeg installation failure without weakening executable or checksum verification.
+
+### Added
+
+- **Added a durable local NOVA Android task catalog.** Android now persists only accepted platform-download IDs and safe display names, restores them when the activity is recreated, and reconciles them through its declared user-initiated-transfer lifecycle service. This makes direct HTTP(S) transfers and their live Android notifications materially observable after an app restart without persisting source URLs, request headers, tokens, or cookies.
+- **Added regression coverage for the enabled overlay boundary.** Router tests now prove that overlay scan/analyze/send messages require a trusted HTTP(S) content-script sender and a real tab, bind work to cached or freshly analysed data, and continue to obey the configured rate limit.
+
+### Scope and safety
+
+- This alpha's Android task core is a NOVA-owned catalog and lifecycle layer over Android `DownloadManager`; it is not a packaged Rust core, a standalone segmented HTTP engine, or a guarantee of every site's media availability. Ordinary HTTP(S) downloads remain the supported Android transfer class.
+- NOVA does not remove DRM, bypass access controls, account requirements, CAPTCHAs, PO tokens, regional restrictions, or media-site protections. Protected or unavailable media remains unavailable for managed download.
+
 ## [2.4.41-alpha] - 2026-08-27
 
 ### Fixed

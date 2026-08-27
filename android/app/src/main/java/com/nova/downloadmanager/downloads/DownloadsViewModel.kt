@@ -47,7 +47,10 @@ class DownloadsViewModel(
         } catch (_: RuntimeException) {
             UnpackagedRustDownloadsRepository()
         }
-        mutableUiState.value = mutableUiState.value.copy(readiness = repository.coreReadiness())
+        mutableUiState.value = mutableUiState.value.copy(
+            readiness = repository.coreReadiness(),
+            tasks = repository.restore(),
+        )
     }
 
     fun receiveSharedUrl(url: String) {
@@ -86,9 +89,7 @@ class DownloadsViewModel(
         val ids = mutableUiState.value.tasks.map(DownloadSummary::id)
         if (ids.isEmpty() || mutableUiState.value.readiness != CoreReadiness.Ready) return
         val refreshed = repository.refresh(ids)
-        if (refreshed.isNotEmpty()) {
-            mutableUiState.value = mutableUiState.value.copy(tasks = refreshed)
-        }
+        mutableUiState.value = mutableUiState.value.copy(tasks = refreshed)
     }
 
     fun clearSharedUrl() {

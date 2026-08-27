@@ -1,4 +1,5 @@
 import browser from 'webextension-polyfill';
+import { translate } from '../i18n';
 import { hasActiveExtensionContext, sendRuntimeMessageIfActive } from './extension-context';
 
 const HOST_ID = 'nova-media-panel-host';
@@ -62,6 +63,23 @@ interface YtdlpProbeData {
   formats: YtdlpFormat[];
   uploader?: string;
   webpageUrl?: string;
+}
+
+type OverlayAnalyzeResponse = {
+  ok: boolean;
+  url?: string;
+  title?: string;
+  durationSec?: number;
+  thumbnail?: string;
+  formats: YtdlpFormat[];
+  drmProtected?: boolean;
+  analysisCode?: 'tool_unavailable' | 'timed_out' | 'process_failed' | 'invalid_output' | 'output_too_large';
+};
+
+function analysisFailureMessage(result?: OverlayAnalyzeResponse | null): string {
+  if (result?.drmProtected) return translate('popup.protected');
+  if (result?.analysisCode === 'tool_unavailable') return translate('popup.message.cannotSend');
+  return translate('quality.noneFromNOVA');
 }
 
 function fmtBytes(b?: number): string {
@@ -142,28 +160,38 @@ async function checkBridge(): Promise<void> {
   }
 }
 
-// --- yt-dlp probe ---
+// --- Unified NOVA media analysis ---
 
 async function doProbe(): Promise<void> {
   if (probing) return;
   if (!bridgeConnected) {
-    showToast('NOVA desktop not connected', true);
+    showToast(translate('popup.message.cannotSend'), true);
     return;
   }
   probing = true;
   render();
   try {
-    const r = await sendRuntimeMessageIfActive<YtdlpProbeData | null>({ type: 'PROBE_YTDLP', url: location.href });
-    if (r === undefined && !hasActiveExtensionContext()) return;
-    if (r?.formats?.length) {
-      probeData = r;
+    const result = await sendRuntimeMessageIfActive<OverlayAnalyzeResponse | null>({
+      type: 'OVERLAY_ANALYZE_MEDIA',
+    });
+    if (result === undefined && !hasActiveExtensionContext()) return;
+    if (result?.ok && !result.drmProtected && result.formats.length > 0) {
+      probeData = {
+        title: result.title,
+        duration: result.durationSec,
+        thumbnail: result.thumbnail,
+        webpageUrl: result.url || location.href,
+        formats: result.formats,
+      };
       dropdownVisible = true;
       render();
     } else {
-      showToast('No downloadable formats found', true);
+      showToast(analysisFailureMessage(result), true);
     }
   } catch {
-    showToast('Failed to fetch video info', true);
+    // The daemon deliberately returns bounded analysis categories rather than
+    // raw extractor stderr. Preserve that same safe, localized boundary here.
+    showToast(translate('quality.noneFromNOVA'), true);
   } finally {
     probing = false;
     render();
@@ -173,31 +201,25 @@ async function doProbe(): Promise<void> {
 // --- Send to NOVA ---
 
 function sendFormat(f: YtdlpFormat): void {
-  if (!bridgeConnected) { showToast('NOVA desktop not connected', true); return; }
+  if (!bridgeConnected) { showToast(translate('popup.message.cannotSend'), true); return; }
   if (!f.formatId) {
-    showToast('This format cannot be selected. Please refresh video information.', true);
+    showToast(translate('quality.noneFromNOVA'), true);
     return;
   }
-  // Never send a transient googlevideo URL as a generic candidate. NOVA receives
-  // the stable watch URL and exact yt-dlp format id, then resolves, merges audio
-  // where needed, and owns the download task.
-  const url = probeData?.webpageUrl || location.href;
-  void sendRuntimeMessageIfActive<{ accepted?: boolean; message?: string }>({
-    type: 'ADD_YTDLP_MEDIA',
-    url,
-    title: probeData?.title,
-    pageUrl: location.href,
-    referrer: document.referrer || undefined,
-    selectedFormat: f,
+  // Only a selected format id leaves this content script. The background
+  // resolves the stable sender-tab page again and never accepts a transient
+  // delivery URL, stale format object, cookie, or Authorization header here.
+  void sendRuntimeMessageIfActive<{ accepted?: boolean }>({
+    type: 'OVERLAY_ADD_YTDLP_MEDIA',
+    formatId: f.formatId,
   })
     .then((result) => {
       if (result === undefined && !hasActiveExtensionContext()) return;
-      if (!result?.accepted) throw new Error(result?.message || 'NOVA did not accept the selected format.');
-      showToast(`${qLabel(f)} added to NOVA`);
+      if (!result?.accepted) throw new Error('not accepted');
+      showToast(translate('videoOverlay.sent'));
     })
-    .catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : 'Failed to send the selected format to NOVA';
-      showToast(message, true);
+    .catch(() => {
+      showToast(translate('videoOverlay.sendFailed'), true);
     });
 }
 
@@ -465,9 +487,9 @@ function render(): void {
   let html = '<div class="nova-bar" data-drag="header" title="Drag to reposition; double-click to reset to the video">';
   html += `<button class="nova-dl" data-action="download"${probing ? ' disabled' : ''}>`;
   if (probing) {
-    html += '<span class="nova-spin"></span> Probing...';
+    html += `<span class="nova-spin"></span> ${esc(translate('quality.resolving'))}`;
   } else {
-    html += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download';
+    html += `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> ${esc(translate('videoOverlay.download'))}`;
   }
   html += '</button>';
   html += '<button class="nova-x" data-action="close" title="Close" aria-label="Close download panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>';

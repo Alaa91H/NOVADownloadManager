@@ -44,6 +44,8 @@ const BACKGROUND_INTERNAL_MESSAGES = new Set<RuntimeMessage['type']>(['CAPTURE_C
 // must not be an extension UI surface). SCAN_PAGE stays UI-only by design.
 const CONTENT_SCRIPT_MESSAGES = new Set<RuntimeMessage['type']>([
   'OVERLAY_SCAN_PAGE',
+  'OVERLAY_ANALYZE_MEDIA',
+  'OVERLAY_ADD_YTDLP_MEDIA',
   'OVERLAY_REFRESH_CANDIDATES',
   'OVERLAY_SEND_SELECTED',
   'PAGE_TAP_CANDIDATES_FOUND',

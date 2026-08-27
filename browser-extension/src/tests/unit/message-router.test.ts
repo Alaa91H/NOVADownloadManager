@@ -97,14 +97,11 @@ describe('message-router dispatch + policy', () => {
     expect(response.code).toBe('PERMISSION_MISSING');
   });
 
-  it('passes policy for OVERLAY_SCAN_PAGE from a trusted content script but reports the overlay as disabled', async () => {
-    const response = (await harness.invoke({ type: 'OVERLAY_SCAN_PAGE' }, harness.pageSender)) as { ok?: boolean; code?: string; error?: string };
-    // The sender policy must accept the trusted content script (no
-    // PERMISSION_MISSING), while the feature itself is intentionally
-    // disabled — captures are managed from the popup.
-    expect(response.code).not.toBe('PERMISSION_MISSING');
-    expect(response.ok).toBe(false);
-    expect(response.error).toMatch(/disabled/i);
+  it('runs OVERLAY_SCAN_PAGE only for a trusted content script and returns the originating page', async () => {
+    const response = (await harness.invoke({ type: 'OVERLAY_SCAN_PAGE' }, harness.pageSender)) as { ok?: boolean; candidates?: unknown[]; pageUrl?: string };
+    expect(response.ok).toBe(true);
+    expect(Array.isArray(response.candidates)).toBe(true);
+    expect(response.pageUrl).toBe('https://example.com/watch');
   });
 
   it('rejects OVERLAY_SCAN_PAGE when the sender has no originating tab id', async () => {
@@ -113,13 +110,15 @@ describe('message-router dispatch + policy', () => {
     expect(response.code).toBe('PERMISSION_MISSING');
   });
 
-  it('keeps OVERLAY_SCAN_PAGE disabled responses stable across repeated calls', async () => {
+  it('applies the overlay scan rate limit to repeated trusted content-script scans', async () => {
     const sender = { url: 'https://example.com/rate', tab: { id: 77 } };
-    for (let i = 0; i < 13; i += 1) {
-      const response = (await harness.invoke({ type: 'OVERLAY_SCAN_PAGE' }, sender)) as { ok: boolean; error?: string };
-      expect(response.ok).toBe(false);
-      expect(response.error).toMatch(/disabled/i);
+    for (let i = 0; i < 30; i += 1) {
+      const response = (await harness.invoke({ type: 'OVERLAY_SCAN_PAGE' }, sender)) as { ok: boolean };
+      expect(response.ok).toBe(true);
     }
+    const limited = (await harness.invoke({ type: 'OVERLAY_SCAN_PAGE' }, sender)) as { ok: boolean; code?: string };
+    expect(limited.ok).toBe(false);
+    expect(limited.code).toBe('PERMISSION_MISSING');
   });
 
   it('returns LIST_TASKS as a { ok, tasks } envelope, never a bare array', async () => {
@@ -141,10 +140,21 @@ describe('message-router dispatch + policy', () => {
     expect(response.code).toBe('PERMISSION_MISSING');
   });
 
-  it('reports OVERLAY_SEND_SELECTED as disabled for a trusted content-script sender', async () => {
-    const response = (await harness.invoke({ type: 'OVERLAY_SEND_SELECTED', candidateIds: ['does-not-exist'] }, harness.pageSender)) as { ok: boolean; code?: string; error?: string };
-    expect(response.code).not.toBe('PERMISSION_MISSING');
+  it('rejects stale OVERLAY_SEND_SELECTED IDs without accepting page-provided media', async () => {
+    const response = (await harness.invoke({ type: 'OVERLAY_SEND_SELECTED', candidateIds: ['does-not-exist'] }, harness.pageSender)) as { ok: boolean; code?: string };
     expect(response.ok).toBe(false);
-    expect(response.error).toMatch(/disabled/i);
+    expect(response.code).toBe('VALIDATION_FAILED');
+  });
+
+  it('rejects overlay analysis from an extension UI sender', async () => {
+    const response = (await harness.invoke({ type: 'OVERLAY_ANALYZE_MEDIA' }, harness.uiSender)) as { ok: boolean; code?: string };
+    expect(response.ok).toBe(false);
+    expect(response.code).toBe('PERMISSION_MISSING');
+  });
+
+  it('rejects overlay analysis when the sender has no originating tab', async () => {
+    const response = (await harness.invoke({ type: 'OVERLAY_ANALYZE_MEDIA' }, { url: 'https://example.com/no-tab' })) as { ok: boolean; code?: string };
+    expect(response.ok).toBe(false);
+    expect(response.code).toBe('PERMISSION_MISSING');
   });
 });

@@ -18,6 +18,9 @@ export const RuntimeMessageSchema = z.discriminatedUnion('type', [
   // carries NO tabId: the background binds the scan to the originating sender.tab.id so
   // a page can never request a scan of an arbitrary tab.
   z.object({ type: z.literal('OVERLAY_SCAN_PAGE') }),
+  // Overlay analysis is bound to the sender tab URL. The content script cannot
+  // supply a different URL, headers, credentials, or a target tab.
+  z.object({ type: z.literal('OVERLAY_ANALYZE_MEDIA') }),
   // OVERLAY_REFRESH_CANDIDATES is cache-only. It is used by the open picker to surface
   // late live captures (for example a newly selected video quality) without consuming
   // the heavier page-scan rate limit. It also carries no tabId and is bound to sender.tab.id.
@@ -55,6 +58,9 @@ export const RuntimeMessageSchema = z.discriminatedUnion('type', [
     referrer: z.string().url().optional(),
     selectedFormat: YtdlpFormatSchema,
   }),
+  // The overlay proves the selected format against a fresh bounded analysis in
+  // the background. It submits no media URL or untrusted format object.
+  z.object({ type: z.literal('OVERLAY_ADD_YTDLP_MEDIA'), formatId: z.string().trim().min(1).max(128) }),
   z.object({
     type: z.literal('DOWNLOAD_DIRECT'),
     url: z.string().url(),

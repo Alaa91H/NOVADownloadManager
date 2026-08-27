@@ -152,9 +152,15 @@ async function dispatchMessage(msg: RuntimeMessage, sender?: RuntimeMessageSende
     case 'SCAN_PAGE':
       return scanCurrentPage(msg.tabId, Boolean(msg.userActivated), sender);
     case 'OVERLAY_SCAN_PAGE':
+      return scanOverlayPage(sender);
     case 'OVERLAY_REFRESH_CANDIDATES':
+      return overlayCachedCandidates(sender);
     case 'OVERLAY_SEND_SELECTED':
-      return { ok: false, error: 'Overlay UI is disabled. Use the popup to manage captures.' };
+      return sendOverlaySelected(msg.candidateIds, sender);
+    case 'OVERLAY_ANALYZE_MEDIA':
+      return analyzeOverlayPage(sender);
+    case 'OVERLAY_ADD_YTDLP_MEDIA':
+      return addOverlayAnalyzedFormat(msg.formatId, sender);
     case 'PAGE_TAP_CANDIDATES_FOUND':
       return handlePageTapCandidates(msg.events, sender);
     case 'CAPTURE_DOWNLOAD':
@@ -244,6 +250,120 @@ async function scanCurrentPage(tabId: number | undefined, userActivated: boolean
   const candidates = await pipeline.run({ tabId: activeTabId, pageUrl: content.url, content, userActivated });
   const merged = await cache.replaceWithScan(activeTabId, candidates);
   return { ok: true, candidates: merged, pageUrl: content.url, capturedAt: content.capturedAt };
+}
+
+type OverlayTabContext = { tabId: number; pageUrl: string };
+
+function overlayTabContext(sender: RuntimeMessageSenderLike | undefined): OverlayTabContext {
+  const tabId = sender?.tab?.id;
+  const pageUrl = sender?.url;
+  if (typeof tabId !== 'number' || !Number.isInteger(tabId) || tabId <= 0 || !pageUrl) {
+    throw new NovaExtensionError({
+      code: 'PERMISSION_MISSING',
+      message: 'The overlay must be attached to a trusted browser tab.',
+      retryable: false,
+      repairHint: 'Open the NOVA popup and retry.',
+    });
+  }
+  try {
+    const parsed = new URL(pageUrl);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('unsupported protocol');
+  } catch {
+    throw new NovaExtensionError({
+      code: 'VALIDATION_FAILED',
+      message: 'The current page is not an HTTP(S) media page.',
+      retryable: false,
+      repairHint: 'Open the NOVA popup on a regular website and retry.',
+    });
+  }
+  return { tabId, pageUrl };
+}
+
+async function scanOverlayPage(sender: RuntimeMessageSenderLike | undefined): Promise<unknown> {
+  const { tabId } = overlayTabContext(sender);
+  const settings = await settingsStore.get();
+  const profile = settings.capture.aggressiveMode ? 'aggressive' : 'standard';
+  assertScanRateLimit(tabId, Date.now(), profile);
+  const content = await scanTab(tabId, profile);
+  const candidates = await pipeline.run({ tabId, pageUrl: content.url, content, userActivated: true });
+  const merged = await cache.replaceWithScan(tabId, candidates);
+  return { ok: true, candidates: merged, pageUrl: content.url, capturedAt: content.capturedAt };
+}
+
+async function overlayCachedCandidates(sender: RuntimeMessageSenderLike | undefined): Promise<unknown> {
+  const { tabId, pageUrl } = overlayTabContext(sender);
+  return { ok: true, candidates: await cache.get(tabId), pageUrl };
+}
+
+async function sendOverlaySelected(candidateIds: string[], sender: RuntimeMessageSenderLike | undefined): Promise<unknown> {
+  const { tabId } = overlayTabContext(sender);
+  const requested = new Set(candidateIds);
+  const selected = (await cache.get(tabId)).filter((candidate) => requested.has(candidate.id));
+  if (selected.length === 0) {
+    throw new NovaExtensionError({
+      code: 'VALIDATION_FAILED',
+      message: 'No selected overlay candidates are still available.',
+      retryable: true,
+      repairHint: 'Refresh the capture list and select a file again.',
+    });
+  }
+  const job = await bridgeManager.sendBatch(selected);
+  await maybeOpenNova(selected[0]?.pageUrl ?? selected[0]?.finalUrl ?? selected[0]?.url);
+  return job;
+}
+
+async function analyzeOverlayPage(sender: RuntimeMessageSenderLike | undefined): Promise<unknown> {
+  const { pageUrl } = overlayTabContext(sender);
+  return bridgeManager.analyzeMedia(pageUrl, { pageUrl });
+}
+
+async function addOverlayAnalyzedFormat(formatId: string, sender: RuntimeMessageSenderLike | undefined): Promise<unknown> {
+  const { pageUrl } = overlayTabContext(sender);
+  // Do not trust an old overlay catalog or a delivery URL. Resolve the stable
+  // page anew and submit only a current format id to the daemon-owned route.
+  const analysis = await bridgeManager.analyzeMedia(pageUrl, { pageUrl });
+  if (!analysis.ok || analysis.drmProtected) {
+    throw new NovaExtensionError({
+      code: 'VALIDATION_FAILED',
+      message: 'The current media cannot be submitted for managed download.',
+      retryable: false,
+      repairHint: 'Review the media in the NOVA popup.',
+    });
+  }
+  const selectedFormat = analysis.formats.find((format) => format.formatId === formatId);
+  if (!selectedFormat) {
+    throw new NovaExtensionError({
+      code: 'VALIDATION_FAILED',
+      message: 'The selected format is no longer available.',
+      retryable: true,
+      repairHint: 'Refresh video information and select a current format.',
+    });
+  }
+  const seed = {
+    id: `overlay-ytdlp-${formatId}`,
+    url: pageUrl,
+    pageUrl,
+    source: 'platform' as const,
+    mediaType: selectedFormat.hasVideo ? 'video' as const : 'audio' as const,
+    width: selectedFormat.width,
+    height: selectedFormat.height,
+    bitrate: selectedFormat.bandwidth,
+    sizeBytes: selectedFormat.estimatedSizeBytes,
+    confidence: 100,
+    createdAt: new Date().toISOString(),
+  };
+  const idempotencyKey = await idempotencyKeyFor([seed]);
+  const result = await bridgeManager.addYtdlpMedia({
+    idempotencyKey,
+    url: pageUrl,
+    pageUrl,
+    title: analysis.title?.trim().slice(0, 512) || undefined,
+    selectedFormat,
+    drmProtected: false,
+    source: 'nova-extension',
+  });
+  await maybeOpenNova();
+  return result;
 }
 
 async function addYtdlpMedia(message: Extract<RuntimeMessage, { type: 'ADD_YTDLP_MEDIA' }>): Promise<unknown> {

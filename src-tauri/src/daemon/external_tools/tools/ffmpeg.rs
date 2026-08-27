@@ -6,13 +6,21 @@ pub struct FfmpegTool;
 
 fn parse_official_nightly(raw: &str) -> Option<Version> {
     let nightly = raw.strip_prefix("N-")?;
-    let (build, commit) = nightly.split_once("-g")?;
+    let (build, commit_with_date) = nightly.split_once("-g")?;
+    let (commit, build_date) = match commit_with_date.split_once('-') {
+        Some((commit, build_date)) => (commit, Some(build_date)),
+        None => (commit_with_date, None),
+    };
+    let valid_build_date = build_date.map_or(true, |date| {
+        date.len() == 8 && date.chars().all(|character| character.is_ascii_digit())
+    });
     if build.is_empty()
         || commit.is_empty()
         || !build.chars().all(|character| character.is_ascii_digit())
         || !commit
             .chars()
             .all(|character| character.is_ascii_hexdigit())
+        || !valid_build_date
     {
         return None;
     }
@@ -196,18 +204,28 @@ mod tests {
 
     #[test]
     fn accepts_official_ffmpeg_nightly_identifier() {
-        let version = FfmpegTool
-            .parse_version("ffmpeg version N-126277-ga8c7afa7d7 Copyright (c) FFmpeg developers")
-            .expect("official nightly should parse");
-        assert_eq!((version.major, version.minor, version.patch), (5, 0, 0));
-        assert_eq!(version.pre_release.as_deref(), Some("nightly"));
-        assert!(version.is_compatible_with(&Version::new("5.0")));
+        for identifier in ["N-126277-ga8c7afa7d7", "N-126277-ga8c7afa7d7-20260826"] {
+            let version = FfmpegTool
+                .parse_version(&format!(
+                    "ffmpeg version {identifier} Copyright (c) FFmpeg developers"
+                ))
+                .expect("official nightly should parse");
+            assert_eq!((version.major, version.minor, version.patch), (5, 0, 0));
+            assert_eq!(version.pre_release.as_deref(), Some("nightly"));
+            assert!(version.is_compatible_with(&Version::new("5.0")));
+        }
     }
 
     #[test]
     fn rejects_malformed_or_non_numeric_version_banners() {
         assert!(FfmpegTool
             .parse_version("ffmpeg version N-126277-not-a-commit")
+            .is_none());
+        assert!(FfmpegTool
+            .parse_version("ffmpeg version N-126277-ga8c7afa7d7-build")
+            .is_none());
+        assert!(FfmpegTool
+            .parse_version("ffmpeg version N-126277-ga8c7afa7d7-2026082x")
             .is_none());
         assert!(FfmpegTool
             .parse_version("unexpected executable output")

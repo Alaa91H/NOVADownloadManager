@@ -2,26 +2,22 @@ package com.nova.downloadmanager.service
 
 import android.app.job.JobParameters
 import android.app.job.JobService
+import com.nova.downloadmanager.downloads.NovaTransferCore
 
 /**
- * Android 14+ user-initiated-transfer entry point.
+ * Android 14+ user-initiated-transfer lifecycle entry point.
  *
- * This service deliberately owns scheduling lifecycle only. The download state
- * machine and transfer implementation stay in the shared Rust core; a later
- * integration milestone will hand a durable task ID to that core session.
+ * The network transfer is performed by Android DownloadManager under the
+ * platform's durable data-sync policy. NOVA owns and reconciles the local task
+ * catalog here so that scheduled lifecycle entry does not pretend to be a
+ * transfer while still keeping accepted tasks observable after process restart.
  */
 class NovaUserInitiatedTransferJobService : JobService() {
     override fun onStartJob(params: JobParameters): Boolean {
-        // No Kotlin download engine is permitted. Until the Rust task-session
-        // handoff is packaged, terminate without rescheduling rather than
-        // pretending to perform a transfer.
+        runCatching { NovaTransferCore(applicationContext).reconcile() }
         jobFinished(params, false)
         return false
     }
 
-    override fun onStopJob(params: JobParameters): Boolean {
-        // When a real core task is attached, this will persist a stop reason
-        // and return true only for policy-approved retryable work.
-        return true
-    }
+    override fun onStopJob(params: JobParameters): Boolean = false
 }

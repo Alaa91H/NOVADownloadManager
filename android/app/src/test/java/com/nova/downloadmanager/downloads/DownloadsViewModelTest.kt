@@ -48,6 +48,17 @@ class DownloadsViewModelTest {
     }
 
     @Test
+    fun `refresh removes tasks no longer returned by the transfer core`() {
+        val task = DownloadSummary("42", "file.zip", "queued", 0, 0)
+        val viewModel = DownloadsViewModel(TestDownloadsRepository(task))
+
+        viewModel.requestDownload("https://example.org/file.zip")
+        viewModel.refreshTasks()
+
+        assertEquals(emptyList<DownloadSummary>(), viewModel.uiState.value.tasks)
+    }
+
+    @Test
     fun `invalid direct input never reaches the download repository`() {
         val repository = TestDownloadsRepository(DownloadSummary("42", "file.zip", "queued", 0, 0))
         val viewModel = DownloadsViewModel(repository)
