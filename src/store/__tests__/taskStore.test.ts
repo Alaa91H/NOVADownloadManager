@@ -392,18 +392,27 @@ describe('taskStore', () => {
     });
 
     it('accepts all URLs with a single summary toast (silent per-task adds)', async () => {
-      await taskStore
+      const result = await taskStore
         .getState()
         .triggerBatchDownload(['http://example.com/a.zip', 'http://example.com/b.zip', 'http://example.com/c.zip']);
+      expect(result).toEqual({ attemptedCount: 3, acceptedCount: 3 });
       expect(taskStore.getState().tasks).toHaveLength(3);
       // One toast for the batch summary, none per individual task.
       expect(uiStoreMocks.addToast).toHaveBeenCalledTimes(1);
     });
 
-    it('skips empty lines and still reports accepted count', async () => {
-      await taskStore.getState().triggerBatchDownload(['http://example.com/a.zip', '', '  ']);
+    it('skips empty lines and reports only non-empty attempts', async () => {
+      const result = await taskStore.getState().triggerBatchDownload(['http://example.com/a.zip', '', '  ']);
+      expect(result).toEqual({ attemptedCount: 1, acceptedCount: 1 });
       expect(taskStore.getState().tasks).toHaveLength(1);
       expect(uiStoreMocks.addToast).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports a zero-acceptance result without a success toast', async () => {
+      const result = await taskStore.getState().triggerBatchDownload(['', '  ']);
+      expect(result).toEqual({ attemptedCount: 0, acceptedCount: 0 });
+      expect(taskStore.getState().tasks).toHaveLength(0);
+      expect(uiStoreMocks.addToast).not.toHaveBeenCalled();
     });
   });
 

@@ -1,5 +1,5 @@
 /* src/pages/BatchImportPage.tsx */
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Layers, Clipboard, AlertCircle, Sliders } from 'lucide-react';
 import {
   useDialogActions,
@@ -28,6 +28,8 @@ export const BatchImportPage: React.FC = () => {
   const engineCapabilities = useEngineCapabilities();
 
   const [inputText, setInputText] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
+  const importInFlight = useRef(false);
 
   // Expansion is capped (see urlPatternExpander) — memoize and surface overflow
   // as a hint instead of re-running on every render and crashing the page. The
@@ -73,7 +75,9 @@ export const BatchImportPage: React.FC = () => {
     }
   };
 
-  const handleImport = () => {
+  const handleImport = async () => {
+    if (importInFlight.current) return;
+
     // Expand URL patterns (e.g. file[1-10].zip → file1.zip … file10.zip)
     let expandedUrls: string[];
     try {
@@ -110,21 +114,29 @@ export const BatchImportPage: React.FC = () => {
       segmented: supportsSegmentedDownloads && connections > 1 ? true : undefined,
     });
 
-    void triggerBatchDownload(urls, {
-      queueId,
-      connections: supportsSegmentedDownloads ? connections : 1,
-      saveDirectory: saveDirectory.trim() || undefined,
-      description: 'Batch import',
-      directOptions,
-    });
-    if (duplicateCount > 0) {
-      addToast(
-        'info',
-        t('action_add_batch'),
-        `Skipped ${String(duplicateCount)} duplicate URL${duplicateCount === 1 ? '' : 's'}.`,
-      );
+    importInFlight.current = true;
+    setIsImporting(true);
+    try {
+      const result = await triggerBatchDownload(urls, {
+        queueId,
+        connections: supportsSegmentedDownloads ? connections : 1,
+        saveDirectory: saveDirectory.trim() || undefined,
+        description: 'Batch import',
+        directOptions,
+      });
+      if (result.acceptedCount === 0) return;
+      if (duplicateCount > 0) {
+        addToast(
+          'info',
+          t('action_add_batch'),
+          `Skipped ${String(duplicateCount)} duplicate URL${duplicateCount === 1 ? '' : 's'}.`,
+        );
+      }
+      setActivePage('downloads');
+    } finally {
+      importInFlight.current = false;
+      setIsImporting(false);
     }
-    setActivePage('downloads');
   };
 
   const queueOptions = queues.map((q) => ({ value: q.id, label: q.name }));
@@ -201,9 +213,7 @@ export const BatchImportPage: React.FC = () => {
             </div>
             <textarea
               rows={8}
-              placeholder={
-                'https://example.com/file[1-10].zip\nhttps://example.com/image[a-c].png\nOne URL per line. Patterns like [1-10], [01-05], [a-z], [1-10:2] are supported.'
-              }
+              placeholder={t('batch_placeholder')}
               value={inputText}
               onChange={(e) => {
                 setInputText(e.target.value);
@@ -342,9 +352,12 @@ export const BatchImportPage: React.FC = () => {
           {t('btn_cancel')}
         </button>
         <button
-          onClick={handleImport}
+          onClick={() => {
+            void handleImport();
+          }}
           className="px-4 py-2 text-xs font-bold rounded-lg bg-[var(--accent-primary)] text-white hover:opacity-90 transition-opacity cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-          disabled={!engineCapabilities.directReady}
+          disabled={!engineCapabilities.directReady || isImporting}
+          aria-busy={isImporting}
         >
           <Layers className="w-3.5 h-3.5" />
           {t('batch_import_queue')}

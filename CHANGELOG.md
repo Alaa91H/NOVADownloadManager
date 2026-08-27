@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.36-alpha] - 2026-08-27
+
+### Fixed
+
+- **Made Batch Import single-submit and daemon-aware.** The import action now enters an accessible busy state immediately, rejects repeat clicks while the batch is being submitted, and waits for the local engine to finish accepting tasks before leaving the page.
+- **Kept failed batches actionable.** Batch creation now returns attempted and accepted counts to the UI. When the engine accepts no task, NOVA remains on Batch Import and restores the action instead of navigating to Downloads as if the import had succeeded.
+
+### Reliability and accessibility
+
+- **Preserved existing intake safety boundaries.** URL-pattern expansion remains capped, direct-protocol capability checks and exact intra-batch deduplication still happen before submission, and no URL is canonicalized, exposed, or altered by the submission-lifecycle fix.
+- Reused the established localized batch placeholder rather than introducing a new hard-coded guide string. The submit control exposes `aria-busy` while it is awaiting the engine response.
+
+### Quality
+
+- Added page-level coverage for in-flight duplicate-click prevention, delayed navigation, zero-acceptance handling, and unsupported-batch rejection. Extended task-store coverage for attempted/accepted result counts, blank entries, and zero-success batches.
+- Documented the bounded research review of JDownloader, Persepolis, and AB Download Manager batch/link intake practices. The improvement deliberately focuses on reliable collection-to-queue transition rather than adding an unreviewed crawler or altering signed URLs.
+
 ## [2.4.35-alpha] - 2026-08-27
 
 ### Added

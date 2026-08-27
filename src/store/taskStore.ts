@@ -101,6 +101,11 @@ function shallowEqualTask(a: DownloadItem, b: DownloadItem): boolean {
   return true;
 }
 
+export interface BatchDownloadResult {
+  attemptedCount: number;
+  acceptedCount: number;
+}
+
 interface TaskState {
   tasks: DownloadItem[];
   completedTaskIds: Set<string>;
@@ -134,7 +139,7 @@ interface TaskState {
       description?: string;
       directOptions?: DownloadItem['directOptions'];
     },
-  ) => Promise<void>;
+  ) => Promise<BatchDownloadResult>;
   setCompletedTaskIds: (ids: Set<string>) => void;
   setHasSyncedDownloads: (v: boolean) => void;
 }
@@ -398,6 +403,7 @@ export const taskStore = create<TaskState>()((set, get) => ({
   triggerBatchDownload: async (urls, options) => {
     const { settings } = settingsStore.getState();
     const accepted: DownloadItem[] = [];
+    const attemptedCount = urls.reduce((count, url) => count + (url.trim() ? 1 : 0), 0);
     let nextUrl = 0;
     const worker = async () => {
       while (nextUrl < urls.length) {
@@ -434,5 +440,6 @@ export const taskStore = create<TaskState>()((set, get) => ({
         .getState()
         .addToast('success', 'Batch import', `${String(accepted.length)} link(s) were accepted by the local daemon.`);
     }
+    return { attemptedCount, acceptedCount: accepted.length };
   },
 }));
