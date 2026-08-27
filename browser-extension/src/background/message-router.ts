@@ -271,6 +271,7 @@ async function addYtdlpMedia(message: Extract<RuntimeMessage, { type: 'ADD_YTDLP
     pageUrl: message.pageUrl,
     referrer: message.referrer,
     selectedFormat: format,
+    drmProtected: false,
     source: 'nova-extension',
   });
   // The quality click is already an explicit user confirmation. Open NOVA

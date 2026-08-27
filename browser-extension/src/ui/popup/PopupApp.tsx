@@ -176,6 +176,9 @@ export function PopupApp() {
   const [analyzeResult, setAnalyzeResult] = useState<AnalyzeResponse | null>(null);
   const [scannedPageUrl, setScannedPageUrl] = useState<string>();
   const [analyzeBusy, setAnalyzeBusy] = useState(false);
+  // State updates are asynchronous, so a ref closes the small window in
+  // which two rapid clicks could otherwise start concurrent yt-dlp probes.
+  const analyzeFlightRef = useRef(false);
 
   /** Start collapsed — only expand on explicit user action. */
   const [expanded, setExpanded] = useState(false);
@@ -184,6 +187,7 @@ export function PopupApp() {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const tone = statusTone(bridge?.status);
+  const actionBusy = busy || analyzeBusy;
   const videoCandidates = candidates.filter(isVideoCand);
 
   const youtubeGroups = useMemo(() => groupYouTubeCandidates(videoCandidates), [videoCandidates]);
@@ -308,6 +312,7 @@ export function PopupApp() {
 
   /** Toggle dense dropdown under compact bar. */
   async function handlePrimaryDownload(): Promise<void> {
+    if (actionBusy) return;
     const youtubeCandidate = videoCandidates.find(isYouTubeCandidate);
     if (youtubeCandidate) {
       await analyzeFromDropdown(youtubeCandidate);
@@ -323,6 +328,7 @@ export function PopupApp() {
   }
 
   async function handleDropdownToggle(): Promise<void> {
+    if (actionBusy) return;
     if (dropdownOpen) {
       setDropdownOpen(false);
       return;
@@ -618,10 +624,12 @@ export function PopupApp() {
   }
 
   async function analyzeUrl(url: string, context?: { pageUrl?: string; referrer?: string; title?: string }): Promise<void> {
+    if (analyzeFlightRef.current) return;
     if (!bridge?.canSend) {
       setNotice({ kind: 'error', message: t('popup.message.cannotSend') });
       return;
     }
+    analyzeFlightRef.current = true;
     setAnalyzeBusy(true);
     setAnalyzeResult(null);
     try {
@@ -630,18 +638,28 @@ export function PopupApp() {
         url,
         context,
       });
-      if (!result.ok) throw new Error(result.message || t('quality.noneFromNOVA'));
+      if (!result.ok || result.drmProtected || result.formats.length === 0) {
+        // Keep user-facing text localized; analysisCode is intentionally only a
+        // bounded diagnostic category, never a raw extractor error string.
+        throw new Error(t('quality.noneFromNOVA'));
+      }
       setAnalyzeResult(result);
       setNotice({ kind: 'success', message: t('quality.header', { n: result.formats.length }) });
     } catch (error) {
       setNotice({ kind: 'error', message: messageFromError(error) });
     } finally {
+      analyzeFlightRef.current = false;
       setAnalyzeBusy(false);
     }
   }
 
   async function analyzeFromDropdown(candidate: Candidate): Promise<void> {
-    const url = stableYouTubePageUrl(candidate) ?? candidate.finalUrl ?? candidate.url;
+    const stablePageUrl = stableYouTubePageUrl(candidate);
+    if (isYouTubeCandidate(candidate) && !stablePageUrl) {
+      setNotice({ kind: 'error', message: t('quality.noneFromNOVA') });
+      return;
+    }
+    const url = stablePageUrl ?? candidate.finalUrl ?? candidate.url;
     if (!url) return;
     setExpanded(true);
     setDropdownOpen(false);
@@ -654,6 +672,11 @@ export function PopupApp() {
 
   async function handleAnalyzeDownload(format: AnalyzeResponse['formats'][number]): Promise<boolean> {
     const sourceUrl = analyzeResult?.url;
+    if (actionBusy) return false;
+    if (analyzeResult?.drmProtected) {
+      setNotice({ kind: 'error', message: t('popup.noCandidates') });
+      return false;
+    }
     if (!sourceUrl || !format.formatId) {
       setNotice({ kind: 'error', message: t('quality.noneFromNOVA') });
       return false;
@@ -672,6 +695,7 @@ export function PopupApp() {
           // managed-media task URL.
           url: format.url || sourceUrl,
         },
+        drmProtected: Boolean(analyzeResult?.drmProtected),
       });
       if (!result?.accepted) {
         throw new Error(result?.message || t('quality.novaNotAccepted'));
@@ -709,10 +733,11 @@ export function PopupApp() {
     if (videoCandidates.length === 0 && !busy) {
       if (scannedPageUrl && isYouTubePageUrl(scannedPageUrl)) {
         return (
-          <main className="nova-popup-compact nova-popup-compact-youtube" data-tone={tone}>
+          <main className="nova-popup-compact nova-popup-compact-youtube" data-tone={tone} aria-busy={actionBusy}>
             <button
               type="button"
               className="nova-compact-btn nova-compact-btn-download"
+              disabled={actionBusy}
               onClick={() => void handlePrimaryDownload()}
               title={t('quality.resolveViaNOVA')}
             >
@@ -728,12 +753,12 @@ export function PopupApp() {
     // Videos captured → show download bar + dropdown
     return (
       <div className="nova-popup-compact-wrap" ref={dropdownRef}>
-        <main className="nova-popup-compact" data-tone={tone}>
+        <main className="nova-popup-compact" data-tone={tone} aria-busy={actionBusy}>
           <div className="nova-compact-bar">
             <button
               type="button"
               className="nova-compact-btn nova-compact-btn-download"
-              disabled={busy}
+              disabled={actionBusy}
               onClick={() => void handlePrimaryDownload()}
               title={t('popup.action.download')}
             >
@@ -753,17 +778,26 @@ export function PopupApp() {
           </div>
         </main>
 
+        {/* A compact YouTube action can fail before a dropdown is opened.
+            Keep that localized status visible instead of silently retaining it
+            in state behind an unopened panel. */}
+        {notice && !dropdownOpen ? (
+          <div className="nova-mini-notice nova-compact-notice" data-kind={notice.kind} role="status" aria-live="polite">
+            {notice.message}
+          </div>
+        ) : null}
+
         {dropdownOpen && (
           <div className="nova-dropdown">
             {notice ? (
-              <div className="nova-mini-notice" data-kind={notice.kind}>
+              <div className="nova-mini-notice" data-kind={notice.kind} role="status" aria-live="polite">
                 {notice.message}
               </div>
             ) : null}
             <DenseCandidateList
               candidates={videoCandidates}
               bridge={bridge}
-              busy={busy}
+              busy={actionBusy}
               onSend={(c) => void sendFromDropdown(c)}
               onSendAll={(cs) => void sendAllFromDropdown(cs)}
               onAnalyze={(c) => void analyzeFromDropdown(c)}
@@ -776,7 +810,7 @@ export function PopupApp() {
 
   // ── Expanded: captured videos list ─────────────────────────────────────
   return (
-    <main className="nova-popup-mini-mode nova-popup-expanded">
+    <main className="nova-popup-mini-mode nova-popup-expanded" aria-busy={actionBusy}>
       <header className="nova-mini-header">
         <div className="nova-mini-brand">
           <span className="nova-mini-status" data-tone={tone}>
@@ -972,7 +1006,7 @@ export function PopupApp() {
           <button
             type="button"
             className="nova-mini-btn nova-mini-btn-scan"
-            disabled={busy}
+            disabled={actionBusy}
             onClick={() => void scan()}
           >
             {busy ? '…' : t('taskActions.scan')}
@@ -980,7 +1014,7 @@ export function PopupApp() {
           <button
             type="button"
             className="nova-mini-btn nova-mini-btn-send"
-            disabled={busy || !selectedHandoffable}
+            disabled={actionBusy || !selectedHandoffable}
             onClick={() => void sendSelected()}
           >
             {t('taskActions.sendSelected')}
@@ -989,7 +1023,7 @@ export function PopupApp() {
           <button
             type="button"
             className="nova-mini-btn nova-mini-btn-send-all"
-            disabled={busy || handoffableCount === 0}
+            disabled={actionBusy || handoffableCount === 0}
             onClick={() => void sendAll()}
           >
             {t('taskActions.sendAll')}
@@ -998,7 +1032,7 @@ export function PopupApp() {
             <button
               type="button"
               className="nova-mini-btn nova-mini-btn-analyze"
-              disabled={busy || analyzeBusy}
+              disabled={actionBusy}
               onClick={() => {
                 const first = videoCandidates[0];
                 if (first) void analyzeUrl(first.finalUrl ?? first.url, {
@@ -1017,7 +1051,7 @@ export function PopupApp() {
           <button
             type="button"
             className="nova-mini-btn nova-mini-btn-connect"
-            disabled={busy}
+            disabled={actionBusy}
             onClick={() => void runtimeRequest({ type: 'OPEN_NOVA' })}
           >
             {t('popup.action.linkNova')}

@@ -210,6 +210,9 @@ export const YtdlpAddRequestSchema = z.object({
   pageUrl: z.string().url().optional(),
   referrer: z.string().url().optional(),
   selectedFormat: YtdlpFormatSchema,
+  // An explicit protected-media signal from a prior managed analysis. The
+  // daemon rejects it rather than letting a client present a bypass path.
+  drmProtected: z.boolean().default(false),
   source: z.literal('nova-extension'),
 });
 export type YtdlpAddRequest = z.infer<typeof YtdlpAddRequestSchema>;
@@ -256,6 +259,9 @@ export const AnalyzeResponseSchema = z.object({
     sizeBytes: z.number().int().nonnegative().optional(),
     acceptRanges: z.boolean().optional(),
   }).optional(),
+  // A small diagnostic category for clients. It is intentionally not raw
+  // process stderr, which can be unstable or contain sensitive URL context.
+  analysisCode: z.enum(['tool_unavailable', 'timed_out', 'process_failed', 'invalid_output', 'output_too_large']).optional(),
   message: z.string().optional(),
 }).passthrough();
 export type AnalyzeResponse = z.infer<typeof AnalyzeResponseSchema>;

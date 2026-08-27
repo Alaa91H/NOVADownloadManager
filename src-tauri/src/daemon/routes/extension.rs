@@ -1042,6 +1042,12 @@ pub async fn handle_v1_stream_resolve(
     Json(serde_json::Value::Object(payload))
 }
 
+fn managed_media_is_drm_protected(body: &serde_json::Value) -> bool {
+    body.get("drmProtected")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
 pub async fn handle_v1_media_add(
     State(state): State<SharedState>,
     Json(body): Json<serde_json::Value>,
@@ -1054,6 +1060,11 @@ pub async fn handle_v1_media_add(
     if url.is_empty() || url.starts_with('-') {
         return Json(
             serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": "Invalid media URL"}),
+        );
+    }
+    if managed_media_is_drm_protected(&body) {
+        return Json(
+            serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": "DRM-protected media cannot be downloaded."}),
         );
     }
     if let Err(error) = crate::daemon::utils::is_safe_target_url(url) {
@@ -1315,7 +1326,14 @@ pub async fn handle_v1_analyze(
     let http_meta = http_probe_for_analyze(&state, &url, &context).await;
 
     // Stage 2: yt-dlp probe (for video/audio URLs)
-    let ytdlp_result = ytdlp_probe_for_analyze(&state, &url).await;
+    let ytdlp_probe = ytdlp_probe_for_analyze(&state, &url).await;
+    let (ytdlp_result, analysis_code) = match ytdlp_probe {
+        Ok(info) => (Some(info), None),
+        Err(code) => {
+            log::debug!("managed media analysis did not return a yt-dlp catalog: {code}");
+            (None, Some(code))
+        }
+    };
 
     // Build format catalog
     let mut formats: Vec<serde_json::Value> = Vec::new();
@@ -1502,6 +1520,13 @@ pub async fn handle_v1_analyze(
     result.insert("drmProtected".to_owned(), json!(drm_protected));
     result.insert("detectedType".to_owned(), json!(detected_type));
     result.insert("formats".to_owned(), json!(formats));
+    // Keep process diagnostics structured and bounded. The extension maps an
+    // empty catalog to localized UI rather than displaying process stderr.
+    if formats.is_empty() {
+        if let Some(code) = analysis_code {
+            result.insert("analysisCode".to_owned(), json!(code));
+        }
+    }
 
     // Include HTTP probe metadata if available
     if let Some(ref meta) = http_meta {
@@ -1582,7 +1607,7 @@ pub async fn handle_v1_analyze_progress(
         yield_event!(json!({"stage": "ytdlp.probing", "url": &url}));
 
         let ytdlp_result = tokio::select! {
-            result = ytdlp_probe_for_analyze(&state, &url) => result,
+            result = ytdlp_probe_for_analyze(&state, &url) => result.ok(),
             () = cancel.cancelled() => None,
         };
         if let Some(ref info) = ytdlp_result {
@@ -1649,7 +1674,10 @@ async fn http_probe_for_analyze(
     }
 }
 
-async fn ytdlp_probe_for_analyze(state: &SharedState, url: &str) -> Option<serde_json::Value> {
+async fn ytdlp_probe_for_analyze(
+    state: &SharedState,
+    url: &str,
+) -> Result<serde_json::Value, &'static str> {
     let ytdlp_bin = state.ytdlp_binary();
     let url2 = url.to_owned();
     let output = tokio::task::spawn_blocking(move || {
@@ -1666,13 +1694,21 @@ async fn ytdlp_probe_for_analyze(state: &SharedState, url: &str) -> Option<serde
             Duration::from_secs(30),
         )
     })
-    .await;
+    .await
+    .map_err(|_| "process_failed")?;
 
-    // spawn_blocking -> io::Result<Output>; timeouts surface as Err(TimedOut).
-    let io_result = output.ok()?;
-    let process_output = io_result.ok()?;
+    // Preserve a bounded category only. Raw stderr can contain unstable
+    // platform text and URL context, so it never crosses the loopback API.
+    let process_output = match output {
+        Ok(value) => value,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err("tool_unavailable")
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::TimedOut => return Err("timed_out"),
+        Err(_) => return Err("process_failed"),
+    };
     if !process_output.status.success() {
-        return None;
+        return Err("process_failed");
     }
     let stdout = String::from_utf8_lossy(&process_output.stdout);
     if stdout.len() > 1_048_576 {
@@ -1680,9 +1716,9 @@ async fn ytdlp_probe_for_analyze(state: &SharedState, url: &str) -> Option<serde
             "yt-dlp output exceeded 1 MB size limit ({} bytes)",
             stdout.len()
         );
-        return None;
+        return Err("output_too_large");
     }
-    serde_json::from_str(&stdout).ok()
+    serde_json::from_str(&stdout).map_err(|_| "invalid_output")
 }
 
 fn content_type_to_ext(content_type: &str) -> &str {
@@ -1836,6 +1872,16 @@ mod tests {
             .is_empty());
     }
 
+    #[test]
+    fn managed_media_drm_marker_is_opt_in_and_blocks_only_explicit_true() {
+        assert!(managed_media_is_drm_protected(&serde_json::json!({
+            "drmProtected": true
+        })));
+        assert!(!managed_media_is_drm_protected(&serde_json::json!({
+            "drmProtected": false
+        })));
+        assert!(!managed_media_is_drm_protected(&serde_json::json!({})));
+    }
     #[test]
     fn ytdlp_selected_video_only_format_merges_best_audio() {
         let (selector, has_video) = ytdlp_selector_for_selected_format(&serde_json::json!({

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.40-alpha] - 2026-08-27
+
+### Fixed
+
+- **Made managed YouTube analysis single-flight in the browser extension.** Rapid repeat clicks on the compact resolve action now produce one local-engine analysis request, render an accessible busy state, and keep the interaction available again when the request settles.
+- **Stopped transient YouTube delivery URLs from being analyzed when no stable page URL exists.** A detected `googlevideo`/`videoplayback` URL without a trusted watch, Shorts, live, embed, short-link, or playlist page is not passed to the managed engine or the browser downloader. The popup now exposes the localized failure state directly in its compact surface instead of silently retaining it behind a closed list.
+- **Made empty managed-media analysis results truthful.** The daemon now returns a bounded analysis category for unavailable, timed-out, failed, oversized, or invalid yt-dlp output without leaking process stderr or URL context. The popup keeps user-visible messaging localized and never presents an empty catalog as a successful quality resolution.
+
+### Security and reliability
+
+- **Added a protected-media handoff guard.** The extension carries the explicit `drmProtected` result from managed analysis into the selected-format request, and the daemon rejects a marked protected-media request before task creation. This is a defensive UI-to-daemon boundary; NOVA does not disable or bypass DRM, service restrictions, cookies, tokens, CAPTCHAs, account requirements, or geographic controls.
+- **Improved compact popup feedback.** Status notifications now announce through a polite live region and remain visible when a resolve action fails before the candidate dropdown opens. Busy controls share one action state to avoid conflicting scan, send, and analyze operations in the constrained popup surface.
+- **Documented the technical decision.** The review records yt-dlp update/FFmpeg guidance, YouTube restrictions, Chrome download state handling, and the selected privacy-preserving implementation boundary.
+
+### Quality
+
+- Added regression coverage for duplicate YouTube resolve clicks, missing stable page URLs, managed DRM flags, visible compact failure feedback, and the daemon's protected-media request marker. The full browser-extension suite continues to cover capture, transport, policy, and formatting behavior.
+
 ## [2.4.39-alpha] - 2026-08-27
 
 ### Fixed

@@ -164,9 +164,73 @@ describe('PopupApp (video capture)', () => {
       url: watchUrl,
       pageUrl: watchUrl,
       selectedFormat: { formatId: '137' },
+      drmProtected: false,
     });
     expect(callsOf('DOWNLOAD_DIRECT')).toHaveLength(0);
     await waitFor(() => expect(screen.getByText('Queued 1 item(s) for handoff.')).toBeTruthy());
+  });
+
+  it('serializes rapid YouTube resolve clicks while the managed analysis is pending', async () => {
+    let resolveAnalysis: ((value: Record<string, unknown>) => void) | undefined;
+    setupRuntime();
+    runtimeRequest.mockImplementation((message: Record<string, unknown>) => {
+      if (message.type === 'GET_BRIDGE_STATE') return Promise.resolve({ canSend: true, status: 'connected' });
+      if (message.type === 'GET_CANDIDATES') return Promise.resolve([]);
+      if (message.type === 'SCAN_PAGE') return Promise.resolve({ candidates: [], pageUrl: watchUrl });
+      if (message.type === 'ANALYZE_MEDIA') {
+        return new Promise((resolve) => { resolveAnalysis = resolve; });
+      }
+      return Promise.resolve({});
+    });
+    const { default: PopupApp } = await import('../PopupApp');
+    render(<PopupApp />);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Resolve via NOVA' })).toBeTruthy());
+    const resolveButton = screen.getByRole('button', { name: 'Resolve via NOVA' });
+    fireEvent.click(resolveButton);
+    fireEvent.click(resolveButton);
+
+    await waitFor(() => expect(callsOf('ANALYZE_MEDIA')).toHaveLength(1));
+    await waitFor(() => expect(document.querySelector('.nova-popup-mini-mode')?.getAttribute('aria-busy')).toBe('true'));
+    resolveAnalysis?.({
+      ok: true,
+      url: watchUrl,
+      title: 'Example video',
+      formats: [{ formatId: '137', url: transientCdnUrl, label: '1080p', hasVideo: true, hasAudio: false }],
+    });
+    await waitFor(() => expect(document.querySelector('.nova-analyze-panel')).toBeTruthy());
+  });
+
+  it('does not analyze a transient YouTube delivery URL when a stable page URL is unavailable', async () => {
+    setupRuntime({ candidates: [{ ...youtubeCandidate(), pageUrl: undefined }] });
+    const { default: PopupApp } = await import('../PopupApp');
+    render(<PopupApp />);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Download' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Download' }));
+
+    await waitFor(() => expect(screen.getByText('NOVA did not report any qualities.')).toBeTruthy());
+    expect(callsOf('ANALYZE_MEDIA')).toHaveLength(0);
+    expect(callsOf('DOWNLOAD_DIRECT')).toHaveLength(0);
+  });
+
+  it('does not offer a download when managed analysis marks media as DRM-protected', async () => {
+    setupRuntime();
+    runtimeRequest.mockImplementation((message: Record<string, unknown>) => {
+      if (message.type === 'GET_BRIDGE_STATE') return Promise.resolve({ canSend: true, status: 'connected' });
+      if (message.type === 'GET_CANDIDATES') return Promise.resolve([]);
+      if (message.type === 'SCAN_PAGE') return Promise.resolve({ candidates: [], pageUrl: watchUrl });
+      if (message.type === 'ANALYZE_MEDIA') return Promise.resolve({ ok: true, url: watchUrl, drmProtected: true, formats: [] });
+      return Promise.resolve({});
+    });
+    const { default: PopupApp } = await import('../PopupApp');
+    render(<PopupApp />);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Resolve via NOVA' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve via NOVA' }));
+
+    await waitFor(() => expect(screen.getByText('NOVA did not report any qualities.')).toBeTruthy());
+    expect(callsOf('ADD_YTDLP_MEDIA')).toHaveLength(0);
   });
 
   it('does not report success when NOVA rejects the selected managed-media format', async () => {
