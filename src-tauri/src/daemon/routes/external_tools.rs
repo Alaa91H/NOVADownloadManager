@@ -151,6 +151,7 @@ async fn handle_check_updates(
         "available": update_info.available,
         "latestVersion": update_info.latest_version,
         "downloadUrl": update_info.download_url,
+        "error": update_info.error,
         "releaseNotes": update_info.release_notes,
         "publishedAt": update_info.published_at,
     })))

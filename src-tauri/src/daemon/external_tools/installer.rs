@@ -8,6 +8,8 @@ use std::path::{Component, Path};
 use uuid::Uuid;
 
 const GITHUB_API_USER_AGENT: &str = "NOVA-DownloadManager";
+const GITHUB_API_ACCEPT: &str = "application/vnd.github+json";
+const GITHUB_API_VERSION: &str = "2022-11-28";
 // yt-dlp upstream recommends its nightly channel for regular use because
 // extractors such as YouTube change independently of monthly stable releases.
 const YTDLP_RELEASE_REPOSITORY: &str = "yt-dlp/yt-dlp-nightly-builds";
@@ -35,6 +37,7 @@ pub fn check_latest_version(tool: &dyn ExternalTool, _http: &reqwest::Client) ->
         latest_version: None,
         download_url: None,
         expected_sha256: None,
+        error: Some(error.clone()),
         release_notes: Some(format!("Unable to check for updates safely: {error}")),
         published_at: None,
     })
@@ -52,11 +55,40 @@ fn latest_release(repo: &str) -> Result<serde_json::Value, String> {
         .get(format!(
             "https://api.github.com/repos/{repo}/releases/latest"
         ))
+        .header("Accept", GITHUB_API_ACCEPT)
+        .header("X-GitHub-Api-Version", GITHUB_API_VERSION)
         .header("User-Agent", GITHUB_API_USER_AGENT)
         .send()
-        .map_err(|error| format!("GitHub API request failed: {error}"))?
-        .error_for_status()
-        .map_err(|error| format!("GitHub API returned an error: {error}"))?;
+        .map_err(|error| format!("GitHub API request failed: {error}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let retry_after = response
+            .headers()
+            .get("retry-after")
+            .and_then(|value| value.to_str().ok())
+            .map(|value| format!(" Retry after {value} seconds."))
+            .unwrap_or_default();
+        let rate_limit = response
+            .headers()
+            .get("x-ratelimit-remaining")
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| *value == "0")
+            .map(|_| {
+                let reset = response
+                    .headers()
+                    .get("x-ratelimit-reset")
+                    .and_then(|value| value.to_str().ok())
+                    .map(|value| format!(" until Unix time {value}"))
+                    .unwrap_or_default();
+                format!(" GitHub API rate limit is exhausted{reset}.")
+            })
+            .unwrap_or_default();
+        return Err(format!(
+            "GitHub API returned HTTP {status}.{rate_limit}{retry_after}"
+        ));
+    }
+
     response
         .json()
         .map_err(|error| format!("Failed to parse GitHub release metadata: {error}"))
@@ -129,6 +161,7 @@ fn update_info_from_asset(
         latest_version: Some(latest_version),
         download_url,
         expected_sha256,
+        error: None,
         release_notes: Some(release_notes),
         published_at,
     }

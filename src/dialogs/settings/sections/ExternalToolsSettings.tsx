@@ -15,6 +15,7 @@ interface ExternalTool {
   installedByApp: boolean;
   customPath: boolean;
   error?: string;
+  updateError?: string;
 }
 
 interface Props {
@@ -65,6 +66,7 @@ export const ExternalToolsSettings: React.FC<Props> = ({ onAddToast }) => {
     });
   };
   const isActionRunning = (toolId: string, action: string) => actionStates[`${toolId}:${action}`] === 'running';
+  const isToolBusy = (toolId: string) => Object.keys(actionStates).some((key) => key.startsWith(`${toolId}:`));
 
   const handleDiscover = async (toolId: string) => {
     setAction(toolId, 'discover');
@@ -108,7 +110,10 @@ export const ExternalToolsSettings: React.FC<Props> = ({ onAddToast }) => {
         ...prev,
         [toolId]: { available: result.available, latestVersion: result.latestVersion },
       }));
-      if (result.available) {
+      if (result.error) {
+        setUpdateInfo((prev) => ({ ...prev, [toolId]: undefined }));
+        onAddToast('error', 'Updates', result.error);
+      } else if (result.available) {
         onAddToast('info', 'Updates', `Update available for ${toolId}: ${result.latestVersion ?? ''}`);
       } else {
         onAddToast('success', 'Updates', `${toolId} is up to date.`);
@@ -247,6 +252,7 @@ export const ExternalToolsSettings: React.FC<Props> = ({ onAddToast }) => {
           <div
             key={tool.id}
             className="bg-[var(--bg-hover)]/30 p-3.5 rounded-lg border border-[var(--border-color)] space-y-3"
+            aria-busy={isToolBusy(tool.id)}
           >
             <div className="flex items-center gap-3">
               <Package className="w-4 h-4 text-[var(--accent-primary)]" />
@@ -279,6 +285,11 @@ export const ExternalToolsSettings: React.FC<Props> = ({ onAddToast }) => {
                   </span>
                 )}
                 {tool.error && <span className="text-[10px] font-mono text-[var(--danger)] block">{tool.error}</span>}
+                {tool.updateError && (
+                  <span className="text-[10px] font-mono text-[var(--warning)] block break-words">
+                    {tool.updateError}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -309,7 +320,8 @@ export const ExternalToolsSettings: React.FC<Props> = ({ onAddToast }) => {
                 <button
                   type="button"
                   onClick={() => void handleUpdate(tool.id)}
-                  disabled={isActionRunning(tool.id, 'update')}
+                  disabled={isToolBusy(tool.id)}
+
                   className="ml-auto px-2 py-1 bg-[var(--info)] text-white rounded text-[10px] font-bold hover:opacity-80 transition-all cursor-pointer disabled:opacity-50"
                 >
                   {isActionRunning(tool.id, 'update') ? 'Updating...' : 'Update'}
@@ -324,7 +336,7 @@ export const ExternalToolsSettings: React.FC<Props> = ({ onAddToast }) => {
                   <button
                     type="button"
                     onClick={() => void handleInstall(tool.id, 'user')}
-                    disabled={isActionRunning(tool.id, 'install') || isActionRunning(tool.id, 'install-system')}
+                    disabled={isToolBusy(tool.id)}
                     className="px-2 py-1 bg-[var(--accent-primary)]/10 border border-[var(--accent-border)] text-[var(--accent-primary)] rounded text-[10px] font-bold hover:bg-[var(--accent-primary)]/20 transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50"
                     title="Download from the approved upstream source, verify SHA-256, validate the executable, and activate it for this user."
                   >
@@ -339,7 +351,7 @@ export const ExternalToolsSettings: React.FC<Props> = ({ onAddToast }) => {
                     <button
                       type="button"
                       onClick={() => void handleInstall(tool.id, 'system')}
-                      disabled={isActionRunning(tool.id, 'install') || isActionRunning(tool.id, 'install-system')}
+                      disabled={isToolBusy(tool.id)}
                       className="px-2 py-1 bg-[var(--bg-hover)] border border-[var(--border-color)] text-[var(--text-secondary)] rounded text-[10px] font-bold hover:bg-[var(--border-color)]/20 transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50"
                       title="Install under Program Files. Windows will request administrator approval after NOVA verifies the downloaded binary."
                     >
@@ -356,7 +368,7 @@ export const ExternalToolsSettings: React.FC<Props> = ({ onAddToast }) => {
               <button
                 type="button"
                 onClick={() => void handleDiscover(tool.id)}
-                disabled={isActionRunning(tool.id, 'discover')}
+                disabled={isToolBusy(tool.id)}
                 className="px-2 py-1 bg-[var(--bg-hover)] border border-[var(--border-color)] text-[var(--text-secondary)] rounded text-[10px] font-bold hover:bg-[var(--border-color)]/20 transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50"
               >
                 {isActionRunning(tool.id, 'discover') ? (
@@ -369,7 +381,7 @@ export const ExternalToolsSettings: React.FC<Props> = ({ onAddToast }) => {
               <button
                 type="button"
                 onClick={() => void handleHealthCheck(tool.id)}
-                disabled={isActionRunning(tool.id, 'health')}
+                disabled={isToolBusy(tool.id)}
                 className="px-2 py-1 bg-[var(--bg-hover)] border border-[var(--border-color)] text-[var(--text-secondary)] rounded text-[10px] font-bold hover:bg-[var(--border-color)]/20 transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50"
               >
                 {isActionRunning(tool.id, 'health') ? (
@@ -382,7 +394,7 @@ export const ExternalToolsSettings: React.FC<Props> = ({ onAddToast }) => {
               <button
                 type="button"
                 onClick={() => void handleCheckUpdates(tool.id)}
-                disabled={isActionRunning(tool.id, 'updates')}
+                disabled={isToolBusy(tool.id)}
                 className="px-2 py-1 bg-[var(--bg-hover)] border border-[var(--border-color)] text-[var(--text-secondary)] rounded text-[10px] font-bold hover:bg-[var(--border-color)]/20 transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50"
               >
                 {isActionRunning(tool.id, 'updates') ? (
@@ -396,7 +408,7 @@ export const ExternalToolsSettings: React.FC<Props> = ({ onAddToast }) => {
                 <button
                   type="button"
                   onClick={() => void handleUninstall(tool.id)}
-                  disabled={isActionRunning(tool.id, 'uninstall')}
+                  disabled={isToolBusy(tool.id)}
                   className="px-2 py-1 bg-[var(--danger-bg)] border border-[var(--danger-border)] text-[var(--danger)] rounded text-[10px] font-bold hover:bg-[var(--danger-bg)] transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50"
                 >
                   {isActionRunning(tool.id, 'uninstall') ? (
@@ -429,7 +441,7 @@ export const ExternalToolsSettings: React.FC<Props> = ({ onAddToast }) => {
               <button
                 type="button"
                 onClick={() => void handleSetPath(tool.id)}
-                disabled={isActionRunning(tool.id, 'setpath') || !(customPaths[tool.id] || '').trim()}
+                disabled={isToolBusy(tool.id) || !(customPaths[tool.id] || '').trim()}
                 className="px-2 py-1.5 bg-[var(--accent-primary)]/10 border border-[var(--accent-border)] text-[var(--accent-primary)] rounded text-[10px] font-bold hover:bg-[var(--accent-primary)]/20 transition-all cursor-pointer disabled:opacity-50 shrink-0"
               >
                 {isActionRunning(tool.id, 'setpath') ? 'Setting...' : 'Set Path'}

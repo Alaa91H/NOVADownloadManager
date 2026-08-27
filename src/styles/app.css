@@ -324,10 +324,11 @@ footer button {
   gap: 8px !important;
 }
 
-/* Ensure action buttons don't shrink or wrap text awkwardly */
+/* Action rows must be able to wrap or shrink inside narrow app windows.
+   Individual controls may opt into `shrink-0` when an icon-only affordance
+   must keep its intrinsic size; a global no-wrap rule clipped whole sections. */
 #root button {
-  flex-shrink: 0 !important;
-  white-space: nowrap !important;
+  min-width: 0;
 }
 
 footer .min-w-0 {

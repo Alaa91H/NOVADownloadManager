@@ -619,7 +619,7 @@ export const MediaDownloadPage: React.FC = () => {
   return (
     <div className="app-page flex-1 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-app)]">
       {/* --------------------- HEADER --------------------- */}
-      <div className="flex items-center gap-3 px-3 py-2 border-b border-[var(--border-color)] bg-[var(--bg-sidebar)] shrink-0 select-none">
+      <div className="flex flex-wrap items-center gap-3 px-3 py-2 border-b border-[var(--border-color)] bg-[var(--bg-sidebar)] shrink-0 select-none">
         <button type="button" onClick={handleBack} className="toolbar-btn shrink-0" title={t('page_back_tip')}>
           <ArrowLeft className="w-4 h-4" />
           <span className="hidden sm:inline">{t('page_back')}</span>
@@ -640,7 +640,7 @@ export const MediaDownloadPage: React.FC = () => {
         </div>
 
         {/* Engine status badges */}
-        <div className="hidden md:flex items-center gap-2 shrink-0">
+        <div className="ml-auto flex items-center gap-2 shrink-0">
           <span
             className={`flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full border ${
               engineCapabilities.mediaReady
@@ -682,11 +682,11 @@ export const MediaDownloadPage: React.FC = () => {
         </div>
       )}
 
-      {/* --------------------- BODY: TWO COLUMNS --------------------- */}
-      <div className="flex-1 min-h-0 overflow-hidden flex">
-        {/* ----------- LEFT PANEL 55% ----------- */}
-        <div className="w-[55%] flex flex-col min-h-0 border-r border-[var(--border-color)]/50">
-          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 scrollbar-thin">
+      {/* --------------------- BODY: RESPONSIVE COLUMNS --------------------- */}
+      <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden flex flex-col lg:flex-row">
+        {/* ----------- LEFT PANEL: stacks before the desktop breakpoint ----------- */}
+        <div className="w-full min-w-0 flex-none lg:w-[55%] lg:flex-1 lg:min-h-0 border-b lg:border-b-0 lg:border-e border-[var(--border-color)]/50">
+          <div className="flex-none lg:flex-1 overflow-visible lg:overflow-y-auto px-3 sm:px-4 py-3 space-y-3 scrollbar-thin">
             <div className="space-y-3">
               {/* Save Directory */}
               <div className="space-y-1.5">
@@ -774,7 +774,7 @@ export const MediaDownloadPage: React.FC = () => {
                     />
                   </button>
                   {openPanel === 'mode' && (
-                    <div className="mt-3 grid grid-cols-2 gap-2">
+                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <button
                         type="button"
                         onClick={() => {
@@ -927,7 +927,7 @@ export const MediaDownloadPage: React.FC = () => {
                   </button>
                   {openPanel === 'output' && (
                     <div className="mt-3">
-                      <div className="flex gap-1 mb-2">
+                      <div className="flex flex-wrap gap-1 mb-2">
                         {[
                           { preset: '%(title)s.%(ext)s', label: t('media_preset_title') },
                           { preset: '%(uploader)s - %(title)s.%(ext)s', label: t('media_preset_artist') },
@@ -967,9 +967,9 @@ export const MediaDownloadPage: React.FC = () => {
           </div>
         </div>
 
-        {/* ----------- RIGHT PANEL 45% ----------- */}
-        <div className="w-[45%] flex flex-col min-h-0">
-          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 scrollbar-thin">
+        {/* ----------- RIGHT PANEL: URL, preview, and download action ----------- */}
+        <div className="w-full min-w-0 flex-none lg:w-[45%] lg:flex-1 lg:min-h-0">
+          <div className="flex-none lg:flex-1 overflow-visible lg:overflow-y-auto px-3 sm:px-4 py-3 space-y-3 scrollbar-thin">
             <div className="shrink-0 px-4 pt-3 pb-2 space-y-1">
               <div className="flex items-center gap-2.5 px-3 py-2.5 bg-[var(--bg-input)] border border-[var(--border-color)] rounded-xl focus-within:border-[var(--accent-primary)] transition-colors">
                 {isProbingAny ? (

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.38-alpha] - 2026-08-27
+
+### Fixed
+
+- **Made verified external-tool installation resilient to GitHub API throttling.** The managed yt-dlp/FFmpeg release lookup now uses GitHub's current public API media-type/version headers and caches successful metadata for a bounded 15 minutes. Settings rendering no longer performs a release-metadata request, so routine refreshes cannot exhaust the public API budget.
+- **Stopped update-check failures from looking like success.** Provider, compatibility, and rate-limit failures now travel through the native and frontend contracts as an explicit indeterminate result. Settings reports the actual error rather than incorrectly announcing that an unavailable tool is up to date, and installation returns that diagnostic when no verified candidate can be resolved.
+- **Serialized tool actions in the Settings UI.** While an install, update, discovery, health check, path change, or uninstall is pending for a tool, competing actions for that same tool are disabled and the card exposes an accessible busy state. This prevents conflicting lifecycle calls before activation and health verification finish.
+
+### User experience and responsive layout
+
+- **Prevented controls from being clipped in constrained windows.** The shared modal now caps itself to the live viewport and keeps its content scrollable; drag bounds use the available viewport instead of a fixed status-bar estimate. The Settings navigator becomes a horizontally scrollable tab row on narrow widths, while its content remains reachable.
+- **Made the desktop media workflow responsive.** The Media Download page stacks its former fixed 55/45 column split below the desktop breakpoint, allows action groups and output presets to wrap, and preserves a two-column, independently scrollable layout when space is available. This keeps the YouTube URL input, engine state, format choices, and final action within the visible workspace.
+- **Removed the global button rule that prohibited shrink and wrapping.** Individual compact controls can still opt into fixed sizing, but generic action rows now adapt to their container rather than overflowing it.
+
+### Security, verification, and scope
+
+- The installer still accepts only trusted HTTPS release assets, requires a published SHA-256 digest, validates the staged executable before activation, installs atomically, and never embeds a GitHub credential in user-device code. It does not bypass DRM, account restrictions, regional availability, or content permissions.
+- Added regression coverage for busy external-tool action states and for provider failure reporting. Updated browser-status, localization, and time-display integration assertions to target the stable application status bar instead of an optional transient notification. Added native coverage for bounded cache expiry. The isolated live yt-dlp installer acceptance check now completes download, SHA-256 verification, executable health validation, registration, and cleanup successfully.
+- This is a bounded reliability and responsive-layout release. It does not claim a complete redesign of every screen or a guarantee that third-party media sites will remain compatible as their services change.
+
 ## [2.4.37-alpha] - 2026-08-27
 
 ### Fixed

@@ -60,7 +60,7 @@ test.describe('I18n — UI text updates', () => {
   });
 
   test('status bar text is translated', async ({ page }) => {
-    const statusBar = page.locator('[role="status"]').first();
+    const statusBar = page.getByTestId('status-bar');
     const text = await statusBar.textContent();
     expect(text?.length).toBeGreaterThan(0);
   });

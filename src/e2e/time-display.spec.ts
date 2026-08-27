@@ -11,7 +11,7 @@ test.describe('Time Display — elapsed time format', () => {
   });
 
   test('elapsed time format matches Xs or Xm XXs or Xh XXm XXs', async ({ page }) => {
-    const statusBar = page.locator('[role="status"]').first();
+    const statusBar = page.getByTestId('status-bar');
     await expect(statusBar).toBeVisible({ timeout: 3000 });
     const elapsedCell = page
       .locator('tr.desktop-table-row td')

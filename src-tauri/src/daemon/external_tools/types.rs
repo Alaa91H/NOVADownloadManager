@@ -162,6 +162,9 @@ pub struct UpdateInfo {
     /// SHA-256 published by the release provider for the selected asset.
     /// Automatic installation is refused when a required checksum is absent.
     pub expected_sha256: Option<String>,
+    /// Provider or compatibility error that made an update result indeterminate.
+    /// A failed lookup must never be presented as an up-to-date result.
+    pub error: Option<String>,
     pub release_notes: Option<String>,
     pub published_at: Option<String>,
 }
@@ -216,6 +219,8 @@ pub struct ToolState {
     pub is_uninstalling: bool,
     pub health_ok: bool,
     pub error: Option<String>,
+    /// The latest update-check error, separate from executable health.
+    pub update_error: Option<String>,
     pub download_url: Option<String>,
     pub source_url: Option<String>,
     pub source_name: Option<String>,

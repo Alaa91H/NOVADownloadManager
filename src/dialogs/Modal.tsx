@@ -80,41 +80,20 @@ export const Modal: React.FC<ModalProps> = ({
       const newX = e.clientX - dragStart.current.x;
       const newY = e.clientY - dragStart.current.y;
 
-      // App title bar height (px) — keeps dialogs below the drag region.
+      // The overlay starts below the app title bar and provides its own margin.
+      // Keep a dragged dialog inside that live viewport rather than relying on a
+      // fixed status-bar estimate that becomes wrong after window resizing.
       const APP_TITLEBAR = 32;
-      // Status bar at the bottom (approx).
-      const APP_STATUSBAR = 28;
-      // Side margin so dialog never bleeds out of the frame.
       const MARGIN = 8;
-
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      const dw = dialogSizeRef.current.w || 540;
-      const dh = dialogSizeRef.current.h || 400;
-
-      // Usable area inside the app frame (excluding title bar & status bar).
-      const usableH = vh - APP_TITLEBAR - APP_STATUSBAR;
-      const usableW = vw;
-
-      // Max translation from center (dialogs start centered at 0,0).
-      // Positive X = right, positive Y = down.
-      const halfDW = dw / 2;
-      const halfDH = dh / 2;
-
-      // Horizontal: dialog must stay fully inside left/right edges with margin.
-      const maxX = Math.max(0, usableW / 2 - halfDW - MARGIN);
-
-      // Vertical: center of overlay sits at (APP_TITLEBAR + usableH/2).
-      // We need the dialog top edge >= APP_TITLEBAR + MARGIN
-      //   ? center.y + offsetY - halfDH >= APP_TITLEBAR + MARGIN
-      //   ? offsetY >= APP_TITLEBAR + MARGIN + halfDH - (APP_TITLEBAR + usableH/2)
-      //   ? offsetY >= halfDH - usableH/2 + MARGIN
-      const minY = halfDH - usableH / 2 + MARGIN;
-      // Dialog bottom edge <= vh - APP_STATUSBAR - MARGIN
-      const maxY = usableH / 2 - halfDH - MARGIN;
+      const usableW = Math.max(0, window.innerWidth - MARGIN * 2);
+      const usableH = Math.max(0, window.innerHeight - APP_TITLEBAR - MARGIN * 2);
+      const halfDW = (dialogSizeRef.current.w || 540) / 2;
+      const halfDH = (dialogSizeRef.current.h || 400) / 2;
+      const maxX = Math.max(0, usableW / 2 - halfDW);
+      const maxY = Math.max(0, usableH / 2 - halfDH);
 
       const clampedX = Math.max(-maxX, Math.min(newX, maxX));
-      const clampedY = Math.max(minY, Math.min(newY, maxY));
+      const clampedY = Math.max(-maxY, Math.min(newY, maxY));
       setPosition({ x: clampedX, y: clampedY });
     };
 
@@ -203,11 +182,11 @@ export const Modal: React.FC<ModalProps> = ({
   if (!isOpen) return null;
 
   const sizeStyles = {
-    sm: 'max-w-xs w-11/12 md:max-w-[340px]',
-    md: 'max-w-md w-11/12 md:max-w-[440px]',
-    lg: 'max-w-lg w-11/12 md:max-w-[540px]',
-    xl: 'max-w-4xl w-11/12 md:max-w-[760px]',
-    full: 'max-w-full h-full',
+    sm: 'w-full max-w-xs sm:max-w-[340px]',
+    md: 'w-full max-w-md sm:max-w-[440px]',
+    lg: 'w-full max-w-lg sm:max-w-[540px]',
+    xl: 'w-full max-w-4xl sm:max-w-[760px]',
+    full: 'w-full h-full max-w-none',
   };
 
   return (
@@ -233,8 +212,9 @@ export const Modal: React.FC<ModalProps> = ({
         style={{
           transform: `translate(${String(position.x)}px, ${String(position.y)}px)`,
           transition: dragging ? 'none' : 'transform 0.05s ease-out',
+          maxHeight: 'calc(100dvh - 48px)',
         }}
-        className={`bg-[var(--bg-surface-elevated)] text-[var(--text-primary)] rounded-lg border-2 border-[var(--border-color)] shadow-2xl flex flex-col focus:outline-none overflow-hidden modal-content pointer-events-auto max-h-full ${sizeStyles[size]}`}
+        className={`bg-[var(--bg-surface-elevated)] text-[var(--text-primary)] rounded-lg border-2 border-[var(--border-color)] shadow-2xl flex flex-col focus:outline-none overflow-hidden modal-content pointer-events-auto min-h-0 ${sizeStyles[size]}`}
       >
         {/* Desktop-Style Title Bar */}
         <div
@@ -290,7 +270,9 @@ export const Modal: React.FC<ModalProps> = ({
         </div>
 
         {/* Modal content area */}
-        <div className="flex-1 overflow-y-auto p-3 bg-[var(--bg-surface-elevated)]">{children}</div>
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 bg-[var(--bg-surface-elevated)]">
+          {children}
+        </div>
       </div>
     </div>
   );

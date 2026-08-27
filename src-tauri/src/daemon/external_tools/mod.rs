@@ -12,16 +12,28 @@ use types::{
     Version,
 };
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use crate::lock_or_err;
+
+const SUCCESSFUL_UPDATE_CHECK_TTL: Duration = Duration::from_secs(15 * 60);
+const FAILED_UPDATE_CHECK_TTL: Duration = Duration::from_secs(60);
+
+#[derive(Clone)]
+struct CachedUpdateInfo {
+    checked_at: Instant,
+    value: UpdateInfo,
+}
 
 pub struct ExternalToolManager {
     ffmpeg: tools::ffmpeg::FfmpegTool,
     yt_dlp: tools::yt_dlp::YtDlpTool,
     pub registry: Mutex<ToolRegistry>,
     pub resolver: Mutex<CapabilityResolver>,
+    update_cache: Mutex<HashMap<ToolId, CachedUpdateInfo>>,
     data_dir: String,
     http: reqwest::Client,
 }
@@ -34,6 +46,7 @@ impl ExternalToolManager {
             yt_dlp: tools::yt_dlp::YtDlpTool,
             registry: Mutex::new(registry),
             resolver: Mutex::new(CapabilityResolver::new()),
+            update_cache: Mutex::new(HashMap::new()),
             data_dir: data_dir.to_owned(),
             http,
         }
@@ -151,9 +164,36 @@ impl ExternalToolManager {
         self.discover(tool_id)
     }
 
+    fn cached_update_info(&self, tool_id: ToolId) -> Option<UpdateInfo> {
+        let cache = lock_or_err!(self.update_cache);
+        let entry = cache.get(&tool_id)?;
+        let ttl = if entry.value.error.is_some() {
+            FAILED_UPDATE_CHECK_TTL
+        } else {
+            SUCCESSFUL_UPDATE_CHECK_TTL
+        };
+        (entry.checked_at.elapsed() < ttl).then(|| entry.value.clone())
+    }
+
+    /// Refresh release metadata only for an explicit user action (Check Updates)
+    /// or an installation/update request. Settings rendering must never consume
+    /// GitHub's public API quota or make the page depend on provider latency.
     pub fn check_for_updates(&self, tool_id: ToolId) -> UpdateInfo {
+        if let Some(cached) = self.cached_update_info(tool_id) {
+            return cached;
+        }
+
         let tool = self.tool_for_id(tool_id);
-        installer::check_latest_version(tool, &self.http)
+        let value = installer::check_latest_version(tool, &self.http);
+        let mut cache = lock_or_err!(self.update_cache);
+        cache.insert(
+            tool_id,
+            CachedUpdateInfo {
+                checked_at: Instant::now(),
+                value: value.clone(),
+            },
+        );
+        value
     }
 
     /// Download and register the current verified release for a tool that is
@@ -209,10 +249,10 @@ impl ExternalToolManager {
         let update_info = self.check_for_updates(tool_id);
 
         if !update_info.available {
-            return Err(
+            return Err(update_info.error.unwrap_or_else(|| {
                 "No compatible verified release is currently available for automatic installation"
-                    .to_owned(),
-            );
+                    .to_owned()
+            }));
         }
 
         let install_dir = self.get_install_dir(tool_id, scope)?;
@@ -332,7 +372,9 @@ impl ExternalToolManager {
         let installation = self.discover(tool_id);
         let tool = self.tool_for_id(tool_id);
 
-        let update_info = self.check_for_updates(tool_id);
+        // Rendering Settings is deliberately offline: update checks are explicit
+        // user actions and reuse the most recent short-lived result when present.
+        let update_info = self.cached_update_info(tool_id);
 
         let all_caps = tool.capabilities();
         let tool_caps: Vec<types::ToolCapability> = all_caps
@@ -354,18 +396,21 @@ impl ExternalToolManager {
                 .version
                 .as_ref()
                 .map(std::string::ToString::to_string),
-            latest_version: update_info.latest_version.clone(),
+            latest_version: update_info
+                .as_ref()
+                .and_then(|info| info.latest_version.clone()),
             path: installation.path.as_ref().map(|p| p.display().to_string()),
             custom_path: installation.custom_path,
             installed_by_app: installation.installed_by_app,
             capabilities: tool_caps,
-            update_available: update_info.available,
+            update_available: update_info.as_ref().is_some_and(|info| info.available),
             is_installing: false,
             is_updating: false,
             is_uninstalling: false,
             health_ok: installation.health_ok,
             error: installation.error_message,
-            download_url: update_info.download_url,
+            update_error: update_info.as_ref().and_then(|info| info.error.clone()),
+            download_url: update_info.and_then(|info| info.download_url),
             source_url: Some(tool.source().base_url.to_owned()),
             source_name: Some(tool.source().name.to_owned()),
         }
@@ -393,5 +438,57 @@ impl ExternalToolManager {
     pub fn ffmpeg_path(&self) -> Option<String> {
         let resolver = lock_or_err!(self.resolver);
         resolver.tool_path(ToolId::Ffmpeg)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        CachedUpdateInfo, ExternalToolManager, FAILED_UPDATE_CHECK_TTL, SUCCESSFUL_UPDATE_CHECK_TTL,
+    };
+    use crate::daemon::external_tools::types::{ToolId, UpdateInfo};
+    use std::time::Instant;
+
+    fn update_info(error: Option<&str>) -> UpdateInfo {
+        UpdateInfo {
+            available: false,
+            current_version: None,
+            latest_version: None,
+            download_url: None,
+            expected_sha256: None,
+            error: error.map(str::to_owned),
+            release_notes: None,
+            published_at: None,
+        }
+    }
+
+    #[test]
+    fn update_cache_uses_a_shorter_lifetime_after_provider_failures() {
+        let manager = ExternalToolManager::new(
+            &std::env::temp_dir()
+                .join("nova-external-tools-cache-test")
+                .display()
+                .to_string(),
+            reqwest::Client::new(),
+        );
+        let mut cache = manager.update_cache.lock().expect("lock update cache");
+        cache.insert(
+            ToolId::YtDlp,
+            CachedUpdateInfo {
+                checked_at: Instant::now() - FAILED_UPDATE_CHECK_TTL,
+                value: update_info(Some("provider unavailable")),
+            },
+        );
+        cache.insert(
+            ToolId::Ffmpeg,
+            CachedUpdateInfo {
+                checked_at: Instant::now() - SUCCESSFUL_UPDATE_CHECK_TTL,
+                value: update_info(None),
+            },
+        );
+        drop(cache);
+
+        assert!(manager.cached_update_info(ToolId::YtDlp).is_none());
+        assert!(manager.cached_update_info(ToolId::Ffmpeg).is_none());
     }
 }

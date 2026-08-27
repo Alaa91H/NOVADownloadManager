@@ -589,6 +589,7 @@ export const novaClient = {
       installedByApp: boolean;
       customPath: boolean;
       error?: string;
+      updateError?: string;
     }>;
   }> {
     return request('/api/external-tools', undefined, 10000);
@@ -604,9 +605,13 @@ export const novaClient = {
     return request(`/api/external-tools/${toolId}/health`, { method: 'POST' }, 10000);
   },
 
-  async checkExternalToolUpdates(
-    toolId: string,
-  ): Promise<{ available: boolean; latestVersion?: string; downloadUrl?: string; releaseNotes?: string }> {
+  async checkExternalToolUpdates(toolId: string): Promise<{
+    available: boolean;
+    latestVersion?: string;
+    downloadUrl?: string;
+    releaseNotes?: string;
+    error?: string;
+  }> {
     return request(`/api/external-tools/${toolId}/check-updates`, { method: 'POST' }, 30000);
   },
 

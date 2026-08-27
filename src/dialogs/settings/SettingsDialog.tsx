@@ -209,11 +209,11 @@ export const SettingsDialog: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex flex-row flex-1 min-h-0 overflow-hidden gap-4">
+      <div className="flex flex-col sm:flex-row flex-1 min-h-0 overflow-y-auto sm:overflow-hidden gap-3 sm:gap-4">
         <div
           role="tablist"
           aria-label={t('set_control_center_title')}
-          className="w-48 shrink-0 border-e pe-2 border-[var(--border-color)] overflow-y-auto scrollbar-none select-none flex flex-col gap-1"
+          className="w-full sm:w-48 shrink-0 border-b pb-2 sm:border-b-0 sm:border-e sm:pe-2 sm:pb-0 border-[var(--border-color)] overflow-x-auto sm:overflow-y-auto scrollbar-none select-none flex flex-row sm:flex-col gap-1"
         >
           {filteredTabs.map((tab) => {
             const TabIcon = tab.icon;
@@ -229,7 +229,7 @@ export const SettingsDialog: React.FC = () => {
                 onClick={() => {
                   setActiveTab(tab.id);
                 }}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all duration-150 hover:scale-[1.02] active:scale-[0.98] text-xs font-bold text-start w-full border ${
+                className={`flex shrink-0 sm:shrink items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all duration-150 hover:scale-[1.02] active:scale-[0.98] text-xs font-bold text-start w-auto sm:w-full border ${
                   isSelected
                     ? 'text-[var(--accent-primary)] bg-[var(--accent-primary)]/10 font-extrabold border-[var(--accent-border)]'
                     : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)]'
@@ -249,7 +249,7 @@ export const SettingsDialog: React.FC = () => {
           role="tabpanel"
           id={`settings-panel-${activeTab}`}
           aria-labelledby={`settings-tab-${activeTab}`}
-          className="flex-1 overflow-y-auto px-1 scrollbar-thin"
+          className="w-full min-w-0 flex-1 overflow-visible sm:overflow-y-auto px-1 scrollbar-thin"
         >
           {activeTab === 'general' && <GeneralSettings settings={localSettings} updateSetting={updateLocalSetting} />}
           {activeTab === 'downloads' && (

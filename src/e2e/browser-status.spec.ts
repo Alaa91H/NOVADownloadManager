@@ -11,7 +11,7 @@ test.describe('Browser Status — icon rendering in status bar', () => {
   });
 
   test('browser status icon (Shield) renders in the status bar', async ({ page }) => {
-    const statusBar = page.locator('[role="status"]').first();
+    const statusBar = page.getByTestId('status-bar');
     await expect(statusBar).toBeVisible({ timeout: 3000 });
     const shieldBtn = statusBar
       .locator('button')
@@ -23,7 +23,7 @@ test.describe('Browser Status — icon rendering in status bar', () => {
   });
 
   test('browser icon is visible within status bar buttons', async ({ page }) => {
-    const statusBar = page.locator('[role="status"]').first();
+    const statusBar = page.getByTestId('status-bar');
     const buttons = statusBar.locator('button');
     const count = await buttons.count();
     expect(count).toBeGreaterThanOrEqual(1);
@@ -37,7 +37,8 @@ test.describe('Browser Status — icon color based on connection state', () => {
 
   test('browser icon has a color class reflecting state', async ({ page }) => {
     const shieldBtn = page
-      .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+      .getByTestId('status-bar')
+      .locator('button[title*="browser" i], button[title*="متصفح" i]')
       .first();
     if (await shieldBtn.isVisible().catch(() => false)) {
       const className = (await shieldBtn.getAttribute('class')) ?? '';
@@ -51,7 +52,8 @@ test.describe('Browser Status — icon color based on connection state', () => {
 
   test('browser icon shows connected state color when enabled', async ({ page }) => {
     const shieldBtn = page
-      .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+      .getByTestId('status-bar')
+      .locator('button[title*="browser" i], button[title*="متصفح" i]')
       .first();
     if (await shieldBtn.isVisible().catch(() => false)) {
       const className = (await shieldBtn.getAttribute('class')) ?? '';
@@ -70,7 +72,8 @@ test.describe('Browser Status — tooltip text', () => {
 
   test('tooltip shows correct status text', async ({ page }) => {
     const shieldBtn = page
-      .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+      .getByTestId('status-bar')
+      .locator('button[title*="browser" i], button[title*="متصفح" i]')
       .first();
     if (await shieldBtn.isVisible().catch(() => false)) {
       const title = await shieldBtn.getAttribute('title');
@@ -81,7 +84,8 @@ test.describe('Browser Status — tooltip text', () => {
 
   test('tooltip contains status keyword', async ({ page }) => {
     const shieldBtn = page
-      .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+      .getByTestId('status-bar')
+      .locator('button[title*="browser" i], button[title*="متصفح" i]')
       .first();
     if (await shieldBtn.isVisible().catch(() => false)) {
       const title = await shieldBtn.getAttribute('title');
@@ -104,7 +108,8 @@ test.describe('Browser Status — click opens integration dialog', () => {
 
   test('clicking browser icon opens a dialog', async ({ page }) => {
     const shieldBtn = page
-      .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+      .getByTestId('status-bar')
+      .locator('button[title*="browser" i], button[title*="متصفح" i]')
       .first();
     if (await shieldBtn.isVisible().catch(() => false)) {
       await shieldBtn.click();
@@ -125,7 +130,8 @@ test.describe('Browser Status — browser health shows correct status', () => {
 
   test('browser health indicator has one of three states', async ({ page }) => {
     const shieldBtn = page
-      .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+      .getByTestId('status-bar')
+      .locator('button[title*="browser" i], button[title*="متصفح" i]')
       .first();
     if (await shieldBtn.isVisible().catch(() => false)) {
       const className = (await shieldBtn.getAttribute('class')) ?? '';
@@ -138,7 +144,8 @@ test.describe('Browser Status — browser health shows correct status', () => {
 
   test('health status icon SVG reflects connection quality', async ({ page }) => {
     const shieldBtn = page
-      .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+      .getByTestId('status-bar')
+      .locator('button[title*="browser" i], button[title*="متصفح" i]')
       .first();
     if (await shieldBtn.isVisible().catch(() => false)) {
       const svgCount = await shieldBtn.locator('svg').count();
@@ -151,14 +158,16 @@ test.describe('Browser Status — browser health shows correct status', () => {
 
   test('health status updates on page reload', async ({ page }) => {
     const shieldBtn = page
-      .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+      .getByTestId('status-bar')
+      .locator('button[title*="browser" i], button[title*="متصفح" i]')
       .first();
     if (await shieldBtn.isVisible().catch(() => false)) {
       const _titleBefore = await shieldBtn.getAttribute('title');
       await page.reload();
       await page.waitForLoadState('networkidle');
       const shieldBtnAfter = page
-        .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+        .getByTestId('status-bar')
+        .locator('button[title*="browser" i], button[title*="متصفح" i]')
         .first();
       if (await shieldBtnAfter.isVisible().catch(() => false)) {
         const titleAfter = await shieldBtnAfter.getAttribute('title');
@@ -170,7 +179,8 @@ test.describe('Browser Status — browser health shows correct status', () => {
 
   test('browser health shows connected status when extension is active', async ({ page }) => {
     const shieldBtn = page
-      .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+      .getByTestId('status-bar')
+      .locator('button[title*="browser" i], button[title*="متصفح" i]')
       .first();
     if (await shieldBtn.isVisible().catch(() => false)) {
       const title = await shieldBtn.getAttribute('title');
@@ -194,7 +204,8 @@ test.describe('Browser Status — extension config endpoint', () => {
 
   test('extension dialog shows configuration section', async ({ page }) => {
     const shieldBtn = page
-      .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+      .getByTestId('status-bar')
+      .locator('button[title*="browser" i], button[title*="متصفح" i]')
       .first();
     if (await shieldBtn.isVisible().catch(() => false)) {
       await shieldBtn.click();
@@ -217,7 +228,8 @@ test.describe('Browser Status — extension config endpoint', () => {
 
   test('extension dialog has port or connection info', async ({ page }) => {
     const shieldBtn = page
-      .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+      .getByTestId('status-bar')
+      .locator('button[title*="browser" i], button[title*="متصفح" i]')
       .first();
     if (await shieldBtn.isVisible().catch(() => false)) {
       await shieldBtn.click();
@@ -242,7 +254,8 @@ test.describe('Browser Status — extension config endpoint', () => {
 
   test('extension dialog has close button', async ({ page }) => {
     const shieldBtn = page
-      .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+      .getByTestId('status-bar')
+      .locator('button[title*="browser" i], button[title*="متصفح" i]')
       .first();
     if (await shieldBtn.isVisible().catch(() => false)) {
       await shieldBtn.click();
@@ -267,7 +280,8 @@ test.describe('Browser Status — extension config endpoint', () => {
 
   test('extension dialog can be opened multiple times', async ({ page }) => {
     const shieldBtn = page
-      .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+      .getByTestId('status-bar')
+      .locator('button[title*="browser" i], button[title*="متصفح" i]')
       .first();
     if (await shieldBtn.isVisible().catch(() => false)) {
       for (let i = 0; i < 3; i++) {
@@ -285,7 +299,8 @@ test.describe('Browser Status — extension config endpoint', () => {
 
   test('extension config refreshes on dialog reopen', async ({ page }) => {
     const shieldBtn = page
-      .locator('[role="status"] button[title*="browser" i], [role="status"] button[title*="متصفح" i]')
+      .getByTestId('status-bar')
+      .locator('button[title*="browser" i], button[title*="متصفح" i]')
       .first();
     if (await shieldBtn.isVisible().catch(() => false)) {
       await shieldBtn.click();
