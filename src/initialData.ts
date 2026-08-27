@@ -153,6 +153,7 @@ export const initialSettings: AppSettings = {
   extra: {
     language: 'en',
     duplicateAction: 'rename',
+    warnBeforeDuplicateDownload: true,
     openOnComplete: false,
     openFolderOnComplete: false,
     showCompletionDialog: true,

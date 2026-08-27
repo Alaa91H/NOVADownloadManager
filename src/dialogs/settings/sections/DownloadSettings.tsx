@@ -258,6 +258,13 @@ export const DownloadSettings: React.FC<Props> = ({
               { value: 'resume', label: t('settings_duplicate_resume') },
             ]}
           />
+          <Checkbox
+            label={t('set_general_warn_duplicate')}
+            checked={settings.extra.warnBeforeDuplicateDownload}
+            onChange={(value) => {
+              updateSetting('extra', 'warnBeforeDuplicateDownload', value);
+            }}
+          />
         </div>
 
         <div className="bg-[var(--bg-hover)]/30 p-3.5 rounded-lg border border-[var(--border-color)] space-y-3">

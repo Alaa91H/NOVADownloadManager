@@ -63,6 +63,16 @@ describe('mergeStoredSettings', () => {
     expect(merged.connection).toEqual(initialSettings.connection);
   });
 
+  it('defaults duplicate URL warnings for older settings and preserves an explicit opt-out', () => {
+    const migrated = mergeStoredSettings({ extra: { duplicateAction: 'skip' } } as unknown as Partial<AppSettings>);
+    const optedOut = mergeStoredSettings({
+      extra: { warnBeforeDuplicateDownload: false },
+    } as unknown as Partial<AppSettings>);
+
+    expect(migrated.extra.warnBeforeDuplicateDownload).toBe(true);
+    expect(optedOut.extra.warnBeforeDuplicateDownload).toBe(false);
+  });
+
   it('rejects malformed backups and removes unknown fields', () => {
     expect(parseSettingsBackup({ general: { monitorClipboard: 'yes' } })).toBeNull();
     expect(parseSettingsBackup(['not', 'an', 'object'])).toBeNull();

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.35-alpha] - 2026-08-27
+
+### Added
+
+- **Added an exact-URL duplicate warning to Add Download.** When the submitted URL is already represented by a NOVA task, the dialog shows a compact non-blocking warning before the user queues or starts another copy. Intentional repeats remain available: neither action is disabled and the original submitted URL is passed through unchanged.
+- **Made duplicate-link warnings configurable.** The existing localized “Show duplicate warning before downloading” preference is now active in Downloads settings. It is enabled by default for existing and new configurations, while an explicit user opt-out is preserved.
+
+### Privacy and reliability
+
+- **Kept duplicate matching deliberately literal.** NOVA compares the raw submitted URL after input whitespace is trimmed; it does not remove or normalize paths, credentials, query parameters, fragments, or case. This prevents different signed or authenticated URLs from being incorrectly conflated and ensures the warning itself never renders a sensitive URL.
+- **Preserved the separation between URL intake and output-file conflict policy.** The new warning concerns an existing task URL only. It neither changes the chosen output path nor overrides the native rename, overwrite, skip, or resume policy for an on-disk filename collision.
+
+### Quality
+
+- Added unit coverage for exact matching, empty/malformed inputs, signed-URL distinction, and non-normalization; dialog coverage for safe warning display, query privacy, distinct tokens, and intentional repeat queueing; and settings-merge coverage for default migration and saved opt-out behavior.
+- Stabilized the modal backdrop Playwright contract by waiting for the component's deliberate 50 ms outside-press guard before simulating the event. This tests the actual interaction boundary rather than racing the opening-click protection.
+- Documented the intake-boundary rationale using JDownloader, Free Download Manager, and AB Download Manager research. The change is deliberately scoped to transparent, user-controlled direct-download intake rather than automatic crawler or clipboard behavior.
+
 ## [2.4.34-alpha] - 2026-08-27
 
 ### Added

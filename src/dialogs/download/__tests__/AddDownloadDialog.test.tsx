@@ -1,17 +1,20 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initialSettings } from '../../../initialData';
 
-const { dialogPayload, probeDownload } = vi.hoisted(() => ({
+const { dialogPayload, probeDownload, taskItems, addTask } = vi.hoisted(() => ({
   dialogPayload: { current: { url: '' } },
   probeDownload: vi.fn(),
+  taskItems: { current: [] as Array<{ url: string }> },
+  addTask: vi.fn(),
 }));
 
 vi.mock('../../../store/selectors', () => ({
   useDialogData: () => ({ active: 'addDownload', payload: dialogPayload.current }),
   useDialogActions: () => ({ closeDialog: vi.fn(), openDialog: vi.fn() }),
   useSettingsData: () => initialSettings,
-  useTaskActions: () => ({ addTask: vi.fn() }),
+  useTaskActions: () => ({ addTask }),
+  useTaskData: () => taskItems.current,
   useToastActions: () => ({ addToast: vi.fn() }),
   useI18n: () => (key: string) => key,
 }));
@@ -44,6 +47,8 @@ describe('AddDownloadDialog probe inspection', () => {
     vi.useFakeTimers();
     dialogPayload.current = { url: 'https://landing.example.test/download?tracking=private' };
     probeDownload.mockReset();
+    addTask.mockReset();
+    taskItems.current = [];
     probeDownload.mockResolvedValue({
       url: 'https://landing.example.test/download?tracking=private',
       finalUrl: 'https://cdn.example.test/files/archive.zip?signature=private',
@@ -82,5 +87,55 @@ describe('AddDownloadDialog probe inspection', () => {
     expect(inspection).not.toHaveTextContent('tracking=private');
     expect(inspection).not.toHaveTextContent('signature=private');
     expect(inspection).not.toHaveTextContent('token=private');
+  });
+
+  it('warns for an exact existing URL without exposing signed query details', async () => {
+    const signedUrl = 'https://cdn.example.test/archive.zip?signature=private-token';
+    dialogPayload.current = { url: signedUrl };
+    taskItems.current = [{ url: signedUrl }];
+
+    await act(async () => {
+      render(<AddDownloadDialog />);
+      await Promise.resolve();
+    });
+
+    const warning = screen.getByTestId('exact-url-duplicate-warning');
+    expect(warning).toHaveTextContent('toast_warning_title');
+    expect(warning).toHaveTextContent('queue_file_already_in_queue');
+    expect(warning).not.toHaveTextContent('signature=private-token');
+  });
+
+  it('does not warn when a signed URL has a different query token', async () => {
+    dialogPayload.current = { url: 'https://cdn.example.test/archive.zip?signature=new-token' };
+    taskItems.current = [{ url: 'https://cdn.example.test/archive.zip?signature=old-token' }];
+
+    await act(async () => {
+      render(<AddDownloadDialog />);
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByTestId('exact-url-duplicate-warning')).not.toBeInTheDocument();
+  });
+
+  it('keeps intentional exact repeats available for queueing', async () => {
+    const signedUrl = 'https://cdn.example.test/archive.zip?signature=private-token';
+    dialogPayload.current = { url: signedUrl };
+    taskItems.current = [{ url: signedUrl }];
+    addTask.mockResolvedValue({ id: 'intentional-repeat' });
+
+    await act(async () => {
+      render(<AddDownloadDialog />);
+      await Promise.resolve();
+    });
+
+    const queueButton = screen.getByRole('button', { name: 'add_dl_queue_only' });
+    expect(queueButton).toBeEnabled();
+
+    await act(async () => {
+      fireEvent.click(queueButton);
+      await Promise.resolve();
+    });
+
+    expect(addTask).toHaveBeenCalledWith(expect.objectContaining({ url: signedUrl }), false, false, undefined);
   });
 });

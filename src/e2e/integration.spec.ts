@@ -9,15 +9,15 @@ test.describe('Integration — download flow', () => {
   test('complete new download flow: open dialog → enter URL → queue', async ({ page }) => {
     await goto(page);
     await page.keyboard.press('Control+n');
-    const dialog = page.locator('[role="dialog"]');
-    await expect(dialog).toBeVisible({ timeout: 3000 });
+    const addDownloadDialog = page.locator('[role="dialog"]').filter({ has: page.locator('input[type="text"]') });
+    await expect(addDownloadDialog).toBeVisible({ timeout: 3000 });
 
-    const urlInput = dialog.locator('input[type="text"]').first();
+    const urlInput = addDownloadDialog.locator('input[type="text"]').first();
     await urlInput.fill('https://example.com/test-file.zip');
     const value = await urlInput.inputValue();
     expect(value).toContain('example.com');
 
-    const queueBtn = dialog
+    const queueBtn = addDownloadDialog
       .locator('button')
       .filter({ hasText: /queue|إضافة/i })
       .first();
@@ -25,7 +25,7 @@ test.describe('Integration — download flow', () => {
       await queueBtn.click();
       await page.waitForTimeout(500);
     }
-    await expect(dialog).not.toBeVisible({ timeout: 3000 });
+    await expect(addDownloadDialog).not.toBeVisible({ timeout: 3000 });
   });
 
   test('complete new download flow: open dialog → enter URL → download now', async ({ page }) => {

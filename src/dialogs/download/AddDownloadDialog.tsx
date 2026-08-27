@@ -6,6 +6,7 @@ import {
   useDialogActions,
   useSettingsData,
   useTaskActions,
+  useTaskData,
   useToastActions,
   useI18n,
 } from '../../store/selectors';
@@ -16,6 +17,7 @@ import { detectUrlType } from '../../utils/urlDetector';
 import { clearClipboardIfTextMatches, readClipboardText } from '../../utils/clipboard';
 import { formatBytes } from '../../initialData';
 import { isMagnetLink } from '../../utils/formatUtils';
+import { hasExactDownloadUrlDuplicate } from '../../utils/exactDownloadDuplicate';
 import { joinLocalPath, parentLocalPath } from '../../utils/localPathUtils';
 import {
   abbreviateSha256,
@@ -30,6 +32,7 @@ export const AddDownloadDialog: React.FC = () => {
   const { closeDialog, openDialog } = useDialogActions();
   const settings = useSettingsData();
   const { addTask } = useTaskActions();
+  const tasks = useTaskData();
   const { addToast } = useToastActions();
   const t = useI18n();
   const engineCapabilities = useEngineCapabilities();
@@ -548,7 +551,10 @@ export const AddDownloadDialog: React.FC = () => {
     }
   };
 
-  const canSubmitDownload = Boolean(url.trim()) && directEngineReady;
+  const submittedUrlForDuplicateCheck = url.trim();
+  const hasExactDuplicateUrl =
+    settings.extra.warnBeforeDuplicateDownload && hasExactDownloadUrlDuplicate(submittedUrlForDuplicateCheck, tasks);
+  const canSubmitDownload = Boolean(submittedUrlForDuplicateCheck) && directEngineReady;
 
   return (
     <div className="space-y-4 max-w-full overflow-auto">
@@ -647,6 +653,18 @@ export const AddDownloadDialog: React.FC = () => {
             <span>{t('add_dl_open_media_downloader')}</span>
             <ArrowRight className="w-3 h-3" />
           </button>
+        </div>
+      )}
+
+      {hasExactDuplicateUrl && (
+        <div
+          data-testid="exact-url-duplicate-warning"
+          role="status"
+          aria-live="polite"
+          className="flex items-center gap-2 rounded-md border border-[var(--warning-border)] bg-[var(--warning-bg)] px-2 py-1.5 text-[10px] text-[var(--warning)]"
+        >
+          <span className="font-semibold">{t('toast_warning_title')}</span>
+          <span>{t('queue_file_already_in_queue')}</span>
         </div>
       )}
 

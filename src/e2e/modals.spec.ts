@@ -47,6 +47,10 @@ test.describe('Modals — open and close', () => {
     await page.keyboard.press('Control+n');
     const dialog = page.locator('[role="dialog"]');
     await expect(dialog).toBeVisible({ timeout: 3000 });
+    // Modal attaches its document-level outside-press listener after a short
+    // guard interval so the click that opened it cannot close it immediately.
+    // Wait for that intentional guard before mirroring an outside press.
+    await page.waitForTimeout(75);
     // The visual overlay intentionally ignores pointer events. Dispatching the
     // document-level outside press mirrors a pointer press beyond the dialog
     // without relying on a coordinate behind the application header.

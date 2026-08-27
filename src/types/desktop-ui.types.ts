@@ -419,6 +419,8 @@ export interface AppSettings {
   extra: {
     language: string;
     duplicateAction: string;
+    /** Whether the Add Download dialog warns before adding an exact existing task URL. */
+    warnBeforeDuplicateDownload: boolean;
     openOnComplete: boolean;
     openFolderOnComplete: boolean;
     /** Whether NOVA shows the actionable in-app completion dialog for newly finished downloads. */
