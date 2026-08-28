@@ -292,6 +292,8 @@ export const sv = {
     'videoOverlay.close': 'Stäng',
     'videoOverlay.download': 'Hämta',
     'videoOverlay.noFiles': 'Inga nedladdningsbara filer hittades på denna sida.',
+    'videoOverlay.toolUnavailable': "Installera eller reparera yt-dlp i NOVA och analysera sedan igen.",
+    'videoOverlay.analysisRetry': "NOVA kunde inte uppdatera medieinformationen. Analysera igen för att försöka på nytt.",
     'videoOverlay.noneSelected': 'Inga filer valda',
     'videoOverlay.pickerTitle': 'Infångade filer',
     'videoOverlay.selectAll': 'Välj alla',

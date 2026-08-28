@@ -292,6 +292,8 @@ export const nl = {
     'videoOverlay.close': 'Sluiten',
     'videoOverlay.download': 'Downloaden',
     'videoOverlay.noFiles': 'Geen downloadbare bestanden gevonden op deze pagina.',
+    'videoOverlay.toolUnavailable': "Installeer of herstel yt-dlp in NOVA en analyseer daarna opnieuw.",
+    'videoOverlay.analysisRetry': "NOVA kon de media-informatie niet vernieuwen. Analyseer opnieuw om het nogmaals te proberen.",
     'videoOverlay.noneSelected': 'Geen bestanden geselecteerd',
     'videoOverlay.pickerTitle': 'Vastgelegde bestanden',
     'videoOverlay.selectAll': 'Alles selecteren',

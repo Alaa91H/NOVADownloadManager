@@ -165,6 +165,8 @@
     'videoOverlay.selectAll': 'Select all',
     'videoOverlay.clearSelection': 'Clear',
     'videoOverlay.noFiles': 'No downloadable files found on this page.',
+    'videoOverlay.toolUnavailable': "Install or repair yt-dlp in NOVA, then resolve again.",
+    'videoOverlay.analysisRetry': "NOVA could not refresh media information. Resolve again to retry.",
 
     // Candidate filters
     'candidate.filter.aria': 'Candidate filters',

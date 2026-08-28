@@ -51,6 +51,7 @@ vi.mock('webextension-polyfill', () => ({ default: harness.browser }));
 
 // Importing the router registers the onMessage listener via the mocked browser.
 import '../../background/message-router';
+import { bridgeManager } from '../../bridge/bridge-manager';
 
 describe('message-router dispatch + policy', () => {
   it('rejects messages that fail schema validation', async () => {
@@ -144,6 +145,25 @@ describe('message-router dispatch + policy', () => {
     const response = (await harness.invoke({ type: 'OVERLAY_SEND_SELECTED', candidateIds: ['does-not-exist'] }, harness.pageSender)) as { ok: boolean; code?: string };
     expect(response.ok).toBe(false);
     expect(response.code).toBe('VALIDATION_FAILED');
+  });
+
+  it('uses the browser-owned top-level tab URL for trusted overlay analysis', async () => {
+    const analyzeMedia = vi.spyOn(bridgeManager, 'analyzeMedia').mockResolvedValue({
+      ok: true,
+      formats: [],
+      drmProtected: false,
+      isLive: false,
+      detectedType: 'other',
+    });
+    const topLevelPage = 'https://example.com/watch';
+    const result = await harness.invoke(
+      { type: 'OVERLAY_ANALYZE_MEDIA' },
+      { url: 'https://embedded.example/player', tab: { id: 42, url: topLevelPage } },
+    );
+
+    expect(analyzeMedia).toHaveBeenCalledWith(topLevelPage, { pageUrl: topLevelPage });
+    expect(result).toMatchObject({ ok: true, formats: [] });
+    analyzeMedia.mockRestore();
   });
 
   it('rejects overlay analysis from an extension UI sender', async () => {

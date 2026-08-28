@@ -146,6 +146,8 @@ export const fa = {
     'videoOverlay.selectAll': 'انتخاب همه',
     'videoOverlay.clearSelection': 'پاک کردن انتخاب',
     'videoOverlay.noFiles': 'هیچ فایل قابل دانلودی در این صفحه یافت نشد.',
+    'videoOverlay.toolUnavailable': "yt-dlp را در NOVA نصب یا تعمیر کنید، سپس دوباره تحلیل کنید.",
+    'videoOverlay.analysisRetry': "NOVA نتوانست اطلاعات رسانه را به‌روزرسانی کند. برای تلاش دوباره، دوباره تحلیل کنید.",
     'candidate.filter.aria': 'فیلترهای گزینه‌ها',
     'candidate.filter.all': 'همه',
     'candidate.filter.video': 'ویدئوها',

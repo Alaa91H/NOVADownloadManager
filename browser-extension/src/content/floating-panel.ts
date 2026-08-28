@@ -1,5 +1,5 @@
 import browser from 'webextension-polyfill';
-import { translate } from '../i18n';
+import { translateOverlay } from './overlay-i18n';
 import { hasActiveExtensionContext, sendRuntimeMessageIfActive } from './extension-context';
 
 const HOST_ID = 'nova-media-panel-host';
@@ -20,6 +20,7 @@ let dragOffsetX = 0;
 let dragOffsetY = 0;
 let savedPosition: SavedPanelPosition | null = null;
 let toastEl: HTMLDivElement | null = null;
+let toastDismissTimer: number | undefined;
 let probeData: YtdlpProbeData | null = null;
 
 type ContentScriptLifecycle = {
@@ -77,9 +78,12 @@ type OverlayAnalyzeResponse = {
 };
 
 function analysisFailureMessage(result?: OverlayAnalyzeResponse | null): string {
-  if (result?.drmProtected) return translate('popup.protected');
-  if (result?.analysisCode === 'tool_unavailable') return translate('popup.message.cannotSend');
-  return translate('quality.noneFromNOVA');
+  if (result?.drmProtected) return translateOverlay('popup.protected');
+  // The daemon deliberately keeps analysis codes bounded. The in-page UI must
+  // not expose process output, source URLs, headers, or session material.
+  if (result?.analysisCode === 'tool_unavailable') return translateOverlay('videoOverlay.toolUnavailable');
+  if (result?.analysisCode) return translateOverlay('videoOverlay.analysisRetry');
+  return translateOverlay('quality.noneFromNOVA');
 }
 
 function fmtBytes(b?: number): string {
@@ -139,12 +143,15 @@ function showToast(msg: string, isError = false): void {
   if (!toastEl) {
     toastEl = document.createElement('div');
     toastEl.className = 'nova-toast';
+    toastEl.setAttribute('role', 'status');
+    toastEl.setAttribute('aria-live', 'polite');
     panelHost.appendChild(toastEl);
   }
+  if (toastDismissTimer !== undefined) clearTimeout(toastDismissTimer);
   toastEl.textContent = msg;
   toastEl.classList.toggle('error', isError);
   toastEl.classList.add('show');
-  setTimeout(() => toastEl?.classList.remove('show'), 2200);
+  toastDismissTimer = setTimeout(() => toastEl?.classList.remove('show'), 2200) as unknown as number;
 }
 
 // --- Bridge state ---
@@ -165,23 +172,32 @@ async function checkBridge(): Promise<void> {
 async function doProbe(): Promise<void> {
   if (probing) return;
   if (!bridgeConnected) {
-    showToast(translate('popup.message.cannotSend'), true);
+    showToast(translateOverlay('popup.message.cannotSend'), true);
     return;
   }
   probing = true;
+  // A re-analysis must not leave an old catalog actionable while the page can
+  // change underneath it. The background also revalidates every format id,
+  // but clearing this snapshot keeps the visible state truthful as well.
+  probeData = null;
+  dropdownVisible = false;
   render();
   try {
     const result = await sendRuntimeMessageIfActive<OverlayAnalyzeResponse | null>({
       type: 'OVERLAY_ANALYZE_MEDIA',
     });
     if (result === undefined && !hasActiveExtensionContext()) return;
-    if (result?.ok && !result.drmProtected && result.formats.length > 0) {
+    // The secure handoff route accepts an explicit format id only. Do not show
+    // a row the user cannot activate, and do not derive a direct download from
+    // a transient extractor delivery URL.
+    const selectableFormats = result?.formats.filter((format) => Boolean(format.formatId)) ?? [];
+    if (result?.ok && !result.drmProtected && selectableFormats.length > 0) {
       probeData = {
         title: result.title,
         duration: result.durationSec,
         thumbnail: result.thumbnail,
         webpageUrl: result.url || location.href,
-        formats: result.formats,
+        formats: selectableFormats,
       };
       dropdownVisible = true;
       render();
@@ -191,7 +207,7 @@ async function doProbe(): Promise<void> {
   } catch {
     // The daemon deliberately returns bounded analysis categories rather than
     // raw extractor stderr. Preserve that same safe, localized boundary here.
-    showToast(translate('quality.noneFromNOVA'), true);
+    showToast(translateOverlay('quality.noneFromNOVA'), true);
   } finally {
     probing = false;
     render();
@@ -201,9 +217,9 @@ async function doProbe(): Promise<void> {
 // --- Send to NOVA ---
 
 function sendFormat(f: YtdlpFormat): void {
-  if (!bridgeConnected) { showToast(translate('popup.message.cannotSend'), true); return; }
+  if (!bridgeConnected) { showToast(translateOverlay('popup.message.cannotSend'), true); return; }
   if (!f.formatId) {
-    showToast(translate('quality.noneFromNOVA'), true);
+    showToast(translateOverlay('quality.noneFromNOVA'), true);
     return;
   }
   // Only a selected format id leaves this content script. The background
@@ -216,25 +232,26 @@ function sendFormat(f: YtdlpFormat): void {
     .then((result) => {
       if (result === undefined && !hasActiveExtensionContext()) return;
       if (!result?.accepted) throw new Error('not accepted');
-      showToast(translate('videoOverlay.sent'));
+      showToast(translateOverlay('videoOverlay.sent'));
     })
     .catch(() => {
-      showToast(translate('videoOverlay.sendFailed'), true);
+      showToast(translateOverlay('videoOverlay.sendFailed'), true);
     });
 }
 
+function selectPreferredFormat(formats: YtdlpFormat[]): YtdlpFormat | undefined {
+  const videos = formats
+    .filter((format) => format.hasVideo !== false && Boolean(format.height) && Boolean(format.formatId))
+    .sort((a, b) => (b.height ?? 0) - (a.height ?? 0) || (b.bandwidth ?? b.tbr ?? 0) - (a.bandwidth ?? a.tbr ?? 0));
+  if (videos[0]) return videos[0];
+  return formats
+    .filter((format) => format.hasAudio !== false && !format.height && Boolean(format.formatId))
+    .sort((a, b) => (b.bandwidth ?? b.tbr ?? 0) - (a.bandwidth ?? a.tbr ?? 0))[0];
+}
+
 function sendBest(): void {
-  if (!probeData?.formats?.length) return;
-  const videos = probeData.formats
-    .filter(f => f.hasVideo !== false && f.height)
-    .sort((a, b) => (b.height ?? 0) - (a.height ?? 0));
-  const bestVideo = videos[0];
-  if (bestVideo) { sendFormat(bestVideo); return; }
-  const audios = probeData.formats
-    .filter(f => f.hasAudio !== false && !f.height)
-    .sort((a, b) => (b.bandwidth ?? b.tbr ?? 0) - (a.bandwidth ?? a.tbr ?? 0));
-  const bestAudio = audios[0];
-  if (bestAudio) sendFormat(bestAudio);
+  const selected = probeData?.formats ? selectPreferredFormat(probeData.formats) : undefined;
+  if (selected) sendFormat(selected);
 }
 
 function sortFormats(fmts: YtdlpFormat[]): YtdlpFormat[] {
@@ -484,32 +501,34 @@ function render(): void {
   panelEl.style.opacity = '1';
   panelEl.style.pointerEvents = 'auto';
 
-  let html = '<div class="nova-bar" data-drag="header" title="Drag to reposition; double-click to reset to the video">';
-  html += `<button class="nova-dl" data-action="download"${probing ? ' disabled' : ''}>`;
+  const analysisAction = dropdownVisible ? 'quality.reresolveViaNOVA' : 'quality.resolveViaNOVA';
+  let html = '<div class="nova-bar" data-drag="header">';
+  html += `<button class="nova-dl" data-action="analyze"${probing ? ' disabled' : ''}>`;
   if (probing) {
-    html += `<span class="nova-spin"></span> ${esc(translate('quality.resolving'))}`;
+    html += `<span class="nova-spin"></span> ${esc(translateOverlay('quality.resolving'))}`;
   } else {
-    html += `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> ${esc(translate('videoOverlay.download'))}`;
+    html += `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> ${esc(translateOverlay(analysisAction))}`;
   }
   html += '</button>';
-  html += '<button class="nova-x" data-action="close" title="Close" aria-label="Close download panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>';
+  const closeLabel = esc(translateOverlay('videoOverlay.close'));
+  html += `<button class="nova-x" data-action="close" title="${closeLabel}" aria-label="${closeLabel}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>`;
   html += '</div>';
 
   if (dropdownVisible && probeData) {
     const fmts = sortFormats(probeData.formats);
-    html += '<div class="nova-dd">';
+    html += `<div class="nova-dd" role="region" aria-label="${esc(translateOverlay('quality.aria'))}">`;
     if (probeData.title || probeData.thumbnail) {
       html += '<div class="nova-info">';
       if (probeData.thumbnail) html += `<img class="nova-thumb" src="${esc(probeData.thumbnail)}" alt="" />`;
       html += '<div class="nova-meta">';
       if (probeData.title) html += `<div class="nova-title">${esc(probeData.title)}</div>`;
       html += '<div class="nova-sub">';
-      html += `<span>${fmts.length} formats</span>`;
+      html += `<span>${esc(translateOverlay('quality.header', { n: fmts.length }))}</span>`;
       if (probeData.duration) html += `<span>${fmtDur(probeData.duration)}</span>`;
       if (probeData.uploader) html += `<span>${esc(probeData.uploader)}</span>`;
       html += '</div></div></div>';
     }
-    html += '<div class="nova-thdr"><span>Quality</span><span>Resolution</span><span>Codec</span><span>FPS</span><span>Size</span><span></span></div>';
+    html += `<div class="nova-thdr"><span>${esc(translateOverlay('quality.column.quality'))}</span><span>${esc(translateOverlay('quality.column.resolution'))}</span><span>${esc(translateOverlay('quality.column.format'))}</span><span aria-hidden="true">&nbsp;</span><span>${esc(translateOverlay('quality.column.size'))}</span><span></span></div>`;
     for (const f of fmts) {
       const color = qualityColor(f.height);
       const bg = `${color}22`;
@@ -520,10 +539,14 @@ function render(): void {
       html += `<span class="nova-cdr">${esc(codecStr(f))}</span>`;
       html += `<span style="color:#a1a1aa">${f.fps ? `${f.fps}` : '\u2014'}</span>`;
       html += `<span style="color:#a1a1aa;font-variant-numeric:tabular-nums">${fmtBytes(f.estimatedSizeBytes ?? f.filesize) || '\u2014'}</span>`;
-      html += `<span style="text-align:center"><button class="nova-sbtn" data-action="send" data-fid="${esc(f.formatId || '')}">Download</button></span>`;
+      html += `<span style="text-align:center"><button class="nova-sbtn" data-action="send" data-fid="${esc(f.formatId || '')}" aria-label="${esc(translateOverlay('quality.downloadAria', { quality: qLabel(f) }))}">${esc(translateOverlay('quality.download'))}</button></span>`;
       html += '</div>';
     }
-    html += '<div class="nova-foot"><button class="nova-best" data-action="send-best">Best Quality</button></div>';
+    const preferred = selectPreferredFormat(fmts);
+    if (preferred) {
+      const preferredLabel = esc(translateOverlay('quality.downloadAria', { quality: qLabel(preferred) }));
+      html += `<div class="nova-foot"><button class="nova-best" data-action="send-best" aria-label="${preferredLabel}">${preferredLabel}</button></div>`;
+    }
     html += '</div>';
   }
 
@@ -532,10 +555,9 @@ function render(): void {
 }
 
 function bindEvents(): void {
-  panelEl?.querySelector('[data-action="download"]')?.addEventListener('click', (e) => {
+  panelEl?.querySelector('[data-action="analyze"]')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (!dropdownVisible) doProbe();
-    else { dropdownVisible = false; render(); }
+    void doProbe();
   });
   panelEl?.querySelector('[data-action="close"]')?.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -613,6 +635,8 @@ export function initFloatingPanel(context?: ContentScriptLifecycle): void {
     panelHost = null;
     panelEl = null;
     toastEl = null;
+    if (toastDismissTimer !== undefined) clearTimeout(toastDismissTimer);
+    toastDismissTimer = undefined;
     panelVisible = false;
     dropdownVisible = false;
     probeData = null;

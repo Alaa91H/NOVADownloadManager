@@ -256,8 +256,12 @@ type OverlayTabContext = { tabId: number; pageUrl: string };
 
 function overlayTabContext(sender: RuntimeMessageSenderLike | undefined): OverlayTabContext {
   const tabId = sender?.tab?.id;
-  const pageUrl = sender?.url;
-  if (typeof tabId !== 'number' || !Number.isInteger(tabId) || tabId <= 0 || !pageUrl) {
+  const senderUrl = sender?.url;
+  // `sender.url` proves the in-page content-script origin. When the browser
+  // also gives us a tab URL, prefer that browser-owned top-level URL so an
+  // embedded frame cannot steer analysis away from the page the user sees.
+  const pageUrl = sender?.tab?.url ?? senderUrl;
+  if (typeof tabId !== 'number' || !Number.isInteger(tabId) || tabId <= 0 || !senderUrl || !pageUrl) {
     throw new NovaExtensionError({
       code: 'PERMISSION_MISSING',
       message: 'The overlay must be attached to a trusted browser tab.',

@@ -292,6 +292,8 @@ export const zh = {
     'videoOverlay.close': '关闭',
     'videoOverlay.download': '下载',
     'videoOverlay.noFiles': '在此页面上未找到可下载的文件。',
+    'videoOverlay.toolUnavailable': "请在 NOVA 中安装或修复 yt-dlp，然后重新解析。",
+    'videoOverlay.analysisRetry': "NOVA 无法刷新媒体信息。请重新解析以重试。",
     'videoOverlay.noneSelected': '未选择任何文件',
     'videoOverlay.pickerTitle': '检测到的文件',
     'videoOverlay.selectAll': '全选',

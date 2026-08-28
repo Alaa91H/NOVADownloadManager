@@ -292,6 +292,8 @@ export const ko = {
     'videoOverlay.close': '닫기',
     'videoOverlay.download': '다운로드',
     'videoOverlay.noFiles': '이 페이지에서 다운로드할 수 있는 파일이 없습니다.',
+    'videoOverlay.toolUnavailable': "NOVA에서 yt-dlp를 설치하거나 복구한 뒤 다시 분석하세요.",
+    'videoOverlay.analysisRetry': "NOVA에서 미디어 정보를 새로 고칠 수 없습니다. 다시 시도하려면 다시 분석하세요.",
     'videoOverlay.noneSelected': '선택된 파일 없음',
     'videoOverlay.pickerTitle': '감지된 파일',
     'videoOverlay.selectAll': '모두 선택',

@@ -292,6 +292,8 @@ export const ro = {
     'videoOverlay.close': 'Închideși',
     'videoOverlay.download': 'Descărcare',
     'videoOverlay.noFiles': 'Nu s-au găsit fișiere descărcabile pe această pagină.',
+    'videoOverlay.toolUnavailable': "Instalați sau reparați yt-dlp în NOVA, apoi analizați din nou.",
+    'videoOverlay.analysisRetry': "NOVA nu a putut actualiza informațiile media. Analizați din nou pentru a reîncerca.",
     'videoOverlay.noneSelected': 'Niciun fișier selectat',
     'videoOverlay.pickerTitle': 'Fișiere capturate',
     'videoOverlay.selectAll': 'Selectași tot',

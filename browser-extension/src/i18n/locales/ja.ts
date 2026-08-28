@@ -292,6 +292,8 @@ export const ja = {
     'videoOverlay.close': '閉じる',
     'videoOverlay.download': 'ダウンロード',
     'videoOverlay.noFiles': 'このページにダウンロード可能なファイルは見つかりませんでした。',
+    'videoOverlay.toolUnavailable': "NOVA で yt-dlp をインストールまたは修復してから、もう一度解析してください。",
+    'videoOverlay.analysisRetry': "NOVA はメディア情報を更新できませんでした。再試行するにはもう一度解析してください。",
     'videoOverlay.noneSelected': 'ファイルが選択されていません',
     'videoOverlay.pickerTitle': '検出されたファイル',
     'videoOverlay.selectAll': 'すべて選択',

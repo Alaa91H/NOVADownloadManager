@@ -292,6 +292,8 @@ export const tr = {
     'videoOverlay.close': 'Kapat',
     'videoOverlay.download': 'İndir',
     'videoOverlay.noFiles': 'Bu sayfada indirilebilir dosya bulunamadı.',
+    'videoOverlay.toolUnavailable': "yt-dlp’yi NOVA içinde yükleyin veya onarın, ardından yeniden analiz edin.",
+    'videoOverlay.analysisRetry': "NOVA medya bilgilerini yenileyemedi. Yeniden denemek için tekrar analiz edin.",
     'videoOverlay.noneSelected': 'Dosya seçilmedi',
     'videoOverlay.pickerTitle': 'Algılanan dosyalar',
     'videoOverlay.selectAll': 'Tümünü seç',

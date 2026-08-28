@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.43-alpha] - 2026-08-28
+
+### Fixed
+
+- **Made the floating video panel truthful before download.** Its primary action now says “Resolve via NOVA” until the desktop service returns a usable format catalog, and “Re-resolve via NOVA” when the user explicitly refreshes it. A re-resolution immediately clears the previous snapshot so stale choices are not shown while the page may have changed. The panel renders only formats carrying an explicit identifier that the secure handoff route can verify; it no longer presents a visual download control for an unselectable result.
+- **Made empty media analysis actionable without disclosing diagnostics.** The panel distinguishes a missing local yt-dlp tool from transient bounded analysis failures and provides locale-parity remedies. It continues to reject protected media and never displays raw extractor output, source query data, delivery URLs, cookies, headers, tokens, or authorization material.
+- **Anchored overlay analysis to the browser-owned top-level tab URL.** A valid HTTP(S) content-script sender remains mandatory, but when the browser provides the tab address NOVA now analyzes that top-level page rather than a potentially embedded frame URL. The selected `formatId` is still revalidated against a fresh daemon analysis before a task can be submitted.
+- **Removed remaining English-only labels from the floating quality table.** The close action, resolution workflow, format count, column labels, row actions, preferred-format action, and live feedback now use localized extension copy. Toast notifications are announced through a polite live region and replace their dismissal timer rather than racing multiple stale timeouts.
+
+### Added
+
+- **Added a compact, locale-parity translation resource for the in-page panel.** The lazy content script no longer imports the full popup translation registry. The 25 supported extension locale maps are covered by regression tests, while the local production Firefox floating-panel bundle measured 56,798 bytes in this release verification.
+- **Added overlay top-level-page and translation-parity regression coverage.** Router coverage now proves that an embedded sender cannot choose the analyzed page URL when a trusted browser tab URL is available. Translation coverage verifies matching compact-resource keys across all supported extension locales and Arabic rendering of the yt-dlp recovery guidance.
+
+### Scope and safety
+
+- This alpha improves the browser extension’s local analysis and handoff experience; it does not guarantee permanent compatibility with any third-party site or that every visible player exposes downloadable formats.
+- NOVA does not disable or bypass DRM, access controls, account requirements, CAPTCHAs, PO tokens, regional restrictions, protected-media controls, cookies, credentials, signed query tokens, or browser authorization headers. The desktop service remains responsible for current tool readiness, allowed media analysis, and download execution.
+
 ## [2.4.42-alpha] - 2026-08-27
 
 ### Fixed

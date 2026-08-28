@@ -292,6 +292,8 @@ export const hi = {
     'videoOverlay.close': 'बंद करें',
     'videoOverlay.download': 'डाउनलोड',
     'videoOverlay.noFiles': 'इस पृष्ठ पर कोई डाउनलोड करने योग्य फ़ाइल नहीं मिली।',
+    'videoOverlay.toolUnavailable': "NOVA में yt-dlp इंस्टॉल या ठीक करें, फिर दोबारा विश्लेषण करें।",
+    'videoOverlay.analysisRetry': "NOVA मीडिया जानकारी ताज़ा नहीं कर सका। फिर से प्रयास करने के लिए दोबारा विश्लेषण करें।",
     'videoOverlay.noneSelected': 'कोई फ़ाइल चयनित नहीं',
     'videoOverlay.pickerTitle': 'पकड़ी गई फ़ाइलें',
     'videoOverlay.selectAll': 'सभी चुनें',

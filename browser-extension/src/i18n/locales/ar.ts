@@ -292,6 +292,8 @@ export const ar = {
     'videoOverlay.close': 'إغلاق',
     'videoOverlay.download': 'تحميل',
     'videoOverlay.noFiles': 'لا توجد ملفات قابلة للتحميل في هذه الصفحة.',
+    'videoOverlay.toolUnavailable': "ثبّت أو أصلح yt-dlp في NOVA، ثم أعد التحليل.",
+    'videoOverlay.analysisRetry': "تعذّر على NOVA تحديث معلومات الوسائط. أعد التحليل للمحاولة مجددًا.",
     'videoOverlay.noneSelected': 'لم تختر أي ملف',
     'videoOverlay.pickerTitle': 'الملفات الملتقطة',
     'videoOverlay.selectAll': 'تحديد الكل',

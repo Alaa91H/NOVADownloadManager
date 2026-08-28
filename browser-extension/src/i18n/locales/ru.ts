@@ -292,6 +292,8 @@ export const ru = {
     'videoOverlay.close': 'Закрыть',
     'videoOverlay.download': 'Скачать',
     'videoOverlay.noFiles': 'На этой странице не найдено файлов для загрузки.',
+    'videoOverlay.toolUnavailable': "Установите или восстановите yt-dlp в NOVA, затем повторите анализ.",
+    'videoOverlay.analysisRetry': "NOVA не смог обновить сведения о медиа. Повторите анализ, чтобы попробовать снова.",
     'videoOverlay.noneSelected': 'Файлы не выбраны',
     'videoOverlay.pickerTitle': 'Обнаруженные файлы',
     'videoOverlay.selectAll': 'Выбрать все',

@@ -146,6 +146,8 @@ export const bn = {
     'videoOverlay.selectAll': 'সব নির্বাচন করুন',
     'videoOverlay.clearSelection': 'পরিষ্কার করুন',
     'videoOverlay.noFiles': 'এই পৃষ্ঠায় কোনো ডাউনলোডযোগ্য ফাইল পাওয়া যায়নি।',
+    'videoOverlay.toolUnavailable': "NOVA-তে yt-dlp ইনস্টল বা মেরামত করে আবার বিশ্লেষণ করুন।",
+    'videoOverlay.analysisRetry': "NOVA মিডিয়ার তথ্য হালনাগাদ করতে পারেনি। আবার চেষ্টা করতে পুনরায় বিশ্লেষণ করুন।",
     'candidate.filter.aria': 'প্রার্থী ফিল্টার',
     'candidate.filter.all': 'সব',
     'candidate.filter.video': 'ভিডিও',

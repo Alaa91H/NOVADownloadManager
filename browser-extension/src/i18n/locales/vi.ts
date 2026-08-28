@@ -292,6 +292,8 @@ export const vi = {
     'videoOverlay.close': 'Đóng',
     'videoOverlay.download': 'Tải xuống',
     'videoOverlay.noFiles': 'Không tìm thấy tệp có thể tải xuống trên trang này.',
+    'videoOverlay.toolUnavailable': "Cài đặt hoặc sửa chữa yt-dlp trong NOVA, rồi phân tích lại.",
+    'videoOverlay.analysisRetry': "NOVA không thể làm mới thông tin đa phương tiện. Hãy phân tích lại để thử lại.",
     'videoOverlay.noneSelected': 'Chưa chọn tệp nào',
     'videoOverlay.pickerTitle': 'Tệp đã thu thập',
     'videoOverlay.selectAll': 'Chọn tất cả',

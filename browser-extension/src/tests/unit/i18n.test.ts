@@ -15,6 +15,7 @@ const {
   getLocaleBundle,
   getDefaultLocale,
 } = await import('../../i18n');
+const { overlayTranslations, translateOverlay } = await import('../../content/overlay-i18n');
 
 afterEach(() => {
   getUILanguage.mockReturnValue('en');
@@ -82,6 +83,22 @@ describe('translate', () => {
   it('createTranslator binds a locale', () => {
     const t = createTranslator('ar');
     expect(t('videoOverlay.close')).toBe('إغلاق');
+  });
+});
+
+describe('compact overlay translations', () => {
+  it('keeps all 25 locale maps aligned and resolves the safe tool remedy locally', () => {
+    const expectedKeys = Object.keys(overlayTranslations.en).sort() as Array<keyof typeof overlayTranslations.en>;
+    for (const locale of SUPPORTED_LOCALES) {
+      expect(Object.keys(overlayTranslations[locale]).sort()).toEqual(expectedKeys);
+      for (const key of expectedKeys) {
+        expect(overlayTranslations[locale][key]).toBe(LOCALES[locale].strings[key]);
+      }
+    }
+
+    getUILanguage.mockReturnValue('ar-EG');
+    expect(translateOverlay('videoOverlay.toolUnavailable')).toBe('ثبّت أو أصلح yt-dlp في NOVA، ثم أعد التحليل.');
+    expect(translateOverlay('quality.header', { n: 3 })).toContain('3');
   });
 });
 

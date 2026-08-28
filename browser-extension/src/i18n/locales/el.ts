@@ -292,6 +292,8 @@ export const el = {
     'videoOverlay.close': 'Κλείσιμο',
     'videoOverlay.download': 'Λήψη',
     'videoOverlay.noFiles': 'Δεν βρέθηκαν λήψιμα αρχεία σε αυτή τη σελίδα.',
+    'videoOverlay.toolUnavailable': "Εγκαταστήστε ή επιδιορθώστε το yt-dlp στο NOVA και αναλύστε ξανά.",
+    'videoOverlay.analysisRetry': "Το NOVA δεν μπόρεσε να ανανεώσει τις πληροφορίες πολυμέσων. Αναλύστε ξανά για νέα προσπάθεια.",
     'videoOverlay.noneSelected': 'Δεν επιλέχθηκαν αρχεία',
     'videoOverlay.pickerTitle': 'Καταγεγραμμένα αρχεία',
     'videoOverlay.selectAll': 'Επιλογή όλων',

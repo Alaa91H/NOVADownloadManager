@@ -292,6 +292,8 @@ export const id = {
     'videoOverlay.close': 'Tutup',
     'videoOverlay.download': 'Unduh',
     'videoOverlay.noFiles': 'Tidak ada berkas yang dapat diunduh di halaman ini.',
+    'videoOverlay.toolUnavailable': "Instal atau perbaiki yt-dlp di NOVA, lalu analisis kembali.",
+    'videoOverlay.analysisRetry': "NOVA tidak dapat memperbarui informasi media. Analisis kembali untuk mencoba lagi.",
     'videoOverlay.noneSelected': 'Tidak ada berkas dipilih',
     'videoOverlay.pickerTitle': 'Berkas terdeteksi',
     'videoOverlay.selectAll': 'Pilih semua',

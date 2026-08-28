@@ -146,6 +146,8 @@ export const th = {
     'videoOverlay.selectAll': 'เลือกทั้งหมด',
     'videoOverlay.clearSelection': 'ยกเลิกการเลือก',
     'videoOverlay.noFiles': 'ไม่พบไฟล์ที่ดาวน์โหลดได้บนหน้านี้',
+    'videoOverlay.toolUnavailable': "ติดตั้งหรือซ่อมแซม yt-dlp ใน NOVA แล้ววิเคราะห์อีกครั้ง",
+    'videoOverlay.analysisRetry': "NOVA ไม่สามารถรีเฟรชข้อมูลสื่อได้ โปรดวิเคราะห์อีกครั้งเพื่อลองใหม่",
     'candidate.filter.aria': 'ตัวกรองตัวเลือก',
     'candidate.filter.all': 'ทั้งหมด',
     'candidate.filter.video': 'วิดีโอ',

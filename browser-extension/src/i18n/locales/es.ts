@@ -292,6 +292,8 @@ export const es = {
     'videoOverlay.close': 'Cerrar',
     'videoOverlay.download': 'Descargar',
     'videoOverlay.noFiles': 'No se encontraron archivos descargables en esta página.',
+    'videoOverlay.toolUnavailable': "Instala o repara yt-dlp en NOVA y vuelve a analizar.",
+    'videoOverlay.analysisRetry': "NOVA no pudo actualizar la información multimedia. Vuelve a analizar para reintentar.",
     'videoOverlay.noneSelected': 'No hay archivos seleccionados',
     'videoOverlay.pickerTitle': 'Archivos detectados',
     'videoOverlay.selectAll': 'Seleccionar todo',

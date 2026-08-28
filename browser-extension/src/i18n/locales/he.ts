@@ -292,6 +292,8 @@ export const he = {
     'videoOverlay.close': 'סגור',
     'videoOverlay.download': 'הורד',
     'videoOverlay.noFiles': 'לא נמצאו קבצים להורדה בדף זה.',
+    'videoOverlay.toolUnavailable': "התקן או תקן את yt-dlp ב‑NOVA ולאחר מכן נתח מחדש.",
+    'videoOverlay.analysisRetry': "NOVA לא הצליח לרענן את פרטי המדיה. נתח מחדש כדי לנסות שוב.",
     'videoOverlay.noneSelected': 'לא נבחרו קבצים',
     'videoOverlay.pickerTitle': 'קבצים שנלכדו',
     'videoOverlay.selectAll': 'בחר הכל',

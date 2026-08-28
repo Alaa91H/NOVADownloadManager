@@ -5,7 +5,7 @@ import type { ScanBudgetProfile } from './scan-result-budget';
 
 export type RuntimeMessageSenderLike = {
   url?: string;
-  tab?: { id?: number };
+  tab?: { id?: number; url?: string };
 };
 
 const SCAN_WINDOW_MS = 60_000;
