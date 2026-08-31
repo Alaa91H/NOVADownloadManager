@@ -59,7 +59,7 @@ jobs:
             'cmake;3.22.1'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v5
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Build debug APK and run JVM tests
         working-directory: android
