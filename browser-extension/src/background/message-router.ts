@@ -33,6 +33,7 @@ import { AGGRESSIVE_CAPTURE_PERMISSION_BUNDLE } from '../profiles/aggressive-cap
 import { enforceAggressivePermissions, getAggressivePermissionIntegrity } from '../profiles/aggressive-permission-enforcer';
 import { mediaTypeFromPageTapHint, buildPageTapFilename } from './page-tap-utils';
 import { waitForBackgroundInitialization } from './initialization-gate';
+import { translate } from '../i18n';
 
 const cache = new CandidateCache();
 const pipeline = new CandidatePipeline();
@@ -91,7 +92,7 @@ async function notifyDownloadStarted(name: string): Promise<void> {
     void browser.notifications.create(`dl-${Date.now()}`, {
       type: 'basic',
       iconUrl: browser.runtime.getURL('icons/icon-48.png'),
-      title: 'Download Started',
+      title: translate('notification.downloadStarted'),
       message: shortName,
     });
   } catch { /* notifications may be disabled */ }
@@ -115,7 +116,7 @@ function initDownloadCompletionListener(): void {
         void browser.notifications.create(`dl-complete-${delta.id}`, {
           type: 'basic',
           iconUrl: browser.runtime.getURL('icons/icon-48.png'),
-          title: 'Download Complete',
+          title: translate('notification.downloadComplete'),
           message: shortName,
         });
       }
@@ -127,7 +128,7 @@ function initDownloadCompletionListener(): void {
         void browser.notifications.create(`dl-failed-${delta.id}`, {
           type: 'basic',
           iconUrl: browser.runtime.getURL('icons/icon-48.png'),
-          title: 'Download Failed',
+          title: translate('notification.downloadFailed'),
           message: shortName,
         });
       }

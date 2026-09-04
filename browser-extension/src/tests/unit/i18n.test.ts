@@ -59,6 +59,19 @@ describe('locale registry', () => {
     }
   });
 
+  it('keeps download notification titles translated in every supported locale', () => {
+    const keys = ['notification.downloadStarted', 'notification.downloadComplete', 'notification.downloadFailed'] as const;
+    for (const locale of SUPPORTED_LOCALES) {
+      for (const key of keys) {
+        const value = LOCALES[locale].strings[key];
+        expect(value).toBeTruthy();
+        expect(value).not.toBe(key);
+      }
+    }
+    expect(translate('notification.downloadStarted', 'ar')).toBe('بدأ التنزيل');
+    expect(translate('notification.downloadComplete', 'zh')).toBe('下载完成');
+  });
+
   it('marks Arabic and Persian as right-to-left and the rest as left-to-right', () => {
     expect(getLocaleBundle('ar').direction).toBe('rtl');
     expect(getLocaleBundle('fa').direction).toBe('rtl');

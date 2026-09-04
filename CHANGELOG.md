@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.44-alpha] - 2026-09-04
+
+### Fixed
+
+- **Localized browser download notifications across all 25 extension locales.** Start, completion, and failure notifications now resolve through NOVA's locale registry instead of exposing English-only titles in the browser notification surface.
+- **Kept notification copy within the extension's existing translation contract.** The new keys are present in every supported locale and are covered by a regression test, preventing future locale drift from silently reintroducing English-only status messages.
+
+### Quality
+
+- **Added notification localization regression coverage.** The extension unit suite now verifies all three notification keys across the complete locale registry and checks representative Arabic and Chinese output.
+- **Advanced the Android release version code to 16.** The release metadata remains aligned with the established alpha versioning flow, while CI continues to be responsible for signed release APK production.
+
+### Scope and safety
+
+- This alpha improves localized status feedback for browser-observed downloads. It does not alter media extraction, DRM handling, authentication, cookies, credentials, access controls, or third-party site restrictions.
+- Download notification messages contain only the bounded display filename already supplied by the browser download event; NOVA does not expose source URLs, query tokens, headers, cookies, or authorization material in the notification title.
+
 ## [2.4.43-alpha] - 2026-08-28
 
 ### Fixed
