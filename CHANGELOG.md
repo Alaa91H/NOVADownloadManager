@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.45-alpha] - 2026-09-04
+
+### Fixed
+
+- **Prevented stale YouTube and video analysis responses from overwriting newer state.** The floating panel now assigns a monotonic request identity to each managed analysis operation and accepts a response only while that request still owns the active slot. Late success and failure responses are ignored after a newer request or extension-context invalidation.
+- **Made extension invalidation quiet and recoverable for media analysis.** In-flight analysis state is invalidated when the content script is disposed, timers and observers are cleaned up, and stale completions cannot resurrect the panel or replace the current media catalog.
+
+### Improved
+
+- **Modernized the floating video panel layout.** The panel now uses viewport-aware sizing, bounded maximum width, fluid quality columns, and safe horizontal overflow on very narrow screens so controls and format choices remain reachable instead of being clipped.
+- **Kept the primary video flow focused.** The panel continues to expose only validated format identifiers for handoff to NOVA; transient extractor URLs and page-controlled delivery values remain outside the content-script download contract.
+
+### Added
+
+- **Added media request-state unit coverage.** Regression tests cover newest-request-wins behavior, invalidation of in-flight work, non-reuse of request identities, and safe finishing of only the active request.
+- **Added research documentation for browser media reliability and UX.** The cycle records official Chrome and MDN lifecycle/download guidance plus comparative findings from Motrix, aria2, JDownloader, and Video DownloadHelper, with measurable follow-up criteria.
+
+### Validation
+
+- Browser-extension validation completed successfully: **74 test files and 783 tests passed**, followed by TypeScript typechecking, ESLint, and `git diff --check`.
+- Android release metadata advanced to `versionCode 17`; signed release artifact generation remains enforced by CI and release secrets.
+
+### Scope and safety
+
+- This alpha improves allowed media analysis, browser lifecycle handling, and presentation of download choices. It does not bypass DRM, authentication, cookies, access controls, CAPTCHAs, signed tokens, regional restrictions, or protected-media controls.
+- The extension continues to send bounded intents and validated format identifiers only; raw extractor output, authorization headers, cookies, and transient delivery URLs are not exposed to the page UI.
+
 ## [2.4.44-alpha] - 2026-09-04
 
 ### Fixed

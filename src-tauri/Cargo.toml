@@ -1,6 +1,6 @@
 [package]
 name = "nova"
-version = "2.4.44-alpha"
+version = "2.4.45-alpha"
 description = "NOVA Download Manager"
 authors = ["NOVA"]
 license = "MIT"

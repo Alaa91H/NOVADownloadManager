@@ -1,6 +1,13 @@
 import browser from 'webextension-polyfill';
 import { translateOverlay } from './overlay-i18n';
 import { hasActiveExtensionContext, sendRuntimeMessageIfActive } from './extension-context';
+import {
+  beginMediaRequest,
+  createMediaRequestState,
+  finishMediaRequest,
+  invalidateMediaRequest,
+  isCurrentMediaRequest,
+} from './media-request-state';
 
 const HOST_ID = 'nova-media-panel-host';
 const CHECK_INTERVAL_MS = 3000;
@@ -22,6 +29,7 @@ let savedPosition: SavedPanelPosition | null = null;
 let toastEl: HTMLDivElement | null = null;
 let toastDismissTimer: number | undefined;
 let probeData: YtdlpProbeData | null = null;
+const mediaRequestState = createMediaRequestState();
 
 type ContentScriptLifecycle = {
   readonly signal: AbortSignal;
@@ -176,6 +184,7 @@ async function doProbe(): Promise<void> {
     return;
   }
   probing = true;
+  const requestId = beginMediaRequest(mediaRequestState);
   // A re-analysis must not leave an old catalog actionable while the page can
   // change underneath it. The background also revalidates every format id,
   // but clearing this snapshot keeps the visible state truthful as well.
@@ -187,6 +196,10 @@ async function doProbe(): Promise<void> {
       type: 'OVERLAY_ANALYZE_MEDIA',
     });
     if (result === undefined && !hasActiveExtensionContext()) return;
+    // The page or extension may have changed while the daemon was resolving.
+    // Never allow a late response to replace a newer snapshot or resurrect UI
+    // after the content-script context has been invalidated.
+    if (!isCurrentMediaRequest(mediaRequestState, requestId)) return;
     // The secure handoff route accepts an explicit format id only. Do not show
     // a row the user cannot activate, and do not derive a direct download from
     // a transient extractor delivery URL.
@@ -205,12 +218,16 @@ async function doProbe(): Promise<void> {
       showToast(analysisFailureMessage(result), true);
     }
   } catch {
+    if (!isCurrentMediaRequest(mediaRequestState, requestId)) return;
     // The daemon deliberately returns bounded analysis categories rather than
     // raw extractor stderr. Preserve that same safe, localized boundary here.
     showToast(translateOverlay('quality.noneFromNOVA'), true);
   } finally {
-    probing = false;
-    render();
+    if (isCurrentMediaRequest(mediaRequestState, requestId)) {
+      finishMediaRequest(mediaRequestState, requestId);
+      probing = false;
+      render();
+    }
   }
 }
 
@@ -280,6 +297,7 @@ function ensurePanel(signal?: AbortSignal): ShadowRoot {
     * { margin:0; padding:0; box-sizing:border-box; }
     .nova-p {
       position:fixed; top:8px; right:8px;
+      width:min(520px, calc(100vw - 8px)); max-width:calc(100vw - 8px);
       background:rgba(8,8,14,1); border:1px solid rgba(255,255,255,0.10);
       border-radius:10px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
       font-size:11px; color:#e4e4e7; pointer-events:auto; user-select:none;
@@ -309,7 +327,7 @@ function ensurePanel(signal?: AbortSignal): ShadowRoot {
     }
     @keyframes nspin { to { transform:rotate(360deg); } }
     .nova-dd {
-      position:absolute; top:100%; left:0; right:0; max-height:55vh; overflow-y:auto;
+      position:absolute; top:100%; left:0; right:0; max-height:55vh; overflow:auto;
       background:rgba(12,12,20,1); border-top:1px solid rgba(255,255,255,0.06);
     }
     .nova-dd::-webkit-scrollbar { width:4px; }
@@ -326,14 +344,14 @@ function ensurePanel(signal?: AbortSignal): ShadowRoot {
     }
     .nova-sub { font-size:9px; color:#71717a; display:flex; gap:8px; align-items:center; }
     .nova-thdr {
-      display:grid; grid-template-columns:100px 80px 70px 40px 60px 70px;
+      display:grid; grid-template-columns:minmax(86px,1.1fr) minmax(68px,.9fr) minmax(60px,.8fr) 36px minmax(54px,.7fr) minmax(64px,.8fr);
       font-size:8px; text-transform:uppercase; letter-spacing:.04em; color:#52525b;
       font-weight:500; padding:3px 10px; border-bottom:1px solid rgba(255,255,255,0.06);
       background:rgba(255,255,255,0.015);
     }
     .nova-thdr span:last-child { text-align:center; }
     .nova-row {
-      display:grid; grid-template-columns:100px 80px 70px 40px 60px 70px;
+      display:grid; grid-template-columns:minmax(86px,1.1fr) minmax(68px,.9fr) minmax(60px,.8fr) 36px minmax(54px,.7fr) minmax(64px,.8fr);
       align-items:center; padding:4px 10px; font-size:10px;
       border-bottom:1px solid rgba(255,255,255,0.03); transition:background .12s;
     }
@@ -368,6 +386,11 @@ function ensurePanel(signal?: AbortSignal): ShadowRoot {
       pointer-events:none; opacity:0; transition:opacity .3s,transform .3s; white-space:nowrap;
     }
     .nova-toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+    @media (max-width: 380px) {
+      .nova-p { right:4px; left:4px; width:auto; max-width:none; }
+      .nova-thdr, .nova-row { min-width:368px; }
+      .nova-dd { overflow-x:auto; }
+    }
     .nova-toast.error { border-color:rgba(239,68,68,0.4); color:#ef4444; }
   `;
   panelHost.appendChild(style);
@@ -640,5 +663,7 @@ export function initFloatingPanel(context?: ContentScriptLifecycle): void {
     panelVisible = false;
     dropdownVisible = false;
     probeData = null;
+    invalidateMediaRequest(mediaRequestState);
+    probing = false;
   });
 }
