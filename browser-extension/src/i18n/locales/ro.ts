@@ -301,6 +301,7 @@ export const ro = {
     'notification.downloadStarted': "Descărcare începută",
     'notification.downloadComplete': "Descărcare finalizată",
     'notification.downloadFailed': "Descărcare eșuată",
+    'notification.downloadPaused': "Descărcare întreruptă — reluarea este disponibilă",
     'videoOverlay.sendSelected': 'Descărcași selectate',
     'videoOverlay.sending': 'Se trimite…',
     'videoOverlay.sent': 'Trimis la NOVA',

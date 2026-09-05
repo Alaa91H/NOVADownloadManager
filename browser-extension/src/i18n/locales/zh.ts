@@ -301,6 +301,7 @@ export const zh = {
     'notification.downloadStarted': "下载已开始",
     'notification.downloadComplete': "下载完成",
     'notification.downloadFailed': "下载失败",
+    'notification.downloadPaused': "下载已暂停 — 可以继续下载",
     'videoOverlay.sendSelected': '下载所选',
     'videoOverlay.sending': '发送中…',
     'videoOverlay.sent': '已发送到 NOVA',

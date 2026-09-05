@@ -301,6 +301,7 @@ export const ar = {
     'notification.downloadStarted': "بدأ التنزيل",
     'notification.downloadComplete': "اكتمل التنزيل",
     'notification.downloadFailed': "فشل التنزيل",
+    'notification.downloadPaused': "تم إيقاف التنزيل مؤقتاً — الاستئناف متاح",
     'videoOverlay.sendSelected': 'تحميل المحدد',
     'videoOverlay.sending': 'جارٍ الإرسال…',
     'videoOverlay.sent': 'تم الإرسال إلى NOVA',

@@ -301,6 +301,7 @@ export const fr = {
     'notification.downloadStarted': "Téléchargement commencé",
     'notification.downloadComplete': "Téléchargement terminé",
     'notification.downloadFailed': "Échec du téléchargement",
+    'notification.downloadPaused': "Téléchargement en pause — reprise disponible",
     'videoOverlay.sendSelected': 'Télécharger la sélection',
     'videoOverlay.sending': 'Envoi…',
     'videoOverlay.sent': 'Envoyé à NOVA',

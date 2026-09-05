@@ -301,6 +301,7 @@ export const sv = {
     'notification.downloadStarted': "Nedladdning startad",
     'notification.downloadComplete': "Nedladdning slutförd",
     'notification.downloadFailed': "Nedladdningen misslyckades",
+    'notification.downloadPaused': "Nedladdning pausad — kan återupptas",
     'videoOverlay.sendSelected': 'Hämta valda',
     'videoOverlay.sending': 'Skickar…',
     'videoOverlay.sent': 'Skickad till NOVA',

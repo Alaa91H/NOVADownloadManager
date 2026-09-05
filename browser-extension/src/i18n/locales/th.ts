@@ -145,6 +145,7 @@ export const th = {
     'notification.downloadStarted': "เริ่มดาวน์โหลดแล้ว",
     'notification.downloadComplete': "ดาวน์โหลดเสร็จสมบูรณ์",
     'notification.downloadFailed': "ดาวน์โหลดไม่สำเร็จ",
+    'notification.downloadPaused': "หยุดดาวน์โหลดชั่วคราว — สามารถดาวน์โหลดต่อได้",
     'videoOverlay.noneSelected': 'ไม่ได้เลือกไฟล์',
     'videoOverlay.selectAll': 'เลือกทั้งหมด',
     'videoOverlay.clearSelection': 'ยกเลิกการเลือก',

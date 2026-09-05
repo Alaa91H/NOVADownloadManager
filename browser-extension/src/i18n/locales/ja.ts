@@ -301,6 +301,7 @@ export const ja = {
     'notification.downloadStarted': "ダウンロードを開始しました",
     'notification.downloadComplete': "ダウンロードが完了しました",
     'notification.downloadFailed': "ダウンロードに失敗しました",
+    'notification.downloadPaused': "ダウンロードを一時停止しました — 再開できます",
     'videoOverlay.sendSelected': '選択をダウンロード',
     'videoOverlay.sending': '送信中…',
     'videoOverlay.sent': 'NOVA に送信しました',

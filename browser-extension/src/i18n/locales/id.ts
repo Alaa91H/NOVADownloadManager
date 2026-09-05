@@ -301,6 +301,7 @@ export const id = {
     'notification.downloadStarted': "Unduhan dimulai",
     'notification.downloadComplete': "Unduhan selesai",
     'notification.downloadFailed': "Unduhan gagal",
+    'notification.downloadPaused': "Unduhan dijeda — dapat dilanjutkan",
     'videoOverlay.sendSelected': 'Unduh terpilih',
     'videoOverlay.sending': 'Mengirim…',
     'videoOverlay.sent': 'Terkirim ke NOVA',

@@ -301,6 +301,7 @@ export const ru = {
     'notification.downloadStarted': "Загрузка начата",
     'notification.downloadComplete': "Загрузка завершена",
     'notification.downloadFailed': "Загрузка не удалась",
+    'notification.downloadPaused': "Загрузка приостановлена — доступно возобновление",
     'videoOverlay.sendSelected': 'Скачать выбранное',
     'videoOverlay.sending': 'Отправка…',
     'videoOverlay.sent': 'Отправлено в NOVA',

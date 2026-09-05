@@ -301,6 +301,7 @@ export const vi = {
     'notification.downloadStarted': "Đã bắt đầu tải xuống",
     'notification.downloadComplete': "Đã tải xuống xong",
     'notification.downloadFailed': "Tải xuống thất bại",
+    'notification.downloadPaused': "Đã tạm dừng tải xuống — có thể tiếp tục",
     'videoOverlay.sendSelected': 'Tải xuống mục đã chọn',
     'videoOverlay.sending': 'Đang gửi…',
     'videoOverlay.sent': 'Đã gửi đến NOVA',

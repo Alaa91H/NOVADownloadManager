@@ -301,6 +301,7 @@ export const he = {
     'notification.downloadStarted': "ההורדה התחילה",
     'notification.downloadComplete': "ההורדה הושלמה",
     'notification.downloadFailed': "ההורדה נכשלה",
+    'notification.downloadPaused': "ההורדה מושהית — ניתן להמשיך",
     'videoOverlay.sendSelected': 'הורד נבחרים',
     'videoOverlay.sending': 'שולח…',
     'videoOverlay.sent': 'נשלח ל-NOVA',

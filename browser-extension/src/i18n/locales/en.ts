@@ -164,6 +164,7 @@
     'notification.downloadStarted': "Download started",
     'notification.downloadComplete': "Download complete",
     'notification.downloadFailed': "Download failed",
+    'notification.downloadPaused': "Download paused — resume available",
     'videoOverlay.noneSelected': 'No files selected',
     'videoOverlay.selectAll': 'Select all',
     'videoOverlay.clearSelection': 'Clear',

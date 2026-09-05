@@ -145,6 +145,7 @@ export const fa = {
     'notification.downloadStarted': "دانلود آغاز شد",
     'notification.downloadComplete': "دانلود کامل شد",
     'notification.downloadFailed': "دانلود ناموفق بود",
+    'notification.downloadPaused': "دانلود متوقف شد — ادامه‌دادن در دسترس است",
     'videoOverlay.noneSelected': 'هیچ فایلی انتخاب نشده است',
     'videoOverlay.selectAll': 'انتخاب همه',
     'videoOverlay.clearSelection': 'پاک کردن انتخاب',

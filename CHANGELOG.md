@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.46-alpha] - 2026-09-05
+
+### Fixed
+
+- **Distinguished resumable interruptions from terminal failures in the browser extension.** The download observer now refreshes the authoritative browser `DownloadItem` after state deltas and preserves tracking when a download is paused or interrupted but can resume.
+- **Prevented premature failure notifications.** A download is reported as failed only when the refreshed item is interrupted and no resume capability is available; completion is announced only after a confirmed complete state.
+- **Kept notification handling idempotent.** Repeated `onChanged` deltas no longer produce duplicate paused, complete, or failed notifications for the same tracked download.
+
+### Improved
+
+- **Strengthened YouTube and video handoff reliability.** Browser downloads are correlated by persistent download ID and state transitions are handled using the browser-owned item rather than trusting a single delta event. This reduces false terminal states during network recovery and pause/resume operations.
+- **Improved localized download status UX.** A new `downloadPaused` notification state is available across all 25 browser-extension locales, keeping resumable downloads truthful and avoiding English-only status text.
+- **Maintained responsive media-panel behavior.** The previous cycle's viewport-aware layout and stale-analysis request guard remain active for narrow windows, navigation changes, and extension-context invalidation.
+
+### Added
+
+- **Added a pure download-state classifier.** The classifier explicitly covers complete, paused/resumable, terminal interrupted, and unrelated progress observations.
+- **Added regression coverage.** Browser-extension validation now covers five download-state scenarios in addition to the existing media request and localization tests.
+- **Added research documentation.** `docs/research/2026-09-download-resume-youtube-cycle.md` records official Chrome/MDN download lifecycle guidance, yt-dlp release-channel behavior, XDM comparison findings, and the bounded implementation rationale.
+
+### Validation
+
+- Browser-extension validation passed: **75 test files and 788 tests**; TypeScript, ESLint, production build, manifest validation, package hygiene, and production guard also passed.
+- Release packaging produced exactly three browser archives: Chrome ZIP, Edge ZIP, and Firefox XPI.
+- Android release metadata advanced to `versionCode 18`.
+
+### Safety and scope
+
+- This release improves allowed downloads and truthful state presentation. It does not bypass DRM, authentication, cookies, access controls, CAPTCHAs, signed tokens, regional restrictions, or protected-media controls.
+- The extension does not expose raw extractor URLs, authorization headers, cookies, or transient delivery tokens to the page UI.
+
+### References
+
+- [1] [yt-dlp official repository](https://github.com/yt-dlp/yt-dlp)
+- [2] [Chrome downloads API](https://developer.chrome.com/docs/extensions/reference/api/downloads)
+- [3] [MDN downloads.onChanged](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/downloads/onChanged)
+- [4] [Xtreme Download Manager repository](https://github.com/subhra74/xdm)
+
 ## [2.4.45-alpha] - 2026-09-04
 
 ### Fixed

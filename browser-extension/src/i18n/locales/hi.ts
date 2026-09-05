@@ -301,6 +301,7 @@ export const hi = {
     'notification.downloadStarted': "डाउनलोड शुरू हुआ",
     'notification.downloadComplete': "डाउनलोड पूरा हुआ",
     'notification.downloadFailed': "डाउनलोड विफल हुआ",
+    'notification.downloadPaused': "डाउनलोड रुका हुआ है — फिर से शुरू किया जा सकता है",
     'videoOverlay.sendSelected': 'चयनित डाउनलोड करें',
     'videoOverlay.sending': 'भेजा जा रहा है…',
     'videoOverlay.sent': 'NOVA को भेजा गया',

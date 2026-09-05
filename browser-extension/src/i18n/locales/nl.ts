@@ -301,6 +301,7 @@ export const nl = {
     'notification.downloadStarted': "Download gestart",
     'notification.downloadComplete': "Download voltooid",
     'notification.downloadFailed': "Download mislukt",
+    'notification.downloadPaused': "Download gepauzeerd — hervatten beschikbaar",
     'videoOverlay.sendSelected': 'Download geselecteerde',
     'videoOverlay.sending': 'Bezig met verzenden…',
     'videoOverlay.sent': 'Naar NOVA verzonden',

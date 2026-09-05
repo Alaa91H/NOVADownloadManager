@@ -34,6 +34,7 @@ import { enforceAggressivePermissions, getAggressivePermissionIntegrity } from '
 import { mediaTypeFromPageTapHint, buildPageTapFilename } from './page-tap-utils';
 import { waitForBackgroundInitialization } from './initialization-gate';
 import { translate } from '../i18n';
+import { classifyDownloadNotice } from './download-state';
 
 const cache = new CandidateCache();
 const pipeline = new CandidatePipeline();
@@ -98,42 +99,73 @@ async function notifyDownloadStarted(name: string): Promise<void> {
   } catch { /* notifications may be disabled */ }
 }
 
-const TRACKED_DOWNLOADS = new Map<number, string>();
+type TrackedDownload = { filename: string; lastNotice?: 'paused' | 'complete' | 'failed' };
+const TRACKED_DOWNLOADS = new Map<number, TrackedDownload>();
 
 function trackDownload(downloadId: number, filename: string): void {
-  TRACKED_DOWNLOADS.set(downloadId, filename);
+  TRACKED_DOWNLOADS.set(downloadId, { filename });
+}
+
+function shortDownloadName(filename: string): string {
+  return filename.length > 60 ? filename.slice(0, 57) + '...' : filename;
+}
+
+async function notifyTrackedDownloadState(
+  downloadId: number,
+  state: 'paused' | 'complete' | 'failed',
+): Promise<void> {
+  const tracked = TRACKED_DOWNLOADS.get(downloadId);
+  if (!tracked || tracked.lastNotice === state) return;
+  tracked.lastNotice = state;
+  const title = state === 'paused'
+    ? translate('notification.downloadPaused')
+    : state === 'complete'
+      ? translate('notification.downloadComplete')
+      : translate('notification.downloadFailed');
+  await browser.notifications.create(`dl-${state}-${downloadId}`, {
+    type: 'basic',
+    iconUrl: browser.runtime.getURL('icons/icon-48.png'),
+    title,
+    message: shortDownloadName(tracked.filename),
+  });
+}
+
+async function handleTrackedDownloadChange(
+  delta: browser.Downloads.OnChangedDownloadDeltaType,
+): Promise<void> {
+  if (typeof delta.id !== 'number' || !TRACKED_DOWNLOADS.has(delta.id)) return;
+  const items = await browser.downloads.search({ id: delta.id }).catch(() => []);
+  const item = items[0];
+  const notice = classifyDownloadNotice({
+    itemState: item?.state,
+    itemPaused: item?.paused,
+    itemCanResume: item?.canResume,
+    deltaState: delta.state?.current,
+    deltaPaused: delta.paused?.current,
+  });
+  if (notice === 'complete') {
+    await notifyTrackedDownloadState(delta.id, notice);
+    TRACKED_DOWNLOADS.delete(delta.id);
+    return;
+  }
+  if (notice === 'paused') {
+    await notifyTrackedDownloadState(delta.id, notice);
+    return;
+  }
+  if (notice === 'failed') {
+    await notifyTrackedDownloadState(delta.id, notice);
+    TRACKED_DOWNLOADS.delete(delta.id);
+  }
 }
 
 function initDownloadCompletionListener(): void {
   if (!browser.downloads?.onChanged) return;
   try {
     browser.downloads.onChanged.addListener((delta) => {
-    if (delta.state?.current === 'complete' && typeof delta.id === 'number') {
-      const filename = TRACKED_DOWNLOADS.get(delta.id);
-      if (filename) {
-        TRACKED_DOWNLOADS.delete(delta.id);
-        const shortName = filename.length > 60 ? filename.slice(0, 57) + '...' : filename;
-        void browser.notifications.create(`dl-complete-${delta.id}`, {
-          type: 'basic',
-          iconUrl: browser.runtime.getURL('icons/icon-48.png'),
-          title: translate('notification.downloadComplete'),
-          message: shortName,
-        });
-      }
-    } else if (delta.state?.current === 'interrupted' && typeof delta.id === 'number') {
-      const filename = TRACKED_DOWNLOADS.get(delta.id);
-      if (filename) {
-        TRACKED_DOWNLOADS.delete(delta.id);
-        const shortName = filename.length > 60 ? filename.slice(0, 57) + '...' : filename;
-        void browser.notifications.create(`dl-failed-${delta.id}`, {
-          type: 'basic',
-          iconUrl: browser.runtime.getURL('icons/icon-48.png'),
-          title: translate('notification.downloadFailed'),
-          message: shortName,
-        });
-      }
-    }
-  });
+      void handleTrackedDownloadChange(delta).catch(() => {
+        // Notifications are best-effort; keep the background router alive.
+      });
+    });
   } catch { /* fake-browser does not implement downloads.onChanged.addListener */ }
 }
 

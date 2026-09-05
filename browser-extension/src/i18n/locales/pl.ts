@@ -301,6 +301,7 @@ export const pl = {
     'notification.downloadStarted': "Pobieranie rozpoczęte",
     'notification.downloadComplete': "Pobieranie zakończone",
     'notification.downloadFailed': "Pobieranie nieudane",
+    'notification.downloadPaused': "Pobieranie wstrzymane — można wznowić",
     'videoOverlay.sendSelected': 'Pobierz wybrane',
     'videoOverlay.sending': 'Wysyłanie…',
     'videoOverlay.sent': 'Wysłano do NOVA',

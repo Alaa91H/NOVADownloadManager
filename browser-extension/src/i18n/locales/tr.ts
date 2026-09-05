@@ -301,6 +301,7 @@ export const tr = {
     'notification.downloadStarted': "İndirme başlatıldı",
     'notification.downloadComplete': "İndirme tamamlandı",
     'notification.downloadFailed': "İndirme başarısız oldu",
+    'notification.downloadPaused': "İndirme duraklatıldı — devam edilebilir",
     'videoOverlay.sendSelected': 'Seçileni indir',
     'videoOverlay.sending': 'Gönderiliyor…',
     'videoOverlay.sent': 'Sent to NOVA',

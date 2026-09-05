@@ -301,6 +301,7 @@ export const uk = {
     'notification.downloadStarted': "Завантаження розпочато",
     'notification.downloadComplete': "Завантаження завершено",
     'notification.downloadFailed': "Не вдалося завантажити",
+    'notification.downloadPaused': "Завантаження призупинено — можна відновити",
     'videoOverlay.sendSelected': 'Завантажити вибрані',
     'videoOverlay.sending': 'Надсилання…',
     'videoOverlay.sent': 'Надіслано до NOVA',

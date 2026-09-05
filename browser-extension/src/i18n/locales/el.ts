@@ -301,6 +301,7 @@ export const el = {
     'notification.downloadStarted': "Η λήψη ξεκίνησε",
     'notification.downloadComplete': "Η λήψη ολοκληρώθηκε",
     'notification.downloadFailed': "Η λήψη απέτυχε",
+    'notification.downloadPaused': "Η λήψη暂停θηκε — η συνέχιση είναι διαθέσιμη",
     'videoOverlay.sendSelected': 'Λήψη επιλεγμένων',
     'videoOverlay.sending': 'Αποστολή…',
     'videoOverlay.sent': 'Στάλθηκε στο NOVA',

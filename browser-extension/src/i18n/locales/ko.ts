@@ -301,6 +301,7 @@ export const ko = {
     'notification.downloadStarted': "다운로드 시작됨",
     'notification.downloadComplete': "다운로드 완료됨",
     'notification.downloadFailed': "다운로드 실패함",
+    'notification.downloadPaused': "다운로드 일시 중지됨 — 재개 가능",
     'videoOverlay.sendSelected': '선택 다운로드',
     'videoOverlay.sending': '전송 중…',
     'videoOverlay.sent': 'NOVA으로 전송됨',

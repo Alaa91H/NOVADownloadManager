@@ -145,6 +145,7 @@ export const bn = {
     'notification.downloadStarted': "ডাউনলোড শুরু হয়েছে",
     'notification.downloadComplete': "ডাউনলোড সম্পন্ন হয়েছে",
     'notification.downloadFailed': "ডাউনলোড ব্যর্থ হয়েছে",
+    'notification.downloadPaused': "ডাউনলোড থামানো হয়েছে — পুনরায় শুরু করা যাবে",
     'videoOverlay.noneSelected': 'কোন ফাইল নির্বাচন করা হয়নি',
     'videoOverlay.selectAll': 'সব নির্বাচন করুন',
     'videoOverlay.clearSelection': 'পরিষ্কার করুন',
