@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.47-alpha] - 2026-09-06
+
+### Fixed
+
+- **Preserved tracked browser downloads across service-worker restarts.** The extension now restores a bounded map of persistent browser download IDs from extension-local storage before subscribing to download lifecycle events.
+- **Reduced false completion and failure states after extension restarts.** Reconciliation continues to use the browser-owned `DownloadItem` as the source of truth, while restored metadata keeps notifications connected to the original download.
+
+### Improved
+
+- **Made download tracking durable without persisting sensitive material.** Only a redacted filename and the last localized notice state are stored. URLs, cookies, authorization headers, extractor output, and transient delivery tokens are never written to the tracking store.
+- **Bounded persisted state to 100 downloads.** Old entries are evicted from the serialized snapshot, preventing unbounded growth in a Manifest V3 service-worker environment.
+- **Improved YouTube/video reliability during browser lifecycle changes.** Persistent IDs, refreshed item state, and resumable classification now work together across pause, interruption, browser restart, and extension worker reinitialization scenarios.
+- **Maintained truthful modern media UX.** The floating panel continues to clear stale analysis results before re-analysis, accepts only current format IDs, remains responsive on narrow viewports, and localizes tool-unavailable and retry states across all supported extension locales.
+
+### Added
+
+- **Added a dedicated download tracking store.** Serialization and deserialization are isolated, sanitized, and unit tested.
+- **Added persistence regression coverage.** Tests cover invalid records, notice validation, filename redaction, and the 100-entry bound.
+- **Added research documentation.** `docs/research/2026-09-youtube-readiness-and-download-ux-cycle.md` records current Chrome storage/download guidance, yt-dlp extractor maintenance signals, and comparison findings from open-source download managers.
+
+### Validation
+
+- Browser-extension validation passed: **76 test files and 790 tests**; TypeScript, ESLint, production build, manifest validation, package hygiene, and production guard passed.
+- Release packaging produced Chrome ZIP, Edge ZIP, and Firefox XPI artifacts.
+- Android release metadata advanced to `versionCode 19`.
+
+### Safety and scope
+
+- This release improves allowed downloads and lifecycle reliability. It does not bypass DRM, authentication, cookies, access controls, CAPTCHAs, signed tokens, regional restrictions, or protected-media controls.
+- Persistent tracking stores only bounded, redacted local metadata and is not a cookie, credential, URL, or media-token store.
+
+### References
+
+- [1] [Chrome downloads API](https://developer.chrome.com/docs/extensions/reference/api/downloads)
+- [2] [Chrome storage API](https://developer.chrome.com/docs/extensions/reference/api/storage)
+- [3] [yt-dlp releases](https://github.com/yt-dlp/yt-dlp/releases)
+- [4] [Quantum Download Manager](https://github.com/PBhadoo/QDM)
+
 ## [2.4.46-alpha] - 2026-09-05
 
 ### Fixed

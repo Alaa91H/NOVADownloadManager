@@ -35,6 +35,11 @@ import { mediaTypeFromPageTapHint, buildPageTapFilename } from './page-tap-utils
 import { waitForBackgroundInitialization } from './initialization-gate';
 import { translate } from '../i18n';
 import { classifyDownloadNotice } from './download-state';
+import {
+  loadTrackedDownloads,
+  saveTrackedDownloads,
+  type PersistedTrackedDownload,
+} from './download-tracking-store';
 
 const cache = new CandidateCache();
 const pipeline = new CandidatePipeline();
@@ -99,11 +104,11 @@ async function notifyDownloadStarted(name: string): Promise<void> {
   } catch { /* notifications may be disabled */ }
 }
 
-type TrackedDownload = { filename: string; lastNotice?: 'paused' | 'complete' | 'failed' };
-const TRACKED_DOWNLOADS = new Map<number, TrackedDownload>();
+const TRACKED_DOWNLOADS = new Map<number, PersistedTrackedDownload>();
 
 function trackDownload(downloadId: number, filename: string): void {
   TRACKED_DOWNLOADS.set(downloadId, { filename });
+  void saveTrackedDownloads(TRACKED_DOWNLOADS);
 }
 
 function shortDownloadName(filename: string): string {
@@ -117,6 +122,7 @@ async function notifyTrackedDownloadState(
   const tracked = TRACKED_DOWNLOADS.get(downloadId);
   if (!tracked || tracked.lastNotice === state) return;
   tracked.lastNotice = state;
+  void saveTrackedDownloads(TRACKED_DOWNLOADS);
   const title = state === 'paused'
     ? translate('notification.downloadPaused')
     : state === 'complete'
@@ -146,6 +152,7 @@ async function handleTrackedDownloadChange(
   if (notice === 'complete') {
     await notifyTrackedDownloadState(delta.id, notice);
     TRACKED_DOWNLOADS.delete(delta.id);
+    void saveTrackedDownloads(TRACKED_DOWNLOADS);
     return;
   }
   if (notice === 'paused') {
@@ -155,11 +162,14 @@ async function handleTrackedDownloadChange(
   if (notice === 'failed') {
     await notifyTrackedDownloadState(delta.id, notice);
     TRACKED_DOWNLOADS.delete(delta.id);
+    void saveTrackedDownloads(TRACKED_DOWNLOADS);
   }
 }
 
-function initDownloadCompletionListener(): void {
+async function initDownloadCompletionListener(): Promise<void> {
   if (!browser.downloads?.onChanged) return;
+  const restored = await loadTrackedDownloads();
+  for (const [id, tracked] of restored) TRACKED_DOWNLOADS.set(id, tracked);
   try {
     browser.downloads.onChanged.addListener((delta) => {
       void handleTrackedDownloadChange(delta).catch(() => {
