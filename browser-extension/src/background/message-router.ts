@@ -34,7 +34,7 @@ import { enforceAggressivePermissions, getAggressivePermissionIntegrity } from '
 import { mediaTypeFromPageTapHint, buildPageTapFilename } from './page-tap-utils';
 import { waitForBackgroundInitialization } from './initialization-gate';
 import { translate } from '../i18n';
-import { classifyDownloadNotice } from './download-state';
+import { classifyDownloadNotice, shouldRetainTrackedDownload } from './download-state';
 import {
   loadTrackedDownloads,
   saveTrackedDownloads,
@@ -166,10 +166,24 @@ async function handleTrackedDownloadChange(
   }
 }
 
+async function reconcileRestoredTrackedDownloads(): Promise<void> {
+  let changed = false;
+  for (const id of [...TRACKED_DOWNLOADS.keys()]) {
+    const items = await browser.downloads.search({ id }).catch(() => []);
+    const item = items[0];
+    if (!item || !shouldRetainTrackedDownload(item)) {
+      TRACKED_DOWNLOADS.delete(id);
+      changed = true;
+    }
+  }
+  if (changed) await saveTrackedDownloads(TRACKED_DOWNLOADS);
+}
+
 async function initDownloadCompletionListener(): Promise<void> {
   if (!browser.downloads?.onChanged) return;
   const restored = await loadTrackedDownloads();
   for (const [id, tracked] of restored) TRACKED_DOWNLOADS.set(id, tracked);
+  await reconcileRestoredTrackedDownloads();
   try {
     browser.downloads.onChanged.addListener((delta) => {
       void handleTrackedDownloadChange(delta).catch(() => {

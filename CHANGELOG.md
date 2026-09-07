@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.48-alpha] - 2026-09-07
+
+### Fixed
+
+- **Reconciled restored browser-download tracking after service-worker startup.** The extension now queries each persisted download ID before registering lifecycle handling and removes records for missing, completed, or terminally interrupted downloads.
+- **Prevented stale completion and failure notifications.** Restored records are retained only for active, paused, or genuinely resumable browser downloads, keeping notification state aligned with the current browser-owned `DownloadItem`.
+
+### Improved
+
+- **Made restart recovery more truthful.** The extension continues to use refreshed browser download state as authoritative and now performs a startup cleanup pass before processing new `downloads.onChanged` events.
+- **Kept persistence bounded and privacy-preserving.** Only the existing capped, sanitized filename and localized notice metadata are persisted; URLs, cookies, authorization headers, extractor output, and transient media tokens remain excluded.
+- **Improved YouTube/video lifecycle reliability.** Pause, interruption, resumable recovery, browser restart, and service-worker reinitialization now share one explicit retention policy.
+- **Maintained modern localized media UX.** The floating panel still clears stale analysis snapshots before re-resolution, accepts only current format IDs, adapts to narrow viewports, and preserves localized yt-dlp readiness and retry remedies.
+
+### Added
+
+- **Added a pure restored-download retention policy.** The policy distinguishes active, paused, resumable interrupted, completed, terminal interrupted, and unknown records.
+- **Added regression coverage.** Tests now cover startup reconciliation decisions in addition to notification classification, persistence sanitization, invalid records, and the bounded 100-entry store.
+- **Added research documentation.** `docs/research/2026-09-download-lifecycle-and-youtube-ux-cycle.md` records the official service-worker, storage, and downloads guidance plus open-source UX comparisons.
+
+### Validation
+
+- Browser-extension validation passed: **76 test files and 792 tests**; TypeScript, ESLint, production build, manifest validation, package hygiene, and production guard passed.
+- Release packaging produced Chrome ZIP, Edge ZIP, and Firefox XPI artifacts.
+- Android release metadata advanced to `versionCode 20`.
+
+### Safety and scope
+
+- This release improves allowed downloads and lifecycle recovery. It does not bypass DRM, authentication, cookies, access controls, CAPTCHAs, signed tokens, regional restrictions, or protected-media controls.
+- Startup reconciliation deletes stale metadata silently and does not expose download URLs or local paths to page scripts.
+
+### References
+
+- [1] [Chrome extension service-worker lifecycle](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle)
+- [2] [Chrome storage API](https://developer.chrome.com/docs/extensions/reference/api/storage)
+- [3] [Chrome downloads API](https://developer.chrome.com/docs/extensions/reference/api/downloads)
+- [4] [Gopeed download manager](https://github.com/GopeedLab/gopeed)
+- [5] [yt-dlp releases](https://github.com/yt-dlp/yt-dlp/releases)
+
 ## [2.4.47-alpha] - 2026-09-06
 
 ### Fixed

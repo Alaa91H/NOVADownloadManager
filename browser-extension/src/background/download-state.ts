@@ -21,3 +21,19 @@ export function classifyDownloadNotice(observation: DownloadStateObservation): D
   if (observation.itemState === 'interrupted' || observation.deltaState === 'interrupted') return 'failed';
   return null;
 }
+
+export type TrackedDownloadItemObservation = {
+  state?: string;
+  paused?: boolean;
+  canResume?: boolean;
+};
+
+/**
+ * Decides whether restored tracking metadata still refers to an actionable
+ * browser download. Missing items are handled by the caller and are not kept.
+ */
+export function shouldRetainTrackedDownload(item: TrackedDownloadItemObservation): boolean {
+  if (item.state === 'complete') return false;
+  if (item.state === 'interrupted') return item.canResume === true;
+  return item.state === 'in_progress' || item.paused === true || item.canResume === true;
+}

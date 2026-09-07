@@ -23,7 +23,7 @@ android {
         applicationId = "com.nova.downloadmanager"
         minSdk = 26
         targetSdk = 37
-        versionCode = 19
+        versionCode = 20
         versionName = "2.4.43-alpha"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

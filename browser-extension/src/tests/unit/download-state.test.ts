@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyDownloadNotice } from '../../background/download-state';
+import { classifyDownloadNotice, shouldRetainTrackedDownload } from '../../background/download-state';
 
 describe('download state classification', () => {
   it('treats a confirmed complete item as complete', () => {
@@ -33,5 +33,20 @@ describe('download state classification', () => {
 
   it('ignores unrelated progress changes', () => {
     expect(classifyDownloadNotice({ itemState: 'in_progress' })).toBeNull();
+  });
+});
+
+describe('restored download tracking reconciliation', () => {
+  it('retains active, paused, and resumable interrupted items', () => {
+    expect(shouldRetainTrackedDownload({ state: 'in_progress' })).toBe(true);
+    expect(shouldRetainTrackedDownload({ state: 'in_progress', paused: true })).toBe(true);
+    expect(shouldRetainTrackedDownload({ state: 'interrupted', canResume: true })).toBe(true);
+  });
+
+  it('removes completed and terminal interrupted items', () => {
+    expect(shouldRetainTrackedDownload({ state: 'complete' })).toBe(false);
+    expect(shouldRetainTrackedDownload({ state: 'interrupted', canResume: false })).toBe(false);
+    expect(shouldRetainTrackedDownload({ state: 'interrupted' })).toBe(false);
+    expect(shouldRetainTrackedDownload({})).toBe(false);
   });
 });
