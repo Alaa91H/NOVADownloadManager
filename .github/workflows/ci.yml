@@ -448,7 +448,7 @@ jobs:
             'cmake;3.22.1'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v5
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Set up Rust with Android ARM64 target
         uses: dtolnay/rust-toolchain@stable
