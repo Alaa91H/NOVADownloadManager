@@ -19,6 +19,13 @@ pub struct BridgeInfo {
     pub task_schema: String,
 }
 
+/// Stable mobile projection of the shared core's resume decision.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Enum)]
+pub enum ResumeAction {
+    Append,
+    Restart,
+}
+
 /// A stable error for a client that was compiled against an incompatible bridge.
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum BridgeError {
@@ -45,6 +52,24 @@ pub fn initialize(client_bridge_api_version: u32) -> Result<BridgeInfo, BridgeEr
         core_version: env!("CARGO_PKG_VERSION").to_owned(),
         task_schema: "nova.task.v1".to_owned(),
     })
+}
+
+/// Applies the same resume-corruption policy used by the shared NOVA core.
+///
+/// Transports (libcurl on the native path, or another host integration) must not
+/// append response bytes until this returns `Append`. This keeps Android and
+/// desktop aligned on range semantics while the mobile transport migration is
+/// completed incrementally.
+#[uniffi::export]
+pub fn plan_http_resume(
+    existing_bytes: u64,
+    response_status: u16,
+    content_range_start: Option<u64>,
+) -> ResumeAction {
+    match nova_core_model::plan_http_resume(existing_bytes, response_status, content_range_start) {
+        nova_core_model::ResumeAction::Append => ResumeAction::Append,
+        nova_core_model::ResumeAction::Restart => ResumeAction::Restart,
+    }
 }
 
 /// Narrow primitive used by Android before the generated high-level task API is
@@ -104,5 +129,12 @@ mod tests {
         assert_eq!(android_initialize_status(BRIDGE_API_VERSION as i32), 1);
         assert_eq!(android_initialize_status(-1), -1);
         assert_eq!(android_initialize_status((BRIDGE_API_VERSION + 1) as i32), -1);
+    }
+
+    #[test]
+    fn ffi_resume_policy_matches_shared_core() {
+        assert_eq!(plan_http_resume(4096, 206, Some(4096)), ResumeAction::Append);
+        assert_eq!(plan_http_resume(4096, 200, None), ResumeAction::Restart);
+        assert_eq!(plan_http_resume(4096, 206, Some(2048)), ResumeAction::Restart);
     }
 }

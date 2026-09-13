@@ -70,9 +70,45 @@ pub struct Segment {
     pub end_byte: u64,
 }
 
+/// Safe action after a host has asked an HTTP server to resume at an existing
+/// local byte offset.
+///
+/// This belongs to the shared core because desktop and mobile must make the
+/// same corruption-avoidance decision even when their transport bindings differ.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ResumeAction {
+    /// The response is a matching partial response and can be appended.
+    Append,
+    /// The host must discard partial bytes and restart from byte zero.
+    Restart,
+}
+
+/// Decide whether a resume response is safe to append to an existing file.
+///
+/// For an empty destination there is nothing to resume, so a normal 2xx response
+/// is treated as a fresh transfer. For a non-empty destination NOVA appends only
+/// when the server returns `206 Partial Content` and confirms the exact requested
+/// start offset through `Content-Range`. Any missing/mismatched range or a full
+/// `200 OK` response forces a restart to prevent duplicated/corrupted output.
+pub fn plan_http_resume(
+    existing_bytes: u64,
+    response_status: u16,
+    content_range_start: Option<u64>,
+) -> ResumeAction {
+    if existing_bytes == 0 {
+        return ResumeAction::Append;
+    }
+
+    if response_status == 206 && content_range_start == Some(existing_bytes) {
+        ResumeAction::Append
+    } else {
+        ResumeAction::Restart
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::Segment;
+    use super::{plan_http_resume, ResumeAction, Segment};
 
     #[test]
     fn legacy_segment_without_byte_range_deserializes() {
@@ -97,5 +133,30 @@ mod tests {
         let serialized = serde_json::to_string(&segment).expect("serialize segment");
         let restored: Segment = serde_json::from_str(&serialized).expect("deserialize segment");
         assert_eq!(restored, segment);
+    }
+
+    #[test]
+    fn matching_partial_response_is_safe_to_append() {
+        assert_eq!(plan_http_resume(1_048_576, 206, Some(1_048_576)), ResumeAction::Append);
+    }
+
+    #[test]
+    fn full_response_during_resume_forces_restart() {
+        assert_eq!(plan_http_resume(1_048_576, 200, None), ResumeAction::Restart);
+    }
+
+    #[test]
+    fn mismatched_content_range_forces_restart() {
+        assert_eq!(plan_http_resume(1_048_576, 206, Some(524_288)), ResumeAction::Restart);
+    }
+
+    #[test]
+    fn missing_content_range_forces_restart() {
+        assert_eq!(plan_http_resume(1_048_576, 206, None), ResumeAction::Restart);
+    }
+
+    #[test]
+    fn fresh_transfer_never_requires_truncating_empty_output() {
+        assert_eq!(plan_http_resume(0, 200, None), ResumeAction::Append);
     }
 }
