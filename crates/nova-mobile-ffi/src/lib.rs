@@ -47,6 +47,34 @@ pub fn initialize(client_bridge_api_version: u32) -> Result<BridgeInfo, BridgeEr
     })
 }
 
+/// Narrow primitive used by Android before the generated high-level task API is
+/// activated. Keeping this handshake primitive means the APK can prove that the
+/// packaged Rust library is present and ABI-compatible without introducing a
+/// second Kotlin implementation of the NOVA task contract.
+fn android_initialize_status(client_bridge_api_version: i32) -> i32 {
+    let Ok(client_version) = u32::try_from(client_bridge_api_version) else {
+        return -1;
+    };
+
+    initialize(client_version)
+        .map(|info| i32::try_from(info.bridge_api_version).unwrap_or(-1))
+        .unwrap_or(-1)
+}
+
+/// JNI entry point used by `NovaNativeCore` on Android.
+///
+/// The first two arguments are opaque JNI environment/receiver pointers. The
+/// handshake only exchanges an integer contract version, so no JNI object
+/// access is required and the bridge stays dependency-free at this stage.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeInitialize(
+    _env: *mut core::ffi::c_void,
+    _receiver: *mut core::ffi::c_void,
+    client_bridge_api_version: i32,
+) -> i32 {
+    android_initialize_status(client_bridge_api_version)
+}
 
 #[cfg(test)]
 mod tests {
@@ -69,5 +97,12 @@ mod tests {
                 core_version,
             }) if client_version == BRIDGE_API_VERSION + 1 && core_version == BRIDGE_API_VERSION
         ));
+    }
+
+    #[test]
+    fn android_primitive_handshake_is_fail_closed() {
+        assert_eq!(android_initialize_status(BRIDGE_API_VERSION as i32), 1);
+        assert_eq!(android_initialize_status(-1), -1);
+        assert_eq!(android_initialize_status((BRIDGE_API_VERSION + 1) as i32), -1);
     }
 }

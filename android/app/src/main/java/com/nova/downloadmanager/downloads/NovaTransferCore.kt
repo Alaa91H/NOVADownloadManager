@@ -5,25 +5,31 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.util.Base64
+import com.nova.downloadmanager.core.NovaNativeCore
 
 /**
  * NOVA-owned Android transfer-task core.
  *
- * Android DownloadManager performs the network transfer so normal HTTP(S) work
- * remains durable under Android's background policy. NOVA owns the accepted
- * task catalog, safe destination choice, status projection, and restoration
- * after the Compose activity is recreated. Only a system download id and a
- * display name are persisted; URLs, request headers, cookies, and tokens are
- * deliberately not written to the local task catalog.
+ * Every accepted transfer first proves that the packaged NOVA Rust core is
+ * present and ABI-compatible. Android DownloadManager remains the bounded
+ * transport backend during the staged migration to the shared native transfer
+ * engine; it is no longer allowed to silently stand in for a missing Rust core.
+ * NOVA owns the accepted task catalog, safe destination choice, status
+ * projection, and restoration after the Compose activity is recreated. Only a
+ * system download id and a display name are persisted; URLs, request headers,
+ * cookies, and tokens are deliberately not written to the local task catalog.
  */
 class NovaTransferCore(context: Context) {
     private val appContext = context.applicationContext
+    private val nativeBridgeApiVersion = NovaNativeCore.requireCompatible()
     private val downloadManager = requireNotNull(
         appContext.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager,
     ) { "Android download service is unavailable" }
     private val preferences = appContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
     fun enqueue(url: String): Result<DownloadSummary> = runCatching {
+        check(nativeBridgeApiVersion > 0) { "NOVA native core is not initialized" }
+
         val source = Uri.parse(url.trim())
         require(source.scheme.equals("http", ignoreCase = true) || source.scheme.equals("https", ignoreCase = true)) {
             "Only HTTP(S) download URLs are supported"
