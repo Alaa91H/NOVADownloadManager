@@ -5,6 +5,9 @@
 //! arbitrary filesystem paths. Task operations are added only after the shared
 //! core owns their durable semantics.
 
+use curl::easy::Easy;
+use std::time::Duration;
+
 uniffi::setup_scaffolding!();
 
 /// Increment when a bridge change is not backward compatible.
@@ -33,6 +36,14 @@ pub enum ResumeAction {
     Restart,
 }
 
+/// HTTP metadata collected by NOVA's native libcurl transport.
+#[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
+pub struct HttpResourceProbe {
+    pub response_status: u16,
+    pub content_length: Option<u64>,
+    pub effective_url: String,
+}
+
 /// A stable error for a client that was compiled against an incompatible bridge.
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum BridgeError {
@@ -41,6 +52,21 @@ pub enum BridgeError {
         client_version: u32,
         core_version: u32,
     },
+}
+
+/// Stable transport error projected across the mobile FFI boundary.
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum TransportError {
+    #[error("native HTTP transport failed: {message}")]
+    RequestFailed { message: String },
+    #[error("native HTTP transport returned an unsupported status value: {status}")]
+    InvalidStatus { status: u32 },
+}
+
+fn transport_error(error: curl::Error) -> TransportError {
+    TransportError::RequestFailed {
+        message: error.to_string(),
+    }
 }
 
 /// Validates that a mobile client and the Rust core agree on the public bridge
@@ -58,6 +84,52 @@ pub fn initialize(client_bridge_api_version: u32) -> Result<BridgeInfo, BridgeEr
         bridge_api_version: BRIDGE_API_VERSION,
         core_version: env!("CARGO_PKG_VERSION").to_owned(),
         task_schema: "nova.task.v1".to_owned(),
+    })
+}
+
+/// Performs a bounded HTTP metadata probe with NOVA's bundled libcurl.
+///
+/// This is intentionally the first network operation exposed by the mobile
+/// bridge: Android can discover the final URL, status, and remote size without
+/// inventing a second HTTP stack. The same native transport will subsequently
+/// own ranged GET/resume and multi-handle segmented transfers.
+#[uniffi::export]
+pub fn probe_http_resource(url: String) -> Result<HttpResourceProbe, TransportError> {
+    let mut easy = Easy::new();
+    easy.url(&url).map_err(transport_error)?;
+    easy.nobody(true).map_err(transport_error)?;
+    easy.follow_location(true).map_err(transport_error)?;
+    easy.max_redirections(10).map_err(transport_error)?;
+    easy.connect_timeout(Duration::from_secs(15))
+        .map_err(transport_error)?;
+    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
+    easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
+        .map_err(transport_error)?;
+    easy.perform().map_err(transport_error)?;
+
+    let status = easy.response_code().map_err(transport_error)?;
+    let response_status = u16::try_from(status)
+        .map_err(|_| TransportError::InvalidStatus { status })?;
+    #[allow(deprecated)]
+    let reported_length = easy.content_length_download().map_err(transport_error)?;
+    let content_length = if reported_length.is_finite()
+        && reported_length >= 0.0
+        && reported_length <= u64::MAX as f64
+    {
+        Some(reported_length as u64)
+    } else {
+        None
+    };
+    let effective_url = easy
+        .effective_url()
+        .map_err(transport_error)?
+        .unwrap_or(&url)
+        .to_owned();
+
+    Ok(HttpResourceProbe {
+        response_status,
+        content_length,
+        effective_url,
     })
 }
 
@@ -189,10 +261,6 @@ fn android_plan_http_resume_status(
 }
 
 /// JNI entry point used by `NovaNativeCore` on Android.
-///
-/// The first two arguments are opaque JNI environment/receiver pointers. The
-/// handshake only exchanges an integer contract version, so no JNI object
-/// access is required and the bridge stays dependency-free at this stage.
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeInitialize(
@@ -203,7 +271,6 @@ pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeI
     android_initialize_status(client_bridge_api_version)
 }
 
-/// JNI entry point for the shared byte-range segment count.
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativePlanSegmentCount(
@@ -215,7 +282,6 @@ pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeP
     android_plan_segment_count(total_bytes, requested_connections)
 }
 
-/// JNI entry point for one shared byte-range segment start.
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativePlanSegmentStart(
@@ -228,7 +294,6 @@ pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeP
     android_plan_segment_bound(total_bytes, requested_connections, segment_index, 0)
 }
 
-/// JNI entry point for one shared byte-range segment end.
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativePlanSegmentEnd(
@@ -241,8 +306,6 @@ pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeP
     android_plan_segment_bound(total_bytes, requested_connections, segment_index, 1)
 }
 
-/// JNI entry point that lets Android apply the exact shared-core resume policy
-/// without duplicating HTTP range semantics in Kotlin.
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativePlanHttpResume(
@@ -258,6 +321,9 @@ pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeP
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
 
     #[test]
     fn initialize_accepts_current_bridge_version() {
@@ -276,6 +342,32 @@ mod tests {
                 core_version,
             }) if client_version == BRIDGE_API_VERSION + 1 && core_version == BRIDGE_API_VERSION
         ));
+    }
+
+    #[test]
+    fn native_probe_uses_libcurl_head_and_reports_metadata() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind probe server");
+        let address = listener.local_addr().expect("probe server address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept probe connection");
+            let mut request = [0_u8; 2048];
+            let read = stream.read(&mut request).expect("read probe request");
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.starts_with("HEAD /payload.bin HTTP/"));
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 12345\r\nConnection: close\r\n\r\n",
+                )
+                .expect("write probe response");
+        });
+
+        let url = format!("http://{address}/payload.bin");
+        let probe = probe_http_resource(url.clone()).expect("native probe must succeed");
+        server.join().expect("probe server thread");
+
+        assert_eq!(probe.response_status, 200);
+        assert_eq!(probe.content_length, Some(12_345));
+        assert_eq!(probe.effective_url, url);
     }
 
     #[test]
