@@ -44,6 +44,16 @@ pub struct HttpResourceProbe {
     pub effective_url: String,
 }
 
+/// Result of a validated bounded ranged GET performed entirely by libcurl.
+#[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
+pub struct HttpRangeProbe {
+    pub response_status: u16,
+    pub range_start: u64,
+    pub range_end: u64,
+    pub bytes_received: u64,
+    pub effective_url: String,
+}
+
 /// A stable error for a client that was compiled against an incompatible bridge.
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum BridgeError {
@@ -61,12 +71,32 @@ pub enum TransportError {
     RequestFailed { message: String },
     #[error("native HTTP transport returned an unsupported status value: {status}")]
     InvalidStatus { status: u32 },
+    #[error("invalid inclusive byte range {start}-{end}")]
+    InvalidRange { start: u64, end: u64 },
+    #[error("native HTTP range response rejected: {message}")]
+    RangeResponseRejected { message: String },
 }
 
 fn transport_error(error: curl::Error) -> TransportError {
     TransportError::RequestFailed {
         message: error.to_string(),
     }
+}
+
+fn parse_content_range(header: &[u8]) -> Option<(u64, u64)> {
+    let line = std::str::from_utf8(header).ok()?.trim();
+    let (name, value) = line.split_once(':')?;
+    if !name.eq_ignore_ascii_case("content-range") {
+        return None;
+    }
+
+    let (unit, value) = value.trim().split_once(' ')?;
+    if !unit.eq_ignore_ascii_case("bytes") {
+        return None;
+    }
+    let (bounds, _) = value.split_once('/')?;
+    let (start, end) = bounds.split_once('-')?;
+    Some((start.parse().ok()?, end.parse().ok()?))
 }
 
 /// Validates that a mobile client and the Rust core agree on the public bridge
@@ -91,8 +121,8 @@ pub fn initialize(client_bridge_api_version: u32) -> Result<BridgeInfo, BridgeEr
 ///
 /// This is intentionally the first network operation exposed by the mobile
 /// bridge: Android can discover the final URL, status, and remote size without
-/// inventing a second HTTP stack. The same native transport will subsequently
-/// own ranged GET/resume and multi-handle segmented transfers.
+/// inventing a second HTTP stack. Identity encoding keeps metadata aligned with
+/// the byte representation that subsequent Range requests address.
 #[uniffi::export]
 pub fn probe_http_resource(url: String) -> Result<HttpResourceProbe, TransportError> {
     let mut easy = Easy::new();
@@ -103,6 +133,7 @@ pub fn probe_http_resource(url: String) -> Result<HttpResourceProbe, TransportEr
     easy.connect_timeout(Duration::from_secs(15))
         .map_err(transport_error)?;
     easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
+    easy.accept_encoding("identity").map_err(transport_error)?;
     easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
         .map_err(transport_error)?;
     easy.perform().map_err(transport_error)?;
@@ -129,6 +160,101 @@ pub fn probe_http_resource(url: String) -> Result<HttpResourceProbe, TransportEr
     Ok(HttpResourceProbe {
         response_status,
         content_length,
+        effective_url,
+    })
+}
+
+/// Performs and validates an inclusive HTTP byte-range GET with native libcurl.
+///
+/// The payload is consumed inside Rust rather than copied through the FFI. This
+/// primitive is the integrity gate used before the mobile bridge starts writing
+/// segment payloads to durable storage: a server that ignores Range, omits or
+/// lies about Content-Range, or returns the wrong number of bytes is rejected.
+#[uniffi::export]
+pub fn probe_http_range(
+    url: String,
+    start: u64,
+    end: u64,
+) -> Result<HttpRangeProbe, TransportError> {
+    if end < start {
+        return Err(TransportError::InvalidRange { start, end });
+    }
+    let expected_bytes = end
+        .checked_sub(start)
+        .and_then(|length| length.checked_add(1))
+        .ok_or(TransportError::InvalidRange { start, end })?;
+
+    let mut easy = Easy::new();
+    easy.url(&url).map_err(transport_error)?;
+    easy.follow_location(true).map_err(transport_error)?;
+    easy.max_redirections(10).map_err(transport_error)?;
+    easy.connect_timeout(Duration::from_secs(15))
+        .map_err(transport_error)?;
+    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
+    easy.accept_encoding("identity").map_err(transport_error)?;
+    easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
+        .map_err(transport_error)?;
+    easy.range(&format!("{start}-{end}"))
+        .map_err(transport_error)?;
+
+    let mut content_range = None;
+    let mut bytes_received = 0_u64;
+    {
+        let mut transfer = easy.transfer();
+        transfer
+            .header_function(|header| {
+                if header.starts_with(b"HTTP/") {
+                    content_range = None;
+                } else if let Some(range) = parse_content_range(header) {
+                    content_range = Some(range);
+                }
+                true
+            })
+            .map_err(transport_error)?;
+        transfer
+            .write_function(|data| {
+                bytes_received = bytes_received.saturating_add(data.len() as u64);
+                Ok(data.len())
+            })
+            .map_err(transport_error)?;
+        transfer.perform().map_err(transport_error)?;
+    }
+
+    let status = easy.response_code().map_err(transport_error)?;
+    let response_status = u16::try_from(status)
+        .map_err(|_| TransportError::InvalidStatus { status })?;
+    if response_status != 206 {
+        return Err(TransportError::RangeResponseRejected {
+            message: format!("expected HTTP 206 for bytes {start}-{end}, got {response_status}"),
+        });
+    }
+    if content_range != Some((start, end)) {
+        return Err(TransportError::RangeResponseRejected {
+            message: format!(
+                "expected Content-Range bytes {start}-{end}, got {:?}",
+                content_range
+            ),
+        });
+    }
+    if bytes_received != expected_bytes {
+        return Err(TransportError::RangeResponseRejected {
+            message: format!(
+                "expected {expected_bytes} payload bytes for {start}-{end}, got {bytes_received}"
+            ),
+        });
+    }
+
+    let effective_url = easy
+        .effective_url()
+        .map_err(transport_error)?
+        .unwrap_or(&url)
+        .to_owned();
+
+    Ok(HttpRangeProbe {
+        response_status,
+        range_start: start,
+        range_end: end,
+        bytes_received,
         effective_url,
     })
 }
@@ -354,6 +480,7 @@ mod tests {
             let read = stream.read(&mut request).expect("read probe request");
             let request = String::from_utf8_lossy(&request[..read]);
             assert!(request.starts_with("HEAD /payload.bin HTTP/"));
+            assert!(request.contains("Accept-Encoding: identity"));
             stream
                 .write_all(
                     b"HTTP/1.1 200 OK\r\nContent-Length: 12345\r\nConnection: close\r\n\r\n",
@@ -368,6 +495,71 @@ mod tests {
         assert_eq!(probe.response_status, 200);
         assert_eq!(probe.content_length, Some(12_345));
         assert_eq!(probe.effective_url, url);
+    }
+
+    #[test]
+    fn native_range_probe_validates_partial_content() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind range server");
+        let address = listener.local_addr().expect("range server address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept range connection");
+            let mut request = [0_u8; 2048];
+            let read = stream.read(&mut request).expect("read range request");
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.starts_with("GET /payload.bin HTTP/"));
+            assert!(request.contains("Range: bytes=2-5"));
+            assert!(request.contains("Accept-Encoding: identity"));
+            stream
+                .write_all(
+                    b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 2-5/8\r\nContent-Length: 4\r\nConnection: close\r\n\r\ncdef",
+                )
+                .expect("write range response");
+        });
+
+        let url = format!("http://{address}/payload.bin");
+        let probe = probe_http_range(url.clone(), 2, 5).expect("valid range must succeed");
+        server.join().expect("range server thread");
+
+        assert_eq!(probe.response_status, 206);
+        assert_eq!(probe.range_start, 2);
+        assert_eq!(probe.range_end, 5);
+        assert_eq!(probe.bytes_received, 4);
+        assert_eq!(probe.effective_url, url);
+    }
+
+    #[test]
+    fn native_range_probe_rejects_server_ignoring_range() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind range server");
+        let address = listener.local_addr().expect("range server address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept range connection");
+            let mut request = [0_u8; 2048];
+            let read = stream.read(&mut request).expect("read range request");
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.contains("Range: bytes=2-5"));
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\nabcdefgh",
+                )
+                .expect("write ignored-range response");
+        });
+
+        let url = format!("http://{address}/payload.bin");
+        let result = probe_http_range(url, 2, 5);
+        server.join().expect("range server thread");
+
+        assert!(matches!(
+            result,
+            Err(TransportError::RangeResponseRejected { .. })
+        ));
+    }
+
+    #[test]
+    fn native_range_probe_rejects_invalid_bounds() {
+        assert!(matches!(
+            probe_http_range("https://example.invalid".to_owned(), 9, 4),
+            Err(TransportError::InvalidRange { start: 9, end: 4 })
+        ));
     }
 
     #[test]
