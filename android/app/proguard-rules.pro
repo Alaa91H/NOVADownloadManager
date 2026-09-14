@@ -7,8 +7,9 @@
 -keep class com.nova.downloadmanager.app.MainActivity { *; }
 -keep class com.nova.downloadmanager.service.NovaUserInitiatedTransferJobService { *; }
 
-# The Rust library exports a stable JNI symbol using this exact class and method
-# name. Renaming either side would make release builds fail only at runtime.
+# The Rust library exports stable JNI symbols using this exact class and method
+# names. Renaming either side would make release builds fail only at runtime.
 -keep class com.nova.downloadmanager.core.NovaNativeCore {
     private native int nativeInitialize(int);
+    private native int nativePlanHttpResume(long, int, long);
 }

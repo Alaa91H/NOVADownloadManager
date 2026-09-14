@@ -86,6 +86,36 @@ fn android_initialize_status(client_bridge_api_version: i32) -> i32 {
         .unwrap_or(-1)
 }
 
+/// JNI-safe projection of the shared resume policy.
+///
+/// `content_range_start` uses `-1` to represent an absent `Content-Range` start.
+/// Returns 0 for append, 1 for restart, and -1 for invalid JNI inputs.
+fn android_plan_http_resume_status(
+    existing_bytes: i64,
+    response_status: i32,
+    content_range_start: i64,
+) -> i32 {
+    let Ok(existing_bytes) = u64::try_from(existing_bytes) else {
+        return -1;
+    };
+    let Ok(response_status) = u16::try_from(response_status) else {
+        return -1;
+    };
+    let content_range_start = if content_range_start == -1 {
+        None
+    } else {
+        let Ok(start) = u64::try_from(content_range_start) else {
+            return -1;
+        };
+        Some(start)
+    };
+
+    match plan_http_resume(existing_bytes, response_status, content_range_start) {
+        ResumeAction::Append => 0,
+        ResumeAction::Restart => 1,
+    }
+}
+
 /// JNI entry point used by `NovaNativeCore` on Android.
 ///
 /// The first two arguments are opaque JNI environment/receiver pointers. The
@@ -99,6 +129,20 @@ pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeI
     client_bridge_api_version: i32,
 ) -> i32 {
     android_initialize_status(client_bridge_api_version)
+}
+
+/// JNI entry point that lets Android apply the exact shared-core resume policy
+/// without duplicating HTTP range semantics in Kotlin.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativePlanHttpResume(
+    _env: *mut core::ffi::c_void,
+    _receiver: *mut core::ffi::c_void,
+    existing_bytes: i64,
+    response_status: i32,
+    content_range_start: i64,
+) -> i32 {
+    android_plan_http_resume_status(existing_bytes, response_status, content_range_start)
 }
 
 #[cfg(test)]
@@ -136,5 +180,20 @@ mod tests {
         assert_eq!(plan_http_resume(4096, 206, Some(4096)), ResumeAction::Append);
         assert_eq!(plan_http_resume(4096, 200, None), ResumeAction::Restart);
         assert_eq!(plan_http_resume(4096, 206, Some(2048)), ResumeAction::Restart);
+    }
+
+    #[test]
+    fn android_resume_primitive_projects_shared_policy() {
+        assert_eq!(android_plan_http_resume_status(4096, 206, 4096), 0);
+        assert_eq!(android_plan_http_resume_status(4096, 200, -1), 1);
+        assert_eq!(android_plan_http_resume_status(4096, 206, 2048), 1);
+    }
+
+    #[test]
+    fn android_resume_primitive_rejects_invalid_jni_inputs() {
+        assert_eq!(android_plan_http_resume_status(-1, 206, 0), -1);
+        assert_eq!(android_plan_http_resume_status(0, -1, -1), -1);
+        assert_eq!(android_plan_http_resume_status(0, 70_000, -1), -1);
+        assert_eq!(android_plan_http_resume_status(4096, 206, -2), -1);
     }
 }
