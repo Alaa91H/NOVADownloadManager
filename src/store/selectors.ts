@@ -205,6 +205,9 @@ export function useI18n() {
   const language = useStore(settingsStore, (s) => s.settings.extra.language);
   const t = useCallback(
     (key: string, params?: Record<string, string | number>) => {
+      // Reading the revision intentionally binds this callback's identity to
+      // hot-loaded catalog changes, even when the selected language is stable.
+      void i18nRevision;
       return getTranslation(language || 'en', key, params);
     },
     [language, i18nRevision],
