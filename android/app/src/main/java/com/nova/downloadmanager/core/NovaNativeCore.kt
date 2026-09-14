@@ -15,6 +15,19 @@ internal object NovaNativeCore {
     private const val RESUME_RESTART = 1
     private const val MISSING_CONTENT_RANGE = -1L
 
+    internal data class ByteRange(
+        val start: Long,
+        val end: Long,
+    ) {
+        init {
+            require(start >= 0) { "start must be non-negative" }
+            require(end >= start) { "end must not precede start" }
+        }
+
+        val length: Long
+            get() = end - start + 1
+    }
+
     internal enum class ResumeAction {
         APPEND,
         RESTART,
@@ -25,6 +38,23 @@ internal object NovaNativeCore {
     }.exceptionOrNull()
 
     private external fun nativeInitialize(clientBridgeApiVersion: Int): Int
+
+    private external fun nativePlanSegmentCount(
+        totalBytes: Long,
+        requestedConnections: Int,
+    ): Int
+
+    private external fun nativePlanSegmentStart(
+        totalBytes: Long,
+        requestedConnections: Int,
+        segmentIndex: Int,
+    ): Long
+
+    private external fun nativePlanSegmentEnd(
+        totalBytes: Long,
+        requestedConnections: Int,
+        segmentIndex: Int,
+    ): Long
 
     private external fun nativePlanHttpResume(
         existingBytes: Long,
@@ -50,6 +80,34 @@ internal object NovaNativeCore {
             "NOVA native core bridge mismatch: Android expects $CLIENT_BRIDGE_API_VERSION but core returned $coreBridgeVersion"
         }
         return coreBridgeVersion
+    }
+
+    /**
+     * Returns the shared NOVA byte-range plan for a known representation size.
+     *
+     * Android lifecycle/transport code may request lower parallelism for power
+     * or network policy, but range boundaries come from Rust so mobile cannot
+     * drift from the desktop engine's segmentation semantics.
+     */
+    fun planTransferRanges(
+        totalBytes: Long,
+        requestedConnections: Int,
+    ): List<ByteRange> {
+        require(totalBytes >= 0) { "totalBytes must be non-negative" }
+        require(requestedConnections >= 0) { "requestedConnections must be non-negative" }
+        requireCompatible()
+
+        val segmentCount = nativePlanSegmentCount(totalBytes, requestedConnections)
+        check(segmentCount >= 0) { "NOVA native core rejected segment planning inputs" }
+
+        return List(segmentCount) { index ->
+            val start = nativePlanSegmentStart(totalBytes, requestedConnections, index)
+            val end = nativePlanSegmentEnd(totalBytes, requestedConnections, index)
+            check(start >= 0 && end >= start) {
+                "NOVA native core returned an invalid segment range at index $index"
+            }
+            ByteRange(start, end)
+        }
     }
 
     /**

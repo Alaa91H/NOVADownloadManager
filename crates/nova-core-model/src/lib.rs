@@ -70,6 +70,55 @@ pub struct Segment {
     pub end_byte: u64,
 }
 
+/// Maximum number of parallel byte ranges that the shared NOVA planner emits.
+///
+/// Hosts remain free to use fewer connections based on profile, battery, or
+/// network policy, but neither desktop nor mobile should create a wider range
+/// fan-out than this shared safety ceiling.
+pub const MAX_PARALLEL_SEGMENTS: u32 = 32;
+
+/// Inclusive HTTP byte range for one parallel transfer segment.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ByteRange {
+    pub start: u64,
+    pub end: u64,
+}
+
+impl ByteRange {
+    pub fn len(self) -> u64 {
+        self.end - self.start + 1
+    }
+}
+
+/// Split a known representation length into balanced, non-overlapping ranges.
+///
+/// The result is deterministic across platforms, covers each byte exactly once,
+/// never creates an empty range, and differs by at most one byte between the
+/// largest and smallest segment. Requested parallelism is clamped to NOVA's
+/// shared ceiling and to the representation length itself.
+pub fn plan_byte_ranges(total_bytes: u64, requested_connections: u32) -> Vec<ByteRange> {
+    if total_bytes == 0 {
+        return Vec::new();
+    }
+
+    let requested = requested_connections.max(1).min(MAX_PARALLEL_SEGMENTS) as u64;
+    let segment_count = requested.min(total_bytes);
+    let base_len = total_bytes / segment_count;
+    let remainder = total_bytes % segment_count;
+
+    (0..segment_count)
+        .map(|index| {
+            let extra_before = index.min(remainder);
+            let start = index * base_len + extra_before;
+            let len = base_len + u64::from(index < remainder);
+            ByteRange {
+                start,
+                end: start + len - 1,
+            }
+        })
+        .collect()
+}
+
 /// Safe action after a host has asked an HTTP server to resume at an existing
 /// local byte offset.
 ///
@@ -108,7 +157,10 @@ pub fn plan_http_resume(
 
 #[cfg(test)]
 mod tests {
-    use super::{plan_http_resume, ResumeAction, Segment};
+    use super::{
+        plan_byte_ranges, plan_http_resume, ByteRange, ResumeAction, Segment,
+        MAX_PARALLEL_SEGMENTS,
+    };
 
     #[test]
     fn legacy_segment_without_byte_range_deserializes() {
@@ -136,8 +188,61 @@ mod tests {
     }
 
     #[test]
+    fn range_planner_balances_and_covers_representation() {
+        let ranges = plan_byte_ranges(10, 3);
+        assert_eq!(
+            ranges,
+            vec![
+                ByteRange { start: 0, end: 3 },
+                ByteRange { start: 4, end: 6 },
+                ByteRange { start: 7, end: 9 },
+            ]
+        );
+        assert_eq!(ranges.iter().map(|range| range.len()).sum::<u64>(), 10);
+    }
+
+    #[test]
+    fn range_planner_never_creates_empty_segments() {
+        let ranges = plan_byte_ranges(3, 8);
+        assert_eq!(
+            ranges,
+            vec![
+                ByteRange { start: 0, end: 0 },
+                ByteRange { start: 1, end: 1 },
+                ByteRange { start: 2, end: 2 },
+            ]
+        );
+    }
+
+    #[test]
+    fn range_planner_clamps_parallelism_to_shared_ceiling() {
+        let ranges = plan_byte_ranges(1_000_000, u32::MAX);
+        assert_eq!(ranges.len(), MAX_PARALLEL_SEGMENTS as usize);
+        assert_eq!(ranges.first().copied(), Some(ByteRange { start: 0, end: 31_249 }));
+        assert_eq!(
+            ranges.last().copied(),
+            Some(ByteRange {
+                start: 968_750,
+                end: 999_999,
+            })
+        );
+    }
+
+    #[test]
+    fn range_planner_handles_zero_and_single_connection() {
+        assert!(plan_byte_ranges(0, 32).is_empty());
+        assert_eq!(
+            plan_byte_ranges(42, 0),
+            vec![ByteRange { start: 0, end: 41 }]
+        );
+    }
+
+    #[test]
     fn matching_partial_response_is_safe_to_append() {
-        assert_eq!(plan_http_resume(1_048_576, 206, Some(1_048_576)), ResumeAction::Append);
+        assert_eq!(
+            plan_http_resume(1_048_576, 206, Some(1_048_576)),
+            ResumeAction::Append
+        );
     }
 
     #[test]
@@ -147,7 +252,10 @@ mod tests {
 
     #[test]
     fn mismatched_content_range_forces_restart() {
-        assert_eq!(plan_http_resume(1_048_576, 206, Some(524_288)), ResumeAction::Restart);
+        assert_eq!(
+            plan_http_resume(1_048_576, 206, Some(524_288)),
+            ResumeAction::Restart
+        );
     }
 
     #[test]

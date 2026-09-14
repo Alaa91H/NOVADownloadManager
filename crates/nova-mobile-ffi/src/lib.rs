@@ -19,6 +19,13 @@ pub struct BridgeInfo {
     pub task_schema: String,
 }
 
+/// Stable mobile projection of one inclusive shared-core byte range.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Record)]
+pub struct TransferRange {
+    pub start: u64,
+    pub end: u64,
+}
+
 /// Stable mobile projection of the shared core's resume decision.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Enum)]
 pub enum ResumeAction {
@@ -54,6 +61,22 @@ pub fn initialize(client_bridge_api_version: u32) -> Result<BridgeInfo, BridgeEr
     })
 }
 
+/// Plans balanced inclusive byte ranges using the same platform-neutral policy
+/// consumed by NOVA's native transfer engine.
+///
+/// Mobile lifecycle code may request fewer connections for battery/network
+/// policy, but it must not invent a separate segmentation algorithm.
+#[uniffi::export]
+pub fn plan_transfer_ranges(total_bytes: u64, requested_connections: u32) -> Vec<TransferRange> {
+    nova_core_model::plan_byte_ranges(total_bytes, requested_connections)
+        .into_iter()
+        .map(|range| TransferRange {
+            start: range.start,
+            end: range.end,
+        })
+        .collect()
+}
+
 /// Applies the same resume-corruption policy used by the shared NOVA core.
 ///
 /// Transports (libcurl on the native path, or another host integration) must not
@@ -84,6 +107,55 @@ fn android_initialize_status(client_bridge_api_version: i32) -> i32 {
     initialize(client_version)
         .map(|info| i32::try_from(info.bridge_api_version).unwrap_or(-1))
         .unwrap_or(-1)
+}
+
+/// JNI-safe projection of the shared range planner.
+///
+/// Returns the planned number of segments or -1 for invalid JNI inputs.
+fn android_plan_segment_count(total_bytes: i64, requested_connections: i32) -> i32 {
+    let Ok(total_bytes) = u64::try_from(total_bytes) else {
+        return -1;
+    };
+    let Ok(requested_connections) = u32::try_from(requested_connections) else {
+        return -1;
+    };
+
+    i32::try_from(plan_transfer_ranges(total_bytes, requested_connections).len()).unwrap_or(-1)
+}
+
+/// Returns one inclusive range bound from the shared planner.
+///
+/// `bound` is 0 for start and 1 for end. Returns -1 for invalid inputs or an
+/// out-of-bounds segment index.
+fn android_plan_segment_bound(
+    total_bytes: i64,
+    requested_connections: i32,
+    segment_index: i32,
+    bound: i32,
+) -> i64 {
+    let Ok(total_bytes) = u64::try_from(total_bytes) else {
+        return -1;
+    };
+    let Ok(requested_connections) = u32::try_from(requested_connections) else {
+        return -1;
+    };
+    let Ok(segment_index) = usize::try_from(segment_index) else {
+        return -1;
+    };
+
+    let Some(range) = plan_transfer_ranges(total_bytes, requested_connections)
+        .get(segment_index)
+        .copied()
+    else {
+        return -1;
+    };
+    let value = match bound {
+        0 => range.start,
+        1 => range.end,
+        _ => return -1,
+    };
+
+    i64::try_from(value).unwrap_or(-1)
 }
 
 /// JNI-safe projection of the shared resume policy.
@@ -131,6 +203,44 @@ pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeI
     android_initialize_status(client_bridge_api_version)
 }
 
+/// JNI entry point for the shared byte-range segment count.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativePlanSegmentCount(
+    _env: *mut core::ffi::c_void,
+    _receiver: *mut core::ffi::c_void,
+    total_bytes: i64,
+    requested_connections: i32,
+) -> i32 {
+    android_plan_segment_count(total_bytes, requested_connections)
+}
+
+/// JNI entry point for one shared byte-range segment start.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativePlanSegmentStart(
+    _env: *mut core::ffi::c_void,
+    _receiver: *mut core::ffi::c_void,
+    total_bytes: i64,
+    requested_connections: i32,
+    segment_index: i32,
+) -> i64 {
+    android_plan_segment_bound(total_bytes, requested_connections, segment_index, 0)
+}
+
+/// JNI entry point for one shared byte-range segment end.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativePlanSegmentEnd(
+    _env: *mut core::ffi::c_void,
+    _receiver: *mut core::ffi::c_void,
+    total_bytes: i64,
+    requested_connections: i32,
+    segment_index: i32,
+) -> i64 {
+    android_plan_segment_bound(total_bytes, requested_connections, segment_index, 1)
+}
+
 /// JNI entry point that lets Android apply the exact shared-core resume policy
 /// without duplicating HTTP range semantics in Kotlin.
 #[cfg(target_os = "android")]
@@ -173,6 +283,36 @@ mod tests {
         assert_eq!(android_initialize_status(BRIDGE_API_VERSION as i32), 1);
         assert_eq!(android_initialize_status(-1), -1);
         assert_eq!(android_initialize_status((BRIDGE_API_VERSION + 1) as i32), -1);
+    }
+
+    #[test]
+    fn ffi_range_plan_matches_shared_core() {
+        assert_eq!(
+            plan_transfer_ranges(10, 3),
+            vec![
+                TransferRange { start: 0, end: 3 },
+                TransferRange { start: 4, end: 6 },
+                TransferRange { start: 7, end: 9 },
+            ]
+        );
+    }
+
+    #[test]
+    fn android_range_primitives_project_shared_plan() {
+        assert_eq!(android_plan_segment_count(10, 3), 3);
+        assert_eq!(android_plan_segment_bound(10, 3, 0, 0), 0);
+        assert_eq!(android_plan_segment_bound(10, 3, 0, 1), 3);
+        assert_eq!(android_plan_segment_bound(10, 3, 2, 0), 7);
+        assert_eq!(android_plan_segment_bound(10, 3, 2, 1), 9);
+    }
+
+    #[test]
+    fn android_range_primitives_reject_invalid_inputs() {
+        assert_eq!(android_plan_segment_count(-1, 4), -1);
+        assert_eq!(android_plan_segment_count(10, -1), -1);
+        assert_eq!(android_plan_segment_bound(10, 3, -1, 0), -1);
+        assert_eq!(android_plan_segment_bound(10, 3, 3, 0), -1);
+        assert_eq!(android_plan_segment_bound(10, 3, 0, 2), -1);
     }
 
     #[test]
