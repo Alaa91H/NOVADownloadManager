@@ -205,7 +205,6 @@ export function useI18n() {
   const language = useStore(settingsStore, (s) => s.settings.extra.language);
   const t = useCallback(
     (key: string, params?: Record<string, string | number>) => {
-      void i18nRevision;
       return getTranslation(language || 'en', key, params);
     },
     [language, i18nRevision],
