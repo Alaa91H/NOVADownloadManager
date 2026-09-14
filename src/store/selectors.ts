@@ -201,15 +201,16 @@ export function useSidebarCounts() {
 }
 
 export function useI18n() {
-  const i18nRevision = useStore(settingsStore, (s) => s.i18nRevision);
+  // Keep the component subscribed so runtime translation-pack updates trigger
+  // a render even when the selected language itself does not change.
+  useStore(settingsStore, (s) => s.i18nRevision);
   const language = useStore(settingsStore, (s) => s.settings.extra.language);
-  const t = useCallback(
+  return useCallback(
     (key: string, params?: Record<string, string | number>) => {
       return getTranslation(language || 'en', key, params);
     },
-    [language, i18nRevision],
+    [language],
   );
-  return t;
 }
 
 // ── Engine integration selectors ─────────────────────────────────────────
