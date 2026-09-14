@@ -6,6 +6,8 @@
 //! core owns their durable semantics.
 
 use curl::easy::Easy;
+use std::cell::{Cell, RefCell};
+use std::io::Write;
 use std::time::Duration;
 
 uniffi::setup_scaffolding!();
@@ -83,6 +85,14 @@ fn transport_error(error: curl::Error) -> TransportError {
     }
 }
 
+fn parse_http_status(header: &[u8]) -> Option<u16> {
+    let line = std::str::from_utf8(header).ok()?.trim();
+    if !line.starts_with("HTTP/") {
+        return None;
+    }
+    line.split_whitespace().nth(1)?.parse().ok()
+}
+
 fn parse_content_range(header: &[u8]) -> Option<(u64, u64)> {
     let line = std::str::from_utf8(header).ok()?.trim();
     let (name, value) = line.split_once(':')?;
@@ -97,6 +107,147 @@ fn parse_content_range(header: &[u8]) -> Option<(u64, u64)> {
     let (bounds, _) = value.split_once('/')?;
     let (start, end) = bounds.split_once('-')?;
     Some((start.parse().ok()?, end.parse().ok()?))
+}
+
+fn stream_http_range<W: Write>(
+    url: &str,
+    start: u64,
+    end: u64,
+    sink: &mut W,
+) -> Result<HttpRangeProbe, TransportError> {
+    if end < start {
+        return Err(TransportError::InvalidRange { start, end });
+    }
+    let expected_bytes = end
+        .checked_sub(start)
+        .and_then(|length| length.checked_add(1))
+        .ok_or(TransportError::InvalidRange { start, end })?;
+
+    let mut easy = Easy::new();
+    easy.url(url).map_err(transport_error)?;
+    easy.follow_location(true).map_err(transport_error)?;
+    easy.max_redirections(10).map_err(transport_error)?;
+    easy.connect_timeout(Duration::from_secs(15))
+        .map_err(transport_error)?;
+    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
+    easy.accept_encoding("identity").map_err(transport_error)?;
+    easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
+        .map_err(transport_error)?;
+    easy.range(&format!("{start}-{end}"))
+        .map_err(transport_error)?;
+
+    // libcurl reports every response header block, including redirects and
+    // authentication negotiation. The body sink must remain closed until the
+    // final response block proves both HTTP 206 and the exact requested range.
+    let header_status = Cell::new(None::<u16>);
+    let content_range = Cell::new(None::<(u64, u64)>);
+    let headers_validated = Cell::new(false);
+    let bytes_received = Cell::new(0_u64);
+    let sink_error = RefCell::new(None::<String>);
+
+    let perform_result = {
+        let mut transfer = easy.transfer();
+        transfer
+            .header_function(|header| {
+                if let Some(status) = parse_http_status(header) {
+                    header_status.set(Some(status));
+                    content_range.set(None);
+                    headers_validated.set(false);
+                } else if header == b"\r\n" || header == b"\n" {
+                    headers_validated.set(
+                        header_status.get() == Some(206)
+                            && content_range.get() == Some((start, end)),
+                    );
+                } else if let Some(range) = parse_content_range(header) {
+                    content_range.set(Some(range));
+                }
+                true
+            })
+            .map_err(transport_error)?;
+        transfer
+            .write_function(|data| {
+                if !headers_validated.get() {
+                    // Returning zero aborts the transfer before untrusted body
+                    // bytes can reach a durable segment sink.
+                    return Ok(0);
+                }
+
+                let Some(next_total) = bytes_received.get().checked_add(data.len() as u64) else {
+                    sink_error.replace(Some("native range byte counter overflow".to_owned()));
+                    return Ok(0);
+                };
+                if next_total > expected_bytes {
+                    sink_error.replace(Some(format!(
+                        "native range payload exceeded expected length {expected_bytes}"
+                    )));
+                    return Ok(0);
+                }
+                if let Err(error) = sink.write_all(data) {
+                    sink_error.replace(Some(format!(
+                        "failed to persist native range payload: {error}"
+                    )));
+                    return Ok(0);
+                }
+
+                bytes_received.set(next_total);
+                Ok(data.len())
+            })
+            .map_err(transport_error)?;
+        transfer.perform()
+    };
+
+    if !headers_validated.get() {
+        return Err(TransportError::RangeResponseRejected {
+            message: format!(
+                "expected HTTP 206 with Content-Range bytes {start}-{end}, got status {:?} and range {:?}",
+                header_status.get(),
+                content_range.get()
+            ),
+        });
+    }
+    if let Some(message) = sink_error.into_inner() {
+        return Err(TransportError::RequestFailed { message });
+    }
+    perform_result.map_err(transport_error)?;
+
+    let status = easy.response_code().map_err(transport_error)?;
+    let response_status =
+        u16::try_from(status).map_err(|_| TransportError::InvalidStatus { status })?;
+    if response_status != 206 {
+        return Err(TransportError::RangeResponseRejected {
+            message: format!("expected HTTP 206 for bytes {start}-{end}, got {response_status}"),
+        });
+    }
+    if content_range.get() != Some((start, end)) {
+        return Err(TransportError::RangeResponseRejected {
+            message: format!(
+                "expected Content-Range bytes {start}-{end}, got {:?}",
+                content_range.get()
+            ),
+        });
+    }
+    if bytes_received.get() != expected_bytes {
+        return Err(TransportError::RangeResponseRejected {
+            message: format!(
+                "expected {expected_bytes} payload bytes for {start}-{end}, got {}",
+                bytes_received.get()
+            ),
+        });
+    }
+
+    let effective_url = easy
+        .effective_url()
+        .map_err(transport_error)?
+        .unwrap_or(url)
+        .to_owned();
+
+    Ok(HttpRangeProbe {
+        response_status,
+        range_start: start,
+        range_end: end,
+        bytes_received: bytes_received.get(),
+        effective_url,
+    })
 }
 
 /// Validates that a mobile client and the Rust core agree on the public bridge
@@ -139,8 +290,8 @@ pub fn probe_http_resource(url: String) -> Result<HttpResourceProbe, TransportEr
     easy.perform().map_err(transport_error)?;
 
     let status = easy.response_code().map_err(transport_error)?;
-    let response_status = u16::try_from(status)
-        .map_err(|_| TransportError::InvalidStatus { status })?;
+    let response_status =
+        u16::try_from(status).map_err(|_| TransportError::InvalidStatus { status })?;
     #[allow(deprecated)]
     let reported_length = easy.content_length_download().map_err(transport_error)?;
     let content_length = if reported_length.is_finite()
@@ -166,97 +317,17 @@ pub fn probe_http_resource(url: String) -> Result<HttpResourceProbe, TransportEr
 
 /// Performs and validates an inclusive HTTP byte-range GET with native libcurl.
 ///
-/// The payload is consumed inside Rust rather than copied through the FFI. This
-/// primitive is the integrity gate used before the mobile bridge starts writing
-/// segment payloads to durable storage: a server that ignores Range, omits or
-/// lies about Content-Range, or returns the wrong number of bytes is rejected.
+/// Payload bytes stay inside Rust and are streamed through the same guarded sink
+/// that durable Android segment storage will use. The public probe intentionally
+/// discards the bytes while exercising the exact production validation path.
 #[uniffi::export]
 pub fn probe_http_range(
     url: String,
     start: u64,
     end: u64,
 ) -> Result<HttpRangeProbe, TransportError> {
-    if end < start {
-        return Err(TransportError::InvalidRange { start, end });
-    }
-    let expected_bytes = end
-        .checked_sub(start)
-        .and_then(|length| length.checked_add(1))
-        .ok_or(TransportError::InvalidRange { start, end })?;
-
-    let mut easy = Easy::new();
-    easy.url(&url).map_err(transport_error)?;
-    easy.follow_location(true).map_err(transport_error)?;
-    easy.max_redirections(10).map_err(transport_error)?;
-    easy.connect_timeout(Duration::from_secs(15))
-        .map_err(transport_error)?;
-    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
-    easy.accept_encoding("identity").map_err(transport_error)?;
-    easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
-        .map_err(transport_error)?;
-    easy.range(&format!("{start}-{end}"))
-        .map_err(transport_error)?;
-
-    let mut content_range = None;
-    let mut bytes_received = 0_u64;
-    {
-        let mut transfer = easy.transfer();
-        transfer
-            .header_function(|header| {
-                if header.starts_with(b"HTTP/") {
-                    content_range = None;
-                } else if let Some(range) = parse_content_range(header) {
-                    content_range = Some(range);
-                }
-                true
-            })
-            .map_err(transport_error)?;
-        transfer
-            .write_function(|data| {
-                bytes_received = bytes_received.saturating_add(data.len() as u64);
-                Ok(data.len())
-            })
-            .map_err(transport_error)?;
-        transfer.perform().map_err(transport_error)?;
-    }
-
-    let status = easy.response_code().map_err(transport_error)?;
-    let response_status = u16::try_from(status)
-        .map_err(|_| TransportError::InvalidStatus { status })?;
-    if response_status != 206 {
-        return Err(TransportError::RangeResponseRejected {
-            message: format!("expected HTTP 206 for bytes {start}-{end}, got {response_status}"),
-        });
-    }
-    if content_range != Some((start, end)) {
-        return Err(TransportError::RangeResponseRejected {
-            message: format!(
-                "expected Content-Range bytes {start}-{end}, got {:?}",
-                content_range
-            ),
-        });
-    }
-    if bytes_received != expected_bytes {
-        return Err(TransportError::RangeResponseRejected {
-            message: format!(
-                "expected {expected_bytes} payload bytes for {start}-{end}, got {bytes_received}"
-            ),
-        });
-    }
-
-    let effective_url = easy
-        .effective_url()
-        .map_err(transport_error)?
-        .unwrap_or(&url)
-        .to_owned();
-
-    Ok(HttpRangeProbe {
-        response_status,
-        range_start: start,
-        range_end: end,
-        bytes_received,
-        effective_url,
-    })
+    let mut sink = std::io::sink();
+    stream_http_range(&url, start, end, &mut sink)
 }
 
 /// Plans balanced inclusive byte ranges using the same platform-neutral policy
@@ -528,6 +599,33 @@ mod tests {
     }
 
     #[test]
+    fn native_range_stream_writes_only_validated_payload() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind range server");
+        let address = listener.local_addr().expect("range server address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept range connection");
+            let mut request = [0_u8; 2048];
+            let read = stream.read(&mut request).expect("read range request");
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.contains("Range: bytes=2-5"));
+            stream
+                .write_all(
+                    b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 2-5/8\r\nContent-Length: 4\r\nConnection: close\r\n\r\ncdef",
+                )
+                .expect("write range response");
+        });
+
+        let url = format!("http://{address}/payload.bin");
+        let mut payload = Vec::new();
+        let probe = stream_http_range(&url, 2, 5, &mut payload)
+            .expect("validated native range stream must succeed");
+        server.join().expect("range server thread");
+
+        assert_eq!(probe.bytes_received, 4);
+        assert_eq!(payload, b"cdef");
+    }
+
+    #[test]
     fn native_range_probe_rejects_server_ignoring_range() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind range server");
         let address = listener.local_addr().expect("range server address");
@@ -555,6 +653,60 @@ mod tests {
     }
 
     #[test]
+    fn native_range_stream_does_not_write_ignored_range_body() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind range server");
+        let address = listener.local_addr().expect("range server address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept range connection");
+            let mut request = [0_u8; 2048];
+            let _ = stream.read(&mut request).expect("read range request");
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\nabcdefgh",
+                )
+                .expect("write ignored-range response");
+        });
+
+        let url = format!("http://{address}/payload.bin");
+        let mut payload = Vec::new();
+        let result = stream_http_range(&url, 2, 5, &mut payload);
+        server.join().expect("range server thread");
+
+        assert!(matches!(
+            result,
+            Err(TransportError::RangeResponseRejected { .. })
+        ));
+        assert!(payload.is_empty(), "rejected body must never reach the sink");
+    }
+
+    #[test]
+    fn native_range_stream_does_not_write_mismatched_content_range() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind range server");
+        let address = listener.local_addr().expect("range server address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept range connection");
+            let mut request = [0_u8; 2048];
+            let _ = stream.read(&mut request).expect("read range request");
+            stream
+                .write_all(
+                    b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 1-4/8\r\nContent-Length: 4\r\nConnection: close\r\n\r\nbcde",
+                )
+                .expect("write mismatched range response");
+        });
+
+        let url = format!("http://{address}/payload.bin");
+        let mut payload = Vec::new();
+        let result = stream_http_range(&url, 2, 5, &mut payload);
+        server.join().expect("range server thread");
+
+        assert!(matches!(
+            result,
+            Err(TransportError::RangeResponseRejected { .. })
+        ));
+        assert!(payload.is_empty(), "mismatched range must never reach the sink");
+    }
+
+    #[test]
     fn native_range_probe_rejects_invalid_bounds() {
         assert!(matches!(
             probe_http_range("https://example.invalid".to_owned(), 9, 4),
@@ -566,7 +718,10 @@ mod tests {
     fn android_primitive_handshake_is_fail_closed() {
         assert_eq!(android_initialize_status(BRIDGE_API_VERSION as i32), 1);
         assert_eq!(android_initialize_status(-1), -1);
-        assert_eq!(android_initialize_status((BRIDGE_API_VERSION + 1) as i32), -1);
+        assert_eq!(
+            android_initialize_status((BRIDGE_API_VERSION + 1) as i32),
+            -1
+        );
     }
 
     #[test]
@@ -601,9 +756,15 @@ mod tests {
 
     #[test]
     fn ffi_resume_policy_matches_shared_core() {
-        assert_eq!(plan_http_resume(4096, 206, Some(4096)), ResumeAction::Append);
+        assert_eq!(
+            plan_http_resume(4096, 206, Some(4096)),
+            ResumeAction::Append
+        );
         assert_eq!(plan_http_resume(4096, 200, None), ResumeAction::Restart);
-        assert_eq!(plan_http_resume(4096, 206, Some(2048)), ResumeAction::Restart);
+        assert_eq!(
+            plan_http_resume(4096, 206, Some(2048)),
+            ResumeAction::Restart
+        );
     }
 
     #[test]
