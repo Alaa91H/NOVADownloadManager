@@ -13,7 +13,7 @@ name = "nova_mobile_ffi"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
-curl = { version = "0.4.50", default-features = false, features = ["static-curl", "rustls"] }
+curl = { version = "0.4.50", default-features = false, features = ["http2", "static-curl", "rustls"] }
 nova-core-model = { path = "../nova-core-model" }
 thiserror = "2"
 uniffi = "0.32.0"
