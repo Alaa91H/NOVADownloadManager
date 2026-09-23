@@ -353,31 +353,6 @@ fn throw_android_transfer_error(env: &mut jni::JNIEnv<'_>, message: impl Into<St
 
 #[cfg(target_os = "android")]
 #[no_mangle]
-pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeProbeContentLength(
-    mut env: jni::JNIEnv<'_>,
-    _receiver: jni::objects::JObject<'_>,
-    url: jni::objects::JString<'_>,
-) -> jni::sys::jlong {
-    let url = match jni_string(&mut env, &url, "download URL") {
-        Ok(value) => value,
-        Err(message) => {
-            throw_android_transfer_error(&mut env, message);
-            return -2;
-        }
-    };
-
-    match nova_mobile_core::probe_content_length(&url) {
-        Ok(Some(length)) => i64::try_from(length).unwrap_or(-1),
-        Ok(None) => -1,
-        Err(error) => {
-            throw_android_transfer_error(&mut env, error.to_string());
-            -2
-        }
-    }
-}
-
-#[cfg(target_os = "android")]
-#[no_mangle]
 pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeDownloadToAppPrivate(
     mut env: jni::JNIEnv<'_>,
     _receiver: jni::objects::JObject<'_>,
