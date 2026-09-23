@@ -4,6 +4,7 @@ import React from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { useI18n } from '../store/selectors';
 import type { DownloadStatus } from '../types/desktop-ui.types';
+import { isTaskActiveStatus } from '../utils/taskStatus';
 
 // --- Button Primitives ---
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -232,43 +233,63 @@ interface StatusPillProps {
 
 const ENGINE_STATUS_LABELS: Record<string, string> = {
   'resolving-url': 'Resolving URL...',
-  starting: 'Starting...',
+  starting: 'Preparing...',
   'running-libcurl-multi': '',
+  retrying: 'Retrying...',
+  'recovering-single-connection': 'Recovering with one connection...',
+  'fallback-single-connection': 'Downloading with one connection...',
+  'verifying-output': 'Verifying file...',
+  'finalizing-output': 'Finalizing file...',
+  interrupted: 'Interrupted by restart',
+  shutdown: 'Paused for shutdown',
   'resume-requested': 'Resuming...',
   'redownload-requested': 'Re-downloading...',
 };
 
 const StatusPillInner: React.FC<StatusPillProps> = ({ status, engineStatus, errorMessage }) => {
   const t = useI18n();
+  const info = 'bg-[var(--info-bg)] text-[var(--info)] border-[var(--info-border)]';
+  const warning = 'bg-[var(--warning-bg)] text-[var(--warning)] border-[var(--warning-border)]';
   const meta: Record<DownloadStatus, { bg: string; key: string }> = {
-    downloading: {
+    queued: {
+      bg: 'bg-[var(--bg-hover)] text-[var(--text-muted)] border-[var(--border-color)]',
+      key: 'status_queued',
+    },
+    preparing: { bg: info, key: 'status_downloading' },
+    probing: { bg: info, key: 'status_downloading' },
+    downloading: { bg: info, key: 'status_downloading' },
+    pausing: { bg: warning, key: 'status_paused' },
+    stopping: { bg: warning, key: 'status_paused' },
+    paused: { bg: warning, key: 'status_paused' },
+    retrying: { bg: warning, key: 'status_downloading' },
+    recovering: { bg: warning, key: 'status_downloading' },
+    verifying: {
       bg: 'bg-[var(--info-bg)] text-[var(--info)] border-[var(--info-border)]',
+      key: 'status_downloading',
+    },
+    finalizing: {
+      bg: 'bg-[var(--success-bg)] text-[var(--success)] border-[var(--success-border)]',
       key: 'status_downloading',
     },
     completed: {
       bg: 'bg-[var(--success-bg)] text-[var(--success)] border-[var(--success-border)]',
       key: 'status_completed',
     },
-    paused: { bg: 'bg-[var(--warning-bg)] text-[var(--warning)] border-[var(--warning-border)]', key: 'status_paused' },
-    // Transient states reuse the closest stable visual and label.
-    pausing: {
-      bg: 'bg-[var(--warning-bg)] text-[var(--warning)] border-[var(--warning-border)]',
-      key: 'status_paused',
+    error: {
+      bg: 'bg-[var(--danger-bg)] text-[var(--danger)] border-[var(--danger-border)]',
+      key: 'status_error',
     },
-    stopping: {
-      bg: 'bg-[var(--warning-bg)] text-[var(--warning)] border-[var(--warning-border)]',
-      key: 'status_paused',
-    },
-    queued: { bg: 'bg-[var(--bg-hover)] text-[var(--text-muted)] border-[var(--border-color)]', key: 'status_queued' },
-    error: { bg: 'bg-[var(--danger-bg)] text-[var(--danger)] border-[var(--danger-border)]', key: 'status_error' },
+    interrupted: { bg: warning, key: 'status_paused' },
   };
   const config = meta[status];
   const subtitle =
     status === 'error' && errorMessage
       ? errorMessage
-      : status === 'downloading' && engineStatus
+      : isTaskActiveStatus(status) && engineStatus
         ? (ENGINE_STATUS_LABELS[engineStatus] ?? '')
-        : '';
+        : status === 'interrupted'
+          ? (ENGINE_STATUS_LABELS.interrupted ?? '')
+          : '';
 
   return (
     <span className="inline-flex flex-col items-center gap-0.5">
