@@ -284,7 +284,6 @@ pub fn probe_http_resource(url: &str) -> Result<HttpResourceProbe, TransportErro
     easy.max_redirections(10).map_err(transport_error)?;
     easy.connect_timeout(Duration::from_secs(15))
         .map_err(transport_error)?;
-    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
     easy.accept_encoding("identity").map_err(transport_error)?;
     easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
         .map_err(transport_error)?;
@@ -364,6 +363,17 @@ pub fn stream_http_range_controlled<W: Write, F: FnMut() -> TransferControl>(
     start: u64,
     end: u64,
     sink: &mut W,
+    control: F,
+) -> Result<HttpRangeProbe, TransportError> {
+    stream_http_range_controlled_with_validator(url, start, end, sink, None, control)
+}
+
+fn stream_http_range_controlled_with_validator<W: Write, F: FnMut() -> TransferControl>(
+    url: &str,
+    start: u64,
+    end: u64,
+    sink: &mut W,
+    if_range: Option<&str>,
     mut control: F,
 ) -> Result<HttpRangeProbe, TransportError> {
     ensure_http_url(url)?;
@@ -387,6 +397,13 @@ pub fn stream_http_range_controlled<W: Write, F: FnMut() -> TransferControl>(
         .map_err(transport_error)?;
     easy.range(&format!("{start}-{end}"))
         .map_err(transport_error)?;
+    if let Some(validator) = if_range {
+        let mut headers = List::new();
+        headers
+            .append(&format!("If-Range: {validator}"))
+            .map_err(transport_error)?;
+        easy.http_headers(headers).map_err(transport_error)?;
+    }
     easy.progress(true).map_err(transport_error)?;
 
     let header_status = Cell::new(None::<u16>);
