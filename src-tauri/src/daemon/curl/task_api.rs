@@ -170,13 +170,12 @@ pub async fn pause_task(state: &SharedState, id: &str) -> Result<Task, String> {
     {
         let mut jobs = lock_or_err!(state.media_jobs);
         if let Some(job) = jobs.get_mut(id) {
+            transition_task_state(&mut job.task, TaskState::Paused, "paused")?;
             if let Some(pid) = job.child {
                 kill_process(pid);
                 job.child = None;
             }
-            job.task.status = "paused".to_owned();
             job.task.speed_bytes_per_sec = 0;
-            job.task.engine_status = Some("paused".to_owned());
             let task = job.task.clone();
             drop(jobs);
             lock_or_err!(state.task_snapshot).insert(id.to_owned(), task.clone());
@@ -228,17 +227,26 @@ pub async fn resume_task(state: &SharedState, id: &str) -> Result<Task, String> 
     {
         let mut jobs = lock_or_err!(state.media_jobs);
         if let Some(job) = jobs.get_mut(id) {
-            let needs_start = job.task.status != "completed";
-            if needs_start {
-                job.task.status = "downloading".to_owned();
-                job.task.engine_status = Some("resuming".to_owned());
+            if TaskState::from_status(&job.task.status) == Some(TaskState::Completed) {
+                return Err(format!(
+                    "Cannot resume '{}': download is already completed.",
+                    job.task.name
+                ));
             }
+            if TaskState::from_status(&job.task.status).is_some_and(TaskState::is_active) {
+                return Err(format!(
+                    "Cannot resume '{}': media task is still active.",
+                    job.task.name
+                ));
+            }
+            transition_task_state(&mut job.task, TaskState::Queued, "resume-requested")?;
+            job.task.error_message = None;
+            let queued = job.task.clone();
             drop(jobs);
-            if needs_start {
-                crate::daemon::ytdlp::start_ytdlp_process(state, id);
-                log::info!("Task {id} resuming (yt-dlp)");
-            }
+            lock_or_err!(state.task_snapshot).insert(id.to_owned(), queued);
             state.mark_dirty();
+            crate::daemon::ytdlp::start_ytdlp_process(state, id);
+            log::info!("Task {id} resuming (yt-dlp)");
             let jobs = lock_or_err!(state.media_jobs);
             return jobs
                 .get(id)
@@ -431,10 +439,7 @@ pub async fn update_task_metadata(
     {
         let mut jobs = lock_or_err!(state.media_jobs);
         if let Some(job) = jobs.get_mut(id) {
-            if matches!(
-                job.task.status.as_str(),
-                "downloading" | "pausing" | "stopping"
-            ) {
+            if TaskState::from_status(&job.task.status).is_some_and(TaskState::is_active) {
                 return Err("Stop the download before editing it".to_owned());
             }
             if let Some(ref u) = new_url {
@@ -516,12 +521,11 @@ pub async fn redownload_task(state: &SharedState, id: &str) -> Result<Task, Stri
                 }
                 let path = std::path::PathBuf::from(&job.task.save_path);
                 let save_path_empty = job.task.save_path.is_empty();
-                job.task.status = "downloading".to_owned();
+                restart_task_state(&mut job.task, "redownload-requested")?;
                 job.task.downloaded_bytes = 0;
                 job.task.speed_bytes_per_sec = 0;
                 job.task.time_left_seconds = 0;
                 job.task.error_message = None;
-                job.task.engine_status = Some("redownload-requested".to_owned());
                 Some((job.task.clone(), path, save_path_empty))
             } else {
                 None
