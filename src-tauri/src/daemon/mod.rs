@@ -783,7 +783,17 @@ fn restore_persisted_tasks(
     );
 
     let resume_requires_reauth = restored.resume_requires_reauth.clone();
+    let recovery_checkpoints = restored.recovery_checkpoints.clone();
     for mut task in restored.tasks {
+        if let Some(checkpoint) = recovery_checkpoints.get(&task.id) {
+            if !checkpoint.apply_to_task(&mut task) {
+                log::warn!(
+                    "Ignoring incompatible recovery checkpoint for task {}",
+                    task.id
+                );
+            }
+        }
+
         let was_running = matches!(
             task.status.as_str(),
             "downloading" | "queued" | "waiting" | "starting" | "pausing" | "stopping"
@@ -872,11 +882,39 @@ fn restore_persisted_tasks(
                         task.id.clone(),
                         CurlJob {
                             task: task.clone(),
-                            direct_options: restored
-                                .curl_direct_options
-                                .get(&task.id)
-                                .cloned()
-                                .unwrap_or_default(),
+                            direct_options: {
+                                let mut options = restored
+                                    .curl_direct_options
+                                    .get(&task.id)
+                                    .cloned()
+                                    .unwrap_or_default();
+                                if let Some(checkpoint) = recovery_checkpoints.get(&task.id) {
+                                    if let Some(etag) = checkpoint.resource.etag.as_ref() {
+                                        options
+                                            .entry("etag".to_owned())
+                                            .or_insert_with(|| serde_json::Value::String(etag.clone()));
+                                    }
+                                    if let Some(last_modified) =
+                                        checkpoint.resource.last_modified.as_ref()
+                                    {
+                                        options
+                                            .entry("lastModified".to_owned())
+                                            .or_insert_with(|| {
+                                                serde_json::Value::String(last_modified.clone())
+                                            });
+                                    }
+                                    if let Some(effective_url) =
+                                        checkpoint.resource.effective_url.as_ref()
+                                    {
+                                        options
+                                            .entry("effectiveUrl".to_owned())
+                                            .or_insert_with(|| {
+                                                serde_json::Value::String(effective_url.clone())
+                                            });
+                                    }
+                                }
+                                options
+                            },
                             cancel_token: Arc::new(AtomicBool::new(false)),
                             run_generation: Arc::new(AtomicU64::new(0)),
                             start_time: Instant::now(),
@@ -976,11 +1014,23 @@ mod tests {
         std::fs::create_dir_all(&data_dir).expect("create test data directory");
         let data_dir_string = data_dir.display().to_string();
         let state = Arc::new(persist::tests::test_state(&data_dir_string));
+        let mut checkpoint_task = restoration_test_task("pausing", "pausing");
+        checkpoint_task.downloaded_bytes = 321;
+        checkpoint_task.speed_bytes_per_sec = 777;
+        let checkpoint = nova_core_model::RecoveryCheckpoint::from_task(
+            &checkpoint_task,
+            nova_core_model::ResourceIdentity {
+                etag: Some("\"restore-v1\"".to_owned()),
+                content_length: Some(checkpoint_task.size_bytes),
+                ..Default::default()
+            },
+        );
         let restored = persist::PersistedState {
             tasks: vec![
                 restoration_test_task("pausing", "pausing"),
                 restoration_test_task("stopping", "stopping"),
             ],
+            recovery_checkpoints: HashMap::from([("pausing".to_owned(), checkpoint)]),
             ..Default::default()
         };
 
@@ -993,6 +1043,13 @@ mod tests {
             assert_eq!(task.engine_status.as_deref(), Some("interrupted"));
             assert_eq!(task.speed_bytes_per_sec, 0);
         }
+        assert_eq!(
+            snapshot
+                .get("pausing")
+                .expect("checkpoint-restored task")
+                .downloaded_bytes,
+            321
+        );
         drop(snapshot);
         assert_eq!(state.curl_jobs.lock().expect("lock curl jobs").len(), 2);
         std::fs::remove_dir_all(&data_dir).ok();
