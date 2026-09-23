@@ -10,6 +10,7 @@ import java.nio.file.StandardCopyOption
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.FutureTask
 
 /**
  * NOVA-owned Android transfer-task host.
@@ -75,7 +76,7 @@ class NovaTransferCore(context: Context) {
 
     fun pause(taskId: String): Result<DownloadSummary> = runCatching {
         val record = requireRecord(taskId)
-        if (record.status == DownloadStatus.Downloading.wireValue) {
+        if (ACTIVE_TRANSFERS.containsKey(taskId)) {
             check(NovaNativeCore.pauseTransfer(taskId)) { "NOVA native transfer is not active" }
         }
         val paused = record.copy(status = DownloadStatus.Paused.wireValue)
@@ -113,11 +114,12 @@ class NovaTransferCore(context: Context) {
     }
 
     private fun startNativeTransfer(record: TransferRecord, url: String) {
-        ACTIVE_TRANSFERS.computeIfAbsent(record.id) {
-            TRANSFER_EXECUTOR.submit {
-                runNativeTransfer(record, url)
-            }
+        val task = FutureTask<Unit> {
+            runNativeTransfer(record, url)
         }
+        val existing = ACTIVE_TRANSFERS.putIfAbsent(record.id, task)
+        check(existing == null) { "NOVA native transfer is already active" }
+        TRANSFER_EXECUTOR.execute(task)
     }
 
     private fun runNativeTransfer(record: TransferRecord, url: String) {
