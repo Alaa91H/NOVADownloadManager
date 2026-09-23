@@ -572,6 +572,49 @@ struct PreflightData {
     total_size: u64,
 }
 
+fn safe_recovery_validator(
+    capture: &Arc<Mutex<ResponseCapture>>,
+    expected_range_start: Option<u64>,
+    require_partial: bool,
+) -> Option<(String, bool)> {
+    let cap = capture.lock().ok()?;
+    if require_partial {
+        let expected = expected_range_start?;
+        let safe = if expected == 0 {
+            cap.status_code == 206 && cap.content_range_start == Some(0)
+        } else {
+            nova_core_model::plan_http_resume(
+                expected,
+                cap.status_code,
+                cap.content_range_start,
+            ) == nova_core_model::ResumeAction::Append
+        };
+        if !safe {
+            return None;
+        }
+    }
+
+    cap.validator
+        .clone()
+        .map(|validator| (validator, cap.validator_is_etag))
+}
+
+fn remember_recovery_validator(job: &mut CurlJob, recovery_validator: Option<(String, bool)>) {
+    let Some((validator, is_etag)) = recovery_validator else {
+        return;
+    };
+    let key = if is_etag { "etag" } else { "lastModified" };
+    let unchanged = job
+        .direct_options
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        == Some(validator.as_str());
+    if !unchanged {
+        job.direct_options
+            .insert(key.to_owned(), serde_json::Value::String(validator));
+    }
+}
+
 fn update_curl_task_progress(
     state: &SharedState,
     id: &str,
@@ -579,6 +622,7 @@ fn update_curl_task_progress(
     ranges: &[(ByteRange, Arc<AtomicU64>, u64)],
     last_total: &mut u64,
     last_tick: &mut Instant,
+    recovery_validator: Option<(String, bool)>,
 ) {
     let downloaded: u64 = ranges
         .iter()
@@ -610,6 +654,7 @@ fn update_curl_task_progress(
         Err(poisoned) => poisoned.into_inner(),
     };
     if let Some(job) = jobs.get_mut(id) {
+        remember_recovery_validator(job, recovery_validator);
         job.task.downloaded_bytes = downloaded;
         job.task.size_bytes = total_size;
         job.task.speed_bytes_per_sec = speed.max(0.0) as u64;
@@ -962,6 +1007,12 @@ fn run_single_libcurl(
             effective_total = new_total;
         }
 
+        let recovery_validator = safe_recovery_validator(
+            &capture,
+            (resume_existing > 0).then_some(resume_existing),
+            resume_existing > 0,
+        );
+
         // Blocking lock: a try_lock spin would delay progress ticks and the
         // in-loop stall detector under contention.
         let mut jobs = match state.curl_jobs.lock() {
@@ -970,6 +1021,7 @@ fn run_single_libcurl(
         };
         {
             if let Some(job) = jobs.get_mut(id) {
+                remember_recovery_validator(job, recovery_validator);
                 job.task.downloaded_bytes = effective_downloaded;
                 // Prefer the header-discovered total; if the response is still
                 // being read, keep any size the async background probe already
@@ -1335,7 +1387,9 @@ fn run_segmented_libcurl(
         .map_err(|e| format!("Could not enable libcurl multiplexing: {e}"))?;
 
     let mut handles = Vec::new();
-    let mut seg_captures: Vec<Arc<Mutex<ResponseCapture>>> = Vec::new();
+    let seg_captures: std::cell::RefCell<
+        Vec<(Arc<Mutex<ResponseCapture>>, u64, bool)>,
+    > = std::cell::RefCell::new(Vec::new());
     // C-2: shared flag — when any segment's header callback sees a 200 in
     // answer to a partial-range request, every segment stops writing.
     let range_rejected = Arc::new(AtomicBool::new(false));
@@ -1434,7 +1488,10 @@ fn run_segmented_libcurl(
         let start = range.start + existing;
         let progress = Arc::new(AtomicU64::new(0));
         let seg_capture = Arc::new(Mutex::new(ResponseCapture::default()));
-        seg_captures.push(seg_capture.clone());
+        let expects_206 = start > 0 || ranges.len() > 1;
+        seg_captures
+            .borrow_mut()
+            .push((seg_capture.clone(), start, expects_206));
         let easy = create_easy_for_range_ext(
             plan,
             &range.path,
@@ -1446,7 +1503,7 @@ fn run_segmented_libcurl(
                 streaming_digest_out: streaming_digest_out.clone(),
                 range_rejected: range_rejected.clone(),
                 encoding_rejected: encoding_rejected.clone(),
-                expects_206: start > 0 || ranges.len() > 1,
+                expects_206,
             },
             Some((start, range.end)),
             per_segment_limit_bps,
@@ -1676,6 +1733,16 @@ fn run_segmented_libcurl(
         // `&mut cell.get()` passed a reference to a discarded temporary).
         let mut progress_total = progress_total_cell.get();
         let mut progress_tick = progress_tick_cell.get();
+        let recovery_validator = seg_captures
+            .borrow()
+            .iter()
+            .find_map(|(capture, expected_start, require_partial)| {
+                safe_recovery_validator(
+                    capture,
+                    Some(*expected_start),
+                    *require_partial,
+                )
+            });
         update_curl_task_progress(
             state,
             id,
@@ -1683,6 +1750,7 @@ fn run_segmented_libcurl(
             &active_cell.borrow(),
             &mut progress_total,
             &mut progress_tick,
+            recovery_validator,
         );
         progress_total_cell.set(progress_total);
         progress_tick_cell.set(progress_tick);
@@ -1793,7 +1861,11 @@ fn run_segmented_libcurl(
                 continue;
             }
             let seg_capture = Arc::new(Mutex::new(ResponseCapture::default()));
-            seg_captures.push(seg_capture.clone());
+            let expected_start = start + trusted;
+            let expects_206 = expected_start > 0 || new_geometry_len > 1;
+            seg_captures
+                .borrow_mut()
+                .push((seg_capture.clone(), expected_start, expects_206));
             let easy = create_easy_for_range_ext(
                 plan,
                 &path,
@@ -1805,9 +1877,9 @@ fn run_segmented_libcurl(
                     streaming_digest_out: streaming_digest_out.clone(),
                     range_rejected: range_rejected.clone(),
                     encoding_rejected: encoding_rejected.clone(),
-                    expects_206: start + trusted > 0 || new_geometry_len > 1,
+                    expects_206,
                 },
-                Some((start + trusted, end)),
+                Some((expected_start, end)),
                 per_segment_limit_bps,
             )?;
             let handle = guard
@@ -1914,12 +1986,18 @@ fn run_segmented_libcurl(
     );
     progress_total_cell.set(last_total);
     progress_tick_cell.set(last_tick);
-    let (captured_validator, encoded) = seg_captures
+    let first_capture = seg_captures
+        .borrow()
         .first()
-        .and_then(|cap| cap.lock().ok())
-        .map_or((None, false), |cap| {
-            (cap.validator.clone(), cap.content_encoded)
-        });
+        .map(|(capture, _, _)| capture.clone());
+    let (captured_validator, encoded) = first_capture
+        .and_then(|capture| {
+            capture
+                .lock()
+                .ok()
+                .map(|cap| (cap.validator.clone(), cap.content_encoded))
+        })
+        .unwrap_or((None, false));
     // C-1: merge using the CURRENT segment geometry. The original `ranges`
     // were captured before any adaptive rebuild split/merged segments, so
     // they may reference stale part files and byte offsets, causing a failed
