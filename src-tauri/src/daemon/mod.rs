@@ -38,7 +38,9 @@ use tower_http::limit::RequestBodyLimitLayer;
 use crate::daemon::state::{AppState, SharedState};
 use crate::daemon::static_files::{serve_asset, serve_index, serve_spa_fallback};
 use crate::daemon::telegram::start_telegram_bot;
-use crate::daemon::types::{CreateDownloadBody, CurlJob, MediaJob, TaskState, TelegramConfig};
+use crate::daemon::types::{
+    transition_task_state, CreateDownloadBody, CurlJob, MediaJob, TaskState, TelegramConfig,
+};
 use crate::lock_or_err;
 
 use crate::daemon::engine::extractor::{ExtractorRegistry, SharedExtractorRegistry};
@@ -699,15 +701,40 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                             job.task.engine_status = Some("shutdown".to_owned());
                         }
                     }
-                    {
+                    let curl_shutdown_snapshots = {
                         let mut curl = lock_or_err!(shutdown_state.curl_jobs);
+                        let mut snapshots = Vec::with_capacity(curl.len());
                         for job in curl.values_mut() {
                             job.cancel_token
                                 .store(true, std::sync::atomic::Ordering::Release);
-                            job.task.status = "paused".to_owned();
-                            job.task.engine_status = Some("shutdown".to_owned());
+                            let current = TaskState::from_status(&job.task.status);
+                            if current != Some(TaskState::Completed) {
+                                if let Err(error) =
+                                    transition_task_state(&mut job.task, TaskState::Paused, "shutdown")
+                                {
+                                    // Verifying/finalizing deliberately cannot
+                                    // be paused mid-commit. Leave that active
+                                    // state intact; restart recovery will mark
+                                    // it interrupted if the worker does not
+                                    // finish during the shutdown grace period.
+                                    log::info!(
+                                        "Task {} kept in state '{}' during shutdown: {error}",
+                                        job.task.id, job.task.status
+                                    );
+                                }
+                            }
+                            job.task.speed_bytes_per_sec = 0;
+                            snapshots.push(job.task.clone());
+                        }
+                        snapshots
+                    };
+                    {
+                        let mut snapshot = lock_or_err!(shutdown_state.task_snapshot);
+                        for task in curl_shutdown_snapshots {
+                            snapshot.insert(task.id.clone(), task);
                         }
                     }
+                    shutdown_state.mark_dirty();
                     // Signal watchdog threads to exit.
                     shutdown_state
                         .shutdown_requested
