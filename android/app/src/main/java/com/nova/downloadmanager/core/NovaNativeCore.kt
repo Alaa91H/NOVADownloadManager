@@ -33,11 +33,18 @@ internal object NovaNativeCore {
         RESTART,
     }
 
+    internal data class HttpResourceProbe(
+        val responseStatus: Int,
+        val contentLength: Long?,
+    )
+
     private val loadFailure: Throwable? = runCatching {
         System.loadLibrary(LIBRARY_NAME)
     }.exceptionOrNull()
 
     private external fun nativeInitialize(clientBridgeApiVersion: Int): Int
+
+    private external fun nativeProbeHttpResource(url: String): LongArray?
 
     private external fun nativePlanSegmentCount(
         totalBytes: Long,
@@ -80,6 +87,41 @@ internal object NovaNativeCore {
             "NOVA native core bridge mismatch: Android expects $CLIENT_BRIDGE_API_VERSION but core returned $coreBridgeVersion"
         }
         return coreBridgeVersion
+    }
+
+    /**
+     * Runs HTTP metadata discovery through NOVA's packaged Rust/libcurl core.
+     *
+     * Callers must execute this on a background dispatcher because it performs
+     * bounded network I/O. A transport failure fails closed; Android must not
+     * silently repeat the request through a second HTTP client.
+     */
+    fun probeHttpResource(url: String): HttpResourceProbe {
+        require(url.isNotBlank()) { "url must not be blank" }
+        requireCompatible()
+
+        val values = runCatching { nativeProbeHttpResource(url) }
+            .getOrElse { failure ->
+                throw IllegalStateException("NOVA native HTTP preflight failed", failure)
+            }
+            ?: throw IllegalStateException("NOVA native HTTP preflight returned no result")
+        check(values.size == 2) {
+            "NOVA native HTTP preflight returned an invalid result shape"
+        }
+
+        val status = values[0]
+        check(status in 100L..599L) {
+            "NOVA native HTTP preflight returned an invalid HTTP status: $status"
+        }
+        val contentLength = values[1]
+        check(contentLength >= -1L) {
+            "NOVA native HTTP preflight returned an invalid content length: $contentLength"
+        }
+
+        return HttpResourceProbe(
+            responseStatus = status.toInt(),
+            contentLength = contentLength.takeIf { it >= 0L },
+        )
     }
 
     /**
