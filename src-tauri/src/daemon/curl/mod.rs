@@ -119,4 +119,7 @@ pub(super) struct SegmentProgress {
     /// True when this segment requested a partial range and therefore must
     /// receive a 206 response for the transfer to be valid.
     pub(super) expects_206: bool,
+    /// Exact Content-Range start required before body bytes may be accepted.
+    /// Used by the shared resume policy to reject missing or shifted ranges.
+    pub(super) expected_range_start: Option<u64>,
 }
