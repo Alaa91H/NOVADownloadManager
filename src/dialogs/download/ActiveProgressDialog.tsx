@@ -6,6 +6,7 @@ import {
   useTaskActions,
   useSettingsData,
   useSettingsActions,
+  useDialogActions,
   useI18n,
 } from '../../store/selectors';
 import { useEngineAdaptive } from '../../store/selectors';
@@ -15,8 +16,13 @@ import { formatBytes } from '../../initialData';
 import { formatSpeed, formatElapsed, formatTimeLeft } from '../../utils/formatUtils';
 import { taskProgressInfo } from '../../utils/progressUtils';
 import {
+  isTaskActiveStatus,
+  isTaskPausableStatus,
+  isTaskReceivingBytes,
+  isTaskResumableStatus,
+} from '../../utils/taskStatus';
+import {
   TaskProgressBar,
-  ProgressHeadBadge,
   ProgressLegend,
   progressToneFillClass,
   type ProgressTone,
@@ -181,6 +187,7 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
   const { pauseTask, resumeTask } = useTaskActions();
   const settings = useSettingsData();
   const { updateSettings } = useSettingsActions();
+  const { closeDialog } = useDialogActions();
   const t = useI18n();
   const taskFromPayload = dialog.payload as DownloadItem | null | undefined;
   // Always use the live store version of the task so progress bars and segment
@@ -189,7 +196,7 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
   const liveTask = useMemo(() => {
     const hintedId = taskId || taskFromPayload?.id;
     if (hintedId) return tasks.find((tt) => tt.id === hintedId);
-    return tasks.find((tt) => tt.status === 'downloading');
+    return tasks.find((tt) => isTaskActiveStatus(tt.status));
   }, [tasks, taskId, taskFromPayload?.id]);
   const task = liveTask ?? taskFromPayload ?? null;
 
@@ -294,7 +301,10 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
         : 'bg-[var(--bg-input)] text-[var(--text-secondary)] border-transparent hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] pb-1'
     }`;
 
-  const isDownloading = task.status === 'downloading';
+  const isActive = isTaskActiveStatus(task.status);
+  const isDownloading = isTaskReceivingBytes(task.status);
+  const isPausable = isTaskPausableStatus(task.status);
+  const isResumable = isTaskResumableStatus(task.status);
 
   return (
     <div
@@ -315,7 +325,7 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
             behaviour of the table/card bars so every renderer is consistent. */}
         <TaskProgressBar
           progress={progress}
-          active={isDownloading}
+          active={isActive}
           trackClass="h-2"
           showLabel={false}
           ariaLabel={task.name}
@@ -357,13 +367,10 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
                     className={`h-full absolute top-0 left-0 transition-all duration-300 ${progressToneFillClass[segmentTone(seg)]}`}
                     style={{ width: `${String(segPercent)}%` }}
                   />
-                  {/* Per-segment download-head badge — the exact shared pill used
-                      by the cards and every other surface (same clamp math, same
-                      glide, same live pulse). Only active segments carry one, so
-                      a finished segment can never overhang its cell. */}
-                  {seg.active && seg.progress < 1 && (
-                    <ProgressHeadBadge percent={segPercent} label={`${String(segPercent)}%`} dataTestId="seg-head" />
-                  )}
+                  {/* The compact multi-connection strip deliberately shows only
+                      the coloured transfer cells. Per-connection percentages stay
+                      available through the accessible label and hover details,
+                      while the overall progress value remains above this strip. */}
                   {isDownloading && seg.active && seg.progress < 1 && (
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.06] to-transparent animate-[shimmer_2s_ease-in-out_infinite]" />
                   )}
@@ -629,7 +636,7 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
         style={{ direction: 'ltr' }}
       >
         {/* Primary action: Stop / Resume / Finished */}
-        {isDownloading ? (
+        {isPausable ? (
           <button
             onClick={() => {
               void pauseTask(task.id);
@@ -638,7 +645,7 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
           >
             {t('topbar_stop')}
           </button>
-        ) : task.status === 'paused' || task.status === 'error' ? (
+        ) : isResumable ? (
           <button
             onClick={() => {
               void resumeTask(task.id);
@@ -647,13 +654,25 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
           >
             {t('progress_resume_btn')}
           </button>
+        ) : isActive ? (
+          <button
+            type="button"
+            disabled
+            className="px-6 py-1.5 bg-[var(--bg-hover)] border border-[var(--border-color)] text-[var(--text-secondary)] text-[11px] font-bold min-w-[100px] text-center rounded-lg cursor-wait"
+          >
+            {task.status === 'verifying' ? 'Verifying…' : task.status === 'finalizing' ? 'Finalizing…' : 'Working…'}
+          </button>
         ) : (
-          <div className="px-6 py-1.5 bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-muted)] text-[11px] font-bold select-none min-w-[80px] text-center rounded-lg">
+          <button
+            type="button"
+            onClick={closeDialog}
+            className="px-6 py-1.5 bg-[var(--success-bg)] hover:bg-[var(--success)]/15 active:scale-95 border border-[var(--success-border)] text-[var(--success)] text-[11px] font-bold cursor-pointer min-w-[80px] text-center rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)]"
+          >
             {t('progress_finished')}
-          </div>
+          </button>
         )}
 
-        {/* Show / Hide details � next to the Stop button, clearly visible */}
+        {/* Show / Hide details — next to the Stop button, clearly visible */}
         <button
           onClick={() => {
             setDetailsCollapsed((v) => !v);
