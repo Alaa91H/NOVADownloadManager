@@ -10,8 +10,15 @@ import android.content.Context
 interface DownloadsRepository {
     fun coreReadiness(): CoreReadiness
     fun enqueue(url: String): Result<DownloadSummary>
+    fun pause(taskId: String): Result<DownloadSummary> = unsupported("pause")
+    fun resume(taskId: String): Result<DownloadSummary> = unsupported("resume")
+    fun cancel(taskId: String): Result<DownloadSummary> = unsupported("cancel")
     fun restore(): List<DownloadSummary> = emptyList()
     fun refresh(taskIds: Collection<String>): List<DownloadSummary>
+
+    private fun unsupported(action: String): Result<DownloadSummary> = Result.failure(
+        IllegalStateException("NOVA transfer action is unavailable: $action"),
+    )
 }
 
 /**
@@ -38,6 +45,12 @@ class PlatformDownloadsRepository(context: Context) : DownloadsRepository {
 
     override fun enqueue(url: String): Result<DownloadSummary> = core.enqueue(url)
 
+    override fun pause(taskId: String): Result<DownloadSummary> = core.pause(taskId)
+
+    override fun resume(taskId: String): Result<DownloadSummary> = core.resume(taskId)
+
+    override fun cancel(taskId: String): Result<DownloadSummary> = core.cancel(taskId)
+
     override fun restore(): List<DownloadSummary> = core.restore()
 
     override fun refresh(taskIds: Collection<String>): List<DownloadSummary> = core.refresh(taskIds)
@@ -49,4 +62,5 @@ enum class DownloadStatus(val wireValue: String) {
     Paused("paused"),
     Completed("completed"),
     Failed("failed"),
+    Cancelled("cancelled"),
 }
