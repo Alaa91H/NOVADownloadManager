@@ -5,7 +5,10 @@
 //! an Android adapter concern and will be handed to the core through a bounded
 //! descriptor interface in a later milestone.
 
+use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MobileTransferOutcome {
@@ -21,8 +24,47 @@ pub enum MobileTransferError {
     InvalidRelativeDestination,
     #[error("app-private destination escaped its configured root")]
     DestinationEscapedRoot,
+    #[error("shared NOVA transfer paused")]
+    Paused,
+    #[error("shared NOVA transfer cancelled")]
+    Cancelled,
     #[error("shared NOVA transfer failed: {message}")]
     TransferFailed { message: String },
+}
+
+const CONTROL_CONTINUE: u8 = 0;
+const CONTROL_PAUSE: u8 = 1;
+const CONTROL_CANCEL: u8 = 2;
+
+fn sessions() -> &'static Mutex<HashMap<String, Arc<AtomicU8>>> {
+    static SESSIONS: OnceLock<Mutex<HashMap<String, Arc<AtomicU8>>>> = OnceLock::new();
+    SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn set_session_control(task_id: &str, control: u8) -> bool {
+    sessions()
+        .lock()
+        .ok()
+        .and_then(|map| map.get(task_id).cloned())
+        .is_some_and(|state| {
+            state.store(control, Ordering::Release);
+            true
+        })
+}
+
+pub fn pause_transfer(task_id: &str) -> bool {
+    set_session_control(task_id, CONTROL_PAUSE)
+}
+
+pub fn cancel_transfer(task_id: &str) -> bool {
+    set_session_control(task_id, CONTROL_CANCEL)
+}
+
+pub fn is_transfer_active(task_id: &str) -> bool {
+    sessions()
+        .lock()
+        .ok()
+        .is_some_and(|map| map.contains_key(task_id))
 }
 
 fn validated_app_private_destination(
@@ -50,17 +92,62 @@ fn validated_app_private_destination(
 }
 
 pub fn download_to_app_private_path(
+    task_id: &str,
     url: &str,
     app_private_root: &Path,
     relative_destination: &Path,
 ) -> Result<MobileTransferOutcome, MobileTransferError> {
+    if task_id.trim().is_empty() {
+        return Err(MobileTransferError::TransferFailed {
+            message: "missing native task id".to_owned(),
+        });
+    }
+
     let destination =
         validated_app_private_destination(app_private_root, relative_destination)?;
-    let transfer = nova_download_core::download_http_to_path(url, &destination).map_err(|error| {
-        MobileTransferError::TransferFailed {
-            message: error.to_string(),
+    let control = Arc::new(AtomicU8::new(CONTROL_CONTINUE));
+
+    {
+        let mut map = sessions().lock().map_err(|_| MobileTransferError::TransferFailed {
+            message: "native transfer session registry is unavailable".to_owned(),
+        })?;
+        if map.contains_key(task_id) {
+            return Err(MobileTransferError::TransferFailed {
+                message: "native transfer session is already active".to_owned(),
+            });
         }
-    })?;
+        map.insert(task_id.to_owned(), Arc::clone(&control));
+    }
+
+    let transfer_result = nova_download_core::download_http_to_path_controlled(
+        url,
+        &destination,
+        || match control.load(Ordering::Acquire) {
+            CONTROL_PAUSE => nova_download_core::TransferControl::Pause,
+            CONTROL_CANCEL => nova_download_core::TransferControl::Cancel,
+            _ => nova_download_core::TransferControl::Continue,
+        },
+    );
+
+    if let Ok(mut map) = sessions().lock() {
+        map.remove(task_id);
+    }
+
+    let transfer = match transfer_result {
+        Ok(transfer) => transfer,
+        Err(nova_download_core::TransportError::Paused) => {
+            return Err(MobileTransferError::Paused)
+        }
+        Err(nova_download_core::TransportError::Cancelled) => {
+            let _ = std::fs::remove_file(&destination);
+            return Err(MobileTransferError::Cancelled);
+        }
+        Err(error) => {
+            return Err(MobileTransferError::TransferFailed {
+                message: error.to_string(),
+            })
+        }
+    };
 
     Ok(MobileTransferOutcome {
         final_bytes: transfer.final_bytes,
@@ -73,6 +160,13 @@ pub fn download_to_app_private_path(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_control_returns_false_for_unknown_task() {
+        assert!(!pause_transfer("missing"));
+        assert!(!cancel_transfer("missing"));
+        assert!(!is_transfer_active("missing"));
+    }
 
     #[test]
     fn rejects_absolute_and_parent_traversal_destinations() {
