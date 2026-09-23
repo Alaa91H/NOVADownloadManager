@@ -223,10 +223,14 @@ impl ResponseCapture {
         RemoteFingerprint {
             validator: self.validator.clone(),
             validator_is_etag: self.validator_is_etag,
-            total_size: self
-                .content_range
-                .and_then(|range| range.total)
-                .or(self.content_length),
+            total_size: if self.status_code == 206 {
+                // On a partial response Content-Length is only the selected
+                // range length. The representation total is trustworthy only
+                // when it came from Content-Range.
+                self.content_range.and_then(|range| range.total)
+            } else {
+                self.content_length
+            },
             digest_sha256: self
                 .representation_digest_sha256
                 .as_deref()
@@ -260,7 +264,7 @@ pub(super) struct SegmentProgress {
 
 #[cfg(test)]
 mod fingerprint_tests {
-    use super::{normalize_sha256_fingerprint, RemoteFingerprint};
+    use super::{normalize_sha256_fingerprint, RemoteFingerprint, ResponseCapture};
 
     #[test]
     fn sha256_fingerprint_normalizes_hex_and_structured_digest_forms() {
@@ -302,6 +306,23 @@ mod fingerprint_tests {
             total_size: Some(2048),
             ..Default::default()
         }));
+    }
+
+    #[test]
+    fn partial_response_never_uses_content_length_as_remote_total() {
+        let partial = ResponseCapture {
+            status_code: 206,
+            content_length: Some(100),
+            ..Default::default()
+        };
+        assert_eq!(partial.observed_fingerprint().total_size, None);
+
+        let full = ResponseCapture {
+            status_code: 200,
+            content_length: Some(1000),
+            ..Default::default()
+        };
+        assert_eq!(full.observed_fingerprint().total_size, Some(1000));
     }
 
     #[test]
