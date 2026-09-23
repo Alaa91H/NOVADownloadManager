@@ -767,6 +767,46 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
     });
 }
 
+/// Validate a persisted direct-download completion against the durable file.
+///
+/// A persisted `completed` flag is only a historical claim. The destination
+/// may have been deleted, truncated, replaced by a directory, or otherwise
+/// changed while NOVA was not running. Never restore such a task as completed
+/// unless the file still exists and its byte count matches the committed task.
+fn validate_restored_direct_completion(task: &crate::daemon::types::Task) -> Result<(), String> {
+    let expected = if task.downloaded_bytes > 0 {
+        task.downloaded_bytes
+    } else {
+        task.size_bytes
+    };
+    if expected == 0 {
+        return Err("Completed download has no committed byte count.".to_owned());
+    }
+
+    let path = std::path::Path::new(&task.save_path);
+    let metadata = std::fs::metadata(path).map_err(|error| {
+        format!(
+            "Completed file is no longer available at {}: {error}",
+            path.display()
+        )
+    })?;
+    if !metadata.is_file() {
+        return Err(format!(
+            "Completed destination is not a regular file: {}",
+            path.display()
+        ));
+    }
+    if metadata.len() != expected {
+        return Err(format!(
+            "Completed file changed on disk: expected {expected} bytes, found {} bytes at {}",
+            metadata.len(),
+            path.display()
+        ));
+    }
+
+    Ok(())
+}
+
 /// Rebuild in-memory task state from the persisted snapshot. Direct HTTP(S)
 /// jobs are restored as curl jobs; running jobs are marked paused because the
 /// child process cannot survive an application restart.
@@ -784,6 +824,24 @@ fn restore_persisted_tasks(
 
     let resume_requires_reauth = restored.resume_requires_reauth.clone();
     for mut task in restored.tasks {
+        let is_direct_download = task.engine == "curl"
+            || task.engine == "libcurl-multi"
+            || (task.engine != "yt-dlp"
+                && (task.url.starts_with("http://") || task.url.starts_with("https://")));
+
+        // P0 crash/restart consistency: a persisted completed state must still
+        // agree with the filesystem before it is exposed as completed again.
+        if task.status == "completed" && is_direct_download {
+            if let Err(error) = validate_restored_direct_completion(&task) {
+                log::warn!("Task {}: invalid persisted completion: {error}", task.id);
+                task.status = "error".to_owned();
+                task.engine_status = Some("completion-invalid".to_owned());
+                task.error_message = Some(error);
+                task.speed_bytes_per_sec = 0;
+                task.time_left_seconds = 0;
+            }
+        }
+
         let was_running = matches!(
             task.status.as_str(),
             "downloading" | "queued" | "waiting" | "starting" | "pausing" | "stopping"
@@ -995,6 +1053,123 @@ mod tests {
         }
         drop(snapshot);
         assert_eq!(state.curl_jobs.lock().expect("lock curl jobs").len(), 2);
+        std::fs::remove_dir_all(&data_dir).ok();
+    }
+
+    #[test]
+    fn restoration_keeps_completed_direct_task_only_when_file_matches() {
+        let data_dir =
+            std::env::temp_dir().join(format!("nova-restore-complete-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&data_dir).expect("create test data directory");
+        let data_dir_string = data_dir.display().to_string();
+        let state = Arc::new(persist::tests::test_state(&data_dir_string));
+
+        let output = data_dir.join("complete.bin");
+        std::fs::write(&output, vec![7u8; 100]).expect("write completed file");
+        let mut task = restoration_test_task("complete", "completed");
+        task.save_path = output.display().to_string();
+        task.size_bytes = 100;
+        task.downloaded_bytes = 100;
+
+        restore_persisted_tasks(
+            &state,
+            persist::PersistedState {
+                tasks: vec![task],
+                ..Default::default()
+            },
+        );
+
+        let snapshot = state.task_snapshot.lock().expect("lock restored snapshot");
+        let restored = snapshot.get("complete").expect("restored completed task");
+        assert_eq!(restored.status, "completed");
+        assert_eq!(restored.engine_status.as_deref(), Some("completed"));
+        drop(snapshot);
+        assert!(state.curl_jobs.lock().expect("lock curl jobs").is_empty());
+        std::fs::remove_dir_all(&data_dir).ok();
+    }
+
+    #[test]
+    fn restoration_invalidates_completed_direct_task_when_file_is_missing() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "nova-restore-missing-complete-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&data_dir).expect("create test data directory");
+        let data_dir_string = data_dir.display().to_string();
+        let state = Arc::new(persist::tests::test_state(&data_dir_string));
+
+        let mut task = restoration_test_task("missing-complete", "completed");
+        task.save_path = data_dir.join("missing.bin").display().to_string();
+        task.size_bytes = 100;
+        task.downloaded_bytes = 100;
+
+        restore_persisted_tasks(
+            &state,
+            persist::PersistedState {
+                tasks: vec![task],
+                ..Default::default()
+            },
+        );
+
+        let snapshot = state.task_snapshot.lock().expect("lock restored snapshot");
+        let restored = snapshot
+            .get("missing-complete")
+            .expect("restored invalid completion");
+        assert_eq!(restored.status, "error");
+        assert_eq!(
+            restored.engine_status.as_deref(),
+            Some("completion-invalid")
+        );
+        assert!(restored
+            .error_message
+            .as_deref()
+            .is_some_and(|message| message.contains("no longer available")));
+        drop(snapshot);
+        assert!(state
+            .curl_jobs
+            .lock()
+            .expect("lock curl jobs")
+            .contains_key("missing-complete"));
+        assert!(state.priority_queue.entries().is_empty());
+        std::fs::remove_dir_all(&data_dir).ok();
+    }
+
+    #[test]
+    fn restoration_invalidates_completed_direct_task_when_size_changed() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "nova-restore-size-drift-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&data_dir).expect("create test data directory");
+        let data_dir_string = data_dir.display().to_string();
+        let state = Arc::new(persist::tests::test_state(&data_dir_string));
+
+        let output = data_dir.join("changed.bin");
+        std::fs::write(&output, vec![3u8; 40]).expect("write changed file");
+        let mut task = restoration_test_task("size-drift", "completed");
+        task.save_path = output.display().to_string();
+        task.size_bytes = 100;
+        task.downloaded_bytes = 100;
+
+        restore_persisted_tasks(
+            &state,
+            persist::PersistedState {
+                tasks: vec![task],
+                ..Default::default()
+            },
+        );
+
+        let snapshot = state.task_snapshot.lock().expect("lock restored snapshot");
+        let restored = snapshot.get("size-drift").expect("restored invalid task");
+        assert_eq!(restored.status, "error");
+        assert_eq!(
+            restored.engine_status.as_deref(),
+            Some("completion-invalid")
+        );
+        assert!(restored
+            .error_message
+            .as_deref()
+            .is_some_and(|message| message.contains("expected 100 bytes")));
         std::fs::remove_dir_all(&data_dir).ok();
     }
 
