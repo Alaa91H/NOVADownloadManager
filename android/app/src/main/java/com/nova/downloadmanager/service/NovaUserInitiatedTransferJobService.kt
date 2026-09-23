@@ -7,10 +7,9 @@ import com.nova.downloadmanager.downloads.NovaTransferCore
 /**
  * Android 14+ user-initiated-transfer lifecycle entry point.
  *
- * The network transfer is performed by Android DownloadManager under the
- * platform's durable data-sync policy. NOVA owns and reconciles the local task
- * catalog here so that scheduled lifecycle entry does not pretend to be a
- * transfer while still keeping accepted tasks observable after process restart.
+ * Network bytes are transferred by NOVA's Rust/libcurl engine. This scheduled
+ * entry point only reconciles Android-side task metadata; the foreground
+ * NovaNativeTransferService owns the live data-sync process lifetime.
  */
 class NovaUserInitiatedTransferJobService : JobService() {
     override fun onStartJob(params: JobParameters): Boolean {
