@@ -136,23 +136,43 @@ fn sanitize_direct_options(
         .collect()
 }
 
+fn read_snapshot(path: &Path) -> Result<PersistedState, String> {
+    let raw = std::fs::read_to_string(path)
+        .map_err(|error| format!("could not read {}: {error}", path.display()))?;
+    serde_json::from_str(&raw)
+        .map_err(|error| format!("could not parse {}: {error}", path.display()))
+}
+
 pub fn load(data_dir: &str) -> PersistedState {
     let path = state_file_path(data_dir);
-    match std::fs::read_to_string(&path) {
-        Ok(raw) => match serde_json::from_str(&raw) {
-            Ok(parsed) => parsed,
-            Err(e) => {
-                log::warn!("Corrupt downloads-state.json, starting fresh: {e}");
-                // Preserve the corrupt file for diagnostics instead of
-                // silently overwriting it on the next save.
-                let backup = path.with_extension("json.corrupt");
-                if let Err(copy_err) = std::fs::copy(&path, &backup) {
-                    log::warn!("Failed to back up corrupt state file: {copy_err}");
+    match read_snapshot(&path) {
+        Ok(parsed) => parsed,
+        Err(primary_error) => {
+            if path.exists() {
+                log::warn!("Invalid downloads-state.json: {primary_error}");
+                // Preserve the corrupt primary for diagnostics, then try the
+                // crash-recovery candidates left by the atomic save protocol.
+                let corrupt = path.with_extension("json.corrupt");
+                if let Err(copy_error) = std::fs::copy(&path, &corrupt) {
+                    log::warn!("Failed to back up corrupt state file: {copy_error}");
                 }
-                PersistedState::default()
             }
-        },
-        Err(_) => PersistedState::default(),
+
+            for candidate in [
+                path.with_extension("json.tmp"),
+                path.with_extension("json.bak"),
+            ] {
+                if let Ok(parsed) = read_snapshot(&candidate) {
+                    log::warn!(
+                        "Recovered download state from {} after primary snapshot failure",
+                        candidate.display()
+                    );
+                    return parsed;
+                }
+            }
+
+            PersistedState::default()
+        }
     }
 }
 
@@ -255,10 +275,37 @@ pub fn save(state: &AppState) -> bool {
             return false;
         }
     }
-    if let Err(e) = std::fs::rename(&tmp_path, &path) {
-        log::error!("Failed to rename state file into place: {e}");
-        let _ = std::fs::remove_file(&tmp_path);
-        return false;
+    if let Err(first_error) = std::fs::rename(&tmp_path, &path) {
+        // Unix rename replaces an existing destination atomically. Windows can
+        // reject that replacement, so fall back to a two-rename transaction
+        // while keeping the previous snapshot as a recoverable .bak file.
+        if !path.exists() {
+            log::error!("Failed to rename state file into place: {first_error}");
+            let _ = std::fs::remove_file(&tmp_path);
+            return false;
+        }
+
+        let backup_path = path.with_extension("json.bak");
+        let _ = std::fs::remove_file(&backup_path);
+        if let Err(backup_error) = std::fs::rename(&path, &backup_path) {
+            log::error!(
+                "Failed to stage previous state snapshot for replacement: {backup_error}; original rename error: {first_error}"
+            );
+            let _ = std::fs::remove_file(&tmp_path);
+            return false;
+        }
+
+        if let Err(replace_error) = std::fs::rename(&tmp_path, &path) {
+            log::error!("Failed to install new state snapshot: {replace_error}");
+            if let Err(restore_error) = std::fs::rename(&backup_path, &path) {
+                log::error!(
+                    "Failed to restore previous state snapshot after replacement failure: {restore_error}"
+                );
+            }
+            let _ = std::fs::remove_file(&tmp_path);
+            return false;
+        }
+        let _ = std::fs::remove_file(&backup_path);
     }
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         if let Ok(dir) = std::fs::File::open(parent) {
@@ -546,6 +593,83 @@ pub(crate) mod tests {
                 "persisted state leaked {secret}"
             );
         }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn repeated_save_replaces_previous_snapshot() {
+        let dir = std::env::temp_dir().join(format!(
+            "nova-persist-replace-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir_str = dir.display().to_string();
+        let state = test_state(&dir_str);
+
+        state.task_snapshot.lock().unwrap().insert(
+            "replace".to_owned(),
+            sample_task("replace", "libcurl-multi", "paused"),
+        );
+        assert!(save(&state));
+
+        state
+            .task_snapshot
+            .lock()
+            .unwrap()
+            .get_mut("replace")
+            .unwrap()
+            .status = "completed".to_owned();
+        assert!(save(&state));
+
+        let loaded = load(&dir_str);
+        assert_eq!(loaded.tasks.len(), 1);
+        assert_eq!(loaded.tasks[0].status, "completed");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn load_recovers_synced_temporary_snapshot_when_primary_is_missing() {
+        let dir = std::env::temp_dir().join(format!(
+            "nova-persist-tmp-recovery-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir_str = dir.display().to_string();
+        let path = state_file_path(&dir_str);
+        let tmp_path = path.with_extension("json.tmp");
+        let snapshot = PersistedState {
+            tasks: vec![sample_task("tmp-recovery", "libcurl-multi", "paused")],
+            ..Default::default()
+        };
+        std::fs::write(&tmp_path, serde_json::to_string(&snapshot).unwrap()).unwrap();
+
+        let loaded = load(&dir_str);
+        assert_eq!(loaded.tasks.len(), 1);
+        assert_eq!(loaded.tasks[0].id, "tmp-recovery");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn load_recovers_backup_snapshot_when_primary_is_corrupt() {
+        let dir = std::env::temp_dir().join(format!(
+            "nova-persist-backup-recovery-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir_str = dir.display().to_string();
+        let path = state_file_path(&dir_str);
+        let backup_path = path.with_extension("json.bak");
+        std::fs::write(&path, "{broken json").unwrap();
+        let snapshot = PersistedState {
+            tasks: vec![sample_task("backup-recovery", "libcurl-multi", "paused")],
+            ..Default::default()
+        };
+        std::fs::write(&backup_path, serde_json::to_string(&snapshot).unwrap()).unwrap();
+
+        let loaded = load(&dir_str);
+        assert_eq!(loaded.tasks.len(), 1);
+        assert_eq!(loaded.tasks[0].id, "backup-recovery");
+        assert!(path.with_extension("json.corrupt").exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 
