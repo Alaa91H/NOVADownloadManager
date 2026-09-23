@@ -262,6 +262,7 @@ impl Handler for SegmentWriter {
                 cap.validator = None;
                 cap.validator_is_etag = false;
                 cap.digest_sha256 = None;
+                cap.representation_digest_sha256 = None;
                 cap.mirrors.clear();
                 cap.content_encoded = false;
                 cap.http_version = version;
@@ -340,7 +341,18 @@ impl Handler for SegmentWriter {
                     }
                 }
             }
-            "repr-digest" | "content-digest" | "digest" => {
+            "repr-digest" => {
+                if let Some(d) = crate::daemon::utils::parse_sha256_digest(value) {
+                    if let Ok(mut cap) = self.progress.capture.lock() {
+                        cap.representation_digest_sha256 = Some(d.clone());
+                        cap.digest_sha256 = Some(d);
+                    }
+                    if self.streaming_hasher.is_none() {
+                        self.streaming_hasher = Some(sha2::Sha256::new());
+                    }
+                }
+            }
+            "content-digest" | "digest" => {
                 if let Some(d) = crate::daemon::utils::parse_sha256_digest(value) {
                     if let Ok(mut cap) = self.progress.capture.lock() {
                         cap.digest_sha256 = Some(d);
@@ -1877,6 +1889,86 @@ mod tests {
         assert_eq!(second.write(&[2u8; 100]).unwrap(), 0);
         assert!(second.progress.range_rejected.load(Ordering::Acquire));
         assert_eq!(second.file.metadata().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn sibling_content_digests_may_differ_but_repr_digest_must_match() {
+        let shared = Arc::new(Mutex::new(RemoteFingerprint {
+            total_size: Some(200),
+            ..Default::default()
+        }));
+
+        let make_writer = |start: u64, end: u64| {
+            let dir = std::env::temp_dir().join(format!(
+                "nova_easy_cfg_digest_{}_{}",
+                std::process::id(),
+                uuid::Uuid::new_v4()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            let file = OpenOptions::new()
+                .create(true)
+                .truncate(true)
+                .write(true)
+                .open(dir.join("part.bin"))
+                .unwrap();
+            let capture = ResponseCapture {
+                expected_range_start: Some(start),
+                expected_content_range: Some(ContentRange {
+                    start,
+                    end,
+                    total: Some(200),
+                }),
+                expected_fingerprint: Some(RemoteFingerprint {
+                    total_size: Some(200),
+                    ..Default::default()
+                }),
+                shared_fingerprint: Some(shared.clone()),
+                ..Default::default()
+            };
+            SegmentWriter {
+                file,
+                progress: SegmentProgress {
+                    downloaded: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                    abort: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    retry_after: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                    capture: Arc::new(Mutex::new(capture)),
+                    streaming_digest_out: Arc::new(Mutex::new(None)),
+                    range_rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    encoding_rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    expects_206: true,
+                },
+                streaming_hasher: None,
+            }
+        };
+
+        let repr_a = "a".repeat(64);
+        let content_a = "b".repeat(64);
+        let content_b = "c".repeat(64);
+
+        let mut first = make_writer(0, 99);
+        assert!(first.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(first.header(b"Content-Range: bytes 0-99/200\r\n"));
+        assert!(first.header(format!("Repr-Digest: sha-256={repr_a}\r\n").as_bytes()));
+        assert!(first.header(format!("Content-Digest: sha-256={content_a}\r\n").as_bytes()));
+        assert_eq!(first.write(&[1u8; 100]).unwrap(), 100);
+
+        let mut second = make_writer(100, 199);
+        assert!(second.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(second.header(b"Content-Range: bytes 100-199/200\r\n"));
+        assert!(second.header(format!("Repr-Digest: sha-256={repr_a}\r\n").as_bytes()));
+        assert!(second.header(format!("Content-Digest: sha-256={content_b}\r\n").as_bytes()));
+        assert_eq!(
+            second.write(&[2u8; 100]).unwrap(),
+            100,
+            "per-range Content-Digest values are allowed to differ"
+        );
+
+        let mut third = make_writer(100, 199);
+        assert!(third.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(third.header(b"Content-Range: bytes 100-199/200\r\n"));
+        assert!(third.header(format!("Repr-Digest: sha-256={}\r\n", "d".repeat(64)).as_bytes()));
+        assert_eq!(third.write(&[3u8; 100]).unwrap(), 0);
+        assert!(third.progress.range_rejected.load(Ordering::Acquire));
     }
 
     #[test]
