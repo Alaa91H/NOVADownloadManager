@@ -1,6 +1,20 @@
 export type FileType = 'document' | 'program' | 'compressed' | 'video' | 'audio' | 'other';
 
-export type DownloadStatus = 'downloading' | 'completed' | 'paused' | 'pausing' | 'stopping' | 'queued' | 'error';
+export type DownloadStatus =
+  | 'queued'
+  | 'preparing'
+  | 'probing'
+  | 'downloading'
+  | 'pausing'
+  | 'stopping'
+  | 'paused'
+  | 'retrying'
+  | 'recovering'
+  | 'verifying'
+  | 'finalizing'
+  | 'completed'
+  | 'error'
+  | 'interrupted';
 
 export type DownloadEngine = 'curl' | 'libcurl-multi' | 'yt-dlp';
 
