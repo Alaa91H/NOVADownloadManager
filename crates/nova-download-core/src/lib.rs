@@ -666,7 +666,6 @@ pub fn download_http_to_path_controlled<F: FnMut() -> TransferControl>(
     })
 }
 
-
 const SEGMENT_DIRECTORY_SUFFIX: &str = ".nova-segments";
 const SEGMENT_MANIFEST_NAME: &str = "manifest";
 const SEGMENT_FILE_PREFIX: &str = "segment-";
@@ -1423,5 +1422,4 @@ mod tests {
         assert!(!segment_directory(&path).exists());
         let _ = std::fs::remove_file(path);
     }
-
 }
