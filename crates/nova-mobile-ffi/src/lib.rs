@@ -5,11 +5,6 @@
 //! arbitrary filesystem paths. Task operations are added only after the shared
 //! core owns their durable semantics.
 
-use curl::easy::Easy;
-use std::cell::{Cell, RefCell};
-use std::io::Write;
-use std::time::Duration;
-
 uniffi::setup_scaffolding!();
 
 /// Increment when a bridge change is not backward compatible.
@@ -79,175 +74,23 @@ pub enum TransportError {
     RangeResponseRejected { message: String },
 }
 
-fn transport_error(error: curl::Error) -> TransportError {
-    TransportError::RequestFailed {
-        message: error.to_string(),
+impl From<nova_download_core::TransportError> for TransportError {
+    fn from(error: nova_download_core::TransportError) -> Self {
+        match error {
+            nova_download_core::TransportError::RequestFailed { message } => {
+                Self::RequestFailed { message }
+            }
+            nova_download_core::TransportError::InvalidStatus { status } => {
+                Self::InvalidStatus { status }
+            }
+            nova_download_core::TransportError::InvalidRange { start, end } => {
+                Self::InvalidRange { start, end }
+            }
+            nova_download_core::TransportError::RangeResponseRejected { message } => {
+                Self::RangeResponseRejected { message }
+            }
+        }
     }
-}
-
-fn parse_http_status(header: &[u8]) -> Option<u16> {
-    let line = std::str::from_utf8(header).ok()?.trim();
-    if !line.starts_with("HTTP/") {
-        return None;
-    }
-    line.split_whitespace().nth(1)?.parse().ok()
-}
-
-fn parse_content_range(header: &[u8]) -> Option<(u64, u64)> {
-    let line = std::str::from_utf8(header).ok()?.trim();
-    let (name, value) = line.split_once(':')?;
-    if !name.eq_ignore_ascii_case("content-range") {
-        return None;
-    }
-
-    let (unit, value) = value.trim().split_once(' ')?;
-    if !unit.eq_ignore_ascii_case("bytes") {
-        return None;
-    }
-    let (bounds, _) = value.split_once('/')?;
-    let (start, end) = bounds.split_once('-')?;
-    Some((start.parse().ok()?, end.parse().ok()?))
-}
-
-fn stream_http_range<W: Write>(
-    url: &str,
-    start: u64,
-    end: u64,
-    sink: &mut W,
-) -> Result<HttpRangeProbe, TransportError> {
-    if end < start {
-        return Err(TransportError::InvalidRange { start, end });
-    }
-    let expected_bytes = end
-        .checked_sub(start)
-        .and_then(|length| length.checked_add(1))
-        .ok_or(TransportError::InvalidRange { start, end })?;
-
-    let mut easy = Easy::new();
-    easy.url(url).map_err(transport_error)?;
-    easy.follow_location(true).map_err(transport_error)?;
-    easy.max_redirections(10).map_err(transport_error)?;
-    easy.connect_timeout(Duration::from_secs(15))
-        .map_err(transport_error)?;
-    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
-    easy.accept_encoding("identity").map_err(transport_error)?;
-    easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
-        .map_err(transport_error)?;
-    easy.range(&format!("{start}-{end}"))
-        .map_err(transport_error)?;
-
-    // libcurl reports every response header block, including redirects and
-    // authentication negotiation. The body sink must remain closed until the
-    // final response block proves both HTTP 206 and the exact requested range.
-    let header_status = Cell::new(None::<u16>);
-    let content_range = Cell::new(None::<(u64, u64)>);
-    let headers_validated = Cell::new(false);
-    let bytes_received = Cell::new(0_u64);
-    let sink_error = RefCell::new(None::<String>);
-
-    let perform_result = {
-        let mut transfer = easy.transfer();
-        transfer
-            .header_function(|header| {
-                if let Some(status) = parse_http_status(header) {
-                    header_status.set(Some(status));
-                    content_range.set(None);
-                    headers_validated.set(false);
-                } else if header == b"\r\n" || header == b"\n" {
-                    headers_validated.set(
-                        header_status.get() == Some(206)
-                            && content_range.get() == Some((start, end)),
-                    );
-                } else if let Some(range) = parse_content_range(header) {
-                    content_range.set(Some(range));
-                }
-                true
-            })
-            .map_err(transport_error)?;
-        transfer
-            .write_function(|data| {
-                if !headers_validated.get() {
-                    // Returning zero aborts the transfer before untrusted body
-                    // bytes can reach a durable segment sink.
-                    return Ok(0);
-                }
-
-                let Some(next_total) = bytes_received.get().checked_add(data.len() as u64) else {
-                    sink_error.replace(Some("native range byte counter overflow".to_owned()));
-                    return Ok(0);
-                };
-                if next_total > expected_bytes {
-                    sink_error.replace(Some(format!(
-                        "native range payload exceeded expected length {expected_bytes}"
-                    )));
-                    return Ok(0);
-                }
-                if let Err(error) = sink.write_all(data) {
-                    sink_error.replace(Some(format!(
-                        "failed to persist native range payload: {error}"
-                    )));
-                    return Ok(0);
-                }
-
-                bytes_received.set(next_total);
-                Ok(data.len())
-            })
-            .map_err(transport_error)?;
-        transfer.perform()
-    };
-
-    if !headers_validated.get() {
-        return Err(TransportError::RangeResponseRejected {
-            message: format!(
-                "expected HTTP 206 with Content-Range bytes {start}-{end}, got status {:?} and range {:?}",
-                header_status.get(),
-                content_range.get()
-            ),
-        });
-    }
-    if let Some(message) = sink_error.into_inner() {
-        return Err(TransportError::RequestFailed { message });
-    }
-    perform_result.map_err(transport_error)?;
-
-    let status = easy.response_code().map_err(transport_error)?;
-    let response_status =
-        u16::try_from(status).map_err(|_| TransportError::InvalidStatus { status })?;
-    if response_status != 206 {
-        return Err(TransportError::RangeResponseRejected {
-            message: format!("expected HTTP 206 for bytes {start}-{end}, got {response_status}"),
-        });
-    }
-    if content_range.get() != Some((start, end)) {
-        return Err(TransportError::RangeResponseRejected {
-            message: format!(
-                "expected Content-Range bytes {start}-{end}, got {:?}",
-                content_range.get()
-            ),
-        });
-    }
-    if bytes_received.get() != expected_bytes {
-        return Err(TransportError::RangeResponseRejected {
-            message: format!(
-                "expected {expected_bytes} payload bytes for {start}-{end}, got {}",
-                bytes_received.get()
-            ),
-        });
-    }
-
-    let effective_url = easy
-        .effective_url()
-        .map_err(transport_error)?
-        .unwrap_or(url)
-        .to_owned();
-
-    Ok(HttpRangeProbe {
-        response_status,
-        range_start: start,
-        range_end: end,
-        bytes_received: bytes_received.get(),
-        effective_url,
-    })
 }
 
 /// Validates that a mobile client and the Rust core agree on the public bridge
@@ -276,43 +119,13 @@ pub fn initialize(client_bridge_api_version: u32) -> Result<BridgeInfo, BridgeEr
 /// the byte representation that subsequent Range requests address.
 #[uniffi::export]
 pub fn probe_http_resource(url: String) -> Result<HttpResourceProbe, TransportError> {
-    let mut easy = Easy::new();
-    easy.url(&url).map_err(transport_error)?;
-    easy.nobody(true).map_err(transport_error)?;
-    easy.follow_location(true).map_err(transport_error)?;
-    easy.max_redirections(10).map_err(transport_error)?;
-    easy.connect_timeout(Duration::from_secs(15))
-        .map_err(transport_error)?;
-    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
-    easy.accept_encoding("identity").map_err(transport_error)?;
-    easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
-        .map_err(transport_error)?;
-    easy.perform().map_err(transport_error)?;
-
-    let status = easy.response_code().map_err(transport_error)?;
-    let response_status =
-        u16::try_from(status).map_err(|_| TransportError::InvalidStatus { status })?;
-    #[allow(deprecated)]
-    let reported_length = easy.content_length_download().map_err(transport_error)?;
-    let content_length = if reported_length.is_finite()
-        && reported_length >= 0.0
-        && reported_length <= u64::MAX as f64
-    {
-        Some(reported_length as u64)
-    } else {
-        None
-    };
-    let effective_url = easy
-        .effective_url()
-        .map_err(transport_error)?
-        .unwrap_or(&url)
-        .to_owned();
-
-    Ok(HttpResourceProbe {
-        response_status,
-        content_length,
-        effective_url,
-    })
+    nova_download_core::probe_http_resource(&url)
+        .map(|probe| HttpResourceProbe {
+            response_status: probe.response_status,
+            content_length: probe.content_length,
+            effective_url: probe.effective_url,
+        })
+        .map_err(TransportError::from)
 }
 
 /// Performs and validates an inclusive HTTP byte-range GET with native libcurl.
@@ -326,8 +139,15 @@ pub fn probe_http_range(
     start: u64,
     end: u64,
 ) -> Result<HttpRangeProbe, TransportError> {
-    let mut sink = std::io::sink();
-    stream_http_range(&url, start, end, &mut sink)
+    nova_download_core::probe_http_range(&url, start, end)
+        .map(|probe| HttpRangeProbe {
+            response_status: probe.response_status,
+            range_start: probe.range_start,
+            range_end: probe.range_end,
+            bytes_received: probe.bytes_received,
+            effective_url: probe.effective_url,
+        })
+        .map_err(TransportError::from)
 }
 
 /// Plans balanced inclusive byte ranges using the same platform-neutral policy
@@ -337,7 +157,7 @@ pub fn probe_http_range(
 /// policy, but it must not invent a separate segmentation algorithm.
 #[uniffi::export]
 pub fn plan_transfer_ranges(total_bytes: u64, requested_connections: u32) -> Vec<TransferRange> {
-    nova_core_model::plan_byte_ranges(total_bytes, requested_connections)
+    nova_download_core::plan_transfer_ranges(total_bytes, requested_connections)
         .into_iter()
         .map(|range| TransferRange {
             start: range.start,
@@ -358,9 +178,9 @@ pub fn plan_http_resume(
     response_status: u16,
     content_range_start: Option<u64>,
 ) -> ResumeAction {
-    match nova_core_model::plan_http_resume(existing_bytes, response_status, content_range_start) {
-        nova_core_model::ResumeAction::Append => ResumeAction::Append,
-        nova_core_model::ResumeAction::Restart => ResumeAction::Restart,
+    match nova_download_core::plan_http_resume(existing_bytes, response_status, content_range_start) {
+        nova_download_core::ResumeAction::Append => ResumeAction::Append,
+        nova_download_core::ResumeAction::Restart => ResumeAction::Restart,
     }
 }
 
