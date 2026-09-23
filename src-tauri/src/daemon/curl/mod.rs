@@ -168,7 +168,7 @@ impl DirectDownloadPlan {
             validator_is_etag: self.validator_is_etag,
             total_size: (self.total_size > 0).then_some(self.total_size),
             digest_sha256: self
-                .digest_sha256
+                .representation_digest_sha256
                 .as_deref()
                 .and_then(normalize_sha256_fingerprint),
         }
@@ -180,7 +180,12 @@ pub(super) struct ResponseCapture {
     pub(super) status_code: u16,
     pub(super) validator: Option<String>,
     pub(super) validator_is_etag: bool,
+    /// Digest advertised for the response content. On a 206 this may describe
+    /// only the selected range and therefore is NOT a whole-file fingerprint.
     pub(super) digest_sha256: Option<String>,
+    /// Repr-Digest identifies the complete selected representation and is safe
+    /// to compare across sibling byte-range responses.
+    pub(super) representation_digest_sha256: Option<String>,
     pub(super) mirrors: Vec<String>,
     /// Parsed Content-Range from the final HTTP response.
     pub(super) content_range: Option<ContentRange>,
