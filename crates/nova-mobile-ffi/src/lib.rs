@@ -6,6 +6,12 @@
 //! core owns their durable semantics.
 
 use curl::easy::Easy;
+#[cfg(target_os = "android")]
+use jni::{
+    objects::{JObject, JString},
+    sys::jlongArray,
+    JNIEnv,
+};
 use std::cell::{Cell, RefCell};
 use std::io::Write;
 use std::time::Duration;
@@ -83,6 +89,16 @@ fn transport_error(error: curl::Error) -> TransportError {
     TransportError::RequestFailed {
         message: error.to_string(),
     }
+}
+
+fn android_probe_projection(probe: &HttpResourceProbe) -> [i64; 2] {
+    [
+        i64::from(probe.response_status),
+        probe
+            .content_length
+            .and_then(|value| i64::try_from(value).ok())
+            .unwrap_or(-1),
+    ]
 }
 
 fn parse_http_status(header: &[u8]) -> Option<u16> {
@@ -457,6 +473,61 @@ fn android_plan_http_resume_status(
     }
 }
 
+/// Performs the first Android network preflight inside NOVA's Rust/libcurl
+/// core. The returned long array is [HTTP status, content length], with -1 for
+/// an unknown length. Network and JNI failures are surfaced as Java exceptions
+/// instead of silently falling back to a second HTTP stack.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeProbeHttpResource(
+    mut env: JNIEnv<'_>,
+    _receiver: JObject<'_>,
+    url: JString<'_>,
+) -> jlongArray {
+    let url = match env.get_string(&url) {
+        Ok(value) => value.to_string_lossy().into_owned(),
+        Err(error) => {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                format!("NOVA native core could not read the HTTP URL: {error}"),
+            );
+            return std::ptr::null_mut();
+        }
+    };
+
+    let probe = match probe_http_resource(url) {
+        Ok(probe) => probe,
+        Err(error) => {
+            let _ = env.throw_new(
+                "java/io/IOException",
+                format!("NOVA native HTTP preflight failed: {error}"),
+            );
+            return std::ptr::null_mut();
+        }
+    };
+    let values = android_probe_projection(&probe);
+
+    let array = match env.new_long_array(values.len() as i32) {
+        Ok(array) => array,
+        Err(error) => {
+            let _ = env.throw_new(
+                "java/lang/IllegalStateException",
+                format!("NOVA native core could not allocate probe result: {error}"),
+            );
+            return std::ptr::null_mut();
+        }
+    };
+    if let Err(error) = env.set_long_array_region(&array, 0, &values) {
+        let _ = env.throw_new(
+            "java/lang/IllegalStateException",
+            format!("NOVA native core could not return probe result: {error}"),
+        );
+        return std::ptr::null_mut();
+    }
+
+    array.into_raw()
+}
+
 /// JNI entry point used by `NovaNativeCore` on Android.
 #[cfg(target_os = "android")]
 #[no_mangle]
@@ -566,6 +637,23 @@ mod tests {
         assert_eq!(probe.response_status, 200);
         assert_eq!(probe.content_length, Some(12_345));
         assert_eq!(probe.effective_url, url);
+    }
+
+    #[test]
+    fn android_probe_projection_preserves_status_and_length() {
+        let probe = HttpResourceProbe {
+            response_status: 206,
+            content_length: Some(42_000),
+            effective_url: "https://example.invalid/file.bin".to_owned(),
+        };
+        assert_eq!(android_probe_projection(&probe), [206, 42_000]);
+
+        let unknown = HttpResourceProbe {
+            response_status: 200,
+            content_length: None,
+            effective_url: "https://example.invalid/stream".to_owned(),
+        };
+        assert_eq!(android_probe_projection(&unknown), [200, -1]);
     }
 
     #[test]
