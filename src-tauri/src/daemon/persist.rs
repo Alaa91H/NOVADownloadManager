@@ -3,9 +3,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use nova_core_model::{RecoveryCheckpoint, ResourceIdentity};
+
 use crate::daemon::state::{AppState, SharedState};
 use crate::daemon::types::Task;
-use nova_core_model::{RecoveryCheckpoint, ResourceIdentity};
 use crate::lock_or_err;
 
 /// On-disk snapshot of everything needed to rebuild the download list after
