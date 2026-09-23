@@ -1,6 +1,8 @@
 package com.nova.downloadmanager.downloads
 
 import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * UI boundary for the Android transfer core. Implementations own no browser
@@ -9,7 +11,7 @@ import android.content.Context
  */
 interface DownloadsRepository {
     fun coreReadiness(): CoreReadiness
-    fun enqueue(url: String): Result<DownloadSummary>
+    suspend fun enqueue(url: String): Result<DownloadSummary>
     fun restore(): List<DownloadSummary> = emptyList()
     fun refresh(taskIds: Collection<String>): List<DownloadSummary>
 }
@@ -21,7 +23,7 @@ interface DownloadsRepository {
 class UnpackagedRustDownloadsRepository : DownloadsRepository {
     override fun coreReadiness(): CoreReadiness = CoreReadiness.BridgeNotPackaged
 
-    override fun enqueue(url: String): Result<DownloadSummary> = Result.failure(
+    override suspend fun enqueue(url: String): Result<DownloadSummary> = Result.failure(
         IllegalStateException("Android download service is unavailable"),
     )
 
@@ -36,7 +38,9 @@ class PlatformDownloadsRepository(context: Context) : DownloadsRepository {
 
     override fun coreReadiness(): CoreReadiness = CoreReadiness.Ready
 
-    override fun enqueue(url: String): Result<DownloadSummary> = core.enqueue(url)
+    override suspend fun enqueue(url: String): Result<DownloadSummary> = withContext(Dispatchers.IO) {
+        core.enqueue(url)
+    }
 
     override fun restore(): List<DownloadSummary> = core.restore()
 
