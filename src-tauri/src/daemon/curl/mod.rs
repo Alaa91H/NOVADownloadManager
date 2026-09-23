@@ -90,6 +90,30 @@ impl RemoteFingerprint {
         }
         false
     }
+
+    /// Merge newly observed identity fields into this fingerprint while
+    /// refusing concrete contradictions. This lets parallel segments share a
+    /// gradually learned identity even when the preflight did not expose an
+    /// ETag or digest.
+    pub(super) fn absorb_consistent(&mut self, observed: &Self) -> bool {
+        if self.conflicts_with(observed) {
+            return false;
+        }
+
+        if self.validator.is_none() {
+            if let Some(validator) = observed.validator.as_ref() {
+                self.validator = Some(validator.clone());
+                self.validator_is_etag = observed.validator_is_etag;
+            }
+        }
+        if self.total_size.is_none() {
+            self.total_size = observed.total_size;
+        }
+        if self.digest_sha256.is_none() {
+            self.digest_sha256 = observed.digest_sha256.clone();
+        }
+        true
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -170,6 +194,10 @@ pub(super) struct ResponseCapture {
     /// Remote identity known before this request (validator/size/digest).
     /// Concrete contradictions reject the response before any body is written.
     pub(super) expected_fingerprint: Option<RemoteFingerprint>,
+    /// Shared identity learned across sibling segment responses. A segment may
+    /// be the first request that exposes an ETag or Content-Digest; later
+    /// segments must agree before their bytes can be accepted.
+    pub(super) shared_fingerprint: Option<Arc<Mutex<RemoteFingerprint>>>,
     /// True when the server actually responded with a `Content-Encoding`
     /// other than `identity`. Only then is the on-disk size allowed to
     /// differ from the probed Content-Length, because libcurl transparently
@@ -269,5 +297,27 @@ mod fingerprint_tests {
             total_size: Some(2048),
             ..Default::default()
         }));
+
+    #[test]
+    fn shared_fingerprint_learns_missing_fields_then_rejects_drift() {
+        let mut shared = RemoteFingerprint {
+            total_size: Some(1000),
+            ..Default::default()
+        };
+        assert!(shared.absorb_consistent(&RemoteFingerprint {
+            validator: Some("\"v1\"".to_owned()),
+            validator_is_etag: true,
+            total_size: Some(1000),
+            ..Default::default()
+        }));
+        assert_eq!(shared.validator.as_deref(), Some("\"v1\""));
+
+        assert!(!shared.absorb_consistent(&RemoteFingerprint {
+            validator: Some("\"v2\"".to_owned()),
+            validator_is_etag: true,
+            total_size: Some(1000),
+            ..Default::default()
+        }));
+    }
     }
 }
