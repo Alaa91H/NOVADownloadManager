@@ -18,12 +18,14 @@ class NovaTransferActionReceiver : BroadcastReceiver() {
 
         when (intent.action) {
             NovaTransferNotifications.ACTION_PAUSE -> {
+                val wasActive = core.isActive(taskId)
                 core.pause(taskId)
-                NovaTransferScheduler.cancel(context, taskId)
+                if (!wasActive) NovaTransferScheduler.cancel(context, taskId)
             }
             NovaTransferNotifications.ACTION_CANCEL -> {
+                val wasActive = core.isActive(taskId)
                 core.cancel(taskId)
-                NovaTransferScheduler.cancel(context, taskId)
+                if (!wasActive) NovaTransferScheduler.cancel(context, taskId)
             }
         }
     }
