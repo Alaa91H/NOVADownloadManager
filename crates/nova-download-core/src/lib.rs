@@ -1231,6 +1231,17 @@ pub fn download_http_to_path_segmented(
     )
 }
 
+
+/// Remove every durable artifact owned by the shared HTTP transfer engine.
+///
+/// Hosts should call this for an explicit destructive cancel/delete operation,
+/// including when no native session is currently alive.
+pub fn discard_http_download_artifacts(destination: &Path) {
+    let _ = std::fs::remove_file(destination);
+    remove_resume_identity(destination);
+    cleanup_segment_artifacts(destination, MAX_PARALLEL_SEGMENTS as usize);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
