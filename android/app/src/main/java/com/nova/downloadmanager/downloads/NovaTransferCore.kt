@@ -9,8 +9,6 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
-import java.util.concurrent.FutureTask
 
 /**
  * NOVA-owned Android transfer-task host.
@@ -52,7 +50,6 @@ class NovaTransferCore(context: Context) {
         )
         remember(record)
         intentStore.put(record.id, source.toString())
-        startNativeTransfer(record, source.toString())
         summary(record)
     }
 
@@ -76,7 +73,7 @@ class NovaTransferCore(context: Context) {
 
     fun pause(taskId: String): Result<DownloadSummary> = runCatching {
         val record = requireRecord(taskId)
-        if (ACTIVE_TRANSFERS.containsKey(taskId)) {
+        if (ACTIVE_TRANSFER_IDS.contains(taskId)) {
             check(NovaNativeCore.pauseTransfer(taskId)) { "NOVA native transfer is not active" }
         }
         val paused = record.copy(status = DownloadStatus.Paused.wireValue)
@@ -92,17 +89,16 @@ class NovaTransferCore(context: Context) {
         val url = requireNotNull(intentStore.get(taskId)) {
             "Encrypted NOVA transfer intent is unavailable"
         }
-        check(!ACTIVE_TRANSFERS.containsKey(taskId)) { "NOVA native transfer is still active" }
+        check(!ACTIVE_TRANSFER_IDS.contains(taskId)) { "NOVA native transfer is still active" }
 
         val queued = record.copy(status = DownloadStatus.Queued.wireValue)
         updateRecord(queued)
-        startNativeTransfer(queued, url)
         summary(queued)
     }
 
     fun cancel(taskId: String): Result<DownloadSummary> = runCatching {
         val record = requireRecord(taskId)
-        val active = ACTIVE_TRANSFERS.containsKey(taskId)
+        val active = ACTIVE_TRANSFER_IDS.contains(taskId)
         if (active) {
             check(NovaNativeCore.cancelTransfer(taskId)) { "NOVA native transfer is not active" }
         } else {
@@ -113,14 +109,33 @@ class NovaTransferCore(context: Context) {
         summary(requireRecord(taskId))
     }
 
-    private fun startNativeTransfer(record: TransferRecord, url: String) {
-        val task = FutureTask<Unit> {
-            runNativeTransfer(record, url)
+    /**
+     * Execute one persisted task synchronously on the caller-owned background
+     * execution context. JobScheduler/WorkManager owns that context; this class
+     * owns only the durable task state and Rust transfer invocation.
+     */
+    fun execute(taskId: String): Result<DownloadSummary> = runCatching {
+        val record = requireRecord(taskId)
+        require(record.status in EXECUTABLE_DOWNLOAD_STATUSES) {
+            "Transfer cannot execute from state ${record.status}"
         }
-        val existing = ACTIVE_TRANSFERS.putIfAbsent(record.id, task)
-        check(existing == null) { "NOVA native transfer is already active" }
-        TRANSFER_EXECUTOR.execute(task)
+        val url = requireNotNull(intentStore.get(taskId)) {
+            "Encrypted NOVA transfer intent is unavailable"
+        }
+        check(ACTIVE_TRANSFER_IDS.add(taskId)) {
+            "NOVA native transfer is already active"
+        }
+
+        try {
+            runNativeTransfer(record, url)
+            summary(requireRecord(taskId))
+        } finally {
+            ACTIVE_TRANSFER_IDS.remove(taskId)
+        }
     }
+
+    fun task(taskId: String): DownloadSummary? =
+        records().firstOrNull { it.id == taskId }?.let(::summary)
 
     private fun runNativeTransfer(record: TransferRecord, url: String) {
         var current = record.copy(status = DownloadStatus.Downloading.wireValue)
@@ -155,8 +170,6 @@ class NovaTransferCore(context: Context) {
         } catch (_: Throwable) {
             current = current.copy(status = DownloadStatus.Failed.wireValue)
             updateRecord(current)
-        } finally {
-            ACTIVE_TRANSFERS.remove(record.id)
         }
     }
 
@@ -185,7 +198,7 @@ class NovaTransferCore(context: Context) {
     private fun reconcileOrphanedSessions() {
         records()
             .filter { record ->
-                record.status in ACTIVE_DOWNLOAD_STATUSES && !ACTIVE_TRANSFERS.containsKey(record.id)
+                record.status in ACTIVE_DOWNLOAD_STATUSES && !ACTIVE_TRANSFER_IDS.contains(record.id)
             }
             .forEach { record ->
                 updateRecord(record.copy(status = DownloadStatus.Paused.wireValue))
@@ -329,10 +342,12 @@ class NovaTransferCore(context: Context) {
             DownloadStatus.Paused.wireValue,
             DownloadStatus.Failed.wireValue,
         )
+        val EXECUTABLE_DOWNLOAD_STATUSES = setOf(
+            DownloadStatus.Queued.wireValue,
+            DownloadStatus.Paused.wireValue,
+            DownloadStatus.Failed.wireValue,
+        )
         val CATALOG_LOCK = Any()
-        val ACTIVE_TRANSFERS = ConcurrentHashMap<String, java.util.concurrent.Future<*>>()
-        val TRANSFER_EXECUTOR = Executors.newFixedThreadPool(2) { runnable ->
-            Thread(runnable, "nova-native-transfer").apply { isDaemon = true }
-        }
+        val ACTIVE_TRANSFER_IDS = ConcurrentHashMap.newKeySet<String>()
     }
 }
