@@ -610,8 +610,34 @@ pub fn download_http_to_path_controlled<F: FnMut() -> TransferControl>(
 mod tests {
     use super::*;
     use std::io::{Read, Write};
+    use std::io::ErrorKind;
     use std::net::TcpListener;
     use std::thread;
+    use std::time::Duration;
+
+    fn spawn_optional_server(listener: TcpListener, response: &'static [u8]) -> thread::JoinHandle<()> {
+        thread::spawn(move || {
+            listener
+                .set_nonblocking(true)
+                .expect("configure nonblocking test listener");
+
+            for _ in 0..200 {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let _ = stream.set_read_timeout(Some(Duration::from_millis(250)));
+                        let mut request = [0_u8; 2048];
+                        let _ = stream.read(&mut request);
+                        let _ = stream.write_all(response);
+                        return;
+                    }
+                    Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(_) => return,
+                }
+            }
+        })
+    }
 
     #[test]
     fn native_http_transport_rejects_non_http_schemes() {
@@ -656,16 +682,10 @@ mod tests {
     fn controlled_range_stream_can_pause_without_corrupting_sink() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind pause server");
         let address = listener.local_addr().expect("pause server address");
-        let server = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().expect("accept pause connection");
-            let mut request = [0_u8; 2048];
-            let _ = stream.read(&mut request).expect("read pause request");
-            stream
-                .write_all(
-                    b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-7/8\r\nContent-Length: 8\r\nConnection: close\r\n\r\nabcdefgh",
-                )
-                .expect("write pause response");
-        });
+        let server = spawn_optional_server(
+            listener,
+            b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-7/8\r\nContent-Length: 8\r\nConnection: close\r\n\r\nabcdefgh",
+        );
 
         let url = format!("http://{address}/payload.bin");
         let mut payload = Vec::new();
@@ -686,16 +706,10 @@ mod tests {
     fn controlled_range_stream_can_cancel_without_corrupting_sink() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind cancel server");
         let address = listener.local_addr().expect("cancel server address");
-        let server = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().expect("accept cancel connection");
-            let mut request = [0_u8; 2048];
-            let _ = stream.read(&mut request).expect("read cancel request");
-            stream
-                .write_all(
-                    b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-7/8\r\nContent-Length: 8\r\nConnection: close\r\n\r\nabcdefgh",
-                )
-                .expect("write cancel response");
-        });
+        let server = spawn_optional_server(
+            listener,
+            b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-7/8\r\nContent-Length: 8\r\nConnection: close\r\n\r\nabcdefgh",
+        );
 
         let url = format!("http://{address}/payload.bin");
         let mut payload = Vec::new();
