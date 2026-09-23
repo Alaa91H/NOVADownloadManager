@@ -46,11 +46,28 @@ internal object NovaNativeCore {
         val finalBytes: Long,
     )
 
+    internal data class HttpResourceProbe(
+        val responseStatus: Int,
+        val contentLength: Long?,
+    )
+
     private val loadFailure: Throwable? = runCatching {
         System.loadLibrary(LIBRARY_NAME)
     }.exceptionOrNull()
 
     private external fun nativeInitialize(clientBridgeApiVersion: Int): Int
+
+    private external fun nativeProbeHttpResource(url: String): LongArray?
+
+    private external fun nativeStagedTransferBytes(
+        appPrivateRoot: String,
+        relativeDestination: String,
+    ): Long
+
+    private external fun nativeDiscardStagedTransfer(
+        appPrivateRoot: String,
+        relativeDestination: String,
+    ): Boolean
 
     private external fun nativePlanSegmentCount(
         totalBytes: Long,
@@ -104,6 +121,47 @@ internal object NovaNativeCore {
             "NOVA native core bridge mismatch: Android expects $CLIENT_BRIDGE_API_VERSION but core returned $coreBridgeVersion"
         }
         return coreBridgeVersion
+    }
+
+    /**
+     * Reads remote HTTP metadata through the same Rust/libcurl stack that owns
+     * the eventual transfer. Callers run this only from Android background
+     * execution contexts.
+     */
+    fun probeHttpResource(url: String): HttpResourceProbe {
+        requireCompatible()
+        require(url.isNotBlank()) { "url must not be blank" }
+        val values = nativeProbeHttpResource(url)
+            ?: error("NOVA native HTTP probe returned no result")
+        check(values.size == 2) { "NOVA native HTTP probe returned an invalid result" }
+        val status = values[0]
+        check(status in 100L..599L) { "NOVA native HTTP probe returned invalid status $status" }
+        val length = values[1]
+        check(length >= -1L) { "NOVA native HTTP probe returned invalid content length $length" }
+        return HttpResourceProbe(
+            responseStatus = status.toInt(),
+            contentLength = length.takeIf { it >= 0L },
+        )
+    }
+
+    fun stagedTransferBytes(
+        appPrivateRoot: String,
+        relativeDestination: String,
+    ): Long {
+        requireCompatible()
+        require(relativeDestination.isNotBlank()) { "relativeDestination must not be blank" }
+        val bytes = nativeStagedTransferBytes(appPrivateRoot, relativeDestination)
+        check(bytes >= 0L) { "NOVA native staged progress query failed" }
+        return bytes
+    }
+
+    fun discardStagedTransfer(
+        appPrivateRoot: String,
+        relativeDestination: String,
+    ): Boolean {
+        requireCompatible()
+        require(relativeDestination.isNotBlank()) { "relativeDestination must not be blank" }
+        return nativeDiscardStagedTransfer(appPrivateRoot, relativeDestination)
     }
 
     /**
