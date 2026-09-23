@@ -760,7 +760,10 @@ mod tests {
 
     #[test]
     fn android_primitive_handshake_is_fail_closed() {
-        assert_eq!(android_initialize_status(BRIDGE_API_VERSION as i32), 1);
+        assert_eq!(
+            android_initialize_status(BRIDGE_API_VERSION as i32),
+            BRIDGE_API_VERSION as i32
+        );
         assert_eq!(android_initialize_status(-1), -1);
         assert_eq!(
             android_initialize_status((BRIDGE_API_VERSION + 1) as i32),
