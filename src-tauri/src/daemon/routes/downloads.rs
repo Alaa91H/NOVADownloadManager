@@ -20,7 +20,9 @@ use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
 use crate::daemon::engine::rules::RuleAction;
 use crate::daemon::state::SharedState;
 use crate::daemon::telegram::telegram_notify;
-use crate::daemon::types::{CreateDownloadBody, Task};
+use crate::daemon::types::{
+    transition_task_state, CreateDownloadBody, Task, TaskState,
+};
 use crate::daemon::ytdlp::create_ytdlp_task;
 use crate::lock_or_err;
 
@@ -921,17 +923,32 @@ async fn background_size_probe(state: SharedState, task_id: String, url: String)
 /// Start a previously-created curl task by its ID. Called by the background
 /// resolver once metadata is ready, or as a fallback if the probe fails.
 fn start_curl_task_by_id(state: &SharedState, task_id: &str) {
-    // Transition the task status to "downloading" in the snapshot.
-    if let Ok(mut tasks) = state.task_snapshot.lock() {
-        if let Some(task) = tasks.get_mut(task_id) {
-            if task.status == "queued" {
-                task.status = "downloading".to_owned();
-                task.engine_status = Some("starting".to_owned());
-            }
+    // Metadata resolution is complete. Start only if the task is STILL queued:
+    // the user may have paused/deleted it while the asynchronous probe was in
+    // flight. This closes the old race where a stale probe callback could
+    // resurrect a paused task.
+    let prepared_task = {
+        let mut jobs = lock_or_err!(state.curl_jobs);
+        let Some(job) = jobs.get_mut(task_id) else {
+            return;
+        };
+        if TaskState::from_status(&job.task.status) != Some(TaskState::Queued) {
+            log::debug!(
+                "Task {task_id}: background start ignored because current state is '{}'",
+                job.task.status
+            );
+            return;
         }
-    }
+        if let Err(error) =
+            transition_task_state(&mut job.task, TaskState::Preparing, "starting")
+        {
+            log::error!("Task {task_id}: could not enter preparing state: {error}");
+            return;
+        }
+        job.task.clone()
+    };
+    lock_or_err!(state.task_snapshot).insert(task_id.to_owned(), prepared_task);
     state.mark_dirty();
-    // Spawn the actual curl process on a blocking thread.
     crate::daemon::curl::start_curl_process(state, task_id);
 }
 
@@ -1003,7 +1020,7 @@ pub async fn handle_captures_pending(State(state): State<SharedState>) -> Json<s
     let tasks = list_all_tasks(&state).await;
     let pending: Vec<serde_json::Value> = tasks
         .iter()
-        .filter(|t| t.status == "queued" || t.status == "waiting")
+        .filter(|task| TaskState::from_status(&task.status) == Some(TaskState::Queued))
         .map(|t| {
             serde_json::json!({
                 "id": t.id,
@@ -1024,7 +1041,11 @@ pub async fn handle_stats(State(state): State<SharedState>) -> Json<serde_json::
         .unwrap_or_default();
     let active = {
         let snap = lock_or_err!(state.task_snapshot);
-        snap.values().filter(|t| t.status == "downloading").count()
+        snap.values()
+            .filter(|task| {
+                TaskState::from_status(&task.status).is_some_and(TaskState::is_active)
+            })
+            .count()
     };
     Json(serde_json::json!({
         "totalCompleted": stats.total_completed,

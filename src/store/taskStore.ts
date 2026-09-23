@@ -6,6 +6,7 @@ import { bridgeStore } from './bridgeStore';
 import { extractErrorMessage } from '../utils/formatUtils';
 import { logger } from '../utils/logger';
 import { logSafeUrlOrigin } from '../utils/logSafeUrl';
+import { isTaskActiveStatus } from '../utils/taskStatus';
 import { playAppSound } from '../utils/sound';
 import { uiStore } from './uiStore';
 import { queueStore } from './queueStore';
@@ -245,7 +246,9 @@ export const taskStore = create<TaskState>()((set, get) => ({
         if (normalizedTask.queueId)
           queueStore.getState().addTaskToQueueOrder(normalizedTask.id, normalizedTask.queueId);
       }
-      if (normalizedTask.status === 'downloading') uiStore.getState().openDialog('activeProgress', normalizedTask);
+      if (isTaskActiveStatus(normalizedTask.status) || normalizedTask.status === 'queued') {
+        uiStore.getState().openDialog('activeProgress', normalizedTask);
+      }
       uiStore.getState().addToast('info', 'Download resumed', `"${normalizedTask.name}" was resumed.`);
     } catch (error) {
       uiStore

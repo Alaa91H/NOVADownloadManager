@@ -16,6 +16,12 @@ import { formatBytes } from '../../initialData';
 import { formatSpeed, formatElapsed, formatTimeLeft } from '../../utils/formatUtils';
 import { taskProgressInfo } from '../../utils/progressUtils';
 import {
+  isTaskActiveStatus,
+  isTaskPausableStatus,
+  isTaskReceivingBytes,
+  isTaskResumableStatus,
+} from '../../utils/taskStatus';
+import {
   TaskProgressBar,
   ProgressLegend,
   progressToneFillClass,
@@ -190,7 +196,7 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
   const liveTask = useMemo(() => {
     const hintedId = taskId || taskFromPayload?.id;
     if (hintedId) return tasks.find((tt) => tt.id === hintedId);
-    return tasks.find((tt) => tt.status === 'downloading');
+    return tasks.find((tt) => isTaskActiveStatus(tt.status));
   }, [tasks, taskId, taskFromPayload?.id]);
   const task = liveTask ?? taskFromPayload ?? null;
 
@@ -295,7 +301,10 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
         : 'bg-[var(--bg-input)] text-[var(--text-secondary)] border-transparent hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] pb-1'
     }`;
 
-  const isDownloading = task.status === 'downloading';
+  const isActive = isTaskActiveStatus(task.status);
+  const isDownloading = isTaskReceivingBytes(task.status);
+  const isPausable = isTaskPausableStatus(task.status);
+  const isResumable = isTaskResumableStatus(task.status);
 
   return (
     <div
@@ -316,7 +325,7 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
             behaviour of the table/card bars so every renderer is consistent. */}
         <TaskProgressBar
           progress={progress}
-          active={isDownloading}
+          active={isActive}
           trackClass="h-2"
           showLabel={false}
           ariaLabel={task.name}
@@ -627,7 +636,7 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
         style={{ direction: 'ltr' }}
       >
         {/* Primary action: Stop / Resume / Finished */}
-        {isDownloading ? (
+        {isPausable ? (
           <button
             onClick={() => {
               void pauseTask(task.id);
@@ -636,7 +645,7 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
           >
             {t('topbar_stop')}
           </button>
-        ) : task.status === 'paused' || task.status === 'error' ? (
+        ) : isResumable ? (
           <button
             onClick={() => {
               void resumeTask(task.id);
@@ -644,6 +653,14 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
             className="px-6 py-1.5 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] active:scale-95 text-white text-[11px] font-bold rounded-lg shadow-sm transition-all cursor-pointer min-w-[80px]"
           >
             {t('progress_resume_btn')}
+          </button>
+        ) : isActive ? (
+          <button
+            type="button"
+            disabled
+            className="px-6 py-1.5 bg-[var(--bg-hover)] border border-[var(--border-color)] text-[var(--text-secondary)] text-[11px] font-bold min-w-[100px] text-center rounded-lg cursor-wait"
+          >
+            {task.status === 'verifying' ? 'Verifying…' : task.status === 'finalizing' ? 'Finalizing…' : 'Working…'}
           </button>
         ) : (
           <button

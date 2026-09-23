@@ -7,6 +7,168 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Platform-neutral lifecycle state for a NOVA download task.
+///
+/// The public `Task.status` field remains a string for wire compatibility,
+/// while all engines can parse and validate it through this shared enum. This
+/// prevents desktop and Android from inventing incompatible transition rules.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TaskState {
+    Queued,
+    Preparing,
+    Probing,
+    Downloading,
+    Pausing,
+    Paused,
+    Retrying,
+    Recovering,
+    Verifying,
+    Finalizing,
+    Completed,
+    Failed,
+    Interrupted,
+}
+
+impl TaskState {
+    /// Canonical status string exposed through the existing task schema.
+    ///
+    /// `Failed` intentionally remains `"error"` because desktop clients and
+    /// persisted snapshots already use that public value.
+    pub const fn as_status(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Preparing => "preparing",
+            Self::Probing => "probing",
+            Self::Downloading => "downloading",
+            Self::Pausing => "pausing",
+            Self::Paused => "paused",
+            Self::Retrying => "retrying",
+            Self::Recovering => "recovering",
+            Self::Verifying => "verifying",
+            Self::Finalizing => "finalizing",
+            Self::Completed => "completed",
+            Self::Failed => "error",
+            Self::Interrupted => "interrupted",
+        }
+    }
+
+    /// Parse canonical states plus legacy aliases already present in snapshots.
+    pub fn from_status(status: &str) -> Option<Self> {
+        match status.trim().to_ascii_lowercase().as_str() {
+            "queued" | "waiting" => Some(Self::Queued),
+            "preparing" | "starting" => Some(Self::Preparing),
+            "probing" | "resolving" | "resolving-url" => Some(Self::Probing),
+            "downloading" => Some(Self::Downloading),
+            "pausing" | "stopping" => Some(Self::Pausing),
+            "paused" => Some(Self::Paused),
+            "retrying" => Some(Self::Retrying),
+            "recovering" => Some(Self::Recovering),
+            "verifying" => Some(Self::Verifying),
+            "finalizing" | "merging" => Some(Self::Finalizing),
+            "completed" => Some(Self::Completed),
+            "error" | "failed" => Some(Self::Failed),
+            "interrupted" => Some(Self::Interrupted),
+            _ => None,
+        }
+    }
+
+    /// True for states that represent work currently occupying an engine slot.
+    pub const fn is_active(self) -> bool {
+        matches!(
+            self,
+            Self::Preparing
+                | Self::Probing
+                | Self::Downloading
+                | Self::Pausing
+                | Self::Retrying
+                | Self::Recovering
+                | Self::Verifying
+                | Self::Finalizing
+        )
+    }
+
+    /// Validate an ordinary lifecycle transition.
+    ///
+    /// Completed is intentionally terminal here. Re-downloading is a distinct
+    /// user operation and must use `can_restart_to`, which prevents accidental
+    /// code paths from silently resurrecting a completed task.
+    pub const fn can_transition_to(self, next: Self) -> bool {
+        if self as u8 == next as u8 {
+            return true;
+        }
+        match self {
+            Self::Queued => matches!(
+                next,
+                Self::Preparing | Self::Paused | Self::Failed
+            ),
+            Self::Preparing => matches!(
+                next,
+                Self::Probing
+                    | Self::Downloading
+                    | Self::Pausing
+                    | Self::Paused
+                    | Self::Failed
+            ),
+            Self::Probing => matches!(
+                next,
+                Self::Downloading
+                    | Self::Pausing
+                    | Self::Paused
+                    | Self::Retrying
+                    | Self::Recovering
+                    | Self::Failed
+            ),
+            Self::Downloading => matches!(
+                next,
+                Self::Pausing
+                    | Self::Paused
+                    | Self::Retrying
+                    | Self::Recovering
+                    | Self::Verifying
+                    | Self::Failed
+            ),
+            Self::Pausing => matches!(next, Self::Paused | Self::Failed),
+            Self::Paused => matches!(next, Self::Queued | Self::Failed),
+            Self::Retrying => matches!(
+                next,
+                Self::Probing
+                    | Self::Downloading
+                    | Self::Recovering
+                    | Self::Pausing
+                    | Self::Paused
+                    | Self::Failed
+            ),
+            Self::Recovering => matches!(
+                next,
+                Self::Probing
+                    | Self::Downloading
+                    | Self::Retrying
+                    | Self::Pausing
+                    | Self::Paused
+                    | Self::Failed
+            ),
+            Self::Verifying => matches!(next, Self::Finalizing | Self::Failed),
+            Self::Finalizing => matches!(next, Self::Completed | Self::Failed),
+            Self::Completed => false,
+            Self::Failed => matches!(next, Self::Queued | Self::Paused),
+            Self::Interrupted => matches!(
+                next,
+                Self::Paused | Self::Queued | Self::Preparing | Self::Failed
+            ),
+        }
+    }
+
+    /// Explicit restart/redownload transition, separate from normal lifecycle.
+    pub const fn can_restart_to(self, next: Self) -> bool {
+        // Restart is an explicit destructive user operation: it may reset a
+        // queued, active, failed, interrupted, or completed task back to the
+        // queue after the host cancels the old generation and clears partial
+        // output. Keeping this separate from can_transition_to preserves
+        // Completed as terminal for every non-destructive code path.
+        matches!(next, Self::Queued)
+    }
+}
+
 /// Canonical persisted and observable state of one NOVA download task.
 ///
 /// Field names and serde aliases intentionally match the existing desktop API
@@ -158,7 +320,7 @@ pub fn plan_http_resume(
 #[cfg(test)]
 mod tests {
     use super::{
-        plan_byte_ranges, plan_http_resume, ByteRange, ResumeAction, Segment,
+        plan_byte_ranges, plan_http_resume, ByteRange, ResumeAction, Segment, TaskState,
         MAX_PARALLEL_SEGMENTS,
     };
 
@@ -266,5 +428,71 @@ mod tests {
     #[test]
     fn fresh_transfer_never_requires_truncating_empty_output() {
         assert_eq!(plan_http_resume(0, 200, None), ResumeAction::Append);
+    }
+
+    #[test]
+    fn lifecycle_requires_verification_before_completion() {
+        assert!(!TaskState::Downloading.can_transition_to(TaskState::Completed));
+        assert!(TaskState::Preparing.can_transition_to(TaskState::Probing));
+        assert!(TaskState::Preparing.can_transition_to(TaskState::Downloading));
+        assert!(TaskState::Probing.can_transition_to(TaskState::Downloading));
+        assert!(TaskState::Downloading.can_transition_to(TaskState::Verifying));
+        assert!(TaskState::Verifying.can_transition_to(TaskState::Finalizing));
+        assert!(TaskState::Finalizing.can_transition_to(TaskState::Completed));
+    }
+
+    #[test]
+    fn paused_or_failed_task_must_requeue_before_starting() {
+        assert!(!TaskState::Paused.can_transition_to(TaskState::Preparing));
+        assert!(!TaskState::Failed.can_transition_to(TaskState::Preparing));
+        assert!(!TaskState::Interrupted.can_transition_to(TaskState::Preparing));
+        assert!(TaskState::Paused.can_transition_to(TaskState::Queued));
+        assert!(TaskState::Failed.can_transition_to(TaskState::Queued));
+        assert!(TaskState::Interrupted.can_transition_to(TaskState::Queued));
+        assert!(TaskState::Queued.can_transition_to(TaskState::Preparing));
+    }
+
+    #[test]
+    fn completed_is_terminal_without_explicit_restart() {
+        assert!(!TaskState::Completed.can_transition_to(TaskState::Queued));
+        assert!(!TaskState::Completed.can_transition_to(TaskState::Downloading));
+        assert!(TaskState::Completed.can_restart_to(TaskState::Queued));
+        assert!(!TaskState::Completed.can_restart_to(TaskState::Downloading));
+    }
+
+    #[test]
+    fn legacy_status_aliases_map_to_shared_states() {
+        assert_eq!(TaskState::from_status("error"), Some(TaskState::Failed));
+        assert_eq!(TaskState::from_status("failed"), Some(TaskState::Failed));
+        assert_eq!(TaskState::from_status("waiting"), Some(TaskState::Queued));
+        assert_eq!(TaskState::from_status("starting"), Some(TaskState::Preparing));
+        assert_eq!(TaskState::from_status("stopping"), Some(TaskState::Pausing));
+        assert_eq!(TaskState::from_status("merging"), Some(TaskState::Finalizing));
+        assert_eq!(TaskState::from_status("unknown-state"), None);
+    }
+
+    #[test]
+    fn active_state_classification_includes_completion_pipeline() {
+        for state in [
+            TaskState::Preparing,
+            TaskState::Probing,
+            TaskState::Downloading,
+            TaskState::Pausing,
+            TaskState::Retrying,
+            TaskState::Recovering,
+            TaskState::Verifying,
+            TaskState::Finalizing,
+        ] {
+            assert!(state.is_active(), "{state:?} must consume an active slot");
+        }
+        for state in [
+            TaskState::Queued,
+            TaskState::Paused,
+            TaskState::Completed,
+            TaskState::Failed,
+            TaskState::Interrupted,
+        ] {
+            assert!(!state.is_active(), "{state:?} must not count as active");
+        }
     }
 }

@@ -12,7 +12,8 @@ use ::curl::easy::{
 };
 
 use super::{
-    proxy_resolves_to_internal, safe_value, CurlTransferConfig, DirectDownloadPlan, SegmentProgress,
+    proxy_resolves_to_internal, safe_value, ContentRange, CurlTransferConfig, DirectDownloadPlan,
+    SegmentProgress,
 };
 use crate::daemon::direct::FileWriter;
 use crate::daemon::engine::config::global_config;
@@ -68,6 +69,34 @@ fn configured_speed_limit_bytes(config: &CurlTransferConfig) -> Option<u64> {
     })
 }
 
+fn parse_content_range(value: &str) -> Option<ContentRange> {
+    let mut parts = value.split_whitespace();
+    let unit = parts.next()?;
+    if !unit.eq_ignore_ascii_case("bytes") {
+        return None;
+    }
+    let spec = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    let (range, total_raw) = spec.split_once('/')?;
+    let (start_raw, end_raw) = range.split_once('-')?;
+    let start = start_raw.trim().parse::<u64>().ok()?;
+    let end = end_raw.trim().parse::<u64>().ok()?;
+    if start > end {
+        return None;
+    }
+    let total = if total_raw.trim() == "*" {
+        None
+    } else {
+        Some(total_raw.trim().parse::<u64>().ok()?)
+    };
+    if total.is_some_and(|size| size == 0 || end >= size) {
+        return None;
+    }
+    Some(ContentRange { start, end, total })
+}
+
 fn parse_rate_to_bytes(rate_str: &str) -> Option<u64> {
     let trimmed = rate_str.trim();
     if trimmed.is_empty() {
@@ -111,12 +140,84 @@ pub struct SegmentWriter {
     pub(super) streaming_hasher: Option<sha2::Sha256>,
 }
 
+impl SegmentWriter {
+    /// Validate the FINAL response headers before the first body byte reaches
+    /// disk. This deliberately runs from write(), not on the status line,
+    /// because libcurl can expose intermediate proxy CONNECT / auth / redirect
+    /// header blocks before the final 206 response.
+    fn range_response_is_safe(&self) -> bool {
+        if !self.progress.expects_206 {
+            return true;
+        }
+        let Ok(cap) = self.progress.capture.lock() else {
+            return false;
+        };
+        if cap.status_code != 206 {
+            return false;
+        }
+        let Some(actual) = cap.content_range else {
+            return false;
+        };
+        if let Some(expected_start) = cap.expected_range_start {
+            if actual.start != expected_start {
+                return false;
+            }
+        }
+        if let Some(expected) = cap.expected_content_range {
+            if actual.start != expected.start || actual.end != expected.end {
+                return false;
+            }
+            if let Some(expected_total) = expected.total {
+                if actual.total != Some(expected_total) {
+                    return false;
+                }
+            }
+        }
+        let observed = cap.observed_fingerprint();
+        if let Some(expected) = cap.expected_fingerprint.as_ref() {
+            if expected.conflicts_with(&observed) {
+                return false;
+            }
+        }
+        let shared = cap.shared_fingerprint.clone();
+        drop(cap);
+        if let Some(shared) = shared {
+            let Ok(mut fingerprint) = shared.lock() else {
+                return false;
+            };
+            if !fingerprint.absorb_consistent(&observed) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn reject_unsafe_range_response(&self) {
+        if !self.progress.range_rejected.swap(true, Ordering::AcqRel) {
+            if let Ok(cap) = self.progress.capture.lock() {
+                log::warn!(
+                    "Rejected unsafe range response: status={} expected={:?} actual={:?} expected_fingerprint={:?} observed_fingerprint={:?}",
+                    cap.status_code,
+                    cap.expected_content_range,
+                    cap.content_range,
+                    cap.expected_fingerprint,
+                    cap.observed_fingerprint()
+                );
+            }
+        }
+    }
+}
+
 impl Handler for SegmentWriter {
     fn write(&mut self, data: &[u8]) -> Result<usize, WriteError> {
         if self.progress.abort.load(Ordering::Relaxed)
             || self.progress.range_rejected.load(Ordering::Relaxed)
             || self.progress.encoding_rejected.load(Ordering::Relaxed)
         {
+            return Ok(0);
+        }
+        if self.progress.expects_206 && !self.range_response_is_safe() {
+            self.reject_unsafe_range_response();
             return Ok(0);
         }
         if let Some(ref mut hasher) = self.streaming_hasher {
@@ -150,26 +251,23 @@ impl Handler for SegmentWriter {
         let line = line.trim_end();
         if let Some(rest) = line.strip_prefix("HTTP/") {
             let mut parts = rest.split_whitespace();
-            // The first token is the HTTP version (e.g., "1.1", "2").
-            if let Some(ver) = parts.next() {
-                if let Ok(mut cap) = self.progress.capture.lock() {
-                    cap.http_version = Some(ver.to_owned());
-                }
-            }
-            // The second token is the status code.
-            if let Some(code) = parts.next().and_then(|c| c.parse().ok()) {
-                if let Ok(mut cap) = self.progress.capture.lock() {
-                    cap.status_code = code;
-                }
-                // C-2: a segment that requested a partial range must receive
-                // 206. A 200 means the server ignored the Range header and is
-                // sending the whole body to every segment. Flag it so ALL
-                // segments stop writing immediately (shared flag) instead of
-                // downloading the file N times in parallel before failing at
-                // merge time.
-                if code == 200 && self.progress.expects_206 {
-                    self.progress.range_rejected.store(true, Ordering::Release);
-                }
+            let version = parts.next().map(str::to_owned);
+            let code = parts.next().and_then(|c| c.parse::<u16>().ok());
+            if let Ok(mut cap) = self.progress.capture.lock() {
+                // A single request may expose multiple header blocks (proxy
+                // CONNECT, auth retry, redirect). Clear only OBSERVED fields
+                // so validation is always against the final response while
+                // retaining the expected range/fingerprint seeded by caller.
+                cap.status_code = code.unwrap_or(0);
+                cap.validator = None;
+                cap.validator_is_etag = false;
+                cap.digest_sha256 = None;
+                cap.representation_digest_sha256 = None;
+                cap.mirrors.clear();
+                cap.content_encoded = false;
+                cap.http_version = version;
+                cap.content_length = None;
+                cap.content_range = None;
             }
             return true;
         }
@@ -193,6 +291,7 @@ impl Handler for SegmentWriter {
             "etag" if crate::daemon::utils::is_strong_etag(value) => {
                 if let Ok(mut cap) = self.progress.capture.lock() {
                     cap.validator = Some(value.to_owned());
+                    cap.validator_is_etag = true;
                 }
             }
             "content-encoding" if !value.eq_ignore_ascii_case("identity") => {
@@ -222,17 +321,15 @@ impl Handler for SegmentWriter {
                 }
             }
             "content-range" => {
-                // e.g. "bytes 0-1023/2048" or "bytes */2048"; the total after
-                // the slash is the true object size. On a 206 partial response
-                // the Content-Length only describes the current chunk, so the
-                // Content-Range total must take precedence whenever present.
-                if let Some(total) = value
-                    .rsplit('/')
-                    .next()
-                    .and_then(|t| t.trim().parse::<u64>().ok())
-                {
+                // Parse the FULL range, not just /total. A 206 with the wrong
+                // start/end is as dangerous as a 200 because it writes valid
+                // bytes into the wrong location and can survive size checks.
+                if let Some(range) = parse_content_range(value) {
                     if let Ok(mut cap) = self.progress.capture.lock() {
-                        cap.content_length = Some(total);
+                        cap.content_range = Some(range);
+                        if let Some(total) = range.total {
+                            cap.content_length = Some(total);
+                        }
                     }
                 }
             }
@@ -240,10 +337,22 @@ impl Handler for SegmentWriter {
                 if let Ok(mut cap) = self.progress.capture.lock() {
                     if cap.validator.is_none() {
                         cap.validator = Some(value.to_owned());
+                        cap.validator_is_etag = false;
                     }
                 }
             }
-            "repr-digest" | "content-digest" | "digest" => {
+            "repr-digest" => {
+                if let Some(d) = crate::daemon::utils::parse_sha256_digest(value) {
+                    if let Ok(mut cap) = self.progress.capture.lock() {
+                        cap.representation_digest_sha256 = Some(d.clone());
+                        cap.digest_sha256 = Some(d);
+                    }
+                    if self.streaming_hasher.is_none() {
+                        self.streaming_hasher = Some(sha2::Sha256::new());
+                    }
+                }
+            }
+            "content-digest" | "digest" => {
                 if let Some(d) = crate::daemon::utils::parse_sha256_digest(value) {
                     if let Ok(mut cap) = self.progress.capture.lock() {
                         cap.digest_sha256 = Some(d);
@@ -289,6 +398,11 @@ pub struct HtmlHeadCapture {
     /// can show a true progress percentage from byte one instead of a fake
     /// 0% that jumps to 100% at completion.
     content_length: Option<u64>,
+    /// Strong remote identity captured before any resumable/ranged body is
+    /// committed. Strong ETag wins; Last-Modified is the standards-compatible
+    /// fallback for If-Range when no strong ETag is available.
+    validator: Option<String>,
+    validator_is_etag: bool,
 }
 impl Handler for HtmlHeadCapture {
     fn write(&mut self, data: &[u8]) -> Result<usize, WriteError> {
@@ -310,6 +424,13 @@ impl Handler for HtmlHeadCapture {
                     *v = Some(ver.to_owned());
                 }
             }
+            // A single libcurl request may contain headers from multiple HTTP
+            // responses (redirects, proxy CONNECT, auth retries). Never carry
+            // object identity or size from an earlier response into the final
+            // effective resource.
+            self.content_length = None;
+            self.validator = None;
+            self.validator_is_etag = false;
             return true;
         }
         // Header lines: capture the true object size so a range probe that
@@ -337,6 +458,14 @@ impl Handler for HtmlHeadCapture {
                         self.content_length = Some(total);
                     }
                 }
+                "etag" if crate::daemon::utils::is_strong_etag(value) => {
+                    self.validator = Some(value.to_owned());
+                    self.validator_is_etag = true;
+                }
+                "last-modified" if self.validator.is_none() => {
+                    self.validator = Some(value.to_owned());
+                    self.validator_is_etag = false;
+                }
                 _ => {}
             }
         }
@@ -352,6 +481,11 @@ impl HtmlHeadCapture {
     }
     pub(crate) fn content_length(&self) -> Option<u64> {
         self.content_length
+    }
+    pub(crate) fn validator(&self) -> Option<(String, bool)> {
+        self.validator
+            .clone()
+            .map(|value| (value, self.validator_is_etag))
     }
 }
 
@@ -444,7 +578,27 @@ fn if_range_header(plan: &DirectDownloadPlan) -> Option<String> {
     }
 }
 
-fn direct_headers(config: &CurlTransferConfig) -> Result<Option<List>, String> {
+fn requires_identity_encoding(
+    resumable: bool,
+    output_path: &Path,
+    range: Option<(u64, u64)>,
+) -> Result<bool, String> {
+    // Byte-range offsets are defined against the selected representation. A
+    // transparent Content-Encoding changes the bytes libcurl writes to disk,
+    // so a resumed/segmented transfer can no longer prove that its local byte
+    // offsets correspond to the remote object. Force the identity
+    // representation whenever an explicit Range is used or an existing
+    // destination is being resumed.
+    if range.is_some() {
+        return Ok(true);
+    }
+    Ok(resumable && FileWriter::current_size(output_path)? > 0)
+}
+
+fn direct_headers(
+    config: &CurlTransferConfig,
+    force_identity_encoding: bool,
+) -> Result<Option<List>, String> {
     let mut list = List::new();
     let mut has_any = false;
     if let Some(raw_headers) = config.str_("headers") {
@@ -456,6 +610,16 @@ fn direct_headers(config: &CurlTransferConfig) -> Result<Option<List>, String> {
             if line.contains(':') {
                 if !safe_value(line) {
                     return Err("Rejected unsafe header value".to_owned());
+                }
+                let is_accept_encoding = line
+                    .split_once(':')
+                    .is_some_and(|(name, _)| name.trim().eq_ignore_ascii_case("accept-encoding"));
+                if force_identity_encoding && is_accept_encoding {
+                    // A caller-supplied gzip/br header would override the
+                    // range-safe identity representation. Ignore it only for
+                    // resumable/range transfers; fresh single-connection
+                    // downloads retain the caller's requested encoding.
+                    continue;
                 }
                 list.append(line)
                     .map_err(|e| format!("Could not apply header: {e}"))?;
@@ -491,19 +655,29 @@ pub fn apply_easy_options<H: Handler>(
         .map_err(|e| format!("Could not enable TCP keepalive: {e}"))?;
 
     let mut conditional_headers: Vec<String> = Vec::new();
+    let force_identity_encoding =
+        requires_identity_encoding(plan.resumable, &plan.output_path, range)?;
+    let mut range_active = false;
 
     if let Some((start, end)) = range {
         easy.range(&format!("{start}-{end}"))
             .map_err(|e| format!("Could not configure range: {e}"))?;
+        range_active = true;
     } else if plan.resumable {
         let existing = FileWriter::current_size(&plan.output_path)?;
         if existing > 0 {
             easy.resume_from(existing)
                 .map_err(|e| format!("Could not configure resume: {e}"))?;
+            range_active = true;
         }
     }
-    if let Some(val) = if_range_header(plan) {
-        conditional_headers.push(val);
+    // If-Range has meaning only together with a Range request. Sending a stale
+    // validator on a fresh full GET is unnecessary and can trigger odd server
+    // behavior after a checkpoint was deliberately discarded.
+    if range_active {
+        if let Some(val) = if_range_header(plan) {
+            conditional_headers.push(val);
+        }
     }
 
     if let Some(proxy) = plan.config.str_("proxy") {
@@ -552,7 +726,11 @@ pub fn apply_easy_options<H: Handler>(
         easy.cookie(cookies)
             .map_err(|e| format!("Could not configure cookies: {e}"))?;
     }
-    if plan.config.bool_("compressed") != Some(false) {
+    if force_identity_encoding {
+        easy.accept_encoding("identity").map_err(|e| {
+            format!("Could not force identity encoding for range-safe transfer: {e}")
+        })?;
+    } else if plan.config.bool_("compressed") != Some(false) {
         easy.accept_encoding("")
             .map_err(|e| format!("Could not enable compression: {e}"))?;
     }
@@ -1207,36 +1385,37 @@ pub fn apply_easy_options<H: Handler>(
         easy.doh_ssl_verify_host(false)
             .map_err(|e| format!("Could not disable DoH host verification: {e}"))?;
     }
-    let mut header_list: List = if let Some(headers) = direct_headers(&plan.config)? {
-        headers
-    } else {
-        let mut list = List::new();
-        list.append("Accept: */*")
-            .map_err(|e| format!("Could not add Accept header: {e}"))?;
-        list.append("Accept-Language: en-US,en;q=0.9")
-            .map_err(|e| format!("Could not add Accept-Language header: {e}"))?;
-        list.append("Cache-Control: no-store")
-            .map_err(|e| format!("Could not add Cache-Control header: {e}"))?;
-        list.append("Connection: keep-alive")
-            .map_err(|e| format!("Could not add Connection header: {e}"))?;
-        list.append("Sec-Fetch-Mode: no-cors")
-            .map_err(|e| format!("Could not add Sec-Fetch-Mode header: {e}"))?;
-        list.append("Sec-Fetch-Site: cross-site")
-            .map_err(|e| format!("Could not add Sec-Fetch-Site header: {e}"))?;
-        list.append("Sec-Fetch-Dest: empty")
-            .map_err(|e| format!("Could not add Sec-Fetch-Dest header: {e}"))?;
-        if plan.digest_sha256.is_none() {
-            list.append("Want-Digest: sha-256")
-                .map_err(|e| format!("Could not add Want-Digest header: {e}"))?;
-            list.append("Want-Content-Digest: sha-256")
-                .map_err(|e| format!("Could not add Want-Content-Digest header: {e}"))?;
-        }
-        if let Some(bearer) = plan.config.str_("oauth2Bearer") {
-            list.append(&format!("Authorization: Bearer {bearer}"))
-                .map_err(|e| format!("Could not add OAuth2 bearer header: {e}"))?;
-        }
-        list
-    };
+    let mut header_list: List =
+        if let Some(headers) = direct_headers(&plan.config, force_identity_encoding)? {
+            headers
+        } else {
+            let mut list = List::new();
+            list.append("Accept: */*")
+                .map_err(|e| format!("Could not add Accept header: {e}"))?;
+            list.append("Accept-Language: en-US,en;q=0.9")
+                .map_err(|e| format!("Could not add Accept-Language header: {e}"))?;
+            list.append("Cache-Control: no-store")
+                .map_err(|e| format!("Could not add Cache-Control header: {e}"))?;
+            list.append("Connection: keep-alive")
+                .map_err(|e| format!("Could not add Connection header: {e}"))?;
+            list.append("Sec-Fetch-Mode: no-cors")
+                .map_err(|e| format!("Could not add Sec-Fetch-Mode header: {e}"))?;
+            list.append("Sec-Fetch-Site: cross-site")
+                .map_err(|e| format!("Could not add Sec-Fetch-Site header: {e}"))?;
+            list.append("Sec-Fetch-Dest: empty")
+                .map_err(|e| format!("Could not add Sec-Fetch-Dest header: {e}"))?;
+            if plan.digest_sha256.is_none() {
+                list.append("Want-Digest: sha-256")
+                    .map_err(|e| format!("Could not add Want-Digest header: {e}"))?;
+                list.append("Want-Content-Digest: sha-256")
+                    .map_err(|e| format!("Could not add Want-Content-Digest header: {e}"))?;
+            }
+            if let Some(bearer) = plan.config.str_("oauth2Bearer") {
+                list.append(&format!("Authorization: Bearer {bearer}"))
+                    .map_err(|e| format!("Could not add OAuth2 bearer header: {e}"))?;
+            }
+            list
+        };
     for hdr in &conditional_headers {
         header_list
             .append(hdr)
@@ -1335,7 +1514,7 @@ fn reject_unsafe_protocols(value: &str, field: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::daemon::curl::ResponseCapture;
+    use crate::daemon::curl::{ContentRange, RemoteFingerprint, ResponseCapture};
     use std::sync::{Arc, Mutex};
 
     fn segment_writer() -> SegmentWriter {
@@ -1366,6 +1545,46 @@ mod tests {
 
     fn captured(w: &SegmentWriter) -> ResponseCapture {
         w.progress.capture.lock().unwrap().clone()
+    }
+
+    fn range_segment_writer(
+        expected: ContentRange,
+        fingerprint: RemoteFingerprint,
+    ) -> SegmentWriter {
+        let dir = std::env::temp_dir().join(format!(
+            "nova_easy_cfg_range_{}_{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(dir.join("range.bin"))
+            .unwrap();
+        let capture = ResponseCapture {
+            expected_range_start: Some(expected.start),
+            expected_content_range: Some(expected),
+            expected_fingerprint: Some(fingerprint.clone()),
+            shared_fingerprint: Some(Arc::new(Mutex::new(fingerprint))),
+            ..Default::default()
+        };
+        let progress = SegmentProgress {
+            downloaded: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            abort: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            retry_after: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            capture: Arc::new(Mutex::new(capture)),
+            streaming_digest_out: Arc::new(Mutex::new(None)),
+            range_rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            encoding_rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            expects_206: true,
+        };
+        SegmentWriter {
+            file,
+            progress,
+            streaming_hasher: None,
+        }
     }
 
     #[test]
@@ -1505,6 +1724,274 @@ mod tests {
         // from Content-Range must win.
         let cap = captured(&w);
         assert_eq!(cap.content_length, Some(2048));
+        assert_eq!(
+            cap.content_range,
+            Some(ContentRange {
+                start: 0,
+                end: 1023,
+                total: Some(2048)
+            })
+        );
+    }
+
+    #[test]
+    fn parse_content_range_rejects_malformed_or_impossible_ranges() {
+        assert_eq!(
+            parse_content_range("bytes 10-19/100"),
+            Some(ContentRange {
+                start: 10,
+                end: 19,
+                total: Some(100)
+            })
+        );
+        assert_eq!(
+            parse_content_range("BYTES 10-19/*"),
+            Some(ContentRange {
+                start: 10,
+                end: 19,
+                total: None
+            })
+        );
+        assert_eq!(parse_content_range("bytes */100"), None);
+        assert_eq!(parse_content_range("bytes 20-10/100"), None);
+        assert_eq!(parse_content_range("bytes 10-100/100"), None);
+        assert_eq!(parse_content_range("items 10-19/100"), None);
+    }
+
+    #[test]
+    fn strict_range_validation_accepts_exact_response_before_write() {
+        let expected = ContentRange {
+            start: 100,
+            end: 199,
+            total: Some(1000),
+        };
+        let fingerprint = RemoteFingerprint {
+            validator: Some("\"v1\"".to_owned()),
+            validator_is_etag: true,
+            total_size: Some(1000),
+            digest_sha256: None,
+        };
+        let mut w = range_segment_writer(expected, fingerprint);
+        assert!(w.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(w.header(b"Content-Range: bytes 100-199/1000\r\n"));
+        assert!(w.header(b"ETag: \"v1\"\r\n"));
+        assert_eq!(w.write(&[7u8; 100]).unwrap(), 100);
+        assert!(!w.progress.range_rejected.load(Ordering::Acquire));
+        assert_eq!(w.file.metadata().unwrap().len(), 100);
+    }
+
+    #[test]
+    fn strict_range_validation_rejects_wrong_start_before_disk_write() {
+        let expected = ContentRange {
+            start: 100,
+            end: 199,
+            total: Some(1000),
+        };
+        let mut w = range_segment_writer(
+            expected,
+            RemoteFingerprint {
+                total_size: Some(1000),
+                ..Default::default()
+            },
+        );
+        assert!(w.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(w.header(b"Content-Range: bytes 101-200/1000\r\n"));
+        assert_eq!(w.write(&[9u8; 100]).unwrap(), 0);
+        assert!(w.progress.range_rejected.load(Ordering::Acquire));
+        assert_eq!(w.file.metadata().unwrap().len(), 0);
+        assert_eq!(w.progress.downloaded.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn strict_range_validation_rejects_changed_etag_before_disk_write() {
+        let expected = ContentRange {
+            start: 0,
+            end: 99,
+            total: Some(100),
+        };
+        let mut w = range_segment_writer(
+            expected,
+            RemoteFingerprint {
+                validator: Some("\"old\"".to_owned()),
+                validator_is_etag: true,
+                total_size: Some(100),
+                digest_sha256: None,
+            },
+        );
+        assert!(w.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(w.header(b"Content-Range: bytes 0-99/100\r\n"));
+        assert!(w.header(b"ETag: \"new\"\r\n"));
+        assert_eq!(w.write(&[3u8; 100]).unwrap(), 0);
+        assert!(w.progress.range_rejected.load(Ordering::Acquire));
+        assert_eq!(w.file.metadata().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn strict_range_validation_rejects_sibling_segment_etag_drift() {
+        let shared = Arc::new(Mutex::new(RemoteFingerprint {
+            total_size: Some(200),
+            ..Default::default()
+        }));
+
+        let make_writer = |start: u64, end: u64| {
+            let dir = std::env::temp_dir().join(format!(
+                "nova_easy_cfg_sibling_{}_{}",
+                std::process::id(),
+                uuid::Uuid::new_v4()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            let file = OpenOptions::new()
+                .create(true)
+                .truncate(true)
+                .write(true)
+                .open(dir.join("part.bin"))
+                .unwrap();
+            let capture = ResponseCapture {
+                expected_range_start: Some(start),
+                expected_content_range: Some(ContentRange {
+                    start,
+                    end,
+                    total: Some(200),
+                }),
+                expected_fingerprint: Some(RemoteFingerprint {
+                    total_size: Some(200),
+                    ..Default::default()
+                }),
+                shared_fingerprint: Some(shared.clone()),
+                ..Default::default()
+            };
+            SegmentWriter {
+                file,
+                progress: SegmentProgress {
+                    downloaded: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                    abort: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    retry_after: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                    capture: Arc::new(Mutex::new(capture)),
+                    streaming_digest_out: Arc::new(Mutex::new(None)),
+                    range_rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    encoding_rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    expects_206: true,
+                },
+                streaming_hasher: None,
+            }
+        };
+
+        let mut first = make_writer(0, 99);
+        assert!(first.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(first.header(b"Content-Range: bytes 0-99/200\r\n"));
+        assert!(first.header(b"ETag: \"version-a\"\r\n"));
+        assert_eq!(first.write(&[1u8; 100]).unwrap(), 100);
+
+        let mut second = make_writer(100, 199);
+        assert!(second.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(second.header(b"Content-Range: bytes 100-199/200\r\n"));
+        assert!(second.header(b"ETag: \"version-b\"\r\n"));
+        assert_eq!(second.write(&[2u8; 100]).unwrap(), 0);
+        assert!(second.progress.range_rejected.load(Ordering::Acquire));
+        assert_eq!(second.file.metadata().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn sibling_content_digests_may_differ_but_repr_digest_must_match() {
+        let shared = Arc::new(Mutex::new(RemoteFingerprint {
+            total_size: Some(200),
+            ..Default::default()
+        }));
+
+        let make_writer = |start: u64, end: u64| {
+            let dir = std::env::temp_dir().join(format!(
+                "nova_easy_cfg_digest_{}_{}",
+                std::process::id(),
+                uuid::Uuid::new_v4()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            let file = OpenOptions::new()
+                .create(true)
+                .truncate(true)
+                .write(true)
+                .open(dir.join("part.bin"))
+                .unwrap();
+            let capture = ResponseCapture {
+                expected_range_start: Some(start),
+                expected_content_range: Some(ContentRange {
+                    start,
+                    end,
+                    total: Some(200),
+                }),
+                expected_fingerprint: Some(RemoteFingerprint {
+                    total_size: Some(200),
+                    ..Default::default()
+                }),
+                shared_fingerprint: Some(shared.clone()),
+                ..Default::default()
+            };
+            SegmentWriter {
+                file,
+                progress: SegmentProgress {
+                    downloaded: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                    abort: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    retry_after: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                    capture: Arc::new(Mutex::new(capture)),
+                    streaming_digest_out: Arc::new(Mutex::new(None)),
+                    range_rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    encoding_rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    expects_206: true,
+                },
+                streaming_hasher: None,
+            }
+        };
+
+        let repr_a = "a".repeat(64);
+        let content_a = "b".repeat(64);
+        let content_b = "c".repeat(64);
+
+        let mut first = make_writer(0, 99);
+        assert!(first.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(first.header(b"Content-Range: bytes 0-99/200\r\n"));
+        assert!(first.header(format!("Repr-Digest: sha-256={repr_a}\r\n").as_bytes()));
+        assert!(first.header(format!("Content-Digest: sha-256={content_a}\r\n").as_bytes()));
+        assert_eq!(first.write(&[1u8; 100]).unwrap(), 100);
+
+        let mut second = make_writer(100, 199);
+        assert!(second.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(second.header(b"Content-Range: bytes 100-199/200\r\n"));
+        assert!(second.header(format!("Repr-Digest: sha-256={repr_a}\r\n").as_bytes()));
+        assert!(second.header(format!("Content-Digest: sha-256={content_b}\r\n").as_bytes()));
+        assert_eq!(
+            second.write(&[2u8; 100]).unwrap(),
+            100,
+            "per-range Content-Digest values are allowed to differ"
+        );
+
+        let mut third = make_writer(100, 199);
+        assert!(third.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(third.header(b"Content-Range: bytes 100-199/200\r\n"));
+        assert!(third.header(format!("Repr-Digest: sha-256={}\r\n", "d".repeat(64)).as_bytes()));
+        assert_eq!(third.write(&[3u8; 100]).unwrap(), 0);
+        assert!(third.progress.range_rejected.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn strict_range_validation_uses_final_header_block_not_proxy_connect() {
+        let expected = ContentRange {
+            start: 0,
+            end: 9,
+            total: Some(10),
+        };
+        let mut w = range_segment_writer(
+            expected,
+            RemoteFingerprint {
+                total_size: Some(10),
+                ..Default::default()
+            },
+        );
+        assert!(w.header(b"HTTP/1.1 200 Connection established\r\n"));
+        assert!(w.header(b"Proxy-Agent: test\r\n"));
+        assert!(w.header(b"\r\n"));
+        assert!(w.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(w.header(b"Content-Range: bytes 0-9/10\r\n"));
+        assert_eq!(w.write(&[1u8; 10]).unwrap(), 10);
+        assert!(!w.progress.range_rejected.load(Ordering::Acquire));
     }
 
     #[test]
@@ -1528,6 +2015,72 @@ mod tests {
         assert!(w.header(b"Content-Range: bytes 0-9/*\r\n"));
         let cap = captured(&w);
         assert_eq!(cap.content_length, None);
+    }
+
+    #[test]
+    fn preflight_capture_prefers_strong_etag_over_last_modified() {
+        let mut capture = HtmlHeadCapture::default();
+        assert!(capture.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(capture.header(b"Last-Modified: Wed, 23 Sep 2026 20:00:00 GMT\r\n"));
+        assert!(capture.header(b"ETag: \"nova-v2\"\r\n"));
+        assert_eq!(
+            capture.validator(),
+            Some(("\"nova-v2\"".to_owned(), true))
+        );
+    }
+
+    #[test]
+    fn preflight_capture_uses_last_modified_when_no_strong_etag_exists() {
+        let mut capture = HtmlHeadCapture::default();
+        assert!(capture.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(capture.header(b"ETag: W/\"weak-nova\"\r\n"));
+        assert!(capture.header(b"Last-Modified: Wed, 23 Sep 2026 20:00:00 GMT\r\n"));
+        assert_eq!(
+            capture.validator(),
+            Some(("Wed, 23 Sep 2026 20:00:00 GMT".to_owned(), false))
+        );
+    }
+
+    #[test]
+    fn preflight_capture_resets_identity_across_http_responses() {
+        let mut capture = HtmlHeadCapture::default();
+        assert!(capture.header(b"HTTP/1.1 302 Found\r\n"));
+        assert!(capture.header(b"ETag: \"redirect-object\"\r\n"));
+        assert!(capture.header(b"Content-Length: 123\r\n"));
+        assert!(capture.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert_eq!(capture.validator(), None);
+        assert_eq!(capture.content_length(), None);
+        assert!(capture.header(b"ETag: \"final-object\"\r\n"));
+        assert_eq!(
+            capture.validator(),
+            Some(("\"final-object\"".to_owned(), true))
+        );
+    }
+
+    #[test]
+    fn range_transfers_force_identity_encoding() {
+        let missing = std::env::temp_dir().join(format!(
+            "nova_identity_range_{}_missing.bin",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&missing);
+        assert!(requires_identity_encoding(true, &missing, Some((0, 1023))).unwrap());
+        assert!(requires_identity_encoding(false, &missing, Some((0, 1023))).unwrap());
+    }
+
+    #[test]
+    fn partial_resume_forces_identity_but_fresh_download_does_not() {
+        let dir =
+            std::env::temp_dir().join(format!("nova_identity_resume_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("partial.bin");
+
+        assert!(!requires_identity_encoding(true, &path, None).unwrap());
+        std::fs::write(&path, b"partial-checkpoint").unwrap();
+        assert!(requires_identity_encoding(true, &path, None).unwrap());
+        assert!(!requires_identity_encoding(false, &path, None).unwrap());
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

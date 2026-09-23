@@ -194,7 +194,11 @@ pub struct SegmentRange {
 
 impl SegmentRange {
     pub const fn len(&self) -> u64 {
-        self.end.saturating_sub(self.start).saturating_add(1)
+        if self.end < self.start {
+            0
+        } else {
+            self.end.saturating_sub(self.start).saturating_add(1)
+        }
     }
 }
 
@@ -322,6 +326,25 @@ impl FileWriter {
         for range in ranges {
             let _ = std::fs::remove_file(&range.path);
         }
+    }
+
+    pub fn has_stale_parts_for(output_path: &Path) -> bool {
+        let Some(parent) = output_path.parent() else {
+            return false;
+        };
+        let Some(file_name) = output_path.file_name().and_then(|value| value.to_str()) else {
+            return false;
+        };
+        let prefix = format!("{file_name}.part");
+        std::fs::read_dir(parent).ok().is_some_and(|entries| {
+            entries.flatten().any(|entry| {
+                entry
+                    .path()
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|name| name.starts_with(&prefix))
+            })
+        })
     }
 
     pub fn remove_stale_parts_for(output_path: &Path) {
@@ -663,6 +686,25 @@ mod tests {
     }
 
     #[test]
+    fn stale_part_detection_matches_cleanup_naming_convention() {
+        let root =
+            std::env::temp_dir().join(format!("nova-part-detect-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let output = root.join("archive.zip");
+        let part = root.join("archive.zip.part007");
+        let unrelated = root.join("archive.part007");
+        std::fs::write(&part, b"partial").unwrap();
+        std::fs::write(&unrelated, b"other").unwrap();
+
+        assert!(FileWriter::has_stale_parts_for(&output));
+        FileWriter::remove_stale_parts_for(&output);
+        assert!(!FileWriter::has_stale_parts_for(&output));
+        assert!(unrelated.exists(), "cleanup must not remove unrelated files");
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn segment_planner_covers_file_contiguously() {
         let ranges = SegmentPlanner::new(32).plan(10, 3, Path::new("file.bin"));
         assert_eq!(ranges.len(), 3);
@@ -705,6 +747,17 @@ mod tests {
     fn segment_planner_returns_no_ranges_for_zero_size() {
         let ranges = SegmentPlanner::new(32).plan(0, 8, Path::new("empty.bin"));
         assert!(ranges.is_empty());
+    }
+
+    #[test]
+    fn inverted_segment_range_has_zero_length() {
+        let range = SegmentRange {
+            index: 7,
+            start: 10,
+            end: 9,
+            path: PathBuf::from("invalid.part007"),
+        };
+        assert_eq!(range.len(), 0);
     }
 
     #[test]

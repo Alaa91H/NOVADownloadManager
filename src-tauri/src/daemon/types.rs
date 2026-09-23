@@ -1,4 +1,55 @@
-pub use nova_core_model::{Segment, Task};
+pub use nova_core_model::{Segment, Task, TaskState};
+
+/// Apply a normal task lifecycle transition using the shared NOVA state
+/// machine while preserving the existing string-based wire schema.
+pub fn transition_task_state(
+    task: &mut Task,
+    next: TaskState,
+    engine_status: impl Into<String>,
+) -> Result<(), String> {
+    let current = TaskState::from_status(&task.status).ok_or_else(|| {
+        format!(
+            "Task {} has unknown lifecycle state '{}'",
+            task.id, task.status
+        )
+    })?;
+    if !current.can_transition_to(next) {
+        return Err(format!(
+            "Illegal task state transition for {}: {} -> {}",
+            task.id,
+            current.as_status(),
+            next.as_status()
+        ));
+    }
+    task.status = next.as_status().to_owned();
+    task.engine_status = Some(engine_status.into());
+    Ok(())
+}
+
+/// Apply an explicit restart/redownload transition. Completed tasks can only
+/// leave their terminal state through this API, never via ordinary lifecycle
+/// progression.
+pub fn restart_task_state(
+    task: &mut Task,
+    engine_status: impl Into<String>,
+) -> Result<(), String> {
+    let current = TaskState::from_status(&task.status).ok_or_else(|| {
+        format!(
+            "Task {} has unknown lifecycle state '{}'",
+            task.id, task.status
+        )
+    })?;
+    if !current.can_restart_to(TaskState::Queued) {
+        return Err(format!(
+            "Task {} cannot be restarted from state {}",
+            task.id,
+            current.as_status()
+        ));
+    }
+    task.status = TaskState::Queued.as_status().to_owned();
+    task.engine_status = Some(engine_status.into());
+    Ok(())
+}
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -220,4 +271,69 @@ pub struct CurlJob {
     pub segment_prev_bytes: Vec<u64>,
     /// Curl command-line arguments for this job, persisted across restarts.
     pub args: Vec<String>,
+}
+
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::{restart_task_state, transition_task_state, Task, TaskState};
+
+    fn task(status: &str) -> Task {
+        Task {
+            id: "state-test".to_owned(),
+            name: "file.bin".to_owned(),
+            url: "https://example.test/file.bin".to_owned(),
+            file_type: "other".to_owned(),
+            status: status.to_owned(),
+            size_bytes: 10,
+            downloaded_bytes: 0,
+            speed_bytes_per_sec: 0,
+            time_left_seconds: 0,
+            elapsed_seconds: 0,
+            date_added: "2026-09-24T00:00:00Z".to_owned(),
+            category: "other".to_owned(),
+            queue_id: "main".to_owned(),
+            connections: 1,
+            resumable: true,
+            save_path: "file.bin".to_owned(),
+            description: String::new(),
+            segments: Vec::new(),
+            referer: None,
+            engine: "libcurl-multi".to_owned(),
+            engine_id: "state-test".to_owned(),
+            engine_status: None,
+            error_message: None,
+        }
+    }
+
+    #[test]
+    fn daemon_transition_helper_rejects_direct_completion() {
+        let mut task = task("downloading");
+        let error = transition_task_state(&mut task, TaskState::Completed, "completed")
+            .expect_err("direct completion must be rejected");
+        assert!(error.contains("downloading -> completed"));
+        assert_eq!(task.status, "downloading");
+    }
+
+    #[test]
+    fn daemon_transition_helper_applies_completion_pipeline() {
+        let mut task = task("downloading");
+        transition_task_state(&mut task, TaskState::Verifying, "verifying-output").unwrap();
+        transition_task_state(&mut task, TaskState::Finalizing, "finalizing-output").unwrap();
+        transition_task_state(&mut task, TaskState::Completed, "completed").unwrap();
+        assert_eq!(task.status, "completed");
+        assert_eq!(task.engine_status.as_deref(), Some("completed"));
+    }
+
+    #[test]
+    fn completed_task_requires_explicit_restart_helper() {
+        let mut task = task("completed");
+        assert!(transition_task_state(&mut task, TaskState::Queued, "queued").is_err());
+        restart_task_state(&mut task, "redownload-requested").unwrap();
+        assert_eq!(task.status, "queued");
+        assert_eq!(
+            task.engine_status.as_deref(),
+            Some("redownload-requested")
+        );
+    }
 }

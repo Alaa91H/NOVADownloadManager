@@ -7,18 +7,22 @@ use std::time::{Duration, Instant};
 use ::curl::easy::Easy2;
 use ::curl::multi::Easy2Handle;
 
-use super::completion::{merge_parts, part_size, validate_transfer_size, verify_output_sha256};
+use super::completion::{
+    merge_parts, part_size, validate_completed_output, validate_segment_geometry,
+    validate_transfer_size, verify_output_sha256,
+};
 use super::{
     apply_easy_options, create_easy_for_range_ext, drive_multi_wait_perform,
-    drive_multi_wait_perform_until, requested_connections, CurlMultiGuard, CurlTransferConfig,
-    DirectDownloadPlan, HtmlHeadCapture, ResponseCapture, SegmentProgress,
+    drive_multi_wait_perform_until, requested_connections, ContentRange, CurlMultiGuard,
+    CurlTransferConfig, DirectDownloadPlan, HtmlHeadCapture, RemoteFingerprint, ResponseCapture,
+    SegmentProgress,
 };
 use crate::daemon::direct::{FileWriter, RetryPolicy, SegmentPlanner, SegmentRange as ByteRange};
 
 use crate::daemon::engine::config::global_config;
 use crate::daemon::engine::policy_engine::{DecisionCategory, DecisionContext};
 use crate::daemon::state::SharedState;
-use crate::daemon::types::{CurlJob, Segment};
+use crate::daemon::types::{transition_task_state, CurlJob, Segment, TaskState};
 use crate::daemon::utils::{build_segments, now_str};
 use crate::lock_or_err;
 
@@ -42,7 +46,10 @@ fn build_decision_context(
         if let Ok(jobs) = state.curl_jobs.lock() {
             let active = jobs
                 .values()
-                .filter(|j| j.task.status == "downloading")
+                .filter(|j| {
+                    TaskState::from_status(&j.task.status)
+                        .is_some_and(TaskState::is_active)
+                })
                 .count() as u32;
             if let Some(job) = jobs.get(id) {
                 (
@@ -152,6 +159,25 @@ fn build_decision_context(
     }
 }
 
+fn transition_runtime_task_state(
+    state: &SharedState,
+    id: &str,
+    next: TaskState,
+    engine_status: &str,
+) -> Result<(), String> {
+    let task = {
+        let mut jobs = lock_or_err!(state.curl_jobs);
+        let job = jobs
+            .get_mut(id)
+            .ok_or_else(|| format!("Task {id} disappeared during lifecycle transition"))?;
+        transition_task_state(&mut job.task, next, engine_status)?;
+        job.task.clone()
+    };
+    lock_or_err!(state.task_snapshot).insert(id.to_owned(), task);
+    state.mark_dirty();
+    Ok(())
+}
+
 pub fn task_from_body(
     body: &crate::daemon::types::CreateDownloadBody,
     id: &str,
@@ -180,9 +206,9 @@ pub fn task_from_body(
         url: body.url.as_deref().unwrap_or("").to_owned(),
         file_type,
         status: if body.start_immediately.unwrap_or(true) {
-            "downloading"
+            TaskState::Preparing.as_status()
         } else {
-            "queued"
+            TaskState::Queued.as_status()
         }
         .to_owned(),
         size_bytes: initial_size,
@@ -239,7 +265,10 @@ pub fn plan_from_job(job: &CurlJob) -> DirectDownloadPlan {
         && job.task.resumable
         && job.task.size_bytes >= global_config().min_segment_bytes
         && job.task.connections > 1;
-    let etag = config.str_("etag").map(str::to_owned);
+    let etag = config
+        .str_("etag")
+        .filter(|value| crate::daemon::utils::is_strong_etag(value))
+        .map(str::to_owned);
     let last_modified = config.str_("lastModified").map(str::to_owned);
     let (validator, validator_is_etag) = if let Some(et) = etag {
         (Some(et), true)
@@ -548,6 +577,10 @@ fn resolve_effective_target(plan: &DirectDownloadPlan) -> (String, bool, Preflig
                 preflight.total_size = len;
             }
         }
+        if let Some((validator, validator_is_etag)) = easy.get_ref().validator() {
+            preflight.validator = Some(validator);
+            preflight.validator_is_etag = validator_is_etag;
+        }
         preflight.supports_range = code == 206;
         return (effective, preflight.supports_range, preflight);
     }
@@ -564,12 +597,27 @@ struct PreflightData {
     ttfb_us: u64,
     uses_tls: bool,
     supports_range: bool,
+    /// Strong remote identity captured before the first resumable/ranged body
+    /// is committed. Strong ETag is preferred; Last-Modified is the fallback.
+    validator: Option<String>,
+    validator_is_etag: bool,
     /// Total file size discovered from the preflight response headers
     /// (Content-Length / Content-Range). 0 when unknown (HTML interstitial,
     /// chunked response, error). The caller seeds `plan.total_size` with this
     /// before dispatch so the UI shows a real progress percentage instead of
     /// a fake 0% that jumps to 100% at completion.
     total_size: u64,
+}
+
+impl PreflightData {
+    fn remote_fingerprint(&self) -> RemoteFingerprint {
+        RemoteFingerprint {
+            validator: self.validator.clone(),
+            validator_is_etag: self.validator_is_etag,
+            total_size: (self.total_size > 0).then_some(self.total_size),
+            digest_sha256: None,
+        }
+    }
 }
 
 fn update_curl_task_progress(
@@ -671,6 +719,252 @@ fn update_curl_task_progress(
 fn is_http_family(url: &str) -> bool {
     let lower = url.get(..8).unwrap_or(url).to_ascii_lowercase();
     lower.starts_with("http://") || lower.starts_with("https://")
+}
+
+/// Persist the remote identity as a crash-safe resume checkpoint before any
+/// ranged body is allowed to depend on it. This deliberately writes only the
+/// non-sensitive ETag/Last-Modified validator into the existing persisted
+/// direct-options surface, so restart reconstruction automatically feeds it
+/// back through `plan_from_job` and `If-Range`.
+fn persist_resume_validator(
+    state: &SharedState,
+    id: &str,
+    validator: &str,
+    validator_is_etag: bool,
+) -> bool {
+    let value = validator.trim();
+    if value.is_empty() || value.len() > 1024 {
+        return false;
+    }
+
+    let key = if validator_is_etag {
+        if !crate::daemon::utils::is_strong_etag(value) {
+            return false;
+        }
+        "etag"
+    } else {
+        "lastModified"
+    };
+    let stale_key = if validator_is_etag {
+        "lastModified"
+    } else {
+        "etag"
+    };
+
+    let changed = {
+        let mut jobs = match state.curl_jobs.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let Some(job) = jobs.get_mut(id) else {
+            return false;
+        };
+        let next = serde_json::Value::String(value.to_owned());
+        if job.direct_options.get(key) == Some(&next) {
+            false
+        } else {
+            job.direct_options.remove(stale_key);
+            job.direct_options.insert(key.to_owned(), next);
+            true
+        }
+    };
+
+    if changed {
+        log::info!(
+            "Task {id}: checkpointed remote resume validator ({}) before ranged transfer",
+            if validator_is_etag {
+                "strong-etag"
+            } else {
+                "last-modified"
+            }
+        );
+        state.mark_dirty();
+        // The validator protects already-written partial bytes from being
+        // resumed against a different remote representation after a crash.
+        // Persist it immediately instead of waiting for the periodic 10s flush.
+        crate::daemon::persist::save_now(state.as_ref());
+    }
+    changed
+}
+
+fn clear_resume_validator(state: &SharedState, id: &str) -> bool {
+    let changed = {
+        let mut jobs = match state.curl_jobs.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let Some(job) = jobs.get_mut(id) else {
+            return false;
+        };
+        let had_etag = job.direct_options.remove("etag").is_some();
+        let had_last_modified = job.direct_options.remove("lastModified").is_some();
+        had_etag || had_last_modified
+    };
+    if changed {
+        state.mark_dirty();
+        crate::daemon::persist::save_now(state.as_ref());
+    }
+    changed
+}
+
+fn response_capture_for_range(
+    plan: &DirectDownloadPlan,
+    start: u64,
+    end: Option<u64>,
+    shared_fingerprint: Option<Arc<Mutex<RemoteFingerprint>>>,
+) -> ResponseCapture {
+    let expected_total = (plan.total_size > 0).then_some(plan.total_size);
+    ResponseCapture {
+        expected_range_start: Some(start),
+        expected_content_range: end.map(|end| ContentRange {
+            start,
+            end,
+            total: expected_total,
+        }),
+        expected_fingerprint: Some(plan.remote_fingerprint()),
+        shared_fingerprint,
+        ..Default::default()
+    }
+}
+
+fn task_has_any_checkpoint(state: &SharedState, id: &str, plan: &DirectDownloadPlan) -> bool {
+    let on_disk = FileWriter::current_size(&plan.output_path).unwrap_or(0);
+    if on_disk > 0 && (plan.total_size == 0 || on_disk < plan.total_size) {
+        return true;
+    }
+    state.curl_jobs.lock().ok().is_some_and(|jobs| {
+        jobs.get(id).is_some_and(|job| {
+            job.task
+                .segments
+                .iter()
+                .any(|segment| segment.downloaded_bytes > 0)
+        })
+    })
+}
+
+fn adopt_remote_fingerprint(
+    state: &SharedState,
+    id: &str,
+    plan: &mut DirectDownloadPlan,
+    observed: &RemoteFingerprint,
+) {
+    match observed.validator.as_deref() {
+        Some(validator) => {
+            plan.validator = Some(validator.to_owned());
+            plan.validator_is_etag = observed.validator_is_etag;
+            persist_resume_validator(state, id, validator, observed.validator_is_etag);
+        }
+        None => {
+            plan.validator = None;
+            plan.validator_is_etag = false;
+            clear_resume_validator(state, id);
+        }
+    }
+
+    if let Some(size) = observed.total_size.filter(|size| *size > 0) {
+        plan.total_size = size;
+        if let Ok(mut jobs) = state.curl_jobs.lock() {
+            if let Some(job) = jobs.get_mut(id) {
+                job.task.size_bytes = size;
+                job.task.downloaded_bytes = 0;
+                job.task.segments = build_segments(job.task.connections, size, 0, 0);
+            }
+        }
+        if let Ok(mut tasks) = state.task_snapshot.lock() {
+            if let Some(task) = tasks.get_mut(id) {
+                task.size_bytes = size;
+                task.downloaded_bytes = 0;
+                task.segments = build_segments(task.connections, size, 0, 0);
+            }
+        }
+        state.priority_queue.update_size(id, size);
+        state.mark_dirty();
+        crate::daemon::persist::save_now(state.as_ref());
+    }
+}
+
+fn refresh_plan_remote_state(state: &SharedState, id: &str, plan: &mut DirectDownloadPlan) {
+    let Ok(jobs) = state.curl_jobs.lock() else {
+        return;
+    };
+    let Some(job) = jobs.get(id) else {
+        return;
+    };
+
+    if job.task.size_bytes > 0 {
+        plan.total_size = job.task.size_bytes;
+    }
+
+    if let Some(etag) = job
+        .direct_options
+        .get("etag")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| crate::daemon::utils::is_strong_etag(value))
+    {
+        plan.validator = Some(etag.to_owned());
+        plan.validator_is_etag = true;
+    } else if let Some(last_modified) = job
+        .direct_options
+        .get("lastModified")
+        .and_then(serde_json::Value::as_str)
+    {
+        plan.validator = Some(last_modified.to_owned());
+        plan.validator_is_etag = false;
+    } else {
+        plan.validator = None;
+        plan.validator_is_etag = false;
+    }
+}
+
+fn discard_anonymous_segment_checkpoints(
+    state: &SharedState,
+    id: &str,
+    output_path: &Path,
+) {
+    remove_stale_parts_for(output_path);
+    if let Ok(mut jobs) = state.curl_jobs.lock() {
+        if let Some(job) = jobs.get_mut(id) {
+            job.task.downloaded_bytes = 0;
+            job.task.speed_bytes_per_sec = 0;
+            job.task.time_left_seconds = 0;
+            job.task.segments =
+                build_segments(job.task.connections, job.task.size_bytes, 0, 0);
+        }
+    }
+    if let Ok(mut tasks) = state.task_snapshot.lock() {
+        if let Some(task) = tasks.get_mut(id) {
+            task.downloaded_bytes = 0;
+            task.speed_bytes_per_sec = 0;
+            task.time_left_seconds = 0;
+            task.segments = build_segments(task.connections, task.size_bytes, 0, 0);
+        }
+    }
+    state.mark_dirty();
+    crate::daemon::persist::save_now(state.as_ref());
+}
+
+fn discard_resume_checkpoint(state: &SharedState, id: &str, plan: &DirectDownloadPlan) {
+    let _ = std::fs::remove_file(&plan.output_path);
+    remove_stale_parts_for(&plan.output_path);
+    if let Ok(mut jobs) = state.curl_jobs.lock() {
+        if let Some(job) = jobs.get_mut(id) {
+            job.task.downloaded_bytes = 0;
+            job.task.speed_bytes_per_sec = 0;
+            job.task.time_left_seconds = 0;
+            job.task.segments =
+                build_segments(job.task.connections, job.task.size_bytes, 0, 0);
+        }
+    }
+    if let Ok(mut tasks) = state.task_snapshot.lock() {
+        if let Some(task) = tasks.get_mut(id) {
+            task.downloaded_bytes = 0;
+            task.speed_bytes_per_sec = 0;
+            task.time_left_seconds = 0;
+            task.segments = build_segments(task.connections, task.size_bytes, 0, 0);
+        }
+    }
+    state.mark_dirty();
+    crate::daemon::persist::save_now(state.as_ref());
 }
 
 /// Result of a completed transfer pass. Carries everything the completion
@@ -835,17 +1129,25 @@ fn run_single_libcurl(
         plan.total_size,
         plan.output_path.display()
     );
-    let capture = Arc::new(Mutex::new(ResponseCapture::default()));
+    let resume_end = (plan.total_size > resume_existing && plan.total_size > 0)
+        .then_some(plan.total_size - 1);
+    let capture = Arc::new(Mutex::new(if resume_existing > 0 {
+        response_capture_for_range(plan, resume_existing, resume_end, None)
+    } else {
+        ResponseCapture::default()
+    }));
     let downloaded_counter = Arc::new(AtomicU64::new(0));
+    let range_rejected = Arc::new(AtomicBool::new(false));
+    let encoding_rejected = Arc::new(AtomicBool::new(false));
     let progress = SegmentProgress {
         downloaded: downloaded_counter.clone(),
         abort: cancel.clone(),
         retry_after: retry_after.clone(),
         capture: capture.clone(),
         streaming_digest_out: streaming_digest_out.clone(),
-        range_rejected: Arc::new(AtomicBool::new(false)),
-        encoding_rejected: Arc::new(AtomicBool::new(false)),
-        expects_206: false,
+        range_rejected: range_rejected.clone(),
+        encoding_rejected: encoding_rejected.clone(),
+        expects_206: resume_existing > 0,
     };
     let task_limit = state.bandwidth_manager.allowed_speed_for_task(id);
     let task_limit_bps = if task_limit > 0 {
@@ -1002,14 +1304,40 @@ fn run_single_libcurl(
     // Use libcurl's wait/perform driver for every configured event-loop mode.
     // It is the verified path for real transfers and invokes bounded progress
     // ticks while the request is active.
-    drive_multi_wait_perform(
+    let drive_result = drive_multi_wait_perform(
         guard.multi()?,
         &handles,
         &cancel,
         "transfer",
         &mut tick,
         state.bandwidth_manager.paused_flag(),
-    )?;
+    );
+
+    if range_rejected.load(Ordering::Acquire) && resume_existing > 0 {
+        let observed = capture
+            .lock()
+            .ok()
+            .map(|cap| cap.observed_fingerprint())
+            .unwrap_or_default();
+        log::warn!(
+            "Task {id}: strict resume validation rejected the response; restarting from byte zero (expected={:?}, observed={observed:?})",
+            plan.remote_fingerprint()
+        );
+        discard_resume_checkpoint(state, id, plan);
+        let mut fresh_plan = plan.clone();
+        adopt_remote_fingerprint(state, id, &mut fresh_plan, &observed);
+        fresh_plan.segmented = false;
+        return run_single_libcurl(
+            state,
+            id,
+            &fresh_plan,
+            cancel,
+            retry_after,
+            streaming_digest_out,
+        );
+    }
+    drive_result?;
+
     let response = handles[0]
         .response_code()
         .map_err(|e| format!("Could not read HTTP response code: {e}"))?;
@@ -1157,6 +1485,17 @@ fn run_segmented_libcurl(
 ) -> Result<TransferOutcome, String> {
     let _phase_ctx = crate::logging::push_context("phase", "segmented");
     FileWriter::ensure_parent(&plan.output_path)?;
+
+    // Segment files are resumable only when they are bound to a persisted
+    // remote validator. Runtime ETags learned after the request starts cannot
+    // prove that bytes already on disk came from that same representation.
+    if plan.validator.is_none() && FileWriter::has_stale_parts_for(&plan.output_path) {
+        log::warn!(
+            "Task {id}: found segment checkpoints without a persisted remote validator; discarding anonymous partial bytes before range dispatch"
+        );
+        discard_anonymous_segment_checkpoints(state, id, &plan.output_path);
+    }
+
     if !plan.allow_overwrite && plan.output_path.exists() {
         let existing = FileWriter::current_size(&plan.output_path)?;
         if existing == plan.total_size
@@ -1339,6 +1678,11 @@ fn run_segmented_libcurl(
     // C-2: shared flag — when any segment's header callback sees a 200 in
     // answer to a partial-range request, every segment stops writing.
     let range_rejected = Arc::new(AtomicBool::new(false));
+    // All sibling segments share one gradually learned remote identity. This
+    // catches same-size object replacement even when the preflight exposed no
+    // validator but the range responses later do.
+    let shared_segment_fingerprint =
+        Arc::new(Mutex::new(plan.remote_fingerprint()));
     // C-5: shared flag — when any segment's header callback sees a real
     // Content-Encoding (gzip/br/deflate) on a byte-range response, every
     // segment stops writing so the corrupted (offset-shifted) parts are never
@@ -1433,7 +1777,12 @@ fn run_segmented_libcurl(
         }
         let start = range.start + existing;
         let progress = Arc::new(AtomicU64::new(0));
-        let seg_capture = Arc::new(Mutex::new(ResponseCapture::default()));
+        let seg_capture = Arc::new(Mutex::new(response_capture_for_range(
+            plan,
+            start,
+            Some(range.end),
+            Some(shared_segment_fingerprint.clone()),
+        )));
         seg_captures.push(seg_capture.clone());
         let easy = create_easy_for_range_ext(
             plan,
@@ -1690,7 +2039,7 @@ fn run_segmented_libcurl(
     // Phase 5 outer drive loop: drive until completion, rebuilding the easy
     // handles whenever the adaptive engine changes the segment geometry.
     'drive: loop {
-        let rebuild_requested = drive_multi_wait_perform_until(
+        let drive_result = drive_multi_wait_perform_until(
             guard.multi()?,
             &handles_cell.borrow(),
             &cancel,
@@ -1698,7 +2047,13 @@ fn run_segmented_libcurl(
             &mut tick,
             state.bandwidth_manager.paused_flag(),
             || pending_rebuild.get(),
-        )?;
+        );
+        if range_rejected.load(Ordering::Acquire)
+            || encoding_rejected.load(Ordering::Acquire)
+        {
+            break 'drive;
+        }
+        let rebuild_requested = drive_result?;
         // The driver returns immediately after a tick requests a geometry
         // change, so rebuild while the old handle layout is still live.
         if !rebuild_requested {
@@ -1792,7 +2147,12 @@ fn run_segmented_libcurl(
                 active.push((range, progress, trusted));
                 continue;
             }
-            let seg_capture = Arc::new(Mutex::new(ResponseCapture::default()));
+            let seg_capture = Arc::new(Mutex::new(response_capture_for_range(
+                plan,
+                start + trusted,
+                Some(end),
+                Some(shared_segment_fingerprint.clone()),
+            )));
             seg_captures.push(seg_capture.clone());
             let easy = create_easy_for_range_ext(
                 plan,
@@ -1841,13 +2201,31 @@ fn run_segmented_libcurl(
     // range_rejected flag. Fail fast with a clear error instead of merging
     // truncated or overlapping part files.
     if range_rejected.load(Ordering::Acquire) {
+        let expected_fingerprint = plan.remote_fingerprint();
+        let observed = seg_captures
+            .iter()
+            .filter_map(|capture| capture.lock().ok())
+            .map(|capture| capture.observed_fingerprint())
+            .find(|fingerprint| expected_fingerprint.conflicts_with(fingerprint))
+            .or_else(|| {
+                seg_captures
+                    .iter()
+                    .filter_map(|capture| capture.lock().ok())
+                    .map(|capture| capture.observed_fingerprint())
+                    .find(|fingerprint| {
+                        fingerprint.validator.is_some() || fingerprint.total_size.is_some()
+                    })
+            })
+            .unwrap_or_default();
+
         for r in active_cell.borrow().iter() {
             let _ = std::fs::remove_file(&r.0.path);
         }
+        remove_stale_parts_for(&plan.output_path);
+        let mut refreshed = plan.clone();
+        adopt_remote_fingerprint(state, id, &mut refreshed, &observed);
         return Err(
-            "Server returned 200 OK instead of 206 Partial Content to a byte-range request; \
-             the server does not honor range requests. Retry with a single connection or \
-             disable segmented mode."
+            "Strict byte-range validation failed (status, Content-Range, or remote fingerprint mismatch); stale segment data was discarded."
                 .to_owned(),
         );
     }
@@ -1914,11 +2292,19 @@ fn run_segmented_libcurl(
     );
     progress_total_cell.set(last_total);
     progress_tick_cell.set(last_tick);
-    let (captured_validator, encoded) = seg_captures
-        .first()
-        .and_then(|cap| cap.lock().ok())
-        .map_or((None, false), |cap| {
-            (cap.validator.clone(), cap.content_encoded)
+    let encoded = seg_captures
+        .iter()
+        .filter_map(|cap| cap.lock().ok())
+        .any(|cap| cap.content_encoded);
+    let captured_validator = shared_segment_fingerprint
+        .lock()
+        .ok()
+        .and_then(|fingerprint| fingerprint.validator.clone())
+        .or_else(|| {
+            seg_captures
+                .iter()
+                .filter_map(|cap| cap.lock().ok())
+                .find_map(|cap| cap.validator.clone())
         });
     // C-1: merge using the CURRENT segment geometry. The original `ranges`
     // were captured before any adaptive rebuild split/merged segments, so
@@ -1937,6 +2323,11 @@ fn run_segmented_libcurl(
     // part is complete and correct. Sort by start offset — the merge is only
     // valid when parts are concatenated in ascending byte order.
     final_ranges.sort_by_key(|r| r.start);
+    // P0 integrity gate: a collection of individually complete part files is
+    // not sufficient proof of a valid output. Adaptive geometry must cover
+    // every byte exactly once before concatenation, otherwise a gap/overlap
+    // can create a same-sized but silently corrupted final file.
+    validate_segment_geometry(plan.total_size, &final_ranges)?;
     merge_parts(&plan.output_path, &final_ranges).map(|s| TransferOutcome {
         size: s,
         validator: captured_validator,
@@ -2116,24 +2507,25 @@ fn run_libcurl_download(
     #[allow(unused_assignments)]
     let mut preflight = PreflightData::default();
     {
-        if let Ok(mut jobs) = state.curl_jobs.lock() {
-            if let Some(job) = jobs.get_mut(id) {
-                job.task.engine_status = Some("resolving-url".to_owned());
-            }
+        if cancel.load(Ordering::Acquire) {
+            return Err("cancelled".to_owned());
         }
-        state.mark_dirty();
+        transition_runtime_task_state(state, id, TaskState::Probing, "resolving-url")?;
 
         let resolved = resolve_effective_target(&plan);
         let effective_url = resolved.0;
         supports_range = resolved.1;
         preflight = resolved.2;
 
-        if let Ok(mut jobs) = state.curl_jobs.lock() {
-            if let Some(job) = jobs.get_mut(id) {
-                job.task.engine_status = Some("running-libcurl-multi".to_owned());
-            }
+        if cancel.load(Ordering::Acquire) {
+            return Err("cancelled".to_owned());
         }
-        state.mark_dirty();
+        transition_runtime_task_state(
+            state,
+            id,
+            TaskState::Downloading,
+            "running-libcurl-multi",
+        )?;
 
         if effective_url != plan.url {
             log::info!(
@@ -2143,6 +2535,43 @@ fn run_libcurl_download(
                 effective_url
             );
             plan.url = effective_url;
+        }
+
+        // If this task owns partial bytes from an earlier run, compare the
+        // newly observed remote identity before reusing any checkpoint. A
+        // concrete ETag/size contradiction means those bytes belong to a
+        // different representation and must never be merged with the new one.
+        let previous_fingerprint = plan.remote_fingerprint();
+        let observed_fingerprint = preflight.remote_fingerprint();
+        if task_has_any_checkpoint(state, id, &plan)
+            && previous_fingerprint.conflicts_with(&observed_fingerprint)
+        {
+            log::warn!(
+                "Task {id}: remote resource changed before resume; discarding stale checkpoint (expected={previous_fingerprint:?}, observed={observed_fingerprint:?})"
+            );
+            discard_resume_checkpoint(state, id, &plan);
+            adopt_remote_fingerprint(state, id, &mut plan, &observed_fingerprint);
+            // A preflight answered 200 after an If-Range mismatch. The stale
+            // checkpoint is gone now, so a safe full transfer is preferred
+            // over trusting old range capability metadata.
+            plan.segmented = false;
+        }
+
+        // Bind the upcoming byte ranges to the exact representation observed
+        // by the preflight. This happens BEFORE segmented handles are created,
+        // so every first-generation range request receives If-Range rather
+        // than waiting until a successful completion to learn the validator.
+        if plan.validator.is_none() {
+            if let Some(ref validator) = preflight.validator {
+                plan.validator = Some(validator.clone());
+                plan.validator_is_etag = preflight.validator_is_etag;
+                persist_resume_validator(
+                    state,
+                    id,
+                    validator,
+                    preflight.validator_is_etag,
+                );
+            }
         }
         // The preflight discovered a real total size for a download that
         // started with an unknown size (fast path). Apply it to the plan and
@@ -2257,6 +2686,14 @@ fn run_libcurl_download(
         if cancel.load(Ordering::Acquire) {
             return Err("cancelled".to_owned());
         }
+        if attempt > 0 {
+            transition_runtime_task_state(
+                state,
+                id,
+                TaskState::Downloading,
+                "running-libcurl-multi",
+            )?;
+        }
         log::debug!(
             "[RETRY] task={id} attempt={} max_attempts={} elapsed_ms={} last_error={}",
             attempt + 1,
@@ -2328,6 +2765,13 @@ fn run_libcurl_download(
                 }
                 if cancel.load(Ordering::Acquire) {
                     return Err("cancelled".to_owned());
+                }
+                // Some fast paths may skip a metadata-rich preflight. Capture
+                // the validator returned by the completed transfer as a
+                // fallback for future re-download/resume operations.
+                if let Some(ref captured) = captured_validator {
+                    let captured_is_etag = crate::daemon::utils::is_strong_etag(captured);
+                    persist_resume_validator(state, id, captured, captured_is_etag);
                 }
                 if let Some(etag_file) = plan.config.str_("etagSave") {
                     if let Some(ref captured) = captured_validator {
@@ -2467,10 +2911,27 @@ fn run_libcurl_download(
                     log::info!(
                         "Segmented attempt failed for task {id}; trying single-connection fallback"
                     );
+                    transition_runtime_task_state(
+                        state,
+                        id,
+                        TaskState::Recovering,
+                        "recovering-single-connection",
+                    )?;
                     plan.segmented = false;
+                    // Range validation may have discovered and persisted a new
+                    // validator or remote size immediately before this error.
+                    // Refresh the in-memory plan so this same-attempt fallback
+                    // cannot validate the new object using stale metadata.
+                    refresh_plan_remote_state(state, id, &mut plan);
                     if cancel.load(Ordering::Acquire) {
                         return Err("cancelled".to_owned());
                     }
+                    transition_runtime_task_state(
+                        state,
+                        id,
+                        TaskState::Downloading,
+                        "fallback-single-connection",
+                    )?;
                     match run_single_libcurl(
                         state,
                         id,
@@ -2503,6 +2964,12 @@ fn run_libcurl_download(
                 }
                 last_error = error;
                 if attempt + 1 < retry_policy.attempts {
+                    transition_runtime_task_state(
+                        state,
+                        id,
+                        TaskState::Retrying,
+                        "retrying",
+                    )?;
                     let hinted = retry_after.swap(0, Ordering::AcqRel);
                     // Use the self-healer's recommended pause if available,
                     // otherwise fall back to Retry-After header or exponential backoff.
@@ -2539,56 +3006,131 @@ fn run_libcurl_download(
 }
 
 pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, generation: u64) {
-    log::info!("Task {id}: download completed (final_size={final_size}, generation={generation})");
-    // C-3: verify the generation BEFORE any side effects. A stale worker that
-    // finished after a newer run started must not release the queue slot or
-    // bump stats that belong to the current run.
-    {
-        let jobs = lock_or_err!(state.curl_jobs);
-        let Some(job) = jobs.get(id) else {
+    // C-3 + lifecycle gate: verify generation and enter Verifying BEFORE any
+    // terminal side effects. A worker can no longer jump directly from
+    // Downloading to Completed, even if a future success path calls this
+    // function without running transport-specific checks first.
+    let (output_path, expected_digest, verifying_task) = {
+        let mut jobs = lock_or_err!(state.curl_jobs);
+        let Some(job) = jobs.get_mut(id) else {
             return;
         };
         if job.run_generation.load(Ordering::Acquire) != generation {
-            log::info!("Task {id}: stale completion (generation {generation}) ignored",);
+            log::info!("Task {id}: stale completion (generation {generation}) ignored");
+            return;
+        }
+        if let Err(error) =
+            transition_task_state(&mut job.task, TaskState::Verifying, "verifying-output")
+        {
+            log::error!("Task {id}: refusing illegal completion transition: {error}");
+            return;
+        }
+        (
+            std::path::PathBuf::from(&job.task.save_path),
+            job.direct_options
+                .get("digestSha256")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            job.task.clone(),
+        )
+    };
+    lock_or_err!(state.task_snapshot).insert(id.to_owned(), verifying_task);
+    state.mark_dirty();
+
+    // P0 completion gate: trust the durable destination, not only the worker's
+    // returned byte count. This also covers future success paths that might
+    // otherwise bypass transport-specific validation.
+    if let Err(error) = validate_completed_output(&output_path, final_size) {
+        log::error!("Task {id}: refusing completed state: {error}");
+        mark_curl_task_failed(state, id, error, false, generation);
+        return;
+    }
+    if let Some(expected_raw) = expected_digest.as_deref() {
+        if let Err(error) = verify_output_sha256(&output_path, expected_raw) {
+            log::error!("Task {id}: refusing completed state: {error}");
+            mark_curl_task_failed(state, id, error, false, generation);
             return;
         }
     }
+
+    // Filesystem and digest checks passed. Enter Finalizing before touching
+    // completion counters or releasing the active slot; only Finalizing may
+    // transition to the terminal Completed state.
+    let finalizing_result = {
+        let mut jobs = lock_or_err!(state.curl_jobs);
+        let Some(job) = jobs.get_mut(id) else {
+            return;
+        };
+        if job.run_generation.load(Ordering::Acquire) != generation {
+            log::info!("Task {id}: stale finalization (generation {generation}) ignored");
+            return;
+        }
+        transition_task_state(&mut job.task, TaskState::Finalizing, "finalizing-output")
+            .map(|()| job.task.clone())
+    };
+    let finalizing_task = match finalizing_result {
+        Ok(task) => task,
+        Err(error) => {
+            log::error!("Task {id}: refusing illegal finalization transition: {error}");
+            // Important: call the failure path only after the curl_jobs guard
+            // above has been dropped, otherwise this would self-deadlock.
+            mark_curl_task_failed(state, id, error, false, generation);
+            return;
+        }
+    };
+    lock_or_err!(state.task_snapshot).insert(id.to_owned(), finalizing_task);
+    state.mark_dirty();
+
+    // Validate the terminal transition and build its complete snapshot BEFORE
+    // releasing the active slot or incrementing success statistics. If the
+    // lifecycle guard ever rejects Finalizing -> Completed, no terminal side
+    // effects have occurred yet.
+    let completed_task = {
+        let mut jobs = lock_or_err!(state.curl_jobs);
+        let Some(job) = jobs.get_mut(id) else {
+            return;
+        };
+        if job.run_generation.load(Ordering::Acquire) != generation {
+            log::info!("Task {id}: stale completion commit (generation {generation}) ignored");
+            return;
+        }
+        if let Err(error) =
+            transition_task_state(&mut job.task, TaskState::Completed, "completed")
+        {
+            log::error!("Task {id}: final Completed transition rejected: {error}");
+            return;
+        }
+        job.task.downloaded_bytes = final_size;
+        // A Content-Encoding transfer (gzip/br/deflate) decompresses the body
+        // before writing it, so the real on-disk size may differ from the
+        // probed Content-Length (which describes the compressed wire size).
+        if job.task.size_bytes != final_size {
+            job.task.size_bytes = final_size;
+        }
+        job.task.speed_bytes_per_sec = 0;
+        job.task.time_left_seconds = 0;
+        job.task.error_message = None;
+        job.task.segments =
+            build_segments(job.task.connections, job.task.size_bytes, final_size, 0);
+        job.task.clone()
+    };
+
+    log::info!(
+        "Task {id}: completion gate passed (final_size={final_size}, generation={generation})"
+    );
     state.priority_queue.stop_download(id);
-    // download_stats scoped to this block and released before curl_jobs
-    // is acquired below, preventing AB-BA deadlock with persist's
-    // build_snapshot (which acquires curl_jobs → download_stats).
     {
         if let Ok(mut stats) = state.download_stats.lock() {
             stats.total_completed += 1;
             stats.total_downloaded_bytes += final_size;
         }
     }
-    let mut jobs = lock_or_err!(state.curl_jobs);
-    if let Some(job) = jobs.get_mut(id) {
-        if job.run_generation.load(Ordering::Acquire) != generation {
-            return;
-        }
-        job.task.status = "completed".to_owned();
-        job.task.downloaded_bytes = final_size;
-        // A Content-Encoding transfer (gzip/br/deflate) decompresses the body
-        // before writing it, so the real on-disk size may differ from the
-        // probed Content-Length (which describes the compressed wire size).
-        // Reconcile size_bytes to the ACTUAL file size so the completed task
-        // never reports downloaded_bytes > size_bytes (progress > 100%).
-        if job.task.size_bytes != final_size {
-            job.task.size_bytes = final_size;
-        }
-        job.task.speed_bytes_per_sec = 0;
-        job.task.time_left_seconds = 0;
-        job.task.engine_status = Some("completed".to_owned());
-        job.task.error_message = None;
-        job.task.segments =
-            build_segments(job.task.connections, job.task.size_bytes, final_size, 0);
-        let task = job.task.clone();
-        drop(jobs);
-        lock_or_err!(state.task_snapshot).insert(id.to_owned(), task);
-        state.mark_dirty();
-    }
+    lock_or_err!(state.task_snapshot).insert(id.to_owned(), completed_task);
+    state.mark_dirty();
+    // Completion is a durable state transition, not just UI state. Flush it
+    // immediately so a process crash right after completion cannot resurrect
+    // the task as interrupted/paused on next start.
+    crate::daemon::persist::save_now(state.as_ref());
 }
 
 pub fn mark_curl_task_failed(
@@ -2605,18 +3147,46 @@ pub fn mark_curl_task_failed(
     } else {
         log::error!("Task {id}: download failed: {message} (generation={generation})");
     }
-    // C-3: verify generation BEFORE any side effects — a stale worker must
-    // not decrement active_downloads or bump failure stats for a newer run.
-    {
-        let jobs = lock_or_err!(state.curl_jobs);
-        let Some(job) = jobs.get(id) else {
+
+    // Verify generation AND lifecycle transition before queue/stat side
+    // effects. This prevents stale or terminal workers from decrementing slots
+    // or incrementing failure counters after an illegal state mutation.
+    let (task, remove_on_error, path) = {
+        let mut jobs = lock_or_err!(state.curl_jobs);
+        let Some(job) = jobs.get_mut(id) else {
             return;
         };
         if job.run_generation.load(Ordering::Acquire) != generation {
             log::info!("Task {id}: stale failure (generation {generation}) ignored");
             return;
         }
-    }
+        let next = if cancelled {
+            TaskState::Paused
+        } else {
+            TaskState::Failed
+        };
+        let engine_status = if cancelled { "paused" } else { "failed" };
+        if let Err(error) = transition_task_state(&mut job.task, next, engine_status) {
+            log::error!("Task {id}: rejected failure transition: {error}");
+            return;
+        }
+        job.task.speed_bytes_per_sec = 0;
+        job.task.time_left_seconds = 0;
+        job.task.error_message = if cancelled {
+            None
+        } else {
+            Some(message.clone())
+        };
+        let task = job.task.clone();
+        let remove_on_error = job
+            .direct_options
+            .get("removeOnError")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let path = std::path::PathBuf::from(&job.task.save_path);
+        (task, remove_on_error, path)
+    };
+
     // Both cancellation and failure release an active slot. A user pause is a
     // temporary cancellation, however, so retain its queue entry: resume then
     // restores the same priority and bandwidth allocation instead of becoming
@@ -2635,58 +3205,35 @@ pub fn mark_curl_task_failed(
             }
         }
     }
-    let mut jobs = lock_or_err!(state.curl_jobs);
-    if let Some(job) = jobs.get_mut(id) {
-        if job.run_generation.load(Ordering::Acquire) != generation {
-            return;
-        }
-        job.task.status = if cancelled { "paused" } else { "error" }.to_owned();
-        job.task.speed_bytes_per_sec = 0;
-        job.task.time_left_seconds = 0;
-        job.task.engine_status = Some(if cancelled { "paused" } else { "failed" }.to_owned());
-        job.task.error_message = if cancelled {
-            None
-        } else {
-            Some(message.clone())
-        };
-        let task = job.task.clone();
-        if !cancelled {
-            let segment_summary: Vec<String> = task
-                .segments
-                .iter()
-                .map(|s| format!("{}:{}", s.id, s.downloaded_bytes))
-                .collect();
-            log::error!(
-                "[ERROR-PATH] task={id} generation={generation} url={} save_path={} downloaded_bytes={} size_bytes={} status={} engine_status={:?} segments=[{}] error={message}",
-                task.url,
-                task.save_path,
-                task.downloaded_bytes,
-                task.size_bytes,
-                task.status,
-                task.engine_status,
-                segment_summary.join(",")
-            );
-        }
-        let remove_on_error = job
-            .direct_options
-            .get("removeOnError")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
-        let path = std::path::PathBuf::from(&job.task.save_path);
-        drop(jobs);
-        if !cancelled && remove_on_error {
-            let _ = std::fs::remove_file(&path);
-            remove_stale_parts_for(&path);
-        }
-        lock_or_err!(state.task_snapshot).insert(id.to_owned(), task);
-        state.mark_dirty();
-        // A manual pause is a user-visible checkpoint. Persist it immediately
-        // after the worker has stopped and the latest segment snapshot has been
-        // recorded, rather than waiting for the periodic flush. This protects
-        // partial bytes if the user closes NOVA straight after pressing Stop.
-        if cancelled {
-            crate::daemon::persist::save_now(state.as_ref());
-        }
+    if !cancelled {
+        let segment_summary: Vec<String> = task
+            .segments
+            .iter()
+            .map(|s| format!("{}:{}", s.id, s.downloaded_bytes))
+            .collect();
+        log::error!(
+            "[ERROR-PATH] task={id} generation={generation} url={} save_path={} downloaded_bytes={} size_bytes={} status={} engine_status={:?} segments=[{}] error={message}",
+            task.url,
+            task.save_path,
+            task.downloaded_bytes,
+            task.size_bytes,
+            task.status,
+            task.engine_status,
+            segment_summary.join(",")
+        );
+    }
+    if !cancelled && remove_on_error {
+        let _ = std::fs::remove_file(&path);
+        remove_stale_parts_for(&path);
+    }
+    lock_or_err!(state.task_snapshot).insert(id.to_owned(), task);
+    state.mark_dirty();
+    // A manual pause is a user-visible checkpoint. Persist it immediately
+    // after the worker has stopped and the latest segment snapshot has been
+    // recorded, rather than waiting for the periodic flush. This protects
+    // partial bytes if the user closes NOVA straight after pressing Stop.
+    if cancelled {
+        crate::daemon::persist::save_now(state.as_ref());
     }
 }
 
@@ -2696,16 +3243,18 @@ pub fn start_curl_process(state: &SharedState, id: &str) {
         let Some(job) = jobs.get_mut(id) else {
             return;
         };
-        if job.task.status == "completed" {
+        let Some(current_state) = TaskState::from_status(&job.task.status) else {
+            log::error!(
+                "Task {id}: refusing to start from unknown state '{}'",
+                job.task.status
+            );
+            return;
+        };
+        if current_state == TaskState::Completed {
             return;
         }
         let worker_was_started = job.run_generation.load(Ordering::Acquire) > 0;
-        if worker_was_started
-            && matches!(
-                job.task.status.as_str(),
-                "downloading" | "pausing" | "stopping"
-            )
-        {
+        if worker_was_started && current_state.is_active() {
             return;
         }
         job.cancel_token = Arc::new(AtomicBool::new(false));
@@ -2713,8 +3262,12 @@ pub fn start_curl_process(state: &SharedState, id: &str) {
             .run_generation
             .fetch_add(1, Ordering::Release)
             .saturating_add(1);
-        job.task.status = "downloading".to_owned();
-        job.task.engine_status = Some("running-libcurl-multi".to_owned());
+        if let Err(error) =
+            transition_task_state(&mut job.task, TaskState::Preparing, "starting")
+        {
+            log::error!("Task {id}: cannot prepare libcurl worker: {error}");
+            return;
+        }
         job.task.error_message = None;
         job.start_time = Instant::now();
         let plan = plan_from_job(job);
@@ -2950,14 +3503,16 @@ pub fn start_curl_process(state: &SharedState, id: &str) {
 /// from overwriting a restarted task's state.
 fn force_error_status(state: &SharedState, id: &str, generation: u64, message: String) {
     log::error!("Watchdog force-error for task {id}: {message}");
-    // C-3: verify generation before side effects — a stale watchdog from an
-    // old run must not release the slot or bump stats for the current run.
-    {
-        let jobs = lock_or_err!(state.curl_jobs);
-        let Some(job) = jobs.get(id) else {
+    // Validate generation and lifecycle BEFORE side effects. A stale watchdog
+    // or a watchdog racing with completion must not release slots or bump
+    // failure counters for a task it can no longer own.
+    let task = {
+        let mut jobs = lock_or_err!(state.curl_jobs);
+        let Some(job) = jobs.get_mut(id) else {
             return;
         };
-        if job.task.status == "completed" || job.task.status == "paused" {
+        let current = TaskState::from_status(&job.task.status);
+        if matches!(current, Some(TaskState::Completed | TaskState::Paused)) {
             return;
         }
         if generation > 0 && job.run_generation.load(Ordering::Acquire) != generation {
@@ -2967,31 +3522,24 @@ fn force_error_status(state: &SharedState, id: &str, generation: u64, message: S
             );
             return;
         }
-    }
-    state.priority_queue.stop_download(id);
-    {
-        if let Ok(mut stats) = state.download_stats.lock() {
-            stats.total_failed += 1;
-        }
-    }
-    let mut jobs = lock_or_err!(state.curl_jobs);
-    if let Some(job) = jobs.get_mut(id) {
-        if job.task.status == "completed" || job.task.status == "paused" {
+        if let Err(error) =
+            transition_task_state(&mut job.task, TaskState::Failed, "watchdog-timeout")
+        {
+            log::error!("Watchdog for {id}: state transition rejected: {error}");
             return;
         }
-        if generation > 0 && job.run_generation.load(Ordering::Acquire) != generation {
-            return;
-        }
-        job.task.status = "error".to_owned();
         job.task.speed_bytes_per_sec = 0;
         job.task.time_left_seconds = 0;
-        job.task.engine_status = Some("watchdog-timeout".to_owned());
         job.task.error_message = Some(message);
-        let task = job.task.clone();
-        drop(jobs);
-        lock_or_err!(state.task_snapshot).insert(id.to_owned(), task);
-        state.mark_dirty();
+        job.task.clone()
+    };
+
+    state.priority_queue.stop_download(id);
+    if let Ok(mut stats) = state.download_stats.lock() {
+        stats.total_failed += 1;
     }
+    lock_or_err!(state.task_snapshot).insert(id.to_owned(), task);
+    state.mark_dirty();
 }
 
 /// Generate a unique filename by appending " (1)", " (2)", etc. before the
@@ -3054,6 +3602,61 @@ mod tests {
     use super::*;
 
     #[test]
+    fn plan_ignores_weak_or_invalid_etag_for_resume_and_uses_last_modified() {
+        let dir = std::env::temp_dir().join(format!(
+            "nova-validator-plan-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let output = dir.join("file.bin");
+        let body = download_body("http://127.0.0.1:1/file.bin", "file.bin", 1024, 1);
+
+        let mut weak_options = std::collections::HashMap::new();
+        weak_options.insert(
+            "etag".to_owned(),
+            serde_json::Value::String("W/\"weak\"".to_owned()),
+        );
+        weak_options.insert(
+            "lastModified".to_owned(),
+            serde_json::Value::String("Wed, 23 Sep 2026 20:00:00 GMT".to_owned()),
+        );
+        let weak_job = task_from_body(
+            &body,
+            "weak-validator",
+            "file.bin".to_owned(),
+            &output,
+            weak_options,
+            Vec::new(),
+        );
+        let weak_plan = plan_from_job(&weak_job);
+        assert_eq!(
+            weak_plan.validator.as_deref(),
+            Some("Wed, 23 Sep 2026 20:00:00 GMT")
+        );
+        assert!(!weak_plan.validator_is_etag);
+
+        let mut invalid_options = std::collections::HashMap::new();
+        invalid_options.insert(
+            "etag".to_owned(),
+            serde_json::Value::String("unquoted-etag".to_owned()),
+        );
+        let invalid_job = task_from_body(
+            &body,
+            "invalid-validator",
+            "file.bin".to_owned(),
+            &output,
+            invalid_options,
+            Vec::new(),
+        );
+        assert!(
+            plan_from_job(&invalid_job).validator.is_none(),
+            "resume must not trust an ETag that cannot be emitted as If-Range"
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn auto_rename_reserves_distinct_output_names_until_the_writer_opens_them() {
         let dir = std::env::temp_dir().join(format!(
             "nova_auto_rename_reservation_{}_{}",
@@ -3114,6 +3717,169 @@ mod tests {
     }
 
     #[test]
+    fn completion_transition_is_persisted_only_after_disk_gate_passes() {
+        let dir = std::env::temp_dir().join(format!(
+            "nova-final-completion-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = std::sync::Arc::new(crate::daemon::persist::tests::test_state(
+            &dir.to_string_lossy(),
+        ));
+        let id = "completion-success";
+        let output = dir.join("complete.bin");
+        std::fs::write(&output, b"nova").unwrap();
+
+        let body = download_body("http://127.0.0.1:1/complete.bin", "complete.bin", 4, 1);
+        let job = task_from_body(
+            &body,
+            id,
+            "complete.bin".to_owned(),
+            &output,
+            std::collections::HashMap::new(),
+            Vec::new(),
+        );
+        job.run_generation.store(1, Ordering::Release);
+        state
+            .task_snapshot
+            .lock()
+            .unwrap()
+            .insert(id.to_owned(), job.task.clone());
+        state.curl_jobs.lock().unwrap().insert(id.to_owned(), job);
+
+        mark_curl_task_finished(&state, id, 4, 1);
+
+        let task = state
+            .task_snapshot
+            .lock()
+            .unwrap()
+            .get(id)
+            .cloned()
+            .expect("completed task snapshot");
+        assert_eq!(task.status, "completed");
+        assert_eq!(task.downloaded_bytes, 4);
+        let stats = state.download_stats.lock().unwrap().clone();
+        assert_eq!(stats.total_completed, 1);
+        assert_eq!(stats.total_failed, 0);
+
+        let persisted = crate::daemon::persist::load(&dir.to_string_lossy());
+        assert!(persisted
+            .tasks
+            .iter()
+            .any(|task| task.id == id && task.status == "completed"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn completion_transition_fails_closed_when_output_is_missing() {
+        let dir = std::env::temp_dir().join(format!(
+            "nova-final-completion-missing-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = std::sync::Arc::new(crate::daemon::persist::tests::test_state(
+            &dir.to_string_lossy(),
+        ));
+        let id = "completion-missing";
+        let output = dir.join("missing.bin");
+        let body = download_body("http://127.0.0.1:1/missing.bin", "missing.bin", 4, 1);
+        let job = task_from_body(
+            &body,
+            id,
+            "missing.bin".to_owned(),
+            &output,
+            std::collections::HashMap::new(),
+            Vec::new(),
+        );
+        job.run_generation.store(1, Ordering::Release);
+        state
+            .task_snapshot
+            .lock()
+            .unwrap()
+            .insert(id.to_owned(), job.task.clone());
+        state.curl_jobs.lock().unwrap().insert(id.to_owned(), job);
+
+        mark_curl_task_finished(&state, id, 4, 1);
+
+        let task = state
+            .task_snapshot
+            .lock()
+            .unwrap()
+            .get(id)
+            .cloned()
+            .expect("failed task snapshot");
+        assert_eq!(task.status, "error");
+        assert_eq!(task.engine_status.as_deref(), Some("failed"));
+        assert!(task
+            .error_message
+            .as_deref()
+            .is_some_and(|message| message.contains("Completion verification failed")));
+        let stats = state.download_stats.lock().unwrap().clone();
+        assert_eq!(stats.total_completed, 0);
+        assert_eq!(stats.total_failed, 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn completion_transition_enforces_digest_for_every_success_path() {
+        use sha2::Digest;
+
+        let dir = std::env::temp_dir().join(format!(
+            "nova-final-completion-digest-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = std::sync::Arc::new(crate::daemon::persist::tests::test_state(
+            &dir.to_string_lossy(),
+        ));
+        let id = "completion-digest";
+        let output = dir.join("digest.bin");
+        std::fs::write(&output, b"nova").unwrap();
+
+        let body = download_body("http://127.0.0.1:1/digest.bin", "digest.bin", 4, 1);
+        let wrong_digest = format!("{:x}", sha2::Sha256::digest(b"different"));
+        let mut options = std::collections::HashMap::new();
+        options.insert(
+            "digestSha256".to_owned(),
+            serde_json::Value::String(wrong_digest),
+        );
+        let job = task_from_body(
+            &body,
+            id,
+            "digest.bin".to_owned(),
+            &output,
+            options,
+            Vec::new(),
+        );
+        job.run_generation.store(1, Ordering::Release);
+        state
+            .task_snapshot
+            .lock()
+            .unwrap()
+            .insert(id.to_owned(), job.task.clone());
+        state.curl_jobs.lock().unwrap().insert(id.to_owned(), job);
+
+        mark_curl_task_finished(&state, id, 4, 1);
+
+        let task = state
+            .task_snapshot
+            .lock()
+            .unwrap()
+            .get(id)
+            .cloned()
+            .expect("digest failure snapshot");
+        assert_eq!(task.status, "error");
+        assert!(task
+            .error_message
+            .as_deref()
+            .is_some_and(|message| message.contains("Content-Digest verification failed")));
+        let stats = state.download_stats.lock().unwrap().clone();
+        assert_eq!(stats.total_completed, 0);
+        assert_eq!(stats.total_failed, 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn preflight_data_defaults() {
         let p = PreflightData::default();
         assert!(p.protocol.is_empty());
@@ -3136,6 +3902,8 @@ mod tests {
         p.ttfb_us = 55000;
         p.uses_tls = true;
         p.supports_range = true;
+        p.validator = Some("\"clone-etag\"".to_owned());
+        p.validator_is_etag = true;
         let p2 = p.clone();
         assert_eq!(p2.protocol, "h2");
         assert_eq!(p2.initial_rtt_us, 50000);
@@ -3144,6 +3912,8 @@ mod tests {
         assert_eq!(p2.ttfb_us, 55000);
         assert!(p2.uses_tls);
         assert!(p2.supports_range);
+        assert_eq!(p2.validator.as_deref(), Some("\"clone-etag\""));
+        assert!(p2.validator_is_etag);
     }
 
     #[test]
@@ -3175,6 +3945,12 @@ mod tests {
             metadata.supports_range,
             "adaptive metadata must match the preflight range result"
         );
+        assert_eq!(
+            metadata.validator.as_deref(),
+            Some("\"nova-test\""),
+            "preflight must capture the strong ETag before the first segment starts"
+        );
+        assert!(metadata.validator_is_etag);
     }
 
     #[test]
@@ -3899,6 +4675,237 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn spawn_changed_resource_server(
+        payload: std::sync::Arc<Vec<u8>>,
+        current_etag: &'static str,
+    ) -> std::net::SocketAddr {
+        use std::io::{Read, Write};
+        use std::net::{Shutdown, TcpListener};
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let payload = payload.clone();
+                std::thread::spawn(move || {
+                    let mut buf = [0u8; 8192];
+                    let n = stream.read(&mut buf).unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let total = payload.len() as u64;
+                    let mut range: Option<String> = None;
+                    let mut if_range: Option<String> = None;
+                    for line in req.lines() {
+                        if let Some(rest) = line.to_ascii_lowercase().strip_prefix("range: bytes=") {
+                            range = Some(rest.trim().to_owned());
+                        } else if line.to_ascii_lowercase().starts_with("if-range:") {
+                            if_range = line
+                                .split_once(':')
+                                .map(|(_, value)| value.trim().to_owned());
+                        }
+                    }
+
+                    let send = |stream: &mut std::net::TcpStream, head: String, body: &[u8]| {
+                        let _ = stream.write_all(head.as_bytes());
+                        let _ = stream.write_all(body);
+                        let _ = stream.shutdown(Shutdown::Write);
+                    };
+
+                    // RFC If-Range behavior: a stale validator turns a Range
+                    // request into a full 200 response for the NEW object.
+                    if range.is_some()
+                        && if_range
+                            .as_deref()
+                            .is_some_and(|value| value != current_etag)
+                    {
+                        send(
+                            &mut stream,
+                            format!(
+                                "HTTP/1.1 200 OK\r\nContent-Length: {total}\r\nAccept-Ranges: bytes\r\nETag: {current_etag}\r\nConnection: close\r\n\r\n"
+                            ),
+                            &payload,
+                        );
+                        return;
+                    }
+
+                    if let Some(r) = range {
+                        let (s, e) = r.split_once('-').unwrap_or((r.as_str(), ""));
+                        let start: u64 = s.trim().parse().unwrap_or(0);
+                        if start >= total {
+                            send(
+                                &mut stream,
+                                format!(
+                                    "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */{total}\r\nContent-Length: 0\r\nETag: {current_etag}\r\nConnection: close\r\n\r\n"
+                                ),
+                                b"",
+                            );
+                            return;
+                        }
+                        let end: u64 = if e.is_empty() {
+                            total - 1
+                        } else {
+                            e.trim().parse().unwrap_or(total - 1)
+                        };
+                        let end = end.min(total - 1);
+                        let body = &payload[start as usize..=end as usize];
+                        send(
+                            &mut stream,
+                            format!(
+                                "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {start}-{end}/{total}\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nETag: {current_etag}\r\nConnection: close\r\n\r\n",
+                                body.len()
+                            ),
+                            body,
+                        );
+                        return;
+                    }
+
+                    send(
+                        &mut stream,
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {total}\r\nAccept-Ranges: bytes\r\nETag: {current_etag}\r\nConnection: close\r\n\r\n"
+                        ),
+                        &payload,
+                    );
+                });
+            }
+        });
+        addr
+    }
+
+    #[test]
+    fn stale_partial_is_discarded_when_remote_etag_changes() {
+        let payload: Vec<u8> = (0..(512 * 1024))
+            .map(|index| ((index * 17 + 11) % 251) as u8)
+            .collect();
+        let addr =
+            spawn_changed_resource_server(std::sync::Arc::new(payload.clone()), "\"new-v2\"");
+        let url = format!("http://{addr}/changed.bin");
+        let dir = std::env::temp_dir().join(format!(
+            "nova_changed_resource_{}_{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("changed.bin");
+
+        // Simulate a crash/restart checkpoint from the previous object
+        // version. Size is intentionally the SAME as the new object so only
+        // remote identity (ETag), not length, can catch the replacement.
+        std::fs::write(&out, vec![0xA5u8; 64 * 1024]).unwrap();
+
+        let state = std::sync::Arc::new(crate::daemon::persist::tests::test_state(
+            &dir.to_string_lossy(),
+        ));
+        let id = "changed-etag-resume";
+        let body = download_body(&url, "changed.bin", payload.len() as u64, 4);
+        let mut direct_options = std::collections::HashMap::new();
+        direct_options.insert(
+            "etag".to_owned(),
+            serde_json::Value::String("\"old-v1\"".to_owned()),
+        );
+        let mut job = task_from_body(
+            &body,
+            id,
+            "changed.bin".to_owned(),
+            &out,
+            direct_options,
+            Vec::new(),
+        );
+        job.task.downloaded_bytes = 64 * 1024;
+        if let Some(first) = job.task.segments.first_mut() {
+            first.downloaded_bytes = 64 * 1024;
+        }
+        state.curl_jobs.lock().unwrap().insert(id.to_owned(), job);
+        state.mark_dirty();
+
+        let transfer_state = state.clone();
+        std::thread::spawn(move || start_curl_process(&transfer_state, id));
+
+        let task = run_task_to_completion(&state, id, std::time::Duration::from_secs(45));
+        assert_eq!(task.status, "completed");
+        assert_eq!(task.size_bytes, payload.len() as u64);
+        assert_eq!(task.downloaded_bytes, payload.len() as u64);
+        assert_eq!(
+            std::fs::read(&out).unwrap(),
+            payload,
+            "new object must replace the stale checkpoint without mixing bytes"
+        );
+
+        let jobs = state.curl_jobs.lock().unwrap();
+        let stored_etag = jobs
+            .get(id)
+            .and_then(|job| job.direct_options.get("etag"))
+            .and_then(serde_json::Value::as_str);
+        assert_eq!(stored_etag, Some("\"new-v2\""));
+        drop(jobs);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn segmented_resume_discards_anonymous_part_files_before_dispatch() {
+        let payload: Vec<u8> = (0..(4 * 1024 * 1024))
+            .map(|index| ((index * 13 + 5) % 251) as u8)
+            .collect();
+        let addr = spawn_range_server(std::sync::Arc::new(payload.clone()));
+        let url = format!("http://{addr}/anonymous-parts.bin");
+        let dir = std::env::temp_dir().join(format!(
+            "nova_anonymous_parts_{}_{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("anonymous-parts.bin");
+
+        let stale_ranges = split_ranges(payload.len() as u64, 4, &out);
+        assert!(!stale_ranges.is_empty());
+        let stale_len = (stale_ranges[0].len() / 2).max(1) as usize;
+        std::fs::write(&stale_ranges[0].path, vec![0xEEu8; stale_len]).unwrap();
+        assert!(FileWriter::has_stale_parts_for(&out));
+
+        let state = std::sync::Arc::new(crate::daemon::persist::tests::test_state(
+            &dir.to_string_lossy(),
+        ));
+        let id = "anonymous-segment-resume";
+        let body = download_body(&url, "anonymous-parts.bin", payload.len() as u64, 4);
+        let direct_options = std::collections::HashMap::from([
+            (
+                "preflightResolved".to_owned(),
+                serde_json::Value::Bool(true),
+            ),
+            (
+                "preflightSupportsRange".to_owned(),
+                serde_json::Value::Bool(true),
+            ),
+        ]);
+        let mut job = task_from_body(
+            &body,
+            id,
+            "anonymous-parts.bin".to_owned(),
+            &out,
+            direct_options,
+            Vec::new(),
+        );
+        if let Some(first) = job.task.segments.first_mut() {
+            first.downloaded_bytes = stale_len as u64;
+        }
+        state.curl_jobs.lock().unwrap().insert(id.to_owned(), job);
+        state.mark_dirty();
+
+        let transfer_state = state.clone();
+        std::thread::spawn(move || start_curl_process(&transfer_state, id));
+
+        let task = run_task_to_completion(&state, id, std::time::Duration::from_secs(45));
+        assert_eq!(task.status, "completed");
+        assert_eq!(std::fs::read(&out).unwrap(), payload);
+        assert!(
+            !FileWriter::has_stale_parts_for(&out),
+            "anonymous checkpoint files must not survive successful recovery"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -4771,7 +5778,7 @@ mod tests {
         let mut direct_options = std::collections::HashMap::new();
         direct_options.insert(
             "etag".to_string(),
-            serde_json::Value::String("nova-test".to_string()),
+            serde_json::Value::String("\"nova-test\"".to_string()),
         );
         // Restart-in-place is the overwrite path; the no-clobber path auto-
         // renames the target instead (covered by the dispatcher logic).
@@ -4834,7 +5841,7 @@ mod tests {
         let mut direct_options = std::collections::HashMap::new();
         direct_options.insert(
             "etag".to_string(),
-            serde_json::Value::String("nova-test".to_string()),
+            serde_json::Value::String("\"nova-test\"".to_string()),
         );
         let job = task_from_body(
             &body,

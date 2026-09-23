@@ -108,7 +108,7 @@ describe('TaskProgressBar — indeterminate → percentage transition', () => {
     // The badge is centred on the download head and clamped to the track edges.
     // (jsdom re-serializes clamp() — assert on the parts that matter.)
     expect(head.style.left).toContain('42%');
-    expect(head.style.left).toContain('calc(100% - 15px)');
+    expect(head.style.left).toContain('100% - 15px');
 
     // It moves with the percentage as bytes arrive — the SAME node glides via
     // its left transition rather than being remounted at the new position.
@@ -134,7 +134,7 @@ describe('TaskProgressBar — indeterminate → percentage transition', () => {
       />,
     );
     expect(screen.getByTestId('progress-head').style.left).toContain('0%');
-    expect(screen.getByTestId('progress-head').style.left).toContain('calc(100% - 15px)');
+    expect(screen.getByTestId('progress-head').style.left).toContain('100% - 15px');
 
     rerender(
       <TaskProgressBar
@@ -144,7 +144,7 @@ describe('TaskProgressBar — indeterminate → percentage transition', () => {
       />,
     );
     expect(screen.getByTestId('progress-head').style.left).toContain('100%');
-    expect(screen.getByTestId('progress-head').style.left).toContain('calc(100% - 15px)');
+    expect(screen.getByTestId('progress-head').style.left).toContain('100% - 15px');
     // The bar itself is honest at 100% — the fill never exceeds it either.
     expect(screen.getByTestId('progress-fill')).toHaveStyle({ width: '100%' });
   });
