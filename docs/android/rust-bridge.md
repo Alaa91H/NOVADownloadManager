@@ -5,23 +5,25 @@
 NOVA Android must reuse Rust domain and transfer semantics without exposing the desktop daemon or implementing a second engine in Kotlin. The bridge is therefore a deliberately small, typed boundary:
 
 ```text
-Compose → ViewModel → repository → generated UniFFI binding → Rust mobile facade → extracted Rust core
+Compose → ViewModel → repository → versioned mobile bridge → Rust mobile facade → shared Rust download core
 ```
 
 The Android UI must not invoke `AppState`, Axum routes, Tauri commands, a loopback HTTP API, raw desktop paths, or desktop external-tool discovery. Those remain desktop-host responsibilities.
 
 ## Current implementation
 
-Two crates are present today.
+Four Rust crates now define the shared/mobile boundary.
 
 | Crate | Current ownership | Current proof | Explicitly not included |
 |---|---|---|---|
-| `crates/nova-core-model` | Serializable `Task` and `Segment` records shared with the desktop daemon. | Unit-tested portable model crate and desktop re-export compile path. | Queue policy, transfer session, persistence, filesystem behavior. |
-| `crates/nova-mobile-ffi` | UniFFI ABI scaffolding, `BridgeInfo`, `BridgeError::IncompatibleVersion`, `BRIDGE_API_VERSION = 1`, and `initialize(clientBridgeApiVersion)`. | Rust tests, Clippy, and an ARM64 Android `cdylib` proof using NDK r28c. | Download creation/control, events, storage, Android context, `AppState`, Axum, or any Kotlin transfer code. |
+| `crates/nova-core-model` | Serializable task/segment records and shared resume/range policy. | Portable unit tests plus desktop/mobile consumers. | Tauri, Android lifecycle, filesystem capabilities. |
+| `crates/nova-download-core` | Shared HTTP transport, validated range streaming, file resume/fallback, and host-bounded range geometry. | Native transport fixtures plus desktop SegmentPlanner consumption. | Tauri, Axum, Android APIs, UI state. |
+| `crates/nova-mobile-core` | Mobile-safe app-private transfer facade and relative-destination validation. | Unit tests reject absolute/parent traversal and accept bounded staging destinations. | Android `Context`, notifications, UIDT/WorkManager, public-storage APIs. |
+| `crates/nova-mobile-ffi` | Versioned bridge plus narrow Android JNI bootstrap/transfer primitives over the mobile facade. | ARM64 packaging path and Android CI. | Download policy duplication, Kotlin HTTP transport, desktop daemon exposure. |
 
-The current Android repository implementation reports `BridgeNotPackaged`. That is intentional and truthful: no generated Kotlin UniFFI binding is incorporated into the APK yet, so the UI cannot claim that it drives downloads.
+Android now fails closed when the native library is missing/incompatible and direct HTTP(S) bytes are routed through Rust into app-private staging. The current JNI string primitives are transitional and intentionally narrow: they prove the first native transfer without exposing generic routes or JSON contracts. The planned stable command surface remains generated typed UniFFI bindings once task/session schemas settle.
 
-> **Do not bypass this boundary.** Passing JSON blobs through an ad-hoc JNI call, exposing a generic desktop route endpoint, or reimplementing retries/segments/file transfer in Kotlin would defeat the architecture and make the two clients diverge.
+> **Do not bypass this boundary.** Exposing generic desktop routes, persisting arbitrary JSON command blobs, or reimplementing retries/segments/file transfer in Kotlin would defeat the architecture and make the two clients diverge.
 
 ## Version compatibility
 
@@ -60,16 +62,16 @@ The following is a target contract, not a claim that the methods exist today.
 
 `./scripts/build-android-ffi.sh arm64-v8a` compiles `nova-mobile-ffi` for `aarch64-linux-android` and uses the NDK API-26 Clang driver. It writes a local generated library to `android/app/src/main/jniLibs/arm64-v8a/`. The output is ignored because it is build output, not a source artifact.
 
-This command proved that the current narrow bridge links for ARM64. It did **not** prove that Android can load it at runtime, that UniFFI Kotlin bindings are generated, or that a download can survive process death. Those require the next bridge and device-validation gates.
+The build path now packages the ARM64 bridge into the debug APK, and Android's native transfer host calls the versioned library before accepting work. Generated UniFFI Kotlin bindings, physical-device runtime evidence, durable process-death resume, and ABI-matrix release validation are still separate gates.
 
 ## Expansion gates
 
-1. Extract portable queue/status/retry contracts while preserving desktop tests and behavior.
-2. Add generated Kotlin UniFFI bindings in a reproducible Gradle task, then package matching ABI libraries.
-3. Replace `UnpackagedRustDownloadsRepository` with a binding-backed repository that performs the version handshake.
-4. Implement one app-private direct-transfer task using the extracted core; add pause/resume/cancel and durable checkpoints.
-5. Add Android execution, notification, and storage adapters only after the core command semantics exist.
-6. Add ABI matrix CI and physical-device tests before presenting Android support as usable.
+1. Continue extracting queue/status/retry contracts while preserving desktop tests and behavior.
+2. Stabilize the mobile task/session schema, then generate Kotlin UniFFI bindings reproducibly and retire the temporary high-level JNI primitives.
+3. Add typed pause/resume/cancel/retry commands and durable task checkpoints, including secure recovery of transfer intent after process death.
+4. Move execution ownership to Android-compliant UIDT/WorkManager paths with notification actions.
+5. Add SAF/MediaStore descriptor adapters without exposing arbitrary filesystem paths to Rust.
+6. Add ABI matrix CI and physical-device tests before presenting Android support as fully usable.
 
 ## References
 
