@@ -1491,7 +1491,7 @@ fn reject_unsafe_protocols(value: &str, field: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::daemon::curl::ResponseCapture;
+    use crate::daemon::curl::{ContentRange, RemoteFingerprint, ResponseCapture};
     use std::sync::{Arc, Mutex};
 
     fn segment_writer() -> SegmentWriter {
@@ -1522,6 +1522,45 @@ mod tests {
 
     fn captured(w: &SegmentWriter) -> ResponseCapture {
         w.progress.capture.lock().unwrap().clone()
+    }
+
+    fn range_segment_writer(
+        expected: ContentRange,
+        fingerprint: RemoteFingerprint,
+    ) -> SegmentWriter {
+        let dir = std::env::temp_dir().join(format!(
+            "nova_easy_cfg_range_{}_{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(dir.join("range.bin"))
+            .unwrap();
+        let capture = ResponseCapture {
+            expected_range_start: Some(expected.start),
+            expected_content_range: Some(expected),
+            expected_fingerprint: Some(fingerprint),
+            ..Default::default()
+        };
+        let progress = SegmentProgress {
+            downloaded: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            abort: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            retry_after: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            capture: Arc::new(Mutex::new(capture)),
+            streaming_digest_out: Arc::new(Mutex::new(None)),
+            range_rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            encoding_rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            expects_206: true,
+        };
+        SegmentWriter {
+            file,
+            progress,
+            streaming_hasher: None,
+        }
     }
 
     #[test]
@@ -1661,6 +1700,129 @@ mod tests {
         // from Content-Range must win.
         let cap = captured(&w);
         assert_eq!(cap.content_length, Some(2048));
+        assert_eq!(
+            cap.content_range,
+            Some(ContentRange {
+                start: 0,
+                end: 1023,
+                total: Some(2048)
+            })
+        );
+    }
+
+    #[test]
+    fn parse_content_range_rejects_malformed_or_impossible_ranges() {
+        assert_eq!(
+            parse_content_range("bytes 10-19/100"),
+            Some(ContentRange {
+                start: 10,
+                end: 19,
+                total: Some(100)
+            })
+        );
+        assert_eq!(
+            parse_content_range("BYTES 10-19/*"),
+            Some(ContentRange {
+                start: 10,
+                end: 19,
+                total: None
+            })
+        );
+        assert_eq!(parse_content_range("bytes */100"), None);
+        assert_eq!(parse_content_range("bytes 20-10/100"), None);
+        assert_eq!(parse_content_range("bytes 10-100/100"), None);
+        assert_eq!(parse_content_range("items 10-19/100"), None);
+    }
+
+    #[test]
+    fn strict_range_validation_accepts_exact_response_before_write() {
+        let expected = ContentRange {
+            start: 100,
+            end: 199,
+            total: Some(1000),
+        };
+        let fingerprint = RemoteFingerprint {
+            validator: Some("\"v1\"".to_owned()),
+            validator_is_etag: true,
+            total_size: Some(1000),
+            digest_sha256: None,
+        };
+        let mut w = range_segment_writer(expected, fingerprint);
+        assert!(w.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(w.header(b"Content-Range: bytes 100-199/1000\r\n"));
+        assert!(w.header(b"ETag: \"v1\"\r\n"));
+        assert_eq!(w.write(&[7u8; 100]).unwrap(), 100);
+        assert!(!w.progress.range_rejected.load(Ordering::Acquire));
+        assert_eq!(w.file.metadata().unwrap().len(), 100);
+    }
+
+    #[test]
+    fn strict_range_validation_rejects_wrong_start_before_disk_write() {
+        let expected = ContentRange {
+            start: 100,
+            end: 199,
+            total: Some(1000),
+        };
+        let mut w = range_segment_writer(
+            expected,
+            RemoteFingerprint {
+                total_size: Some(1000),
+                ..Default::default()
+            },
+        );
+        assert!(w.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(w.header(b"Content-Range: bytes 101-200/1000\r\n"));
+        assert_eq!(w.write(&[9u8; 100]).unwrap(), 0);
+        assert!(w.progress.range_rejected.load(Ordering::Acquire));
+        assert_eq!(w.file.metadata().unwrap().len(), 0);
+        assert_eq!(w.progress.downloaded.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn strict_range_validation_rejects_changed_etag_before_disk_write() {
+        let expected = ContentRange {
+            start: 0,
+            end: 99,
+            total: Some(100),
+        };
+        let mut w = range_segment_writer(
+            expected,
+            RemoteFingerprint {
+                validator: Some("\"old\"".to_owned()),
+                validator_is_etag: true,
+                total_size: Some(100),
+                digest_sha256: None,
+            },
+        );
+        assert!(w.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(w.header(b"Content-Range: bytes 0-99/100\r\n"));
+        assert!(w.header(b"ETag: \"new\"\r\n"));
+        assert_eq!(w.write(&[3u8; 100]).unwrap(), 0);
+        assert!(w.progress.range_rejected.load(Ordering::Acquire));
+        assert_eq!(w.file.metadata().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn strict_range_validation_uses_final_header_block_not_proxy_connect() {
+        let expected = ContentRange {
+            start: 0,
+            end: 9,
+            total: Some(10),
+        };
+        let mut w = range_segment_writer(
+            expected,
+            RemoteFingerprint {
+                total_size: Some(10),
+                ..Default::default()
+            },
+        );
+        assert!(w.header(b"HTTP/1.1 200 Connection established\r\n"));
+        assert!(w.header(b"Proxy-Agent: test\r\n"));
+        assert!(w.header(b"\r\n"));
+        assert!(w.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(w.header(b"Content-Range: bytes 0-9/10\r\n"));
+        assert_eq!(w.write(&[1u8; 10]).unwrap(), 10);
+        assert!(!w.progress.range_rejected.load(Ordering::Acquire));
     }
 
     #[test]
