@@ -4,7 +4,7 @@
 
 **Android lifecycle is not download lifecycle.** The Rust core must persist durable task intent and checkpoints frequently enough to survive process loss. Android decides when execution is permitted, starts or stops an approved unit of work, and surfaces progress and errors through platform notifications.
 
-The initial Android foundation contains only an inert `NovaUserInitiatedTransferJobService` entry point. It deliberately performs no byte transfer because the versioned Rust task-session handoff does not exist yet. This is safer than a Kotlin implementation that would create a second download engine.
+The native-transfer milestone now performs direct HTTP(S) bytes through the shared Rust core on a bounded in-process executor. `NovaUserInitiatedTransferJobService` remains a reconciliation-only entry point: UIDT/WorkManager dispatch is intentionally not enabled until the native session has device validation and durable stop/resume semantics. No Kotlin download engine is introduced.
 
 ## Execution policy
 
@@ -52,7 +52,7 @@ A real transfer implementation must create the `Downloads` notification channel,
 
 ## Explicit non-goals in this milestone
 
-No background service currently transfers data. No WorkManager request, UIDT dispatch, notification action, scheduler, or process-death recovery flow has been executed on an Android device. The manifest permissions and service declaration are preparatory only and must not be described as production download support.
+No Android background service or WorkManager/UIDT job currently owns the native transfer. The first Rust transfer runs only in-process, and process loss reconciles an orphaned active record to Paused while preserving app-private staging bytes. Notification actions, durable URL recovery, scheduler integration, and real-device background validation remain pending.
 
 ## Acceptance tests before enabling a real transfer
 
