@@ -3,23 +3,21 @@ package com.nova.downloadmanager.downloads
 import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
-import android.os.Environment
 import android.util.Base64
 import com.nova.downloadmanager.core.NovaNativeCore
+import com.nova.downloadmanager.service.NovaNativeTransferService
 
 /**
  * NOVA-owned Android transfer-task core.
  *
- * Every accepted transfer first proves that the packaged NOVA Rust core is
- * present and ABI-compatible, then performs source metadata discovery through
- * NOVA's Rust/libcurl transport. Android DownloadManager remains the bounded
- * byte-transfer backend during the staged migration to the shared native
- * transfer engine; it is no longer allowed to silently stand in for a missing
- * Rust core or a failed native preflight.
- * NOVA owns the accepted task catalog, safe destination choice, status
- * projection, and restoration after the Compose activity is recreated. Only a
- * system download id and a display name are persisted; URLs, request headers,
- * cookies, and tokens are deliberately not written to the local task catalog.
+ * New downloads are transferred by the packaged Rust/libcurl engine. Android
+ * owns only lifecycle, scoped-storage destination creation, publication, and UI
+ * projection. Legacy DownloadManager records remain readable so upgrades do not
+ * make existing tasks disappear while the migration is in progress.
+ *
+ * URLs, request headers, cookies, and tokens are not written to the Android task
+ * catalog. Durable source recovery is introduced separately with protected
+ * checkpoint storage rather than weakening this boundary.
  */
 class NovaTransferCore(context: Context) {
     private val appContext = context.applicationContext
@@ -27,6 +25,7 @@ class NovaTransferCore(context: Context) {
     private val downloadManager = requireNotNull(
         appContext.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager,
     ) { "Android download service is unavailable" }
+    private val destinationStore = NativeDestinationStore(appContext)
     private val preferences = appContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
     fun enqueue(url: String): Result<DownloadSummary> = runCatching {
@@ -44,39 +43,102 @@ class NovaTransferCore(context: Context) {
         }
 
         val fileName = safeFileName(source)
-        val request = DownloadManager.Request(source)
-            .setTitle(fileName)
-            .setDescription(source.host)
-            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "NOVA/$fileName")
-            .setAllowedOverMetered(true)
-            .setAllowedOverRoaming(false)
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+        val destination = destinationStore.create(fileName)
+        val nativeTaskId = try {
+            destination.descriptor.use { descriptor ->
+                NovaNativeCore.startHttpDownload(
+                    url = source.toString(),
+                    outputFd = descriptor.fd,
+                    requestedConnections = DEFAULT_NATIVE_CONNECTIONS,
+                )
+            }
+        } catch (failure: Throwable) {
+            destinationStore.delete(destination.uri, destination.publishOnComplete)
+            throw failure
+        }
 
-        val id = downloadManager.enqueue(request)
-        remember(TransferRecord(id, fileName))
+        val record = TransferRecord.Native(
+            id = nativeTaskId,
+            name = fileName,
+            destinationUri = destination.uri.toString(),
+            expectedBytes = nativeProbe.contentLength ?: 0L,
+            publishOnComplete = destination.publishOnComplete,
+        )
+        remember(record)
+
+        // The native worker lives in this process; a data-sync foreground
+        // service protects it when the activity leaves the foreground.
+        runCatching { NovaNativeTransferService.start(appContext, nativeTaskId) }
+
         DownloadSummary(
-            id = id.toString(),
+            id = record.publicId,
             name = fileName,
             status = DownloadStatus.Queued.wireValue,
             downloadedBytes = 0,
-            totalBytes = nativeProbe.contentLength ?: 0,
+            totalBytes = record.expectedBytes,
         )
     }
 
-    fun restore(): List<DownloadSummary> = records().mapNotNull { record -> query(record) }
+    fun restore(): List<DownloadSummary> = records().mapNotNull(::query)
 
     fun refresh(taskIds: Collection<String>): List<DownloadSummary> {
-        val requested = taskIds.mapNotNull(String::toLongOrNull).toSet()
+        val requested = taskIds.toSet()
         return records()
-            .filter { requested.isEmpty() || it.id in requested }
+            .filter { requested.isEmpty() || it.publicId in requested }
             .mapNotNull(::query)
     }
 
-    /** Invoked by the transfer lifecycle job whenever Android schedules it. */
+    /** Reconciles native completion/publication and legacy system tasks. */
     fun reconcile(): List<DownloadSummary> = restore()
 
-    private fun query(record: TransferRecord): DownloadSummary? {
-        val cursor = downloadManager.query(DownloadManager.Query().setFilterById(record.id)) ?: return null
+    private fun query(record: TransferRecord): DownloadSummary? = when (record) {
+        is TransferRecord.Native -> queryNative(record)
+        is TransferRecord.LegacyDownloadManager -> queryLegacy(record)
+    }
+
+    private fun queryNative(record: TransferRecord.Native): DownloadSummary {
+        val progress = runCatching {
+            NovaNativeCore.queryHttpDownload(record.id)
+        }.getOrNull()
+
+        if (progress == null) {
+            return DownloadSummary(
+                id = record.publicId,
+                name = record.name,
+                status = DownloadStatus.Failed.wireValue,
+                downloadedBytes = 0,
+                totalBytes = record.expectedBytes,
+            )
+        }
+
+        val status = when (progress.state) {
+            NovaNativeCore.NativeTransferState.QUEUED -> DownloadStatus.Queued
+            NovaNativeCore.NativeTransferState.DOWNLOADING -> DownloadStatus.Downloading
+            NovaNativeCore.NativeTransferState.COMPLETED -> {
+                val published = runCatching {
+                    destinationStore.publish(
+                        Uri.parse(record.destinationUri),
+                        record.publishOnComplete,
+                    )
+                }.isSuccess
+                if (published) DownloadStatus.Completed else DownloadStatus.Failed
+            }
+            NovaNativeCore.NativeTransferState.FAILED -> DownloadStatus.Failed
+        }
+
+        return DownloadSummary(
+            id = record.publicId,
+            name = record.name,
+            status = status.wireValue,
+            downloadedBytes = progress.downloadedBytes,
+            totalBytes = progress.totalBytes.takeIf { it > 0L } ?: record.expectedBytes,
+        )
+    }
+
+    private fun queryLegacy(record: TransferRecord.LegacyDownloadManager): DownloadSummary? {
+        val cursor = downloadManager.query(
+            DownloadManager.Query().setFilterById(record.id),
+        ) ?: return null
         cursor.use {
             if (!it.moveToFirst()) return null
             val status = when (it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))) {
@@ -91,21 +153,23 @@ class NovaTransferCore(context: Context) {
                 ?.takeIf(String::isNotBlank)
                 ?: record.name
             return DownloadSummary(
-                id = record.id.toString(),
+                id = record.publicId,
                 name = name,
                 status = status.wireValue,
-                downloadedBytes = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
-                    .coerceAtLeast(0),
-                totalBytes = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-                    .coerceAtLeast(0),
+                downloadedBytes = it.getLong(
+                    it.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR),
+                ).coerceAtLeast(0),
+                totalBytes = it.getLong(
+                    it.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES),
+                ).coerceAtLeast(0),
             )
         }
     }
 
     private fun remember(record: TransferRecord) {
         val next = (records() + record)
-            .distinctBy(TransferRecord::id)
-            .sortedByDescending(TransferRecord::id)
+            .distinctBy(TransferRecord::publicId)
+            .sortedByDescending(TransferRecord::sortKey)
             .take(MAX_RETAINED_TASKS)
             .map(TransferRecord::encode)
             .toSet()
@@ -116,7 +180,7 @@ class NovaTransferCore(context: Context) {
         .getStringSet(KEY_RECORDS, emptySet())
         .orEmpty()
         .mapNotNull(TransferRecord::decode)
-        .sortedByDescending(TransferRecord::id)
+        .sortedByDescending(TransferRecord::sortKey)
 
     private fun safeFileName(uri: Uri): String {
         val raw = Uri.decode(uri.lastPathSegment.orEmpty())
@@ -130,27 +194,91 @@ class NovaTransferCore(context: Context) {
         return sanitized.ifBlank { DEFAULT_FILE_NAME }
     }
 
-    private data class TransferRecord(val id: Long, val name: String) {
-        fun encode(): String = "$id:${Base64.encodeToString(name.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)}"
+    private sealed interface TransferRecord {
+        val name: String
+        val publicId: String
+        val sortKey: Long
+
+        fun encode(): String
+
+        data class Native(
+            val id: Long,
+            override val name: String,
+            val destinationUri: String,
+            val expectedBytes: Long,
+            val publishOnComplete: Boolean,
+        ) : TransferRecord {
+            override val publicId: String = "native:$id"
+            override val sortKey: Long = id
+
+            override fun encode(): String = listOf(
+                NATIVE_RECORD_PREFIX,
+                id.toString(),
+                expectedBytes.toString(),
+                if (publishOnComplete) "1" else "0",
+                encodeBase64(name),
+                encodeBase64(destinationUri),
+            ).joinToString(":")
+        }
+
+        data class LegacyDownloadManager(
+            val id: Long,
+            override val name: String,
+        ) : TransferRecord {
+            override val publicId: String = id.toString()
+            override val sortKey: Long = id
+
+            override fun encode(): String = "$id:${encodeBase64(name)}"
+        }
 
         companion object {
             fun decode(raw: String): TransferRecord? {
-                val (id, encodedName) = raw.split(':', limit = 2).let {
-                    it.getOrNull(0)?.toLongOrNull() to it.getOrNull(1)
+                if (raw.startsWith("$NATIVE_RECORD_PREFIX:")) {
+                    val parts = raw.split(':', limit = 6)
+                    if (parts.size != 6) return null
+                    val id = parts[1].toLongOrNull()?.takeIf { it > 0L } ?: return null
+                    val expectedBytes = parts[2].toLongOrNull()?.coerceAtLeast(0L) ?: return null
+                    val publish = when (parts[3]) {
+                        "1" -> true
+                        "0" -> false
+                        else -> return null
+                    }
+                    val name = decodeBase64(parts[4]) ?: return null
+                    val destination = decodeBase64(parts[5]) ?: return null
+                    return Native(
+                        id = id,
+                        name = name,
+                        destinationUri = destination,
+                        expectedBytes = expectedBytes,
+                        publishOnComplete = publish,
+                    )
                 }
-                if (id == null || encodedName.isNullOrBlank()) return null
-                return runCatching {
-                    TransferRecord(id, String(Base64.decode(encodedName, Base64.NO_WRAP), Charsets.UTF_8))
-                }.getOrNull()
+
+                val parts = raw.split(':', limit = 2)
+                val id = parts.getOrNull(0)?.toLongOrNull() ?: return null
+                val encodedName = parts.getOrNull(1)?.takeIf(String::isNotBlank) ?: return null
+                val name = decodeBase64(encodedName) ?: return null
+                return LegacyDownloadManager(id, name)
             }
+
+            private fun encodeBase64(value: String): String = Base64.encodeToString(
+                value.toByteArray(Charsets.UTF_8),
+                Base64.NO_WRAP,
+            )
+
+            private fun decodeBase64(value: String): String? = runCatching {
+                String(Base64.decode(value, Base64.NO_WRAP), Charsets.UTF_8)
+            }.getOrNull()
         }
     }
 
     private companion object {
         const val PREFERENCES_NAME = "nova_transfer_catalog"
         const val KEY_RECORDS = "records"
+        const val NATIVE_RECORD_PREFIX = "native"
         const val MAX_RETAINED_TASKS = 100
         const val MAX_FILE_NAME_CHARS = 120
         const val DEFAULT_FILE_NAME = "download"
+        const val DEFAULT_NATIVE_CONNECTIONS = 8
     }
 }
