@@ -20,3 +20,4 @@ uniffi = "0.32.0"
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
+libc = "0.2"
