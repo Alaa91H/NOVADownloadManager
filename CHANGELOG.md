@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Added a shared Rust download core for desktop and Android.** Range planning, validated HTTP range transport, resumable app-private file transfer, and HTTP(S)-only protocol enforcement now live outside Tauri and Android UI code.
 - **Added an Android-safe mobile transfer facade.** The facade restricts destinations to app-private relative paths and exposes native pause/cancel session control by opaque task ID.
 - **Added encrypted durable Android transfer intents.** Resume URLs are stored with Android Keystore AES/GCM encryption instead of being written in clear text to the task catalog.
+- **Added Android-compliant long-running execution.** Android 14+ uses user-initiated data-transfer jobs; Android 13 and lower use a foreground WorkManager fallback with a `dataSync` service type.
+- **Added transfer notifications and user controls.** Active native transfers surface progress plus pause/cancel actions, resume returns through a visible app context, and Compose task cards expose pause/resume/cancel controls.
 
 ### Improved
 
@@ -22,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Safety and scope
 
-- Android public/shared storage (SAF/MediaStore), UIDT/WorkManager execution ownership, notification actions, generated high-level UniFFI bindings, and physical-device validation remain separate gates.
+- Android public/shared storage (SAF/MediaStore), generated high-level UniFFI bindings, and physical-device validation remain separate gates; UIDT/WorkManager execution and notification controls are now implemented but not yet device-verified.
 - The task catalog continues to avoid raw URLs, cookies, authorization headers, and tokens; resumable URLs are held only in Android Keystore-backed encrypted storage.
 
 
