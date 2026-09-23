@@ -14,7 +14,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
 nova-download-core = { path = "../nova-download-core", features = ["http2", "rustls", "static-curl"] }
-nova-mobile-core = { path = "../nova-mobile-core" }
+nova-mobile-core = { path = "../nova-mobile-core", features = ["http2", "rustls", "static-curl"] }
 thiserror = "2"
 uniffi = "0.32.0"
 
