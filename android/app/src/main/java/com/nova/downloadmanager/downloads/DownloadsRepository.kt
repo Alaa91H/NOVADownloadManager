@@ -5,7 +5,7 @@ import android.content.Context
 /**
  * UI boundary for the Android transfer core. Implementations own no browser
  * credentials: accepted direct HTTP(S) tasks are delegated to NOVA's local
- * task catalog and Android's durable system transfer facility.
+ * task catalog and NOVA's shared Rust transfer core.
  */
 interface DownloadsRepository {
     fun coreReadiness(): CoreReadiness
