@@ -1,0 +1,13 @@
+[package]
+name = "nova-mobile-core"
+version = "2.4.48-alpha"
+description = "Android-safe mobile facade over the shared NOVA download core"
+authors = ["NOVA"]
+license = "MIT"
+repository = "https://github.com/Alaa91H/NOVADownloadManager"
+edition = "2021"
+rust-version = "1.77"
+
+[dependencies]
+nova-download-core = { path = "../nova-download-core" }
+thiserror = "2"
