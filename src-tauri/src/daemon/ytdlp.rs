@@ -386,7 +386,16 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                                 }
                             }
                         }
-                        state2.mark_dirty();
+                        let terminal_task = lock_or_err!(state2.media_jobs)
+                            .get(&id2)
+                            .map(|job| job.task.clone());
+                        if let Some(task) = terminal_task {
+                            lock_or_err!(state2.task_snapshot).insert(id2.clone(), task.clone());
+                            state2.mark_dirty();
+                            if TaskState::from_status(&task.status) == Some(TaskState::Completed) {
+                                crate::daemon::persist::save_now(state2.as_ref());
+                            }
+                        }
                         if !notif.is_empty() {
                             let (token, enabled, chat_id, api_base) = {
                                 let cfg = lock_or_err!(state2.telegram_config);
@@ -413,21 +422,29 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                             "yt-dlp worker panicked with unknown payload".to_owned()
                         };
                         log::error!("{msg} (task: {id2})");
-                        let mut jobs = lock_or_err!(state2.media_jobs);
-                        if let Some(current) = jobs.get_mut(&id2) {
-                            if TaskState::from_status(&current.task.status) != Some(TaskState::Paused) {
-                                if let Err(error) = transition_task_state(
-                                    &mut current.task,
-                                    TaskState::Failed,
-                                    "worker-panicked",
-                                ) {
-                                    log::error!("Task {id2}: panic failure transition rejected: {error}");
-                                } else {
-                                    current.task.error_message = Some(msg);
+                        let panic_task = {
+                            let mut jobs = lock_or_err!(state2.media_jobs);
+                            if let Some(current) = jobs.get_mut(&id2) {
+                                if TaskState::from_status(&current.task.status) != Some(TaskState::Paused) {
+                                    if let Err(error) = transition_task_state(
+                                        &mut current.task,
+                                        TaskState::Failed,
+                                        "worker-panicked",
+                                    ) {
+                                        log::error!("Task {id2}: panic failure transition rejected: {error}");
+                                    } else {
+                                        current.task.error_message = Some(msg);
+                                    }
                                 }
+                                Some(current.task.clone())
+                            } else {
+                                None
                             }
+                        };
+                        if let Some(task) = panic_task {
+                            lock_or_err!(state2.task_snapshot).insert(id2.clone(), task);
+                            state2.mark_dirty();
                         }
-                        state2.mark_dirty();
                     }
                 });
                 let task_data;
@@ -454,16 +471,24 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
             }
             Err(e) => {
                 log::error!("Failed to start yt-dlp: {e}");
-                let mut jobs = lock_or_err!(state.media_jobs);
-                if let Some(j) = jobs.get_mut(id) {
-                    if let Err(error) =
-                        transition_task_state(&mut j.task, TaskState::Failed, "spawn-failed")
-                    {
-                        log::error!("Task {id}: yt-dlp spawn failure transition rejected: {error}");
+                let failed_task = {
+                    let mut jobs = lock_or_err!(state.media_jobs);
+                    if let Some(j) = jobs.get_mut(id) {
+                        if let Err(error) =
+                            transition_task_state(&mut j.task, TaskState::Failed, "spawn-failed")
+                        {
+                            log::error!("Task {id}: yt-dlp spawn failure transition rejected: {error}");
+                        }
+                        j.task.error_message = Some(format!("Failed to start: {e}"));
+                        Some(j.task.clone())
+                    } else {
+                        None
                     }
-                    j.task.error_message = Some(format!("Failed to start: {e}"));
+                };
+                if let Some(task) = failed_task {
+                    lock_or_err!(state.task_snapshot).insert(id.to_owned(), task);
+                    state.mark_dirty();
                 }
-                state.mark_dirty();
             }
         }
     }
