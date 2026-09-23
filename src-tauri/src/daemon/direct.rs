@@ -334,6 +334,25 @@ impl FileWriter {
         }
     }
 
+    pub fn has_stale_parts_for(output_path: &Path) -> bool {
+        let Some(parent) = output_path.parent() else {
+            return false;
+        };
+        let Some(file_name) = output_path.file_name().and_then(|value| value.to_str()) else {
+            return false;
+        };
+        let prefix = format!("{file_name}.part");
+        std::fs::read_dir(parent).ok().is_some_and(|entries| {
+            entries.flatten().any(|entry| {
+                entry
+                    .path()
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|name| name.starts_with(&prefix))
+            })
+        })
+    }
+
     pub fn remove_stale_parts_for(output_path: &Path) {
         let Some(parent) = output_path.parent() else {
             return;
@@ -670,6 +689,25 @@ mod tests {
             .expect_err("a directory cannot be used as a file destination");
         assert!(error.contains("Destination path is a folder"));
         std::fs::remove_dir_all(root).expect("clean temporary root");
+    }
+
+    #[test]
+    fn stale_part_detection_matches_cleanup_naming_convention() {
+        let root =
+            std::env::temp_dir().join(format!("nova-part-detect-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let output = root.join("archive.zip");
+        let part = root.join("archive.zip.part007");
+        let unrelated = root.join("archive.part007");
+        std::fs::write(&part, b"partial").unwrap();
+        std::fs::write(&unrelated, b"other").unwrap();
+
+        assert!(FileWriter::has_stale_parts_for(&output));
+        FileWriter::remove_stale_parts_for(&output);
+        assert!(!FileWriter::has_stale_parts_for(&output));
+        assert!(unrelated.exists(), "cleanup must not remove unrelated files");
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
