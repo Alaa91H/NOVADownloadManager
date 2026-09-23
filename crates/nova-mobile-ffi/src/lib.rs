@@ -5,12 +5,6 @@
 //! arbitrary filesystem paths. Task operations are added only after the shared
 //! core owns their durable semantics.
 
-use curl::easy::Easy;
-use std::cell::{Cell, RefCell};
-use std::io::Write;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-
 uniffi::setup_scaffolding!();
 
 /// Increment when a bridge change is not backward compatible.
@@ -50,7 +44,6 @@ pub struct HttpResourceProbe {
     pub last_modified: Option<String>,
 }
 
-/// Stable FFI projection of the shared representation identity.
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
 pub struct RecoveryIdentity {
     pub effective_url: Option<String>,
@@ -101,177 +94,31 @@ pub enum TransportError {
     InvalidRange { start: u64, end: u64 },
     #[error("native HTTP range response rejected: {message}")]
     RangeResponseRejected { message: String },
+    #[error("native transfer paused")]
+    Paused,
+    #[error("native transfer cancelled")]
+    Cancelled,
 }
 
-fn transport_error(error: curl::Error) -> TransportError {
-    TransportError::RequestFailed {
-        message: error.to_string(),
+impl From<nova_download_core::TransportError> for TransportError {
+    fn from(error: nova_download_core::TransportError) -> Self {
+        match error {
+            nova_download_core::TransportError::RequestFailed { message } => {
+                Self::RequestFailed { message }
+            }
+            nova_download_core::TransportError::InvalidStatus { status } => {
+                Self::InvalidStatus { status }
+            }
+            nova_download_core::TransportError::InvalidRange { start, end } => {
+                Self::InvalidRange { start, end }
+            }
+            nova_download_core::TransportError::RangeResponseRejected { message } => {
+                Self::RangeResponseRejected { message }
+            }
+            nova_download_core::TransportError::Paused => Self::Paused,
+            nova_download_core::TransportError::Cancelled => Self::Cancelled,
+        }
     }
-}
-
-fn parse_http_status(header: &[u8]) -> Option<u16> {
-    let line = std::str::from_utf8(header).ok()?.trim();
-    if !line.starts_with("HTTP/") {
-        return None;
-    }
-    line.split_whitespace().nth(1)?.parse().ok()
-}
-
-fn parse_content_range(header: &[u8]) -> Option<(u64, u64)> {
-    let line = std::str::from_utf8(header).ok()?.trim();
-    let (name, value) = line.split_once(':')?;
-    if !name.eq_ignore_ascii_case("content-range") {
-        return None;
-    }
-
-    let (unit, value) = value.trim().split_once(' ')?;
-    if !unit.eq_ignore_ascii_case("bytes") {
-        return None;
-    }
-    let (bounds, _) = value.split_once('/')?;
-    let (start, end) = bounds.split_once('-')?;
-    Some((start.parse().ok()?, end.parse().ok()?))
-}
-
-fn stream_http_range<W: Write>(
-    url: &str,
-    start: u64,
-    end: u64,
-    sink: &mut W,
-) -> Result<HttpRangeProbe, TransportError> {
-    if end < start {
-        return Err(TransportError::InvalidRange { start, end });
-    }
-    let expected_bytes = end
-        .checked_sub(start)
-        .and_then(|length| length.checked_add(1))
-        .ok_or(TransportError::InvalidRange { start, end })?;
-
-    let mut easy = Easy::new();
-    easy.url(url).map_err(transport_error)?;
-    easy.follow_location(true).map_err(transport_error)?;
-    easy.max_redirections(10).map_err(transport_error)?;
-    easy.connect_timeout(Duration::from_secs(15))
-        .map_err(transport_error)?;
-    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
-    easy.accept_encoding("identity").map_err(transport_error)?;
-    easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
-        .map_err(transport_error)?;
-    easy.range(&format!("{start}-{end}"))
-        .map_err(transport_error)?;
-
-    // libcurl reports every response header block, including redirects and
-    // authentication negotiation. The body sink must remain closed until the
-    // final response block proves both HTTP 206 and the exact requested range.
-    let header_status = Cell::new(None::<u16>);
-    let content_range = Cell::new(None::<(u64, u64)>);
-    let headers_validated = Cell::new(false);
-    let bytes_received = Cell::new(0_u64);
-    let sink_error = RefCell::new(None::<String>);
-
-    let perform_result = {
-        let mut transfer = easy.transfer();
-        transfer
-            .header_function(|header| {
-                if let Some(status) = parse_http_status(header) {
-                    header_status.set(Some(status));
-                    content_range.set(None);
-                    headers_validated.set(false);
-                } else if header == b"\r\n" || header == b"\n" {
-                    headers_validated.set(
-                        header_status.get() == Some(206)
-                            && content_range.get() == Some((start, end)),
-                    );
-                } else if let Some(range) = parse_content_range(header) {
-                    content_range.set(Some(range));
-                }
-                true
-            })
-            .map_err(transport_error)?;
-        transfer
-            .write_function(|data| {
-                if !headers_validated.get() {
-                    // Returning zero aborts the transfer before untrusted body
-                    // bytes can reach a durable segment sink.
-                    return Ok(0);
-                }
-
-                let Some(next_total) = bytes_received.get().checked_add(data.len() as u64) else {
-                    sink_error.replace(Some("native range byte counter overflow".to_owned()));
-                    return Ok(0);
-                };
-                if next_total > expected_bytes {
-                    sink_error.replace(Some(format!(
-                        "native range payload exceeded expected length {expected_bytes}"
-                    )));
-                    return Ok(0);
-                }
-                if let Err(error) = sink.write_all(data) {
-                    sink_error.replace(Some(format!(
-                        "failed to persist native range payload: {error}"
-                    )));
-                    return Ok(0);
-                }
-
-                bytes_received.set(next_total);
-                Ok(data.len())
-            })
-            .map_err(transport_error)?;
-        transfer.perform()
-    };
-
-    if !headers_validated.get() {
-        return Err(TransportError::RangeResponseRejected {
-            message: format!(
-                "expected HTTP 206 with Content-Range bytes {start}-{end}, got status {:?} and range {:?}",
-                header_status.get(),
-                content_range.get()
-            ),
-        });
-    }
-    if let Some(message) = sink_error.into_inner() {
-        return Err(TransportError::RequestFailed { message });
-    }
-    perform_result.map_err(transport_error)?;
-
-    let status = easy.response_code().map_err(transport_error)?;
-    let response_status =
-        u16::try_from(status).map_err(|_| TransportError::InvalidStatus { status })?;
-    if response_status != 206 {
-        return Err(TransportError::RangeResponseRejected {
-            message: format!("expected HTTP 206 for bytes {start}-{end}, got {response_status}"),
-        });
-    }
-    if content_range.get() != Some((start, end)) {
-        return Err(TransportError::RangeResponseRejected {
-            message: format!(
-                "expected Content-Range bytes {start}-{end}, got {:?}",
-                content_range.get()
-            ),
-        });
-    }
-    if bytes_received.get() != expected_bytes {
-        return Err(TransportError::RangeResponseRejected {
-            message: format!(
-                "expected {expected_bytes} payload bytes for {start}-{end}, got {}",
-                bytes_received.get()
-            ),
-        });
-    }
-
-    let effective_url = easy
-        .effective_url()
-        .map_err(transport_error)?
-        .unwrap_or(url)
-        .to_owned();
-
-    Ok(HttpRangeProbe {
-        response_status,
-        range_start: start,
-        range_end: end,
-        bytes_received: bytes_received.get(),
-        effective_url,
-    })
 }
 
 /// Validates that a mobile client and the Rust core agree on the public bridge
@@ -301,80 +148,15 @@ pub fn initialize(client_bridge_api_version: u32) -> Result<BridgeInfo, BridgeEr
 /// the byte representation that subsequent Range requests address.
 #[uniffi::export]
 pub fn probe_http_resource(url: String) -> Result<HttpResourceProbe, TransportError> {
-    let mut easy = Easy::new();
-    easy.url(&url).map_err(transport_error)?;
-    easy.nobody(true).map_err(transport_error)?;
-    easy.follow_location(true).map_err(transport_error)?;
-    easy.max_redirections(10).map_err(transport_error)?;
-    easy.connect_timeout(Duration::from_secs(15))
-        .map_err(transport_error)?;
-    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
-    easy.accept_encoding("identity").map_err(transport_error)?;
-    easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
-        .map_err(transport_error)?;
-
-    // Keep only validators from the final response block. Redirect and auth
-    // negotiation headers must never become the identity of the payload.
-    let validators = Arc::new(Mutex::new((None::<String>, None::<String>)));
-    let validators_for_headers = validators.clone();
-    easy.header_function(move |header| {
-        let Ok(line) = std::str::from_utf8(header) else {
-            return true;
-        };
-        let line = line.trim();
-        if line.starts_with("HTTP/") {
-            if let Ok(mut state) = validators_for_headers.lock() {
-                *state = (None, None);
-            }
-            return true;
-        }
-        let Some((name, value)) = line.split_once(':') else {
-            return true;
-        };
-        if let Ok(mut state) = validators_for_headers.lock() {
-            if name.eq_ignore_ascii_case("etag") {
-                state.0 = Some(value.trim().to_owned());
-            } else if name.eq_ignore_ascii_case("last-modified") {
-                state.1 = Some(value.trim().to_owned());
-            }
-        }
-        true
-    })
-    .map_err(transport_error)?;
-
-    easy.perform().map_err(transport_error)?;
-
-    let status = easy.response_code().map_err(transport_error)?;
-    let response_status =
-        u16::try_from(status).map_err(|_| TransportError::InvalidStatus { status })?;
-    #[allow(deprecated)]
-    let reported_length = easy.content_length_download().map_err(transport_error)?;
-    let content_length = if reported_length.is_finite()
-        && reported_length >= 0.0
-        && reported_length <= u64::MAX as f64
-    {
-        Some(reported_length as u64)
-    } else {
-        None
-    };
-    let effective_url = easy
-        .effective_url()
-        .map_err(transport_error)?
-        .unwrap_or(&url)
-        .to_owned();
-
-    let (etag, last_modified) = validators
-        .lock()
-        .map(|state| state.clone())
-        .unwrap_or((None, None));
-
-    Ok(HttpResourceProbe {
-        response_status,
-        content_length,
-        effective_url,
-        etag,
-        last_modified,
-    })
+    nova_download_core::probe_http_resource(&url)
+        .map(|probe| HttpResourceProbe {
+            response_status: probe.response_status,
+            content_length: probe.content_length,
+            effective_url: probe.effective_url,
+            etag: probe.etag,
+            last_modified: probe.last_modified,
+        })
+        .map_err(TransportError::from)
 }
 
 /// Performs and validates an inclusive HTTP byte-range GET with native libcurl.
@@ -388,8 +170,15 @@ pub fn probe_http_range(
     start: u64,
     end: u64,
 ) -> Result<HttpRangeProbe, TransportError> {
-    let mut sink = std::io::sink();
-    stream_http_range(&url, start, end, &mut sink)
+    nova_download_core::probe_http_range(&url, start, end)
+        .map(|probe| HttpRangeProbe {
+            response_status: probe.response_status,
+            range_start: probe.range_start,
+            range_end: probe.range_end,
+            bytes_received: probe.bytes_received,
+            effective_url: probe.effective_url,
+        })
+        .map_err(TransportError::from)
 }
 
 /// Plans balanced inclusive byte ranges using the same platform-neutral policy
@@ -399,7 +188,7 @@ pub fn probe_http_range(
 /// policy, but it must not invent a separate segmentation algorithm.
 #[uniffi::export]
 pub fn plan_transfer_ranges(total_bytes: u64, requested_connections: u32) -> Vec<TransferRange> {
-    nova_core_model::plan_byte_ranges(total_bytes, requested_connections)
+    nova_download_core::plan_transfer_ranges(total_bytes, requested_connections)
         .into_iter()
         .map(|range| TransferRange {
             start: range.start,
@@ -420,16 +209,13 @@ pub fn plan_http_resume(
     response_status: u16,
     content_range_start: Option<u64>,
 ) -> ResumeAction {
-    match nova_core_model::plan_http_resume(existing_bytes, response_status, content_range_start) {
-        nova_core_model::ResumeAction::Append => ResumeAction::Append,
-        nova_core_model::ResumeAction::Restart => ResumeAction::Restart,
+    match nova_download_core::plan_http_resume(existing_bytes, response_status, content_range_start) {
+        nova_download_core::ResumeAction::Append => ResumeAction::Append,
+        nova_download_core::ResumeAction::Restart => ResumeAction::Restart,
     }
 }
 
-/// Applies NOVA's validator-aware crash-recovery policy.
-///
-/// Once a checkpoint has ETag/Last-Modified/size evidence, Android and desktop
-/// both require that evidence to be re-confirmed before appending to disk.
+/// Applies NOVA's validator-aware shared recovery policy.
 #[uniffi::export]
 pub fn plan_http_recovery(
     existing_bytes: u64,
@@ -603,6 +389,115 @@ pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeP
     android_plan_http_resume_status(existing_bytes, response_status, content_range_start)
 }
 
+#[cfg(target_os = "android")]
+const ANDROID_TRANSFER_PAUSED: i64 = -2;
+#[cfg(target_os = "android")]
+const ANDROID_TRANSFER_CANCELLED: i64 = -3;
+
+#[cfg(target_os = "android")]
+fn jni_string(
+    env: &mut jni::JNIEnv<'_>,
+    value: &jni::objects::JString<'_>,
+    field: &str,
+) -> Result<String, String> {
+    env.get_string(value)
+        .map(String::from)
+        .map_err(|error| format!("failed to decode {field}: {error}"))
+}
+
+#[cfg(target_os = "android")]
+fn throw_android_transfer_error(env: &mut jni::JNIEnv<'_>, message: impl Into<String>) {
+    let _ = env.throw_new("java/lang/IllegalStateException", message.into());
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeDownloadToAppPrivate(
+    mut env: jni::JNIEnv<'_>,
+    _receiver: jni::objects::JObject<'_>,
+    task_id: jni::objects::JString<'_>,
+    url: jni::objects::JString<'_>,
+    app_private_root: jni::objects::JString<'_>,
+    relative_destination: jni::objects::JString<'_>,
+) -> jni::sys::jlong {
+    let task_id = match jni_string(&mut env, &task_id, "native task id") {
+        Ok(value) => value,
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            return -1;
+        }
+    };
+    let url = match jni_string(&mut env, &url, "download URL") {
+        Ok(value) => value,
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            return -1;
+        }
+    };
+    let app_private_root = match jni_string(&mut env, &app_private_root, "app-private root") {
+        Ok(value) => value,
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            return -1;
+        }
+    };
+    let relative_destination =
+        match jni_string(&mut env, &relative_destination, "relative destination") {
+            Ok(value) => value,
+            Err(message) => {
+                throw_android_transfer_error(&mut env, message);
+                return -1;
+            }
+        };
+
+    match nova_mobile_core::download_to_app_private_path(
+        &task_id,
+        &url,
+        std::path::Path::new(&app_private_root),
+        std::path::Path::new(&relative_destination),
+    ) {
+        Ok(outcome) => i64::try_from(outcome.final_bytes).unwrap_or(-1),
+        Err(nova_mobile_core::MobileTransferError::Paused) => ANDROID_TRANSFER_PAUSED,
+        Err(nova_mobile_core::MobileTransferError::Cancelled) => ANDROID_TRANSFER_CANCELLED,
+        Err(error) => {
+            throw_android_transfer_error(&mut env, error.to_string());
+            -1
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativePauseTransfer(
+    mut env: jni::JNIEnv<'_>,
+    _receiver: jni::objects::JObject<'_>,
+    task_id: jni::objects::JString<'_>,
+) -> jni::sys::jboolean {
+    match jni_string(&mut env, &task_id, "native task id") {
+        Ok(task_id) => u8::from(nova_mobile_core::pause_transfer(&task_id)),
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            0
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeCancelTransfer(
+    mut env: jni::JNIEnv<'_>,
+    _receiver: jni::objects::JObject<'_>,
+    task_id: jni::objects::JString<'_>,
+) -> jni::sys::jboolean {
+    match jni_string(&mut env, &task_id, "native task id") {
+        Ok(task_id) => u8::from(nova_mobile_core::cancel_transfer(&task_id)),
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            0
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -714,7 +609,7 @@ mod tests {
 
         let url = format!("http://{address}/payload.bin");
         let mut payload = Vec::new();
-        let probe = stream_http_range(&url, 2, 5, &mut payload)
+        let probe = nova_download_core::stream_http_range(&url, 2, 5, &mut payload)
             .expect("validated native range stream must succeed");
         server.join().expect("range server thread");
 
@@ -766,12 +661,12 @@ mod tests {
 
         let url = format!("http://{address}/payload.bin");
         let mut payload = Vec::new();
-        let result = stream_http_range(&url, 2, 5, &mut payload);
+        let result = nova_download_core::stream_http_range(&url, 2, 5, &mut payload);
         server.join().expect("range server thread");
 
         assert!(matches!(
             result,
-            Err(TransportError::RangeResponseRejected { .. })
+            Err(nova_download_core::TransportError::RangeResponseRejected { .. })
         ));
         assert!(payload.is_empty(), "rejected body must never reach the sink");
     }
@@ -793,12 +688,12 @@ mod tests {
 
         let url = format!("http://{address}/payload.bin");
         let mut payload = Vec::new();
-        let result = stream_http_range(&url, 2, 5, &mut payload);
+        let result = nova_download_core::stream_http_range(&url, 2, 5, &mut payload);
         server.join().expect("range server thread");
 
         assert!(matches!(
             result,
-            Err(TransportError::RangeResponseRejected { .. })
+            Err(nova_download_core::TransportError::RangeResponseRejected { .. })
         ));
         assert!(payload.is_empty(), "mismatched range must never reach the sink");
     }
