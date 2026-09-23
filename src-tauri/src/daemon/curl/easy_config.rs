@@ -158,6 +158,11 @@ impl SegmentWriter {
         let Some(actual) = cap.content_range else {
             return false;
         };
+        if let Some(expected_start) = cap.expected_range_start {
+            if actual.start != expected_start {
+                return false;
+            }
+        }
         if let Some(expected) = cap.expected_content_range {
             if actual.start != expected.start || actual.end != expected.end {
                 return false;
