@@ -265,7 +265,10 @@ pub fn plan_from_job(job: &CurlJob) -> DirectDownloadPlan {
         && job.task.resumable
         && job.task.size_bytes >= global_config().min_segment_bytes
         && job.task.connections > 1;
-    let etag = config.str_("etag").map(str::to_owned);
+    let etag = config
+        .str_("etag")
+        .filter(|value| crate::daemon::utils::is_strong_etag(value))
+        .map(str::to_owned);
     let last_modified = config.str_("lastModified").map(str::to_owned);
     let (validator, validator_is_etag) = if let Some(et) = etag {
         (Some(et), true)
@@ -896,6 +899,7 @@ fn refresh_plan_remote_state(state: &SharedState, id: &str, plan: &mut DirectDow
         .direct_options
         .get("etag")
         .and_then(serde_json::Value::as_str)
+        .filter(|value| crate::daemon::utils::is_strong_etag(value))
     {
         plan.validator = Some(etag.to_owned());
         plan.validator_is_etag = true;
@@ -3560,6 +3564,61 @@ mod tests {
     use super::*;
 
     #[test]
+    fn plan_ignores_weak_or_invalid_etag_for_resume_and_uses_last_modified() {
+        let dir = std::env::temp_dir().join(format!(
+            "nova-validator-plan-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let output = dir.join("file.bin");
+        let body = download_body("http://127.0.0.1:1/file.bin", "file.bin", 1024, 1);
+
+        let mut weak_options = std::collections::HashMap::new();
+        weak_options.insert(
+            "etag".to_owned(),
+            serde_json::Value::String("W/\"weak\"".to_owned()),
+        );
+        weak_options.insert(
+            "lastModified".to_owned(),
+            serde_json::Value::String("Wed, 23 Sep 2026 20:00:00 GMT".to_owned()),
+        );
+        let weak_job = task_from_body(
+            &body,
+            "weak-validator",
+            "file.bin".to_owned(),
+            &output,
+            weak_options,
+            Vec::new(),
+        );
+        let weak_plan = plan_from_job(&weak_job);
+        assert_eq!(
+            weak_plan.validator.as_deref(),
+            Some("Wed, 23 Sep 2026 20:00:00 GMT")
+        );
+        assert!(!weak_plan.validator_is_etag);
+
+        let mut invalid_options = std::collections::HashMap::new();
+        invalid_options.insert(
+            "etag".to_owned(),
+            serde_json::Value::String("unquoted-etag".to_owned()),
+        );
+        let invalid_job = task_from_body(
+            &body,
+            "invalid-validator",
+            "file.bin".to_owned(),
+            &output,
+            invalid_options,
+            Vec::new(),
+        );
+        assert!(
+            plan_from_job(&invalid_job).validator.is_none(),
+            "resume must not trust an ETag that cannot be emitted as If-Range"
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn auto_rename_reserves_distinct_output_names_until_the_writer_opens_them() {
         let dir = std::env::temp_dir().join(format!(
             "nova_auto_rename_reservation_{}_{}",
@@ -5617,7 +5676,7 @@ mod tests {
         let mut direct_options = std::collections::HashMap::new();
         direct_options.insert(
             "etag".to_string(),
-            serde_json::Value::String("nova-test".to_string()),
+            serde_json::Value::String("\"nova-test\"".to_string()),
         );
         // Restart-in-place is the overwrite path; the no-clobber path auto-
         // renames the target instead (covered by the dispatcher logic).
@@ -5680,7 +5739,7 @@ mod tests {
         let mut direct_options = std::collections::HashMap::new();
         direct_options.insert(
             "etag".to_string(),
-            serde_json::Value::String("nova-test".to_string()),
+            serde_json::Value::String("\"nova-test\"".to_string()),
         );
         let job = task_from_body(
             &body,
