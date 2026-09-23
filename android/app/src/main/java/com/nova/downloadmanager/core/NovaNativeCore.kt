@@ -10,7 +10,7 @@ package com.nova.downloadmanager.core
  */
 internal object NovaNativeCore {
     private const val LIBRARY_NAME = "nova_mobile_ffi"
-    private const val CLIENT_BRIDGE_API_VERSION = 2
+    private const val CLIENT_BRIDGE_API_VERSION = 3
     private const val RESUME_APPEND = 0
     private const val RESUME_RESTART = 1
     private const val MISSING_CONTENT_RANGE = -1L
@@ -32,6 +32,22 @@ internal object NovaNativeCore {
         APPEND,
         RESTART,
     }
+
+
+    internal enum class NativeTransferStatus(val wireValue: String) {
+        QUEUED("queued"),
+        DOWNLOADING("downloading"),
+        COMPLETED("completed"),
+        FAILED("failed"),
+        CANCELLED("failed"),
+    }
+
+    internal data class NativeTransferSnapshot(
+        val id: Long,
+        val status: NativeTransferStatus,
+        val downloadedBytes: Long,
+        val totalBytes: Long,
+    )
 
     private val loadFailure: Throwable? = runCatching {
         System.loadLibrary(LIBRARY_NAME)
@@ -61,6 +77,22 @@ internal object NovaNativeCore {
         responseStatus: Int,
         contentRangeStart: Long,
     ): Int
+
+
+    private external fun nativeStartHttpTransfer(
+        url: String,
+        destinationFd: Int,
+    ): Long
+
+    private external fun nativeTransferStatus(taskId: Long): Int
+
+    private external fun nativeTransferDownloadedBytes(taskId: Long): Long
+
+    private external fun nativeTransferTotalBytes(taskId: Long): Long
+
+    private external fun nativeCancelTransfer(taskId: Long): Int
+
+    private external fun nativeForgetTransfer(taskId: Long): Int
 
     fun requireCompatible(): Int {
         loadFailure?.let { failure ->
@@ -137,5 +169,58 @@ internal object NovaNativeCore {
             RESUME_RESTART -> ResumeAction.RESTART
             else -> error("NOVA native core rejected resume planning inputs")
         }
+    }
+
+    /**
+     * Transfers ownership of [destinationFd] to the Rust engine and starts the
+     * HTTP transfer on a native worker thread. The descriptor is always closed
+     * by Rust when the task finishes.
+     */
+    fun startHttpTransfer(url: String, destinationFd: Int): Long {
+        require(url.startsWith("http://") || url.startsWith("https://")) {
+            "Only HTTP(S) URLs are supported"
+        }
+        require(destinationFd >= 0) { "destinationFd must be valid" }
+        requireCompatible()
+
+        val taskId = nativeStartHttpTransfer(url, destinationFd)
+        check(taskId > 0) { "NOVA native core could not start the transfer" }
+        return taskId
+    }
+
+    fun transferSnapshot(taskId: Long): NativeTransferSnapshot? {
+        require(taskId > 0) { "taskId must be positive" }
+        requireCompatible()
+
+        val status = when (nativeTransferStatus(taskId)) {
+            0 -> NativeTransferStatus.QUEUED
+            1 -> NativeTransferStatus.DOWNLOADING
+            2 -> NativeTransferStatus.COMPLETED
+            3 -> NativeTransferStatus.FAILED
+            4 -> NativeTransferStatus.CANCELLED
+            else -> return null
+        }
+        val downloaded = nativeTransferDownloadedBytes(taskId)
+        val total = nativeTransferTotalBytes(taskId)
+        if (downloaded < 0 || total < 0) return null
+
+        return NativeTransferSnapshot(
+            id = taskId,
+            status = status,
+            downloadedBytes = downloaded,
+            totalBytes = total,
+        )
+    }
+
+    fun cancelTransfer(taskId: Long): Boolean {
+        require(taskId > 0) { "taskId must be positive" }
+        requireCompatible()
+        return nativeCancelTransfer(taskId) == 1
+    }
+
+    fun forgetTransfer(taskId: Long): Boolean {
+        require(taskId > 0) { "taskId must be positive" }
+        requireCompatible()
+        return nativeForgetTransfer(taskId) == 1
     }
 }
