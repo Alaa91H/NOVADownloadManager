@@ -168,7 +168,7 @@ impl DirectDownloadPlan {
             validator_is_etag: self.validator_is_etag,
             total_size: (self.total_size > 0).then_some(self.total_size),
             digest_sha256: self
-                .representation_digest_sha256
+                .digest_sha256
                 .as_deref()
                 .and_then(normalize_sha256_fingerprint),
         }
@@ -200,7 +200,7 @@ pub(super) struct ResponseCapture {
     /// Concrete contradictions reject the response before any body is written.
     pub(super) expected_fingerprint: Option<RemoteFingerprint>,
     /// Shared identity learned across sibling segment responses. A segment may
-    /// be the first request that exposes an ETag or Content-Digest; later
+    /// be the first request that exposes an ETag or Repr-Digest; later
     /// segments must agree before their bytes can be accepted.
     pub(super) shared_fingerprint: Option<Arc<Mutex<RemoteFingerprint>>>,
     /// True when the server actually responded with a `Content-Encoding`
