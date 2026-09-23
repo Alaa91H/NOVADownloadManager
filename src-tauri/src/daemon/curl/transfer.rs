@@ -4484,6 +4484,174 @@ mod tests {
         }
     }
 
+    fn spawn_changed_resource_server(
+        payload: std::sync::Arc<Vec<u8>>,
+        current_etag: &'static str,
+    ) -> std::net::SocketAddr {
+        use std::io::{Read, Write};
+        use std::net::{Shutdown, TcpListener};
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let payload = payload.clone();
+                std::thread::spawn(move || {
+                    let mut buf = [0u8; 8192];
+                    let n = stream.read(&mut buf).unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let total = payload.len() as u64;
+                    let mut range: Option<String> = None;
+                    let mut if_range: Option<String> = None;
+                    for line in req.lines() {
+                        if let Some(rest) = line.to_ascii_lowercase().strip_prefix("range: bytes=") {
+                            range = Some(rest.trim().to_owned());
+                        } else if line.to_ascii_lowercase().starts_with("if-range:") {
+                            if_range = line
+                                .split_once(':')
+                                .map(|(_, value)| value.trim().to_owned());
+                        }
+                    }
+
+                    let send = |stream: &mut std::net::TcpStream, head: String, body: &[u8]| {
+                        let _ = stream.write_all(head.as_bytes());
+                        let _ = stream.write_all(body);
+                        let _ = stream.shutdown(Shutdown::Write);
+                    };
+
+                    // RFC If-Range behavior: a stale validator turns a Range
+                    // request into a full 200 response for the NEW object.
+                    if range.is_some()
+                        && if_range
+                            .as_deref()
+                            .is_some_and(|value| value != current_etag)
+                    {
+                        send(
+                            &mut stream,
+                            format!(
+                                "HTTP/1.1 200 OK\r\nContent-Length: {total}\r\nAccept-Ranges: bytes\r\nETag: {current_etag}\r\nConnection: close\r\n\r\n"
+                            ),
+                            &payload,
+                        );
+                        return;
+                    }
+
+                    if let Some(r) = range {
+                        let (s, e) = r.split_once('-').unwrap_or((r.as_str(), ""));
+                        let start: u64 = s.trim().parse().unwrap_or(0);
+                        if start >= total {
+                            send(
+                                &mut stream,
+                                format!(
+                                    "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */{total}\r\nContent-Length: 0\r\nETag: {current_etag}\r\nConnection: close\r\n\r\n"
+                                ),
+                                b"",
+                            );
+                            return;
+                        }
+                        let end: u64 = if e.is_empty() {
+                            total - 1
+                        } else {
+                            e.trim().parse().unwrap_or(total - 1)
+                        };
+                        let end = end.min(total - 1);
+                        let body = &payload[start as usize..=end as usize];
+                        send(
+                            &mut stream,
+                            format!(
+                                "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {start}-{end}/{total}\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nETag: {current_etag}\r\nConnection: close\r\n\r\n",
+                                body.len()
+                            ),
+                            body,
+                        );
+                        return;
+                    }
+
+                    send(
+                        &mut stream,
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {total}\r\nAccept-Ranges: bytes\r\nETag: {current_etag}\r\nConnection: close\r\n\r\n"
+                        ),
+                        &payload,
+                    );
+                });
+            }
+        });
+        addr
+    }
+
+    #[test]
+    fn stale_partial_is_discarded_when_remote_etag_changes() {
+        let payload: Vec<u8> = (0..(512 * 1024))
+            .map(|index| ((index * 17 + 11) % 251) as u8)
+            .collect();
+        let addr =
+            spawn_changed_resource_server(std::sync::Arc::new(payload.clone()), "\"new-v2\"");
+        let url = format!("http://{addr}/changed.bin");
+        let dir = std::env::temp_dir().join(format!(
+            "nova_changed_resource_{}_{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("changed.bin");
+
+        // Simulate a crash/restart checkpoint from the previous object
+        // version. Size is intentionally the SAME as the new object so only
+        // remote identity (ETag), not length, can catch the replacement.
+        std::fs::write(&out, vec![0xA5u8; 64 * 1024]).unwrap();
+
+        let state = std::sync::Arc::new(crate::daemon::persist::tests::test_state(
+            &dir.to_string_lossy(),
+        ));
+        let id = "changed-etag-resume";
+        let body = download_body(&url, "changed.bin", payload.len() as u64, 4);
+        let mut direct_options = std::collections::HashMap::new();
+        direct_options.insert(
+            "etag".to_owned(),
+            serde_json::Value::String("\"old-v1\"".to_owned()),
+        );
+        let mut job = task_from_body(
+            &body,
+            id,
+            "changed.bin".to_owned(),
+            &out,
+            direct_options,
+            Vec::new(),
+        );
+        job.task.downloaded_bytes = 64 * 1024;
+        if let Some(first) = job.task.segments.first_mut() {
+            first.downloaded_bytes = 64 * 1024;
+            first.progress = (64.0 * 1024.0 / payload.len() as f64) as f32;
+        }
+        state.curl_jobs.lock().unwrap().insert(id.to_owned(), job);
+        state.mark_dirty();
+
+        let transfer_state = state.clone();
+        std::thread::spawn(move || start_curl_process(&transfer_state, id));
+
+        let task = run_task_to_completion(&state, id, std::time::Duration::from_secs(45));
+        assert_eq!(task.status, "completed");
+        assert_eq!(task.size_bytes, payload.len() as u64);
+        assert_eq!(task.downloaded_bytes, payload.len() as u64);
+        assert_eq!(
+            std::fs::read(&out).unwrap(),
+            payload,
+            "new object must replace the stale checkpoint without mixing bytes"
+        );
+
+        let jobs = state.curl_jobs.lock().unwrap();
+        let stored_etag = jobs
+            .get(id)
+            .and_then(|job| job.direct_options.get("etag"))
+            .and_then(serde_json::Value::as_str);
+        assert_eq!(stored_etag, Some("\"new-v2\""));
+        drop(jobs);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn failed_primary_fails_over_to_link_mirror_and_preserves_content() {
         use std::io::{Read, Write};
