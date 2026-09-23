@@ -63,8 +63,8 @@ class NovaNativeTransferService : Service() {
                         NovaNativeCore.NativeTransferState.QUEUED,
                         NovaNativeCore.NativeTransferState.DOWNLOADING,
                         -> {
-                            downloaded = downloaded.saturatingAdd(progress.downloadedBytes)
-                            total = total.saturatingAdd(progress.totalBytes)
+                            downloaded = saturatingAdd(downloaded, progress.downloadedBytes)
+                            total = saturatingAdd(total, progress.totalBytes)
                         }
                         NovaNativeCore.NativeTransferState.COMPLETED,
                         NovaNativeCore.NativeTransferState.FAILED,
@@ -145,6 +145,11 @@ class NovaNativeTransferService : Service() {
         )
     }
 
+    private fun saturatingAdd(left: Long, right: Long): Long {
+        if (right <= 0L) return left
+        return if (left > Long.MAX_VALUE - right) Long.MAX_VALUE else left + right
+    }
+
     companion object {
         private const val CHANNEL_ID = "nova_native_transfers"
         private const val NOTIFICATION_ID = 4201
@@ -155,11 +160,6 @@ class NovaNativeTransferService : Service() {
             val intent = Intent(context, NovaNativeTransferService::class.java)
                 .putExtra(EXTRA_TASK_ID, taskId)
             context.startForegroundService(intent)
-        }
-
-        private fun Long.saturatingAdd(value: Long): Long {
-            if (value <= 0L) return this
-            return if (this > Long.MAX_VALUE - value) Long.MAX_VALUE else this + value
         }
     }
 }
