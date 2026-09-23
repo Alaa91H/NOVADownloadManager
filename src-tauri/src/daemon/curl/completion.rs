@@ -13,6 +13,47 @@ pub(super) fn merge_parts(output_path: &Path, ranges: &[ByteRange]) -> Result<u6
     FileWriter::merge_parts(output_path, ranges)
 }
 
+/// Final filesystem gate used immediately before a task is allowed to enter
+/// the completed state.
+///
+/// Transfer code may report a byte count, but the durable source of truth is
+/// the destination that actually exists on disk after all writes, merges and
+/// renames have finished. A missing file, directory target, empty output, or
+/// size drift must fail closed instead of being exposed to the UI as completed.
+pub(super) fn validate_completed_output(
+    output_path: &Path,
+    expected_final_size: u64,
+) -> Result<u64, String> {
+    let metadata = std::fs::metadata(output_path).map_err(|error| {
+        format!(
+            "Completion verification failed: could not stat {}: {error}",
+            output_path.display()
+        )
+    })?;
+    if !metadata.is_file() {
+        return Err(format!(
+            "Completion verification failed: destination is not a regular file: {}",
+            output_path.display()
+        ));
+    }
+
+    let actual = metadata.len();
+    if expected_final_size == 0 || actual == 0 {
+        return Err(format!(
+            "Completion verification failed: destination is empty: {}",
+            output_path.display()
+        ));
+    }
+    if actual != expected_final_size {
+        return Err(format!(
+            "Completion verification failed: worker reported {expected_final_size} bytes but {} contains {actual} bytes",
+            output_path.display()
+        ));
+    }
+
+    Ok(actual)
+}
+
 /// Validate that the live segment geometry covers exactly the expected file
 /// without gaps, overlaps, inverted ranges, or duplicate segment identities.
 ///
@@ -187,6 +228,40 @@ mod tests {
             end,
             path: PathBuf::from(format!("part-{index}")),
         }
+    }
+
+    #[test]
+    fn completion_gate_accepts_exact_regular_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "nova-completion-gate-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let output = dir.join("complete.bin");
+        std::fs::write(&output, b"nova").unwrap();
+
+        assert_eq!(super::validate_completed_output(&output, 4).unwrap(), 4);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn completion_gate_rejects_missing_empty_and_size_drift() {
+        let dir = std::env::temp_dir().join(format!(
+            "nova-completion-gate-invalid-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let missing = dir.join("missing.bin");
+        assert!(super::validate_completed_output(&missing, 4).is_err());
+
+        let output = dir.join("partial.bin");
+        std::fs::write(&output, b"").unwrap();
+        assert!(super::validate_completed_output(&output, 4).is_err());
+
+        std::fs::write(&output, b"nova").unwrap();
+        let error = super::validate_completed_output(&output, 5).unwrap_err();
+        assert!(error.contains("worker reported 5 bytes"));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
