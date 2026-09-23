@@ -1272,31 +1272,31 @@ pub fn apply_easy_options<H: Handler>(
         if let Some(headers) = direct_headers(&plan.config, force_identity_encoding)? {
             headers
         } else {
-        let mut list = List::new();
-        list.append("Accept: */*")
-            .map_err(|e| format!("Could not add Accept header: {e}"))?;
-        list.append("Accept-Language: en-US,en;q=0.9")
-            .map_err(|e| format!("Could not add Accept-Language header: {e}"))?;
-        list.append("Cache-Control: no-store")
-            .map_err(|e| format!("Could not add Cache-Control header: {e}"))?;
-        list.append("Connection: keep-alive")
-            .map_err(|e| format!("Could not add Connection header: {e}"))?;
-        list.append("Sec-Fetch-Mode: no-cors")
-            .map_err(|e| format!("Could not add Sec-Fetch-Mode header: {e}"))?;
-        list.append("Sec-Fetch-Site: cross-site")
-            .map_err(|e| format!("Could not add Sec-Fetch-Site header: {e}"))?;
-        list.append("Sec-Fetch-Dest: empty")
-            .map_err(|e| format!("Could not add Sec-Fetch-Dest header: {e}"))?;
-        if plan.digest_sha256.is_none() {
-            list.append("Want-Digest: sha-256")
-                .map_err(|e| format!("Could not add Want-Digest header: {e}"))?;
-            list.append("Want-Content-Digest: sha-256")
-                .map_err(|e| format!("Could not add Want-Content-Digest header: {e}"))?;
-        }
-        if let Some(bearer) = plan.config.str_("oauth2Bearer") {
-            list.append(&format!("Authorization: Bearer {bearer}"))
-                .map_err(|e| format!("Could not add OAuth2 bearer header: {e}"))?;
-        }
+            let mut list = List::new();
+            list.append("Accept: */*")
+                .map_err(|e| format!("Could not add Accept header: {e}"))?;
+            list.append("Accept-Language: en-US,en;q=0.9")
+                .map_err(|e| format!("Could not add Accept-Language header: {e}"))?;
+            list.append("Cache-Control: no-store")
+                .map_err(|e| format!("Could not add Cache-Control header: {e}"))?;
+            list.append("Connection: keep-alive")
+                .map_err(|e| format!("Could not add Connection header: {e}"))?;
+            list.append("Sec-Fetch-Mode: no-cors")
+                .map_err(|e| format!("Could not add Sec-Fetch-Mode header: {e}"))?;
+            list.append("Sec-Fetch-Site: cross-site")
+                .map_err(|e| format!("Could not add Sec-Fetch-Site header: {e}"))?;
+            list.append("Sec-Fetch-Dest: empty")
+                .map_err(|e| format!("Could not add Sec-Fetch-Dest header: {e}"))?;
+            if plan.digest_sha256.is_none() {
+                list.append("Want-Digest: sha-256")
+                    .map_err(|e| format!("Could not add Want-Digest header: {e}"))?;
+                list.append("Want-Content-Digest: sha-256")
+                    .map_err(|e| format!("Could not add Want-Content-Digest header: {e}"))?;
+            }
+            if let Some(bearer) = plan.config.str_("oauth2Bearer") {
+                list.append(&format!("Authorization: Bearer {bearer}"))
+                    .map_err(|e| format!("Could not add OAuth2 bearer header: {e}"))?;
+            }
             list
         };
     for hdr in &conditional_headers {
