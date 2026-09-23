@@ -173,8 +173,19 @@ impl SegmentWriter {
                 }
             }
         }
+        let observed = cap.observed_fingerprint();
         if let Some(expected) = cap.expected_fingerprint.as_ref() {
-            if expected.conflicts_with(&cap.observed_fingerprint()) {
+            if expected.conflicts_with(&observed) {
+                return false;
+            }
+        }
+        let shared = cap.shared_fingerprint.clone();
+        drop(cap);
+        if let Some(shared) = shared {
+            let Ok(mut fingerprint) = shared.lock() else {
+                return false;
+            };
+            if !fingerprint.absorb_consistent(&observed) {
                 return false;
             }
         }
@@ -1543,7 +1554,8 @@ mod tests {
         let capture = ResponseCapture {
             expected_range_start: Some(expected.start),
             expected_content_range: Some(expected),
-            expected_fingerprint: Some(fingerprint),
+            expected_fingerprint: Some(fingerprint.clone()),
+            shared_fingerprint: Some(Arc::new(Mutex::new(fingerprint))),
             ..Default::default()
         };
         let progress = SegmentProgress {
@@ -1800,6 +1812,71 @@ mod tests {
         assert_eq!(w.write(&[3u8; 100]).unwrap(), 0);
         assert!(w.progress.range_rejected.load(Ordering::Acquire));
         assert_eq!(w.file.metadata().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn strict_range_validation_rejects_sibling_segment_etag_drift() {
+        let shared = Arc::new(Mutex::new(RemoteFingerprint {
+            total_size: Some(200),
+            ..Default::default()
+        }));
+
+        let make_writer = |start: u64, end: u64| {
+            let dir = std::env::temp_dir().join(format!(
+                "nova_easy_cfg_sibling_{}_{}",
+                std::process::id(),
+                uuid::Uuid::new_v4()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            let file = OpenOptions::new()
+                .create(true)
+                .truncate(true)
+                .write(true)
+                .open(dir.join("part.bin"))
+                .unwrap();
+            let capture = ResponseCapture {
+                expected_range_start: Some(start),
+                expected_content_range: Some(ContentRange {
+                    start,
+                    end,
+                    total: Some(200),
+                }),
+                expected_fingerprint: Some(RemoteFingerprint {
+                    total_size: Some(200),
+                    ..Default::default()
+                }),
+                shared_fingerprint: Some(shared.clone()),
+                ..Default::default()
+            };
+            SegmentWriter {
+                file,
+                progress: SegmentProgress {
+                    downloaded: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                    abort: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    retry_after: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                    capture: Arc::new(Mutex::new(capture)),
+                    streaming_digest_out: Arc::new(Mutex::new(None)),
+                    range_rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    encoding_rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    expects_206: true,
+                },
+                streaming_hasher: None,
+            }
+        };
+
+        let mut first = make_writer(0, 99);
+        assert!(first.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(first.header(b"Content-Range: bytes 0-99/200\r\n"));
+        assert!(first.header(b"ETag: \"version-a\"\r\n"));
+        assert_eq!(first.write(&[1u8; 100]).unwrap(), 100);
+
+        let mut second = make_writer(100, 199);
+        assert!(second.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(second.header(b"Content-Range: bytes 100-199/200\r\n"));
+        assert!(second.header(b"ETag: \"version-b\"\r\n"));
+        assert_eq!(second.write(&[2u8; 100]).unwrap(), 0);
+        assert!(second.progress.range_rejected.load(Ordering::Acquire));
+        assert_eq!(second.file.metadata().unwrap().len(), 0);
     }
 
     #[test]
