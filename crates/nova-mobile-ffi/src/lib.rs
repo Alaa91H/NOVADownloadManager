@@ -1184,6 +1184,120 @@ mod tests {
     }
 
     #[test]
+    fn native_full_download_stream_writes_only_final_success_body() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind download server");
+        let address = listener.local_addr().expect("download server address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept download connection");
+            let mut request = [0_u8; 2048];
+            let read = stream.read(&mut request).expect("read download request");
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.starts_with("GET /payload.bin HTTP/"));
+            assert!(!request.contains("Range:"));
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nETag: \"native-v1\"\r\nConnection: close\r\n\r\nabcdefgh",
+                )
+                .expect("write download response");
+        });
+
+        let task = NativeTransferTask::new(7);
+        let url = format!("http://{address}/payload.bin");
+        let mut payload = Vec::new();
+        let probe =
+            stream_http_download(&url, &mut payload, &task).expect("native download must succeed");
+        server.join().expect("download server thread");
+
+        assert_eq!(payload, b"abcdefgh");
+        assert_eq!(task.downloaded_bytes.load(Ordering::Acquire), 8);
+        assert_eq!(task.total_bytes.load(Ordering::Acquire), 8);
+        assert_eq!(probe.etag.as_deref(), Some("\"native-v1\""));
+    }
+
+    #[test]
+    fn native_full_download_never_persists_http_error_body() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind error server");
+        let address = listener.local_addr().expect("error server address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept error connection");
+            let mut request = [0_u8; 2048];
+            let _ = stream.read(&mut request).expect("read error request");
+            stream
+                .write_all(
+                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\nConnection: close\r\n\r\nnot-found",
+                )
+                .expect("write error response");
+        });
+
+        let task = NativeTransferTask::new(8);
+        let url = format!("http://{address}/missing.bin");
+        let mut payload = Vec::new();
+        let result = stream_http_download(&url, &mut payload, &task);
+        server.join().expect("error server thread");
+
+        assert!(matches!(result, Err(TransportError::RequestFailed { .. })));
+        assert!(payload.is_empty(), "HTTP error body must never reach the file");
+        assert_eq!(task.downloaded_bytes.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn native_transfer_manager_reports_completion_and_can_forget_task() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind task server");
+        let address = listener.local_addr().expect("task server address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept task connection");
+            let mut request = [0_u8; 2048];
+            let _ = stream.read(&mut request).expect("read task request");
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nnative",
+                )
+                .expect("write task response");
+        });
+
+        let path = std::env::temp_dir().join(format!(
+            "nova-native-transfer-{}-{}.bin",
+            std::process::id(),
+            next_native_transfer_id()
+        ));
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .read(true)
+            .write(true)
+            .open(&path)
+            .expect("open native task output");
+        let url = format!("http://{address}/payload.bin");
+        let task_id =
+            start_native_http_transfer_with_file(url, file).expect("start native transfer");
+
+        let mut final_snapshot = None;
+        for _ in 0..200 {
+            let snapshot = native_transfer_snapshot(task_id).expect("native task snapshot");
+            if matches!(
+                snapshot.status,
+                NativeTransferStatus::Completed
+                    | NativeTransferStatus::Failed
+                    | NativeTransferStatus::Cancelled
+            ) {
+                final_snapshot = Some(snapshot);
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        server.join().expect("task server thread");
+
+        let snapshot = final_snapshot.expect("native task must reach a terminal state");
+        assert_eq!(snapshot.status, NativeTransferStatus::Completed);
+        assert_eq!(snapshot.downloaded_bytes, 6);
+        assert_eq!(snapshot.total_bytes, 6);
+        assert_eq!(std::fs::read(&path).expect("read native output"), b"native");
+        assert!(forget_native_transfer(task_id));
+        assert!(native_transfer_snapshot(task_id).is_none());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn native_range_probe_validates_partial_content() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind range server");
         let address = listener.local_addr().expect("range server address");
@@ -1331,7 +1445,10 @@ mod tests {
 
     #[test]
     fn android_primitive_handshake_is_fail_closed() {
-        assert_eq!(android_initialize_status(BRIDGE_API_VERSION as i32), 1);
+        assert_eq!(
+            android_initialize_status(BRIDGE_API_VERSION as i32),
+            BRIDGE_API_VERSION as i32
+        );
         assert_eq!(android_initialize_status(-1), -1);
         assert_eq!(
             android_initialize_status((BRIDGE_API_VERSION + 1) as i32),
