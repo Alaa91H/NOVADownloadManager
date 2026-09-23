@@ -28,6 +28,13 @@ pub struct HttpRangeProbe {
     pub effective_url: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TransferControl {
+    Continue,
+    Pause,
+    Cancel,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum TransportError {
     #[error("native HTTP transport failed: {message}")]
@@ -38,6 +45,10 @@ pub enum TransportError {
     InvalidRange { start: u64, end: u64 },
     #[error("native HTTP range response rejected: {message}")]
     RangeResponseRejected { message: String },
+    #[error("native transfer paused")]
+    Paused,
+    #[error("native transfer cancelled")]
+    Cancelled,
 }
 
 fn transport_error(error: curl::Error) -> TransportError {
@@ -187,6 +198,16 @@ pub fn stream_http_range<W: Write>(
     end: u64,
     sink: &mut W,
 ) -> Result<HttpRangeProbe, TransportError> {
+    stream_http_range_controlled(url, start, end, sink, || TransferControl::Continue)
+}
+
+pub fn stream_http_range_controlled<W: Write, F: FnMut() -> TransferControl>(
+    url: &str,
+    start: u64,
+    end: u64,
+    sink: &mut W,
+    mut control: F,
+) -> Result<HttpRangeProbe, TransportError> {
     ensure_http_url(url)?;
     if end < start {
         return Err(TransportError::InvalidRange { start, end });
@@ -208,15 +229,24 @@ pub fn stream_http_range<W: Write>(
         .map_err(transport_error)?;
     easy.range(&format!("{start}-{end}"))
         .map_err(transport_error)?;
+    easy.progress(true).map_err(transport_error)?;
 
     let header_status = Cell::new(None::<u16>);
     let content_range = Cell::new(None::<(u64, u64)>);
     let headers_validated = Cell::new(false);
     let bytes_received = Cell::new(0_u64);
     let sink_error = RefCell::new(None::<String>);
+    let stop_control = Cell::new(TransferControl::Continue);
 
     let perform_result = {
         let mut transfer = easy.transfer();
+        transfer
+            .progress_function(|_, _, _, _| {
+                let command = control();
+                stop_control.set(command);
+                command == TransferControl::Continue
+            })
+            .map_err(transport_error)?;
         transfer
             .header_function(|header| {
                 if let Some(status) = parse_http_status(header) {
@@ -263,6 +293,12 @@ pub fn stream_http_range<W: Write>(
             .map_err(transport_error)?;
         transfer.perform()
     };
+
+    match stop_control.get() {
+        TransferControl::Pause => return Err(TransportError::Paused),
+        TransferControl::Cancel => return Err(TransportError::Cancelled),
+        TransferControl::Continue => {}
+    }
 
     if !headers_validated.get() {
         return Err(TransportError::RangeResponseRejected {
@@ -336,9 +372,10 @@ pub struct HttpFileTransfer {
     pub effective_url: String,
 }
 
-fn stream_http_full<W: Write>(
+fn stream_http_full_controlled<W: Write, F: FnMut() -> TransferControl>(
     url: &str,
     sink: &mut W,
+    mut control: F,
 ) -> Result<(u16, u64, String), TransportError> {
     ensure_http_url(url)?;
     let mut easy = Easy::new();
@@ -351,14 +388,23 @@ fn stream_http_full<W: Write>(
     easy.accept_encoding("identity").map_err(transport_error)?;
     easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
         .map_err(transport_error)?;
+    easy.progress(true).map_err(transport_error)?;
 
     let header_status = Cell::new(None::<u16>);
     let headers_validated = Cell::new(false);
     let bytes_received = Cell::new(0_u64);
     let sink_error = RefCell::new(None::<String>);
+    let stop_control = Cell::new(TransferControl::Continue);
 
     let perform_result = {
         let mut transfer = easy.transfer();
+        transfer
+            .progress_function(|_, _, _, _| {
+                let command = control();
+                stop_control.set(command);
+                command == TransferControl::Continue
+            })
+            .map_err(transport_error)?;
         transfer
             .header_function(|header| {
                 if let Some(status) = parse_http_status(header) {
@@ -396,6 +442,12 @@ fn stream_http_full<W: Write>(
         transfer.perform()
     };
 
+    match stop_control.get() {
+        TransferControl::Pause => return Err(TransportError::Paused),
+        TransferControl::Cancel => return Err(TransportError::Cancelled),
+        TransferControl::Continue => {}
+    }
+
     if !headers_validated.get() {
         return Err(TransportError::RequestFailed {
             message: format!(
@@ -431,6 +483,14 @@ fn stream_http_full<W: Write>(
 pub fn download_http_to_path(
     url: &str,
     destination: &Path,
+) -> Result<HttpFileTransfer, TransportError> {
+    download_http_to_path_controlled(url, destination, || TransferControl::Continue)
+}
+
+pub fn download_http_to_path_controlled<F: FnMut() -> TransferControl>(
+    url: &str,
+    destination: &Path,
+    mut control: F,
 ) -> Result<HttpFileTransfer, TransportError> {
     if let Some(parent) = destination.parent().filter(|path| !path.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(|error| TransportError::RequestFailed {
@@ -490,11 +550,12 @@ pub fn download_http_to_path(
                     message: format!("failed to open download staging file: {error}"),
                 })?;
 
-            match stream_http_range(
+            match stream_http_range_controlled(
                 &probe.effective_url,
                 existing_bytes,
                 total_bytes - 1,
                 &mut file,
+                &mut control,
             ) {
                 Ok(range) => {
                     file.flush().map_err(|error| TransportError::RequestFailed {
@@ -531,7 +592,7 @@ pub fn download_http_to_path(
             message: format!("failed to open download staging file: {error}"),
         })?;
     let (response_status, final_bytes, effective_url) =
-        stream_http_full(&probe.effective_url, &mut file)?;
+        stream_http_full_controlled(&probe.effective_url, &mut file, &mut control)?;
     file.flush().map_err(|error| TransportError::RequestFailed {
         message: format!("failed to flush download staging file: {error}"),
     })?;
