@@ -289,6 +289,11 @@ pub struct HtmlHeadCapture {
     /// can show a true progress percentage from byte one instead of a fake
     /// 0% that jumps to 100% at completion.
     content_length: Option<u64>,
+    /// Strong remote identity captured before any resumable/ranged body is
+    /// committed. Strong ETag wins; Last-Modified is the standards-compatible
+    /// fallback for If-Range when no strong ETag is available.
+    validator: Option<String>,
+    validator_is_etag: bool,
 }
 impl Handler for HtmlHeadCapture {
     fn write(&mut self, data: &[u8]) -> Result<usize, WriteError> {
@@ -310,6 +315,13 @@ impl Handler for HtmlHeadCapture {
                     *v = Some(ver.to_owned());
                 }
             }
+            // A single libcurl request may contain headers from multiple HTTP
+            // responses (redirects, proxy CONNECT, auth retries). Never carry
+            // object identity or size from an earlier response into the final
+            // effective resource.
+            self.content_length = None;
+            self.validator = None;
+            self.validator_is_etag = false;
             return true;
         }
         // Header lines: capture the true object size so a range probe that
@@ -337,6 +349,14 @@ impl Handler for HtmlHeadCapture {
                         self.content_length = Some(total);
                     }
                 }
+                "etag" if crate::daemon::utils::is_strong_etag(value) => {
+                    self.validator = Some(value.to_owned());
+                    self.validator_is_etag = true;
+                }
+                "last-modified" if self.validator.is_none() => {
+                    self.validator = Some(value.to_owned());
+                    self.validator_is_etag = false;
+                }
                 _ => {}
             }
         }
@@ -352,6 +372,11 @@ impl HtmlHeadCapture {
     }
     pub(crate) fn content_length(&self) -> Option<u64> {
         self.content_length
+    }
+    pub(crate) fn validator(&self) -> Option<(String, bool)> {
+        self.validator
+            .clone()
+            .map(|value| (value, self.validator_is_etag))
     }
 }
 
@@ -1564,6 +1589,46 @@ mod tests {
         assert!(w.header(b"Content-Range: bytes 0-9/*\r\n"));
         let cap = captured(&w);
         assert_eq!(cap.content_length, None);
+    }
+
+    #[test]
+    fn preflight_capture_prefers_strong_etag_over_last_modified() {
+        let mut capture = HtmlHeadCapture::default();
+        assert!(capture.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(capture.header(b"Last-Modified: Wed, 23 Sep 2026 20:00:00 GMT\r\n"));
+        assert!(capture.header(b"ETag: \"nova-v2\"\r\n"));
+        assert_eq!(
+            capture.validator(),
+            Some(("\"nova-v2\"".to_owned(), true))
+        );
+    }
+
+    #[test]
+    fn preflight_capture_uses_last_modified_when_no_strong_etag_exists() {
+        let mut capture = HtmlHeadCapture::default();
+        assert!(capture.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert!(capture.header(b"ETag: W/\"weak-nova\"\r\n"));
+        assert!(capture.header(b"Last-Modified: Wed, 23 Sep 2026 20:00:00 GMT\r\n"));
+        assert_eq!(
+            capture.validator(),
+            Some(("Wed, 23 Sep 2026 20:00:00 GMT".to_owned(), false))
+        );
+    }
+
+    #[test]
+    fn preflight_capture_resets_identity_across_http_responses() {
+        let mut capture = HtmlHeadCapture::default();
+        assert!(capture.header(b"HTTP/1.1 302 Found\r\n"));
+        assert!(capture.header(b"ETag: \"redirect-object\"\r\n"));
+        assert!(capture.header(b"Content-Length: 123\r\n"));
+        assert!(capture.header(b"HTTP/1.1 206 Partial Content\r\n"));
+        assert_eq!(capture.validator(), None);
+        assert_eq!(capture.content_length(), None);
+        assert!(capture.header(b"ETag: \"final-object\"\r\n"));
+        assert_eq!(
+            capture.validator(),
+            Some(("\"final-object\"".to_owned(), true))
+        );
     }
 
     #[test]
