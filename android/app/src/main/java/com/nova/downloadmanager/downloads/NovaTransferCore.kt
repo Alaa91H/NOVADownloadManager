@@ -45,6 +45,7 @@ class NovaTransferCore(context: Context) {
             stagingRelativePath = "$STAGING_DIRECTORY/$id.part",
             finalRelativePath = "$FINAL_DIRECTORY/$id-$fileName",
             status = DownloadStatus.Queued.wireValue,
+            downloadedBytes = 0,
             totalBytes = 0,
             createdAtMillis = System.currentTimeMillis(),
         )
@@ -102,11 +103,39 @@ class NovaTransferCore(context: Context) {
         if (active) {
             check(NovaNativeCore.cancelTransfer(taskId)) { "NOVA native transfer is not active" }
         } else {
-            File(appPrivateRoot, record.stagingRelativePath).delete()
+            check(
+                NovaNativeCore.discardAppPrivateTransfer(
+                    appPrivateRoot.absolutePath,
+                    record.stagingRelativePath,
+                ),
+            ) { "NOVA native staging cleanup failed" }
+            NovaNativeCore.forgetTransferProgress(taskId)
             intentStore.remove(taskId)
-            updateRecord(record.copy(status = DownloadStatus.Cancelled.wireValue))
+            updateRecord(
+                record.copy(
+                    status = DownloadStatus.Cancelled.wireValue,
+                    downloadedBytes = 0,
+                ),
+            )
         }
         summary(requireRecord(taskId))
+    }
+
+    /**
+     * Persist the latest native progress so Android process death loses at most
+     * one lifecycle polling interval rather than the whole segmented session.
+     */
+    fun checkpointProgress(taskId: String): DownloadSummary? {
+        val record = records().firstOrNull { it.id == taskId } ?: return null
+        val progress = NovaNativeCore.transferProgress(taskId) ?: return summary(record)
+        val updated = record.copy(
+            downloadedBytes = maxOf(record.downloadedBytes, progress.downloadedBytes),
+            totalBytes = maxOf(record.totalBytes, progress.totalBytes),
+        )
+        if (updated != record) {
+            updateRecord(updated)
+        }
+        return summary(updated)
     }
 
     /**
@@ -150,6 +179,7 @@ class NovaTransferCore(context: Context) {
                 appPrivateRoot = appPrivateRoot.absolutePath,
                 relativeDestination = current.stagingRelativePath,
             )
+            val progress = NovaNativeCore.transferProgress(current.id)
 
             when (outcome.status) {
                 NovaNativeCore.NativeTransferStatus.COMPLETED -> {
@@ -157,21 +187,56 @@ class NovaTransferCore(context: Context) {
                     intentStore.remove(current.id)
                     current = current.copy(
                         status = DownloadStatus.Completed.wireValue,
-                        totalBytes = maxOf(current.totalBytes, outcome.finalBytes),
+                        downloadedBytes = outcome.finalBytes,
+                        totalBytes = maxOf(
+                            current.totalBytes,
+                            progress?.totalBytes ?: 0,
+                            outcome.finalBytes,
+                        ),
                     )
+                    NovaNativeCore.forgetTransferProgress(current.id)
                 }
                 NovaNativeCore.NativeTransferStatus.PAUSED -> {
-                    current = current.copy(status = DownloadStatus.Paused.wireValue)
+                    current = current.copy(
+                        status = DownloadStatus.Paused.wireValue,
+                        downloadedBytes = maxOf(
+                            current.downloadedBytes,
+                            progress?.downloadedBytes ?: 0,
+                        ),
+                        totalBytes = maxOf(
+                            current.totalBytes,
+                            progress?.totalBytes ?: 0,
+                        ),
+                    )
                 }
                 NovaNativeCore.NativeTransferStatus.CANCELLED -> {
                     intentStore.remove(current.id)
-                    current = current.copy(status = DownloadStatus.Cancelled.wireValue)
+                    current = current.copy(
+                        status = DownloadStatus.Cancelled.wireValue,
+                        downloadedBytes = 0,
+                    )
+                    NovaNativeCore.forgetTransferProgress(current.id)
                 }
             }
             updateRecord(current)
+            NovaNativeCore.forgetTransferProgress(current.id)
         } catch (_: Throwable) {
-            current = current.copy(status = DownloadStatus.Failed.wireValue)
+            val progress = runCatching {
+                NovaNativeCore.transferProgress(current.id)
+            }.getOrNull()
+            current = current.copy(
+                status = DownloadStatus.Failed.wireValue,
+                downloadedBytes = maxOf(
+                    current.downloadedBytes,
+                    progress?.downloadedBytes ?: 0,
+                ),
+                totalBytes = maxOf(
+                    current.totalBytes,
+                    progress?.totalBytes ?: 0,
+                ),
+            )
             updateRecord(current)
+            runCatching { NovaNativeCore.forgetTransferProgress(current.id) }
         }
     }
 
@@ -217,18 +282,33 @@ class NovaTransferCore(context: Context) {
             DownloadStatus.Cancelled.wireValue -> null
             else -> File(appPrivateRoot, record.stagingRelativePath)
         }
-        val downloadedBytes = payload
+        val fileBytes = payload
             ?.takeIf(File::isFile)
             ?.length()
             ?.coerceAtLeast(0)
             ?: 0L
+        val nativeProgress = if (ACTIVE_TRANSFER_IDS.contains(record.id)) {
+            runCatching { NovaNativeCore.transferProgress(record.id) }.getOrNull()
+        } else {
+            null
+        }
+        val downloadedBytes = maxOf(
+            record.downloadedBytes,
+            fileBytes,
+            nativeProgress?.downloadedBytes ?: 0,
+        )
+        val totalBytes = maxOf(
+            record.totalBytes,
+            nativeProgress?.totalBytes ?: 0,
+            downloadedBytes.takeIf { record.status == DownloadStatus.Completed.wireValue } ?: 0L,
+        )
 
         return DownloadSummary(
             id = record.id,
             name = record.name,
             status = record.status,
             downloadedBytes = downloadedBytes,
-            totalBytes = maxOf(record.totalBytes, downloadedBytes.takeIf { record.status == DownloadStatus.Completed.wireValue } ?: 0L),
+            totalBytes = totalBytes,
         )
     }
 
@@ -286,6 +366,7 @@ class NovaTransferCore(context: Context) {
         val stagingRelativePath: String,
         val finalRelativePath: String,
         val status: String,
+        val downloadedBytes: Long,
         val totalBytes: Long,
         val createdAtMillis: Long,
     ) {
@@ -295,24 +376,33 @@ class NovaTransferCore(context: Context) {
             encodeText(stagingRelativePath),
             encodeText(finalRelativePath),
             status,
+            downloadedBytes.toString(),
             totalBytes.toString(),
             createdAtMillis.toString(),
         ).joinToString(RECORD_SEPARATOR)
 
         companion object {
             fun decode(raw: String): TransferRecord? {
-                val fields = raw.split(RECORD_SEPARATOR, limit = RECORD_FIELD_COUNT)
-                if (fields.size != RECORD_FIELD_COUNT) return null
+                val fields = raw.split(RECORD_SEPARATOR)
+                if (fields.size != RECORD_FIELD_COUNT_V1 && fields.size != RECORD_FIELD_COUNT_V2) {
+                    return null
+                }
 
                 return runCatching {
+                    val downloadedIndex = if (fields.size == RECORD_FIELD_COUNT_V2) 5 else null
+                    val totalIndex = if (fields.size == RECORD_FIELD_COUNT_V2) 6 else 5
+                    val createdIndex = if (fields.size == RECORD_FIELD_COUNT_V2) 7 else 6
                     TransferRecord(
                         id = fields[0].takeIf(String::isNotBlank) ?: return null,
                         name = decodeText(fields[1]),
                         stagingRelativePath = decodeText(fields[2]),
                         finalRelativePath = decodeText(fields[3]),
                         status = fields[4],
-                        totalBytes = fields[5].toLong().coerceAtLeast(0),
-                        createdAtMillis = fields[6].toLong().coerceAtLeast(0),
+                        downloadedBytes = downloadedIndex
+                            ?.let { fields[it].toLong().coerceAtLeast(0) }
+                            ?: 0,
+                        totalBytes = fields[totalIndex].toLong().coerceAtLeast(0),
+                        createdAtMillis = fields[createdIndex].toLong().coerceAtLeast(0),
                     )
                 }.getOrNull()
             }
@@ -334,7 +424,8 @@ class NovaTransferCore(context: Context) {
         const val STAGING_DIRECTORY = "nova-staging"
         const val FINAL_DIRECTORY = "downloads"
         const val RECORD_SEPARATOR = "|"
-        const val RECORD_FIELD_COUNT = 7
+        const val RECORD_FIELD_COUNT_V1 = 7
+        const val RECORD_FIELD_COUNT_V2 = 8
 
         val ACTIVE_DOWNLOAD_STATUSES = setOf(
             DownloadStatus.Queued.wireValue,
