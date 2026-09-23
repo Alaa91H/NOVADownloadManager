@@ -20,7 +20,9 @@ use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
 use crate::daemon::engine::rules::RuleAction;
 use crate::daemon::state::SharedState;
 use crate::daemon::telegram::telegram_notify;
-use crate::daemon::types::{CreateDownloadBody, Task};
+use crate::daemon::types::{
+    transition_task_state, CreateDownloadBody, Task, TaskState,
+};
 use crate::daemon::ytdlp::create_ytdlp_task;
 use crate::lock_or_err;
 
@@ -921,12 +923,17 @@ async fn background_size_probe(state: SharedState, task_id: String, url: String)
 /// Start a previously-created curl task by its ID. Called by the background
 /// resolver once metadata is ready, or as a fallback if the probe fails.
 fn start_curl_task_by_id(state: &SharedState, task_id: &str) {
-    // Transition the task status to "downloading" in the snapshot.
+    // Metadata resolution is complete; expose an explicit Preparing phase.
+    // start_curl_process performs the validated Preparing -> Downloading step.
     if let Ok(mut tasks) = state.task_snapshot.lock() {
         if let Some(task) = tasks.get_mut(task_id) {
-            if task.status == "queued" {
-                task.status = "downloading".to_owned();
-                task.engine_status = Some("starting".to_owned());
+            if TaskState::from_status(&task.status) == Some(TaskState::Queued) {
+                if let Err(error) =
+                    transition_task_state(task, TaskState::Preparing, "starting")
+                {
+                    log::error!("Task {task_id}: could not enter preparing state: {error}");
+                    return;
+                }
             }
         }
     }
@@ -1003,7 +1010,7 @@ pub async fn handle_captures_pending(State(state): State<SharedState>) -> Json<s
     let tasks = list_all_tasks(&state).await;
     let pending: Vec<serde_json::Value> = tasks
         .iter()
-        .filter(|t| t.status == "queued" || t.status == "waiting")
+        .filter(|task| TaskState::from_status(&task.status) == Some(TaskState::Queued))
         .map(|t| {
             serde_json::json!({
                 "id": t.id,
@@ -1024,7 +1031,11 @@ pub async fn handle_stats(State(state): State<SharedState>) -> Json<serde_json::
         .unwrap_or_default();
     let active = {
         let snap = lock_or_err!(state.task_snapshot);
-        snap.values().filter(|t| t.status == "downloading").count()
+        snap.values()
+            .filter(|task| {
+                TaskState::from_status(&task.status).is_some_and(TaskState::is_active)
+            })
+            .count()
     };
     Json(serde_json::json!({
         "totalCompleted": stats.total_completed,
