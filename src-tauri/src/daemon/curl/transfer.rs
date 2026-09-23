@@ -4618,7 +4618,6 @@ mod tests {
         job.task.downloaded_bytes = 64 * 1024;
         if let Some(first) = job.task.segments.first_mut() {
             first.downloaded_bytes = 64 * 1024;
-            first.progress = (64.0 * 1024.0 / payload.len() as f64) as f32;
         }
         state.curl_jobs.lock().unwrap().insert(id.to_owned(), job);
         state.mark_dirty();
