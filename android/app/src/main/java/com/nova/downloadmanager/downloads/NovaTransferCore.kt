@@ -137,6 +137,8 @@ class NovaTransferCore(context: Context) {
     fun task(taskId: String): DownloadSummary? =
         records().firstOrNull { it.id == taskId }?.let(::summary)
 
+    fun isActive(taskId: String): Boolean = ACTIVE_TRANSFER_IDS.contains(taskId)
+
     private fun runNativeTransfer(record: TransferRecord, url: String) {
         var current = record.copy(status = DownloadStatus.Downloading.wireValue)
         updateRecord(current)
