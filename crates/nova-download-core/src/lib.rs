@@ -962,7 +962,7 @@ fn prepare_segment_part(
     // A full-size part without its fsynced completion marker is not trusted:
     // it may be a crash-time/preallocated artifact. Partial files are safe to
     // resume because their representation identity is checked before this call.
-    let existing = if actual > expected_bytes || actual == expected_bytes {
+    let existing = if actual >= expected_bytes {
         if part.exists() {
             let file = OpenOptions::new()
                 .write(true)
@@ -1313,7 +1313,6 @@ pub fn download_http_to_path_segmented(
         |_, _| {},
     )
 }
-
 
 /// Remove every durable artifact owned by the shared HTTP transfer engine.
 ///
