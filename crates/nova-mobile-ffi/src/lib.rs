@@ -468,7 +468,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(nova_download_core::TransportError::RangeResponseRejected { .. })
+            Err(TransportError::RangeResponseRejected { .. })
         ));
     }
 
