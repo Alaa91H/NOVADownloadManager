@@ -150,6 +150,18 @@ impl Handler for SegmentWriter {
         let line = line.trim_end();
         if let Some(rest) = line.strip_prefix("HTTP/") {
             let mut parts = rest.split_whitespace();
+            // A redirect/auth/proxy handshake starts a new response block.
+            // Clear representation metadata so only the final response can
+            // become durable recovery identity.
+            if let Ok(mut cap) = self.progress.capture.lock() {
+                cap.validator = None;
+                cap.validator_is_etag = false;
+                cap.content_range_start = None;
+                cap.digest_sha256 = None;
+                cap.mirrors.clear();
+                cap.content_encoded = false;
+                cap.content_length = None;
+            }
             // The first token is the HTTP version (e.g., "1.1", "2").
             if let Some(ver) = parts.next() {
                 if let Ok(mut cap) = self.progress.capture.lock() {
@@ -193,6 +205,7 @@ impl Handler for SegmentWriter {
             "etag" if crate::daemon::utils::is_strong_etag(value) => {
                 if let Ok(mut cap) = self.progress.capture.lock() {
                     cap.validator = Some(value.to_owned());
+                    cap.validator_is_etag = true;
                 }
             }
             "content-encoding" if !value.eq_ignore_ascii_case("identity") => {
@@ -226,12 +239,18 @@ impl Handler for SegmentWriter {
                 // the slash is the true object size. On a 206 partial response
                 // the Content-Length only describes the current chunk, so the
                 // Content-Range total must take precedence whenever present.
-                if let Some(total) = value
+                let range_start = value
+                    .strip_prefix("bytes ")
+                    .and_then(|rest| rest.split_once('/').map(|(bounds, _)| bounds))
+                    .and_then(|bounds| bounds.split_once('-').map(|(start, _)| start))
+                    .and_then(|start| start.trim().parse::<u64>().ok());
+                let total = value
                     .rsplit('/')
                     .next()
-                    .and_then(|t| t.trim().parse::<u64>().ok())
-                {
-                    if let Ok(mut cap) = self.progress.capture.lock() {
+                    .and_then(|t| t.trim().parse::<u64>().ok());
+                if let Ok(mut cap) = self.progress.capture.lock() {
+                    cap.content_range_start = range_start;
+                    if let Some(total) = total {
                         cap.content_length = Some(total);
                     }
                 }
@@ -240,6 +259,7 @@ impl Handler for SegmentWriter {
                 if let Ok(mut cap) = self.progress.capture.lock() {
                     if cap.validator.is_none() {
                         cap.validator = Some(value.to_owned());
+                        cap.validator_is_etag = false;
                     }
                 }
             }
@@ -432,16 +452,15 @@ pub fn init_download_ssl() {
 }
 
 fn if_range_header(plan: &DirectDownloadPlan) -> Option<String> {
-    let validator = plan.validator.as_ref()?;
+    let mut identity = nova_core_model::ResourceIdentity::default();
     if plan.validator_is_etag {
-        if crate::daemon::utils::is_strong_etag(validator) {
-            Some(format!("If-Range: {validator}"))
-        } else {
-            None
-        }
+        identity.etag = plan.validator.clone();
     } else {
-        Some(format!("If-Range: {validator}"))
+        identity.last_modified = plan.validator.clone();
     }
+    identity
+        .if_range_value()
+        .map(|validator| format!("If-Range: {validator}"))
 }
 
 fn direct_headers(config: &CurlTransferConfig) -> Result<Option<List>, String> {
