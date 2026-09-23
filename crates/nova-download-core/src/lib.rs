@@ -1238,7 +1238,7 @@ mod tests {
     use std::io::ErrorKind;
     use std::net::TcpListener;
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     fn spawn_optional_server(listener: TcpListener, response: &'static [u8]) -> thread::JoinHandle<()> {
         thread::spawn(move || {
@@ -1390,7 +1390,7 @@ mod tests {
             assert!(head_request.starts_with("HEAD /payload.bin HTTP/"));
             head_stream
                 .write_all(
-                    b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\n",
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nETag: \"resume-v1\"\r\nConnection: close\r\n\r\n",
                 )
                 .expect("write HEAD response");
 
@@ -1401,6 +1401,7 @@ mod tests {
                 .expect("read range request");
             let range_request = String::from_utf8_lossy(&range_request[..read]);
             assert!(range_request.contains("Range: bytes=4-7"));
+            assert!(range_request.contains("If-Range: \"resume-v1\""));
             range_stream
                 .write_all(
                     b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 4-7/8\r\nContent-Length: 4\r\nConnection: close\r\n\r\nefgh",
@@ -1414,6 +1415,15 @@ mod tests {
             .as_nanos();
         let path = std::env::temp_dir().join(format!("nova-core-resume-{unique}.part"));
         std::fs::write(&path, b"abcd").expect("seed partial file");
+        write_resume_identity(
+            &path,
+            &ResumeIdentity {
+                content_length: 8,
+                validator_kind: "etag",
+                validator: "\"resume-v1\"".to_owned(),
+            },
+        )
+        .expect("persist resume identity");
 
         let url = format!("http://{address}/payload.bin");
         let result = download_http_to_path(&url, &path).expect("resume transfer");
@@ -1422,6 +1432,169 @@ mod tests {
         assert_eq!(result.resumed_from, 4);
         assert_eq!(result.final_bytes, 8);
         assert_eq!(std::fs::read(&path).expect("read result"), b"abcdefgh");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn stale_identity_discards_same_size_partial_before_resume() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind stale identity server");
+        let address = listener.local_addr().expect("stale identity address");
+        let server = thread::spawn(move || {
+            let (mut head_stream, _) = listener.accept().expect("accept HEAD connection");
+            let mut request = [0_u8; 2048];
+            let _ = head_stream.read(&mut request).expect("read HEAD request");
+            head_stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nETag: \"v2\"\r\nConnection: close\r\n\r\n",
+                )
+                .expect("write HEAD response");
+
+            let (mut range_stream, _) = listener.accept().expect("accept fresh range");
+            let mut request = [0_u8; 2048];
+            let read = range_stream.read(&mut request).expect("read fresh range");
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.contains("Range: bytes=0-7"));
+            assert!(request.contains("If-Range: \"v2\""));
+            range_stream
+                .write_all(
+                    b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-7/8\r\nContent-Length: 8\r\nConnection: close\r\n\r\nABCDEFGH",
+                )
+                .expect("write fresh representation");
+        });
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("nova-core-stale-{unique}.part"));
+        std::fs::write(&path, b"abcd").expect("seed stale bytes");
+        write_resume_identity(
+            &path,
+            &ResumeIdentity {
+                content_length: 8,
+                validator_kind: "etag",
+                validator: "\"v1\"".to_owned(),
+            },
+        )
+        .expect("seed stale identity");
+
+        let url = format!("http://{address}/payload.bin");
+        let result = download_http_to_path(&url, &path).expect("restart stale representation");
+        server.join().expect("stale identity server");
+
+        assert_eq!(result.resumed_from, 0);
+        assert_eq!(std::fs::read(&path).expect("read fresh file"), b"ABCDEFGH");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn existing_partial_without_validator_restarts_with_full_get() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind no-validator server");
+        let address = listener.local_addr().expect("no-validator address");
+        let server = thread::spawn(move || {
+            let (mut head_stream, _) = listener.accept().expect("accept HEAD connection");
+            let mut request = [0_u8; 2048];
+            let _ = head_stream.read(&mut request).expect("read HEAD request");
+            head_stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\n",
+                )
+                .expect("write HEAD response");
+
+            let (mut get_stream, _) = listener.accept().expect("accept full GET");
+            let mut request = [0_u8; 2048];
+            let read = get_stream.read(&mut request).expect("read full GET");
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.starts_with("GET /payload.bin HTTP/"));
+            assert!(!request.contains("Range:"));
+            get_stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\nabcdefgh",
+                )
+                .expect("write full response");
+        });
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("nova-core-unverified-{unique}.part"));
+        std::fs::write(&path, b"stale").expect("seed unverifiable bytes");
+
+        let url = format!("http://{address}/payload.bin");
+        let result = download_http_to_path(&url, &path).expect("safe full restart");
+        server.join().expect("no-validator server");
+
+        assert_eq!(result.resumed_from, 0);
+        assert_eq!(std::fs::read(&path).expect("read restarted file"), b"abcdefgh");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn segmented_transfer_downloads_parallel_ranges_and_merges_in_order() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind segmented server");
+        let address = listener.local_addr().expect("segmented server address");
+        let server = thread::spawn(move || {
+            let (mut head_stream, _) = listener.accept().expect("accept HEAD connection");
+            let mut request = [0_u8; 2048];
+            let _ = head_stream.read(&mut request).expect("read HEAD request");
+            head_stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nETag: \"seg-v1\"\r\nConnection: close\r\n\r\n",
+                )
+                .expect("write HEAD response");
+
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().expect("accept segment connection");
+                let mut request = [0_u8; 2048];
+                let read = stream.read(&mut request).expect("read segment request");
+                let request = String::from_utf8_lossy(&request[..read]);
+                assert!(request.contains("If-Range: \"seg-v1\""));
+                if request.contains("Range: bytes=0-3") {
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-3/8\r\nContent-Length: 4\r\nConnection: close\r\n\r\nabcd",
+                        )
+                        .expect("write first range");
+                } else if request.contains("Range: bytes=4-7") {
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 4-7/8\r\nContent-Length: 4\r\nConnection: close\r\n\r\nefgh",
+                        )
+                        .expect("write second range");
+                } else {
+                    panic!("unexpected segmented request: {request}");
+                }
+            }
+        });
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("nova-core-segmented-{unique}.part"));
+        let latest_progress = AtomicU64::new(0);
+        let url = format!("http://{address}/payload.bin");
+        let result = download_http_to_path_segmented_controlled(
+            &url,
+            &path,
+            2,
+            || TransferControl::Continue,
+            |downloaded, total| {
+                assert_eq!(total, Some(8));
+                latest_progress.store(downloaded, Ordering::Release);
+            },
+        )
+        .expect("parallel segmented transfer");
+        server.join().expect("segmented server");
+
+        assert_eq!(result.final_bytes, 8);
+        assert_eq!(result.resumed_from, 0);
+        assert_eq!(latest_progress.load(Ordering::Acquire), 8);
+        assert_eq!(std::fs::read(&path).expect("read merged result"), b"abcdefgh");
+        assert!(!resume_identity_path(&path).exists());
+        assert!(!segment_part_path(&path, 0).exists());
+        assert!(!segment_part_path(&path, 1).exists());
         let _ = std::fs::remove_file(path);
     }
 
