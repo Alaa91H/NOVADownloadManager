@@ -14,6 +14,8 @@ internal object NovaNativeCore {
     private const val RESUME_APPEND = 0
     private const val RESUME_RESTART = 1
     private const val MISSING_CONTENT_RANGE = -1L
+    private const val NATIVE_TRANSFER_PAUSED = -2L
+    private const val NATIVE_TRANSFER_CANCELLED = -3L
 
     internal data class ByteRange(
         val start: Long,
@@ -32,6 +34,17 @@ internal object NovaNativeCore {
         APPEND,
         RESTART,
     }
+
+    internal enum class NativeTransferStatus {
+        COMPLETED,
+        PAUSED,
+        CANCELLED,
+    }
+
+    internal data class NativeTransferOutcome(
+        val status: NativeTransferStatus,
+        val finalBytes: Long,
+    )
 
     private val loadFailure: Throwable? = runCatching {
         System.loadLibrary(LIBRARY_NAME)
@@ -61,6 +74,17 @@ internal object NovaNativeCore {
         responseStatus: Int,
         contentRangeStart: Long,
     ): Int
+
+    private external fun nativeDownloadToAppPrivate(
+        taskId: String,
+        url: String,
+        appPrivateRoot: String,
+        relativeDestination: String,
+    ): Long
+
+    private external fun nativePauseTransfer(taskId: String): Boolean
+
+    private external fun nativeCancelTransfer(taskId: String): Boolean
 
     fun requireCompatible(): Int {
         loadFailure?.let { failure ->
@@ -138,4 +162,50 @@ internal object NovaNativeCore {
             else -> error("NOVA native core rejected resume planning inputs")
         }
     }
+
+    /**
+     * Runs one direct transfer entirely through the shared Rust core.
+     *
+     * The destination is constrained by Rust to a path relative to Android's
+     * app-private files root. Public storage is intentionally not exposed here.
+     */
+    fun downloadToAppPrivate(
+        taskId: String,
+        url: String,
+        appPrivateRoot: String,
+        relativeDestination: String,
+    ): NativeTransferOutcome {
+        requireCompatible()
+        require(taskId.isNotBlank()) { "taskId must not be blank" }
+        require(relativeDestination.isNotBlank()) { "relativeDestination must not be blank" }
+
+        return when (
+            val result = nativeDownloadToAppPrivate(
+                taskId,
+                url,
+                appPrivateRoot,
+                relativeDestination,
+            )
+        ) {
+            NATIVE_TRANSFER_PAUSED -> NativeTransferOutcome(NativeTransferStatus.PAUSED, 0)
+            NATIVE_TRANSFER_CANCELLED -> NativeTransferOutcome(NativeTransferStatus.CANCELLED, 0)
+            else -> {
+                check(result >= 0) { "NOVA native app-private transfer failed" }
+                NativeTransferOutcome(NativeTransferStatus.COMPLETED, result)
+            }
+        }
+    }
+
+    fun pauseTransfer(taskId: String): Boolean {
+        requireCompatible()
+        require(taskId.isNotBlank()) { "taskId must not be blank" }
+        return nativePauseTransfer(taskId)
+    }
+
+    fun cancelTransfer(taskId: String): Boolean {
+        requireCompatible()
+        require(taskId.isNotBlank()) { "taskId must not be blank" }
+        return nativeCancelTransfer(taskId)
+    }
+
 }

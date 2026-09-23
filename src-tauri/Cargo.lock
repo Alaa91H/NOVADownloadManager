@@ -2998,6 +2998,7 @@ dependencies = [
  "log",
  "md-5",
  "nova-core-model",
+ "nova-download-core",
  "regex",
  "reqwest",
  "serde",
@@ -3028,6 +3029,15 @@ version = "2.4.25-alpha"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "nova-download-core"
+version = "2.4.48-alpha"
+dependencies = [
+ "curl",
+ "nova-core-model",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

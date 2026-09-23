@@ -236,27 +236,21 @@ impl SegmentPlanner {
         if total_size == 0 {
             return Vec::new();
         }
-        let count = connections
-            .clamp(MIN_CONNECTIONS_PER_DOWNLOAD, self.max_connections)
-            .min(u32::try_from(total_size.max(1)).unwrap_or(self.max_connections))
-            as usize;
-        let base = total_size / count as u64;
-        let rem = total_size % count as u64;
-        let mut ranges = Vec::with_capacity(count);
-        let mut start = 0u64;
-        for index in 0..count {
-            let extra = u64::from(index < rem as usize);
-            let len = base + extra;
-            let end = start.saturating_add(len).saturating_sub(1);
-            ranges.push(SegmentRange {
-                index,
-                start,
-                end,
-                path: part_file_path(output_path, index as u32),
-            });
-            start = end.saturating_add(1);
-        }
-        ranges
+        let requested = connections.clamp(MIN_CONNECTIONS_PER_DOWNLOAD, self.max_connections);
+        nova_download_core::plan_transfer_ranges_with_limit(
+            total_size,
+            requested,
+            self.max_connections,
+        )
+        .into_iter()
+        .enumerate()
+        .map(|(index, range)| SegmentRange {
+            index,
+            start: range.start,
+            end: range.end,
+            path: part_file_path(output_path, index as u32),
+        })
+        .collect()
     }
 }
 
