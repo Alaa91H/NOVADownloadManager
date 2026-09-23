@@ -46,6 +46,12 @@ internal object NovaNativeCore {
         val finalBytes: Long,
     )
 
+
+    internal data class NativeTransferProgress(
+        val downloadedBytes: Long,
+        val totalBytes: Long,
+    )
+
     private val loadFailure: Throwable? = runCatching {
         System.loadLibrary(LIBRARY_NAME)
     }.exceptionOrNull()
@@ -85,6 +91,17 @@ internal object NovaNativeCore {
     private external fun nativePauseTransfer(taskId: String): Boolean
 
     private external fun nativeCancelTransfer(taskId: String): Boolean
+
+    private external fun nativeTransferDownloadedBytes(taskId: String): Long
+
+    private external fun nativeTransferTotalBytes(taskId: String): Long
+
+    private external fun nativeForgetTransferProgress(taskId: String)
+
+    private external fun nativeDiscardAppPrivateTransfer(
+        appPrivateRoot: String,
+        relativeDestination: String,
+    ): Boolean
 
     fun requireCompatible(): Int {
         loadFailure?.let { failure ->
@@ -208,4 +225,30 @@ internal object NovaNativeCore {
         return nativeCancelTransfer(taskId)
     }
 
+    fun transferProgress(taskId: String): NativeTransferProgress? {
+        requireCompatible()
+        require(taskId.isNotBlank()) { "taskId must not be blank" }
+        val downloaded = nativeTransferDownloadedBytes(taskId)
+        val total = nativeTransferTotalBytes(taskId)
+        if (downloaded < 0 || total < 0) return null
+        return NativeTransferProgress(
+            downloadedBytes = downloaded,
+            totalBytes = total,
+        )
+    }
+
+    fun forgetTransferProgress(taskId: String) {
+        requireCompatible()
+        require(taskId.isNotBlank()) { "taskId must not be blank" }
+        nativeForgetTransferProgress(taskId)
+    }
+
+    fun discardAppPrivateTransfer(
+        appPrivateRoot: String,
+        relativeDestination: String,
+    ): Boolean {
+        requireCompatible()
+        require(relativeDestination.isNotBlank()) { "relativeDestination must not be blank" }
+        return nativeDiscardAppPrivateTransfer(appPrivateRoot, relativeDestination)
+    }
 }
