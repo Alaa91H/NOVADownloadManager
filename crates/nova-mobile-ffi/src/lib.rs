@@ -389,6 +389,290 @@ fn stream_http_range<W: Write>(
     })
 }
 
+/// Streams one complete HTTP representation through native libcurl.
+///
+/// Intermediate redirect/auth bodies are discarded. Bytes are allowed into the
+/// destination only after the final header block proves a normal 200 response,
+/// preventing HTML error bodies or redirect pages from becoming downloads.
+fn stream_http_download<W: Write>(
+    url: &str,
+    sink: &mut W,
+    task: &NativeTransferTask,
+) -> Result<HttpResourceProbe, TransportError> {
+    let mut easy = Easy::new();
+    easy.url(url).map_err(transport_error)?;
+    easy.follow_location(true).map_err(transport_error)?;
+    easy.max_redirections(10).map_err(transport_error)?;
+    easy.connect_timeout(Duration::from_secs(15))
+        .map_err(transport_error)?;
+    easy.accept_encoding("identity").map_err(transport_error)?;
+    easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
+        .map_err(transport_error)?;
+    easy.progress(true).map_err(transport_error)?;
+
+    let header_status = Cell::new(None::<u16>);
+    let content_length = Cell::new(None::<u64>);
+    let headers_validated = Cell::new(false);
+    let validators = RefCell::new((None::<String>, None::<String>));
+    let sink_error = RefCell::new(None::<String>);
+
+    let perform_result = {
+        let mut transfer = easy.transfer();
+        transfer
+            .header_function(|header| {
+                if let Some(status) = parse_http_status(header) {
+                    header_status.set(Some(status));
+                    content_length.set(None);
+                    headers_validated.set(false);
+                    validators.replace((None, None));
+                    return true;
+                }
+
+                if header == b"\r\n" || header == b"\n" {
+                    let valid = header_status.get() == Some(200);
+                    headers_validated.set(valid);
+                    if valid {
+                        if let Some(length) = content_length.get() {
+                            task.total_bytes.store(length, Ordering::Release);
+                        }
+                    }
+                    return true;
+                }
+
+                if let Some(length) = parse_content_length(header) {
+                    content_length.set(Some(length));
+                    return true;
+                }
+
+                if let Ok(line) = std::str::from_utf8(header) {
+                    if let Some((name, value)) = line.trim().split_once(':') {
+                        let mut identity = validators.borrow_mut();
+                        if name.eq_ignore_ascii_case("etag") {
+                            identity.0 = Some(value.trim().to_owned());
+                        } else if name.eq_ignore_ascii_case("last-modified") {
+                            identity.1 = Some(value.trim().to_owned());
+                        }
+                    }
+                }
+                true
+            })
+            .map_err(transport_error)?;
+
+        transfer
+            .write_function(|data| {
+                if task.cancel.load(Ordering::Acquire) {
+                    return Ok(0);
+                }
+                if !headers_validated.get() {
+                    // libcurl may expose redirect/error response bodies before
+                    // the final response is known. Consume and discard them.
+                    return Ok(data.len());
+                }
+
+                if let Err(error) = sink.write_all(data) {
+                    sink_error.replace(Some(format!(
+                        "failed to persist native download payload: {error}"
+                    )));
+                    return Ok(0);
+                }
+                task.downloaded_bytes
+                    .fetch_add(data.len() as u64, Ordering::Release);
+                Ok(data.len())
+            })
+            .map_err(transport_error)?;
+
+        transfer
+            .progress_function(|download_total, _, _, _| {
+                if headers_validated.get()
+                    && download_total.is_finite()
+                    && download_total > 0.0
+                    && download_total <= u64::MAX as f64
+                {
+                    task.total_bytes
+                        .store(download_total as u64, Ordering::Release);
+                }
+                task.cancel.load(Ordering::Acquire)
+            })
+            .map_err(transport_error)?;
+
+        transfer.perform()
+    };
+
+    if task.cancel.load(Ordering::Acquire) {
+        return Err(TransportError::Cancelled);
+    }
+    if let Some(message) = sink_error.into_inner() {
+        return Err(TransportError::RequestFailed { message });
+    }
+    perform_result.map_err(transport_error)?;
+
+    let status = easy.response_code().map_err(transport_error)?;
+    let response_status =
+        u16::try_from(status).map_err(|_| TransportError::InvalidStatus { status })?;
+    if response_status != 200 || !headers_validated.get() {
+        return Err(TransportError::RequestFailed {
+            message: format!("expected final HTTP 200 response, got {response_status}"),
+        });
+    }
+
+    let downloaded = task.downloaded_bytes.load(Ordering::Acquire);
+    if let Some(expected) = content_length.get() {
+        if downloaded != expected {
+            return Err(TransportError::RequestFailed {
+                message: format!(
+                    "native download length mismatch: expected {expected} bytes, got {downloaded}"
+                ),
+            });
+        }
+    } else {
+        task.total_bytes.store(downloaded, Ordering::Release);
+    }
+
+    let effective_url = easy
+        .effective_url()
+        .map_err(transport_error)?
+        .unwrap_or(url)
+        .to_owned();
+    let (etag, last_modified) = validators.into_inner();
+
+    Ok(HttpResourceProbe {
+        response_status,
+        content_length: content_length.get().or(Some(downloaded)),
+        effective_url,
+        etag,
+        last_modified,
+    })
+}
+
+fn run_native_http_transfer(
+    url: String,
+    mut destination: File,
+    task: Arc<NativeTransferTask>,
+) {
+    task.set_status(NativeTransferStatus::Downloading);
+    task.downloaded_bytes.store(0, Ordering::Release);
+    task.total_bytes.store(0, Ordering::Release);
+
+    let result = (|| -> Result<(), TransportError> {
+        destination
+            .set_len(0)
+            .map_err(|error| TransportError::RequestFailed {
+                message: format!("could not truncate native destination: {error}"),
+            })?;
+        destination
+            .seek(SeekFrom::Start(0))
+            .map_err(|error| TransportError::RequestFailed {
+                message: format!("could not seek native destination: {error}"),
+            })?;
+
+        stream_http_download(&url, &mut destination, &task)?;
+        destination
+            .flush()
+            .map_err(|error| TransportError::RequestFailed {
+                message: format!("could not flush native destination: {error}"),
+            })?;
+        destination
+            .sync_all()
+            .map_err(|error| TransportError::RequestFailed {
+                message: format!("could not sync native destination: {error}"),
+            })?;
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => task.set_status(NativeTransferStatus::Completed),
+        Err(TransportError::Cancelled) => task.set_status(NativeTransferStatus::Cancelled),
+        Err(error) => {
+            if let Ok(mut message) = task.error_message.lock() {
+                *message = Some(error.to_string());
+            }
+            task.set_status(NativeTransferStatus::Failed);
+        }
+    }
+}
+
+fn start_native_http_transfer_with_file(
+    url: String,
+    destination: File,
+) -> Result<u64, TransportError> {
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err(TransportError::RequestFailed {
+            message: "native transfers accept only HTTP(S) URLs".to_owned(),
+        });
+    }
+
+    let task_id = next_native_transfer_id();
+    let task = Arc::new(NativeTransferTask::new(task_id));
+    {
+        let mut registry =
+            native_transfer_registry()
+                .lock()
+                .map_err(|_| TransportError::RequestFailed {
+                    message: "native transfer registry is unavailable".to_owned(),
+                })?;
+        registry.insert(task_id, task.clone());
+    }
+
+    let spawn = std::thread::Builder::new()
+        .name(format!("nova-transfer-{task_id}"))
+        .spawn(move || run_native_http_transfer(url, destination, task));
+
+    if let Err(error) = spawn {
+        if let Ok(mut registry) = native_transfer_registry().lock() {
+            registry.remove(&task_id);
+        }
+        return Err(TransportError::RequestFailed {
+            message: format!("could not start native transfer thread: {error}"),
+        });
+    }
+
+    Ok(task_id)
+}
+
+/// Returns the latest process-local native transfer state.
+#[uniffi::export]
+pub fn native_transfer_snapshot(task_id: u64) -> Option<NativeTransferSnapshot> {
+    native_transfer_registry()
+        .lock()
+        .ok()
+        .and_then(|registry| registry.get(&task_id).cloned())
+        .map(|task| task.snapshot())
+}
+
+/// Requests cancellation of a live native transfer.
+#[uniffi::export]
+pub fn cancel_native_transfer(task_id: u64) -> bool {
+    let task = native_transfer_registry()
+        .lock()
+        .ok()
+        .and_then(|registry| registry.get(&task_id).cloned());
+    let Some(task) = task else {
+        return false;
+    };
+    task.cancel.store(true, Ordering::Release);
+    true
+}
+
+/// Releases a terminal task snapshot from the process-local registry.
+#[uniffi::export]
+pub fn forget_native_transfer(task_id: u64) -> bool {
+    let Ok(mut registry) = native_transfer_registry().lock() else {
+        return false;
+    };
+    let terminal = registry.get(&task_id).is_some_and(|task| {
+        matches!(
+            task.snapshot().status,
+            NativeTransferStatus::Completed
+                | NativeTransferStatus::Failed
+                | NativeTransferStatus::Cancelled
+        )
+    });
+    if terminal {
+        registry.remove(&task_id);
+    }
+    terminal
+}
+
 /// Validates that a mobile client and the Rust core agree on the public bridge
 /// contract before any task command is accepted.
 #[uniffi::export]
