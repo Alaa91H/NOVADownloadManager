@@ -13,6 +13,7 @@ name = "nova_mobile_ffi"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
+nova-core-model = { path = "../nova-core-model" }
 nova-download-core = { path = "../nova-download-core", features = ["http2", "rustls", "static-curl"] }
 nova-mobile-core = { path = "../nova-mobile-core", features = ["http2", "rustls", "static-curl"] }
 thiserror = "2"
