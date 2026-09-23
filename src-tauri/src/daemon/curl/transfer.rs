@@ -3414,6 +3414,48 @@ mod tests {
     }
 
     #[test]
+    fn recovery_validator_requires_exact_partial_range_confirmation() {
+        let capture = Arc::new(Mutex::new(ResponseCapture {
+            status_code: 206,
+            validator: Some("\"stable-v1\"".to_owned()),
+            validator_is_etag: true,
+            content_range_start: Some(512),
+            content_length: Some(1024),
+            ..ResponseCapture::default()
+        }));
+
+        assert_eq!(
+            safe_recovery_validator(&capture, Some(512), true),
+            Some(("\"stable-v1\"".to_owned(), true))
+        );
+
+        capture.lock().unwrap().content_range_start = Some(256);
+        assert_eq!(safe_recovery_validator(&capture, Some(512), true), None);
+
+        let mut cap = capture.lock().unwrap();
+        cap.status_code = 200;
+        cap.content_range_start = None;
+        drop(cap);
+        assert_eq!(safe_recovery_validator(&capture, Some(512), true), None);
+    }
+
+    #[test]
+    fn fresh_transfer_can_checkpoint_final_response_validator() {
+        let capture = Arc::new(Mutex::new(ResponseCapture {
+            status_code: 200,
+            validator: Some("Wed, 21 Oct 2015 07:28:00 GMT".to_owned()),
+            validator_is_etag: false,
+            content_length: Some(1024),
+            ..ResponseCapture::default()
+        }));
+
+        assert_eq!(
+            safe_recovery_validator(&capture, None, false),
+            Some(("Wed, 21 Oct 2015 07:28:00 GMT".to_owned(), false))
+        );
+    }
+
+    #[test]
     fn next_progress_total_transitions_unknown_to_known_without_backward_jump() {
         // The UI handoff this function exists for: a download starts with an
         // unknown size (indeterminate bar), then the response headers reveal
