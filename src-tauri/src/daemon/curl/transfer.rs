@@ -159,6 +159,25 @@ fn build_decision_context(
     }
 }
 
+fn transition_runtime_task_state(
+    state: &SharedState,
+    id: &str,
+    next: TaskState,
+    engine_status: &str,
+) -> Result<(), String> {
+    let task = {
+        let mut jobs = lock_or_err!(state.curl_jobs);
+        let job = jobs
+            .get_mut(id)
+            .ok_or_else(|| format!("Task {id} disappeared during lifecycle transition"))?;
+        transition_task_state(&mut job.task, next, engine_status)?;
+        job.task.clone()
+    };
+    lock_or_err!(state.task_snapshot).insert(id.to_owned(), task);
+    state.mark_dirty();
+    Ok(())
+}
+
 pub fn task_from_body(
     body: &crate::daemon::types::CreateDownloadBody,
     id: &str,
@@ -187,9 +206,9 @@ pub fn task_from_body(
         url: body.url.as_deref().unwrap_or("").to_owned(),
         file_type,
         status: if body.start_immediately.unwrap_or(true) {
-            "downloading"
+            TaskState::Preparing.as_status()
         } else {
-            "queued"
+            TaskState::Queued.as_status()
         }
         .to_owned(),
         size_bytes: initial_size,
@@ -2396,24 +2415,25 @@ fn run_libcurl_download(
     #[allow(unused_assignments)]
     let mut preflight = PreflightData::default();
     {
-        if let Ok(mut jobs) = state.curl_jobs.lock() {
-            if let Some(job) = jobs.get_mut(id) {
-                job.task.engine_status = Some("resolving-url".to_owned());
-            }
+        if cancel.load(Ordering::Acquire) {
+            return Err("cancelled".to_owned());
         }
-        state.mark_dirty();
+        transition_runtime_task_state(state, id, TaskState::Probing, "resolving-url")?;
 
         let resolved = resolve_effective_target(&plan);
         let effective_url = resolved.0;
         supports_range = resolved.1;
         preflight = resolved.2;
 
-        if let Ok(mut jobs) = state.curl_jobs.lock() {
-            if let Some(job) = jobs.get_mut(id) {
-                job.task.engine_status = Some("running-libcurl-multi".to_owned());
-            }
+        if cancel.load(Ordering::Acquire) {
+            return Err("cancelled".to_owned());
         }
-        state.mark_dirty();
+        transition_runtime_task_state(
+            state,
+            id,
+            TaskState::Downloading,
+            "running-libcurl-multi",
+        )?;
 
         if effective_url != plan.url {
             log::info!(
@@ -2573,6 +2593,14 @@ fn run_libcurl_download(
     for attempt in 0..retry_policy.attempts {
         if cancel.load(Ordering::Acquire) {
             return Err("cancelled".to_owned());
+        }
+        if attempt > 0 {
+            transition_runtime_task_state(
+                state,
+                id,
+                TaskState::Downloading,
+                "running-libcurl-multi",
+            )?;
         }
         log::debug!(
             "[RETRY] task={id} attempt={} max_attempts={} elapsed_ms={} last_error={}",
@@ -2791,10 +2819,22 @@ fn run_libcurl_download(
                     log::info!(
                         "Segmented attempt failed for task {id}; trying single-connection fallback"
                     );
+                    transition_runtime_task_state(
+                        state,
+                        id,
+                        TaskState::Recovering,
+                        "recovering-single-connection",
+                    )?;
                     plan.segmented = false;
                     if cancel.load(Ordering::Acquire) {
                         return Err("cancelled".to_owned());
                     }
+                    transition_runtime_task_state(
+                        state,
+                        id,
+                        TaskState::Downloading,
+                        "fallback-single-connection",
+                    )?;
                     match run_single_libcurl(
                         state,
                         id,
@@ -2827,6 +2867,12 @@ fn run_libcurl_download(
                 }
                 last_error = error;
                 if attempt + 1 < retry_policy.attempts {
+                    transition_runtime_task_state(
+                        state,
+                        id,
+                        TaskState::Retrying,
+                        "retrying",
+                    )?;
                     let hinted = retry_after.swap(0, Ordering::AcqRel);
                     // Use the self-healer's recommended pause if available,
                     // otherwise fall back to Retry-After header or exponential backoff.
@@ -3120,9 +3166,9 @@ pub fn start_curl_process(state: &SharedState, id: &str) {
             .fetch_add(1, Ordering::Release)
             .saturating_add(1);
         if let Err(error) =
-            transition_task_state(&mut job.task, TaskState::Downloading, "running-libcurl-multi")
+            transition_task_state(&mut job.task, TaskState::Preparing, "starting")
         {
-            log::error!("Task {id}: cannot start libcurl worker: {error}");
+            log::error!("Task {id}: cannot prepare libcurl worker: {error}");
             return;
         }
         job.task.error_message = None;
