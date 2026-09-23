@@ -7,14 +7,17 @@
 
 use curl::easy::Easy;
 use std::cell::{Cell, RefCell};
-use std::io::Write;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{Seek, SeekFrom, Write};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 uniffi::setup_scaffolding!();
 
 /// Increment when a bridge change is not backward compatible.
-pub const BRIDGE_API_VERSION: u32 = 2;
+pub const BRIDGE_API_VERSION: u32 = 3;
 
 /// Typed capability and compatibility information returned before a mobile
 /// client creates a core session.
@@ -38,6 +41,107 @@ pub struct TransferRange {
 pub enum ResumeAction {
     Append,
     Restart,
+}
+
+
+/// Process-local lifecycle state for a native Android transfer.
+///
+/// Durable restart metadata remains owned by the shared recovery contract; this
+/// enum describes only the currently running native task instance.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Enum)]
+pub enum NativeTransferStatus {
+    Queued,
+    Downloading,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl NativeTransferStatus {
+    fn code(self) -> u8 {
+        match self {
+            Self::Queued => 0,
+            Self::Downloading => 1,
+            Self::Completed => 2,
+            Self::Failed => 3,
+            Self::Cancelled => 4,
+        }
+    }
+
+    fn from_code(code: u8) -> Self {
+        match code {
+            0 => Self::Queued,
+            1 => Self::Downloading,
+            2 => Self::Completed,
+            4 => Self::Cancelled,
+            _ => Self::Failed,
+        }
+    }
+}
+
+/// Stable snapshot of one process-local native transfer.
+#[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
+pub struct NativeTransferSnapshot {
+    pub id: u64,
+    pub status: NativeTransferStatus,
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
+    pub error_message: Option<String>,
+}
+
+struct NativeTransferTask {
+    id: u64,
+    status: AtomicU8,
+    downloaded_bytes: AtomicU64,
+    total_bytes: AtomicU64,
+    cancel: AtomicBool,
+    error_message: Mutex<Option<String>>,
+}
+
+impl NativeTransferTask {
+    fn new(id: u64) -> Self {
+        Self {
+            id,
+            status: AtomicU8::new(NativeTransferStatus::Queued.code()),
+            downloaded_bytes: AtomicU64::new(0),
+            total_bytes: AtomicU64::new(0),
+            cancel: AtomicBool::new(false),
+            error_message: Mutex::new(None),
+        }
+    }
+
+    fn set_status(&self, status: NativeTransferStatus) {
+        self.status.store(status.code(), Ordering::Release);
+    }
+
+    fn snapshot(&self) -> NativeTransferSnapshot {
+        NativeTransferSnapshot {
+            id: self.id,
+            status: NativeTransferStatus::from_code(self.status.load(Ordering::Acquire)),
+            downloaded_bytes: self.downloaded_bytes.load(Ordering::Acquire),
+            total_bytes: self.total_bytes.load(Ordering::Acquire),
+            error_message: self.error_message.lock().ok().and_then(|value| value.clone()),
+        }
+    }
+}
+
+fn native_transfer_registry() -> &'static Mutex<HashMap<u64, Arc<NativeTransferTask>>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<u64, Arc<NativeTransferTask>>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn next_native_transfer_id() -> u64 {
+    static NEXT_ID: OnceLock<AtomicU64> = OnceLock::new();
+    let counter = NEXT_ID.get_or_init(|| {
+        let millis = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        // Keep the sign bit clear so the identifier always fits Kotlin Long.
+        let seed = (millis & ((1_u64 << 47) - 1)) << 16;
+        AtomicU64::new(seed.max(1))
+    });
+    counter.fetch_add(1, Ordering::Relaxed)
 }
 
 /// HTTP metadata collected by NOVA's native libcurl transport.
@@ -101,6 +205,8 @@ pub enum TransportError {
     InvalidRange { start: u64, end: u64 },
     #[error("native HTTP range response rejected: {message}")]
     RangeResponseRejected { message: String },
+    #[error("native HTTP transfer was cancelled")]
+    Cancelled,
 }
 
 fn transport_error(error: curl::Error) -> TransportError {
@@ -115,6 +221,15 @@ fn parse_http_status(header: &[u8]) -> Option<u16> {
         return None;
     }
     line.split_whitespace().nth(1)?.parse().ok()
+}
+
+fn parse_content_length(header: &[u8]) -> Option<u64> {
+    let line = std::str::from_utf8(header).ok()?.trim();
+    let (name, value) = line.split_once(':')?;
+    if !name.eq_ignore_ascii_case("content-length") {
+        return None;
+    }
+    value.trim().parse().ok()
 }
 
 fn parse_content_range(header: &[u8]) -> Option<(u64, u64)> {
