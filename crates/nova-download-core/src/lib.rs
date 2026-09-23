@@ -55,7 +55,7 @@ impl ResumeIdentity {
         } else {
             ("last-modified", probe.last_modified.as_deref()?)
         };
-        if validator.contains(['\r', '\n']) {
+        if validator.contains('\r') || validator.contains('\n') {
             return None;
         }
         Some(Self {
@@ -198,7 +198,7 @@ fn read_resume_identity(destination: &Path) -> Option<ResumeIdentity> {
         _ => return None,
     };
     let validator = lines.next()?.to_owned();
-    if validator.is_empty() || validator.contains(['\r', '\n']) {
+    if validator.is_empty() || validator.contains('\r') || validator.contains('\n') {
         return None;
     }
     Some(ResumeIdentity {
@@ -288,6 +288,29 @@ pub fn probe_http_resource(url: &str) -> Result<HttpResourceProbe, TransportErro
     easy.accept_encoding("identity").map_err(transport_error)?;
     easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
         .map_err(transport_error)?;
+
+    // libcurl reports headers for every redirect/auth response. Keep only the
+    // validator set belonging to the final response block.
+    let validators = Arc::new(Mutex::new((None::<String>, None::<String>)));
+    let validators_for_headers = Arc::clone(&validators);
+    easy.header_function(move |header| {
+        if parse_http_status(header).is_some() {
+            if let Ok(mut values) = validators_for_headers.lock() {
+                *values = (None, None);
+            }
+            return true;
+        }
+        if let Ok(mut values) = validators_for_headers.lock() {
+            if let Some(etag) = parse_header_value(header, "etag") {
+                values.0 = Some(etag);
+            } else if let Some(last_modified) = parse_header_value(header, "last-modified") {
+                values.1 = Some(last_modified);
+            }
+        }
+        true
+    })
+    .map_err(transport_error)?;
+
     easy.perform().map_err(transport_error)?;
 
     let status = easy.response_code().map_err(transport_error)?;
@@ -309,10 +332,17 @@ pub fn probe_http_resource(url: &str) -> Result<HttpResourceProbe, TransportErro
         .unwrap_or(url)
         .to_owned();
 
+    let (etag, last_modified) = validators
+        .lock()
+        .map(|values| values.clone())
+        .unwrap_or((None, None));
+
     Ok(HttpResourceProbe {
         response_status,
         content_length,
         effective_url,
+        etag,
+        last_modified,
     })
 }
 
