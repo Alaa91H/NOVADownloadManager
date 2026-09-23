@@ -38,7 +38,7 @@ use tower_http::limit::RequestBodyLimitLayer;
 use crate::daemon::state::{AppState, SharedState};
 use crate::daemon::static_files::{serve_asset, serve_index, serve_spa_fallback};
 use crate::daemon::telegram::start_telegram_bot;
-use crate::daemon::types::{CreateDownloadBody, CurlJob, MediaJob, TelegramConfig};
+use crate::daemon::types::{CreateDownloadBody, CurlJob, MediaJob, TaskState, TelegramConfig};
 use crate::lock_or_err;
 
 use crate::daemon::engine::extractor::{ExtractorRegistry, SharedExtractorRegistry};
@@ -842,12 +842,15 @@ fn restore_persisted_tasks(
             }
         }
 
-        let was_running = matches!(
-            task.status.as_str(),
-            "downloading" | "queued" | "waiting" | "starting" | "pausing" | "stopping"
-        );
+        let restored_state = TaskState::from_status(&task.status);
+        let was_running = restored_state.is_some_and(|state| {
+            state.is_active() || state == TaskState::Queued
+        });
         if was_running {
-            task.status = "paused".to_owned();
+            // A process restart interrupts every active phase, including the
+            // new Verifying/Finalizing states. Preserve the public paused
+            // compatibility state while recording the interruption reason.
+            task.status = TaskState::Paused.as_status().to_owned();
             task.engine_status = Some("interrupted".to_owned());
             task.speed_bytes_per_sec = 0;
         }
