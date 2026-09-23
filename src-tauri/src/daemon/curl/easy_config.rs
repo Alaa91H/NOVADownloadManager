@@ -148,6 +148,32 @@ impl Handler for SegmentWriter {
             return true;
         };
         let line = line.trim_end();
+        if line.is_empty() && self.progress.expects_206 {
+            let (status_code, content_range_start) = self
+                .progress
+                .capture
+                .lock()
+                .ok()
+                .map(|cap| (cap.status_code, cap.content_range_start))
+                .unwrap_or((0, None));
+            if matches!(status_code, 200 | 206) {
+                let safe = self.progress.expected_range_start.is_some_and(|expected| {
+                    if expected == 0 {
+                        status_code == 206 && content_range_start == Some(0)
+                    } else {
+                        nova_core_model::plan_http_resume(
+                            expected,
+                            status_code,
+                            content_range_start,
+                        ) == nova_core_model::ResumeAction::Append
+                    }
+                });
+                if !safe {
+                    self.progress.range_rejected.store(true, Ordering::Release);
+                }
+            }
+            return true;
+        }
         if let Some(rest) = line.strip_prefix("HTTP/") {
             let mut parts = rest.split_whitespace();
             // A redirect/auth/proxy handshake starts a new response block.
