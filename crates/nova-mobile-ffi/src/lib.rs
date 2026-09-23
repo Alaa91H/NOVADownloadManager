@@ -990,9 +990,14 @@ fn android_start_native_http_transfer(url: String, destination_fd: i32) -> i64 {
         return -1;
     }
 
-    // Kotlin calls ParcelFileDescriptor.detachFd(), transferring ownership of
-    // this descriptor to Rust. File owns and closes it when the transfer ends.
-    let destination = unsafe { File::from_raw_fd(destination_fd) };
+    // Android owns the ParcelFileDescriptor passed across JNI. Duplicate it
+    // before returning so Kotlin can close its descriptor immediately while
+    // the native worker retains an independent lifetime.
+    let duplicated_fd = unsafe { libc::dup(destination_fd) };
+    if duplicated_fd < 0 {
+        return -1;
+    }
+    let destination = unsafe { File::from_raw_fd(duplicated_fd) };
     start_native_http_transfer_with_file(url, destination)
         .ok()
         .and_then(|id| i64::try_from(id).ok())
