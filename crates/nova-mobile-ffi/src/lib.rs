@@ -8,7 +8,7 @@
 uniffi::setup_scaffolding!();
 
 /// Increment when a bridge change is not backward compatible.
-pub const BRIDGE_API_VERSION: u32 = 1;
+pub const BRIDGE_API_VERSION: u32 = 2;
 
 /// Typed capability and compatibility information returned before a mobile
 /// client creates a core session.
@@ -39,6 +39,14 @@ pub struct HttpResourceProbe {
     pub response_status: u16,
     pub content_length: Option<u64>,
     pub effective_url: String,
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Record)]
+pub struct NativeTransferProgress {
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
 }
 
 /// Result of a validated bounded ranged GET performed entirely by libcurl.
@@ -130,6 +138,8 @@ pub fn probe_http_resource(url: String) -> Result<HttpResourceProbe, TransportEr
             response_status: probe.response_status,
             content_length: probe.content_length,
             effective_url: probe.effective_url,
+            etag: probe.etag,
+            last_modified: probe.last_modified,
         })
         .map_err(TransportError::from)
 }
@@ -188,6 +198,20 @@ pub fn plan_http_resume(
         nova_download_core::ResumeAction::Append => ResumeAction::Append,
         nova_download_core::ResumeAction::Restart => ResumeAction::Restart,
     }
+}
+
+
+#[uniffi::export]
+pub fn transfer_progress(task_id: String) -> Option<NativeTransferProgress> {
+    nova_mobile_core::transfer_progress(&task_id).map(|progress| NativeTransferProgress {
+        downloaded_bytes: progress.downloaded_bytes,
+        total_bytes: progress.total_bytes,
+    })
+}
+
+#[uniffi::export]
+pub fn forget_transfer_progress(task_id: String) {
+    nova_mobile_core::forget_transfer_progress(&task_id);
 }
 
 /// Narrow primitive used by Android before the generated high-level task API is
@@ -445,6 +469,91 @@ pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeC
         Ok(task_id) => u8::from(nova_mobile_core::cancel_transfer(&task_id)),
         Err(message) => {
             throw_android_transfer_error(&mut env, message);
+            0
+        }
+    }
+}
+
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeTransferDownloadedBytes(
+    mut env: jni::JNIEnv<'_>,
+    _receiver: jni::objects::JObject<'_>,
+    task_id: jni::objects::JString<'_>,
+) -> jni::sys::jlong {
+    match jni_string(&mut env, &task_id, "native task id") {
+        Ok(task_id) => nova_mobile_core::transfer_progress(&task_id)
+            .and_then(|progress| i64::try_from(progress.downloaded_bytes).ok())
+            .unwrap_or(-1),
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            -1
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeTransferTotalBytes(
+    mut env: jni::JNIEnv<'_>,
+    _receiver: jni::objects::JObject<'_>,
+    task_id: jni::objects::JString<'_>,
+) -> jni::sys::jlong {
+    match jni_string(&mut env, &task_id, "native task id") {
+        Ok(task_id) => nova_mobile_core::transfer_progress(&task_id)
+            .and_then(|progress| i64::try_from(progress.total_bytes).ok())
+            .unwrap_or(-1),
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            -1
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeForgetTransferProgress(
+    mut env: jni::JNIEnv<'_>,
+    _receiver: jni::objects::JObject<'_>,
+    task_id: jni::objects::JString<'_>,
+) {
+    if let Ok(task_id) = jni_string(&mut env, &task_id, "native task id") {
+        nova_mobile_core::forget_transfer_progress(&task_id);
+    }
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeDiscardAppPrivateTransfer(
+    mut env: jni::JNIEnv<'_>,
+    _receiver: jni::objects::JObject<'_>,
+    app_private_root: jni::objects::JString<'_>,
+    relative_destination: jni::objects::JString<'_>,
+) -> jni::sys::jboolean {
+    let app_private_root = match jni_string(&mut env, &app_private_root, "app-private root") {
+        Ok(value) => value,
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            return 0;
+        }
+    };
+    let relative_destination =
+        match jni_string(&mut env, &relative_destination, "relative destination") {
+            Ok(value) => value,
+            Err(message) => {
+                throw_android_transfer_error(&mut env, message);
+                return 0;
+            }
+        };
+
+    match nova_mobile_core::discard_app_private_transfer(
+        std::path::Path::new(&app_private_root),
+        std::path::Path::new(&relative_destination),
+    ) {
+        Ok(()) => 1,
+        Err(error) => {
+            throw_android_transfer_error(&mut env, error.to_string());
             0
         }
     }
