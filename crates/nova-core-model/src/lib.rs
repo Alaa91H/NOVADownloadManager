@@ -124,10 +124,7 @@ impl TaskState {
                     | Self::Failed
             ),
             Self::Pausing => matches!(next, Self::Paused | Self::Failed),
-            Self::Paused => matches!(
-                next,
-                Self::Queued | Self::Preparing | Self::Failed
-            ),
+            Self::Paused => matches!(next, Self::Queued | Self::Failed),
             Self::Retrying => matches!(
                 next,
                 Self::Probing
@@ -149,10 +146,7 @@ impl TaskState {
             Self::Verifying => matches!(next, Self::Finalizing | Self::Failed),
             Self::Finalizing => matches!(next, Self::Completed | Self::Failed),
             Self::Completed => false,
-            Self::Failed => matches!(
-                next,
-                Self::Queued | Self::Preparing | Self::Paused
-            ),
+            Self::Failed => matches!(next, Self::Queued | Self::Paused),
             Self::Interrupted => matches!(
                 next,
                 Self::Paused | Self::Queued | Self::Preparing | Self::Failed
@@ -440,6 +434,17 @@ mod tests {
         assert!(TaskState::Downloading.can_transition_to(TaskState::Verifying));
         assert!(TaskState::Verifying.can_transition_to(TaskState::Finalizing));
         assert!(TaskState::Finalizing.can_transition_to(TaskState::Completed));
+    }
+
+    #[test]
+    fn paused_or_failed_task_must_requeue_before_starting() {
+        assert!(!TaskState::Paused.can_transition_to(TaskState::Preparing));
+        assert!(!TaskState::Failed.can_transition_to(TaskState::Preparing));
+        assert!(!TaskState::Interrupted.can_transition_to(TaskState::Preparing));
+        assert!(TaskState::Paused.can_transition_to(TaskState::Queued));
+        assert!(TaskState::Failed.can_transition_to(TaskState::Queued));
+        assert!(TaskState::Interrupted.can_transition_to(TaskState::Queued));
+        assert!(TaskState::Queued.can_transition_to(TaskState::Preparing));
     }
 
     #[test]
