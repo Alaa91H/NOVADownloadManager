@@ -226,7 +226,7 @@ class NovaTransferCore(context: Context) {
             ?: error("Unknown NOVA transfer task: $taskId")
 
     private fun summary(record: TransferRecord): DownloadSummary {
-        val downloadedBytes = when (record.status) {
+        val durableDownloadedBytes = when (record.status) {
             DownloadStatus.Completed.wireValue -> File(appPrivateRoot, record.finalRelativePath)
                 .takeIf(File::isFile)
                 ?.length()
@@ -245,6 +245,11 @@ class NovaTransferCore(context: Context) {
                     ?.coerceAtLeast(0)
                     ?: 0L
             }
+        }
+        val downloadedBytes = if (record.totalBytes > 0L) {
+            durableDownloadedBytes.coerceAtMost(record.totalBytes)
+        } else {
+            durableDownloadedBytes
         }
 
         return DownloadSummary(
