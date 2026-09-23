@@ -22,7 +22,7 @@ use crate::daemon::direct::{FileWriter, RetryPolicy, SegmentPlanner, SegmentRang
 use crate::daemon::engine::config::global_config;
 use crate::daemon::engine::policy_engine::{DecisionCategory, DecisionContext};
 use crate::daemon::state::SharedState;
-use crate::daemon::types::{CurlJob, Segment};
+use crate::daemon::types::{transition_task_state, CurlJob, Segment, TaskState};
 use crate::daemon::utils::{build_segments, now_str};
 use crate::lock_or_err;
 
@@ -46,7 +46,10 @@ fn build_decision_context(
         if let Ok(jobs) = state.curl_jobs.lock() {
             let active = jobs
                 .values()
-                .filter(|j| j.task.status == "downloading")
+                .filter(|j| {
+                    TaskState::from_status(&j.task.status)
+                        .is_some_and(TaskState::is_active)
+                })
                 .count() as u32;
             if let Some(job) = jobs.get(id) {
                 (
@@ -2809,16 +2812,23 @@ fn run_libcurl_download(
 }
 
 pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, generation: u64) {
-    // C-3: verify generation and capture immutable completion inputs BEFORE
-    // any terminal side effects. A stale worker must never release a queue
-    // slot, increment success statistics, or overwrite a newer run's state.
-    let (output_path, expected_digest) = {
-        let jobs = lock_or_err!(state.curl_jobs);
-        let Some(job) = jobs.get(id) else {
+    // C-3 + lifecycle gate: verify generation and enter Verifying BEFORE any
+    // terminal side effects. A worker can no longer jump directly from
+    // Downloading to Completed, even if a future success path calls this
+    // function without running transport-specific checks first.
+    let (output_path, expected_digest, verifying_task) = {
+        let mut jobs = lock_or_err!(state.curl_jobs);
+        let Some(job) = jobs.get_mut(id) else {
             return;
         };
         if job.run_generation.load(Ordering::Acquire) != generation {
             log::info!("Task {id}: stale completion (generation {generation}) ignored");
+            return;
+        }
+        if let Err(error) =
+            transition_task_state(&mut job.task, TaskState::Verifying, "verifying-output")
+        {
+            log::error!("Task {id}: refusing illegal completion transition: {error}");
             return;
         }
         (
@@ -2827,8 +2837,11 @@ pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, g
                 .get("digestSha256")
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_owned),
+            job.task.clone(),
         )
     };
+    lock_or_err!(state.task_snapshot).insert(id.to_owned(), verifying_task);
+    state.mark_dirty();
 
     // P0 completion gate: trust the durable destination, not only the worker's
     // returned byte count. This also covers future success paths that might
@@ -2845,6 +2858,30 @@ pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, g
             return;
         }
     }
+
+    // Filesystem and digest checks passed. Enter Finalizing before touching
+    // completion counters or releasing the active slot; only Finalizing may
+    // transition to the terminal Completed state.
+    let finalizing_task = {
+        let mut jobs = lock_or_err!(state.curl_jobs);
+        let Some(job) = jobs.get_mut(id) else {
+            return;
+        };
+        if job.run_generation.load(Ordering::Acquire) != generation {
+            log::info!("Task {id}: stale finalization (generation {generation}) ignored");
+            return;
+        }
+        if let Err(error) =
+            transition_task_state(&mut job.task, TaskState::Finalizing, "finalizing-output")
+        {
+            log::error!("Task {id}: refusing illegal finalization transition: {error}");
+            mark_curl_task_failed(state, id, error, false, generation);
+            return;
+        }
+        job.task.clone()
+    };
+    lock_or_err!(state.task_snapshot).insert(id.to_owned(), finalizing_task);
+    state.mark_dirty();
 
     log::info!(
         "Task {id}: completion gate passed (final_size={final_size}, generation={generation})"
@@ -2864,7 +2901,12 @@ pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, g
         if job.run_generation.load(Ordering::Acquire) != generation {
             return;
         }
-        job.task.status = "completed".to_owned();
+        if let Err(error) =
+            transition_task_state(&mut job.task, TaskState::Completed, "completed")
+        {
+            log::error!("Task {id}: final Completed transition rejected: {error}");
+            return;
+        }
         job.task.downloaded_bytes = final_size;
         // A Content-Encoding transfer (gzip/br/deflate) decompresses the body
         // before writing it, so the real on-disk size may differ from the
@@ -2876,7 +2918,6 @@ pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, g
         }
         job.task.speed_bytes_per_sec = 0;
         job.task.time_left_seconds = 0;
-        job.task.engine_status = Some("completed".to_owned());
         job.task.error_message = None;
         job.task.segments =
             build_segments(job.task.connections, job.task.size_bytes, final_size, 0);
@@ -2905,18 +2946,46 @@ pub fn mark_curl_task_failed(
     } else {
         log::error!("Task {id}: download failed: {message} (generation={generation})");
     }
-    // C-3: verify generation BEFORE any side effects — a stale worker must
-    // not decrement active_downloads or bump failure stats for a newer run.
-    {
-        let jobs = lock_or_err!(state.curl_jobs);
-        let Some(job) = jobs.get(id) else {
+
+    // Verify generation AND lifecycle transition before queue/stat side
+    // effects. This prevents stale or terminal workers from decrementing slots
+    // or incrementing failure counters after an illegal state mutation.
+    let (task, remove_on_error, path) = {
+        let mut jobs = lock_or_err!(state.curl_jobs);
+        let Some(job) = jobs.get_mut(id) else {
             return;
         };
         if job.run_generation.load(Ordering::Acquire) != generation {
             log::info!("Task {id}: stale failure (generation {generation}) ignored");
             return;
         }
-    }
+        let next = if cancelled {
+            TaskState::Paused
+        } else {
+            TaskState::Failed
+        };
+        let engine_status = if cancelled { "paused" } else { "failed" };
+        if let Err(error) = transition_task_state(&mut job.task, next, engine_status) {
+            log::error!("Task {id}: rejected failure transition: {error}");
+            return;
+        }
+        job.task.speed_bytes_per_sec = 0;
+        job.task.time_left_seconds = 0;
+        job.task.error_message = if cancelled {
+            None
+        } else {
+            Some(message.clone())
+        };
+        let task = job.task.clone();
+        let remove_on_error = job
+            .direct_options
+            .get("removeOnError")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let path = std::path::PathBuf::from(&job.task.save_path);
+        (task, remove_on_error, path)
+    };
+
     // Both cancellation and failure release an active slot. A user pause is a
     // temporary cancellation, however, so retain its queue entry: resume then
     // restores the same priority and bandwidth allocation instead of becoming
@@ -2935,58 +3004,35 @@ pub fn mark_curl_task_failed(
             }
         }
     }
-    let mut jobs = lock_or_err!(state.curl_jobs);
-    if let Some(job) = jobs.get_mut(id) {
-        if job.run_generation.load(Ordering::Acquire) != generation {
-            return;
-        }
-        job.task.status = if cancelled { "paused" } else { "error" }.to_owned();
-        job.task.speed_bytes_per_sec = 0;
-        job.task.time_left_seconds = 0;
-        job.task.engine_status = Some(if cancelled { "paused" } else { "failed" }.to_owned());
-        job.task.error_message = if cancelled {
-            None
-        } else {
-            Some(message.clone())
-        };
-        let task = job.task.clone();
-        if !cancelled {
-            let segment_summary: Vec<String> = task
-                .segments
-                .iter()
-                .map(|s| format!("{}:{}", s.id, s.downloaded_bytes))
-                .collect();
-            log::error!(
-                "[ERROR-PATH] task={id} generation={generation} url={} save_path={} downloaded_bytes={} size_bytes={} status={} engine_status={:?} segments=[{}] error={message}",
-                task.url,
-                task.save_path,
-                task.downloaded_bytes,
-                task.size_bytes,
-                task.status,
-                task.engine_status,
-                segment_summary.join(",")
-            );
-        }
-        let remove_on_error = job
-            .direct_options
-            .get("removeOnError")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
-        let path = std::path::PathBuf::from(&job.task.save_path);
-        drop(jobs);
-        if !cancelled && remove_on_error {
-            let _ = std::fs::remove_file(&path);
-            remove_stale_parts_for(&path);
-        }
-        lock_or_err!(state.task_snapshot).insert(id.to_owned(), task);
-        state.mark_dirty();
-        // A manual pause is a user-visible checkpoint. Persist it immediately
-        // after the worker has stopped and the latest segment snapshot has been
-        // recorded, rather than waiting for the periodic flush. This protects
-        // partial bytes if the user closes NOVA straight after pressing Stop.
-        if cancelled {
-            crate::daemon::persist::save_now(state.as_ref());
-        }
+    if !cancelled {
+        let segment_summary: Vec<String> = task
+            .segments
+            .iter()
+            .map(|s| format!("{}:{}", s.id, s.downloaded_bytes))
+            .collect();
+        log::error!(
+            "[ERROR-PATH] task={id} generation={generation} url={} save_path={} downloaded_bytes={} size_bytes={} status={} engine_status={:?} segments=[{}] error={message}",
+            task.url,
+            task.save_path,
+            task.downloaded_bytes,
+            task.size_bytes,
+            task.status,
+            task.engine_status,
+            segment_summary.join(",")
+        );
+    }
+    if !cancelled && remove_on_error {
+        let _ = std::fs::remove_file(&path);
+        remove_stale_parts_for(&path);
+    }
+    lock_or_err!(state.task_snapshot).insert(id.to_owned(), task);
+    state.mark_dirty();
+    // A manual pause is a user-visible checkpoint. Persist it immediately
+    // after the worker has stopped and the latest segment snapshot has been
+    // recorded, rather than waiting for the periodic flush. This protects
+    // partial bytes if the user closes NOVA straight after pressing Stop.
+    if cancelled {
+        crate::daemon::persist::save_now(state.as_ref());
     }
 }
 
@@ -2996,16 +3042,18 @@ pub fn start_curl_process(state: &SharedState, id: &str) {
         let Some(job) = jobs.get_mut(id) else {
             return;
         };
-        if job.task.status == "completed" {
+        let Some(current_state) = TaskState::from_status(&job.task.status) else {
+            log::error!(
+                "Task {id}: refusing to start from unknown state '{}'",
+                job.task.status
+            );
+            return;
+        };
+        if current_state == TaskState::Completed {
             return;
         }
         let worker_was_started = job.run_generation.load(Ordering::Acquire) > 0;
-        if worker_was_started
-            && matches!(
-                job.task.status.as_str(),
-                "downloading" | "pausing" | "stopping"
-            )
-        {
+        if worker_was_started && current_state.is_active() {
             return;
         }
         job.cancel_token = Arc::new(AtomicBool::new(false));
@@ -3013,8 +3061,12 @@ pub fn start_curl_process(state: &SharedState, id: &str) {
             .run_generation
             .fetch_add(1, Ordering::Release)
             .saturating_add(1);
-        job.task.status = "downloading".to_owned();
-        job.task.engine_status = Some("running-libcurl-multi".to_owned());
+        if let Err(error) =
+            transition_task_state(&mut job.task, TaskState::Downloading, "running-libcurl-multi")
+        {
+            log::error!("Task {id}: cannot start libcurl worker: {error}");
+            return;
+        }
         job.task.error_message = None;
         job.start_time = Instant::now();
         let plan = plan_from_job(job);
