@@ -79,6 +79,8 @@ impl DirectDownloadPlan {
 pub(super) struct ResponseCapture {
     pub(super) status_code: u16,
     pub(super) validator: Option<String>,
+    pub(super) validator_is_etag: bool,
+    pub(super) content_range_start: Option<u64>,
     pub(super) digest_sha256: Option<String>,
     pub(super) mirrors: Vec<String>,
     /// True when the server actually responded with a `Content-Encoding`
