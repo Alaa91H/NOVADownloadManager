@@ -4,7 +4,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use crate::daemon::state::{AppState, SharedState};
-use crate::daemon::types::Task;
+use crate::daemon::types::{Task, TaskState};
 use crate::lock_or_err;
 
 /// On-disk snapshot of everything needed to rebuild the download list after
@@ -339,8 +339,8 @@ pub fn start_persistence_loop(state: SharedState) {
         loop {
             let has_active = {
                 let snap = lock_or_err!(state.task_snapshot);
-                snap.values().any(|t| {
-                    t.status == "downloading" || t.status == "pausing" || t.status == "stopping"
+                snap.values().any(|task| {
+                    TaskState::from_status(&task.status).is_some_and(TaskState::is_active)
                 })
             };
             let interval = if has_active {
