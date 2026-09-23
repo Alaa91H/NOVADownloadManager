@@ -302,6 +302,7 @@ mod fingerprint_tests {
             total_size: Some(2048),
             ..Default::default()
         }));
+    }
 
     #[test]
     fn shared_fingerprint_learns_missing_fields_then_rejects_drift() {
@@ -323,6 +324,5 @@ mod fingerprint_tests {
             total_size: Some(1000),
             ..Default::default()
         }));
-    }
     }
 }
