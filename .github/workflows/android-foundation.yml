@@ -79,7 +79,7 @@ jobs:
 
       - name: Test shared Rust download core and mobile bridge
         run: |
-          cargo test --manifest-path crates/nova-download-core/Cargo.toml
+          cargo test --manifest-path crates/nova-download-core/Cargo.toml --features http2,rustls,static-curl
           cargo test --manifest-path crates/nova-mobile-ffi/Cargo.toml
 
       - name: Build debug APK and run JVM tests
