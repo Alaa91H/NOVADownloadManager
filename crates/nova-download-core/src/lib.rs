@@ -1255,4 +1255,118 @@ mod tests {
         assert_eq!(std::fs::read(&path).expect("read result"), b"abcdefgh");
         let _ = std::fs::remove_file(path);
     }
+
+    fn spawn_segment_test_server(
+        payload: &'static [u8],
+        expected_requests: usize,
+    ) -> (String, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind segmented server");
+        let address = listener.local_addr().expect("segmented server address");
+        let server = thread::spawn(move || {
+            let mut handlers = Vec::with_capacity(expected_requests);
+            for _ in 0..expected_requests {
+                let (mut stream, _) = listener.accept().expect("accept segmented request");
+                handlers.push(thread::spawn(move || {
+                    let mut request = [0_u8; 4096];
+                    let read = stream.read(&mut request).expect("read segmented request");
+                    let request = String::from_utf8_lossy(&request[..read]);
+
+                    if request.starts_with("HEAD ") {
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n",
+                            payload.len(),
+                        );
+                        stream
+                            .write_all(response.as_bytes())
+                            .expect("write segmented HEAD response");
+                        return;
+                    }
+
+                    let range = request
+                        .lines()
+                        .find_map(|line| line.strip_prefix("Range: bytes="))
+                        .expect("segmented range header");
+                    let (start, end) = range.split_once('-').expect("segmented range bounds");
+                    let start: usize = start.parse().expect("segmented range start");
+                    let end: usize = end.parse().expect("segmented range end");
+                    let body = &payload[start..=end];
+                    let response = format!(
+                        "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {start}-{end}/{}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        payload.len(),
+                        body.len(),
+                    );
+                    stream
+                        .write_all(response.as_bytes())
+                        .expect("write segmented range headers");
+                    stream.write_all(body).expect("write segmented range body");
+                }));
+            }
+            for handler in handlers {
+                handler.join().expect("segmented request handler");
+            }
+        });
+        (format!("http://{address}/payload.bin"), server)
+    }
+
+    fn segmented_test_path(label: &str) -> std::path::PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!("nova-core-{label}-{unique}.part"))
+    }
+
+    #[test]
+    fn segmented_transfer_downloads_ranges_in_parallel_and_merges_them() {
+        const PAYLOAD: &[u8] = b"abcdefghijklmnop";
+        let (url, server) = spawn_segment_test_server(PAYLOAD, 6);
+        let path = segmented_test_path("segments");
+
+        let result = download_http_to_path_segmented_controlled(
+            &url,
+            &path,
+            4,
+            4,
+            || TransferControl::Continue,
+        )
+        .expect("segmented transfer");
+        server.join().expect("segmented server thread");
+
+        assert_eq!(result.final_bytes, PAYLOAD.len() as u64);
+        assert_eq!(result.total_bytes, Some(PAYLOAD.len() as u64));
+        assert_eq!(result.resumed_from, 0);
+        assert_eq!(std::fs::read(&path).expect("read merged payload"), PAYLOAD);
+        assert!(!segment_directory(&path).exists());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn segmented_transfer_resumes_each_persisted_range_independently() {
+        const PAYLOAD: &[u8] = b"abcdefghijklmnop";
+        let path = segmented_test_path("segment-resume");
+        let directory =
+            prepare_segment_directory(&path, PAYLOAD.len() as u64, 4).expect("segment directory");
+        std::fs::write(segment_path(&directory, 0), b"ab").expect("seed partial segment");
+        std::fs::write(segment_path(&directory, 1), b"efgh").expect("seed complete segment");
+        assert_eq!(staged_downloaded_bytes(&path).expect("staged bytes"), 6);
+
+        // HEAD + one range capability probe + three unfinished range requests.
+        let (url, server) = spawn_segment_test_server(PAYLOAD, 5);
+        let result = download_http_to_path_segmented_controlled(
+            &url,
+            &path,
+            4,
+            4,
+            || TransferControl::Continue,
+        )
+        .expect("resumed segmented transfer");
+        server.join().expect("segmented resume server thread");
+
+        assert_eq!(result.resumed_from, 6);
+        assert_eq!(result.final_bytes, PAYLOAD.len() as u64);
+        assert_eq!(std::fs::read(&path).expect("read resumed payload"), PAYLOAD);
+        assert!(!segment_directory(&path).exists());
+        let _ = std::fs::remove_file(path);
+    }
+
 }
