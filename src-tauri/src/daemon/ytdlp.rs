@@ -5,7 +5,9 @@ use uuid::Uuid;
 
 use crate::daemon::engine_capabilities;
 use crate::daemon::state::SharedState;
-use crate::daemon::types::{CreateDownloadBody, MediaJob, Segment, Task};
+use crate::daemon::types::{
+    transition_task_state, CreateDownloadBody, MediaJob, Segment, Task, TaskState,
+};
 use crate::daemon::utils::{hide_command_window, now_str, push_arg};
 use crate::lock_or_err;
 
@@ -166,11 +168,36 @@ fn is_safe_extra_arg(arg: &str) -> bool {
 }
 
 pub fn start_ytdlp_process(state: &SharedState, id: &str) {
-    let jobs = lock_or_err!(state.media_jobs);
-    let record = jobs.get(id).cloned();
-    drop(jobs);
+    let record = {
+        let mut jobs = lock_or_err!(state.media_jobs);
+        let Some(job) = jobs.get_mut(id) else {
+            return;
+        };
+        let Some(current) = TaskState::from_status(&job.task.status) else {
+            log::error!("Task {id}: yt-dlp has unknown lifecycle state '{}'", job.task.status);
+            return;
+        };
+        if current == TaskState::Queued {
+            if let Err(error) =
+                transition_task_state(&mut job.task, TaskState::Preparing, "starting")
+            {
+                log::error!("Task {id}: cannot prepare yt-dlp worker: {error}");
+                return;
+            }
+        } else if current != TaskState::Preparing {
+            log::debug!(
+                "Task {id}: yt-dlp start ignored from state '{}'",
+                current.as_status()
+            );
+            return;
+        }
+        job.clone()
+    };
+    lock_or_err!(state.task_snapshot).insert(id.to_owned(), record.task.clone());
+    state.mark_dirty();
 
-    if let Some(job) = record {
+    {
+        let job = record;
         log::info!("Starting yt-dlp process for task {id}");
         let ytdlp_bin = state.ytdlp_binary();
         let mut cmd = Command::new(&ytdlp_bin);
@@ -273,25 +300,64 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                                 // marking the task completed.
                                 let output_verified = status.is_some_and(|s| s.success())
                                     && media_output_produced(&current.task);
-                                if status.is_some_and(|s| s.success()) && output_verified {
-                                    current.task.status = "completed".to_owned();
-                                    current.task.downloaded_bytes = current.task.size_bytes;
-                                    current.task.speed_bytes_per_sec = 0;
-                                    current.task.time_left_seconds = 0;
-                                    current.task.engine_status = Some("complete".to_owned());
-                                    notif = format!("Download completed: {task_name}");
-                                    if let Ok(mut stats) = state2.download_stats.lock() {
-                                        stats.total_completed += 1;
-                                        stats.total_downloaded_bytes += current.task.size_bytes;
+                                let current_state = TaskState::from_status(&current.task.status);
+                                if current_state == Some(TaskState::Paused) {
+                                    // User pause owns this terminal process exit.
+                                } else if status.is_some_and(|s| s.success()) && output_verified {
+                                    let lifecycle = transition_task_state(
+                                        &mut current.task,
+                                        TaskState::Verifying,
+                                        "verifying-output",
+                                    )
+                                    .and_then(|()| {
+                                        transition_task_state(
+                                            &mut current.task,
+                                            TaskState::Finalizing,
+                                            "finalizing-output",
+                                        )
+                                    })
+                                    .and_then(|()| {
+                                        transition_task_state(
+                                            &mut current.task,
+                                            TaskState::Completed,
+                                            "complete",
+                                        )
+                                    });
+                                    if let Err(error) = lifecycle {
+                                        log::error!(
+                                            "Task {id2}: yt-dlp completion transition rejected: {error}"
+                                        );
+                                        let _ = transition_task_state(
+                                            &mut current.task,
+                                            TaskState::Failed,
+                                            "lifecycle-error",
+                                        );
+                                        current.task.error_message = Some(error);
+                                        if let Ok(mut stats) = state2.download_stats.lock() {
+                                            stats.total_failed += 1;
+                                        }
+                                    } else {
+                                        current.task.downloaded_bytes = current.task.size_bytes;
+                                        current.task.speed_bytes_per_sec = 0;
+                                        current.task.time_left_seconds = 0;
+                                        current.task.error_message = None;
+                                        notif = format!("Download completed: {task_name}");
+                                        if let Ok(mut stats) = state2.download_stats.lock() {
+                                            stats.total_completed += 1;
+                                            stats.total_downloaded_bytes += current.task.size_bytes;
+                                        }
                                     }
                                 } else if status.is_some_and(|s| s.success()) {
                                     log::error!(
                                         "yt-dlp exited 0 but produced no output file for task {} (save_path: {})",
                                         id2, current.task.save_path
                                     );
-                                    current.task.status = "error".to_owned();
+                                    if let Err(error) =
+                                        transition_task_state(&mut current.task, TaskState::Failed, "no-output")
+                                    {
+                                        log::error!("Task {id2}: failure transition rejected: {error}");
+                                    }
                                     current.task.speed_bytes_per_sec = 0;
-                                    current.task.engine_status = Some("no-output".to_owned());
                                     current.task.error_message = Some(
                                         "The media engine reported success but no output file was produced".to_owned(),
                                     );
@@ -299,16 +365,23 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                                     if let Ok(mut stats) = state2.download_stats.lock() {
                                         stats.total_failed += 1;
                                     }
-                                } else if current.task.status != "paused" {
-                                    current.task.status = "error".to_owned();
-                                    current.task.speed_bytes_per_sec = 0;
-                                    current.task.engine_status = Some(format!(
+                                } else {
+                                    let exit_status = format!(
                                         "exit-{}",
                                         status.map_or(-1, |s| s.code().unwrap_or(-1))
-                                    ));
-                                    notif = format!("Download failed: {task_name}");
-                                    if let Ok(mut stats) = state2.download_stats.lock() {
-                                        stats.total_failed += 1;
+                                    );
+                                    if let Err(error) = transition_task_state(
+                                        &mut current.task,
+                                        TaskState::Failed,
+                                        exit_status,
+                                    ) {
+                                        log::error!("Task {id2}: failure transition rejected: {error}");
+                                    } else {
+                                        current.task.speed_bytes_per_sec = 0;
+                                        notif = format!("Download failed: {task_name}");
+                                        if let Ok(mut stats) = state2.download_stats.lock() {
+                                            stats.total_failed += 1;
+                                        }
                                     }
                                 }
                             }
@@ -342,9 +415,17 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                         log::error!("{msg} (task: {id2})");
                         let mut jobs = lock_or_err!(state2.media_jobs);
                         if let Some(current) = jobs.get_mut(&id2) {
-                            current.task.status = "error".to_owned();
-                            current.task.engine_status = Some("worker-panicked".to_owned());
-                            current.task.error_message = Some(msg);
+                            if TaskState::from_status(&current.task.status) != Some(TaskState::Paused) {
+                                if let Err(error) = transition_task_state(
+                                    &mut current.task,
+                                    TaskState::Failed,
+                                    "worker-panicked",
+                                ) {
+                                    log::error!("Task {id2}: panic failure transition rejected: {error}");
+                                } else {
+                                    current.task.error_message = Some(msg);
+                                }
+                            }
                         }
                         state2.mark_dirty();
                     }
@@ -354,8 +435,13 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                     let mut jobs = lock_or_err!(state.media_jobs);
                     if let Some(j) = jobs.get_mut(id) {
                         j.child = Some(child_pid);
-                        j.task.status = "downloading".to_owned();
-                        j.task.engine_status = Some("running".to_owned());
+                        if let Err(error) =
+                            transition_task_state(&mut j.task, TaskState::Downloading, "running")
+                        {
+                            log::error!("Task {id}: yt-dlp running transition rejected: {error}");
+                            let _ = kill_process(child_pid);
+                            j.child = None;
+                        }
                     }
                     task_data = jobs.get(id).map(|j| j.task.clone());
                 }
@@ -370,7 +456,11 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                 log::error!("Failed to start yt-dlp: {e}");
                 let mut jobs = lock_or_err!(state.media_jobs);
                 if let Some(j) = jobs.get_mut(id) {
-                    j.task.status = "error".to_owned();
+                    if let Err(error) =
+                        transition_task_state(&mut j.task, TaskState::Failed, "spawn-failed")
+                    {
+                        log::error!("Task {id}: yt-dlp spawn failure transition rejected: {error}");
+                    }
                     j.task.error_message = Some(format!("Failed to start: {e}"));
                 }
                 state.mark_dirty();
@@ -1045,9 +1135,9 @@ pub async fn create_ytdlp_task(
         url: url.to_owned(),
         file_type: "video".to_owned(),
         status: if should_start {
-            "downloading"
+            TaskState::Preparing.as_status()
         } else {
-            "queued"
+            TaskState::Queued.as_status()
         }
         .to_owned(),
         size_bytes: 0,
