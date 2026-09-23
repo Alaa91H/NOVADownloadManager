@@ -800,8 +800,9 @@ fn response_capture_for_range(
     }
 }
 
-fn task_has_any_checkpoint(state: &SharedState, id: &str, output_path: &Path) -> bool {
-    if FileWriter::current_size(output_path).unwrap_or(0) > 0 {
+fn task_has_any_checkpoint(state: &SharedState, id: &str, plan: &DirectDownloadPlan) -> bool {
+    let on_disk = FileWriter::current_size(&plan.output_path).unwrap_or(0);
+    if on_disk > 0 && (plan.total_size == 0 || on_disk < plan.total_size) {
         return true;
     }
     state.curl_jobs.lock().ok().is_some_and(|jobs| {
@@ -812,6 +813,71 @@ fn task_has_any_checkpoint(state: &SharedState, id: &str, output_path: &Path) ->
                 .any(|segment| segment.downloaded_bytes > 0)
         })
     })
+}
+
+fn adopt_remote_fingerprint(
+    state: &SharedState,
+    id: &str,
+    plan: &mut DirectDownloadPlan,
+    observed: &RemoteFingerprint,
+) {
+    match observed.validator.as_deref() {
+        Some(validator) => {
+            plan.validator = Some(validator.to_owned());
+            plan.validator_is_etag = observed.validator_is_etag;
+            persist_resume_validator(state, id, validator, observed.validator_is_etag);
+        }
+        None => {
+            plan.validator = None;
+            plan.validator_is_etag = false;
+            clear_resume_validator(state, id);
+        }
+    }
+
+    if let Some(size) = observed.total_size.filter(|size| *size > 0) {
+        plan.total_size = size;
+        if let Ok(mut jobs) = state.curl_jobs.lock() {
+            if let Some(job) = jobs.get_mut(id) {
+                job.task.size_bytes = size;
+                job.task.downloaded_bytes = 0;
+                job.task.segments =
+                    build_segments(job.task.connections, size, 0, 0);
+            }
+        }
+        if let Ok(mut tasks) = state.task_snapshot.lock() {
+            if let Some(task) = tasks.get_mut(id) {
+                task.size_bytes = size;
+                task.downloaded_bytes = 0;
+                task.segments = build_segments(task.connections, size, 0, 0);
+            }
+        }
+        state.priority_queue.update_size(id, size);
+        state.mark_dirty();
+    }
+}
+
+fn discard_resume_checkpoint(state: &SharedState, id: &str, plan: &DirectDownloadPlan) {
+    let _ = std::fs::remove_file(&plan.output_path);
+    remove_stale_parts_for(&plan.output_path);
+    if let Ok(mut jobs) = state.curl_jobs.lock() {
+        if let Some(job) = jobs.get_mut(id) {
+            job.task.downloaded_bytes = 0;
+            job.task.speed_bytes_per_sec = 0;
+            job.task.time_left_seconds = 0;
+            job.task.segments =
+                build_segments(job.task.connections, job.task.size_bytes, 0, 0);
+        }
+    }
+    if let Ok(mut tasks) = state.task_snapshot.lock() {
+        if let Some(task) = tasks.get_mut(id) {
+            task.downloaded_bytes = 0;
+            task.speed_bytes_per_sec = 0;
+            task.time_left_seconds = 0;
+            task.segments = build_segments(task.connections, task.size_bytes, 0, 0);
+        }
+    }
+    state.mark_dirty();
+    crate::daemon::persist::save_now(state.as_ref());
 }
 
 /// Result of a completed transfer pass. Carries everything the completion
@@ -2304,6 +2370,27 @@ fn run_libcurl_download(
             );
             plan.url = effective_url;
         }
+
+        // If this task owns partial bytes from an earlier run, compare the
+        // newly observed remote identity before reusing any checkpoint. A
+        // concrete ETag/size contradiction means those bytes belong to a
+        // different representation and must never be merged with the new one.
+        let previous_fingerprint = plan.remote_fingerprint();
+        let observed_fingerprint = preflight.remote_fingerprint();
+        if task_has_any_checkpoint(state, id, &plan)
+            && previous_fingerprint.conflicts_with(&observed_fingerprint)
+        {
+            log::warn!(
+                "Task {id}: remote resource changed before resume; discarding stale checkpoint (expected={previous_fingerprint:?}, observed={observed_fingerprint:?})"
+            );
+            discard_resume_checkpoint(state, id, &plan);
+            adopt_remote_fingerprint(state, id, &mut plan, &observed_fingerprint);
+            // A preflight answered 200 after an If-Range mismatch. The stale
+            // checkpoint is gone now, so a safe full transfer is preferred
+            // over trusting old range capability metadata.
+            plan.segmented = false;
+        }
+
         // Bind the upcoming byte ranges to the exact representation observed
         // by the preflight. This happens BEFORE segmented handles are created,
         // so every first-generation range request receives If-Range rather
