@@ -31,6 +31,11 @@
         </activity>
 
         <service
+            android:name=".service.NovaNativeTransferService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <service
             android:name=".service.NovaUserInitiatedTransferJobService"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
