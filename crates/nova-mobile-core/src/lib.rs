@@ -36,6 +36,12 @@ const CONTROL_CONTINUE: u8 = 0;
 const CONTROL_PAUSE: u8 = 1;
 const CONTROL_CANCEL: u8 = 2;
 
+/// Conservative mobile default: enough parallelism to saturate ordinary HTTP
+/// links without creating the 16–32 simultaneous sockets that can waste radio
+/// and battery on a phone. Adaptive scaling is layered on top in a later phase.
+pub const MOBILE_DEFAULT_CONNECTIONS: u32 = 8;
+pub const MOBILE_MAX_SEGMENTS: u32 = 16;
+
 fn sessions() -> &'static Mutex<HashMap<String, Arc<AtomicU8>>> {
     static SESSIONS: OnceLock<Mutex<HashMap<String, Arc<AtomicU8>>>> = OnceLock::new();
     SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
@@ -119,9 +125,11 @@ pub fn download_to_app_private_path(
         map.insert(task_id.to_owned(), Arc::clone(&control));
     }
 
-    let transfer_result = nova_download_core::download_http_to_path_controlled(
+    let transfer_result = nova_download_core::download_http_to_path_segmented_controlled(
         url,
         &destination,
+        MOBILE_DEFAULT_CONNECTIONS,
+        MOBILE_MAX_SEGMENTS,
         || match control.load(Ordering::Acquire) {
             CONTROL_PAUSE => nova_download_core::TransferControl::Pause,
             CONTROL_CANCEL => nova_download_core::TransferControl::Cancel,
@@ -139,6 +147,7 @@ pub fn download_to_app_private_path(
             return Err(MobileTransferError::Paused)
         }
         Err(nova_download_core::TransportError::Cancelled) => {
+            let _ = nova_download_core::cleanup_segment_state(&destination);
             let _ = std::fs::remove_file(&destination);
             return Err(MobileTransferError::Cancelled);
         }
@@ -154,6 +163,21 @@ pub fn download_to_app_private_path(
         total_bytes: transfer.total_bytes,
         resumed_from: transfer.resumed_from,
         effective_url: transfer.effective_url,
+    })
+}
+
+/// Return durable progress for a mobile staging destination without exposing
+/// the shared core's segment-directory layout to Kotlin.
+pub fn staged_transfer_bytes(
+    app_private_root: &Path,
+    relative_destination: &Path,
+) -> Result<u64, MobileTransferError> {
+    let destination =
+        validated_app_private_destination(app_private_root, relative_destination)?;
+    nova_download_core::staged_downloaded_bytes(&destination).map_err(|error| {
+        MobileTransferError::TransferFailed {
+            message: error.to_string(),
+        }
     })
 }
 
