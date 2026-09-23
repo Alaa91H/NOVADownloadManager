@@ -8,8 +8,8 @@ use ::curl::easy::Easy2;
 use ::curl::multi::Easy2Handle;
 
 use super::completion::{
-    merge_parts, part_size, validate_segment_geometry, validate_transfer_size,
-    verify_output_sha256,
+    merge_parts, part_size, validate_completed_output, validate_segment_geometry,
+    validate_transfer_size, verify_output_sha256,
 };
 use super::{
     apply_easy_options, create_easy_for_range_ext, drive_multi_wait_perform,
@@ -2644,20 +2644,46 @@ fn run_libcurl_download(
 }
 
 pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, generation: u64) {
-    log::info!("Task {id}: download completed (final_size={final_size}, generation={generation})");
-    // C-3: verify the generation BEFORE any side effects. A stale worker that
-    // finished after a newer run started must not release the queue slot or
-    // bump stats that belong to the current run.
-    {
+    // C-3: verify generation and capture immutable completion inputs BEFORE
+    // any terminal side effects. A stale worker must never release a queue
+    // slot, increment success statistics, or overwrite a newer run's state.
+    let (output_path, expected_digest) = {
         let jobs = lock_or_err!(state.curl_jobs);
         let Some(job) = jobs.get(id) else {
             return;
         };
         if job.run_generation.load(Ordering::Acquire) != generation {
-            log::info!("Task {id}: stale completion (generation {generation}) ignored",);
+            log::info!("Task {id}: stale completion (generation {generation}) ignored");
+            return;
+        }
+        (
+            std::path::PathBuf::from(&job.task.save_path),
+            job.direct_options
+                .get("digestSha256")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+        )
+    };
+
+    // P0 completion gate: trust the durable destination, not only the worker's
+    // returned byte count. This also covers future success paths that might
+    // otherwise bypass transport-specific validation.
+    if let Err(error) = validate_completed_output(&output_path, final_size) {
+        log::error!("Task {id}: refusing completed state: {error}");
+        mark_curl_task_failed(state, id, error, false, generation);
+        return;
+    }
+    if let Some(expected_raw) = expected_digest.as_deref() {
+        if let Err(error) = verify_output_sha256(&output_path, expected_raw) {
+            log::error!("Task {id}: refusing completed state: {error}");
+            mark_curl_task_failed(state, id, error, false, generation);
             return;
         }
     }
+
+    log::info!(
+        "Task {id}: completion gate passed (final_size={final_size}, generation={generation})"
+    );
     state.priority_queue.stop_download(id);
     // download_stats scoped to this block and released before curl_jobs
     // is acquired below, preventing AB-BA deadlock with persist's
@@ -2693,6 +2719,10 @@ pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, g
         drop(jobs);
         lock_or_err!(state.task_snapshot).insert(id.to_owned(), task);
         state.mark_dirty();
+        // Completion is a durable state transition, not just UI state. Flush
+        // it immediately so a process crash right after completion cannot
+        // resurrect the task as an interrupted/paused download on next start.
+        crate::daemon::persist::save_now(state.as_ref());
     }
 }
 
