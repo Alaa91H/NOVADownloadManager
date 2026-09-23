@@ -8,7 +8,7 @@
 uniffi::setup_scaffolding!();
 
 /// Increment when a bridge change is not backward compatible.
-pub const BRIDGE_API_VERSION: u32 = 2;
+pub const BRIDGE_API_VERSION: u32 = 3;
 
 /// Typed capability and compatibility information returned before a mobile
 /// client creates a core session.
