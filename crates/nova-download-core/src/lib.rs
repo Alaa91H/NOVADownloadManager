@@ -442,7 +442,10 @@ fn stream_http_range_controlled_with_validator<W: Write, F: FnMut() -> TransferC
         transfer
             .write_function(|data| {
                 if !headers_validated.get() {
-                    return Ok(0);
+                    // Redirect/error response bodies are consumed but never
+                    // forwarded to the destination. Returning the consumed
+                    // length lets libcurl continue to the final response.
+                    return Ok(data.len());
                 }
 
                 let Some(next_total) = bytes_received.get().checked_add(data.len() as u64) else {
@@ -597,7 +600,10 @@ fn stream_http_full_controlled<W: Write, F: FnMut() -> TransferControl>(
         transfer
             .write_function(|data| {
                 if !headers_validated.get() {
-                    return Ok(0);
+                    // Redirect/error response bodies are consumed but never
+                    // forwarded to the destination. Returning the consumed
+                    // length lets libcurl continue to the final response.
+                    return Ok(data.len());
                 }
                 if let Err(error) = sink.write_all(data) {
                     sink_error.replace(Some(format!(
@@ -1131,7 +1137,7 @@ pub fn download_http_to_path_segmented_controlled<
     }
 
     if let Some(error) = results.into_iter().find_map(Result::err) {
-        if matches!(error, TransportError::Cancelled) && abort.load(Ordering::Acquire) {
+        if matches!(&error, TransportError::Cancelled) && abort.load(Ordering::Acquire) {
             return Err(TransportError::RequestFailed {
                 message: "parallel transfer aborted after a segment failure".to_owned(),
             });
@@ -1189,7 +1195,7 @@ pub fn download_http_to_path_segmented_controlled<
 
     if let Err(error) = merge_result {
         let _ = std::fs::remove_file(&merge_path);
-        if matches!(error, TransportError::Cancelled) {
+        if matches!(&error, TransportError::Cancelled) {
             cleanup_segment_artifacts(destination, ranges.len());
             remove_resume_identity(destination);
         }
