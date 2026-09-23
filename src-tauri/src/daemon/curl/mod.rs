@@ -28,6 +28,53 @@ use std::sync::{Arc, Mutex};
 
 pub(super) const PROGRESS_INTERVAL_MS: u64 = 250;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ContentRange {
+    pub(super) start: u64,
+    pub(super) end: u64,
+    pub(super) total: Option<u64>,
+}
+
+impl ContentRange {
+    pub(super) const fn len(self) -> u64 {
+        self.end.saturating_sub(self.start).saturating_add(1)
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct RemoteFingerprint {
+    pub(super) validator: Option<String>,
+    pub(super) validator_is_etag: bool,
+    pub(super) total_size: Option<u64>,
+    pub(super) digest_sha256: Option<String>,
+}
+
+impl RemoteFingerprint {
+    /// Return true only for concrete contradictions. Missing fields do not
+    /// conflict: many servers omit ETag/Digest on 206 responses even though
+    /// If-Range semantics still bind the response to the requested object.
+    pub(super) fn conflicts_with(&self, observed: &Self) -> bool {
+        if let (Some(expected), Some(actual)) = (&self.validator, &observed.validator) {
+            if self.validator_is_etag != observed.validator_is_etag
+                || expected.trim() != actual.trim()
+            {
+                return true;
+            }
+        }
+        if let (Some(expected), Some(actual)) = (self.total_size, observed.total_size) {
+            if expected != actual {
+                return true;
+            }
+        }
+        if let (Some(expected), Some(actual)) = (&self.digest_sha256, &observed.digest_sha256) {
+            if !expected.trim().eq_ignore_ascii_case(actual.trim()) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct DirectDownloadPlan {
     pub(super) url: String,
@@ -73,14 +120,32 @@ impl DirectDownloadPlan {
         plan.url = url;
         plan
     }
+
+    pub(super) fn remote_fingerprint(&self) -> RemoteFingerprint {
+        RemoteFingerprint {
+            validator: self.validator.clone(),
+            validator_is_etag: self.validator_is_etag,
+            total_size: (self.total_size > 0).then_some(self.total_size),
+            digest_sha256: self.digest_sha256.clone(),
+        }
+    }
 }
 
 #[derive(Default, Clone)]
 pub(super) struct ResponseCapture {
     pub(super) status_code: u16,
     pub(super) validator: Option<String>,
+    pub(super) validator_is_etag: bool,
     pub(super) digest_sha256: Option<String>,
     pub(super) mirrors: Vec<String>,
+    /// Parsed Content-Range from the final HTTP response.
+    pub(super) content_range: Option<ContentRange>,
+    /// Exact range requested by this handle. When set, body bytes are not
+    /// accepted until the final 206 headers prove they describe this range.
+    pub(super) expected_content_range: Option<ContentRange>,
+    /// Remote identity known before this request (validator/size/digest).
+    /// Concrete contradictions reject the response before any body is written.
+    pub(super) expected_fingerprint: Option<RemoteFingerprint>,
     /// True when the server actually responded with a `Content-Encoding`
     /// other than `identity`. Only then is the on-disk size allowed to
     /// differ from the probed Content-Length, because libcurl transparently
@@ -94,6 +159,20 @@ pub(super) struct ResponseCapture {
     /// live progress percentage even when the download started with an
     /// unknown size (`size_bytes == 0`).
     pub(super) content_length: Option<u64>,
+}
+
+impl ResponseCapture {
+    pub(super) fn observed_fingerprint(&self) -> RemoteFingerprint {
+        RemoteFingerprint {
+            validator: self.validator.clone(),
+            validator_is_etag: self.validator_is_etag,
+            total_size: self
+                .content_range
+                .and_then(|range| range.total)
+                .or(self.content_length),
+            digest_sha256: self.digest_sha256.clone(),
+        }
+    }
 }
 
 pub(super) struct SegmentProgress {
