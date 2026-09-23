@@ -653,6 +653,66 @@ mod tests {
     }
 
     #[test]
+    fn controlled_range_stream_can_pause_without_corrupting_sink() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind pause server");
+        let address = listener.local_addr().expect("pause server address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept pause connection");
+            let mut request = [0_u8; 2048];
+            let _ = stream.read(&mut request).expect("read pause request");
+            stream
+                .write_all(
+                    b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-7/8\r\nContent-Length: 8\r\nConnection: close\r\n\r\nabcdefgh",
+                )
+                .expect("write pause response");
+        });
+
+        let url = format!("http://{address}/payload.bin");
+        let mut payload = Vec::new();
+        let result = stream_http_range_controlled(
+            &url,
+            0,
+            7,
+            &mut payload,
+            || TransferControl::Pause,
+        );
+        server.join().expect("pause server thread");
+
+        assert!(matches!(result, Err(TransportError::Paused)));
+        assert!(payload.is_empty());
+    }
+
+    #[test]
+    fn controlled_range_stream_can_cancel_without_corrupting_sink() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind cancel server");
+        let address = listener.local_addr().expect("cancel server address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept cancel connection");
+            let mut request = [0_u8; 2048];
+            let _ = stream.read(&mut request).expect("read cancel request");
+            stream
+                .write_all(
+                    b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-7/8\r\nContent-Length: 8\r\nConnection: close\r\n\r\nabcdefgh",
+                )
+                .expect("write cancel response");
+        });
+
+        let url = format!("http://{address}/payload.bin");
+        let mut payload = Vec::new();
+        let result = stream_http_range_controlled(
+            &url,
+            0,
+            7,
+            &mut payload,
+            || TransferControl::Cancel,
+        );
+        server.join().expect("cancel server thread");
+
+        assert!(matches!(result, Err(TransportError::Cancelled)));
+        assert!(payload.is_empty());
+    }
+
+    #[test]
     fn range_stream_rejects_server_ignoring_range() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind range server");
         let address = listener.local_addr().expect("range server address");
