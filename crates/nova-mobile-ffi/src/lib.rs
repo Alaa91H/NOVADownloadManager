@@ -510,6 +510,10 @@ mod tests {
         let info = initialize(BRIDGE_API_VERSION).expect("current bridge version must initialize");
         assert_eq!(info.bridge_api_version, BRIDGE_API_VERSION);
         assert_eq!(info.task_schema, "nova.task.v1");
+        assert_eq!(
+            info.recovery_schema_version,
+            nova_core_model::RECOVERY_SCHEMA_VERSION
+        );
     }
 
     #[test]
@@ -537,7 +541,7 @@ mod tests {
             assert!(request.contains("Accept-Encoding: identity"));
             stream
                 .write_all(
-                    b"HTTP/1.1 200 OK\r\nContent-Length: 12345\r\nConnection: close\r\n\r\n",
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 12345\r\nETag: \"nova-v1\"\r\nLast-Modified: Wed, 21 Oct 2015 07:28:00 GMT\r\nConnection: close\r\n\r\n",
                 )
                 .expect("write probe response");
         });
@@ -549,6 +553,11 @@ mod tests {
         assert_eq!(probe.response_status, 200);
         assert_eq!(probe.content_length, Some(12_345));
         assert_eq!(probe.effective_url, url);
+        assert_eq!(probe.etag.as_deref(), Some("\"nova-v1\""));
+        assert_eq!(
+            probe.last_modified.as_deref(),
+            Some("Wed, 21 Oct 2015 07:28:00 GMT")
+        );
     }
 
     #[test]
