@@ -456,7 +456,7 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                             transition_task_state(&mut j.task, TaskState::Downloading, "running")
                         {
                             log::error!("Task {id}: yt-dlp running transition rejected: {error}");
-                            let _ = kill_process(child_pid);
+                            kill_process(child_pid);
                             j.child = None;
                         }
                     }
