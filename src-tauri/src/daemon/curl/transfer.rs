@@ -603,7 +603,12 @@ fn remember_recovery_validator(job: &mut CurlJob, recovery_validator: Option<(St
     let Some((validator, is_etag)) = recovery_validator else {
         return;
     };
-    let key = if is_etag { "etag" } else { "lastModified" };
+    let (key, stale_key) = if is_etag {
+        ("etag", "lastModified")
+    } else {
+        ("lastModified", "etag")
+    };
+    job.direct_options.remove(stale_key);
     let unchanged = job
         .direct_options
         .get(key)
