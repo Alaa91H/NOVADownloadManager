@@ -916,6 +916,33 @@ fn refresh_plan_remote_state(state: &SharedState, id: &str, plan: &mut DirectDow
     }
 }
 
+fn discard_anonymous_segment_checkpoints(
+    state: &SharedState,
+    id: &str,
+    output_path: &Path,
+) {
+    remove_stale_parts_for(output_path);
+    if let Ok(mut jobs) = state.curl_jobs.lock() {
+        if let Some(job) = jobs.get_mut(id) {
+            job.task.downloaded_bytes = 0;
+            job.task.speed_bytes_per_sec = 0;
+            job.task.time_left_seconds = 0;
+            job.task.segments =
+                build_segments(job.task.connections, job.task.size_bytes, 0, 0);
+        }
+    }
+    if let Ok(mut tasks) = state.task_snapshot.lock() {
+        if let Some(task) = tasks.get_mut(id) {
+            task.downloaded_bytes = 0;
+            task.speed_bytes_per_sec = 0;
+            task.time_left_seconds = 0;
+            task.segments = build_segments(task.connections, task.size_bytes, 0, 0);
+        }
+    }
+    state.mark_dirty();
+    crate::daemon::persist::save_now(state.as_ref());
+}
+
 fn discard_resume_checkpoint(state: &SharedState, id: &str, plan: &DirectDownloadPlan) {
     let _ = std::fs::remove_file(&plan.output_path);
     remove_stale_parts_for(&plan.output_path);
@@ -1458,6 +1485,17 @@ fn run_segmented_libcurl(
 ) -> Result<TransferOutcome, String> {
     let _phase_ctx = crate::logging::push_context("phase", "segmented");
     FileWriter::ensure_parent(&plan.output_path)?;
+
+    // Segment files are resumable only when they are bound to a persisted
+    // remote validator. Runtime ETags learned after the request starts cannot
+    // prove that bytes already on disk came from that same representation.
+    if plan.validator.is_none() && FileWriter::has_stale_parts_for(&plan.output_path) {
+        log::warn!(
+            "Task {id}: found segment checkpoints without a persisted remote validator; discarding anonymous partial bytes before range dispatch"
+        );
+        discard_anonymous_segment_checkpoints(state, id, &plan.output_path);
+    }
+
     if !plan.allow_overwrite && plan.output_path.exists() {
         let existing = FileWriter::current_size(&plan.output_path)?;
         if existing == plan.total_size
