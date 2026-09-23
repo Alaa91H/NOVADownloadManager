@@ -7,7 +7,10 @@ use std::time::{Duration, Instant};
 use ::curl::easy::Easy2;
 use ::curl::multi::Easy2Handle;
 
-use super::completion::{merge_parts, part_size, validate_transfer_size, verify_output_sha256};
+use super::completion::{
+    merge_parts, part_size, validate_segment_geometry, validate_transfer_size,
+    verify_output_sha256,
+};
 use super::{
     apply_easy_options, create_easy_for_range_ext, drive_multi_wait_perform,
     drive_multi_wait_perform_until, requested_connections, CurlMultiGuard, CurlTransferConfig,
@@ -2011,6 +2014,11 @@ fn run_segmented_libcurl(
     // part is complete and correct. Sort by start offset — the merge is only
     // valid when parts are concatenated in ascending byte order.
     final_ranges.sort_by_key(|r| r.start);
+    // P0 integrity gate: a collection of individually complete part files is
+    // not sufficient proof of a valid output. Adaptive geometry must cover
+    // every byte exactly once before concatenation, otherwise a gap/overlap
+    // can create a same-sized but silently corrupted final file.
+    validate_segment_geometry(plan.total_size, &final_ranges)?;
     merge_parts(&plan.output_path, &final_ranges).map(|s| TransferOutcome {
         size: s,
         validator: captured_validator,

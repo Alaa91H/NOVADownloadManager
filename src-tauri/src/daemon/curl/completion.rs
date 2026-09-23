@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::Path;
 
 use crate::daemon::direct::{
@@ -10,6 +11,85 @@ pub(super) const fn part_size(range: &ByteRange) -> u64 {
 
 pub(super) fn merge_parts(output_path: &Path, ranges: &[ByteRange]) -> Result<u64, String> {
     FileWriter::merge_parts(output_path, ranges)
+}
+
+/// Validate that the live segment geometry covers exactly the expected file
+/// without gaps, overlaps, inverted ranges, or duplicate segment identities.
+///
+/// Adaptive split/merge/rebalance decisions can change geometry after the
+/// initial transfer plan. Part sizes alone are not enough to prove correctness:
+/// two individually complete ranges can still overlap or leave a hole and
+/// produce a same-sized but corrupted output when concatenated.
+pub(super) fn validate_segment_geometry(
+    expected_size: u64,
+    ranges: &[ByteRange],
+) -> Result<(), String> {
+    if expected_size == 0 {
+        return if ranges.is_empty() {
+            Ok(())
+        } else {
+            Err("Invalid segment geometry: zero-sized output must not contain segments".to_owned())
+        };
+    }
+    if ranges.is_empty() {
+        return Err(format!(
+            "Invalid segment geometry: expected {expected_size} bytes but no segments remain"
+        ));
+    }
+
+    let mut ordered: Vec<&ByteRange> = ranges.iter().collect();
+    ordered.sort_by_key(|range| range.start);
+
+    let mut seen_ids = HashSet::with_capacity(ordered.len());
+    let mut cursor = 0u64;
+
+    for range in ordered {
+        if !seen_ids.insert(range.index) {
+            return Err(format!(
+                "Invalid segment geometry: duplicate segment id {}",
+                range.index
+            ));
+        }
+        if range.end < range.start {
+            return Err(format!(
+                "Invalid segment geometry: segment {} has inverted range {}..={}",
+                range.index, range.start, range.end
+            ));
+        }
+        if range.start > cursor {
+            return Err(format!(
+                "Invalid segment geometry: gap before segment {} (expected byte {cursor}, found {})",
+                range.index, range.start
+            ));
+        }
+        if range.start < cursor {
+            return Err(format!(
+                "Invalid segment geometry: overlap at segment {} (expected byte {cursor}, found {})",
+                range.index, range.start
+            ));
+        }
+        if range.end >= expected_size {
+            return Err(format!(
+                "Invalid segment geometry: segment {} ends at byte {}, beyond expected output size {expected_size}",
+                range.index, range.end
+            ));
+        }
+
+        cursor = range.end.checked_add(1).ok_or_else(|| {
+            format!(
+                "Invalid segment geometry: segment {} end offset overflowed",
+                range.index
+            )
+        })?;
+    }
+
+    if cursor != expected_size {
+        return Err(format!(
+            "Invalid segment geometry: ranges cover {cursor} bytes, expected {expected_size}"
+        ));
+    }
+
+    Ok(())
 }
 
 /// Verify the complete on-disk output against a SHA-256 digest supplied by
@@ -63,7 +143,9 @@ pub(super) fn validate_transfer_size(
 
 #[cfg(test)]
 mod tests {
-    use super::verify_output_sha256;
+    use super::{validate_segment_geometry, verify_output_sha256};
+    use crate::daemon::direct::SegmentRange;
+    use std::path::PathBuf;
 
     #[test]
     fn verifies_the_complete_output_not_a_single_segment() {
@@ -96,5 +178,52 @@ mod tests {
             "a digest for only the last segment must never validate the merged output"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn segment(index: usize, start: u64, end: u64) -> SegmentRange {
+        SegmentRange {
+            index,
+            start,
+            end,
+            path: PathBuf::from(format!("part-{index}")),
+        }
+    }
+
+    #[test]
+    fn segment_geometry_accepts_complete_unsorted_coverage() {
+        let ranges = vec![
+            segment(2, 8, 9),
+            segment(0, 0, 3),
+            segment(1, 4, 7),
+        ];
+        assert!(validate_segment_geometry(10, &ranges).is_ok());
+    }
+
+    #[test]
+    fn segment_geometry_rejects_gap() {
+        let ranges = vec![segment(0, 0, 3), segment(1, 5, 9)];
+        let error = validate_segment_geometry(10, &ranges).unwrap_err();
+        assert!(error.contains("gap"));
+    }
+
+    #[test]
+    fn segment_geometry_rejects_overlap() {
+        let ranges = vec![segment(0, 0, 5), segment(1, 5, 9)];
+        let error = validate_segment_geometry(10, &ranges).unwrap_err();
+        assert!(error.contains("overlap"));
+    }
+
+    #[test]
+    fn segment_geometry_rejects_duplicate_ids() {
+        let ranges = vec![segment(0, 0, 4), segment(0, 5, 9)];
+        let error = validate_segment_geometry(10, &ranges).unwrap_err();
+        assert!(error.contains("duplicate segment id"));
+    }
+
+    #[test]
+    fn segment_geometry_rejects_inverted_range() {
+        let ranges = vec![segment(0, 0, 4), segment(1, 5, 4)];
+        let error = validate_segment_geometry(10, &ranges).unwrap_err();
+        assert!(error.contains("inverted range"));
     }
 }

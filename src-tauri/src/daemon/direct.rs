@@ -194,7 +194,11 @@ pub struct SegmentRange {
 
 impl SegmentRange {
     pub const fn len(&self) -> u64 {
-        self.end.saturating_sub(self.start).saturating_add(1)
+        if self.end < self.start {
+            0
+        } else {
+            self.end.saturating_sub(self.start).saturating_add(1)
+        }
     }
 }
 
@@ -711,6 +715,17 @@ mod tests {
     fn segment_planner_returns_no_ranges_for_zero_size() {
         let ranges = SegmentPlanner::new(32).plan(0, 8, Path::new("empty.bin"));
         assert!(ranges.is_empty());
+    }
+
+    #[test]
+    fn inverted_segment_range_has_zero_length() {
+        let range = SegmentRange {
+            index: 7,
+            start: 10,
+            end: 9,
+            path: PathBuf::from("invalid.part007"),
+        };
+        assert_eq!(range.len(), 0);
     }
 
     #[test]
