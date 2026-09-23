@@ -923,22 +923,26 @@ async fn background_size_probe(state: SharedState, task_id: String, url: String)
 /// Start a previously-created curl task by its ID. Called by the background
 /// resolver once metadata is ready, or as a fallback if the probe fails.
 fn start_curl_task_by_id(state: &SharedState, task_id: &str) {
-    // Metadata resolution is complete; expose an explicit Preparing phase.
-    // start_curl_process performs the validated Preparing -> Downloading step.
-    if let Ok(mut tasks) = state.task_snapshot.lock() {
-        if let Some(task) = tasks.get_mut(task_id) {
-            if TaskState::from_status(&task.status) == Some(TaskState::Queued) {
-                if let Err(error) =
-                    transition_task_state(task, TaskState::Preparing, "starting")
-                {
-                    log::error!("Task {task_id}: could not enter preparing state: {error}");
-                    return;
-                }
+    // Metadata resolution is complete; move the authoritative curl job into
+    // Preparing, then mirror the same state into the snapshot. The worker
+    // performs the validated Preparing -> Downloading transition.
+    let prepared_task = {
+        let mut jobs = lock_or_err!(state.curl_jobs);
+        let Some(job) = jobs.get_mut(task_id) else {
+            return;
+        };
+        if TaskState::from_status(&job.task.status) == Some(TaskState::Queued) {
+            if let Err(error) =
+                transition_task_state(&mut job.task, TaskState::Preparing, "starting")
+            {
+                log::error!("Task {task_id}: could not enter preparing state: {error}");
+                return;
             }
         }
-    }
+        job.task.clone()
+    };
+    lock_or_err!(state.task_snapshot).insert(task_id.to_owned(), prepared_task);
     state.mark_dirty();
-    // Spawn the actual curl process on a blocking thread.
     crate::daemon::curl::start_curl_process(state, task_id);
 }
 
