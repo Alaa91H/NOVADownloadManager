@@ -140,8 +140,12 @@ pub(super) struct ResponseCapture {
     pub(super) mirrors: Vec<String>,
     /// Parsed Content-Range from the final HTTP response.
     pub(super) content_range: Option<ContentRange>,
-    /// Exact range requested by this handle. When set, body bytes are not
-    /// accepted until the final 206 headers prove they describe this range.
+    /// Start offset requested by this handle. This is kept separately so a
+    /// single-connection resume can still validate its start when the remote
+    /// total size was previously unknown.
+    pub(super) expected_range_start: Option<u64>,
+    /// Exact range requested by this handle when the end/total are known.
+    /// Body bytes are not accepted until final 206 headers prove it matches.
     pub(super) expected_content_range: Option<ContentRange>,
     /// Remote identity known before this request (validator/size/digest).
     /// Concrete contradictions reject the response before any body is written.
