@@ -3249,6 +3249,169 @@ mod tests {
     }
 
     #[test]
+    fn completion_transition_is_persisted_only_after_disk_gate_passes() {
+        let dir = std::env::temp_dir().join(format!(
+            "nova-final-completion-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = std::sync::Arc::new(crate::daemon::persist::tests::test_state(
+            &dir.to_string_lossy(),
+        ));
+        let id = "completion-success";
+        let output = dir.join("complete.bin");
+        std::fs::write(&output, b"nova").unwrap();
+
+        let body = download_body("http://127.0.0.1:1/complete.bin", "complete.bin", 4, 1);
+        let job = task_from_body(
+            &body,
+            id,
+            "complete.bin".to_owned(),
+            &output,
+            std::collections::HashMap::new(),
+            Vec::new(),
+        );
+        job.run_generation.store(1, Ordering::Release);
+        state
+            .task_snapshot
+            .lock()
+            .unwrap()
+            .insert(id.to_owned(), job.task.clone());
+        state.curl_jobs.lock().unwrap().insert(id.to_owned(), job);
+
+        mark_curl_task_finished(&state, id, 4, 1);
+
+        let task = state
+            .task_snapshot
+            .lock()
+            .unwrap()
+            .get(id)
+            .cloned()
+            .expect("completed task snapshot");
+        assert_eq!(task.status, "completed");
+        assert_eq!(task.downloaded_bytes, 4);
+        let stats = state.download_stats.lock().unwrap().clone();
+        assert_eq!(stats.total_completed, 1);
+        assert_eq!(stats.total_failed, 0);
+
+        let persisted = crate::daemon::persist::load(&dir.to_string_lossy());
+        assert!(persisted
+            .tasks
+            .iter()
+            .any(|task| task.id == id && task.status == "completed"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn completion_transition_fails_closed_when_output_is_missing() {
+        let dir = std::env::temp_dir().join(format!(
+            "nova-final-completion-missing-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = std::sync::Arc::new(crate::daemon::persist::tests::test_state(
+            &dir.to_string_lossy(),
+        ));
+        let id = "completion-missing";
+        let output = dir.join("missing.bin");
+        let body = download_body("http://127.0.0.1:1/missing.bin", "missing.bin", 4, 1);
+        let job = task_from_body(
+            &body,
+            id,
+            "missing.bin".to_owned(),
+            &output,
+            std::collections::HashMap::new(),
+            Vec::new(),
+        );
+        job.run_generation.store(1, Ordering::Release);
+        state
+            .task_snapshot
+            .lock()
+            .unwrap()
+            .insert(id.to_owned(), job.task.clone());
+        state.curl_jobs.lock().unwrap().insert(id.to_owned(), job);
+
+        mark_curl_task_finished(&state, id, 4, 1);
+
+        let task = state
+            .task_snapshot
+            .lock()
+            .unwrap()
+            .get(id)
+            .cloned()
+            .expect("failed task snapshot");
+        assert_eq!(task.status, "error");
+        assert_eq!(task.engine_status.as_deref(), Some("failed"));
+        assert!(task
+            .error_message
+            .as_deref()
+            .is_some_and(|message| message.contains("Completion verification failed")));
+        let stats = state.download_stats.lock().unwrap().clone();
+        assert_eq!(stats.total_completed, 0);
+        assert_eq!(stats.total_failed, 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn completion_transition_enforces_digest_for_every_success_path() {
+        use sha2::Digest;
+
+        let dir = std::env::temp_dir().join(format!(
+            "nova-final-completion-digest-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = std::sync::Arc::new(crate::daemon::persist::tests::test_state(
+            &dir.to_string_lossy(),
+        ));
+        let id = "completion-digest";
+        let output = dir.join("digest.bin");
+        std::fs::write(&output, b"nova").unwrap();
+
+        let body = download_body("http://127.0.0.1:1/digest.bin", "digest.bin", 4, 1);
+        let wrong_digest = format!("{:x}", sha2::Sha256::digest(b"different"));
+        let mut options = std::collections::HashMap::new();
+        options.insert(
+            "digestSha256".to_owned(),
+            serde_json::Value::String(wrong_digest),
+        );
+        let job = task_from_body(
+            &body,
+            id,
+            "digest.bin".to_owned(),
+            &output,
+            options,
+            Vec::new(),
+        );
+        job.run_generation.store(1, Ordering::Release);
+        state
+            .task_snapshot
+            .lock()
+            .unwrap()
+            .insert(id.to_owned(), job.task.clone());
+        state.curl_jobs.lock().unwrap().insert(id.to_owned(), job);
+
+        mark_curl_task_finished(&state, id, 4, 1);
+
+        let task = state
+            .task_snapshot
+            .lock()
+            .unwrap()
+            .get(id)
+            .cloned()
+            .expect("digest failure snapshot");
+        assert_eq!(task.status, "error");
+        assert!(task
+            .error_message
+            .as_deref()
+            .is_some_and(|message| message.contains("Content-Digest verification failed")));
+        let stats = state.download_stats.lock().unwrap().clone();
+        assert_eq!(stats.total_completed, 0);
+        assert_eq!(stats.total_failed, 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn preflight_data_defaults() {
         let p = PreflightData::default();
         assert!(p.protocol.is_empty());
