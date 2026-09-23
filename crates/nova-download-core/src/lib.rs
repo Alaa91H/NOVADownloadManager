@@ -46,6 +46,25 @@ fn transport_error(error: curl::Error) -> TransportError {
     }
 }
 
+fn ensure_http_url(url: &str) -> Result<(), TransportError> {
+    let Some((scheme, rest)) = url.trim().split_once(':') else {
+        return Err(TransportError::RequestFailed {
+            message: "direct transfer URL is missing a scheme".to_owned(),
+        });
+    };
+    if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+        return Err(TransportError::RequestFailed {
+            message: format!("unsupported direct transfer URL scheme '{scheme}'"),
+        });
+    }
+    if rest.is_empty() {
+        return Err(TransportError::RequestFailed {
+            message: "direct transfer URL is missing an authority".to_owned(),
+        });
+    }
+    Ok(())
+}
+
 fn parse_http_status(header: &[u8]) -> Option<u16> {
     let line = std::str::from_utf8(header).ok()?.trim();
     if !line.starts_with("HTTP/") {
@@ -118,6 +137,7 @@ pub fn plan_http_resume(
 
 /// Probe HTTP metadata using NOVA's native libcurl transport.
 pub fn probe_http_resource(url: &str) -> Result<HttpResourceProbe, TransportError> {
+    ensure_http_url(url)?;
     let mut easy = Easy::new();
     easy.url(url).map_err(transport_error)?;
     easy.nobody(true).map_err(transport_error)?;
@@ -167,6 +187,7 @@ pub fn stream_http_range<W: Write>(
     end: u64,
     sink: &mut W,
 ) -> Result<HttpRangeProbe, TransportError> {
+    ensure_http_url(url)?;
     if end < start {
         return Err(TransportError::InvalidRange { start, end });
     }
@@ -319,6 +340,7 @@ fn stream_http_full<W: Write>(
     url: &str,
     sink: &mut W,
 ) -> Result<(u16, u64, String), TransportError> {
+    ensure_http_url(url)?;
     let mut easy = Easy::new();
     easy.url(url).map_err(transport_error)?;
     easy.follow_location(true).map_err(transport_error)?;
@@ -529,6 +551,12 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
+
+    #[test]
+    fn native_http_transport_rejects_non_http_schemes() {
+        assert!(probe_http_resource("file:///tmp/secret").is_err());
+        assert!(probe_http_resource("ftp://example.invalid/file").is_err());
+    }
 
     #[test]
     fn planner_preserves_host_specific_ceiling() {
