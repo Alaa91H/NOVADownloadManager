@@ -86,7 +86,7 @@ class NovaTransferCore(context: Context) {
         require(record.status in RESUMABLE_DOWNLOAD_STATUSES) {
             "Transfer cannot be resumed from state ${record.status}"
         }
-        val url = requireNotNull(intentStore.get(taskId)) {
+        requireNotNull(intentStore.get(taskId)) {
             "Encrypted NOVA transfer intent is unavailable"
         }
         check(!ACTIVE_TRANSFER_IDS.contains(taskId)) { "NOVA native transfer is still active" }
