@@ -41,7 +41,9 @@ class NovaUserInitiatedTransferJobService : JobService() {
         STOPPED_JOBS.remove(params.jobId)
         val monitor = MONITOR_EXECUTOR.scheduleAtFixedRate(
             {
-                val summary = core.task(taskId) ?: return@scheduleAtFixedRate
+                val summary = core.checkpointProgress(taskId)
+                    ?: core.task(taskId)
+                    ?: return@scheduleAtFixedRate
                 getSystemService(NotificationManager::class.java)?.notify(
                     NovaTransferNotifications.notificationId(taskId),
                     NovaTransferNotifications.build(this, summary),
