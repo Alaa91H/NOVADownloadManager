@@ -7,6 +7,7 @@ import { logger } from '../../utils/logger';
 import { useTaskData, useBridgeData, useI18n } from '../../store/selectors';
 import { Logo } from '../../components/Logo';
 import { taskProgressInfo } from '../../utils/progressUtils';
+import { isTaskActiveStatus } from '../../utils/taskStatus';
 import { TaskProgressBar } from '../../components/primitives/TaskProgressBar';
 
 const ActiveProgressDialog = lazy(() =>
@@ -82,7 +83,7 @@ export const DetachedProgressWindow: React.FC<{ taskId: string }> = ({ taskId })
               <div className="w-20 shrink-0" data-tauri-drag-region>
                 <TaskProgressBar
                   progress={progress}
-                  active={task.status === 'downloading'}
+                  active={isTaskActiveStatus(task.status)}
                   trackClass="h-1"
                   showLabel={false}
                   ariaLabel={task.name}
