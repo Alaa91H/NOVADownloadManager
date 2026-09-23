@@ -49,8 +49,9 @@ class PlatformDownloadsRepository(context: Context) : DownloadsRepository {
         core.enqueue(url).flatMapScheduled()
 
     override fun pause(taskId: String): Result<DownloadSummary> {
+        val wasActive = core.isActive(taskId)
         val result = core.pause(taskId)
-        if (result.isSuccess) NovaTransferScheduler.cancel(appContext, taskId)
+        if (result.isSuccess && !wasActive) NovaTransferScheduler.cancel(appContext, taskId)
         return result
     }
 
@@ -58,8 +59,9 @@ class PlatformDownloadsRepository(context: Context) : DownloadsRepository {
         core.resume(taskId).flatMapScheduled()
 
     override fun cancel(taskId: String): Result<DownloadSummary> {
+        val wasActive = core.isActive(taskId)
         val result = core.cancel(taskId)
-        if (result.isSuccess) NovaTransferScheduler.cancel(appContext, taskId)
+        if (result.isSuccess && !wasActive) NovaTransferScheduler.cancel(appContext, taskId)
         return result
     }
 
