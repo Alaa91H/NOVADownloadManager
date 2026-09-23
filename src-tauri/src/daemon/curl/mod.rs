@@ -68,8 +68,12 @@ impl RemoteFingerprint {
     /// If-Range semantics still bind the response to the requested object.
     pub(super) fn conflicts_with(&self, observed: &Self) -> bool {
         if let (Some(expected), Some(actual)) = (&self.validator, &observed.validator) {
-            if self.validator_is_etag != observed.validator_is_etag
-                || expected.trim() != actual.trim()
+            // ETag and Last-Modified are different validator namespaces. A
+            // server may start/stop exposing one of them without changing the
+            // representation, so only compare values when both fingerprints
+            // refer to the SAME validator kind.
+            if self.validator_is_etag == observed.validator_is_etag
+                && expected.trim() != actual.trim()
             {
                 return true;
             }
@@ -254,6 +258,11 @@ mod fingerprint_tests {
         assert!(expected.conflicts_with(&RemoteFingerprint {
             validator: Some("\"v2\"".to_owned()),
             validator_is_etag: true,
+            ..Default::default()
+        }));
+        assert!(!expected.conflicts_with(&RemoteFingerprint {
+            validator: Some("Wed, 23 Sep 2026 20:00:00 GMT".to_owned()),
+            validator_is_etag: false,
             ..Default::default()
         }));
         assert!(expected.conflicts_with(&RemoteFingerprint {
