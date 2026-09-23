@@ -35,6 +35,25 @@ pub(super) struct ContentRange {
     pub(super) total: Option<u64>,
 }
 
+fn normalize_sha256_fingerprint(raw: &str) -> Option<String> {
+    if let Some(parsed) = crate::daemon::utils::parse_sha256_digest(raw) {
+        return Some(parsed);
+    }
+
+    let value = raw.trim().trim_matches(':');
+    if value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Some(value.to_ascii_lowercase());
+    }
+
+    let decoded = crate::daemon::utils::base64_decode(value)?;
+    (decoded.len() == 32).then(|| {
+        decoded
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    })
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct RemoteFingerprint {
     pub(super) validator: Option<String>,
@@ -120,7 +139,10 @@ impl DirectDownloadPlan {
             validator: self.validator.clone(),
             validator_is_etag: self.validator_is_etag,
             total_size: (self.total_size > 0).then_some(self.total_size),
-            digest_sha256: self.digest_sha256.clone(),
+            digest_sha256: self
+                .digest_sha256
+                .as_deref()
+                .and_then(normalize_sha256_fingerprint),
         }
     }
 }
@@ -168,7 +190,10 @@ impl ResponseCapture {
                 .content_range
                 .and_then(|range| range.total)
                 .or(self.content_length),
-            digest_sha256: self.digest_sha256.clone(),
+            digest_sha256: self
+                .digest_sha256
+                .as_deref()
+                .and_then(normalize_sha256_fingerprint),
         }
     }
 }
@@ -194,4 +219,46 @@ pub(super) struct SegmentProgress {
     /// True when this segment requested a partial range and therefore must
     /// receive a 206 response for the transfer to be valid.
     pub(super) expects_206: bool,
+}
+
+#[cfg(test)]
+mod fingerprint_tests {
+    use super::{normalize_sha256_fingerprint, RemoteFingerprint};
+
+    #[test]
+    fn sha256_fingerprint_normalizes_hex_and_structured_digest_forms() {
+        let hex = "a".repeat(64);
+        assert_eq!(normalize_sha256_fingerprint(&hex), Some(hex.clone()));
+        assert_eq!(
+            normalize_sha256_fingerprint(&format!("SHA-256={hex}")),
+            Some(hex)
+        );
+
+        let zero_b64 = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+        assert_eq!(
+            normalize_sha256_fingerprint(&format!("sha-256=:{zero_b64}:")),
+            Some("0".repeat(64))
+        );
+    }
+
+    #[test]
+    fn remote_fingerprint_only_rejects_concrete_contradictions() {
+        let expected = RemoteFingerprint {
+            validator: Some("\"v1\"".to_owned()),
+            validator_is_etag: true,
+            total_size: Some(1024),
+            digest_sha256: Some("a".repeat(64)),
+        };
+
+        assert!(!expected.conflicts_with(&RemoteFingerprint::default()));
+        assert!(expected.conflicts_with(&RemoteFingerprint {
+            validator: Some("\"v2\"".to_owned()),
+            validator_is_etag: true,
+            ..Default::default()
+        }));
+        assert!(expected.conflicts_with(&RemoteFingerprint {
+            total_size: Some(2048),
+            ..Default::default()
+        }));
+    }
 }
