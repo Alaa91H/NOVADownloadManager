@@ -444,7 +444,27 @@ fn if_range_header(plan: &DirectDownloadPlan) -> Option<String> {
     }
 }
 
-fn direct_headers(config: &CurlTransferConfig) -> Result<Option<List>, String> {
+fn requires_identity_encoding(
+    resumable: bool,
+    output_path: &Path,
+    range: Option<(u64, u64)>,
+) -> Result<bool, String> {
+    // Byte-range offsets are defined against the selected representation. A
+    // transparent Content-Encoding changes the bytes libcurl writes to disk,
+    // so a resumed/segmented transfer can no longer prove that its local byte
+    // offsets correspond to the remote object. Force the identity
+    // representation whenever an explicit Range is used or an existing
+    // destination is being resumed.
+    if range.is_some() {
+        return Ok(true);
+    }
+    Ok(resumable && FileWriter::current_size(output_path)? > 0)
+}
+
+fn direct_headers(
+    config: &CurlTransferConfig,
+    force_identity_encoding: bool,
+) -> Result<Option<List>, String> {
     let mut list = List::new();
     let mut has_any = false;
     if let Some(raw_headers) = config.str_("headers") {
@@ -456,6 +476,16 @@ fn direct_headers(config: &CurlTransferConfig) -> Result<Option<List>, String> {
             if line.contains(':') {
                 if !safe_value(line) {
                     return Err("Rejected unsafe header value".to_owned());
+                }
+                let is_accept_encoding = line
+                    .split_once(':')
+                    .is_some_and(|(name, _)| name.trim().eq_ignore_ascii_case("accept-encoding"));
+                if force_identity_encoding && is_accept_encoding {
+                    // A caller-supplied gzip/br header would override the
+                    // range-safe identity representation. Ignore it only for
+                    // resumable/range transfers; fresh single-connection
+                    // downloads retain the caller's requested encoding.
+                    continue;
                 }
                 list.append(line)
                     .map_err(|e| format!("Could not apply header: {e}"))?;
@@ -491,6 +521,8 @@ pub fn apply_easy_options<H: Handler>(
         .map_err(|e| format!("Could not enable TCP keepalive: {e}"))?;
 
     let mut conditional_headers: Vec<String> = Vec::new();
+    let force_identity_encoding =
+        requires_identity_encoding(plan.resumable, &plan.output_path, range)?;
 
     if let Some((start, end)) = range {
         easy.range(&format!("{start}-{end}"))
@@ -552,7 +584,10 @@ pub fn apply_easy_options<H: Handler>(
         easy.cookie(cookies)
             .map_err(|e| format!("Could not configure cookies: {e}"))?;
     }
-    if plan.config.bool_("compressed") != Some(false) {
+    if force_identity_encoding {
+        easy.accept_encoding("identity")
+            .map_err(|e| format!("Could not force identity encoding for range-safe transfer: {e}"))?;
+    } else if plan.config.bool_("compressed") != Some(false) {
         easy.accept_encoding("")
             .map_err(|e| format!("Could not enable compression: {e}"))?;
     }
@@ -1207,7 +1242,8 @@ pub fn apply_easy_options<H: Handler>(
         easy.doh_ssl_verify_host(false)
             .map_err(|e| format!("Could not disable DoH host verification: {e}"))?;
     }
-    let mut header_list: List = if let Some(headers) = direct_headers(&plan.config)? {
+    let mut header_list: List =
+        if let Some(headers) = direct_headers(&plan.config, force_identity_encoding)? {
         headers
     } else {
         let mut list = List::new();
@@ -1528,6 +1564,32 @@ mod tests {
         assert!(w.header(b"Content-Range: bytes 0-9/*\r\n"));
         let cap = captured(&w);
         assert_eq!(cap.content_length, None);
+    }
+
+    #[test]
+    fn range_transfers_force_identity_encoding() {
+        let missing = std::env::temp_dir().join(format!(
+            "nova_identity_range_{}_missing.bin",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&missing);
+        assert!(requires_identity_encoding(true, &missing, Some((0, 1023))).unwrap());
+        assert!(requires_identity_encoding(false, &missing, Some((0, 1023))).unwrap());
+    }
+
+    #[test]
+    fn partial_resume_forces_identity_but_fresh_download_does_not() {
+        let dir =
+            std::env::temp_dir().join(format!("nova_identity_resume_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("partial.bin");
+
+        assert!(!requires_identity_encoding(true, &path, None).unwrap());
+        std::fs::write(&path, b"partial-checkpoint").unwrap();
+        assert!(requires_identity_encoding(true, &path, None).unwrap());
+        assert!(!requires_identity_encoding(false, &path, None).unwrap());
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
