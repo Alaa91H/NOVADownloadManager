@@ -364,6 +364,126 @@ fn throw_android_transfer_error(env: &mut jni::JNIEnv<'_>, message: impl Into<St
 
 #[cfg(target_os = "android")]
 #[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeProbeHttpResource(
+    mut env: jni::JNIEnv<'_>,
+    _receiver: jni::objects::JObject<'_>,
+    url: jni::objects::JString<'_>,
+) -> jni::sys::jlongArray {
+    let url = match jni_string(&mut env, &url, "probe URL") {
+        Ok(value) => value,
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            return std::ptr::null_mut();
+        }
+    };
+    let probe = match nova_download_core::probe_http_resource(&url) {
+        Ok(probe) => probe,
+        Err(error) => {
+            throw_android_transfer_error(&mut env, error.to_string());
+            return std::ptr::null_mut();
+        }
+    };
+    let values = [
+        i64::from(probe.response_status),
+        probe
+            .content_length
+            .and_then(|value| i64::try_from(value).ok())
+            .unwrap_or(-1),
+    ];
+    let array = match env.new_long_array(values.len() as i32) {
+        Ok(array) => array,
+        Err(error) => {
+            throw_android_transfer_error(
+                &mut env,
+                format!("failed to allocate native probe result: {error}"),
+            );
+            return std::ptr::null_mut();
+        }
+    };
+    if let Err(error) = env.set_long_array_region(&array, 0, &values) {
+        throw_android_transfer_error(
+            &mut env,
+            format!("failed to return native probe result: {error}"),
+        );
+        return std::ptr::null_mut();
+    }
+    array.into_raw()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeStagedTransferBytes(
+    mut env: jni::JNIEnv<'_>,
+    _receiver: jni::objects::JObject<'_>,
+    app_private_root: jni::objects::JString<'_>,
+    relative_destination: jni::objects::JString<'_>,
+) -> jni::sys::jlong {
+    let app_private_root = match jni_string(&mut env, &app_private_root, "app-private root") {
+        Ok(value) => value,
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            return -1;
+        }
+    };
+    let relative_destination =
+        match jni_string(&mut env, &relative_destination, "relative destination") {
+            Ok(value) => value,
+            Err(message) => {
+                throw_android_transfer_error(&mut env, message);
+                return -1;
+            }
+        };
+
+    match nova_mobile_core::staged_transfer_bytes(
+        std::path::Path::new(&app_private_root),
+        std::path::Path::new(&relative_destination),
+    ) {
+        Ok(bytes) => i64::try_from(bytes).unwrap_or(i64::MAX),
+        Err(error) => {
+            throw_android_transfer_error(&mut env, error.to_string());
+            -1
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeDiscardStagedTransfer(
+    mut env: jni::JNIEnv<'_>,
+    _receiver: jni::objects::JObject<'_>,
+    app_private_root: jni::objects::JString<'_>,
+    relative_destination: jni::objects::JString<'_>,
+) -> jni::sys::jboolean {
+    let app_private_root = match jni_string(&mut env, &app_private_root, "app-private root") {
+        Ok(value) => value,
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            return 0;
+        }
+    };
+    let relative_destination =
+        match jni_string(&mut env, &relative_destination, "relative destination") {
+            Ok(value) => value,
+            Err(message) => {
+                throw_android_transfer_error(&mut env, message);
+                return 0;
+            }
+        };
+
+    match nova_mobile_core::discard_staged_transfer(
+        std::path::Path::new(&app_private_root),
+        std::path::Path::new(&relative_destination),
+    ) {
+        Ok(()) => 1,
+        Err(error) => {
+            throw_android_transfer_error(&mut env, error.to_string());
+            0
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
 pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeDownloadToAppPrivate(
     mut env: jni::JNIEnv<'_>,
     _receiver: jni::objects::JObject<'_>,
