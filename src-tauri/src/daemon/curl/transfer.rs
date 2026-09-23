@@ -3360,14 +3360,16 @@ pub fn start_curl_process(state: &SharedState, id: &str) {
 /// from overwriting a restarted task's state.
 fn force_error_status(state: &SharedState, id: &str, generation: u64, message: String) {
     log::error!("Watchdog force-error for task {id}: {message}");
-    // C-3: verify generation before side effects — a stale watchdog from an
-    // old run must not release the slot or bump stats for the current run.
-    {
-        let jobs = lock_or_err!(state.curl_jobs);
-        let Some(job) = jobs.get(id) else {
+    // Validate generation and lifecycle BEFORE side effects. A stale watchdog
+    // or a watchdog racing with completion must not release slots or bump
+    // failure counters for a task it can no longer own.
+    let task = {
+        let mut jobs = lock_or_err!(state.curl_jobs);
+        let Some(job) = jobs.get_mut(id) else {
             return;
         };
-        if job.task.status == "completed" || job.task.status == "paused" {
+        let current = TaskState::from_status(&job.task.status);
+        if matches!(current, Some(TaskState::Completed | TaskState::Paused)) {
             return;
         }
         if generation > 0 && job.run_generation.load(Ordering::Acquire) != generation {
@@ -3377,31 +3379,24 @@ fn force_error_status(state: &SharedState, id: &str, generation: u64, message: S
             );
             return;
         }
-    }
-    state.priority_queue.stop_download(id);
-    {
-        if let Ok(mut stats) = state.download_stats.lock() {
-            stats.total_failed += 1;
-        }
-    }
-    let mut jobs = lock_or_err!(state.curl_jobs);
-    if let Some(job) = jobs.get_mut(id) {
-        if job.task.status == "completed" || job.task.status == "paused" {
+        if let Err(error) =
+            transition_task_state(&mut job.task, TaskState::Failed, "watchdog-timeout")
+        {
+            log::error!("Watchdog for {id}: state transition rejected: {error}");
             return;
         }
-        if generation > 0 && job.run_generation.load(Ordering::Acquire) != generation {
-            return;
-        }
-        job.task.status = "error".to_owned();
         job.task.speed_bytes_per_sec = 0;
         job.task.time_left_seconds = 0;
-        job.task.engine_status = Some("watchdog-timeout".to_owned());
         job.task.error_message = Some(message);
-        let task = job.task.clone();
-        drop(jobs);
-        lock_or_err!(state.task_snapshot).insert(id.to_owned(), task);
-        state.mark_dirty();
+        job.task.clone()
+    };
+
+    state.priority_queue.stop_download(id);
+    if let Ok(mut stats) = state.download_stats.lock() {
+        stats.total_failed += 1;
     }
+    lock_or_err!(state.task_snapshot).insert(id.to_owned(), task);
+    state.mark_dirty();
 }
 
 /// Generate a unique filename by appending " (1)", " (2)", etc. before the
