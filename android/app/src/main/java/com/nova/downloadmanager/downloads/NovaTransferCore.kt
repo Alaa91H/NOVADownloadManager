@@ -128,9 +128,14 @@ class NovaTransferCore(context: Context) {
     fun checkpointProgress(taskId: String): DownloadSummary? {
         val record = records().firstOrNull { it.id == taskId } ?: return null
         val progress = NovaNativeCore.transferProgress(taskId) ?: return summary(record)
+        val stagingBytes = File(appPrivateRoot, record.stagingRelativePath)
+            .takeIf(File::isFile)
+            ?.length()
+            ?.coerceAtLeast(0)
+            ?: 0L
         val updated = record.copy(
-            downloadedBytes = maxOf(record.downloadedBytes, progress.downloadedBytes),
-            totalBytes = maxOf(record.totalBytes, progress.totalBytes),
+            downloadedBytes = maxOf(stagingBytes, progress.downloadedBytes),
+            totalBytes = progress.totalBytes,
         )
         if (updated != record) {
             updateRecord(updated)
@@ -169,7 +174,14 @@ class NovaTransferCore(context: Context) {
     fun isActive(taskId: String): Boolean = ACTIVE_TRANSFER_IDS.contains(taskId)
 
     private fun runNativeTransfer(record: TransferRecord, url: String) {
-        var current = record.copy(status = DownloadStatus.Downloading.wireValue)
+        // A new native execution may discover that the remote representation
+        // changed and restart from byte zero. Do not carry stale counters into
+        // that generation; the native progress snapshot becomes authoritative.
+        var current = record.copy(
+            status = DownloadStatus.Downloading.wireValue,
+            downloadedBytes = 0,
+            totalBytes = 0,
+        )
         updateRecord(current)
 
         try {
@@ -197,16 +209,18 @@ class NovaTransferCore(context: Context) {
                     NovaNativeCore.forgetTransferProgress(current.id)
                 }
                 NovaNativeCore.NativeTransferStatus.PAUSED -> {
+                    val stagingBytes = File(appPrivateRoot, current.stagingRelativePath)
+                        .takeIf(File::isFile)
+                        ?.length()
+                        ?.coerceAtLeast(0)
+                        ?: 0L
                     current = current.copy(
                         status = DownloadStatus.Paused.wireValue,
                         downloadedBytes = maxOf(
-                            current.downloadedBytes,
+                            stagingBytes,
                             progress?.downloadedBytes ?: 0,
                         ),
-                        totalBytes = maxOf(
-                            current.totalBytes,
-                            progress?.totalBytes ?: 0,
-                        ),
+                        totalBytes = progress?.totalBytes ?: 0,
                     )
                 }
                 NovaNativeCore.NativeTransferStatus.CANCELLED -> {
@@ -224,16 +238,18 @@ class NovaTransferCore(context: Context) {
             val progress = runCatching {
                 NovaNativeCore.transferProgress(current.id)
             }.getOrNull()
+            val stagingBytes = File(appPrivateRoot, current.stagingRelativePath)
+                .takeIf(File::isFile)
+                ?.length()
+                ?.coerceAtLeast(0)
+                ?: 0L
             current = current.copy(
                 status = DownloadStatus.Failed.wireValue,
                 downloadedBytes = maxOf(
-                    current.downloadedBytes,
+                    stagingBytes,
                     progress?.downloadedBytes ?: 0,
                 ),
-                totalBytes = maxOf(
-                    current.totalBytes,
-                    progress?.totalBytes ?: 0,
-                ),
+                totalBytes = progress?.totalBytes ?: 0,
             )
             updateRecord(current)
             runCatching { NovaNativeCore.forgetTransferProgress(current.id) }
@@ -292,16 +308,22 @@ class NovaTransferCore(context: Context) {
         } else {
             null
         }
-        val downloadedBytes = maxOf(
-            record.downloadedBytes,
-            fileBytes,
-            nativeProgress?.downloadedBytes ?: 0,
-        )
-        val totalBytes = maxOf(
-            record.totalBytes,
-            nativeProgress?.totalBytes ?: 0,
-            downloadedBytes.takeIf { record.status == DownloadStatus.Completed.wireValue } ?: 0L,
-        )
+        val downloadedBytes = if (nativeProgress != null) {
+            maxOf(fileBytes, nativeProgress.downloadedBytes)
+        } else {
+            maxOf(record.downloadedBytes, fileBytes)
+        }
+        val totalBytes = if (nativeProgress != null) {
+            maxOf(
+                nativeProgress.totalBytes,
+                downloadedBytes.takeIf { record.status == DownloadStatus.Completed.wireValue } ?: 0L,
+            )
+        } else {
+            maxOf(
+                record.totalBytes,
+                downloadedBytes.takeIf { record.status == DownloadStatus.Completed.wireValue } ?: 0L,
+            )
+        }
 
         return DownloadSummary(
             id = record.id,
