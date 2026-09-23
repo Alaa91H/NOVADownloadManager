@@ -194,7 +194,11 @@ pub struct SegmentRange {
 
 impl SegmentRange {
     pub const fn len(&self) -> u64 {
-        self.end.saturating_sub(self.start).saturating_add(1)
+        if self.end < self.start {
+            0
+        } else {
+            self.end.saturating_sub(self.start).saturating_add(1)
+        }
     }
 }
 
