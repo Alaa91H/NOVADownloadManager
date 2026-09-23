@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 pub enum TaskState {
     Queued,
     Preparing,
+    Probing,
     Downloading,
     Pausing,
     Paused,
@@ -37,6 +38,7 @@ impl TaskState {
         match self {
             Self::Queued => "queued",
             Self::Preparing => "preparing",
+            Self::Probing => "probing",
             Self::Downloading => "downloading",
             Self::Pausing => "pausing",
             Self::Paused => "paused",
@@ -55,6 +57,7 @@ impl TaskState {
         match status.trim().to_ascii_lowercase().as_str() {
             "queued" | "waiting" => Some(Self::Queued),
             "preparing" | "starting" => Some(Self::Preparing),
+            "probing" | "resolving" | "resolving-url" => Some(Self::Probing),
             "downloading" => Some(Self::Downloading),
             "pausing" | "stopping" => Some(Self::Pausing),
             "paused" => Some(Self::Paused),
@@ -74,6 +77,7 @@ impl TaskState {
         matches!(
             self,
             Self::Preparing
+                | Self::Probing
                 | Self::Downloading
                 | Self::Pausing
                 | Self::Retrying
@@ -95,11 +99,20 @@ impl TaskState {
         match self {
             Self::Queued => matches!(
                 next,
-                Self::Preparing | Self::Downloading | Self::Paused | Self::Failed
+                Self::Preparing | Self::Paused | Self::Failed
             ),
             Self::Preparing => matches!(
                 next,
-                Self::Downloading | Self::Pausing | Self::Paused | Self::Failed
+                Self::Probing | Self::Pausing | Self::Paused | Self::Failed
+            ),
+            Self::Probing => matches!(
+                next,
+                Self::Downloading
+                    | Self::Pausing
+                    | Self::Paused
+                    | Self::Retrying
+                    | Self::Recovering
+                    | Self::Failed
             ),
             Self::Downloading => matches!(
                 next,
@@ -113,11 +126,12 @@ impl TaskState {
             Self::Pausing => matches!(next, Self::Paused | Self::Failed),
             Self::Paused => matches!(
                 next,
-                Self::Queued | Self::Preparing | Self::Downloading | Self::Failed
+                Self::Queued | Self::Preparing | Self::Failed
             ),
             Self::Retrying => matches!(
                 next,
-                Self::Downloading
+                Self::Probing
+                    | Self::Downloading
                     | Self::Recovering
                     | Self::Pausing
                     | Self::Paused
@@ -125,7 +139,8 @@ impl TaskState {
             ),
             Self::Recovering => matches!(
                 next,
-                Self::Downloading
+                Self::Probing
+                    | Self::Downloading
                     | Self::Retrying
                     | Self::Pausing
                     | Self::Paused
@@ -136,7 +151,7 @@ impl TaskState {
             Self::Completed => false,
             Self::Failed => matches!(
                 next,
-                Self::Queued | Self::Preparing | Self::Downloading | Self::Paused
+                Self::Queued | Self::Preparing | Self::Paused
             ),
             Self::Interrupted => matches!(
                 next,
@@ -420,6 +435,8 @@ mod tests {
     #[test]
     fn lifecycle_requires_verification_before_completion() {
         assert!(!TaskState::Downloading.can_transition_to(TaskState::Completed));
+        assert!(TaskState::Preparing.can_transition_to(TaskState::Probing));
+        assert!(TaskState::Probing.can_transition_to(TaskState::Downloading));
         assert!(TaskState::Downloading.can_transition_to(TaskState::Verifying));
         assert!(TaskState::Verifying.can_transition_to(TaskState::Finalizing));
         assert!(TaskState::Finalizing.can_transition_to(TaskState::Completed));
@@ -448,6 +465,7 @@ mod tests {
     fn active_state_classification_includes_completion_pipeline() {
         for state in [
             TaskState::Preparing,
+            TaskState::Probing,
             TaskState::Downloading,
             TaskState::Pausing,
             TaskState::Retrying,
