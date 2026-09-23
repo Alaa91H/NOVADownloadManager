@@ -944,6 +944,61 @@ fn android_plan_http_resume_status(
     }
 }
 
+fn android_native_transfer_status(task_id: i64) -> i32 {
+    let Ok(task_id) = u64::try_from(task_id) else {
+        return -1;
+    };
+    native_transfer_snapshot(task_id)
+        .map(|snapshot| i32::from(snapshot.status.code()))
+        .unwrap_or(-1)
+}
+
+fn android_native_transfer_bytes(task_id: i64, total: bool) -> i64 {
+    let Ok(task_id) = u64::try_from(task_id) else {
+        return -1;
+    };
+    let Some(snapshot) = native_transfer_snapshot(task_id) else {
+        return -1;
+    };
+    let value = if total {
+        snapshot.total_bytes
+    } else {
+        snapshot.downloaded_bytes
+    };
+    i64::try_from(value).unwrap_or(i64::MAX)
+}
+
+fn android_cancel_native_transfer(task_id: i64) -> i32 {
+    let Ok(task_id) = u64::try_from(task_id) else {
+        return -1;
+    };
+    i32::from(cancel_native_transfer(task_id))
+}
+
+fn android_forget_native_transfer(task_id: i64) -> i32 {
+    let Ok(task_id) = u64::try_from(task_id) else {
+        return -1;
+    };
+    i32::from(forget_native_transfer(task_id))
+}
+
+#[cfg(target_os = "android")]
+fn android_start_native_http_transfer(url: String, destination_fd: i32) -> i64 {
+    use std::os::fd::FromRawFd;
+
+    if destination_fd < 0 {
+        return -1;
+    }
+
+    // Kotlin calls ParcelFileDescriptor.detachFd(), transferring ownership of
+    // this descriptor to Rust. File owns and closes it when the transfer ends.
+    let destination = unsafe { File::from_raw_fd(destination_fd) };
+    start_native_http_transfer_with_file(url, destination)
+        .ok()
+        .and_then(|id| i64::try_from(id).ok())
+        .unwrap_or(-1)
+}
+
 /// JNI entry point used by `NovaNativeCore` on Android.
 #[cfg(target_os = "android")]
 #[no_mangle]
@@ -1000,6 +1055,70 @@ pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeP
     content_range_start: i64,
 ) -> i32 {
     android_plan_http_resume_status(existing_bytes, response_status, content_range_start)
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeStartHttpTransfer(
+    mut env: jni::JNIEnv<'_>,
+    _receiver: jni::objects::JObject<'_>,
+    url: jni::objects::JString<'_>,
+    destination_fd: jni::sys::jint,
+) -> jni::sys::jlong {
+    let Ok(url) = env.get_string(&url) else {
+        return -1;
+    };
+    android_start_native_http_transfer(url.into(), destination_fd)
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeTransferStatus(
+    _env: *mut core::ffi::c_void,
+    _receiver: *mut core::ffi::c_void,
+    task_id: i64,
+) -> i32 {
+    android_native_transfer_status(task_id)
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeTransferDownloadedBytes(
+    _env: *mut core::ffi::c_void,
+    _receiver: *mut core::ffi::c_void,
+    task_id: i64,
+) -> i64 {
+    android_native_transfer_bytes(task_id, false)
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeTransferTotalBytes(
+    _env: *mut core::ffi::c_void,
+    _receiver: *mut core::ffi::c_void,
+    task_id: i64,
+) -> i64 {
+    android_native_transfer_bytes(task_id, true)
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeCancelTransfer(
+    _env: *mut core::ffi::c_void,
+    _receiver: *mut core::ffi::c_void,
+    task_id: i64,
+) -> i32 {
+    android_cancel_native_transfer(task_id)
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeForgetTransfer(
+    _env: *mut core::ffi::c_void,
+    _receiver: *mut core::ffi::c_void,
+    task_id: i64,
+) -> i32 {
+    android_forget_native_transfer(task_id)
 }
 
 #[cfg(test)]
