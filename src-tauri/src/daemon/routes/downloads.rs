@@ -923,21 +923,27 @@ async fn background_size_probe(state: SharedState, task_id: String, url: String)
 /// Start a previously-created curl task by its ID. Called by the background
 /// resolver once metadata is ready, or as a fallback if the probe fails.
 fn start_curl_task_by_id(state: &SharedState, task_id: &str) {
-    // Metadata resolution is complete; move the authoritative curl job into
-    // Preparing, then mirror the same state into the snapshot. The worker
-    // performs the validated Preparing -> Downloading transition.
+    // Metadata resolution is complete. Start only if the task is STILL queued:
+    // the user may have paused/deleted it while the asynchronous probe was in
+    // flight. This closes the old race where a stale probe callback could
+    // resurrect a paused task.
     let prepared_task = {
         let mut jobs = lock_or_err!(state.curl_jobs);
         let Some(job) = jobs.get_mut(task_id) else {
             return;
         };
-        if TaskState::from_status(&job.task.status) == Some(TaskState::Queued) {
-            if let Err(error) =
-                transition_task_state(&mut job.task, TaskState::Preparing, "starting")
-            {
-                log::error!("Task {task_id}: could not enter preparing state: {error}");
-                return;
-            }
+        if TaskState::from_status(&job.task.status) != Some(TaskState::Queued) {
+            log::debug!(
+                "Task {task_id}: background start ignored because current state is '{}'",
+                job.task.status
+            );
+            return;
+        }
+        if let Err(error) =
+            transition_task_state(&mut job.task, TaskState::Preparing, "starting")
+        {
+            log::error!("Task {task_id}: could not enter preparing state: {error}");
+            return;
         }
         job.task.clone()
     };
