@@ -35,12 +35,6 @@ pub(super) struct ContentRange {
     pub(super) total: Option<u64>,
 }
 
-impl ContentRange {
-    pub(super) const fn len(self) -> u64 {
-        self.end.saturating_sub(self.start).saturating_add(1)
-    }
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct RemoteFingerprint {
     pub(super) validator: Option<String>,
