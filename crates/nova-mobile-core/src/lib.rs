@@ -181,6 +181,27 @@ pub fn staged_transfer_bytes(
     })
 }
 
+/// Delete all durable staging state for a mobile transfer.
+pub fn discard_staged_transfer(
+    app_private_root: &Path,
+    relative_destination: &Path,
+) -> Result<(), MobileTransferError> {
+    let destination =
+        validated_app_private_destination(app_private_root, relative_destination)?;
+    nova_download_core::cleanup_segment_state(&destination).map_err(|error| {
+        MobileTransferError::TransferFailed {
+            message: error.to_string(),
+        }
+    })?;
+    match std::fs::remove_file(&destination) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(MobileTransferError::TransferFailed {
+            message: format!("failed to remove mobile staging file: {error}"),
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
