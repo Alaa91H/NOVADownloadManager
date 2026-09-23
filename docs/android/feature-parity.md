@@ -21,15 +21,15 @@ This matrix is a roadmap and audit artifact, not a marketing claim. A capability
 | Native core handshake | N/A | UniFFI bridge API-version check | Extracted foundation; ARM64 link proof | Generated Kotlin binding call and runtime library load. |
 | Compose app shell | N/A | Kotlin, Compose, Material 3, adaptive navigation | Android foundation; debug APK/JVM tests passed | Device rendering/accessibility tests. |
 | Share text URL | Browser extension/native host capture | `ACTION_SEND` text/plain parser; HTTP(S)-only validation | Android foundation; JVM tests passed | Device intent test and review/create-task handoff. |
-| HTTP/HTTPS direct transfer | libcurl daemon/direct engine | Extracted Rust transfer core + typed session | Planned | Real transfer to app-private staging, checksum, pause/resume/cancel, recovery. |
-| Segmented/range logic | `direct.rs`, dynamic segments | Same shared Rust engine | Planned | Server fixture with range/no-range/partial cases on device. |
+| HTTP/HTTPS direct transfer | libcurl daemon/direct engine | Shared Rust transfer core + mobile facade | Android foundation; native app-private transfer implemented | Real-device transfer evidence plus pause/resume/cancel and durable recovery. |
+| Segmented/range logic | `direct.rs`, dynamic segments | Same shared Rust engine | Extracted/shared range planner; validated ranged file resume implemented | Server fixture with range/no-range/partial cases on device and parallel segment execution. |
 | Queue, priority, bandwidth profiles | Rust engine policies + AppState | Extract shared policy/core session | Planned | Core tests plus Android command/constraint integration. |
 | Retry policy | Rust retry/scheduler | Shared policy; Android decides permitted execution time | Planned | Durable transitions across network/process interruption. |
 | Scheduler/rules | Desktop daemon scheduler | Shared semantics + WorkManager/UIDT adapter | Planned | API-level/device policy tests, constraints, idempotency. |
 | Durable recovery | Desktop persistence | Android-aware durable state and storage descriptors | Planned | Process kill/force-stop/relaunch recovery tests. |
 | User-started background transfer | Desktop runtime/daemon | UIDT on API 34+ with validated fallback | Planned | Physical-device visible-progress and stop/resume tests. |
 | Notifications | Tauri desktop notification/tray | Android channel, actions, task detail intent | Planned | Permission/action and duplicate-work tests. |
-| App-private storage | Desktop output/data dirs | Android internal staging adapter | Planned | Resume, cleanup, integrity-failure tests. |
+| App-private storage | Desktop output/data dirs | Android internal staging adapter | Android foundation; app-private staging/finalization implemented | Device resume, cleanup, integrity-failure, and process-loss tests. |
 | SAF destination | Desktop path/file dialogs | Persisted document-tree grant adapter | Planned | Grant/revocation/provider failure tests. |
 | MediaStore Downloads | Desktop filesystem destination | Pending MediaStore item then finalization | Planned | Pending/finalized/cancelled item tests. |
 | Desktop browser extension pairing | Native Messaging + loopback API | Not applicable; Android share/deep-link inputs | Android-specific replacement | Intent security and user-flow tests. |
