@@ -62,6 +62,14 @@ internal object NovaNativeCore {
         contentRangeStart: Long,
     ): Int
 
+    private external fun nativeProbeContentLength(url: String): Long
+
+    private external fun nativeDownloadToAppPrivate(
+        url: String,
+        appPrivateRoot: String,
+        relativeDestination: String,
+    ): Long
+
     fun requireCompatible(): Int {
         loadFailure?.let { failure ->
             throw IllegalStateException(
@@ -138,4 +146,35 @@ internal object NovaNativeCore {
             else -> error("NOVA native core rejected resume planning inputs")
         }
     }
+
+    /**
+     * Performs a native metadata probe off the UI thread. Unknown representation
+     * length is returned as null; native transport failures are surfaced as
+     * exceptions rather than silently falling back to a Kotlin HTTP client.
+     */
+    fun probeContentLength(url: String): Long? {
+        requireCompatible()
+        val result = nativeProbeContentLength(url)
+        check(result >= -1) { "NOVA native core rejected HTTP metadata probe" }
+        return result.takeIf { it >= 0 }
+    }
+
+    /**
+     * Runs one direct transfer entirely through the shared Rust core.
+     *
+     * The destination is constrained by Rust to a path relative to Android's
+     * app-private files root. Public storage is intentionally not exposed here.
+     */
+    fun downloadToAppPrivate(
+        url: String,
+        appPrivateRoot: String,
+        relativeDestination: String,
+    ): Long {
+        requireCompatible()
+        require(relativeDestination.isNotBlank()) { "relativeDestination must not be blank" }
+        val result = nativeDownloadToAppPrivate(url, appPrivateRoot, relativeDestination)
+        check(result >= 0) { "NOVA native app-private transfer failed" }
+        return result
+    }
+
 }
