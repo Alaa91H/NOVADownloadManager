@@ -8,6 +8,7 @@ use std::cell::{Cell, RefCell};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub use nova_core_model::{ByteRange, ResumeAction, MAX_PARALLEL_SEGMENTS};
@@ -17,6 +18,8 @@ pub struct HttpResourceProbe {
     pub response_status: u16,
     pub content_length: Option<u64>,
     pub effective_url: String,
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -160,6 +163,36 @@ pub fn probe_http_resource(url: &str) -> Result<HttpResourceProbe, TransportErro
     easy.accept_encoding("identity").map_err(transport_error)?;
     easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
         .map_err(transport_error)?;
+
+    // Keep validators from the final response block only. Redirect/proxy/auth
+    // headers must never become the identity of the selected representation.
+    let validators = Arc::new(Mutex::new((None::<String>, None::<String>)));
+    let validators_for_headers = validators.clone();
+    easy.header_function(move |header| {
+        let Ok(line) = std::str::from_utf8(header) else {
+            return true;
+        };
+        let line = line.trim();
+        if line.starts_with("HTTP/") {
+            if let Ok(mut state) = validators_for_headers.lock() {
+                *state = (None, None);
+            }
+            return true;
+        }
+        let Some((name, value)) = line.split_once(':') else {
+            return true;
+        };
+        if let Ok(mut state) = validators_for_headers.lock() {
+            if name.eq_ignore_ascii_case("etag") {
+                state.0 = Some(value.trim().to_owned());
+            } else if name.eq_ignore_ascii_case("last-modified") {
+                state.1 = Some(value.trim().to_owned());
+            }
+        }
+        true
+    })
+    .map_err(transport_error)?;
+
     easy.perform().map_err(transport_error)?;
 
     let status = easy.response_code().map_err(transport_error)?;
@@ -180,11 +213,17 @@ pub fn probe_http_resource(url: &str) -> Result<HttpResourceProbe, TransportErro
         .map_err(transport_error)?
         .unwrap_or(url)
         .to_owned();
+    let (etag, last_modified) = validators
+        .lock()
+        .map(|state| state.clone())
+        .unwrap_or((None, None));
 
     Ok(HttpResourceProbe {
         response_status,
         content_length,
         effective_url,
+        etag,
+        last_modified,
     })
 }
 
