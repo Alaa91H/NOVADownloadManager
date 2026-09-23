@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class NovaNativeTransferService : Service() {
     private val executor = Executors.newSingleThreadScheduledExecutor()
     private val pollingStarted = AtomicBoolean(false)
+    private val transferCore by lazy { NovaTransferCore(applicationContext) }
 
     override fun onCreate() {
         super.onCreate()
@@ -48,7 +49,7 @@ class NovaNativeTransferService : Service() {
 
     private fun reconcileNativeTasks() {
         val tasks = runCatching {
-            NovaTransferCore(applicationContext).reconcile()
+            transferCore.reconcile()
         }.getOrElse {
             stopSelf()
             return
