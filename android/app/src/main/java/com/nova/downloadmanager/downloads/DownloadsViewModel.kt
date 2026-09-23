@@ -3,11 +3,13 @@ package com.nova.downloadmanager.downloads
 import android.content.Context
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.nova.downloadmanager.R
 import com.nova.downloadmanager.share.SharedUrlValidator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 enum class CoreReadiness {
     Initializing,
@@ -72,17 +74,19 @@ class DownloadsViewModel(
             return
         }
 
-        repository.enqueue(normalizedUrl)
-            .onSuccess { summary ->
-                mutableUiState.value = mutableUiState.value.copy(
-                    pendingSharedUrl = null,
-                    statusMessageRes = R.string.nova_download_captured,
-                    tasks = listOf(summary) + mutableUiState.value.tasks.filterNot { it.id == summary.id },
-                )
-            }
-            .onFailure {
-                mutableUiState.value = mutableUiState.value.copy(statusMessageRes = R.string.nova_download_unavailable)
-            }
+        viewModelScope.launch {
+            repository.enqueue(normalizedUrl)
+                .onSuccess { summary ->
+                    mutableUiState.value = mutableUiState.value.copy(
+                        pendingSharedUrl = null,
+                        statusMessageRes = R.string.nova_download_captured,
+                        tasks = listOf(summary) + mutableUiState.value.tasks.filterNot { it.id == summary.id },
+                    )
+                }
+                .onFailure {
+                    mutableUiState.value = mutableUiState.value.copy(statusMessageRes = R.string.nova_download_unavailable)
+                }
+        }
     }
 
     fun refreshTasks() {
