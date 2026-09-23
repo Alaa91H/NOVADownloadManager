@@ -862,8 +862,7 @@ fn adopt_remote_fingerprint(
             if let Some(job) = jobs.get_mut(id) {
                 job.task.size_bytes = size;
                 job.task.downloaded_bytes = 0;
-                job.task.segments =
-                    build_segments(job.task.connections, size, 0, 0);
+                job.task.segments = build_segments(job.task.connections, size, 0, 0);
             }
         }
         if let Ok(mut tasks) = state.task_snapshot.lock() {
@@ -875,6 +874,39 @@ fn adopt_remote_fingerprint(
         }
         state.priority_queue.update_size(id, size);
         state.mark_dirty();
+        crate::daemon::persist::save_now(state.as_ref());
+    }
+}
+
+fn refresh_plan_remote_state(state: &SharedState, id: &str, plan: &mut DirectDownloadPlan) {
+    let Ok(jobs) = state.curl_jobs.lock() else {
+        return;
+    };
+    let Some(job) = jobs.get(id) else {
+        return;
+    };
+
+    if job.task.size_bytes > 0 {
+        plan.total_size = job.task.size_bytes;
+    }
+
+    if let Some(etag) = job
+        .direct_options
+        .get("etag")
+        .and_then(serde_json::Value::as_str)
+    {
+        plan.validator = Some(etag.to_owned());
+        plan.validator_is_etag = true;
+    } else if let Some(last_modified) = job
+        .direct_options
+        .get("lastModified")
+        .and_then(serde_json::Value::as_str)
+    {
+        plan.validator = Some(last_modified.to_owned());
+        plan.validator_is_etag = false;
+    } else {
+        plan.validator = None;
+        plan.validator_is_etag = false;
     }
 }
 
@@ -1258,7 +1290,7 @@ fn run_single_libcurl(
             "Task {id}: strict resume validation rejected the response; restarting from byte zero (expected={:?}, observed={observed:?})",
             plan.remote_fingerprint()
         );
-        let _ = std::fs::remove_file(&plan.output_path);
+        discard_resume_checkpoint(state, id, plan);
         let mut fresh_plan = plan.clone();
         adopt_remote_fingerprint(state, id, &mut fresh_plan, &observed);
         fresh_plan.segmented = false;
@@ -2826,6 +2858,11 @@ fn run_libcurl_download(
                         "recovering-single-connection",
                     )?;
                     plan.segmented = false;
+                    // Range validation may have discovered and persisted a new
+                    // validator or remote size immediately before this error.
+                    // Refresh the in-memory plan so this same-attempt fallback
+                    // cannot validate the new object using stale metadata.
+                    refresh_plan_remote_state(state, id, &mut plan);
                     if cancel.load(Ordering::Acquire) {
                         return Err("cancelled".to_owned());
                     }
