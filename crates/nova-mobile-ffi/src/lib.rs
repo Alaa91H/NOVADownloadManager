@@ -972,14 +972,14 @@ fn android_cancel_native_transfer(task_id: i64) -> i32 {
     let Ok(task_id) = u64::try_from(task_id) else {
         return -1;
     };
-    i32::from(cancel_native_transfer(task_id))
+    if cancel_native_transfer(task_id) { 1 } else { 0 }
 }
 
 fn android_forget_native_transfer(task_id: i64) -> i32 {
     let Ok(task_id) = u64::try_from(task_id) else {
         return -1;
     };
-    i32::from(forget_native_transfer(task_id))
+    if forget_native_transfer(task_id) { 1 } else { 0 }
 }
 
 #[cfg(target_os = "android")]
