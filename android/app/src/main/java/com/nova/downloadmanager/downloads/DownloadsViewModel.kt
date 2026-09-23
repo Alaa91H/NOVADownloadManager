@@ -92,6 +92,34 @@ class DownloadsViewModel(
         mutableUiState.value = mutableUiState.value.copy(tasks = refreshed)
     }
 
+    fun pauseTask(taskId: String) {
+        applyTaskAction(repository.pause(taskId))
+    }
+
+    fun resumeTask(taskId: String) {
+        applyTaskAction(repository.resume(taskId))
+    }
+
+    fun cancelTask(taskId: String) {
+        applyTaskAction(repository.cancel(taskId))
+    }
+
+    private fun applyTaskAction(result: Result<DownloadSummary>) {
+        result
+            .onSuccess { summary ->
+                mutableUiState.value = mutableUiState.value.copy(
+                    tasks = mutableUiState.value.tasks.map { task ->
+                        if (task.id == summary.id) summary else task
+                    },
+                )
+            }
+            .onFailure {
+                mutableUiState.value = mutableUiState.value.copy(
+                    statusMessageRes = R.string.nova_download_unavailable,
+                )
+            }
+    }
+
     fun clearSharedUrl() {
         mutableUiState.value = mutableUiState.value.copy(pendingSharedUrl = null)
     }
