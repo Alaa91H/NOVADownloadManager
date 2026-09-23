@@ -7,7 +7,9 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.IBinder
+import androidx.core.app.ServiceCompat
 import com.nova.downloadmanager.R
 import com.nova.downloadmanager.app.MainActivity
 import com.nova.downloadmanager.core.NovaNativeCore
@@ -31,7 +33,12 @@ class NovaNativeTransferService : Service() {
             ?.takeIf { it > 0L }
             ?.let(taskIds::add)
 
-        startForeground(NOTIFICATION_ID, buildNotification())
+        ServiceCompat.startForeground(
+            this,
+            NOTIFICATION_ID,
+            buildNotification(),
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+        )
         ensureWorker()
         return START_NOT_STICKY
     }
