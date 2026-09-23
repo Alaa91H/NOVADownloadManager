@@ -61,6 +61,18 @@ class DownloadsViewModelTest {
     }
 
     @Test
+    fun `resume action rehydrates a task missing from current UI state`() {
+        val paused = DownloadSummary("42", "file.zip", "paused", 512, 1024)
+        val repository = TestDownloadsRepository(paused)
+        val viewModel = DownloadsViewModel(repository)
+
+        viewModel.resumeTask(paused.id)
+
+        assertEquals(1, repository.resumeCount)
+        assertEquals(listOf(paused.copy(status = "queued")), viewModel.uiState.value.tasks)
+    }
+
+    @Test
     fun `refresh removes tasks no longer returned by the transfer core`() {
         val task = DownloadSummary("42", "file.zip", "queued", 0, 0)
         val viewModel = DownloadsViewModel(TestDownloadsRepository(task))
