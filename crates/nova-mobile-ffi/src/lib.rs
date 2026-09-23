@@ -13,8 +13,14 @@ use jni::{
     JNIEnv,
 };
 use std::cell::{Cell, RefCell};
+#[cfg(target_os = "android")]
+use std::fs::File;
 use std::io::Write;
+#[cfg(target_os = "android")]
+use std::os::unix::io::FromRawFd;
 use std::time::Duration;
+
+mod mobile_transfer;
 
 uniffi::setup_scaffolding!();
 
@@ -125,11 +131,12 @@ fn parse_content_range(header: &[u8]) -> Option<(u64, u64)> {
     Some((start.parse().ok()?, end.parse().ok()?))
 }
 
-fn stream_http_range<W: Write>(
+fn stream_http_range_with_timeout<W: Write>(
     url: &str,
     start: u64,
     end: u64,
     sink: &mut W,
+    total_timeout: Option<Duration>,
 ) -> Result<HttpRangeProbe, TransportError> {
     if end < start {
         return Err(TransportError::InvalidRange { start, end });
@@ -145,7 +152,9 @@ fn stream_http_range<W: Write>(
     easy.max_redirections(10).map_err(transport_error)?;
     easy.connect_timeout(Duration::from_secs(15))
         .map_err(transport_error)?;
-    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
+    if let Some(timeout) = total_timeout {
+        easy.timeout(timeout).map_err(transport_error)?;
+    }
     easy.accept_encoding("identity").map_err(transport_error)?;
     easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
         .map_err(transport_error)?;
@@ -264,6 +273,107 @@ fn stream_http_range<W: Write>(
         bytes_received: bytes_received.get(),
         effective_url,
     })
+}
+
+fn stream_http_range<W: Write>(
+    url: &str,
+    start: u64,
+    end: u64,
+    sink: &mut W,
+) -> Result<HttpRangeProbe, TransportError> {
+    stream_http_range_with_timeout(
+        url,
+        start,
+        end,
+        sink,
+        Some(Duration::from_secs(30)),
+    )
+}
+
+pub(crate) fn stream_http_range_for_download<W: Write>(
+    url: &str,
+    start: u64,
+    end: u64,
+    sink: &mut W,
+) -> Result<HttpRangeProbe, TransportError> {
+    stream_http_range_with_timeout(url, start, end, sink, None)
+}
+
+pub(crate) fn stream_http_full<W: Write>(
+    url: &str,
+    sink: &mut W,
+) -> Result<u64, TransportError> {
+    let mut easy = Easy::new();
+    easy.url(url).map_err(transport_error)?;
+    easy.follow_location(true).map_err(transport_error)?;
+    easy.max_redirections(10).map_err(transport_error)?;
+    easy.connect_timeout(Duration::from_secs(15))
+        .map_err(transport_error)?;
+    easy.accept_encoding("identity").map_err(transport_error)?;
+    easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
+        .map_err(transport_error)?;
+
+    let header_status = Cell::new(None::<u16>);
+    let headers_validated = Cell::new(false);
+    let bytes_received = Cell::new(0_u64);
+    let sink_error = RefCell::new(None::<String>);
+
+    let perform_result = {
+        let mut transfer = easy.transfer();
+        transfer
+            .header_function(|header| {
+                if let Some(status) = parse_http_status(header) {
+                    header_status.set(Some(status));
+                    headers_validated.set(false);
+                } else if header == b"\r\n" || header == b"\n" {
+                    headers_validated.set(
+                        header_status
+                            .get()
+                            .map(|status| (200..300).contains(&status))
+                            .unwrap_or(false),
+                    );
+                }
+                true
+            })
+            .map_err(transport_error)?;
+        transfer
+            .write_function(|data| {
+                if !headers_validated.get() {
+                    return Ok(data.len());
+                }
+
+                let Some(next_total) = bytes_received.get().checked_add(data.len() as u64) else {
+                    sink_error.replace(Some("native full-transfer byte counter overflow".to_owned()));
+                    return Ok(0);
+                };
+                if let Err(error) = sink.write_all(data) {
+                    sink_error.replace(Some(format!(
+                        "failed to persist native full-transfer payload: {error}"
+                    )));
+                    return Ok(0);
+                }
+                bytes_received.set(next_total);
+                Ok(data.len())
+            })
+            .map_err(transport_error)?;
+        transfer.perform()
+    };
+
+    if let Some(message) = sink_error.into_inner() {
+        return Err(TransportError::RequestFailed { message });
+    }
+    perform_result.map_err(transport_error)?;
+
+    let status = easy.response_code().map_err(transport_error)?;
+    let response_status =
+        u16::try_from(status).map_err(|_| TransportError::InvalidStatus { status })?;
+    if !(200..300).contains(&response_status) {
+        return Err(TransportError::RequestFailed {
+            message: format!("native full transfer returned HTTP {response_status}"),
+        });
+    }
+
+    Ok(bytes_received.get())
 }
 
 /// Validates that a mobile client and the Rust core agree on the public bridge
@@ -525,6 +635,96 @@ pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeP
         return std::ptr::null_mut();
     }
 
+    array.into_raw()
+}
+
+/// Starts an Android-owned download whose bytes are written by NOVA's Rust
+/// core directly into a duplicated platform file descriptor.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeStartHttpDownload(
+    mut env: JNIEnv<'_>,
+    _receiver: JObject<'_>,
+    url: JString<'_>,
+    output_fd: i32,
+    requested_connections: i32,
+) -> i64 {
+    let url = match env.get_string(&url) {
+        Ok(value) => value.to_string_lossy().into_owned(),
+        Err(error) => {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                format!("NOVA native core could not read the transfer URL: {error}"),
+            );
+            return -1;
+        }
+    };
+    let Ok(requested_connections) = u32::try_from(requested_connections) else {
+        let _ = env.throw_new(
+            "java/lang/IllegalArgumentException",
+            "requestedConnections must be non-negative",
+        );
+        return -1;
+    };
+    if output_fd < 0 {
+        let _ = env.throw_new(
+            "java/lang/IllegalArgumentException",
+            "output file descriptor must be valid",
+        );
+        return -1;
+    }
+
+    let duplicated_fd = unsafe { libc::dup(output_fd) };
+    if duplicated_fd < 0 {
+        let _ = env.throw_new(
+            "java/io/IOException",
+            "NOVA native core could not duplicate the destination file descriptor",
+        );
+        return -1;
+    }
+    let file = unsafe { File::from_raw_fd(duplicated_fd) };
+
+    match mobile_transfer::start_download(url, file, requested_connections.max(1)) {
+        Ok(task_id) => i64::try_from(task_id).unwrap_or(-1),
+        Err(error) => {
+            let _ = env.throw_new(
+                "java/lang/IllegalStateException",
+                format!("NOVA native transfer could not start: {error}"),
+            );
+            -1
+        }
+    }
+}
+
+/// Returns [state, downloaded bytes, total bytes, active segments] for one
+/// in-process native transfer, or null when the task is unknown.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeQueryHttpDownload(
+    env: JNIEnv<'_>,
+    _receiver: JObject<'_>,
+    task_id: i64,
+) -> jlongArray {
+    let Ok(task_id) = u64::try_from(task_id) else {
+        return std::ptr::null_mut();
+    };
+    let Some(snapshot) = mobile_transfer::query_download(task_id) else {
+        return std::ptr::null_mut();
+    };
+    let values = [
+        i64::from(snapshot.status),
+        i64::try_from(snapshot.downloaded_bytes).unwrap_or(i64::MAX),
+        i64::try_from(snapshot.total_bytes).unwrap_or(i64::MAX),
+        i64::from(snapshot.active_segments),
+    ];
+
+    let array = match env.new_long_array(values.len() as i32) {
+        Ok(array) => array,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    if env.set_long_array_region(&array, 0, &values).is_err() {
+        return std::ptr::null_mut();
+    }
     array.into_raw()
 }
 
