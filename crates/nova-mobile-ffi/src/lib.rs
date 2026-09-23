@@ -426,7 +426,6 @@ pub fn plan_http_resume(
     }
 }
 
-
 /// Applies NOVA's validator-aware crash-recovery policy.
 ///
 /// Once a checkpoint has ETag/Last-Modified/size evidence, Android and desktop
