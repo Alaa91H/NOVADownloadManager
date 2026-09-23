@@ -808,6 +808,7 @@ fn response_capture_for_range(
     plan: &DirectDownloadPlan,
     start: u64,
     end: Option<u64>,
+    shared_fingerprint: Option<Arc<Mutex<RemoteFingerprint>>>,
 ) -> ResponseCapture {
     let expected_total = (plan.total_size > 0).then_some(plan.total_size);
     ResponseCapture {
@@ -818,6 +819,7 @@ fn response_capture_for_range(
             total: expected_total,
         }),
         expected_fingerprint: Some(plan.remote_fingerprint()),
+        shared_fingerprint,
         ..Default::default()
     }
 }
@@ -1099,7 +1101,7 @@ fn run_single_libcurl(
     let resume_end = (plan.total_size > resume_existing && plan.total_size > 0)
         .then_some(plan.total_size - 1);
     let capture = Arc::new(Mutex::new(if resume_existing > 0 {
-        response_capture_for_range(plan, resume_existing, resume_end)
+        response_capture_for_range(plan, resume_existing, resume_end, None)
     } else {
         ResponseCapture::default()
     }));
@@ -1634,6 +1636,11 @@ fn run_segmented_libcurl(
     // C-2: shared flag — when any segment's header callback sees a 200 in
     // answer to a partial-range request, every segment stops writing.
     let range_rejected = Arc::new(AtomicBool::new(false));
+    // All sibling segments share one gradually learned remote identity. This
+    // catches same-size object replacement even when the preflight exposed no
+    // validator but the range responses later do.
+    let shared_segment_fingerprint =
+        Arc::new(Mutex::new(plan.remote_fingerprint()));
     // C-5: shared flag — when any segment's header callback sees a real
     // Content-Encoding (gzip/br/deflate) on a byte-range response, every
     // segment stops writing so the corrupted (offset-shifted) parts are never
@@ -1732,6 +1739,7 @@ fn run_segmented_libcurl(
             plan,
             start,
             Some(range.end),
+            Some(shared_segment_fingerprint.clone()),
         )));
         seg_captures.push(seg_capture.clone());
         let easy = create_easy_for_range_ext(
@@ -2101,6 +2109,7 @@ fn run_segmented_libcurl(
                 plan,
                 start + trusted,
                 Some(end),
+                Some(shared_segment_fingerprint.clone()),
             )));
             seg_captures.push(seg_capture.clone());
             let easy = create_easy_for_range_ext(
@@ -2170,6 +2179,7 @@ fn run_segmented_libcurl(
         for r in active_cell.borrow().iter() {
             let _ = std::fs::remove_file(&r.0.path);
         }
+        remove_stale_parts_for(&plan.output_path);
         let mut refreshed = plan.clone();
         adopt_remote_fingerprint(state, id, &mut refreshed, &observed);
         return Err(
@@ -2240,11 +2250,19 @@ fn run_segmented_libcurl(
     );
     progress_total_cell.set(last_total);
     progress_tick_cell.set(last_tick);
-    let (captured_validator, encoded) = seg_captures
-        .first()
-        .and_then(|cap| cap.lock().ok())
-        .map_or((None, false), |cap| {
-            (cap.validator.clone(), cap.content_encoded)
+    let encoded = seg_captures
+        .iter()
+        .filter_map(|cap| cap.lock().ok())
+        .any(|cap| cap.content_encoded);
+    let captured_validator = shared_segment_fingerprint
+        .lock()
+        .ok()
+        .and_then(|fingerprint| fingerprint.validator.clone())
+        .or_else(|| {
+            seg_captures
+                .iter()
+                .filter_map(|cap| cap.lock().ok())
+                .find_map(|cap| cap.validator.clone())
         });
     // C-1: merge using the CURRENT segment geometry. The original `ranges`
     // were captured before any adaptive rebuild split/merged segments, so
