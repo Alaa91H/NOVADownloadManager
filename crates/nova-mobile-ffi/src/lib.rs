@@ -8,12 +8,13 @@
 use curl::easy::Easy;
 use std::cell::{Cell, RefCell};
 use std::io::Write;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 uniffi::setup_scaffolding!();
 
 /// Increment when a bridge change is not backward compatible.
-pub const BRIDGE_API_VERSION: u32 = 1;
+pub const BRIDGE_API_VERSION: u32 = 2;
 
 /// Typed capability and compatibility information returned before a mobile
 /// client creates a core session.
@@ -22,6 +23,7 @@ pub struct BridgeInfo {
     pub bridge_api_version: u32,
     pub core_version: String,
     pub task_schema: String,
+    pub recovery_schema_version: u32,
 }
 
 /// Stable mobile projection of one inclusive shared-core byte range.
@@ -44,6 +46,28 @@ pub struct HttpResourceProbe {
     pub response_status: u16,
     pub content_length: Option<u64>,
     pub effective_url: String,
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
+}
+
+/// Stable FFI projection of the shared representation identity.
+#[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
+pub struct RecoveryIdentity {
+    pub effective_url: Option<String>,
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
+    pub content_length: Option<u64>,
+}
+
+impl From<RecoveryIdentity> for nova_core_model::ResourceIdentity {
+    fn from(value: RecoveryIdentity) -> Self {
+        Self {
+            effective_url: value.effective_url,
+            etag: value.etag,
+            last_modified: value.last_modified,
+            content_length: value.content_length,
+        }
+    }
 }
 
 /// Result of a validated bounded ranged GET performed entirely by libcurl.
@@ -265,6 +289,7 @@ pub fn initialize(client_bridge_api_version: u32) -> Result<BridgeInfo, BridgeEr
         bridge_api_version: BRIDGE_API_VERSION,
         core_version: env!("CARGO_PKG_VERSION").to_owned(),
         task_schema: "nova.task.v1".to_owned(),
+        recovery_schema_version: nova_core_model::RECOVERY_SCHEMA_VERSION,
     })
 }
 
@@ -287,6 +312,36 @@ pub fn probe_http_resource(url: String) -> Result<HttpResourceProbe, TransportEr
     easy.accept_encoding("identity").map_err(transport_error)?;
     easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
         .map_err(transport_error)?;
+
+    // Keep only validators from the final response block. Redirect and auth
+    // negotiation headers must never become the identity of the payload.
+    let validators = Arc::new(Mutex::new((None::<String>, None::<String>)));
+    let validators_for_headers = validators.clone();
+    easy.header_function(move |header| {
+        let Ok(line) = std::str::from_utf8(header) else {
+            return true;
+        };
+        let line = line.trim();
+        if line.starts_with("HTTP/") {
+            if let Ok(mut state) = validators_for_headers.lock() {
+                *state = (None, None);
+            }
+            return true;
+        }
+        let Some((name, value)) = line.split_once(':') else {
+            return true;
+        };
+        if let Ok(mut state) = validators_for_headers.lock() {
+            if name.eq_ignore_ascii_case("etag") {
+                state.0 = Some(value.trim().to_owned());
+            } else if name.eq_ignore_ascii_case("last-modified") {
+                state.1 = Some(value.trim().to_owned());
+            }
+        }
+        true
+    })
+    .map_err(transport_error)?;
+
     easy.perform().map_err(transport_error)?;
 
     let status = easy.response_code().map_err(transport_error)?;
@@ -308,10 +363,17 @@ pub fn probe_http_resource(url: String) -> Result<HttpResourceProbe, TransportEr
         .unwrap_or(&url)
         .to_owned();
 
+    let (etag, last_modified) = validators
+        .lock()
+        .map(|state| state.clone())
+        .unwrap_or((None, None));
+
     Ok(HttpResourceProbe {
         response_status,
         content_length,
         effective_url,
+        etag,
+        last_modified,
     })
 }
 
@@ -359,6 +421,33 @@ pub fn plan_http_resume(
     content_range_start: Option<u64>,
 ) -> ResumeAction {
     match nova_core_model::plan_http_resume(existing_bytes, response_status, content_range_start) {
+        nova_core_model::ResumeAction::Append => ResumeAction::Append,
+        nova_core_model::ResumeAction::Restart => ResumeAction::Restart,
+    }
+}
+
+
+/// Applies NOVA's validator-aware crash-recovery policy.
+///
+/// Once a checkpoint has ETag/Last-Modified/size evidence, Android and desktop
+/// both require that evidence to be re-confirmed before appending to disk.
+#[uniffi::export]
+pub fn plan_http_recovery(
+    existing_bytes: u64,
+    response_status: u16,
+    content_range_start: Option<u64>,
+    previous: RecoveryIdentity,
+    current: RecoveryIdentity,
+) -> ResumeAction {
+    let previous: nova_core_model::ResourceIdentity = previous.into();
+    let current: nova_core_model::ResourceIdentity = current.into();
+    match nova_core_model::plan_http_recovery(
+        existing_bytes,
+        response_status,
+        content_range_start,
+        &previous,
+        &current,
+    ) {
         nova_core_model::ResumeAction::Append => ResumeAction::Append,
         nova_core_model::ResumeAction::Restart => ResumeAction::Restart,
     }
@@ -527,6 +616,10 @@ mod tests {
         let info = initialize(BRIDGE_API_VERSION).expect("current bridge version must initialize");
         assert_eq!(info.bridge_api_version, BRIDGE_API_VERSION);
         assert_eq!(info.task_schema, "nova.task.v1");
+        assert_eq!(
+            info.recovery_schema_version,
+            nova_core_model::RECOVERY_SCHEMA_VERSION
+        );
     }
 
     #[test]
@@ -554,7 +647,7 @@ mod tests {
             assert!(request.contains("Accept-Encoding: identity"));
             stream
                 .write_all(
-                    b"HTTP/1.1 200 OK\r\nContent-Length: 12345\r\nConnection: close\r\n\r\n",
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 12345\r\nETag: \"nova-v1\"\r\nLast-Modified: Wed, 21 Oct 2015 07:28:00 GMT\r\nConnection: close\r\n\r\n",
                 )
                 .expect("write probe response");
         });
@@ -566,6 +659,11 @@ mod tests {
         assert_eq!(probe.response_status, 200);
         assert_eq!(probe.content_length, Some(12_345));
         assert_eq!(probe.effective_url, url);
+        assert_eq!(probe.etag.as_deref(), Some("\"nova-v1\""));
+        assert_eq!(
+            probe.last_modified.as_deref(),
+            Some("Wed, 21 Oct 2015 07:28:00 GMT")
+        );
     }
 
     #[test]
