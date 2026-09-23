@@ -284,6 +284,7 @@ pub fn probe_http_resource(url: &str) -> Result<HttpResourceProbe, TransportErro
     easy.max_redirections(10).map_err(transport_error)?;
     easy.connect_timeout(Duration::from_secs(15))
         .map_err(transport_error)?;
+    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
     easy.accept_encoding("identity").map_err(transport_error)?;
     easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
         .map_err(transport_error)?;
@@ -391,7 +392,6 @@ fn stream_http_range_controlled_with_validator<W: Write, F: FnMut() -> TransferC
     easy.max_redirections(10).map_err(transport_error)?;
     easy.connect_timeout(Duration::from_secs(15))
         .map_err(transport_error)?;
-    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
     easy.accept_encoding("identity").map_err(transport_error)?;
     easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
         .map_err(transport_error)?;
@@ -559,7 +559,6 @@ fn stream_http_full_controlled<W: Write, F: FnMut() -> TransferControl>(
     easy.max_redirections(10).map_err(transport_error)?;
     easy.connect_timeout(Duration::from_secs(15))
         .map_err(transport_error)?;
-    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
     easy.accept_encoding("identity").map_err(transport_error)?;
     easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
         .map_err(transport_error)?;
