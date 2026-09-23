@@ -294,6 +294,251 @@ pub enum ResumeAction {
     Restart,
 }
 
+/// Schema version for durable, platform-neutral recovery checkpoints.
+pub const RECOVERY_SCHEMA_VERSION: u32 = 1;
+
+/// HTTP representation identity captured before bytes are persisted.
+///
+/// The effective URL is diagnostic/routing metadata and is deliberately not
+/// used by itself as an identity validator because signed/CDN URLs may
+/// legitimately change while still addressing the same representation.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ResourceIdentity {
+    #[serde(rename = "effectiveUrl", default)]
+    pub effective_url: Option<String>,
+    #[serde(default)]
+    pub etag: Option<String>,
+    #[serde(rename = "lastModified", default)]
+    pub last_modified: Option<String>,
+    #[serde(rename = "contentLength", default)]
+    pub content_length: Option<u64>,
+}
+
+impl ResourceIdentity {
+    /// Returns the strongest value that is valid for an HTTP If-Range request.
+    ///
+    /// Weak ETags cannot safely validate byte ranges, so they are skipped in
+    /// favour of Last-Modified when available.
+    pub fn if_range_value(&self) -> Option<&str> {
+        self.etag
+            .as_deref()
+            .filter(|etag| !etag.trim_start().starts_with("W/"))
+            .or(self.last_modified.as_deref())
+    }
+
+    /// Whether this checkpoint contains evidence that must be re-confirmed
+    /// before already-written bytes may be trusted.
+    pub fn has_identity_evidence(&self) -> bool {
+        self.etag.is_some() || self.last_modified.is_some() || self.content_length.is_some()
+    }
+}
+
+/// Result of comparing the persisted representation with a fresh probe.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ResourceContinuity {
+    /// A byte-stable validator (strong ETag or Last-Modified) matched.
+    Confirmed,
+    /// At least one persisted identity field positively disagreed.
+    Changed,
+    /// The fresh response did not provide enough evidence to prove continuity.
+    Unknown,
+}
+
+/// Compare a persisted representation identity with a fresh server probe.
+///
+/// Size mismatches and validator mismatches always mean the resource changed.
+/// Strong ETags are preferred; Last-Modified is the safe fallback. Equal weak
+/// ETags are not treated as byte-level proof because weak validators explicitly
+/// allow semantically equivalent but byte-different representations.
+pub fn compare_resource_identity(
+    previous: &ResourceIdentity,
+    current: &ResourceIdentity,
+) -> ResourceContinuity {
+    if let (Some(old), Some(new)) = (previous.content_length, current.content_length) {
+        if old != new {
+            return ResourceContinuity::Changed;
+        }
+    }
+
+    if let Some(old_etag) = previous.etag.as_deref() {
+        match current.etag.as_deref() {
+            Some(new_etag) if new_etag != old_etag => return ResourceContinuity::Changed,
+            Some(new_etag)
+                if new_etag == old_etag && !old_etag.trim_start().starts_with("W/") =>
+            {
+                return ResourceContinuity::Confirmed;
+            }
+            Some(_) => {}
+            None => return ResourceContinuity::Unknown,
+        }
+    }
+
+    if let Some(old_modified) = previous.last_modified.as_deref() {
+        return match current.last_modified.as_deref() {
+            Some(new_modified) if new_modified == old_modified => ResourceContinuity::Confirmed,
+            Some(_) => ResourceContinuity::Changed,
+            None => ResourceContinuity::Unknown,
+        };
+    }
+
+    ResourceContinuity::Unknown
+}
+
+/// Durable per-segment state. Transient speed/activity fields are intentionally
+/// omitted so a restored task always starts from neutral runtime state.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RecoverySegment {
+    pub id: u32,
+    #[serde(rename = "startByte")]
+    pub start_byte: u64,
+    #[serde(rename = "endByte")]
+    pub end_byte: u64,
+    #[serde(rename = "totalBytes")]
+    pub total_bytes: u64,
+    #[serde(rename = "downloadedBytes")]
+    pub downloaded_bytes: u64,
+}
+
+/// Platform-neutral crash-recovery checkpoint shared by desktop and mobile.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RecoveryCheckpoint {
+    #[serde(rename = "schemaVersion")]
+    pub schema_version: u32,
+    #[serde(rename = "taskId")]
+    pub task_id: String,
+    #[serde(rename = "downloadedBytes")]
+    pub downloaded_bytes: u64,
+    #[serde(rename = "sizeBytes")]
+    pub size_bytes: u64,
+    #[serde(default)]
+    pub segments: Vec<RecoverySegment>,
+    #[serde(default)]
+    pub resource: ResourceIdentity,
+}
+
+impl RecoveryCheckpoint {
+    pub fn from_task(task: &Task, resource: ResourceIdentity) -> Self {
+        let segments = task
+            .segments
+            .iter()
+            .map(|segment| {
+                let range_len = if segment.end_byte >= segment.start_byte {
+                    segment.end_byte - segment.start_byte + 1
+                } else {
+                    segment.total_bytes
+                };
+                let total_bytes = if segment.total_bytes > 0 {
+                    segment.total_bytes
+                } else {
+                    range_len
+                };
+                RecoverySegment {
+                    id: segment.id,
+                    start_byte: segment.start_byte,
+                    end_byte: segment.end_byte,
+                    total_bytes,
+                    downloaded_bytes: if total_bytes > 0 {
+                        segment.downloaded_bytes.min(total_bytes)
+                    } else {
+                        segment.downloaded_bytes
+                    },
+                }
+            })
+            .collect();
+
+        Self {
+            schema_version: RECOVERY_SCHEMA_VERSION,
+            task_id: task.id.clone(),
+            downloaded_bytes: task.downloaded_bytes.min(if task.size_bytes > 0 {
+                task.size_bytes
+            } else {
+                task.downloaded_bytes
+            }),
+            size_bytes: task.size_bytes,
+            segments,
+            resource,
+        }
+    }
+
+    /// Restore durable fields into an existing task model.
+    ///
+    /// Returns false when the checkpoint belongs to another task or an unknown
+    /// future schema. Runtime-only speed/activity values are reset.
+    pub fn apply_to_task(&self, task: &mut Task) -> bool {
+        if self.schema_version != RECOVERY_SCHEMA_VERSION || self.task_id != task.id {
+            return false;
+        }
+
+        if self.size_bytes > 0 {
+            task.size_bytes = self.size_bytes;
+        }
+        task.downloaded_bytes = if task.size_bytes > 0 {
+            self.downloaded_bytes.min(task.size_bytes)
+        } else {
+            self.downloaded_bytes
+        };
+        task.speed_bytes_per_sec = 0;
+        task.time_left_seconds = 0;
+
+        if !self.segments.is_empty() {
+            task.segments = self
+                .segments
+                .iter()
+                .map(|segment| {
+                    let range_total = if segment.end_byte >= segment.start_byte {
+                        segment.end_byte - segment.start_byte + 1
+                    } else {
+                        0
+                    };
+                    let total = if segment.total_bytes > 0 {
+                        segment.total_bytes
+                    } else {
+                        range_total
+                    };
+                    let downloaded = segment.downloaded_bytes.min(total);
+                    Segment {
+                        id: segment.id,
+                        progress: if total > 0 {
+                            downloaded as f64 / total as f64
+                        } else {
+                            0.0
+                        },
+                        downloaded_bytes: downloaded,
+                        total_bytes: total,
+                        active: false,
+                        speed: 0,
+                        start_byte: segment.start_byte,
+                        end_byte: segment.end_byte,
+                    }
+                })
+                .collect();
+        }
+
+        true
+    }
+}
+
+/// Make the final corruption-avoidance decision for an HTTP resume.
+///
+/// Legacy checkpoints with no identity evidence preserve NOVA's existing
+/// Content-Range safety rule. Once a checkpoint has validators/size metadata,
+/// that evidence must be re-confirmed before append is allowed.
+pub fn plan_http_recovery(
+    existing_bytes: u64,
+    response_status: u16,
+    content_range_start: Option<u64>,
+    previous: &ResourceIdentity,
+    current: &ResourceIdentity,
+) -> ResumeAction {
+    if existing_bytes > 0 && previous.has_identity_evidence() {
+        if compare_resource_identity(previous, current) != ResourceContinuity::Confirmed {
+            return ResumeAction::Restart;
+        }
+    }
+
+    plan_http_resume(existing_bytes, response_status, content_range_start)
+}
+
 /// Decide whether a resume response is safe to append to an existing file.
 ///
 /// For an empty destination there is nothing to resume, so a normal 2xx response
@@ -320,8 +565,9 @@ pub fn plan_http_resume(
 #[cfg(test)]
 mod tests {
     use super::{
-        plan_byte_ranges, plan_http_resume, ByteRange, ResumeAction, Segment, TaskState,
-        MAX_PARALLEL_SEGMENTS,
+        compare_resource_identity, plan_byte_ranges, plan_http_recovery, plan_http_resume,
+        ByteRange, RecoveryCheckpoint, ResourceContinuity, ResourceIdentity, ResumeAction, Segment,
+        TaskState, MAX_PARALLEL_SEGMENTS, RECOVERY_SCHEMA_VERSION,
     };
 
     #[test]
@@ -428,6 +674,185 @@ mod tests {
     #[test]
     fn fresh_transfer_never_requires_truncating_empty_output() {
         assert_eq!(plan_http_resume(0, 200, None), ResumeAction::Append);
+    }
+
+    #[test]
+    fn strong_etag_confirms_resource_continuity() {
+        let previous = ResourceIdentity {
+            etag: Some("\"v1\"".to_owned()),
+            content_length: Some(1024),
+            ..ResourceIdentity::default()
+        };
+        let current = previous.clone();
+        assert_eq!(
+            compare_resource_identity(&previous, &current),
+            ResourceContinuity::Confirmed
+        );
+        assert_eq!(previous.if_range_value(), Some("\"v1\""));
+    }
+
+    #[test]
+    fn changed_etag_or_length_forces_recovery_restart() {
+        let previous = ResourceIdentity {
+            etag: Some("\"v1\"".to_owned()),
+            content_length: Some(1024),
+            ..ResourceIdentity::default()
+        };
+        let changed = ResourceIdentity {
+            etag: Some("\"v2\"".to_owned()),
+            content_length: Some(1024),
+            ..ResourceIdentity::default()
+        };
+        assert_eq!(
+            plan_http_recovery(512, 206, Some(512), &previous, &changed),
+            ResumeAction::Restart
+        );
+
+        let resized = ResourceIdentity {
+            etag: Some("\"v1\"".to_owned()),
+            content_length: Some(2048),
+            ..ResourceIdentity::default()
+        };
+        assert_eq!(
+            compare_resource_identity(&previous, &resized),
+            ResourceContinuity::Changed
+        );
+    }
+
+    #[test]
+    fn missing_validator_does_not_trust_existing_bytes() {
+        let previous = ResourceIdentity {
+            last_modified: Some("Wed, 21 Oct 2015 07:28:00 GMT".to_owned()),
+            content_length: Some(1024),
+            ..ResourceIdentity::default()
+        };
+        let current = ResourceIdentity {
+            content_length: Some(1024),
+            ..ResourceIdentity::default()
+        };
+        assert_eq!(
+            compare_resource_identity(&previous, &current),
+            ResourceContinuity::Unknown
+        );
+        assert_eq!(
+            plan_http_recovery(512, 206, Some(512), &previous, &current),
+            ResumeAction::Restart
+        );
+    }
+
+    #[test]
+    fn weak_etag_uses_last_modified_for_if_range() {
+        let identity = ResourceIdentity {
+            etag: Some("W/\"semantic\"".to_owned()),
+            last_modified: Some("Wed, 21 Oct 2015 07:28:00 GMT".to_owned()),
+            ..ResourceIdentity::default()
+        };
+        assert_eq!(
+            identity.if_range_value(),
+            Some("Wed, 21 Oct 2015 07:28:00 GMT")
+        );
+    }
+
+    #[test]
+    fn recovery_checkpoint_preserves_legacy_segment_total() {
+        let task = Task {
+            id: "legacy".to_owned(),
+            name: "legacy.bin".to_owned(),
+            url: "https://example.com/legacy.bin".to_owned(),
+            file_type: "other".to_owned(),
+            status: "paused".to_owned(),
+            size_bytes: 100,
+            downloaded_bytes: 50,
+            speed_bytes_per_sec: 0,
+            time_left_seconds: 0,
+            elapsed_seconds: 0,
+            date_added: "2026-09-24".to_owned(),
+            category: "other".to_owned(),
+            queue_id: "main".to_owned(),
+            connections: 1,
+            resumable: true,
+            save_path: "legacy.bin".to_owned(),
+            description: String::new(),
+            segments: vec![Segment {
+                id: 0,
+                progress: 0.5,
+                downloaded_bytes: 50,
+                total_bytes: 100,
+                active: false,
+                speed: 0,
+                start_byte: 0,
+                end_byte: 0,
+            }],
+            referer: None,
+            engine: "libcurl-multi".to_owned(),
+            engine_id: "legacy".to_owned(),
+            engine_status: None,
+            error_message: None,
+        };
+        let checkpoint =
+            RecoveryCheckpoint::from_task(&task, ResourceIdentity::default());
+        let mut restored = task.clone();
+        restored.segments.clear();
+        assert!(checkpoint.apply_to_task(&mut restored));
+        assert_eq!(restored.segments[0].total_bytes, 100);
+        assert_eq!(restored.segments[0].downloaded_bytes, 50);
+    }
+
+    #[test]
+    fn recovery_checkpoint_restores_durable_state_only() {
+        let mut task = Task {
+            id: "task-1".to_owned(),
+            name: "payload.bin".to_owned(),
+            url: "https://example.com/payload.bin".to_owned(),
+            file_type: "other".to_owned(),
+            status: "downloading".to_owned(),
+            size_bytes: 100,
+            downloaded_bytes: 50,
+            speed_bytes_per_sec: 999,
+            time_left_seconds: 9,
+            elapsed_seconds: 3,
+            date_added: "2026-09-24".to_owned(),
+            category: "other".to_owned(),
+            queue_id: "main".to_owned(),
+            connections: 1,
+            resumable: true,
+            save_path: "payload.bin".to_owned(),
+            description: String::new(),
+            segments: vec![Segment {
+                id: 0,
+                progress: 0.5,
+                downloaded_bytes: 50,
+                total_bytes: 100,
+                active: true,
+                speed: 999,
+                start_byte: 0,
+                end_byte: 99,
+            }],
+            referer: None,
+            engine: "libcurl-multi".to_owned(),
+            engine_id: "task-1".to_owned(),
+            engine_status: None,
+            error_message: None,
+        };
+        let checkpoint = RecoveryCheckpoint::from_task(
+            &task,
+            ResourceIdentity {
+                etag: Some("\"stable\"".to_owned()),
+                content_length: Some(100),
+                ..ResourceIdentity::default()
+            },
+        );
+        assert_eq!(checkpoint.schema_version, RECOVERY_SCHEMA_VERSION);
+
+        task.downloaded_bytes = 0;
+        task.speed_bytes_per_sec = 123;
+        task.segments.clear();
+        assert!(checkpoint.apply_to_task(&mut task));
+        assert_eq!(task.downloaded_bytes, 50);
+        assert_eq!(task.speed_bytes_per_sec, 0);
+        assert_eq!(task.segments.len(), 1);
+        assert!(!task.segments[0].active);
+        assert_eq!(task.segments[0].speed, 0);
     }
 
     #[test]
