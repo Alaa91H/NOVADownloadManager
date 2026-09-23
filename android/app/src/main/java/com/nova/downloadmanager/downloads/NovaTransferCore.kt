@@ -15,11 +15,11 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * Network bytes are downloaded by NOVA's shared Rust core into app-private
  * staging storage. Kotlin owns only Android lifecycle/catalog projection and
- * final app-private file placement. URLs are deliberately never persisted.
+ * final app-private file placement. Raw URLs never enter the task catalog;
+ * durable resume intent is stored separately using Android Keystore encryption.
  *
- * Process-death recovery of an in-flight URL is a later milestone: a task that
- * loses its in-memory transfer session is reconciled to Paused while preserving
- * its native staging bytes for a future durable-resume handoff.
+ * Process-death recovery reconciles orphaned active tasks to Paused while
+ * preserving native staging bytes and encrypted resume intent.
  */
 class NovaTransferCore(context: Context) {
     private val appContext = context.applicationContext
@@ -346,7 +346,6 @@ class NovaTransferCore(context: Context) {
         )
         val EXECUTABLE_DOWNLOAD_STATUSES = setOf(
             DownloadStatus.Queued.wireValue,
-            DownloadStatus.Paused.wireValue,
             DownloadStatus.Failed.wireValue,
         )
         val CATALOG_LOCK = Any()
