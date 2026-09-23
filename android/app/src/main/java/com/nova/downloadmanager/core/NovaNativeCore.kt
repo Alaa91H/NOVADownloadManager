@@ -14,6 +14,10 @@ internal object NovaNativeCore {
     private const val RESUME_APPEND = 0
     private const val RESUME_RESTART = 1
     private const val MISSING_CONTENT_RANGE = -1L
+    private const val TRANSFER_QUEUED = 0
+    private const val TRANSFER_DOWNLOADING = 1
+    private const val TRANSFER_COMPLETED = 2
+    private const val TRANSFER_FAILED = 3
 
     internal data class ByteRange(
         val start: Long,
@@ -38,6 +42,20 @@ internal object NovaNativeCore {
         val contentLength: Long?,
     )
 
+    internal enum class NativeTransferState {
+        QUEUED,
+        DOWNLOADING,
+        COMPLETED,
+        FAILED,
+    }
+
+    internal data class NativeTransferProgress(
+        val state: NativeTransferState,
+        val downloadedBytes: Long,
+        val totalBytes: Long,
+        val activeSegments: Int,
+    )
+
     private val loadFailure: Throwable? = runCatching {
         System.loadLibrary(LIBRARY_NAME)
     }.exceptionOrNull()
@@ -45,6 +63,14 @@ internal object NovaNativeCore {
     private external fun nativeInitialize(clientBridgeApiVersion: Int): Int
 
     private external fun nativeProbeHttpResource(url: String): LongArray?
+
+    private external fun nativeStartHttpDownload(
+        url: String,
+        outputFd: Int,
+        requestedConnections: Int,
+    ): Long
+
+    private external fun nativeQueryHttpDownload(taskId: Long): LongArray?
 
     private external fun nativePlanSegmentCount(
         totalBytes: Long,
@@ -121,6 +147,52 @@ internal object NovaNativeCore {
         return HttpResourceProbe(
             responseStatus = status.toInt(),
             contentLength = contentLength.takeIf { it >= 0L },
+        )
+    }
+
+    fun startHttpDownload(
+        url: String,
+        outputFd: Int,
+        requestedConnections: Int,
+    ): Long {
+        require(url.isNotBlank()) { "url must not be blank" }
+        require(outputFd >= 0) { "outputFd must be valid" }
+        require(requestedConnections > 0) { "requestedConnections must be positive" }
+        requireCompatible()
+
+        return runCatching {
+            nativeStartHttpDownload(url, outputFd, requestedConnections)
+        }.getOrElse { failure ->
+            throw IllegalStateException("NOVA native transfer could not start", failure)
+        }.also { taskId ->
+            check(taskId > 0L) { "NOVA native transfer returned an invalid task id" }
+        }
+    }
+
+    fun queryHttpDownload(taskId: Long): NativeTransferProgress? {
+        require(taskId > 0L) { "taskId must be positive" }
+        requireCompatible()
+
+        val values = nativeQueryHttpDownload(taskId) ?: return null
+        check(values.size == 4) {
+            "NOVA native transfer returned an invalid progress result"
+        }
+        val state = when (values[0].toInt()) {
+            TRANSFER_QUEUED -> NativeTransferState.QUEUED
+            TRANSFER_DOWNLOADING -> NativeTransferState.DOWNLOADING
+            TRANSFER_COMPLETED -> NativeTransferState.COMPLETED
+            TRANSFER_FAILED -> NativeTransferState.FAILED
+            else -> error("NOVA native transfer returned an unknown state: ${values[0]}")
+        }
+        val downloadedBytes = values[1].coerceAtLeast(0L)
+        val totalBytes = values[2].coerceAtLeast(0L)
+        val activeSegments = values[3].coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+
+        return NativeTransferProgress(
+            state = state,
+            downloadedBytes = downloadedBytes,
+            totalBytes = totalBytes,
+            activeSegments = activeSegments,
         )
     }
 
