@@ -610,8 +610,9 @@ pub fn apply_easy_options<H: Handler>(
             .map_err(|e| format!("Could not configure cookies: {e}"))?;
     }
     if force_identity_encoding {
-        easy.accept_encoding("identity")
-            .map_err(|e| format!("Could not force identity encoding for range-safe transfer: {e}"))?;
+        easy.accept_encoding("identity").map_err(|e| {
+            format!("Could not force identity encoding for range-safe transfer: {e}")
+        })?;
     } else if plan.config.bool_("compressed") != Some(false) {
         easy.accept_encoding("")
             .map_err(|e| format!("Could not enable compression: {e}"))?;
@@ -1269,8 +1270,8 @@ pub fn apply_easy_options<H: Handler>(
     }
     let mut header_list: List =
         if let Some(headers) = direct_headers(&plan.config, force_identity_encoding)? {
-        headers
-    } else {
+            headers
+        } else {
         let mut list = List::new();
         list.append("Accept: */*")
             .map_err(|e| format!("Could not add Accept header: {e}"))?;
@@ -1296,8 +1297,8 @@ pub fn apply_easy_options<H: Handler>(
             list.append(&format!("Authorization: Bearer {bearer}"))
                 .map_err(|e| format!("Could not add OAuth2 bearer header: {e}"))?;
         }
-        list
-    };
+            list
+        };
     for hdr in &conditional_headers {
         header_list
             .append(hdr)
