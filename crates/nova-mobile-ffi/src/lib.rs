@@ -72,6 +72,10 @@ pub enum TransportError {
     InvalidRange { start: u64, end: u64 },
     #[error("native HTTP range response rejected: {message}")]
     RangeResponseRejected { message: String },
+    #[error("native transfer paused")]
+    Paused,
+    #[error("native transfer cancelled")]
+    Cancelled,
 }
 
 impl From<nova_download_core::TransportError> for TransportError {
@@ -89,6 +93,8 @@ impl From<nova_download_core::TransportError> for TransportError {
             nova_download_core::TransportError::RangeResponseRejected { message } => {
                 Self::RangeResponseRejected { message }
             }
+            nova_download_core::TransportError::Paused => Self::Paused,
+            nova_download_core::TransportError::Cancelled => Self::Cancelled,
         }
     }
 }
