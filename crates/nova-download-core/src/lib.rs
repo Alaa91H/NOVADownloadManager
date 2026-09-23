@@ -3,11 +3,13 @@
 //! This crate is shared by desktop and mobile hosts. It deliberately owns no
 //! Tauri, Axum, Android, JNI, Compose, notification, or storage-provider types.
 
-use curl::easy::Easy;
+use curl::easy::{Easy, List};
 use std::cell::{Cell, RefCell};
-use std::fs::OpenOptions;
-use std::io::Write;
-use std::path::Path;
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub use nova_core_model::{ByteRange, ResumeAction, MAX_PARALLEL_SEGMENTS};
@@ -17,6 +19,51 @@ pub struct HttpResourceProbe {
     pub response_status: u16,
     pub content_length: Option<u64>,
     pub effective_url: String,
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
+}
+
+impl HttpResourceProbe {
+    /// Strong representation validator suitable for HTTP If-Range.
+    ///
+    /// Weak ETags are deliberately rejected because they do not prove byte
+    /// identity. Last-Modified is the conservative fallback when available.
+    pub fn if_range_validator(&self) -> Option<&str> {
+        self.etag
+            .as_deref()
+            .filter(|etag| !etag.trim_start().starts_with("W/"))
+            .or(self.last_modified.as_deref())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ResumeIdentity {
+    content_length: u64,
+    validator_kind: &'static str,
+    validator: String,
+}
+
+impl ResumeIdentity {
+    fn from_probe(probe: &HttpResourceProbe) -> Option<Self> {
+        let content_length = probe.content_length?;
+        let etag = probe
+            .etag
+            .as_deref()
+            .filter(|etag| !etag.trim_start().starts_with("W/"));
+        let (validator_kind, validator) = if let Some(etag) = etag {
+            ("etag", etag)
+        } else {
+            ("last-modified", probe.last_modified.as_deref()?)
+        };
+        if validator.contains(['\r', '\n']) {
+            return None;
+        }
+        Some(Self {
+            content_length,
+            validator_kind,
+            validator: validator.to_owned(),
+        })
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -82,6 +129,87 @@ fn parse_http_status(header: &[u8]) -> Option<u16> {
         return None;
     }
     line.split_whitespace().nth(1)?.parse().ok()
+}
+
+fn parse_header_value(header: &[u8], expected_name: &str) -> Option<String> {
+    let line = std::str::from_utf8(header).ok()?.trim();
+    let (name, value) = line.split_once(':')?;
+    if !name.eq_ignore_ascii_case(expected_name) {
+        return None;
+    }
+    Some(value.trim().to_owned())
+}
+
+fn append_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut value = path.as_os_str().to_os_string();
+    value.push(suffix);
+    PathBuf::from(value)
+}
+
+fn resume_identity_path(destination: &Path) -> PathBuf {
+    append_suffix(destination, ".nova-identity")
+}
+
+fn write_resume_identity(
+    destination: &Path,
+    identity: &ResumeIdentity,
+) -> Result<(), TransportError> {
+    let path = resume_identity_path(destination);
+    let tmp = append_suffix(&path, ".tmp");
+    let payload = format!(
+        "NOVA-IDENTITY-1\n{}\n{}\n{}\n",
+        identity.content_length, identity.validator_kind, identity.validator
+    );
+    {
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&tmp)
+            .map_err(|error| TransportError::RequestFailed {
+                message: format!("failed to create resume identity: {error}"),
+            })?;
+        file.write_all(payload.as_bytes())
+            .and_then(|_| file.sync_all())
+            .map_err(|error| TransportError::RequestFailed {
+                message: format!("failed to persist resume identity: {error}"),
+            })?;
+    }
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(|error| TransportError::RequestFailed {
+            message: format!("failed to replace resume identity: {error}"),
+        })?;
+    }
+    std::fs::rename(&tmp, &path).map_err(|error| TransportError::RequestFailed {
+        message: format!("failed to commit resume identity: {error}"),
+    })
+}
+
+fn read_resume_identity(destination: &Path) -> Option<ResumeIdentity> {
+    let payload = std::fs::read_to_string(resume_identity_path(destination)).ok()?;
+    let mut lines = payload.lines();
+    if lines.next()? != "NOVA-IDENTITY-1" {
+        return None;
+    }
+    let content_length = lines.next()?.parse().ok()?;
+    let validator_kind = match lines.next()? {
+        "etag" => "etag",
+        "last-modified" => "last-modified",
+        _ => return None,
+    };
+    let validator = lines.next()?.to_owned();
+    if validator.is_empty() || validator.contains(['\r', '\n']) {
+        return None;
+    }
+    Some(ResumeIdentity {
+        content_length,
+        validator_kind,
+        validator,
+    })
+}
+
+fn remove_resume_identity(destination: &Path) {
+    let _ = std::fs::remove_file(resume_identity_path(destination));
 }
 
 fn parse_content_range(header: &[u8]) -> Option<(u64, u64)> {
