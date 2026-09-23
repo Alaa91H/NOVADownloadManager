@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use nova_core_model::{RecoveryCheckpoint, ResourceIdentity};
+
 use crate::daemon::state::{AppState, SharedState};
 use crate::daemon::types::{Task, TaskState};
 use crate::lock_or_err;
@@ -14,6 +16,11 @@ use crate::lock_or_err;
 pub struct PersistedState {
     pub version: u32,
     pub tasks: Vec<Task>,
+    /// Durable byte/segment checkpoints owned by the shared core contract.
+    /// Kept separate from Task so runtime-only UI fields never become recovery
+    /// authority and old task snapshots remain backward compatible.
+    #[serde(default)]
+    pub recovery_checkpoints: HashMap<String, RecoveryCheckpoint>,
     pub media_args: HashMap<String, Vec<String>>,
     #[serde(default)]
     pub curl_args: HashMap<String, Vec<String>>,
@@ -186,6 +193,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         curl_direct_options,
         resume_requires_reauth,
         tasks,
+        recovery_checkpoints,
         telegram_last_update_id,
     ) = {
         let media_jobs = lock_or_err!(state.media_jobs);
@@ -221,6 +229,28 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         resume_requires_reauth.sort();
         resume_requires_reauth.dedup();
         let tasks: Vec<Task> = snapshot.values().cloned().collect();
+        let recovery_checkpoints: HashMap<String, RecoveryCheckpoint> = snapshot
+            .iter()
+            .map(|(id, task)| {
+                let direct = curl_jobs.get(id);
+                let option_string = |key: &str| {
+                    direct
+                        .and_then(|job| job.direct_options.get(key))
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned)
+                };
+                let resource = ResourceIdentity {
+                    effective_url: option_string("effectiveUrl").or_else(|| Some(task.url.clone())),
+                    etag: option_string("etag"),
+                    last_modified: option_string("lastModified"),
+                    content_length: (task.size_bytes > 0).then_some(task.size_bytes),
+                };
+                (
+                    id.clone(),
+                    RecoveryCheckpoint::from_task(task, resource),
+                )
+            })
+            .collect();
         let telegram_last_update_id = *lock_or_err!(state.telegram_last_update_id);
         (
             media_args,
@@ -228,6 +258,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
             curl_direct_options,
             resume_requires_reauth,
             tasks,
+            recovery_checkpoints,
             telegram_last_update_id,
         )
     };
@@ -235,8 +266,9 @@ fn build_snapshot(state: &AppState) -> PersistedState {
     let stats = lock_or_err!(state.download_stats).clone();
 
     PersistedState {
-        version: 1,
+        version: 2,
         tasks,
+        recovery_checkpoints,
         media_args,
         curl_args,
         curl_direct_options,
@@ -559,6 +591,19 @@ pub(crate) mod tests {
         let loaded = load(&dir_str);
 
         assert_eq!(loaded.tasks.len(), 3);
+        assert_eq!(loaded.version, 2);
+        let checkpoint = loaded
+            .recovery_checkpoints
+            .get("c1")
+            .expect("direct task recovery checkpoint");
+        assert_eq!(checkpoint.task_id, "c1");
+        assert_eq!(checkpoint.downloaded_bytes, 500);
+        assert_eq!(checkpoint.size_bytes, 1000);
+        assert_eq!(checkpoint.resource.content_length, Some(1000));
+        assert_eq!(
+            checkpoint.resource.effective_url.as_deref(),
+            Some("https://example.com/c1")
+        );
         assert_eq!(
             loaded.media_args.get("m1"),
             Some(&vec!["-f".to_string(), "best".to_string()])
