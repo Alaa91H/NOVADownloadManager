@@ -718,6 +718,17 @@ mod tests {
     }
 
     #[test]
+    fn inverted_segment_range_has_zero_length() {
+        let range = SegmentRange {
+            index: 7,
+            start: 10,
+            end: 9,
+            path: PathBuf::from("invalid.part007"),
+        };
+        assert_eq!(range.len(), 0);
+    }
+
+    #[test]
     fn host_key_uses_normalized_origin_without_user_info_or_resource_parts() {
         assert_eq!(
             host_key("HTTPS://user:secret@Example.COM:8443/path/file?token=redacted#part"),
