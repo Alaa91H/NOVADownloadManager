@@ -67,7 +67,9 @@ class NovaTransferCore(context: Context) {
 
     fun refresh(taskIds: Collection<String>): List<DownloadSummary> {
         val requested = taskIds.mapNotNull(String::toLongOrNull).toSet()
-        return reconcileRecords().filter { requested.isEmpty() || it.id.toLongOrNull() in requested }
+        return reconcileRecords().filter { summary ->
+            requested.isEmpty() || summary.id.toLongOrNull()?.let(requested::contains) == true
+        }
     }
 
     /** Invoked by Android lifecycle services while native tasks are active. */
