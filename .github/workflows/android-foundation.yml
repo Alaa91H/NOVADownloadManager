@@ -72,6 +72,9 @@ jobs:
           workspaces: crates/nova-mobile-ffi -> .build/android-rust
           key: android-arm64
 
+      - name: Test mobile Rust transfer core
+        run: cargo test --manifest-path crates/nova-mobile-ffi/Cargo.toml
+
       - name: Build and verify ARM64 Rust bridge
         run: |
           scripts/build-android-ffi.sh arm64-v8a
