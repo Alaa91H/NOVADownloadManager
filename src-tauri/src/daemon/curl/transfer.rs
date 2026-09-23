@@ -548,6 +548,10 @@ fn resolve_effective_target(plan: &DirectDownloadPlan) -> (String, bool, Preflig
                 preflight.total_size = len;
             }
         }
+        if let Some((validator, validator_is_etag)) = easy.get_ref().validator() {
+            preflight.validator = Some(validator);
+            preflight.validator_is_etag = validator_is_etag;
+        }
         preflight.supports_range = code == 206;
         return (effective, preflight.supports_range, preflight);
     }
@@ -564,6 +568,10 @@ struct PreflightData {
     ttfb_us: u64,
     uses_tls: bool,
     supports_range: bool,
+    /// Strong remote identity captured before the first resumable/ranged body
+    /// is committed. Strong ETag is preferred; Last-Modified is the fallback.
+    validator: Option<String>,
+    validator_is_etag: bool,
     /// Total file size discovered from the preflight response headers
     /// (Content-Length / Content-Range). 0 when unknown (HTML interstitial,
     /// chunked response, error). The caller seeds `plan.total_size` with this
@@ -671,6 +679,72 @@ fn update_curl_task_progress(
 fn is_http_family(url: &str) -> bool {
     let lower = url.get(..8).unwrap_or(url).to_ascii_lowercase();
     lower.starts_with("http://") || lower.starts_with("https://")
+}
+
+/// Persist the remote identity as a crash-safe resume checkpoint before any
+/// ranged body is allowed to depend on it. This deliberately writes only the
+/// non-sensitive ETag/Last-Modified validator into the existing persisted
+/// direct-options surface, so restart reconstruction automatically feeds it
+/// back through `plan_from_job` and `If-Range`.
+fn persist_resume_validator(
+    state: &SharedState,
+    id: &str,
+    validator: &str,
+    validator_is_etag: bool,
+) -> bool {
+    let value = validator.trim();
+    if value.is_empty() || value.len() > 1024 {
+        return false;
+    }
+
+    let key = if validator_is_etag {
+        if !crate::daemon::utils::is_strong_etag(value) {
+            return false;
+        }
+        "etag"
+    } else {
+        "lastModified"
+    };
+    let stale_key = if validator_is_etag {
+        "lastModified"
+    } else {
+        "etag"
+    };
+
+    let changed = {
+        let mut jobs = match state.curl_jobs.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let Some(job) = jobs.get_mut(id) else {
+            return false;
+        };
+        let next = serde_json::Value::String(value.to_owned());
+        if job.direct_options.get(key) == Some(&next) {
+            false
+        } else {
+            job.direct_options.remove(stale_key);
+            job.direct_options.insert(key.to_owned(), next);
+            true
+        }
+    };
+
+    if changed {
+        log::info!(
+            "Task {id}: checkpointed remote resume validator ({}) before ranged transfer",
+            if validator_is_etag {
+                "strong-etag"
+            } else {
+                "last-modified"
+            }
+        );
+        state.mark_dirty();
+        // The validator protects already-written partial bytes from being
+        // resumed against a different remote representation after a crash.
+        // Persist it immediately instead of waiting for the periodic 10s flush.
+        crate::daemon::persist::save_now(state.as_ref());
+    }
+    changed
 }
 
 /// Result of a completed transfer pass. Carries everything the completion
@@ -2144,6 +2218,22 @@ fn run_libcurl_download(
             );
             plan.url = effective_url;
         }
+        // Bind the upcoming byte ranges to the exact representation observed
+        // by the preflight. This happens BEFORE segmented handles are created,
+        // so every first-generation range request receives If-Range rather
+        // than waiting until a successful completion to learn the validator.
+        if plan.validator.is_none() {
+            if let Some(ref validator) = preflight.validator {
+                plan.validator = Some(validator.clone());
+                plan.validator_is_etag = preflight.validator_is_etag;
+                persist_resume_validator(
+                    state,
+                    id,
+                    validator,
+                    preflight.validator_is_etag,
+                );
+            }
+        }
         // The preflight discovered a real total size for a download that
         // started with an unknown size (fast path). Apply it to the plan and
         // the task snapshot before dispatch so the UI shows a live progress
@@ -2328,6 +2418,13 @@ fn run_libcurl_download(
                 }
                 if cancel.load(Ordering::Acquire) {
                     return Err("cancelled".to_owned());
+                }
+                // Some fast paths may skip a metadata-rich preflight. Capture
+                // the validator returned by the completed transfer as a
+                // fallback for future re-download/resume operations.
+                if let Some(ref captured) = captured_validator {
+                    let captured_is_etag = crate::daemon::utils::is_strong_etag(captured);
+                    persist_resume_validator(state, id, captured, captured_is_etag);
                 }
                 if let Some(etag_file) = plan.config.str_("etagSave") {
                     if let Some(ref captured) = captured_validator {
@@ -3136,6 +3233,8 @@ mod tests {
         p.ttfb_us = 55000;
         p.uses_tls = true;
         p.supports_range = true;
+        p.validator = Some("\"clone-etag\"".to_owned());
+        p.validator_is_etag = true;
         let p2 = p.clone();
         assert_eq!(p2.protocol, "h2");
         assert_eq!(p2.initial_rtt_us, 50000);
@@ -3144,6 +3243,8 @@ mod tests {
         assert_eq!(p2.ttfb_us, 55000);
         assert!(p2.uses_tls);
         assert!(p2.supports_range);
+        assert_eq!(p2.validator.as_deref(), Some("\"clone-etag\""));
+        assert!(p2.validator_is_etag);
     }
 
     #[test]
@@ -3175,6 +3276,12 @@ mod tests {
             metadata.supports_range,
             "adaptive metadata must match the preflight range result"
         );
+        assert_eq!(
+            metadata.validator.as_deref(),
+            Some("\"nova-test\""),
+            "preflight must capture the strong ETag before the first segment starts"
+        );
+        assert!(metadata.validator_is_etag);
     }
 
     #[test]
