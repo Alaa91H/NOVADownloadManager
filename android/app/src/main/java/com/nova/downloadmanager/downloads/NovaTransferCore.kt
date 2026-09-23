@@ -102,7 +102,12 @@ class NovaTransferCore(context: Context) {
         if (active) {
             check(NovaNativeCore.cancelTransfer(taskId)) { "NOVA native transfer is not active" }
         } else {
-            File(appPrivateRoot, record.stagingRelativePath).delete()
+            check(
+                NovaNativeCore.discardStagedTransfer(
+                    appPrivateRoot = appPrivateRoot.absolutePath,
+                    relativeDestination = record.stagingRelativePath,
+                ),
+            ) { "NOVA native staging cleanup failed" }
             intentStore.remove(taskId)
             updateRecord(record.copy(status = DownloadStatus.Cancelled.wireValue))
         }
@@ -144,6 +149,15 @@ class NovaTransferCore(context: Context) {
         updateRecord(current)
 
         try {
+            runCatching { NovaNativeCore.probeHttpResource(url) }
+                .getOrNull()
+                ?.takeIf { it.responseStatus in 200..299 }
+                ?.contentLength
+                ?.let { contentLength ->
+                    current = current.copy(totalBytes = contentLength)
+                    updateRecord(current)
+                }
+
             val outcome = NovaNativeCore.downloadToAppPrivate(
                 taskId = current.id,
                 url = url,
@@ -212,16 +226,26 @@ class NovaTransferCore(context: Context) {
             ?: error("Unknown NOVA transfer task: $taskId")
 
     private fun summary(record: TransferRecord): DownloadSummary {
-        val payload = when (record.status) {
+        val downloadedBytes = when (record.status) {
             DownloadStatus.Completed.wireValue -> File(appPrivateRoot, record.finalRelativePath)
-            DownloadStatus.Cancelled.wireValue -> null
-            else -> File(appPrivateRoot, record.stagingRelativePath)
+                .takeIf(File::isFile)
+                ?.length()
+                ?.coerceAtLeast(0)
+                ?: 0L
+            DownloadStatus.Cancelled.wireValue -> 0L
+            else -> runCatching {
+                NovaNativeCore.stagedTransferBytes(
+                    appPrivateRoot = appPrivateRoot.absolutePath,
+                    relativeDestination = record.stagingRelativePath,
+                )
+            }.getOrElse {
+                File(appPrivateRoot, record.stagingRelativePath)
+                    .takeIf(File::isFile)
+                    ?.length()
+                    ?.coerceAtLeast(0)
+                    ?: 0L
+            }
         }
-        val downloadedBytes = payload
-            ?.takeIf(File::isFile)
-            ?.length()
-            ?.coerceAtLeast(0)
-            ?: 0L
 
         return DownloadSummary(
             id = record.id,
