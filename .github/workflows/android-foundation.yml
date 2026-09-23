@@ -72,6 +72,16 @@ jobs:
           workspaces: crates/nova-mobile-ffi -> .build/android-rust
           key: android-arm64
 
+      - name: Test native transfer core on host
+        run: cargo test --manifest-path crates/nova-mobile-ffi/Cargo.toml
+
+      - name: Verify Android no longer uses DownloadManager transport
+        run: |
+          if grep -R --line-number --fixed-strings 'android.app.DownloadManager' android/app/src/main/java; then
+            echo "::error::Android transport must remain owned by NOVA Rust/libcurl"
+            exit 1
+          fi
+
       - name: Build and verify ARM64 Rust bridge
         run: |
           scripts/build-android-ffi.sh arm64-v8a
