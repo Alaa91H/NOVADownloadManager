@@ -437,7 +437,7 @@ mod tests {
 
         let url = format!("http://{address}/payload.bin");
         let mut payload = Vec::new();
-        let probe = stream_http_range(&url, 2, 5, &mut payload)
+        let probe = nova_download_core::stream_http_range(&url, 2, 5, &mut payload)
             .expect("validated native range stream must succeed");
         server.join().expect("range server thread");
 
@@ -468,7 +468,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(TransportError::RangeResponseRejected { .. })
+            Err(nova_download_core::TransportError::RangeResponseRejected { .. })
         ));
     }
 
@@ -489,12 +489,12 @@ mod tests {
 
         let url = format!("http://{address}/payload.bin");
         let mut payload = Vec::new();
-        let result = stream_http_range(&url, 2, 5, &mut payload);
+        let result = nova_download_core::stream_http_range(&url, 2, 5, &mut payload);
         server.join().expect("range server thread");
 
         assert!(matches!(
             result,
-            Err(TransportError::RangeResponseRejected { .. })
+            Err(nova_download_core::TransportError::RangeResponseRejected { .. })
         ));
         assert!(payload.is_empty(), "rejected body must never reach the sink");
     }
@@ -516,12 +516,12 @@ mod tests {
 
         let url = format!("http://{address}/payload.bin");
         let mut payload = Vec::new();
-        let result = stream_http_range(&url, 2, 5, &mut payload);
+        let result = nova_download_core::stream_http_range(&url, 2, 5, &mut payload);
         server.join().expect("range server thread");
 
         assert!(matches!(
             result,
-            Err(TransportError::RangeResponseRejected { .. })
+            Err(nova_download_core::TransportError::RangeResponseRejected { .. })
         ));
         assert!(payload.is_empty(), "mismatched range must never reach the sink");
     }
