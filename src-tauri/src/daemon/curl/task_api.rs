@@ -8,7 +8,9 @@ use super::{
 use crate::daemon::direct::DirectUrl;
 use crate::daemon::engine::extractor::{EngineStatus, Extractor, ValidateError};
 use crate::daemon::state::SharedState;
-use crate::daemon::types::{CreateDownloadBody, Task};
+use crate::daemon::types::{
+    restart_task_state, transition_task_state, CreateDownloadBody, Task, TaskState,
+};
 use crate::daemon::utils::kill_process;
 use crate::lock_or_err;
 
@@ -187,14 +189,23 @@ pub async fn pause_task(state: &SharedState, id: &str) -> Result<Task, String> {
     {
         let mut jobs = lock_or_err!(state.curl_jobs);
         if let Some(job) = jobs.get_mut(id) {
-            job.cancel_token.store(true, Ordering::Release);
-            if job.task.status == "downloading" {
-                job.task.status = "pausing".to_owned();
-                job.task.engine_status = Some("pausing".to_owned());
+            let current = TaskState::from_status(&job.task.status)
+                .ok_or_else(|| format!("Task {id} has unknown state '{}'", job.task.status))?;
+            let next = if current.is_active() {
+                TaskState::Pausing
             } else {
-                job.task.status = "paused".to_owned();
-                job.task.engine_status = Some("paused".to_owned());
-            }
+                TaskState::Paused
+            };
+            transition_task_state(
+                &mut job.task,
+                next,
+                if next == TaskState::Pausing {
+                    "pausing"
+                } else {
+                    "paused"
+                },
+            )?;
+            job.cancel_token.store(true, Ordering::Release);
             job.task.speed_bytes_per_sec = 0;
             let task = job.task.clone();
             drop(jobs);
@@ -247,12 +258,22 @@ pub async fn resume_task(state: &SharedState, id: &str) -> Result<Task, String> 
             let state_now = lock_or_err!(state.curl_jobs)
                 .get(id)
                 .map(|j| j.task.status.clone());
-            match state_now.as_deref() {
-                None | Some("paused") | Some("queued") | Some("error") | Some("completed") => break,
-                Some("downloading") => {
-                    return Err("Cannot resume: download is still actively running.".to_owned());
+            match state_now.as_deref().and_then(TaskState::from_status) {
+                None if state_now.is_none() => break,
+                None => {
+                    return Err(format!(
+                        "Cannot resume task {id}: unknown lifecycle state '{}'.",
+                        state_now.as_deref().unwrap_or_default()
+                    ));
                 }
-                Some("pausing") | Some("stopping") => {
+                Some(
+                    TaskState::Paused
+                    | TaskState::Queued
+                    | TaskState::Failed
+                    | TaskState::Interrupted
+                    | TaskState::Completed,
+                ) => break,
+                Some(TaskState::Pausing) => {
                     if std::time::Instant::now() >= deadline {
                         return Err(format!(
                             "Cannot resume task {id}: previous worker did not stop within 10s."
@@ -260,20 +281,25 @@ pub async fn resume_task(state: &SharedState, id: &str) -> Result<Task, String> 
                     }
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 }
-                _ => break,
+                Some(active) if active.is_active() => {
+                    return Err(format!(
+                        "Cannot resume: task is still active in state '{}'.",
+                        active.as_status()
+                    ));
+                }
+                Some(_) => break,
             }
         }
 
         let mut jobs = lock_or_err!(state.curl_jobs);
         if let Some(job) = jobs.get_mut(id) {
-            if job.task.status == "completed" {
+            if TaskState::from_status(&job.task.status) == Some(TaskState::Completed) {
                 return Err(format!(
                     "Cannot resume '{}': download is already completed.",
                     job.task.name
                 ));
             }
-            job.task.status = "queued".to_owned();
-            job.task.engine_status = Some("resume-requested".to_owned());
+            transition_task_state(&mut job.task, TaskState::Queued, "resume-requested")?;
             job.task.error_message = None;
             let task = job.task.clone();
             drop(jobs);
@@ -437,10 +463,7 @@ pub async fn update_task_metadata(
     {
         let mut jobs = lock_or_err!(state.curl_jobs);
         if let Some(job) = jobs.get_mut(id) {
-            if matches!(
-                job.task.status.as_str(),
-                "downloading" | "pausing" | "stopping"
-            ) {
+            if TaskState::from_status(&job.task.status).is_some_and(TaskState::is_active) {
                 return Err("Stop the download before editing it".to_owned());
             }
             if let Some(ref u) = new_url {
@@ -528,20 +551,17 @@ pub async fn redownload_task(state: &SharedState, id: &str) -> Result<Task, Stri
                 // A generation-bumped worker intentionally skips its stale
                 // completion cleanup. Capture its active slot now so this
                 // restart can release it before starting the new generation.
-                let was_active = matches!(
-                    job.task.status.as_str(),
-                    "downloading" | "pausing" | "stopping"
-                );
+                let was_active = TaskState::from_status(&job.task.status)
+                    .is_some_and(TaskState::is_active);
+                restart_task_state(&mut job.task, "redownload-requested")?;
                 job.cancel_token.store(true, Ordering::Release);
                 job.run_generation.fetch_add(1, Ordering::Release);
                 let path = std::path::PathBuf::from(&job.task.save_path);
                 clear_stale_validators(&mut job.direct_options);
-                job.task.status = "queued".to_owned();
                 job.task.downloaded_bytes = 0;
                 job.task.speed_bytes_per_sec = 0;
                 job.task.time_left_seconds = 0;
                 job.task.error_message = None;
-                job.task.engine_status = Some("redownload-requested".to_owned());
                 job.task.segments = crate::daemon::utils::build_segments(
                     job.task.connections,
                     job.task.size_bytes,
@@ -629,10 +649,7 @@ pub async fn delete_task(state: &SharedState, id: &str, delete_files: bool) -> R
             // waiting for the worker's async mark_curl_task_failed, which is
             // now a no-op for deleted tasks (generation was bumped above).
             let was_active = jobs.get(id).is_some_and(|job| {
-                matches!(
-                    job.task.status.as_str(),
-                    "downloading" | "pausing" | "stopping"
-                )
+                TaskState::from_status(&job.task.status).is_some_and(TaskState::is_active)
             });
             if let Some(job) = jobs.get_mut(id) {
                 job.cancel_token.store(true, Ordering::Release);
