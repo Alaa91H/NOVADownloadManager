@@ -8,7 +8,7 @@
 uniffi::setup_scaffolding!();
 
 /// Increment when a bridge change is not backward compatible.
-pub const BRIDGE_API_VERSION: u32 = 1;
+pub const BRIDGE_API_VERSION: u32 = 2;
 
 /// Typed capability and compatibility information returned before a mobile
 /// client creates a core session.
@@ -17,6 +17,7 @@ pub struct BridgeInfo {
     pub bridge_api_version: u32,
     pub core_version: String,
     pub task_schema: String,
+    pub recovery_schema_version: u32,
 }
 
 /// Stable mobile projection of one inclusive shared-core byte range.
@@ -39,6 +40,27 @@ pub struct HttpResourceProbe {
     pub response_status: u16,
     pub content_length: Option<u64>,
     pub effective_url: String,
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
+pub struct RecoveryIdentity {
+    pub effective_url: Option<String>,
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
+    pub content_length: Option<u64>,
+}
+
+impl From<RecoveryIdentity> for nova_core_model::ResourceIdentity {
+    fn from(value: RecoveryIdentity) -> Self {
+        Self {
+            effective_url: value.effective_url,
+            etag: value.etag,
+            last_modified: value.last_modified,
+            content_length: value.content_length,
+        }
+    }
 }
 
 /// Result of a validated bounded ranged GET performed entirely by libcurl.
@@ -114,6 +136,7 @@ pub fn initialize(client_bridge_api_version: u32) -> Result<BridgeInfo, BridgeEr
         bridge_api_version: BRIDGE_API_VERSION,
         core_version: env!("CARGO_PKG_VERSION").to_owned(),
         task_schema: "nova.task.v1".to_owned(),
+        recovery_schema_version: nova_core_model::RECOVERY_SCHEMA_VERSION,
     })
 }
 
@@ -130,6 +153,8 @@ pub fn probe_http_resource(url: String) -> Result<HttpResourceProbe, TransportEr
             response_status: probe.response_status,
             content_length: probe.content_length,
             effective_url: probe.effective_url,
+            etag: probe.etag,
+            last_modified: probe.last_modified,
         })
         .map_err(TransportError::from)
 }
@@ -187,6 +212,29 @@ pub fn plan_http_resume(
     match nova_download_core::plan_http_resume(existing_bytes, response_status, content_range_start) {
         nova_download_core::ResumeAction::Append => ResumeAction::Append,
         nova_download_core::ResumeAction::Restart => ResumeAction::Restart,
+    }
+}
+
+/// Applies NOVA's validator-aware shared recovery policy.
+#[uniffi::export]
+pub fn plan_http_recovery(
+    existing_bytes: u64,
+    response_status: u16,
+    content_range_start: Option<u64>,
+    previous: RecoveryIdentity,
+    current: RecoveryIdentity,
+) -> ResumeAction {
+    let previous: nova_core_model::ResourceIdentity = previous.into();
+    let current: nova_core_model::ResourceIdentity = current.into();
+    match nova_core_model::plan_http_recovery(
+        existing_bytes,
+        response_status,
+        content_range_start,
+        &previous,
+        &current,
+    ) {
+        nova_core_model::ResumeAction::Append => ResumeAction::Append,
+        nova_core_model::ResumeAction::Restart => ResumeAction::Restart,
     }
 }
 
