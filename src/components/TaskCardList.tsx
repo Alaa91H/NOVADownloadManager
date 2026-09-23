@@ -4,6 +4,12 @@ import type { DownloadItem } from '../types/desktop-ui.types';
 import { formatBytes } from '../initialData';
 import { formatSpeed, formatTimeLeft, formatElapsed } from '../utils/taskTableUtils';
 import { taskProgressInfo } from '../utils/progressUtils';
+import {
+  isTaskActiveStatus,
+  isTaskPausableStatus,
+  isTaskReceivingBytes,
+  isTaskResumableStatus,
+} from '../utils/taskStatus';
 import TaskCheckboxAndIcon from './primitives/TaskCheckboxAndIcon';
 import { StatusPill } from './primitives';
 import { TaskProgressBar } from './primitives/TaskProgressBar';
@@ -83,7 +89,7 @@ const TaskCardListInner: React.FC<TaskCardListProps> = ({
             <div className="mt-3">
               <TaskProgressBar
                 progress={progress}
-                active={task.status === 'downloading'}
+                active={isTaskActiveStatus(task.status)}
                 trackClass="h-2"
                 labelClass="text-[10px] font-mono font-bold"
                 gapClass="gap-2"
@@ -95,16 +101,16 @@ const TaskCardListInner: React.FC<TaskCardListProps> = ({
                 {t('table_size_label')}{' '}
                 {task.sizeBytes > 0
                   ? formatBytes(task.sizeBytes)
-                  : task.downloadedBytes > 0 && task.status === 'downloading'
+                  : task.downloadedBytes > 0 && isTaskActiveStatus(task.status)
                     ? `${formatBytes(task.downloadedBytes)}…`
                     : '—'}
               </span>
-              {task.status === 'downloading' && (
+              {isTaskReceivingBytes(task.status) && (
                 <span className="text-[var(--success)] font-bold">
                   {t('table_speed_label')} {formatSpeed(task.speedBytesPerSec)}
                 </span>
               )}
-              {task.status === 'downloading' && (
+              {isTaskReceivingBytes(task.status) && (
                 <span className="text-[var(--info)]">
                   {t('table_left_label')} {formatTimeLeft(task.timeLeftSeconds)}
                 </span>
@@ -115,7 +121,7 @@ const TaskCardListInner: React.FC<TaskCardListProps> = ({
             </div>
 
             <div className="mt-3 pt-2.5 border-t border-[var(--border-color)] flex justify-end items-center gap-1.5">
-              {task.status === 'downloading' ? (
+              {isTaskPausableStatus(task.status) ? (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -125,7 +131,7 @@ const TaskCardListInner: React.FC<TaskCardListProps> = ({
                 >
                   {t('topbar_stop')}
                 </button>
-              ) : task.status === 'paused' || task.status === 'error' ? (
+              ) : isTaskResumableStatus(task.status) ? (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
