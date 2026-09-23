@@ -8,7 +8,13 @@ repository = "https://github.com/Alaa91H/NOVADownloadManager"
 edition = "2021"
 rust-version = "1.77"
 
+[features]
+default = []
+http2 = ["curl/http2"]
+rustls = ["curl/rustls"]
+static-curl = ["curl/static-curl"]
+
 [dependencies]
-curl = { version = "0.4.50", default-features = false, features = ["http2", "rustls"] }
+curl = { version = "0.4.50", default-features = false }
 nova-core-model = { path = "../nova-core-model" }
 thiserror = "2"
