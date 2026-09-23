@@ -54,6 +54,7 @@ import { novaClient } from '../api/novaClient';
 import { tauriClient } from '../api/tauriClient';
 import { writeClipboardText } from '../utils/clipboard';
 import { taskProgressInfo } from '../utils/progressUtils';
+import { isTaskActiveStatus, isTaskPausableStatus, isTaskResumableStatus } from '../utils/taskStatus';
 
 import { extractErrorMessage } from '../utils/formatUtils';
 export const TaskTable: React.FC = () => {
@@ -149,7 +150,7 @@ export const TaskTable: React.FC = () => {
 
   const buildContextMenuOptions = (task: DownloadItem): ContextMenuOption[] => {
     const opts: ContextMenuOption[] = [];
-    const isActive = task.status === 'downloading' || task.status === 'pausing' || task.status === 'stopping';
+    const isActive = isTaskActiveStatus(task.status);
     if (task.status === 'completed') {
       opts.push({
         id: 'openFile',
@@ -168,7 +169,7 @@ export const TaskTable: React.FC = () => {
         },
       });
     }
-    if (task.status === 'downloading') {
+    if (isTaskPausableStatus(task.status)) {
       opts.push({
         id: 'stop',
         label: t('topbar_stop'),
@@ -178,7 +179,7 @@ export const TaskTable: React.FC = () => {
         },
       });
     }
-    if (task.status === 'paused' || task.status === 'error' || task.status === 'queued') {
+    if (isTaskResumableStatus(task.status)) {
       opts.push({
         id: 'resume',
         label: task.status === 'error' ? t('menu_retry_download') : t('resume'),
@@ -317,7 +318,12 @@ export const TaskTable: React.FC = () => {
     setSelectedTaskId(task.id);
     if (task.status === 'completed') {
       void openTaskFile(task.id);
-    } else if (task.status === 'downloading' || task.status === 'paused' || task.status === 'error') {
+    } else if (
+      isTaskActiveStatus(task.status) ||
+      task.status === 'paused' ||
+      task.status === 'error' ||
+      task.status === 'interrupted'
+    ) {
       openDialog('activeProgress', task);
     } else {
       openDialog('taskProperties', task);
@@ -584,7 +590,7 @@ export const TaskTable: React.FC = () => {
                             >
                               {task.sizeBytes > 0
                                 ? formatBytes(task.sizeBytes)
-                                : task.downloadedBytes > 0 && task.status === 'downloading'
+                                : task.downloadedBytes > 0 && isTaskActiveStatus(task.status)
                                   ? `${formatBytes(task.downloadedBytes)}…`
                                   : '—'}
                             </td>
@@ -592,7 +598,7 @@ export const TaskTable: React.FC = () => {
                         case 'progress':
                           return (
                             <td key={colKey} className="px-2 py-0.5 font-mono text-[11px] text-start" style={{ width }}>
-                              <TaskProgressBar progress={progress} active={task.status === 'downloading'} />
+                              <TaskProgressBar progress={progress} active={isTaskActiveStatus(task.status)} />
                             </td>
                           );
                         case 'speed':
