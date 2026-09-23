@@ -45,7 +45,7 @@ class NovaTransferWorker(
 
         while (!transfer.isCompleted) {
             delay(PROGRESS_UPDATE_INTERVAL_MS)
-            core.task(taskId)?.let { summary ->
+            (core.checkpointProgress(taskId) ?: core.task(taskId))?.let { summary ->
                 setProgress(
                     workDataOf(
                         PROGRESS_DOWNLOADED_BYTES to summary.downloadedBytes,
