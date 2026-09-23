@@ -11,9 +11,11 @@ import com.nova.downloadmanager.core.NovaNativeCore
  * NOVA-owned Android transfer-task core.
  *
  * Every accepted transfer first proves that the packaged NOVA Rust core is
- * present and ABI-compatible. Android DownloadManager remains the bounded
- * transport backend during the staged migration to the shared native transfer
- * engine; it is no longer allowed to silently stand in for a missing Rust core.
+ * present and ABI-compatible, then performs source metadata discovery through
+ * NOVA's Rust/libcurl transport. Android DownloadManager remains the bounded
+ * byte-transfer backend during the staged migration to the shared native
+ * transfer engine; it is no longer allowed to silently stand in for a missing
+ * Rust core or a failed native preflight.
  * NOVA owns the accepted task catalog, safe destination choice, status
  * projection, and restoration after the Compose activity is recreated. Only a
  * system download id and a display name are persisted; URLs, request headers,
@@ -36,6 +38,11 @@ class NovaTransferCore(context: Context) {
         }
         require(!source.host.isNullOrBlank()) { "A download host is required" }
 
+        val nativeProbe = NovaNativeCore.probeHttpResource(source.toString())
+        require(nativeProbe.responseStatus in 200..399) {
+            "NOVA native HTTP preflight rejected source with status ${nativeProbe.responseStatus}"
+        }
+
         val fileName = safeFileName(source)
         val request = DownloadManager.Request(source)
             .setTitle(fileName)
@@ -52,7 +59,7 @@ class NovaTransferCore(context: Context) {
             name = fileName,
             status = DownloadStatus.Queued.wireValue,
             downloadedBytes = 0,
-            totalBytes = 0,
+            totalBytes = nativeProbe.contentLength ?: 0,
         )
     }
 
