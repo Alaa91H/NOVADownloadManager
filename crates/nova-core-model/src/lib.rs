@@ -103,7 +103,11 @@ impl TaskState {
             ),
             Self::Preparing => matches!(
                 next,
-                Self::Probing | Self::Pausing | Self::Paused | Self::Failed
+                Self::Probing
+                    | Self::Downloading
+                    | Self::Pausing
+                    | Self::Paused
+                    | Self::Failed
             ),
             Self::Probing => matches!(
                 next,
@@ -430,6 +434,7 @@ mod tests {
     fn lifecycle_requires_verification_before_completion() {
         assert!(!TaskState::Downloading.can_transition_to(TaskState::Completed));
         assert!(TaskState::Preparing.can_transition_to(TaskState::Probing));
+        assert!(TaskState::Preparing.can_transition_to(TaskState::Downloading));
         assert!(TaskState::Probing.can_transition_to(TaskState::Downloading));
         assert!(TaskState::Downloading.can_transition_to(TaskState::Verifying));
         assert!(TaskState::Verifying.can_transition_to(TaskState::Finalizing));
