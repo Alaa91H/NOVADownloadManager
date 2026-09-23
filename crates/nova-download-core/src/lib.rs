@@ -589,4 +589,95 @@ mod tests {
         ));
         assert!(payload.is_empty());
     }
+
+    #[test]
+    fn file_transfer_resumes_existing_validated_prefix() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind transfer server");
+        let address = listener.local_addr().expect("transfer server address");
+        let server = thread::spawn(move || {
+            let (mut head_stream, _) = listener.accept().expect("accept HEAD connection");
+            let mut head_request = [0_u8; 2048];
+            let read = head_stream.read(&mut head_request).expect("read HEAD request");
+            let head_request = String::from_utf8_lossy(&head_request[..read]);
+            assert!(head_request.starts_with("HEAD /payload.bin HTTP/"));
+            head_stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\n",
+                )
+                .expect("write HEAD response");
+
+            let (mut range_stream, _) = listener.accept().expect("accept range connection");
+            let mut range_request = [0_u8; 2048];
+            let read = range_stream
+                .read(&mut range_request)
+                .expect("read range request");
+            let range_request = String::from_utf8_lossy(&range_request[..read]);
+            assert!(range_request.contains("Range: bytes=4-7"));
+            range_stream
+                .write_all(
+                    b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 4-7/8\r\nContent-Length: 4\r\nConnection: close\r\n\r\nefgh",
+                )
+                .expect("write range response");
+        });
+
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("nova-core-resume-{unique}.part"));
+        std::fs::write(&path, b"abcd").expect("seed partial file");
+
+        let url = format!("http://{address}/payload.bin");
+        let result = download_http_to_path(&url, &path).expect("resume transfer");
+        server.join().expect("transfer server thread");
+
+        assert_eq!(result.resumed_from, 4);
+        assert_eq!(result.final_bytes, 8);
+        assert_eq!(std::fs::read(&path).expect("read result"), b"abcdefgh");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn file_transfer_falls_back_to_full_get_when_length_is_unknown() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind transfer server");
+        let address = listener.local_addr().expect("transfer server address");
+        let server = thread::spawn(move || {
+            let (mut head_stream, _) = listener.accept().expect("accept HEAD connection");
+            let mut head_request = [0_u8; 2048];
+            let read = head_stream.read(&mut head_request).expect("read HEAD request");
+            let head_request = String::from_utf8_lossy(&head_request[..read]);
+            assert!(head_request.starts_with("HEAD /payload.bin HTTP/"));
+            head_stream
+                .write_all(
+                    b"HTTP/1.1 405 Method Not Allowed\r\nConnection: close\r\n\r\n",
+                )
+                .expect("write HEAD rejection");
+
+            let (mut get_stream, _) = listener.accept().expect("accept GET connection");
+            let mut get_request = [0_u8; 2048];
+            let read = get_stream.read(&mut get_request).expect("read GET request");
+            let get_request = String::from_utf8_lossy(&get_request[..read]);
+            assert!(get_request.starts_with("GET /payload.bin HTTP/"));
+            get_stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\nabcdefgh",
+                )
+                .expect("write GET response");
+        });
+
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("nova-core-full-{unique}.part"));
+
+        let url = format!("http://{address}/payload.bin");
+        let result = download_http_to_path(&url, &path).expect("full transfer");
+        server.join().expect("transfer server thread");
+
+        assert_eq!(result.resumed_from, 0);
+        assert_eq!(result.final_bytes, 8);
+        assert_eq!(std::fs::read(&path).expect("read result"), b"abcdefgh");
+        let _ = std::fs::remove_file(path);
+    }
 }
