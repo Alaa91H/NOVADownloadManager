@@ -2862,7 +2862,7 @@ pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, g
     // Filesystem and digest checks passed. Enter Finalizing before touching
     // completion counters or releasing the active slot; only Finalizing may
     // transition to the terminal Completed state.
-    let finalizing_task = {
+    let finalizing_result = {
         let mut jobs = lock_or_err!(state.curl_jobs);
         let Some(job) = jobs.get_mut(id) else {
             return;
@@ -2871,34 +2871,33 @@ pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, g
             log::info!("Task {id}: stale finalization (generation {generation}) ignored");
             return;
         }
-        if let Err(error) =
-            transition_task_state(&mut job.task, TaskState::Finalizing, "finalizing-output")
-        {
+        transition_task_state(&mut job.task, TaskState::Finalizing, "finalizing-output")
+            .map(|()| job.task.clone())
+    };
+    let finalizing_task = match finalizing_result {
+        Ok(task) => task,
+        Err(error) => {
             log::error!("Task {id}: refusing illegal finalization transition: {error}");
+            // Important: call the failure path only after the curl_jobs guard
+            // above has been dropped, otherwise this would self-deadlock.
             mark_curl_task_failed(state, id, error, false, generation);
             return;
         }
-        job.task.clone()
     };
     lock_or_err!(state.task_snapshot).insert(id.to_owned(), finalizing_task);
     state.mark_dirty();
 
-    log::info!(
-        "Task {id}: completion gate passed (final_size={final_size}, generation={generation})"
-    );
-    state.priority_queue.stop_download(id);
-    // download_stats scoped to this block and released before curl_jobs
-    // is acquired below, preventing AB-BA deadlock with persist's
-    // build_snapshot (which acquires curl_jobs → download_stats).
-    {
-        if let Ok(mut stats) = state.download_stats.lock() {
-            stats.total_completed += 1;
-            stats.total_downloaded_bytes += final_size;
-        }
-    }
-    let mut jobs = lock_or_err!(state.curl_jobs);
-    if let Some(job) = jobs.get_mut(id) {
+    // Validate the terminal transition and build its complete snapshot BEFORE
+    // releasing the active slot or incrementing success statistics. If the
+    // lifecycle guard ever rejects Finalizing -> Completed, no terminal side
+    // effects have occurred yet.
+    let completed_task = {
+        let mut jobs = lock_or_err!(state.curl_jobs);
+        let Some(job) = jobs.get_mut(id) else {
+            return;
+        };
         if job.run_generation.load(Ordering::Acquire) != generation {
+            log::info!("Task {id}: stale completion commit (generation {generation}) ignored");
             return;
         }
         if let Err(error) =
@@ -2911,8 +2910,6 @@ pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, g
         // A Content-Encoding transfer (gzip/br/deflate) decompresses the body
         // before writing it, so the real on-disk size may differ from the
         // probed Content-Length (which describes the compressed wire size).
-        // Reconcile size_bytes to the ACTUAL file size so the completed task
-        // never reports downloaded_bytes > size_bytes (progress > 100%).
         if job.task.size_bytes != final_size {
             job.task.size_bytes = final_size;
         }
@@ -2921,15 +2918,25 @@ pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, g
         job.task.error_message = None;
         job.task.segments =
             build_segments(job.task.connections, job.task.size_bytes, final_size, 0);
-        let task = job.task.clone();
-        drop(jobs);
-        lock_or_err!(state.task_snapshot).insert(id.to_owned(), task);
-        state.mark_dirty();
-        // Completion is a durable state transition, not just UI state. Flush
-        // it immediately so a process crash right after completion cannot
-        // resurrect the task as an interrupted/paused download on next start.
-        crate::daemon::persist::save_now(state.as_ref());
+        job.task.clone()
+    };
+
+    log::info!(
+        "Task {id}: completion gate passed (final_size={final_size}, generation={generation})"
+    );
+    state.priority_queue.stop_download(id);
+    {
+        if let Ok(mut stats) = state.download_stats.lock() {
+            stats.total_completed += 1;
+            stats.total_downloaded_bytes += final_size;
+        }
     }
+    lock_or_err!(state.task_snapshot).insert(id.to_owned(), completed_task);
+    state.mark_dirty();
+    // Completion is a durable state transition, not just UI state. Flush it
+    // immediately so a process crash right after completion cannot resurrect
+    // the task as interrupted/paused on next start.
+    crate::daemon::persist::save_now(state.as_ref());
 }
 
 pub fn mark_curl_task_failed(
