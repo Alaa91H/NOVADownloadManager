@@ -56,6 +56,8 @@ import kotlinx.coroutines.isActive
 @Composable
 fun NOVAApp(
     incomingSharedUrl: String?,
+    incomingResumeTaskId: String? = null,
+    onResumeTaskConsumed: () -> Unit = {},
     viewModel: DownloadsViewModel = viewModel(),
 ) {
     val context = LocalContext.current
@@ -81,6 +83,13 @@ fun NOVAApp(
     }
     LaunchedEffect(incomingSharedUrl) {
         incomingSharedUrl?.let(viewModel::receiveSharedUrl)
+    }
+    LaunchedEffect(incomingResumeTaskId, uiState.readiness) {
+        if (incomingResumeTaskId != null && uiState.readiness == CoreReadiness.Ready) {
+            viewModel.resumeTask(incomingResumeTaskId)
+            selectedDestinationName = AppDestination.Downloads.name
+            onResumeTaskConsumed()
+        }
     }
     LaunchedEffect(uiState.readiness, uiState.tasks) {
         if (
