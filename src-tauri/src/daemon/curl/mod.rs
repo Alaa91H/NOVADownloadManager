@@ -228,7 +228,7 @@ impl ResponseCapture {
                 .and_then(|range| range.total)
                 .or(self.content_length),
             digest_sha256: self
-                .digest_sha256
+                .representation_digest_sha256
                 .as_deref()
                 .and_then(normalize_sha256_fingerprint),
         }
