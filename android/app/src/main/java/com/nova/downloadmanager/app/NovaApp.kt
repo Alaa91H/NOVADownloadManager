@@ -66,8 +66,8 @@ fun NOVAApp(
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) {
-        // DownloadManager remains functional if the user declines; Android owns
-        // visibility rules, and the task stays observable in NOVA's own list.
+        // The native transfer can continue if notification permission is
+        // declined; Android still applies its foreground-service visibility rules.
         pendingPermissionDownloadUrl?.let { url -> viewModel.requestDownload(url) }
         pendingPermissionDownloadUrl = null
     }
