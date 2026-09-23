@@ -265,7 +265,11 @@ impl RecoveryCheckpoint {
                 } else {
                     segment.total_bytes
                 };
-                let total_bytes = range_len.max(segment.total_bytes);
+                let total_bytes = if segment.total_bytes > 0 {
+                    segment.total_bytes
+                } else {
+                    range_len
+                };
                 RecoverySegment {
                     id: segment.id,
                     start_byte: segment.start_byte,
@@ -324,7 +328,11 @@ impl RecoveryCheckpoint {
                     } else {
                         0
                     };
-                    let total = segment.total_bytes.max(range_total);
+                    let total = if segment.total_bytes > 0 {
+                        segment.total_bytes
+                    } else {
+                        range_total
+                    };
                     let downloaded = segment.downloaded_bytes.min(total);
                     Segment {
                         id: segment.id,
