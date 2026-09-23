@@ -5,9 +5,10 @@
 
 use curl::easy::Easy;
 use std::cell::{Cell, RefCell};
-use std::fs::OpenOptions;
-use std::io::Write;
-use std::path::Path;
+use std::fs::{File, OpenOptions};
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+use std::thread;
 use std::time::Duration;
 
 pub use nova_core_model::{ByteRange, ResumeAction, MAX_PARALLEL_SEGMENTS};
@@ -206,6 +207,24 @@ pub fn stream_http_range_controlled<W: Write, F: FnMut() -> TransferControl>(
     start: u64,
     end: u64,
     sink: &mut W,
+    control: F,
+) -> Result<HttpRangeProbe, TransportError> {
+    stream_http_range_controlled_with_timeout(
+        url,
+        start,
+        end,
+        sink,
+        Some(Duration::from_secs(30)),
+        control,
+    )
+}
+
+fn stream_http_range_controlled_with_timeout<W: Write, F: FnMut() -> TransferControl>(
+    url: &str,
+    start: u64,
+    end: u64,
+    sink: &mut W,
+    total_timeout: Option<Duration>,
     mut control: F,
 ) -> Result<HttpRangeProbe, TransportError> {
     ensure_http_url(url)?;
@@ -223,7 +242,9 @@ pub fn stream_http_range_controlled<W: Write, F: FnMut() -> TransferControl>(
     easy.max_redirections(10).map_err(transport_error)?;
     easy.connect_timeout(Duration::from_secs(15))
         .map_err(transport_error)?;
-    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
+    if let Some(timeout) = total_timeout {
+        easy.timeout(timeout).map_err(transport_error)?;
+    }
     easy.accept_encoding("identity").map_err(transport_error)?;
     easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
         .map_err(transport_error)?;
@@ -384,7 +405,6 @@ fn stream_http_full_controlled<W: Write, F: FnMut() -> TransferControl>(
     easy.max_redirections(10).map_err(transport_error)?;
     easy.connect_timeout(Duration::from_secs(15))
         .map_err(transport_error)?;
-    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
     easy.accept_encoding("identity").map_err(transport_error)?;
     easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
         .map_err(transport_error)?;
@@ -550,11 +570,12 @@ pub fn download_http_to_path_controlled<F: FnMut() -> TransferControl>(
                     message: format!("failed to open download staging file: {error}"),
                 })?;
 
-            match stream_http_range_controlled(
+            match stream_http_range_controlled_with_timeout(
                 &probe.effective_url,
                 existing_bytes,
                 total_bytes - 1,
                 &mut file,
+                None,
                 &mut control,
             ) {
                 Ok(range) => {
@@ -603,6 +624,397 @@ pub fn download_http_to_path_controlled<F: FnMut() -> TransferControl>(
         total_bytes: usable_length.or(Some(final_bytes)),
         resumed_from: 0,
         effective_url,
+    })
+}
+
+
+const SEGMENT_DIRECTORY_SUFFIX: &str = ".nova-segments";
+const SEGMENT_MANIFEST_NAME: &str = "manifest";
+const SEGMENT_FILE_PREFIX: &str = "segment-";
+const SEGMENT_FILE_SUFFIX: &str = ".part";
+const SEGMENT_RETRY_ATTEMPTS: usize = 3;
+const SEGMENT_RETRY_BASE_MS: u64 = 250;
+
+fn segment_directory(destination: &Path) -> PathBuf {
+    let mut value = destination.as_os_str().to_os_string();
+    value.push(SEGMENT_DIRECTORY_SUFFIX);
+    PathBuf::from(value)
+}
+
+fn segment_path(directory: &Path, index: usize) -> PathBuf {
+    directory.join(format!(
+        "{SEGMENT_FILE_PREFIX}{index:03}{SEGMENT_FILE_SUFFIX}"
+    ))
+}
+
+fn segment_manifest(total_bytes: u64, segment_count: usize) -> String {
+    format!("nova.segment.v1\ntotal={total_bytes}\nsegments={segment_count}\n")
+}
+
+fn prepare_segment_directory(
+    destination: &Path,
+    total_bytes: u64,
+    segment_count: usize,
+) -> Result<PathBuf, TransportError> {
+    let directory = segment_directory(destination);
+    let expected_manifest = segment_manifest(total_bytes, segment_count);
+    let manifest_path = directory.join(SEGMENT_MANIFEST_NAME);
+
+    let reusable = std::fs::read_to_string(&manifest_path)
+        .ok()
+        .is_some_and(|value| value == expected_manifest);
+    if directory.exists() && !reusable {
+        std::fs::remove_dir_all(&directory).map_err(|error| TransportError::RequestFailed {
+            message: format!("failed to reset stale segment state: {error}"),
+        })?;
+    }
+
+    std::fs::create_dir_all(&directory).map_err(|error| TransportError::RequestFailed {
+        message: format!("failed to create segment staging directory: {error}"),
+    })?;
+    if !reusable {
+        std::fs::write(&manifest_path, expected_manifest).map_err(|error| {
+            TransportError::RequestFailed {
+                message: format!("failed to persist segment manifest: {error}"),
+            }
+        })?;
+    }
+    Ok(directory)
+}
+
+/// Return the number of durable bytes available for a staging destination.
+///
+/// Segmented transfers store each range separately until every range validates,
+/// so progress is the sum of segment files rather than the not-yet-merged
+/// destination length. Single-stream transfers continue to report the staging
+/// file length.
+pub fn staged_downloaded_bytes(destination: &Path) -> Result<u64, TransportError> {
+    let directory = segment_directory(destination);
+    if directory.is_dir() {
+        let mut total = 0_u64;
+        let entries = std::fs::read_dir(&directory).map_err(|error| {
+            TransportError::RequestFailed {
+                message: format!("failed to inspect segment staging directory: {error}"),
+            }
+        })?;
+        for entry in entries {
+            let entry = entry.map_err(|error| TransportError::RequestFailed {
+                message: format!("failed to inspect segment staging entry: {error}"),
+            })?;
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if !name.starts_with(SEGMENT_FILE_PREFIX) || !name.ends_with(SEGMENT_FILE_SUFFIX) {
+                continue;
+            }
+            let len = entry
+                .metadata()
+                .map_err(|error| TransportError::RequestFailed {
+                    message: format!("failed to inspect segment staging file: {error}"),
+                })?
+                .len();
+            total = total.checked_add(len).ok_or_else(|| TransportError::RequestFailed {
+                message: "segment progress byte counter overflow".to_owned(),
+            })?;
+        }
+        return Ok(total);
+    }
+
+    match std::fs::metadata(destination) {
+        Ok(metadata) => Ok(metadata.len()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(0),
+        Err(error) => Err(TransportError::RequestFailed {
+            message: format!("failed to inspect download staging file: {error}"),
+        }),
+    }
+}
+
+/// Remove only NOVA's deterministic segment sidecars for a destination.
+pub fn cleanup_segment_state(destination: &Path) -> Result<(), TransportError> {
+    let directory = segment_directory(destination);
+    match std::fs::remove_dir_all(directory) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(TransportError::RequestFailed {
+            message: format!("failed to remove segment staging state: {error}"),
+        }),
+    }
+}
+
+fn reset_segment_file(path: &Path) -> Result<(), TransportError> {
+    OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(path)
+        .map(drop)
+        .map_err(|error| TransportError::RequestFailed {
+            message: format!("failed to reset segment file: {error}"),
+        })
+}
+
+fn segment_existing_bytes(path: &Path, expected_bytes: u64) -> Result<u64, TransportError> {
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.len() <= expected_bytes => Ok(metadata.len()),
+        Ok(_) => {
+            reset_segment_file(path)?;
+            Ok(0)
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(0),
+        Err(error) => Err(TransportError::RequestFailed {
+            message: format!("failed to inspect segment file: {error}"),
+        }),
+    }
+}
+
+fn download_segment_with_retries<F: FnMut() -> TransferControl>(
+    url: &str,
+    range: ByteRange,
+    path: &Path,
+    mut control: F,
+) -> Result<(), TransportError> {
+    for attempt in 0..SEGMENT_RETRY_ATTEMPTS {
+        match control() {
+            TransferControl::Pause => return Err(TransportError::Paused),
+            TransferControl::Cancel => return Err(TransportError::Cancelled),
+            TransferControl::Continue => {}
+        }
+
+        let existing = segment_existing_bytes(path, range.len())?;
+        if existing == range.len() {
+            return Ok(());
+        }
+
+        let start = range.start.checked_add(existing).ok_or_else(|| {
+            TransportError::RequestFailed {
+                message: "segment resume offset overflow".to_owned(),
+            }
+        })?;
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(existing > 0)
+            .write(true)
+            .truncate(existing == 0)
+            .open(path)
+            .map_err(|error| TransportError::RequestFailed {
+                message: format!("failed to open segment file: {error}"),
+            })?;
+
+        match stream_http_range_controlled_with_timeout(
+            url,
+            start,
+            range.end,
+            &mut file,
+            None,
+            &mut control,
+        ) {
+            Ok(_) => {
+                file.flush().map_err(|error| TransportError::RequestFailed {
+                    message: format!("failed to flush segment file: {error}"),
+                })?;
+                if segment_existing_bytes(path, range.len())? == range.len() {
+                    return Ok(());
+                }
+            }
+            Err(TransportError::Paused) => return Err(TransportError::Paused),
+            Err(TransportError::Cancelled) => return Err(TransportError::Cancelled),
+            Err(error @ TransportError::RangeResponseRejected { .. }) => return Err(error),
+            Err(error) => {
+                if attempt + 1 == SEGMENT_RETRY_ATTEMPTS {
+                    return Err(error);
+                }
+                thread::sleep(Duration::from_millis(
+                    SEGMENT_RETRY_BASE_MS.saturating_mul(1_u64 << attempt.min(4)),
+                ));
+            }
+        }
+    }
+
+    Err(TransportError::RequestFailed {
+        message: format!(
+            "segment {}-{} ended before all bytes were persisted",
+            range.start, range.end
+        ),
+    })
+}
+
+fn merge_segments(
+    destination: &Path,
+    directory: &Path,
+    ranges: &[ByteRange],
+) -> Result<(), TransportError> {
+    let merged = directory.join("merged.tmp");
+    let mut output = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&merged)
+        .map_err(|error| TransportError::RequestFailed {
+            message: format!("failed to create merged staging file: {error}"),
+        })?;
+
+    for (index, range) in ranges.iter().enumerate() {
+        let path = segment_path(directory, index);
+        let length = std::fs::metadata(&path)
+            .map_err(|error| TransportError::RequestFailed {
+                message: format!("failed to inspect completed segment {index}: {error}"),
+            })?
+            .len();
+        if length != range.len() {
+            return Err(TransportError::RequestFailed {
+                message: format!(
+                    "completed segment {index} has {length} bytes, expected {}",
+                    range.len()
+                ),
+            });
+        }
+
+        let mut input = File::open(&path).map_err(|error| TransportError::RequestFailed {
+            message: format!("failed to open completed segment {index}: {error}"),
+        })?;
+        io::copy(&mut input, &mut output).map_err(|error| TransportError::RequestFailed {
+            message: format!("failed to merge segment {index}: {error}"),
+        })?;
+    }
+
+    output.flush().map_err(|error| TransportError::RequestFailed {
+        message: format!("failed to flush merged staging file: {error}"),
+    })?;
+    output.sync_all().map_err(|error| TransportError::RequestFailed {
+        message: format!("failed to sync merged staging file: {error}"),
+    })?;
+    drop(output);
+
+    if destination.exists() {
+        std::fs::remove_file(destination).map_err(|error| TransportError::RequestFailed {
+            message: format!("failed to replace previous staging file: {error}"),
+        })?;
+    }
+    std::fs::rename(&merged, destination).map_err(|error| TransportError::RequestFailed {
+        message: format!("failed to publish merged staging file: {error}"),
+    })?;
+    cleanup_segment_state(destination)?;
+    Ok(())
+}
+
+/// Download a known-length HTTP resource using parallel validated ranges.
+///
+/// Range files are durable. If Android pauses, the process dies, or a transient
+/// request fails, a later invocation recomputes the same geometry and resumes
+/// each segment from its own persisted length. Servers that do not honor ranges
+/// fall back safely to the existing single-stream resumable path.
+pub fn download_http_to_path_segmented_controlled<F>(
+    url: &str,
+    destination: &Path,
+    requested_connections: u32,
+    max_segments: u32,
+    control: F,
+) -> Result<HttpFileTransfer, TransportError>
+where
+    F: Fn() -> TransferControl + Sync,
+{
+    if let Some(parent) = destination.parent().filter(|path| !path.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent).map_err(|error| TransportError::RequestFailed {
+            message: format!("failed to create download staging directory: {error}"),
+        })?;
+    }
+
+    let probe = probe_http_resource(url)?;
+    let total_bytes = if (200..300).contains(&probe.response_status) {
+        probe.content_length
+    } else {
+        None
+    };
+
+    let Some(total_bytes) = total_bytes.filter(|value| *value > 0) else {
+        cleanup_segment_state(destination)?;
+        return download_http_to_path_controlled(url, destination, || control());
+    };
+
+    let existing_destination = match std::fs::metadata(destination) {
+        Ok(metadata) => metadata.len(),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
+        Err(error) => {
+            return Err(TransportError::RequestFailed {
+                message: format!("failed to inspect download staging file: {error}"),
+            })
+        }
+    };
+    if existing_destination > 0 {
+        // Preserve compatibility with staging files created by the previous
+        // single-stream engine. They remain safely resumable as one range.
+        cleanup_segment_state(destination)?;
+        return download_http_to_path_controlled(url, destination, || control());
+    }
+
+    if probe_http_range(&probe.effective_url, 0, 0).is_err() {
+        cleanup_segment_state(destination)?;
+        return download_http_to_path_controlled(url, destination, || control());
+    }
+
+    let ranges = plan_transfer_ranges_with_limit(
+        total_bytes,
+        requested_connections,
+        max_segments,
+    );
+    if ranges.len() <= 1 {
+        cleanup_segment_state(destination)?;
+        return download_http_to_path_controlled(url, destination, || control());
+    }
+
+    let directory = prepare_segment_directory(destination, total_bytes, ranges.len())?;
+    let resumed_from = staged_downloaded_bytes(destination)?.min(total_bytes);
+
+    let results = thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(ranges.len());
+        for (index, range) in ranges.iter().copied().enumerate() {
+            let path = segment_path(&directory, index);
+            let effective_url = &probe.effective_url;
+            let control = &control;
+            handles.push(scope.spawn(move || {
+                download_segment_with_retries(effective_url, range, &path, || control())
+            }));
+        }
+
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle.join().unwrap_or_else(|_| {
+                    Err(TransportError::RequestFailed {
+                        message: "native segment worker panicked".to_owned(),
+                    })
+                })
+            })
+            .collect::<Vec<_>>()
+    });
+
+    let mut range_rejected = false;
+    for result in results {
+        match result {
+            Ok(()) => {}
+            Err(TransportError::Paused) => return Err(TransportError::Paused),
+            Err(TransportError::Cancelled) => {
+                cleanup_segment_state(destination)?;
+                return Err(TransportError::Cancelled);
+            }
+            Err(TransportError::RangeResponseRejected { .. }) => {
+                range_rejected = true;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    if range_rejected {
+        cleanup_segment_state(destination)?;
+        return download_http_to_path_controlled(url, destination, || control());
+    }
+
+    merge_segments(destination, &directory, &ranges)?;
+    Ok(HttpFileTransfer {
+        response_status: 206,
+        final_bytes: total_bytes,
+        total_bytes: Some(total_bytes),
+        resumed_from,
+        effective_url: probe.effective_url,
     })
 }
 
