@@ -219,6 +219,7 @@ class NovaTransferCore(context: Context) {
                 }
             }
             updateRecord(current)
+            NovaNativeCore.forgetTransferProgress(current.id)
         } catch (_: Throwable) {
             val progress = runCatching {
                 NovaNativeCore.transferProgress(current.id)
@@ -235,6 +236,7 @@ class NovaTransferCore(context: Context) {
                 ),
             )
             updateRecord(current)
+            runCatching { NovaNativeCore.forgetTransferProgress(current.id) }
         }
     }
 
