@@ -4845,6 +4845,70 @@ mod tests {
     }
 
     #[test]
+    fn segmented_resume_discards_anonymous_part_files_before_dispatch() {
+        let payload: Vec<u8> = (0..(4 * 1024 * 1024))
+            .map(|index| ((index * 13 + 5) % 251) as u8)
+            .collect();
+        let addr = spawn_range_server(std::sync::Arc::new(payload.clone()));
+        let url = format!("http://{addr}/anonymous-parts.bin");
+        let dir = std::env::temp_dir().join(format!(
+            "nova_anonymous_parts_{}_{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("anonymous-parts.bin");
+
+        let stale_ranges = split_ranges(payload.len() as u64, 4, &out);
+        assert!(!stale_ranges.is_empty());
+        let stale_len = (stale_ranges[0].len() / 2).max(1) as usize;
+        std::fs::write(&stale_ranges[0].path, vec![0xEEu8; stale_len]).unwrap();
+        assert!(FileWriter::has_stale_parts_for(&out));
+
+        let state = std::sync::Arc::new(crate::daemon::persist::tests::test_state(
+            &dir.to_string_lossy(),
+        ));
+        let id = "anonymous-segment-resume";
+        let body = download_body(&url, "anonymous-parts.bin", payload.len() as u64, 4);
+        let direct_options = std::collections::HashMap::from([
+            (
+                "preflightResolved".to_owned(),
+                serde_json::Value::Bool(true),
+            ),
+            (
+                "preflightSupportsRange".to_owned(),
+                serde_json::Value::Bool(true),
+            ),
+        ]);
+        let mut job = task_from_body(
+            &body,
+            id,
+            "anonymous-parts.bin".to_owned(),
+            &out,
+            direct_options,
+            Vec::new(),
+        );
+        if let Some(first) = job.task.segments.first_mut() {
+            first.downloaded_bytes = stale_len as u64;
+        }
+        state.curl_jobs.lock().unwrap().insert(id.to_owned(), job);
+        state.mark_dirty();
+
+        let transfer_state = state.clone();
+        std::thread::spawn(move || start_curl_process(&transfer_state, id));
+
+        let task = run_task_to_completion(&state, id, std::time::Duration::from_secs(45));
+        assert_eq!(task.status, "completed");
+        assert_eq!(std::fs::read(&out).unwrap(), payload);
+        assert!(
+            !FileWriter::has_stale_parts_for(&out),
+            "anonymous checkpoint files must not survive successful recovery"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn failed_primary_fails_over_to_link_mirror_and_preserves_content() {
         use std::io::{Read, Write};
         use std::net::{Shutdown, TcpListener};
