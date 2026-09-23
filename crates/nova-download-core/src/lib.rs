@@ -5,7 +5,9 @@
 
 use curl::easy::Easy;
 use std::cell::{Cell, RefCell};
+use std::fs::OpenOptions;
 use std::io::Write;
+use std::path::Path;
 use std::time::Duration;
 
 pub use nova_core_model::{ByteRange, ResumeAction, MAX_PARALLEL_SEGMENTS};
@@ -302,6 +304,223 @@ pub fn probe_http_range(
 ) -> Result<HttpRangeProbe, TransportError> {
     let mut sink = std::io::sink();
     stream_http_range(url, start, end, &mut sink)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HttpFileTransfer {
+    pub response_status: u16,
+    pub final_bytes: u64,
+    pub total_bytes: Option<u64>,
+    pub resumed_from: u64,
+    pub effective_url: String,
+}
+
+fn stream_http_full<W: Write>(
+    url: &str,
+    sink: &mut W,
+) -> Result<(u16, u64, String), TransportError> {
+    let mut easy = Easy::new();
+    easy.url(url).map_err(transport_error)?;
+    easy.follow_location(true).map_err(transport_error)?;
+    easy.max_redirections(10).map_err(transport_error)?;
+    easy.connect_timeout(Duration::from_secs(15))
+        .map_err(transport_error)?;
+    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
+    easy.accept_encoding("identity").map_err(transport_error)?;
+    easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
+        .map_err(transport_error)?;
+
+    let header_status = Cell::new(None::<u16>);
+    let headers_validated = Cell::new(false);
+    let bytes_received = Cell::new(0_u64);
+    let sink_error = RefCell::new(None::<String>);
+
+    let perform_result = {
+        let mut transfer = easy.transfer();
+        transfer
+            .header_function(|header| {
+                if let Some(status) = parse_http_status(header) {
+                    header_status.set(Some(status));
+                    headers_validated.set(false);
+                } else if header == b"\r\n" || header == b"\n" {
+                    headers_validated.set(
+                        header_status
+                            .get()
+                            .is_some_and(|status| (200..300).contains(&status)),
+                    );
+                }
+                true
+            })
+            .map_err(transport_error)?;
+        transfer
+            .write_function(|data| {
+                if !headers_validated.get() {
+                    return Ok(0);
+                }
+                if let Err(error) = sink.write_all(data) {
+                    sink_error.replace(Some(format!(
+                        "failed to persist native response body: {error}"
+                    )));
+                    return Ok(0);
+                }
+                let Some(next_total) = bytes_received.get().checked_add(data.len() as u64) else {
+                    sink_error.replace(Some("native response byte counter overflow".to_owned()));
+                    return Ok(0);
+                };
+                bytes_received.set(next_total);
+                Ok(data.len())
+            })
+            .map_err(transport_error)?;
+        transfer.perform()
+    };
+
+    if !headers_validated.get() {
+        return Err(TransportError::RequestFailed {
+            message: format!(
+                "native HTTP transfer expected a successful 2xx response, got {:?}",
+                header_status.get()
+            ),
+        });
+    }
+    if let Some(message) = sink_error.into_inner() {
+        return Err(TransportError::RequestFailed { message });
+    }
+    perform_result.map_err(transport_error)?;
+
+    let status = easy.response_code().map_err(transport_error)?;
+    let response_status =
+        u16::try_from(status).map_err(|_| TransportError::InvalidStatus { status })?;
+    let effective_url = easy
+        .effective_url()
+        .map_err(transport_error)?
+        .unwrap_or(url)
+        .to_owned();
+
+    Ok((response_status, bytes_received.get(), effective_url))
+}
+
+/// Download a direct HTTP(S) resource to a host-provided path.
+///
+/// When the remote representation length is known, an existing partial file is
+/// resumed through a validated HTTP range request. If the origin ignores range
+/// requests, NOVA safely truncates and falls back to a full transfer instead of
+/// appending incompatible bytes. Other transport failures preserve partial data
+/// so a later session can attempt a validated resume.
+pub fn download_http_to_path(
+    url: &str,
+    destination: &Path,
+) -> Result<HttpFileTransfer, TransportError> {
+    if let Some(parent) = destination.parent().filter(|path| !path.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent).map_err(|error| TransportError::RequestFailed {
+            message: format!("failed to create download staging directory: {error}"),
+        })?;
+    }
+
+    let probe = probe_http_resource(url)?;
+    let usable_length = if (200..300).contains(&probe.response_status) {
+        probe.content_length
+    } else {
+        None
+    };
+
+    let mut existing_bytes = match std::fs::metadata(destination) {
+        Ok(metadata) => metadata.len(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(error) => {
+            return Err(TransportError::RequestFailed {
+                message: format!("failed to inspect download staging file: {error}"),
+            });
+        }
+    };
+
+    if let Some(total_bytes) = usable_length {
+        if existing_bytes > total_bytes {
+            let file = OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(destination)
+                .map_err(|error| TransportError::RequestFailed {
+                    message: format!("failed to reset oversized staging file: {error}"),
+                })?;
+            drop(file);
+            existing_bytes = 0;
+        }
+
+        if existing_bytes == total_bytes {
+            return Ok(HttpFileTransfer {
+                response_status: probe.response_status,
+                final_bytes: total_bytes,
+                total_bytes: Some(total_bytes),
+                resumed_from: existing_bytes,
+                effective_url: probe.effective_url,
+            });
+        }
+
+        if total_bytes > 0 {
+            let mut file = OpenOptions::new()
+                .create(true)
+                .append(existing_bytes > 0)
+                .write(true)
+                .truncate(existing_bytes == 0)
+                .open(destination)
+                .map_err(|error| TransportError::RequestFailed {
+                    message: format!("failed to open download staging file: {error}"),
+                })?;
+
+            match stream_http_range(
+                &probe.effective_url,
+                existing_bytes,
+                total_bytes - 1,
+                &mut file,
+            ) {
+                Ok(range) => {
+                    file.flush().map_err(|error| TransportError::RequestFailed {
+                        message: format!("failed to flush download staging file: {error}"),
+                    })?;
+                    let final_bytes = existing_bytes
+                        .checked_add(range.bytes_received)
+                        .ok_or_else(|| TransportError::RequestFailed {
+                            message: "download byte counter overflow".to_owned(),
+                        })?;
+                    return Ok(HttpFileTransfer {
+                        response_status: range.response_status,
+                        final_bytes,
+                        total_bytes: Some(total_bytes),
+                        resumed_from: existing_bytes,
+                        effective_url: range.effective_url,
+                    });
+                }
+                Err(TransportError::RangeResponseRejected { .. }) => {
+                    // The origin does not honor byte ranges. Restart safely from
+                    // zero rather than mixing a full response with partial data.
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    let mut file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(destination)
+        .map_err(|error| TransportError::RequestFailed {
+            message: format!("failed to open download staging file: {error}"),
+        })?;
+    let (response_status, final_bytes, effective_url) =
+        stream_http_full(&probe.effective_url, &mut file)?;
+    file.flush().map_err(|error| TransportError::RequestFailed {
+        message: format!("failed to flush download staging file: {error}"),
+    })?;
+
+    Ok(HttpFileTransfer {
+        response_status,
+        final_bytes,
+        total_bytes: usable_length.or(Some(final_bytes)),
+        resumed_from: 0,
+        effective_url,
+    })
 }
 
 #[cfg(test)]
