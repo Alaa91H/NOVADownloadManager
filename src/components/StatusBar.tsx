@@ -30,6 +30,7 @@ import {
 import { novaClient, type BrowserExtensionHealth } from '../api/novaClient';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { taskProgressInfo } from '../utils/progressUtils';
+import { isTaskActiveStatus, isTaskReceivingBytes } from '../utils/taskStatus';
 import { TaskProgressBar } from './primitives/TaskProgressBar';
 
 import { extractErrorMessage } from '../utils/formatUtils';
@@ -135,13 +136,14 @@ export const StatusBar: React.FC = () => {
 
   // 1. Calculate active download counts, total counts, downloaded size and speed
   const { activeCount, totalCount, totalSpeed, totalDownloaded, totalSize } = useMemo(() => {
-    const downloading = tasks.filter((t) => t.status === 'downloading');
+    const active = tasks.filter((task) => isTaskActiveStatus(task.status));
+    const receiving = tasks.filter((task) => isTaskReceivingBytes(task.status));
     return {
-      activeCount: downloading.length,
+      activeCount: active.length,
       totalCount: tasks.length,
-      totalSpeed: downloading.reduce((acc, t) => acc + t.speedBytesPerSec, 0),
-      totalDownloaded: tasks.reduce((acc, t) => acc + t.downloadedBytes, 0),
-      totalSize: tasks.reduce((acc, t) => acc + t.sizeBytes, 0),
+      totalSpeed: receiving.reduce((acc, task) => acc + task.speedBytesPerSec, 0),
+      totalDownloaded: tasks.reduce((acc, task) => acc + task.downloadedBytes, 0),
+      totalSize: tasks.reduce((acc, task) => acc + task.sizeBytes, 0),
     };
   }, [tasks]);
 
@@ -324,7 +326,7 @@ export const StatusBar: React.FC = () => {
             <span className="flex items-center gap-2 min-w-0">
               <span
                 className={`w-1.5 h-1.5 bg-[var(--success)] rounded-full shrink-0 ${
-                  minimizedRealTask.status === 'downloading' ? 'animate-pulse' : ''
+                  isTaskActiveStatus(minimizedRealTask.status) ? 'animate-pulse' : ''
                 }`}
               />
               <span className="truncate">{minimizedRealTask.name}</span>
@@ -332,7 +334,7 @@ export const StatusBar: React.FC = () => {
             </span>
             <TaskProgressBar
               progress={minimizedProgress}
-              active={minimizedRealTask.status === 'downloading'}
+              active={isTaskActiveStatus(minimizedRealTask.status)}
               trackClass="h-1"
               showLabel={false}
               ariaLabel={minimizedRealTask.name}
