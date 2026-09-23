@@ -634,19 +634,27 @@ pub fn apply_easy_options<H: Handler>(
     let mut conditional_headers: Vec<String> = Vec::new();
     let force_identity_encoding =
         requires_identity_encoding(plan.resumable, &plan.output_path, range)?;
+    let mut range_active = false;
 
     if let Some((start, end)) = range {
         easy.range(&format!("{start}-{end}"))
             .map_err(|e| format!("Could not configure range: {e}"))?;
+        range_active = true;
     } else if plan.resumable {
         let existing = FileWriter::current_size(&plan.output_path)?;
         if existing > 0 {
             easy.resume_from(existing)
                 .map_err(|e| format!("Could not configure resume: {e}"))?;
+            range_active = true;
         }
     }
-    if let Some(val) = if_range_header(plan) {
-        conditional_headers.push(val);
+    // If-Range has meaning only together with a Range request. Sending a stale
+    // validator on a fresh full GET is unnecessary and can trigger odd server
+    // behavior after a checkpoint was deliberately discarded.
+    if range_active {
+        if let Some(val) = if_range_header(plan) {
+            conditional_headers.push(val);
+        }
     }
 
     if let Some(proxy) = plan.config.str_("proxy") {
