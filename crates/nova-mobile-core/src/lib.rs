@@ -49,14 +49,6 @@ fn validated_app_private_destination(
     Ok(destination)
 }
 
-pub fn probe_content_length(url: &str) -> Result<Option<u64>, MobileTransferError> {
-    nova_download_core::probe_http_resource(url)
-        .map(|probe| probe.content_length)
-        .map_err(|error| MobileTransferError::TransferFailed {
-            message: error.to_string(),
-        })
-}
-
 pub fn download_to_app_private_path(
     url: &str,
     app_private_root: &Path,
