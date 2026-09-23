@@ -1053,14 +1053,16 @@ fn run_single_libcurl(
         ResponseCapture::default()
     }));
     let downloaded_counter = Arc::new(AtomicU64::new(0));
+    let range_rejected = Arc::new(AtomicBool::new(false));
+    let encoding_rejected = Arc::new(AtomicBool::new(false));
     let progress = SegmentProgress {
         downloaded: downloaded_counter.clone(),
         abort: cancel.clone(),
         retry_after: retry_after.clone(),
         capture: capture.clone(),
         streaming_digest_out: streaming_digest_out.clone(),
-        range_rejected: Arc::new(AtomicBool::new(false)),
-        encoding_rejected: Arc::new(AtomicBool::new(false)),
+        range_rejected: range_rejected.clone(),
+        encoding_rejected: encoding_rejected.clone(),
         expects_206: resume_existing > 0,
     };
     let task_limit = state.bandwidth_manager.allowed_speed_for_task(id);
@@ -1218,14 +1220,40 @@ fn run_single_libcurl(
     // Use libcurl's wait/perform driver for every configured event-loop mode.
     // It is the verified path for real transfers and invokes bounded progress
     // ticks while the request is active.
-    drive_multi_wait_perform(
+    let drive_result = drive_multi_wait_perform(
         guard.multi()?,
         &handles,
         &cancel,
         "transfer",
         &mut tick,
         state.bandwidth_manager.paused_flag(),
-    )?;
+    );
+
+    if range_rejected.load(Ordering::Acquire) && resume_existing > 0 {
+        let observed = capture
+            .lock()
+            .ok()
+            .map(|cap| cap.observed_fingerprint())
+            .unwrap_or_default();
+        log::warn!(
+            "Task {id}: strict resume validation rejected the response; restarting from byte zero (expected={:?}, observed={observed:?})",
+            plan.remote_fingerprint()
+        );
+        let _ = std::fs::remove_file(&plan.output_path);
+        let mut fresh_plan = plan.clone();
+        adopt_remote_fingerprint(state, id, &mut fresh_plan, &observed);
+        fresh_plan.segmented = false;
+        return run_single_libcurl(
+            state,
+            id,
+            &fresh_plan,
+            cancel,
+            retry_after,
+            streaming_digest_out,
+        );
+    }
+    drive_result?;
+
     let response = handles[0]
         .response_code()
         .map_err(|e| format!("Could not read HTTP response code: {e}"))?;
@@ -1910,7 +1938,7 @@ fn run_segmented_libcurl(
     // Phase 5 outer drive loop: drive until completion, rebuilding the easy
     // handles whenever the adaptive engine changes the segment geometry.
     'drive: loop {
-        let rebuild_requested = drive_multi_wait_perform_until(
+        let drive_result = drive_multi_wait_perform_until(
             guard.multi()?,
             &handles_cell.borrow(),
             &cancel,
@@ -1918,7 +1946,13 @@ fn run_segmented_libcurl(
             &mut tick,
             state.bandwidth_manager.paused_flag(),
             || pending_rebuild.get(),
-        )?;
+        );
+        if range_rejected.load(Ordering::Acquire)
+            || encoding_rejected.load(Ordering::Acquire)
+        {
+            break 'drive;
+        }
+        let rebuild_requested = drive_result?;
         // The driver returns immediately after a tick requests a geometry
         // change, so rebuild while the old handle layout is still live.
         if !rebuild_requested {
@@ -2065,13 +2099,30 @@ fn run_segmented_libcurl(
     // range_rejected flag. Fail fast with a clear error instead of merging
     // truncated or overlapping part files.
     if range_rejected.load(Ordering::Acquire) {
+        let expected_fingerprint = plan.remote_fingerprint();
+        let observed = seg_captures
+            .iter()
+            .filter_map(|capture| capture.lock().ok())
+            .map(|capture| capture.observed_fingerprint())
+            .find(|fingerprint| expected_fingerprint.conflicts_with(fingerprint))
+            .or_else(|| {
+                seg_captures
+                    .iter()
+                    .filter_map(|capture| capture.lock().ok())
+                    .map(|capture| capture.observed_fingerprint())
+                    .find(|fingerprint| {
+                        fingerprint.validator.is_some() || fingerprint.total_size.is_some()
+                    })
+            })
+            .unwrap_or_default();
+
         for r in active_cell.borrow().iter() {
             let _ = std::fs::remove_file(&r.0.path);
         }
+        let mut refreshed = plan.clone();
+        adopt_remote_fingerprint(state, id, &mut refreshed, &observed);
         return Err(
-            "Server returned 200 OK instead of 206 Partial Content to a byte-range request; \
-             the server does not honor range requests. Retry with a single connection or \
-             disable segmented mode."
+            "Strict byte-range validation failed (status, Content-Range, or remote fingerprint mismatch); stale segment data was discarded."
                 .to_owned(),
         );
     }
