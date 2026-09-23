@@ -34,9 +34,7 @@ internal class NativeDestinationStore(context: Context) {
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.IS_PENDING, 0)
         }
-        check(resolver.update(uri, values, null, null) >= 0) {
-            "NOVA could not publish the completed download"
-        }
+        resolver.update(uri, values, null, null)
     }
 
     fun delete(uri: Uri, publishOnComplete: Boolean) {
