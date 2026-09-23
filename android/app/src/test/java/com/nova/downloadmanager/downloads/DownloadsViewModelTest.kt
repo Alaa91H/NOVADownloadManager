@@ -1,11 +1,31 @@
 package com.nova.downloadmanager.downloads
 
 import com.nova.downloadmanager.R
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.After
+import org.junit.Before
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class DownloadsViewModelTest {
+    private val mainDispatcher = UnconfinedTestDispatcher()
+
+    @Before
+    fun setUp() {
+        Dispatchers.setMain(mainDispatcher)
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
+
     @Test
     fun `receiving a shared URL exposes it for UI review`() {
         val viewModel = DownloadsViewModel()
@@ -86,7 +106,7 @@ private class TestDownloadsRepository(
 
     override fun coreReadiness(): CoreReadiness = CoreReadiness.Ready
 
-    override fun enqueue(url: String): Result<DownloadSummary> {
+    override suspend fun enqueue(url: String): Result<DownloadSummary> {
         enqueueCount += 1
         return Result.success(result)
     }
