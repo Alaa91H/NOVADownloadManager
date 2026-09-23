@@ -411,4 +411,4 @@ private fun redactUrlForDisplay(url: String): String = runCatching {
 }.getOrDefault("…")
 
 private const val DOWNLOAD_REFRESH_INTERVAL_MS = 1_000L
-private val TERMINAL_DOWNLOAD_STATUSES = setOf("completed", "failed", "cancelled")
+private val TERMINAL_DOWNLOAD_STATUSES = setOf("completed", "failed", "paused", "cancelled")
