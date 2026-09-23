@@ -132,7 +132,6 @@ pub enum ResumeAction {
     Restart,
 }
 
-
 /// Schema version for durable, platform-neutral recovery checkpoints.
 pub const RECOVERY_SCHEMA_VERSION: u32 = 1;
 
@@ -232,6 +231,8 @@ pub struct RecoverySegment {
     pub start_byte: u64,
     #[serde(rename = "endByte")]
     pub end_byte: u64,
+    #[serde(rename = "totalBytes")]
+    pub total_bytes: u64,
     #[serde(rename = "downloadedBytes")]
     pub downloaded_bytes: u64,
 }
@@ -264,13 +265,17 @@ impl RecoveryCheckpoint {
                 } else {
                     segment.total_bytes
                 };
+                let total_bytes = range_len.max(segment.total_bytes);
                 RecoverySegment {
                     id: segment.id,
                     start_byte: segment.start_byte,
                     end_byte: segment.end_byte,
-                    downloaded_bytes: segment
-                        .downloaded_bytes
-                        .min(range_len.max(segment.total_bytes)),
+                    total_bytes,
+                    downloaded_bytes: if total_bytes > 0 {
+                        segment.downloaded_bytes.min(total_bytes)
+                    } else {
+                        segment.downloaded_bytes
+                    },
                 }
             })
             .collect();
@@ -314,11 +319,12 @@ impl RecoveryCheckpoint {
                 .segments
                 .iter()
                 .map(|segment| {
-                    let total = if segment.end_byte >= segment.start_byte {
+                    let range_total = if segment.end_byte >= segment.start_byte {
                         segment.end_byte - segment.start_byte + 1
                     } else {
-                        segment.downloaded_bytes
+                        0
                     };
+                    let total = segment.total_bytes.max(range_total);
                     let downloaded = segment.downloaded_bytes.min(total);
                     Segment {
                         id: segment.id,
@@ -575,6 +581,51 @@ mod tests {
             identity.if_range_value(),
             Some("Wed, 21 Oct 2015 07:28:00 GMT")
         );
+    }
+
+    #[test]
+    fn recovery_checkpoint_preserves_legacy_segment_total() {
+        let task = Task {
+            id: "legacy".to_owned(),
+            name: "legacy.bin".to_owned(),
+            url: "https://example.com/legacy.bin".to_owned(),
+            file_type: "other".to_owned(),
+            status: "paused".to_owned(),
+            size_bytes: 100,
+            downloaded_bytes: 50,
+            speed_bytes_per_sec: 0,
+            time_left_seconds: 0,
+            elapsed_seconds: 0,
+            date_added: "2026-09-24".to_owned(),
+            category: "other".to_owned(),
+            queue_id: "main".to_owned(),
+            connections: 1,
+            resumable: true,
+            save_path: "legacy.bin".to_owned(),
+            description: String::new(),
+            segments: vec![Segment {
+                id: 0,
+                progress: 0.5,
+                downloaded_bytes: 50,
+                total_bytes: 100,
+                active: false,
+                speed: 0,
+                start_byte: 0,
+                end_byte: 0,
+            }],
+            referer: None,
+            engine: "libcurl-multi".to_owned(),
+            engine_id: "legacy".to_owned(),
+            engine_status: None,
+            error_message: None,
+        };
+        let checkpoint =
+            RecoveryCheckpoint::from_task(&task, ResourceIdentity::default());
+        let mut restored = task.clone();
+        restored.segments.clear();
+        assert!(checkpoint.apply_to_task(&mut restored));
+        assert_eq!(restored.segments[0].total_bytes, 100);
+        assert_eq!(restored.segments[0].downloaded_bytes, 50);
     }
 
     #[test]
