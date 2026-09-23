@@ -1,6 +1,6 @@
 # NOVA Android Architecture Audit
 
-**Status:** Architecture audit updated after the Android foundation milestone. A native Compose app, portable task-model extraction, a narrow UniFFI handshake, an ARM64 link proof, and a debug-APK/JVM-test build now exist. No real transfer, runtime native loading, emulator, or physical-device validation has occurred.
+**Status:** Architecture audit updated through the native-transfer milestone. Android now packages and loads the Rust bridge, routes direct HTTP(S) bytes through the shared Rust core into app-private staging, and keeps Kotlin limited to task projection/lifecycle and file finalization. Emulator/physical-device validation, Android-compliant long-running execution, notifications, and public-storage adapters remain pending.
 
 **Scope:** This report audits the repository as it existed at `v2.4.25-alpha` / commit `954644e`. It is the source-of-truth baseline for an Android implementation that reuses NOVA’s Rust download semantics without creating a second engine.
 
@@ -158,7 +158,7 @@ Sensitive headers, cookies, tokens, and credentials must never be serialized in 
 1. **Gate A — Compile boundary:** **Partially complete.** `Task` and `Segment` moved to `nova-core-model`; portable tests and desktop re-export validation exist. Transfer core remains coupled to desktop composition.
 2. **Gate B — Bridge proof:** **Partially complete.** UniFFI API versioning and an `arm64-v8a` link proof exist locally; generated Kotlin bindings and CI ABI artifacts do not.
 3. **Gate C — Android foundation:** **Complete for the foundation only.** Compose/Material 3, adaptive navigation, StateFlow ViewModel, repository boundary, share validation, and a buildable debug APK exist without a duplicated engine.
-4. **Gate D — Real transfer:** implement one direct HTTP(S) download to app-private staging, with pause/resume/cancel and durable recovery.
+4. **Gate D — Real transfer:** **Partially complete.** Direct HTTP(S) bytes now reach app-private staging through Rust with validated in-session range resume/fallback. Pause/resume/cancel commands and durable URL recovery across process death remain pending.
 5. **Gate E — Android execution:** dispatch user-started transfers through UIDT on API 34+ and a validated fallback below it; add notification actions.
 6. **Gate F — Storage:** SAF and MediaStore destinations with permission-revocation recovery and no legacy broad storage model.
 7. **Gate G — Capability parity:** progressively add queue, profiles, schedules, diagnostics, share intent, and only then evaluate media integrations.
