@@ -147,11 +147,12 @@ impl TaskState {
 
     /// Explicit restart/redownload transition, separate from normal lifecycle.
     pub const fn can_restart_to(self, next: Self) -> bool {
+        // Restart is an explicit destructive user operation: it may reset a
+        // queued, active, failed, interrupted, or completed task back to the
+        // queue after the host cancels the old generation and clears partial
+        // output. Keeping this separate from can_transition_to preserves
+        // Completed as terminal for every non-destructive code path.
         matches!(next, Self::Queued)
-            && matches!(
-                self,
-                Self::Completed | Self::Failed | Self::Paused | Self::Interrupted
-            )
     }
 }
 
