@@ -133,6 +133,13 @@ requirePng('public/android-chrome-512x512.png', 512, 512);
 requireIco('public/favicon.ico', [16, 24, 32, 48, 64, 128, 256]);
 requireIco('public/icon.ico', [16, 24, 32, 48, 64, 128, 256]);
 
+requirePng('android/app/src/main/res/mipmap-mdpi/ic_nova_launcher.png', 48, 48);
+requirePng('android/app/src/main/res/mipmap-hdpi/ic_nova_launcher.png', 72, 72);
+requirePng('android/app/src/main/res/mipmap-xhdpi/ic_nova_launcher.png', 96, 96);
+requirePng('android/app/src/main/res/mipmap-xxhdpi/ic_nova_launcher.png', 144, 144);
+requirePng('android/app/src/main/res/mipmap-xxxhdpi/ic_nova_launcher.png', 192, 192);
+requireContains('android/app/src/main/AndroidManifest.xml', '@mipmap/ic_nova_launcher', 'Android primary launcher icon');
+
 const tauriConfig = JSON.parse(readText('src-tauri/tauri.conf.json'));
 const bundleIcons = tauriConfig.bundle?.icon ?? [];
 for (const icon of [
@@ -191,6 +198,7 @@ const ignoredPrefixes = [
   'browser-extension/.output/',
   'browser-extension/dist/',
   'src-tauri/target/',
+  'android/app/build/',
 ];
 const artFiles = walk(ROOT)
   .map(normalized)
@@ -205,6 +213,7 @@ const allowedPrefixes = [
   'src-tauri/icons/',
   'src-tauri/windows/',
   'browser-extension/public/icons/',
+  'android/app/src/main/res/mipmap-',
 ];
 const unexpected = artFiles.filter((path) => !allowedPrefixes.some((prefix) => path.startsWith(prefix)));
 if (unexpected.length)
