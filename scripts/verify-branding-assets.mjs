@@ -194,6 +194,7 @@ const artExts = new Set(['.png', '.ico', '.icns', '.bmp', '.webmanifest']);
 const ignoredPrefixes = [
   'node_modules/',
   'dist/',
+  'coverage/',
   'browser-extension/.output/',
   'browser-extension/dist/',
   'src-tauri/target/',
