@@ -13,8 +13,9 @@ use super::completion::{
 };
 use super::{
     apply_easy_options, create_easy_for_range_ext, drive_multi_wait_perform,
-    drive_multi_wait_perform_until, requested_connections, CurlMultiGuard, CurlTransferConfig,
-    DirectDownloadPlan, HtmlHeadCapture, ResponseCapture, SegmentProgress,
+    drive_multi_wait_perform_until, requested_connections, ContentRange, CurlMultiGuard,
+    CurlTransferConfig, DirectDownloadPlan, HtmlHeadCapture, RemoteFingerprint, ResponseCapture,
+    SegmentProgress,
 };
 use crate::daemon::direct::{FileWriter, RetryPolicy, SegmentPlanner, SegmentRange as ByteRange};
 
@@ -583,6 +584,17 @@ struct PreflightData {
     total_size: u64,
 }
 
+impl PreflightData {
+    fn remote_fingerprint(&self) -> RemoteFingerprint {
+        RemoteFingerprint {
+            validator: self.validator.clone(),
+            validator_is_etag: self.validator_is_etag,
+            total_size: (self.total_size > 0).then_some(self.total_size),
+            digest_sha256: None,
+        }
+    }
+}
+
 fn update_curl_task_progress(
     state: &SharedState,
     id: &str,
@@ -750,6 +762,58 @@ fn persist_resume_validator(
     changed
 }
 
+fn clear_resume_validator(state: &SharedState, id: &str) -> bool {
+    let changed = {
+        let mut jobs = match state.curl_jobs.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let Some(job) = jobs.get_mut(id) else {
+            return false;
+        };
+        let had_etag = job.direct_options.remove("etag").is_some();
+        let had_last_modified = job.direct_options.remove("lastModified").is_some();
+        had_etag || had_last_modified
+    };
+    if changed {
+        state.mark_dirty();
+        crate::daemon::persist::save_now(state.as_ref());
+    }
+    changed
+}
+
+fn response_capture_for_range(
+    plan: &DirectDownloadPlan,
+    start: u64,
+    end: Option<u64>,
+) -> ResponseCapture {
+    let expected_total = (plan.total_size > 0).then_some(plan.total_size);
+    ResponseCapture {
+        expected_range_start: Some(start),
+        expected_content_range: end.map(|end| ContentRange {
+            start,
+            end,
+            total: expected_total,
+        }),
+        expected_fingerprint: Some(plan.remote_fingerprint()),
+        ..Default::default()
+    }
+}
+
+fn task_has_any_checkpoint(state: &SharedState, id: &str, output_path: &Path) -> bool {
+    if FileWriter::current_size(output_path).unwrap_or(0) > 0 {
+        return true;
+    }
+    state.curl_jobs.lock().ok().is_some_and(|jobs| {
+        jobs.get(id).is_some_and(|job| {
+            job.task
+                .segments
+                .iter()
+                .any(|segment| segment.downloaded_bytes > 0)
+        })
+    })
+}
+
 /// Result of a completed transfer pass. Carries everything the completion
 /// path needs to decide whether the download may be marked complete.
 #[derive(Clone, Debug)]
@@ -912,7 +976,13 @@ fn run_single_libcurl(
         plan.total_size,
         plan.output_path.display()
     );
-    let capture = Arc::new(Mutex::new(ResponseCapture::default()));
+    let resume_end = (plan.total_size > resume_existing && plan.total_size > 0)
+        .then_some(plan.total_size - 1);
+    let capture = Arc::new(Mutex::new(if resume_existing > 0 {
+        response_capture_for_range(plan, resume_existing, resume_end)
+    } else {
+        ResponseCapture::default()
+    }));
     let downloaded_counter = Arc::new(AtomicU64::new(0));
     let progress = SegmentProgress {
         downloaded: downloaded_counter.clone(),
@@ -922,7 +992,7 @@ fn run_single_libcurl(
         streaming_digest_out: streaming_digest_out.clone(),
         range_rejected: Arc::new(AtomicBool::new(false)),
         encoding_rejected: Arc::new(AtomicBool::new(false)),
-        expects_206: false,
+        expects_206: resume_existing > 0,
     };
     let task_limit = state.bandwidth_manager.allowed_speed_for_task(id);
     let task_limit_bps = if task_limit > 0 {
@@ -1510,7 +1580,11 @@ fn run_segmented_libcurl(
         }
         let start = range.start + existing;
         let progress = Arc::new(AtomicU64::new(0));
-        let seg_capture = Arc::new(Mutex::new(ResponseCapture::default()));
+        let seg_capture = Arc::new(Mutex::new(response_capture_for_range(
+            plan,
+            start,
+            Some(range.end),
+        )));
         seg_captures.push(seg_capture.clone());
         let easy = create_easy_for_range_ext(
             plan,
@@ -1869,7 +1943,11 @@ fn run_segmented_libcurl(
                 active.push((range, progress, trusted));
                 continue;
             }
-            let seg_capture = Arc::new(Mutex::new(ResponseCapture::default()));
+            let seg_capture = Arc::new(Mutex::new(response_capture_for_range(
+                plan,
+                start + trusted,
+                Some(end),
+            )));
             seg_captures.push(seg_capture.clone());
             let easy = create_easy_for_range_ext(
                 plan,
