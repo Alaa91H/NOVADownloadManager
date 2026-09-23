@@ -62,8 +62,6 @@ internal object NovaNativeCore {
         contentRangeStart: Long,
     ): Int
 
-    private external fun nativeProbeContentLength(url: String): Long
-
     private external fun nativeDownloadToAppPrivate(
         url: String,
         appPrivateRoot: String,
@@ -145,18 +143,6 @@ internal object NovaNativeCore {
             RESUME_RESTART -> ResumeAction.RESTART
             else -> error("NOVA native core rejected resume planning inputs")
         }
-    }
-
-    /**
-     * Performs a native metadata probe off the UI thread. Unknown representation
-     * length is returned as null; native transport failures are surfaced as
-     * exceptions rather than silently falling back to a Kotlin HTTP client.
-     */
-    fun probeContentLength(url: String): Long? {
-        requireCompatible()
-        val result = nativeProbeContentLength(url)
-        check(result >= -1) { "NOVA native core rejected HTTP metadata probe" }
-        return result.takeIf { it >= 0 }
     }
 
     /**
