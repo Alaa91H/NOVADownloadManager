@@ -686,17 +686,26 @@ fn segment_path(directory: &Path, index: usize) -> PathBuf {
     ))
 }
 
-fn segment_manifest(total_bytes: u64, segment_count: usize) -> String {
-    format!("nova.segment.v1\ntotal={total_bytes}\nsegments={segment_count}\n")
+fn segment_manifest(
+    total_bytes: u64,
+    segment_count: usize,
+    etag: Option<&str>,
+    last_modified: Option<&str>,
+) -> String {
+    format!(
+        "nova.segment.v2\ntotal={total_bytes}\nsegments={segment_count}\netag={etag:?}\nlast_modified={last_modified:?}\n"
+    )
 }
 
 fn prepare_segment_directory(
     destination: &Path,
     total_bytes: u64,
     segment_count: usize,
+    etag: Option<&str>,
+    last_modified: Option<&str>,
 ) -> Result<PathBuf, TransportError> {
     let directory = segment_directory(destination);
-    let expected_manifest = segment_manifest(total_bytes, segment_count);
+    let expected_manifest = segment_manifest(total_bytes, segment_count, etag, last_modified);
     let manifest_path = directory.join(SEGMENT_MANIFEST_NAME);
 
     let reusable = std::fs::read_to_string(&manifest_path)
@@ -1000,7 +1009,13 @@ where
         return download_http_to_path_controlled(url, destination, || control());
     }
 
-    let directory = prepare_segment_directory(destination, total_bytes, ranges.len())?;
+    let directory = prepare_segment_directory(
+        destination,
+        total_bytes,
+        ranges.len(),
+        probe.etag.as_deref(),
+        probe.last_modified.as_deref(),
+    )?;
     let resumed_from = staged_downloaded_bytes(destination)?.min(total_bytes);
 
     let results = thread::scope(|scope| {
@@ -1384,7 +1399,8 @@ mod tests {
         const PAYLOAD: &[u8] = b"abcdefghijklmnop";
         let path = segmented_test_path("segment-resume");
         let directory =
-            prepare_segment_directory(&path, PAYLOAD.len() as u64, 4).expect("segment directory");
+            prepare_segment_directory(&path, PAYLOAD.len() as u64, 4, None, None)
+                .expect("segment directory");
         std::fs::write(segment_path(&directory, 0), b"ab").expect("seed partial segment");
         std::fs::write(segment_path(&directory, 1), b"efgh").expect("seed complete segment");
         assert_eq!(staged_downloaded_bytes(&path).expect("staged bytes"), 6);
