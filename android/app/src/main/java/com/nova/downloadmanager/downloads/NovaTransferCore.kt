@@ -84,12 +84,6 @@ class NovaTransferCore(context: Context) {
         updateRecord(current)
 
         try {
-            val probedLength = NovaNativeCore.probeContentLength(url) ?: 0L
-            if (probedLength > 0) {
-                current = current.copy(totalBytes = probedLength)
-                updateRecord(current)
-            }
-
             val finalBytes = NovaNativeCore.downloadToAppPrivate(
                 url = url,
                 appPrivateRoot = appPrivateRoot.absolutePath,
