@@ -12,7 +12,8 @@ use ::curl::easy::{
 };
 
 use super::{
-    proxy_resolves_to_internal, safe_value, CurlTransferConfig, DirectDownloadPlan, SegmentProgress,
+    proxy_resolves_to_internal, safe_value, ContentRange, CurlTransferConfig, DirectDownloadPlan,
+    SegmentProgress,
 };
 use crate::daemon::direct::FileWriter;
 use crate::daemon::engine::config::global_config;
@@ -68,6 +69,34 @@ fn configured_speed_limit_bytes(config: &CurlTransferConfig) -> Option<u64> {
     })
 }
 
+fn parse_content_range(value: &str) -> Option<ContentRange> {
+    let mut parts = value.split_whitespace();
+    let unit = parts.next()?;
+    if !unit.eq_ignore_ascii_case("bytes") {
+        return None;
+    }
+    let spec = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    let (range, total_raw) = spec.split_once('/')?;
+    let (start_raw, end_raw) = range.split_once('-')?;
+    let start = start_raw.trim().parse::<u64>().ok()?;
+    let end = end_raw.trim().parse::<u64>().ok()?;
+    if start > end {
+        return None;
+    }
+    let total = if total_raw.trim() == "*" {
+        None
+    } else {
+        Some(total_raw.trim().parse::<u64>().ok()?)
+    };
+    if total.is_some_and(|size| size == 0 || end >= size) {
+        return None;
+    }
+    Some(ContentRange { start, end, total })
+}
+
 fn parse_rate_to_bytes(rate_str: &str) -> Option<u64> {
     let trimmed = rate_str.trim();
     if trimmed.is_empty() {
@@ -111,12 +140,68 @@ pub struct SegmentWriter {
     pub(super) streaming_hasher: Option<sha2::Sha256>,
 }
 
+impl SegmentWriter {
+    /// Validate the FINAL response headers before the first body byte reaches
+    /// disk. This deliberately runs from write(), not on the status line,
+    /// because libcurl can expose intermediate proxy CONNECT / auth / redirect
+    /// header blocks before the final 206 response.
+    fn range_response_is_safe(&self) -> bool {
+        if !self.progress.expects_206 {
+            return true;
+        }
+        let Ok(cap) = self.progress.capture.lock() else {
+            return false;
+        };
+        if cap.status_code != 206 {
+            return false;
+        }
+        let Some(actual) = cap.content_range else {
+            return false;
+        };
+        if let Some(expected) = cap.expected_content_range {
+            if actual.start != expected.start || actual.end != expected.end {
+                return false;
+            }
+            if let Some(expected_total) = expected.total {
+                if actual.total != Some(expected_total) {
+                    return false;
+                }
+            }
+        }
+        if let Some(expected) = cap.expected_fingerprint.as_ref() {
+            if expected.conflicts_with(&cap.observed_fingerprint()) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn reject_unsafe_range_response(&self) {
+        if !self.progress.range_rejected.swap(true, Ordering::AcqRel) {
+            if let Ok(cap) = self.progress.capture.lock() {
+                log::warn!(
+                    "Rejected unsafe range response: status={} expected={:?} actual={:?} expected_fingerprint={:?} observed_fingerprint={:?}",
+                    cap.status_code,
+                    cap.expected_content_range,
+                    cap.content_range,
+                    cap.expected_fingerprint,
+                    cap.observed_fingerprint()
+                );
+            }
+        }
+    }
+}
+
 impl Handler for SegmentWriter {
     fn write(&mut self, data: &[u8]) -> Result<usize, WriteError> {
         if self.progress.abort.load(Ordering::Relaxed)
             || self.progress.range_rejected.load(Ordering::Relaxed)
             || self.progress.encoding_rejected.load(Ordering::Relaxed)
         {
+            return Ok(0);
+        }
+        if self.progress.expects_206 && !self.range_response_is_safe() {
+            self.reject_unsafe_range_response();
             return Ok(0);
         }
         if let Some(ref mut hasher) = self.streaming_hasher {
@@ -150,26 +235,22 @@ impl Handler for SegmentWriter {
         let line = line.trim_end();
         if let Some(rest) = line.strip_prefix("HTTP/") {
             let mut parts = rest.split_whitespace();
-            // The first token is the HTTP version (e.g., "1.1", "2").
-            if let Some(ver) = parts.next() {
-                if let Ok(mut cap) = self.progress.capture.lock() {
-                    cap.http_version = Some(ver.to_owned());
-                }
-            }
-            // The second token is the status code.
-            if let Some(code) = parts.next().and_then(|c| c.parse().ok()) {
-                if let Ok(mut cap) = self.progress.capture.lock() {
-                    cap.status_code = code;
-                }
-                // C-2: a segment that requested a partial range must receive
-                // 206. A 200 means the server ignored the Range header and is
-                // sending the whole body to every segment. Flag it so ALL
-                // segments stop writing immediately (shared flag) instead of
-                // downloading the file N times in parallel before failing at
-                // merge time.
-                if code == 200 && self.progress.expects_206 {
-                    self.progress.range_rejected.store(true, Ordering::Release);
-                }
+            let version = parts.next().map(str::to_owned);
+            let code = parts.next().and_then(|c| c.parse::<u16>().ok());
+            if let Ok(mut cap) = self.progress.capture.lock() {
+                // A single request may expose multiple header blocks (proxy
+                // CONNECT, auth retry, redirect). Clear only OBSERVED fields
+                // so validation is always against the final response while
+                // retaining the expected range/fingerprint seeded by caller.
+                cap.status_code = code.unwrap_or(0);
+                cap.validator = None;
+                cap.validator_is_etag = false;
+                cap.digest_sha256 = None;
+                cap.mirrors.clear();
+                cap.content_encoded = false;
+                cap.http_version = version;
+                cap.content_length = None;
+                cap.content_range = None;
             }
             return true;
         }
@@ -193,6 +274,7 @@ impl Handler for SegmentWriter {
             "etag" if crate::daemon::utils::is_strong_etag(value) => {
                 if let Ok(mut cap) = self.progress.capture.lock() {
                     cap.validator = Some(value.to_owned());
+                    cap.validator_is_etag = true;
                 }
             }
             "content-encoding" if !value.eq_ignore_ascii_case("identity") => {
@@ -222,17 +304,15 @@ impl Handler for SegmentWriter {
                 }
             }
             "content-range" => {
-                // e.g. "bytes 0-1023/2048" or "bytes */2048"; the total after
-                // the slash is the true object size. On a 206 partial response
-                // the Content-Length only describes the current chunk, so the
-                // Content-Range total must take precedence whenever present.
-                if let Some(total) = value
-                    .rsplit('/')
-                    .next()
-                    .and_then(|t| t.trim().parse::<u64>().ok())
-                {
+                // Parse the FULL range, not just /total. A 206 with the wrong
+                // start/end is as dangerous as a 200 because it writes valid
+                // bytes into the wrong location and can survive size checks.
+                if let Some(range) = parse_content_range(value) {
                     if let Ok(mut cap) = self.progress.capture.lock() {
-                        cap.content_length = Some(total);
+                        cap.content_range = Some(range);
+                        if let Some(total) = range.total {
+                            cap.content_length = Some(total);
+                        }
                     }
                 }
             }
@@ -240,6 +320,7 @@ impl Handler for SegmentWriter {
                 if let Ok(mut cap) = self.progress.capture.lock() {
                     if cap.validator.is_none() {
                         cap.validator = Some(value.to_owned());
+                        cap.validator_is_etag = false;
                     }
                 }
             }
