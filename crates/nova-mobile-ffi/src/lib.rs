@@ -336,6 +336,11 @@ pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeP
 }
 
 #[cfg(target_os = "android")]
+const ANDROID_TRANSFER_PAUSED: i64 = -2;
+#[cfg(target_os = "android")]
+const ANDROID_TRANSFER_CANCELLED: i64 = -3;
+
+#[cfg(target_os = "android")]
 fn jni_string(
     env: &mut jni::JNIEnv<'_>,
     value: &jni::objects::JString<'_>,
@@ -356,10 +361,18 @@ fn throw_android_transfer_error(env: &mut jni::JNIEnv<'_>, message: impl Into<St
 pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeDownloadToAppPrivate(
     mut env: jni::JNIEnv<'_>,
     _receiver: jni::objects::JObject<'_>,
+    task_id: jni::objects::JString<'_>,
     url: jni::objects::JString<'_>,
     app_private_root: jni::objects::JString<'_>,
     relative_destination: jni::objects::JString<'_>,
 ) -> jni::sys::jlong {
+    let task_id = match jni_string(&mut env, &task_id, "native task id") {
+        Ok(value) => value,
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            return -1;
+        }
+    };
     let url = match jni_string(&mut env, &url, "download URL") {
         Ok(value) => value,
         Err(message) => {
@@ -384,14 +397,49 @@ pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeD
         };
 
     match nova_mobile_core::download_to_app_private_path(
+        &task_id,
         &url,
         std::path::Path::new(&app_private_root),
         std::path::Path::new(&relative_destination),
     ) {
         Ok(outcome) => i64::try_from(outcome.final_bytes).unwrap_or(-1),
+        Err(nova_mobile_core::MobileTransferError::Paused) => ANDROID_TRANSFER_PAUSED,
+        Err(nova_mobile_core::MobileTransferError::Cancelled) => ANDROID_TRANSFER_CANCELLED,
         Err(error) => {
             throw_android_transfer_error(&mut env, error.to_string());
             -1
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativePauseTransfer(
+    mut env: jni::JNIEnv<'_>,
+    _receiver: jni::objects::JObject<'_>,
+    task_id: jni::objects::JString<'_>,
+) -> jni::sys::jboolean {
+    match jni_string(&mut env, &task_id, "native task id") {
+        Ok(task_id) => u8::from(nova_mobile_core::pause_transfer(&task_id)),
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            0
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeCancelTransfer(
+    mut env: jni::JNIEnv<'_>,
+    _receiver: jni::objects::JObject<'_>,
+    task_id: jni::objects::JString<'_>,
+) -> jni::sys::jboolean {
+    match jni_string(&mut env, &task_id, "native task id") {
+        Ok(task_id) => u8::from(nova_mobile_core::cancel_transfer(&task_id)),
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            0
         }
     }
 }
