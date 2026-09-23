@@ -882,15 +882,17 @@ fn run_single_libcurl(
     );
     let capture = Arc::new(Mutex::new(ResponseCapture::default()));
     let downloaded_counter = Arc::new(AtomicU64::new(0));
+    let range_rejected = Arc::new(AtomicBool::new(false));
     let progress = SegmentProgress {
         downloaded: downloaded_counter.clone(),
         abort: cancel.clone(),
         retry_after: retry_after.clone(),
         capture: capture.clone(),
         streaming_digest_out: streaming_digest_out.clone(),
-        range_rejected: Arc::new(AtomicBool::new(false)),
+        range_rejected: range_rejected.clone(),
         encoding_rejected: Arc::new(AtomicBool::new(false)),
-        expects_206: false,
+        expects_206: resume_existing > 0,
+        expected_range_start: (resume_existing > 0).then_some(resume_existing),
     };
     let task_limit = state.bandwidth_manager.allowed_speed_for_task(id);
     let task_limit_bps = if task_limit > 0 {
@@ -1054,14 +1056,25 @@ fn run_single_libcurl(
     // Use libcurl's wait/perform driver for every configured event-loop mode.
     // It is the verified path for real transfers and invokes bounded progress
     // ticks while the request is active.
-    drive_multi_wait_perform(
+    if let Err(error) = drive_multi_wait_perform(
         guard.multi()?,
         &handles,
         &cancel,
         "transfer",
         &mut tick,
         state.bandwidth_manager.paused_flag(),
-    )?;
+    ) {
+        if resume_existing > 0 && range_rejected.load(Ordering::Acquire) {
+            if let Ok(file) = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&plan.output_path)
+            {
+                let _ = file.set_len(0);
+            }
+            return Err("resume-range-mismatch".to_owned());
+        }
+        return Err(error);
+    }
     let response = handles[0]
         .response_code()
         .map_err(|e| format!("Could not read HTTP response code: {e}"))?;
@@ -1504,6 +1517,7 @@ fn run_segmented_libcurl(
                 range_rejected: range_rejected.clone(),
                 encoding_rejected: encoding_rejected.clone(),
                 expects_206,
+                expected_range_start: expects_206.then_some(start),
             },
             Some((start, range.end)),
             per_segment_limit_bps,
@@ -1878,6 +1892,7 @@ fn run_segmented_libcurl(
                     range_rejected: range_rejected.clone(),
                     encoding_rejected: encoding_rejected.clone(),
                     expects_206,
+                    expected_range_start: expects_206.then_some(expected_start),
                 },
                 Some((expected_start, end)),
                 per_segment_limit_bps,
@@ -1976,6 +1991,12 @@ fn run_segmented_libcurl(
     // so speed was recomputed against the initial baseline every tick.
     let mut last_total = progress_total_cell.get();
     let mut last_tick = progress_tick_cell.get();
+    let recovery_validator = seg_captures
+        .borrow()
+        .iter()
+        .find_map(|(capture, expected_start, require_partial)| {
+            safe_recovery_validator(capture, Some(*expected_start), *require_partial)
+        });
     update_curl_task_progress(
         state,
         id,
@@ -1983,21 +2004,15 @@ fn run_segmented_libcurl(
         &active_cell.borrow(),
         &mut last_total,
         &mut last_tick,
+        recovery_validator.clone(),
     );
     progress_total_cell.set(last_total);
     progress_tick_cell.set(last_tick);
-    let first_capture = seg_captures
+    let captured_validator = recovery_validator.map(|(validator, _)| validator);
+    let encoded = seg_captures
         .borrow()
-        .first()
-        .map(|(capture, _, _)| capture.clone());
-    let (captured_validator, encoded) = first_capture
-        .and_then(|capture| {
-            capture
-                .lock()
-                .ok()
-                .map(|cap| (cap.validator.clone(), cap.content_encoded))
-        })
-        .unwrap_or((None, false));
+        .iter()
+        .any(|(capture, _, _)| capture.lock().ok().is_some_and(|cap| cap.content_encoded));
     // C-1: merge using the CURRENT segment geometry. The original `ranges`
     // were captured before any adaptive rebuild split/merged segments, so
     // they may reference stale part files and byte offsets, causing a failed
