@@ -147,7 +147,7 @@ describe('ActiveProgressDialog — unified segment progress', () => {
     // Centred on the fill edge — at 50% the badge sits halfway down the track.
     // (jsdom re-serializes clamp() — assert on the parts that matter.)
     expect(heads[0].style.left).toContain('50%');
-    expect(heads[0].style.left).toContain('calc(100% - 15px)');
+    expect(heads[0].style.left).toContain('100% - 15px');
   });
 
   it('keeps the overall bar and the composite distribution bar consistent with the same tone map', () => {
