@@ -1422,4 +1422,34 @@ mod tests {
         assert!(!segment_directory(&path).exists());
         let _ = std::fs::remove_file(path);
     }
+
+    #[test]
+    fn segmented_checkpoint_discards_bytes_when_validator_changes() {
+        let path = segmented_test_path("validator-change");
+        let first = prepare_segment_directory(
+            &path,
+            16,
+            4,
+            Some("\"v1\""),
+            Some("Wed, 21 Oct 2015 07:28:00 GMT"),
+        )
+        .expect("initial segment directory");
+        std::fs::write(segment_path(&first, 0), b"abcd").expect("seed old segment");
+        assert_eq!(staged_downloaded_bytes(&path).expect("old staged bytes"), 4);
+
+        let second = prepare_segment_directory(
+            &path,
+            16,
+            4,
+            Some("\"v2\""),
+            Some("Wed, 21 Oct 2015 07:28:00 GMT"),
+        )
+        .expect("replacement segment directory");
+
+        assert_eq!(first, second);
+        assert_eq!(staged_downloaded_bytes(&path).expect("reset staged bytes"), 0);
+        assert!(!segment_path(&second, 0).exists());
+        cleanup_segment_state(&path).expect("cleanup segment state");
+    }
+
 }
