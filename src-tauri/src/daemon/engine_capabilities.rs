@@ -1953,10 +1953,42 @@ pub fn validate_media_bridge_media_options(
     Ok(())
 }
 
+pub fn native_torrent_status() -> Value {
+    let capabilities = nova_torrent_core::TorrentCoreCapabilities::native_foundation();
+    json!({
+        "id": nova_torrent_core::ENGINE_ID,
+        "name": "NOVA Torrent Engine",
+        "role": "torrent-download-engine",
+        // Keep the engine unavailable for task routing until tracker/peer
+        // orchestration and durable resume are connected end-to-end.
+        "available": false,
+        "foundationReady": true,
+        "version": env!("CARGO_PKG_VERSION"),
+        "source": "in-process Rust torrent core",
+        "runtimeCore": "nova-torrent-core",
+        "capabilities": {
+            "metainfoV1": capabilities.metainfo_v1,
+            "magnetBtih": capabilities.magnet_btih,
+            "peerWireV1": capabilities.peer_wire_v1,
+            "pieceScheduler": capabilities.piece_scheduler,
+            "pieceHashVerification": true,
+            "safeMultiFileLayout": true,
+            "httpTrackers": false,
+            "udpTrackers": false,
+            "dht": false,
+            "pex": false,
+            "metadataExchange": false,
+            "peerTransferExecution": false,
+            "durableResume": false
+        }
+    })
+}
+
 pub fn all_engine_status(_media_bridge_bin: &str, ffmpeg_bin: &str) -> Value {
     let curl = curl_status();
     let media = native_media_status();
     let ffmpeg = ffmpeg_status(ffmpeg_bin);
+    let torrent = native_torrent_status();
     let media_ready = media
         .get("available")
         .and_then(Value::as_bool)
@@ -1993,7 +2025,8 @@ pub fn all_engine_status(_media_bridge_bin: &str, ffmpeg_bin: &str) -> Value {
             "curl": curl,
             "libcurlMulti": curl,
             "media": media,
-            "ffmpeg": ffmpeg
+            "ffmpeg": ffmpeg,
+            "torrent": torrent
         }
     })
 }
@@ -2001,6 +2034,17 @@ pub fn all_engine_status(_media_bridge_bin: &str, ffmpeg_bin: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_torrent_status_exposes_foundation_without_claiming_task_execution() {
+        let status = native_torrent_status();
+        assert_eq!(status["runtimeCore"], "nova-torrent-core");
+        assert_eq!(status["foundationReady"], true);
+        assert_eq!(status["available"], false);
+        assert_eq!(status["capabilities"]["metainfoV1"], true);
+        assert_eq!(status["capabilities"]["magnetBtih"], true);
+        assert_eq!(status["capabilities"]["peerTransferExecution"], false);
+    }
 
     #[test]
     fn native_media_status_is_in_process_and_fail_closed() {
