@@ -154,11 +154,22 @@ jobs:
             exit 1
           fi
 
+      - name: Enforce native torrent ownership boundary
+        run: |
+          set -euo pipefail
+          if grep -RInE 'aria2c|qbittorrent|transmission-cli|libtorrent' \
+            crates/nova-torrent-core \
+            src-tauri/src/daemon/native_torrent.rs; then
+            echo "::error::Native torrent code must not delegate torrent execution to an external client."
+            exit 1
+          fi
+
       - name: Test native protocol cores
         run: |
           cargo test --manifest-path crates/nova-stream-core/Cargo.toml
           cargo test --manifest-path crates/nova-media-core/Cargo.toml
           cargo test --manifest-path crates/nova-torrent-core/Cargo.toml
+          cargo test --manifest-path src-tauri/Cargo.toml daemon::native_torrent::tests -- --nocapture
           cargo clippy --manifest-path crates/nova-torrent-core/Cargo.toml --all-targets -- -D warnings
           cargo fmt --check --manifest-path crates/nova-torrent-core/Cargo.toml
 
