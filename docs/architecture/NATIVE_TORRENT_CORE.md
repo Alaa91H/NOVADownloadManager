@@ -18,6 +18,9 @@ The first development stage establishes the protocol and data-integrity boundary
 - Per-piece SHA-1 verification before data can be accepted.
 - Magnet URI parsing for hexadecimal and Base32 `urn:btih` hashes.
 - Tracker and web-seed URL validation.
+- HTTP(S) tracker announce URL construction with binary-safe info-hash/peer-id encoding.
+- Bounded HTTP tracker response parsing for compact IPv4/IPv6 and dictionary peer lists.
+- UDP tracker connect/announce packet codecs with transaction validation and compact peer decoding.
 - BitTorrent peer handshake and length-prefixed peer-wire message codec.
 - Bounded peer-frame parsing to prevent untrusted peers from forcing oversized allocations.
 - Rarest-first piece scheduling with availability accounting and duplicate in-flight suppression.
@@ -42,12 +45,12 @@ Torrent metadata and peer traffic are untrusted input. The core therefore applie
 
 ### Stage 2 — Tracker discovery
 
-Implement first-party HTTP(S) and UDP tracker clients with:
+Protocol encoding/decoding is now implemented for HTTP(S) and UDP trackers. The remaining execution layer will add:
 
-- compact IPv4/IPv6 peer decoding;
-- announce lifecycle events (`started`, periodic, `completed`, `stopped`);
+- actual HTTP(S)/UDP transport orchestration;
+- announce lifecycle scheduling (`started`, periodic, `completed`, `stopped`);
 - tracker tier failover and retry backoff;
-- response-size/time limits;
+- request timeouts and cancellation;
 - SSRF and local-address protections aligned with NOVA's existing network policy.
 
 ### Stage 3 — Peer session engine
