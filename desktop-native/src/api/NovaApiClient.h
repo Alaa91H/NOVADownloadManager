@@ -116,6 +116,7 @@ public:
     Q_INVOKABLE void refreshQueueCatalog();
     Q_INVOKABLE void setQueuePriority(const QString &taskId, int priority);
     Q_INVOKABLE bool directOptionSupported(const QString &key) const;
+    Q_INVOKABLE bool mediaOptionSupported(const QString &key) const;
 
     Q_INVOKABLE void refreshScheduler();
     Q_INVOKABLE void addSchedulerRule(const QVariantMap &rule);
@@ -226,6 +227,7 @@ private:
     void pumpBatchRequests();
     void sendNextBatchRequest();
     void recomputeKnownQueueIds();
+    QVariantMap sanitizeMediaOptions(const QVariantMap &options) const;
 
     QNetworkAccessManager m_network;
     QUrl m_baseUrl{QStringLiteral("http://127.0.0.1:3199")};
