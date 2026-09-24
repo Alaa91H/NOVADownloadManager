@@ -21,8 +21,10 @@ pub use generic::{GenericDirectMediaExtractor, GenericManifestExtractor};
 pub use hls_live::{refresh_and_stage_hls_live_once, HlsLiveError, HlsLiveStageRefresh};
 pub use hls_transfer::{stage_hls_media_plan, HlsStageError, HlsStageFile, HlsStageResult};
 pub use youtube::{
-    select_youtube_download_plan, youtube_video_id, YouTubeChallengeKind, YouTubeDownloadPlan,
-    YouTubeExtraction, YouTubeExtractor, YouTubePendingFormat, YouTubeSelectionPolicy,
+    resolve_youtube_pending_formats, select_youtube_download_plan, youtube_video_id,
+    YouTubeChallengeKind, YouTubeChallengeResolution, YouTubeChallengeSolver,
+    YouTubeDownloadPlan, YouTubeExtraction, YouTubeExtractor, YouTubePendingFormat,
+    YouTubeSelectionPolicy,
 };
 
 use std::collections::BTreeMap;
