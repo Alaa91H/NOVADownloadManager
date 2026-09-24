@@ -248,7 +248,7 @@ export const MediaDownloadPage: React.FC = () => {
 
   /* -- computed values -- */
   const isProbingAny = isProbing || isProbingPlaylist;
-  const ytDlpReady = engineCapabilities.mediaReady;
+  const mediaEngineReady = engineCapabilities.mediaReady;
 
   const requiresFfmpeg = (() => {
     if (!probeResult || saveMode === 'audio') return true;
@@ -823,9 +823,9 @@ export const MediaDownloadPage: React.FC = () => {
                 >
                   <button
                     type="button"
-                    className={`w-full text-left flex items-center justify-between ${saveMode === 'audio' || !ytDlpReady ? 'cursor-not-allowed opacity-80' : ''}`}
+                    className={`w-full text-left flex items-center justify-between ${saveMode === 'audio' || !mediaEngineReady ? 'cursor-not-allowed opacity-80' : ''}`}
                     onClick={() => {
-                      if (saveMode === 'audio' || !ytDlpReady) return;
+                      if (saveMode === 'audio' || !mediaEngineReady) return;
                       togglePanel('quality');
                     }}
                   >
@@ -843,7 +843,7 @@ export const MediaDownloadPage: React.FC = () => {
                         <div className="rounded-xl border border-[var(--border-color)]/30 bg-[var(--bg-hover)]/50 p-3 text-[12px] text-[var(--text-muted)]">
                           {t('media_quality_disabled_for_audio')}
                         </div>
-                      ) : !ytDlpReady ? (
+                      ) : !mediaEngineReady ? (
                         <div className="rounded-xl border border-[var(--border-color)]/30 bg-[var(--bg-hover)]/50 p-3 text-[12px] text-[var(--text-muted)]">
                           {t('media_quality_requires_ytdlp')}
                         </div>
@@ -888,7 +888,7 @@ export const MediaDownloadPage: React.FC = () => {
                   </button>
                   {openPanel === 'audio' && (
                     <div className="mt-3">
-                      {!ytDlpReady ? (
+                      {!mediaEngineReady ? (
                         <div className="rounded-xl border border-[var(--border-color)]/30 bg-[var(--bg-hover)]/50 p-3 text-[12px] text-[var(--text-muted)]">
                           {t('media_audio_requires_ytdlp')}
                         </div>

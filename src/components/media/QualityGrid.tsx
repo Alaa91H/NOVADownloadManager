@@ -47,7 +47,7 @@ export const QualityGrid: React.FC<QualityGridProps> = ({
       <div className="flex items-center justify-between bg-[var(--danger-bg)]/5 border border-[var(--danger-border)] text-[var(--danger)] px-3 py-2 rounded-lg">
         <div className="flex items-center gap-2">
           <Info className="w-4 h-4" />
-          <div className="text-[11px]">yt-dlp is not available — media probing and some formats are disabled.</div>
+          <div className="text-[11px]">NOVA Media Engine is not available — media probing and some formats are disabled.</div>
         </div>
         <div>
           <button
