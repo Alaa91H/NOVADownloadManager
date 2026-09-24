@@ -14,7 +14,7 @@ public:
     explicit I18nManager(QObject *parent = nullptr);
 
     QString language() const { return m_language; }
-    bool rtl() const noexcept { return m_language == QStringLiteral("ar"); }
+    bool rtl() const;
     QVariantList supportedLanguages() const;
 
     Q_INVOKABLE QString translate(const QString &key) const;
