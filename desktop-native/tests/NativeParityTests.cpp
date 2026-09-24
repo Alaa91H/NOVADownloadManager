@@ -69,6 +69,7 @@ void NativeParityTests::largeListRemainsResponsive() {
     timer.start();
     model.replaceFromJson(downloads);
     const qint64 initialLoadMs = timer.elapsed();
+    qInfo().noquote() << "large-list initial-load-ms=" << initialLoadMs;
 
     QCOMPARE(model.totalCount(), itemCount);
     QCOMPARE(model.count(), itemCount);
@@ -80,23 +81,29 @@ void NativeParityTests::largeListRemainsResponsive() {
 
     timer.restart();
     model.setFilterState(QStringLiteral("active"));
+    const qint64 filterMs = timer.elapsed();
+    qInfo().noquote() << "large-list active-filter-ms=" << filterMs;
     QCOMPARE(model.count(), itemCount / 4);
     QVERIFY2(
-        timer.elapsed() < 3000,
+        filterMs < 3000,
         "Filtering 20k downloads exceeded the native UI stress budget"
     );
 
     timer.restart();
     model.setSortKey(QStringLiteral("speed"));
     model.setSortAscending(false);
+    const qint64 speedSortMs = timer.elapsed();
+    qInfo().noquote() << "large-list speed-sort-ms=" << speedSortMs;
     QVERIFY2(
-        timer.elapsed() < 3000,
+        speedSortMs < 3000,
         "Sorting the active large-list view exceeded the native UI stress budget"
     );
 
     timer.restart();
     model.setFilterState(QStringLiteral("downloads"));
     model.setSearchQuery(QStringLiteral("download-19999.bin"));
+    const qint64 searchMs = timer.elapsed();
+    qInfo().noquote() << "large-list restore-and-search-ms=" << searchMs;
     QCOMPARE(model.count(), 1);
     QCOMPARE(model.itemAt(0).value(QStringLiteral("taskId")).toString(), QStringLiteral("task-019999"));
     const QVariantMap extended = model.itemAt(0);
@@ -108,7 +115,7 @@ void NativeParityTests::largeListRemainsResponsive() {
     QVERIFY(!extended.value(QStringLiteral("completedAt")).toString().isEmpty());
     QVERIFY(!extended.value(QStringLiteral("crc32")).toString().isEmpty());
     QVERIFY2(
-        timer.elapsed() < 3000,
+        searchMs < 3000,
         "Searching 20k downloads exceeded the native UI stress budget"
     );
 

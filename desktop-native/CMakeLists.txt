@@ -127,7 +127,7 @@ if(NOVA_BUILD_TESTS)
 
     add_test(
         NAME nova-native-parity
-        COMMAND nova-native-tests
+        COMMAND nova-native-tests -o -,txt
     )
     set_tests_properties(
         nova-native-parity
