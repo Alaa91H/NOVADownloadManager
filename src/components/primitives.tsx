@@ -288,7 +288,7 @@ const StatusPillInner: React.FC<StatusPillProps> = ({ status, engineStatus, erro
       : isTaskActiveStatus(status) && engineStatus
         ? (ENGINE_STATUS_LABELS[engineStatus] ?? '')
         : status === 'interrupted'
-          ? (ENGINE_STATUS_LABELS.interrupted ?? '')
+          ? ENGINE_STATUS_LABELS.interrupted
           : '';
 
   return (
