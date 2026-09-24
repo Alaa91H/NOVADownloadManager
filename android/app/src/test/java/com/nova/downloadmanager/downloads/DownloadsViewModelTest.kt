@@ -48,6 +48,31 @@ class DownloadsViewModelTest {
     }
 
     @Test
+    fun `notification resume action updates the visible task state`() {
+        val paused = DownloadSummary("42", "file.zip", "paused", 512, 1024)
+        val repository = TestDownloadsRepository(paused)
+        val viewModel = DownloadsViewModel(repository)
+
+        viewModel.requestDownload("https://example.org/file.zip")
+        viewModel.resumeTask(paused.id)
+
+        assertEquals(1, repository.resumeCount)
+        assertEquals("queued", viewModel.uiState.value.tasks.single().status)
+    }
+
+    @Test
+    fun `resume action rehydrates a task missing from current UI state`() {
+        val paused = DownloadSummary("42", "file.zip", "paused", 512, 1024)
+        val repository = TestDownloadsRepository(paused)
+        val viewModel = DownloadsViewModel(repository)
+
+        viewModel.resumeTask(paused.id)
+
+        assertEquals(1, repository.resumeCount)
+        assertEquals(listOf(paused.copy(status = "queued")), viewModel.uiState.value.tasks)
+    }
+
+    @Test
     fun `refresh removes tasks no longer returned by the transfer core`() {
         val task = DownloadSummary("42", "file.zip", "queued", 0, 0)
         val viewModel = DownloadsViewModel(TestDownloadsRepository(task))
@@ -83,12 +108,18 @@ private class TestDownloadsRepository(
     private val result: DownloadSummary,
 ) : DownloadsRepository {
     var enqueueCount: Int = 0
+    var resumeCount: Int = 0
 
     override fun coreReadiness(): CoreReadiness = CoreReadiness.Ready
 
     override fun enqueue(url: String): Result<DownloadSummary> {
         enqueueCount += 1
         return Result.success(result)
+    }
+
+    override fun resume(taskId: String): Result<DownloadSummary> {
+        resumeCount += 1
+        return Result.success(result.copy(status = "queued"))
     }
 
     override fun refresh(taskIds: Collection<String>): List<DownloadSummary> = emptyList()

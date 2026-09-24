@@ -9,25 +9,29 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.nova.downloadmanager.design.NOVATheme
-import com.nova.downloadmanager.downloads.PlatformDownloadsRepository
 import com.nova.downloadmanager.service.NovaTransferNotifications
 import com.nova.downloadmanager.service.NovaTransferScheduler
 import com.nova.downloadmanager.share.ShareIntentParser
 
 class MainActivity : ComponentActivity() {
     private var sharedUrl by mutableStateOf<String?>(null)
+    private var resumeTaskId by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        handleTransferAction(intent)
+        resumeTaskId = consumeResumeTaskId(intent)
         sharedUrl = ShareIntentParser.extractHttpUrl(intent)
         setContent {
             NOVATheme(
                 darkTheme = androidx.compose.foundation.isSystemInDarkTheme(),
                 useDynamicColor = true,
             ) {
-                NOVAApp(incomingSharedUrl = sharedUrl)
+                NOVAApp(
+                    incomingSharedUrl = sharedUrl,
+                    incomingResumeTaskId = resumeTaskId,
+                    onResumeTaskConsumed = { resumeTaskId = null },
+                )
             }
         }
     }
@@ -35,17 +39,16 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleTransferAction(intent)
+        resumeTaskId = consumeResumeTaskId(intent)
         sharedUrl = ShareIntentParser.extractHttpUrl(intent)
     }
 
-    private fun handleTransferAction(intent: Intent) {
-        if (intent.action != NovaTransferNotifications.ACTION_RESUME) return
+    private fun consumeResumeTaskId(intent: Intent): String? {
+        if (intent.action != NovaTransferNotifications.ACTION_RESUME) return null
         val taskId = intent.getStringExtra(NovaTransferScheduler.EXTRA_TASK_ID)
             ?.takeIf(String::isNotBlank)
-            ?: return
-        PlatformDownloadsRepository(applicationContext).resume(taskId)
         intent.action = null
         intent.removeExtra(NovaTransferScheduler.EXTRA_TASK_ID)
+        return taskId
     }
 }

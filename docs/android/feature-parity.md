@@ -25,10 +25,10 @@ This matrix is a roadmap and audit artifact, not a marketing claim. A capability
 | Segmented/range logic | `direct.rs`, dynamic segments | Same shared Rust engine | Extracted/shared range planner; validated ranged file resume implemented | Server fixture with range/no-range/partial cases on device and parallel segment execution. |
 | Queue, priority, bandwidth profiles | Rust engine policies + AppState | Extract shared policy/core session | Planned | Core tests plus Android command/constraint integration. |
 | Retry policy | Rust retry/scheduler | Shared policy; Android decides permitted execution time | Planned | Durable transitions across network/process interruption. |
-| Scheduler/rules | Desktop daemon scheduler | Shared semantics + WorkManager/UIDT adapter | Planned | API-level/device policy tests, constraints, idempotency. |
+| Scheduler/rules | Desktop daemon scheduler | Shared semantics + WorkManager/UIDT adapter | Android foundation; UIDT/WorkManager dispatch implemented | API-level/device policy tests, constraints, idempotency. |
 | Durable recovery | Desktop persistence | Android-aware durable state and storage descriptors | Planned | Process kill/force-stop/relaunch recovery tests. |
-| User-started background transfer | Desktop runtime/daemon | UIDT on API 34+ with validated fallback | Planned | Physical-device visible-progress and stop/resume tests. |
-| Notifications | Tauri desktop notification/tray | Android channel, actions, task detail intent | Planned | Permission/action and duplicate-work tests. |
+| User-started background transfer | Desktop runtime/daemon | UIDT on API 34+ with WorkManager fallback | Android foundation; execution ownership implemented | Physical-device visible-progress and stop/resume tests. |
+| Notifications | Tauri desktop notification/tray | Android channel, progress, pause/cancel, resume-to-app intent | Android foundation; actions implemented | Permission/action and duplicate-work tests on device. |
 | App-private storage | Desktop output/data dirs | Android internal staging adapter | Android foundation; app-private staging/finalization implemented | Device resume, cleanup, integrity-failure, and process-loss tests. |
 | SAF destination | Desktop path/file dialogs | Persisted document-tree grant adapter | Planned | Grant/revocation/provider failure tests. |
 | MediaStore Downloads | Desktop filesystem destination | Pending MediaStore item then finalization | Planned | Pending/finalized/cancelled item tests. |
@@ -49,7 +49,7 @@ The current milestone verifies all of the following, and nothing more:
 3. A versioned UniFFI bridge skeleton compiles and links as an `arm64-v8a` Android shared library against API 26.
 4. The Android Compose shell is native, uses Material 3, centralizes theme/icons, holds state in a ViewModel, and accepts validated text-share URLs without creating a Kotlin download implementation.
 
-The current milestone does **not** verify downloads, storage, notification actions, UIDT/WorkManager execution, generated bindings, runtime JNI/UniFFI loading, user-visible task controls, recovery, media, or physical-device operation.
+The current milestone still does **not** claim physical-device verification, SAF/MediaStore storage, generated high-level UniFFI task bindings, full queue/bandwidth parity, media processing, or release-grade recovery under every OS stop condition. Native direct transfer, UIDT/WorkManager ownership, notification controls, and Compose pause/resume/cancel controls are implemented but remain below the physical-device evidence level.
 
 ## Parity measurement policy
 

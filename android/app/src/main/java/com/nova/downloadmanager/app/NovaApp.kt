@@ -19,7 +19,13 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -56,6 +62,8 @@ import kotlinx.coroutines.isActive
 @Composable
 fun NOVAApp(
     incomingSharedUrl: String?,
+    incomingResumeTaskId: String? = null,
+    onResumeTaskConsumed: () -> Unit = {},
     viewModel: DownloadsViewModel = viewModel(),
 ) {
     val context = LocalContext.current
@@ -81,6 +89,13 @@ fun NOVAApp(
     }
     LaunchedEffect(incomingSharedUrl) {
         incomingSharedUrl?.let(viewModel::receiveSharedUrl)
+    }
+    LaunchedEffect(incomingResumeTaskId, uiState.readiness) {
+        if (incomingResumeTaskId != null && uiState.readiness == CoreReadiness.Ready) {
+            viewModel.resumeTask(incomingResumeTaskId)
+            selectedDestinationName = AppDestination.Downloads.name
+            onResumeTaskConsumed()
+        }
     }
     LaunchedEffect(uiState.readiness, uiState.tasks) {
         if (
@@ -133,6 +148,9 @@ fun NOVAApp(
                         uiState = uiState,
                         onDismissSharedUrl = viewModel::clearSharedUrl,
                         onRequestDownload = onRequestDownload,
+                        onPauseTask = viewModel::pauseTask,
+                        onResumeTask = viewModel::resumeTask,
+                        onCancelTask = viewModel::cancelTask,
                         onBrowserCaptured = {
                             viewModel.receiveBrowserDownload(it)
                             selectedDestinationName = AppDestination.Downloads.name
@@ -149,6 +167,9 @@ fun NOVAApp(
                         uiState = uiState,
                         onDismissSharedUrl = viewModel::clearSharedUrl,
                         onRequestDownload = onRequestDownload,
+                        onPauseTask = viewModel::pauseTask,
+                        onResumeTask = viewModel::resumeTask,
+                        onCancelTask = viewModel::cancelTask,
                         onBrowserCaptured = {
                             viewModel.receiveBrowserDownload(it)
                             selectedDestinationName = AppDestination.Downloads.name
@@ -172,6 +193,9 @@ private fun NOVAContent(
     uiState: DownloadsUiState,
     onDismissSharedUrl: () -> Unit,
     onRequestDownload: (String) -> Unit,
+    onPauseTask: (String) -> Unit,
+    onResumeTask: (String) -> Unit,
+    onCancelTask: (String) -> Unit,
     onBrowserCaptured: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -180,6 +204,9 @@ private fun NOVAContent(
             uiState = uiState,
             onDismissSharedUrl = onDismissSharedUrl,
             onRequestDownload = onRequestDownload,
+            onPauseTask = onPauseTask,
+            onResumeTask = onResumeTask,
+            onCancelTask = onCancelTask,
             modifier = modifier,
         )
         AppDestination.Queue -> FoundationDestinationScreen(
@@ -218,6 +245,9 @@ private fun DownloadsScreen(
     uiState: DownloadsUiState,
     onDismissSharedUrl: () -> Unit,
     onRequestDownload: (String) -> Unit,
+    onPauseTask: (String) -> Unit,
+    onResumeTask: (String) -> Unit,
+    onCancelTask: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var directUrl by rememberSaveable { mutableStateOf("") }
@@ -259,7 +289,12 @@ private fun DownloadsScreen(
         if (uiState.tasks.isEmpty()) {
             EmptyDownloadsState()
         } else {
-            DownloadTaskList(uiState.tasks)
+            DownloadTaskList(
+                tasks = uiState.tasks,
+                onPauseTask = onPauseTask,
+                onResumeTask = onResumeTask,
+                onCancelTask = onCancelTask,
+            )
         }
     }
 }
@@ -350,7 +385,12 @@ private fun SharedUrlCard(
 }
 
 @Composable
-private fun DownloadTaskList(tasks: List<DownloadSummary>) {
+private fun DownloadTaskList(
+    tasks: List<DownloadSummary>,
+    onPauseTask: (String) -> Unit,
+    onResumeTask: (String) -> Unit,
+    onCancelTask: (String) -> Unit,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(NOVADimens.CompactGap)) {
         tasks.forEach { task ->
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -360,11 +400,44 @@ private fun DownloadTaskList(tasks: List<DownloadSummary>) {
                 ) {
                     Text(task.name, style = MaterialTheme.typography.titleSmall)
                     Text(stringResource(statusResource(task.status)), style = MaterialTheme.typography.bodyMedium)
-                    if (task.totalBytes > 0) {
+                    if (task.downloadedBytes > 0 || task.totalBytes > 0) {
                         Text(
-                            text = "${task.downloadedBytes} / ${task.totalBytes}",
+                            text = if (task.totalBytes > 0) {
+                                "${task.downloadedBytes} / ${task.totalBytes}"
+                            } else {
+                                task.downloadedBytes.toString()
+                            },
                             style = MaterialTheme.typography.bodySmall,
                         )
+                    }
+
+                    if (task.status in CONTROLLABLE_DOWNLOAD_STATUSES) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(NOVADimens.CompactGap)) {
+                            when (task.status) {
+                                "queued", "downloading" -> {
+                                    IconButton(onClick = { onPauseTask(task.id) }) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Pause,
+                                            contentDescription = stringResource(R.string.nova_status_paused),
+                                        )
+                                    }
+                                }
+                                "paused", "failed" -> {
+                                    IconButton(onClick = { onResumeTask(task.id) }) {
+                                        Icon(
+                                            imageVector = Icons.Filled.PlayArrow,
+                                            contentDescription = stringResource(R.string.nova_action_refresh),
+                                        )
+                                    }
+                                }
+                            }
+                            IconButton(onClick = { onCancelTask(task.id) }) {
+                                Icon(
+                                    imageVector = Icons.Filled.Cancel,
+                                    contentDescription = stringResource(R.string.nova_action_cancel),
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -412,3 +485,4 @@ private fun redactUrlForDisplay(url: String): String = runCatching {
 
 private const val DOWNLOAD_REFRESH_INTERVAL_MS = 1_000L
 private val TERMINAL_DOWNLOAD_STATUSES = setOf("completed", "failed", "paused", "cancelled")
+private val CONTROLLABLE_DOWNLOAD_STATUSES = setOf("queued", "downloading", "paused", "failed")

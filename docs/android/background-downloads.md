@@ -4,13 +4,13 @@
 
 **Android lifecycle is not download lifecycle.** The Rust core must persist durable task intent and checkpoints frequently enough to survive process loss. Android decides when execution is permitted, starts or stops an approved unit of work, and surfaces progress and errors through platform notifications.
 
-The native-transfer milestone now performs direct HTTP(S) bytes through the shared Rust core on a bounded in-process executor. `NovaUserInitiatedTransferJobService` remains a reconciliation-only entry point: UIDT/WorkManager dispatch is intentionally not enabled until the native session has device validation and durable stop/resume semantics. No Kotlin download engine is introduced.
+The background-execution milestone now delegates transfer lifetime to Android while keeping all network bytes inside the shared Rust core. Android 14+ schedules explicit user starts as UIDT jobs and immediately binds a job notification; earlier releases use a long-running WorkManager fallback with a dataSync foreground service. `NovaTransferCore` no longer creates its own transfer threads.
 
 ## Execution policy
 
 | User or system scenario | Android 14+ mechanism | Earlier-device mechanism | Rust responsibility | Android responsibility | Current state |
 |---|---|---|---|---|---|
-| User explicitly starts an immediate, visible download | User-Initiated Data Transfer (UIDT) job | Validated foreground/long-running work fallback | Run a durable task session; emit bounded progress; checkpoint state. | Start work while permitted, attach notification, cancel safely. | Designed only; no task session yet. |
+| User explicitly starts an immediate, visible download | User-Initiated Data Transfer (UIDT) job | Long-running WorkManager foreground worker | Run the durable native task and honor pause/cancel. | Schedule while permitted, own lifecycle, attach/update notification. | Implemented; device evidence pending. |
 | Deferred or constrained retry, Wi-Fi-only work | WorkManager with constraints | WorkManager | Select eligible task according to shared retry policy. | Translate network/battery/storage preferences to constraints. | Deferred. |
 | Finalization, cleanup, metadata refresh | Bounded WorkManager work | Bounded WorkManager work | Validate and commit core state. | Schedule short work; obey constraints and cancellation. | Deferred. |
 | Media processing | Only applicable `mediaProcessing` handling with separate policy | Explicit user-visible bounded alternative | Media intent/model only once designed. | Codec/backend/notification policy. | Explicitly deferred. |
@@ -52,7 +52,7 @@ A real transfer implementation must create the `Downloads` notification channel,
 
 ## Explicit non-goals in this milestone
 
-No Android background service or WorkManager/UIDT job currently owns the native transfer. The first Rust transfer runs only in-process, and process loss reconciles an orphaned active record to Paused while preserving app-private staging bytes. Notification actions, durable URL recovery, scheduler integration, and real-device background validation remain pending.
+UIDT/WorkManager now own the execution envelope, native pause/cancel are connected to notification actions, and resume intent remains Android-Keystore encrypted. This milestone still does not claim physical-device verification, SAF/MediaStore destination support, Wi-Fi-only scheduling policy, or full generated UniFFI task bindings.
 
 ## Acceptance tests before enabling a real transfer
 

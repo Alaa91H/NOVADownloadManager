@@ -107,11 +107,15 @@ class DownloadsViewModel(
     private fun applyTaskAction(result: Result<DownloadSummary>) {
         result
             .onSuccess { summary ->
-                mutableUiState.value = mutableUiState.value.copy(
-                    tasks = mutableUiState.value.tasks.map { task ->
+                val currentTasks = mutableUiState.value.tasks
+                val nextTasks = if (currentTasks.any { it.id == summary.id }) {
+                    currentTasks.map { task ->
                         if (task.id == summary.id) summary else task
-                    },
-                )
+                    }
+                } else {
+                    listOf(summary) + currentTasks
+                }
+                mutableUiState.value = mutableUiState.value.copy(tasks = nextTasks)
             }
             .onFailure {
                 mutableUiState.value = mutableUiState.value.copy(
