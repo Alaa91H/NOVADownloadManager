@@ -9,7 +9,6 @@ export interface EngineRuntimeCapabilities {
   unsupportedDirectOptionKeys?: string[];
   supportedMediaOptionKeys?: string[];
   unsupportedMediaOptionKeys?: string[];
-  supportedExternalDownloaders?: string[];
   capabilities?: JsonRecord;
   [key: string]: unknown;
 }
@@ -19,6 +18,13 @@ export interface EngineRoutingCapabilities {
   webMediaAndPlaylists?: string | null;
   mergeRemuxExtractSubtitles?: string | null;
   torrentMagnet?: string | null;
+}
+
+export interface MediaApiCapabilities {
+  resolve: string;
+  probe: string;
+  download: string;
+  postprocessStatus: string;
 }
 
 export interface EngineCapabilitiesResponse {
@@ -32,6 +38,7 @@ export interface EngineCapabilitiesResponse {
   postProcessingReady: boolean;
   directProtocols: string[];
   compatibilityMode: 'runtime-verified-capabilities';
+  mediaApi: MediaApiCapabilities;
   routing: EngineRoutingCapabilities;
   engines: {
     curl: EngineRuntimeCapabilities;
@@ -74,6 +81,16 @@ function asOptionalEngineId(value: unknown, path: string): string | null | undef
   return asString(value, path);
 }
 
+function parseMediaApi(value: unknown): MediaApiCapabilities {
+  const api = asRecord(value, 'mediaApi');
+  return {
+    resolve: asString(api.resolve, 'mediaApi.resolve'),
+    probe: asString(api.probe, 'mediaApi.probe'),
+    download: asString(api.download, 'mediaApi.download'),
+    postprocessStatus: asString(api.postprocessStatus, 'mediaApi.postprocessStatus'),
+  };
+}
+
 function parseRouting(value: unknown): EngineRoutingCapabilities {
   const routing = asRecord(value, 'routing');
   return {
@@ -110,6 +127,7 @@ export function parseEngineCapabilitiesResponse(value: unknown): EngineCapabilit
     postProcessingReady: asBoolean(root.postProcessingReady, 'postProcessingReady'),
     directProtocols: asStringArray(root.directProtocols, 'directProtocols'),
     compatibilityMode,
+    mediaApi: parseMediaApi(root.mediaApi),
     routing: parseRouting(root.routing),
     engines: {
       curl: asRecord(engines.curl, 'engines.curl'),
