@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.49-alpha] - 2026-09-25
+
+### Highlights
+
+- **Introduced a shared native Rust transfer architecture across desktop and Android.** NOVA now shares range planning, validator-aware recovery, segmented transfer geometry, HTTP transport rules, and completion integrity checks across platforms.
+- **Moved Android direct downloads to NOVA's native Rust/libcurl engine.** Android no longer relies on the platform DownloadManager for the primary direct-transfer path, while lifecycle, catalog projection, notifications, and user controls remain integrated with the Android app.
+- **Hardened crash recovery and resume correctness.** Resume checkpoints are now bound to remote validators and exact byte ranges, stale recovery state is discarded when remote content changes, and segmented completion is accepted only after exact byte coverage and durable output validation.
+- **Added non-admin Windows installation.** Releases now support a per-user installer alongside the existing machine-wide installer, with package-manager metadata advertising the appropriate installation scopes.
+
 ### Added
 
 - **Added a non-elevated Windows installer for the current user.** NOVA can now be installed under the user's local app data without Administrator privileges, while releases also retain a separate per-machine installer for all-users deployment.
@@ -23,6 +32,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Added validated resume, pause, and cancel semantics.** Partial staging bytes are retained for pause/failure resume, while cancellation removes partial output and encrypted transfer intent.
 - **Unified desktop and mobile segment planning.** Desktop preserves its higher host-specific connection ceiling while sharing the same range geometry implementation.
 - **Expanded Android CI coverage.** Shared core, mobile facade, native bridge, ARM64 packaging, JVM tests, and APK native-library checks are exercised by the Android foundation workflow.
+
+### Fixed
+
+- **Prevented stale or corrupted resume state after remote content changes.** Recovery validates ETag/Last-Modified identity, Content-Range boundaries, and persisted segment geometry before any resumed bytes are accepted.
+- **Hardened desktop transfer lifecycle transitions.** Pause, resume, restart, completion, watchdog failures, and crash recovery now flow through explicit lock-safe task states.
+- **Restored build reliability after native-core integration.** Rust formatting, lockfile consistency, yt-dlp process termination imports, and quality-gate regressions were corrected.
+- **Fixed translation catalog refresh behavior.** UI translation callbacks now react to catalog revisions without stale dependency state.
+
+### Security and integrity
+
+- **Updated rustls to the patched 0.23.45 line** and aligned dependent lockfiles.
+- **Restricted the mobile native transport to HTTP(S).** App-private transfer APIs reject unsupported protocol schemes before transfer execution.
+- **Added strict segmented-download integrity gates.** NOVA validates range geometry, response boundaries, remote identity, exact byte coverage, and final on-disk output before reporting completion.
+- **Kept resumable Android transfer intents encrypted with Android Keystore AES/GCM.**
+
+### CI and maintenance
+
+- **Prevented superseded GitHub Actions runs from accumulating.** CI, Android foundation, CodeQL, Native UI, and Rust-compatibility workflows now cancel stale branch/PR runs while preserving explicit manual release/validation runs.
+- **Expanded native Android and shared-core validation.** CI covers the Rust transfer core, JNI/FFI bridge, ARM64 packaging, resume/recovery behavior, task controls, and APK native-library presence.
+- **Updated the project dependency stack and build tooling** across Rust, Tauri, React, TypeScript, Playwright, Gradle Actions, and extension tooling.
 
 ### Safety and scope
 

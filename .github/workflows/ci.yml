@@ -19,9 +19,11 @@ on:
         required: false
         default: ''
 
+# Keep only the newest CI run for a branch or pull request. Manual runs and
+# release tags stay isolated so they are never cancelled by normal development pushes.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/') }}
 
 permissions: {}
 
@@ -1181,7 +1183,8 @@ jobs:
           # advertised as stable/latest releases to existing installations.
           prerelease: ${{ contains(github.ref_name, '-') }}
           make_latest: ${{ !contains(github.ref_name, '-') }}
-          generate_release_notes: true
+          # Preserve the curated release body created by the release-request workflow.
+          generate_release_notes: false
           files: release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -8,8 +8,10 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+# Keep only the newest Android foundation run for a branch or pull request.
+# workflow_dispatch runs are intentionally isolated for explicit manual validation.
 concurrency:
-  group: android-foundation-${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  group: android-foundation-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 permissions:

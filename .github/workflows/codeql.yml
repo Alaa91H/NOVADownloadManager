@@ -10,9 +10,11 @@ on:
     - cron: '17 3 * * 1'
   workflow_dispatch:
 
+# Supersede stale CodeQL work on the same branch/PR while preserving
+# explicitly requested manual scans.
 concurrency:
-  group: codeql-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: codeql-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 permissions:
   contents: read
