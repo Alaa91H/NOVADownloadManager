@@ -35,6 +35,9 @@ private slots:
     void queueCatalogManagementIsDaemonBacked();
     void queueStartStopHonorsMaxActive();
     void schedulerStatusCarriesCompletionControls();
+    void advancedSettingsMigrateAndBackupSafely();
+    void advancedDownloadCarriesNetworkDefaults();
+    void settingsServicesReachDaemon();
 };
 
 void NativeParityTests::largeListRemainsResponsive() {
@@ -1288,6 +1291,326 @@ void NativeParityTests::schedulerStatusCarriesCompletionControls() {
     QCOMPARE(client.schedulerPowerCommandsEnabled(), false);
     QVERIFY(!requestBodies.isEmpty());
     QVERIFY(requestBodies.constLast().contains("\"enabled\":false"));
+}
+
+
+void NativeParityTests::advancedSettingsMigrateAndBackupSafely() {
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    const QByteArray previousDataDir = qgetenv("NOVA_NATIVE_DATA_DIR");
+    qputenv("NOVA_NATIVE_DATA_DIR", temp.path().toUtf8());
+
+    const QString configPath = temp.filePath(QStringLiteral("config.json"));
+    QFile config(configPath);
+    QVERIFY(config.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    const QJsonObject legacy{
+        {
+            QStringLiteral("connection"),
+            QJsonObject{
+                {QStringLiteral("enableProxy"), true},
+                {QStringLiteral("proxyHost"), QStringLiteral("proxy.test")},
+                {QStringLiteral("proxyPort"), QStringLiteral("8080")},
+                {QStringLiteral("proxyUser"), QStringLiteral("alice")},
+                {QStringLiteral("proxyPass"), QStringLiteral("secret")},
+                {QStringLiteral("proxyType"), QStringLiteral("http")},
+                {
+                    QStringLiteral("defaults"),
+                    QJsonObject{
+                        {QStringLiteral("timeoutSec"), 90},
+                        {QStringLiteral("connectTimeoutSec"), 15},
+                        {QStringLiteral("retryCount"), 7},
+                        {QStringLiteral("retryDelaySec"), 9},
+                        {QStringLiteral("dnsServers"), QStringLiteral("1.1.1.1,1.0.0.1")}
+                    }
+                }
+            }
+        },
+        {
+            QStringLiteral("extra"),
+            QJsonObject{
+                {QStringLiteral("videoQuality"), QStringLiteral("good")},
+                {QStringLiteral("downloadSubtitles"), true},
+                {QStringLiteral("subtitleLanguage"), QStringLiteral("ar,en")},
+                {QStringLiteral("vpnEnabled"), true},
+                {QStringLiteral("vpnMode"), QStringLiteral("bind")},
+                {QStringLiteral("vpnBindAddress"), QStringLiteral("tun0")}
+            }
+        },
+        {
+            QStringLiteral("advanced"),
+            QJsonObject{
+                {QStringLiteral("dynamicAllocation"), false},
+                {QStringLiteral("bufferSizeKb"), 512}
+            }
+        },
+        {
+            QStringLiteral("keyboardShortcuts"),
+            QJsonObject{
+                {QStringLiteral("enabled"), true},
+                {
+                    QStringLiteral("bindings"),
+                    QJsonObject{
+                        {QStringLiteral("addDownload"), QStringLiteral("Ctrl+Alt+N")},
+                        {QStringLiteral("openSettings"), QStringLiteral("Ctrl+Alt+,")}
+                    }
+                }
+            }
+        }
+    };
+    config.write(QJsonDocument(legacy).toJson(QJsonDocument::Compact));
+    config.close();
+
+    const QString settingsFile = temp.filePath(QStringLiteral("native-settings.ini"));
+    NativeSettings settings(settingsFile, nullptr);
+    const QVariantMap advanced = settings.advancedSettings();
+    QCOMPARE(advanced.value(QStringLiteral("proxyEnabled")).toBool(), true);
+    QCOMPARE(advanced.value(QStringLiteral("proxyHost")).toString(), QStringLiteral("proxy.test"));
+    QCOMPARE(advanced.value(QStringLiteral("proxyPassword")).toString(), QStringLiteral("secret"));
+    QCOMPARE(advanced.value(QStringLiteral("timeoutSec")).toInt(), 90);
+    QCOMPARE(advanced.value(QStringLiteral("retryCount")).toInt(), 7);
+    QCOMPARE(advanced.value(QStringLiteral("videoQuality")).toString(), QStringLiteral("good"));
+    QCOMPARE(advanced.value(QStringLiteral("vpnBindAddress")).toString(), QStringLiteral("tun0"));
+    QCOMPARE(advanced.value(QStringLiteral("bufferSizeKb")).toInt(), 512);
+    QCOMPARE(
+        settings.shortcutBindings().value(QStringLiteral("addDownload")).toString(),
+        QStringLiteral("Ctrl+Alt+N")
+    );
+
+    const QString backupPath = temp.filePath(QStringLiteral("settings-backup.json"));
+    QVERIFY(settings.exportBackup(backupPath));
+    QFile backup(backupPath);
+    QVERIFY(backup.open(QIODevice::ReadOnly));
+    const QJsonObject backupRoot = QJsonDocument::fromJson(backup.readAll()).object();
+    backup.close();
+    QCOMPARE(
+        backupRoot.value(QStringLiteral("schema")).toString(),
+        QStringLiteral("nova-native-settings-v1")
+    );
+    const QJsonObject backedAdvanced = backupRoot
+        .value(QStringLiteral("settings"))
+        .toObject()
+        .value(QStringLiteral("advanced"))
+        .toObject();
+    QVERIFY(!backedAdvanced.contains(QStringLiteral("proxyPassword")));
+    QCOMPARE(
+        backedAdvanced.value(QStringLiteral("proxyHost")).toString(),
+        QStringLiteral("proxy.test")
+    );
+
+    settings.setAdvancedValue(QStringLiteral("proxyHost"), QStringLiteral("changed.test"));
+    settings.setShortcutBinding(QStringLiteral("addDownload"), QStringLiteral("Alt+N"));
+    QVERIFY(settings.importBackup(backupPath));
+    QCOMPARE(
+        settings.advancedSettings().value(QStringLiteral("proxyHost")).toString(),
+        QStringLiteral("proxy.test")
+    );
+    QCOMPARE(
+        settings.shortcutBindings().value(QStringLiteral("addDownload")).toString(),
+        QStringLiteral("Ctrl+Alt+N")
+    );
+    // Backup intentionally cannot overwrite a locally stored secret.
+    QCOMPARE(
+        settings.advancedSettings().value(QStringLiteral("proxyPassword")).toString(),
+        QStringLiteral("secret")
+    );
+
+    if (previousDataDir.isEmpty()) {
+        qunsetenv("NOVA_NATIVE_DATA_DIR");
+    } else {
+        qputenv("NOVA_NATIVE_DATA_DIR", previousDataDir);
+    }
+}
+
+void NativeParityTests::advancedDownloadCarriesNetworkDefaults() {
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+    QByteArray capturedBody;
+    connect(&server, &QTcpServer::newConnection, &server, [&]() {
+        while (server.hasPendingConnections()) {
+            QTcpSocket *socket = server.nextPendingConnection();
+            auto *buffer = new QByteArray();
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, [buffer]() { delete buffer; });
+            QObject::connect(socket, &QTcpSocket::readyRead, socket, [&, socket, buffer]() {
+                buffer->append(socket->readAll());
+                const int headerEnd = buffer->indexOf("\r\n\r\n");
+                if (headerEnd < 0) return;
+
+                const QByteArray headers = buffer->left(headerEnd);
+                const QByteArray requestLine = headers.left(headers.indexOf("\r\n"));
+                const QRegularExpression lengthPattern(
+                    QStringLiteral("Content-Length:\\s*(\\d+)"),
+                    QRegularExpression::CaseInsensitiveOption
+                );
+                const auto match = lengthPattern.match(QString::fromLatin1(headers));
+                const int contentLength = match.hasMatch() ? match.captured(1).toInt() : 0;
+                const int bodyStart = headerEnd + 4;
+                if (buffer->size() < bodyStart + contentLength) return;
+
+                if (requestLine.startsWith("POST /api/downloads ")) {
+                    capturedBody = buffer->mid(bodyStart, contentLength);
+                }
+
+                const QByteArray responseBody = requestLine.startsWith("POST /api/downloads ")
+                    ? "{\"id\":\"task-network\"}"
+                    : "[]";
+                socket->write(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
+                    + QByteArray::number(responseBody.size()) + "\r\n\r\n" + responseBody
+                );
+                socket->disconnectFromHost();
+            });
+        }
+    });
+
+    NovaApiClient client;
+    client.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())));
+    QSignalSpy createdSpy(&client, &NovaApiClient::downloadCreated);
+
+    client.createDownloadAdvanced(
+        QStringLiteral("https://example.test/file.bin"),
+        QStringLiteral("file.bin"),
+        QStringLiteral("/tmp/file.bin"),
+        true,
+        0,
+        QVariantMap{
+            {QStringLiteral("proxy"), QStringLiteral("http://proxy.test:8080")},
+            {QStringLiteral("proxyUser"), QStringLiteral("alice")},
+            {QStringLiteral("proxyPassword"), QStringLiteral("secret")},
+            {QStringLiteral("timeoutSec"), 90},
+            {QStringLiteral("connectTimeoutSec"), 15},
+            {QStringLiteral("retryCount"), 7},
+            {QStringLiteral("retryDelaySec"), 9},
+            {QStringLiteral("dnsServers"), QStringLiteral("1.1.1.1,1.0.0.1")},
+            {QStringLiteral("userAgent"), QStringLiteral("NOVA-Test")},
+            {QStringLiteral("bufferSize"), 524288}
+        }
+    );
+
+    QTRY_VERIFY_WITH_TIMEOUT(createdSpy.count() >= 1, 3000);
+    QVERIFY(!capturedBody.isEmpty());
+
+    const QJsonObject body = QJsonDocument::fromJson(capturedBody).object();
+    QCOMPARE(body.value(QStringLiteral("connections")).toInt(), 0);
+    const QJsonObject options = body.value(QStringLiteral("directOptions")).toObject();
+    QCOMPARE(options.value(QStringLiteral("proxy")).toString(), QStringLiteral("http://proxy.test:8080"));
+    QCOMPARE(options.value(QStringLiteral("proxyUser")).toString(), QStringLiteral("alice"));
+    QCOMPARE(options.value(QStringLiteral("timeoutSec")).toInt(), 90);
+    QCOMPARE(options.value(QStringLiteral("retryCount")).toInt(), 7);
+    QCOMPARE(options.value(QStringLiteral("dnsServers")).toString(), QStringLiteral("1.1.1.1,1.0.0.1"));
+    QCOMPARE(options.value(QStringLiteral("bufferSize")).toInt(), 524288);
+}
+
+void NativeParityTests::settingsServicesReachDaemon() {
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+    QList<QByteArray> requestLines;
+    QList<QByteArray> requestBodies;
+    connect(&server, &QTcpServer::newConnection, &server, [&]() {
+        while (server.hasPendingConnections()) {
+            QTcpSocket *socket = server.nextPendingConnection();
+            auto *buffer = new QByteArray();
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, [buffer]() { delete buffer; });
+            QObject::connect(socket, &QTcpSocket::readyRead, socket, [&, socket, buffer]() {
+                buffer->append(socket->readAll());
+                const int headerEnd = buffer->indexOf("\r\n\r\n");
+                if (headerEnd < 0) return;
+
+                const QByteArray headers = buffer->left(headerEnd);
+                const QByteArray requestLine = headers.left(headers.indexOf("\r\n"));
+                const QRegularExpression lengthPattern(
+                    QStringLiteral("Content-Length:\\s*(\\d+)"),
+                    QRegularExpression::CaseInsensitiveOption
+                );
+                const auto match = lengthPattern.match(QString::fromLatin1(headers));
+                const int contentLength = match.hasMatch() ? match.captured(1).toInt() : 0;
+                const int bodyStart = headerEnd + 4;
+                if (buffer->size() < bodyStart + contentLength) return;
+
+                const QByteArray body = buffer->mid(bodyStart, contentLength);
+                requestLines.append(requestLine);
+                requestBodies.append(body);
+
+                QByteArray responseBody;
+                if (requestLine.startsWith("GET /api/external-tools ")) {
+                    responseBody =
+                        "{\"tools\":[{\"toolId\":\"ffmpeg\",\"status\":\"Installed\",\"version\":\"7.0\"}]}";
+                } else if (requestLine.startsWith("GET /api/telegram/config ")) {
+                    responseBody =
+                        "{\"enabled\":true,\"token\":\"1234...abcd\",\"hasToken\":true,"
+                        "\"chatId\":123456,\"apiBase\":\"https://api.telegram.org\",\"fileUploadLimitMb\":50}";
+                } else if (requestLine.startsWith("POST /api/dns/ping-all ")) {
+                    responseBody =
+                        "{\"results\":[{\"name\":\"Cloudflare\",\"ip\":\"1.1.1.1\",\"latencyMs\":12.5}]}";
+                } else if (requestLine.startsWith("POST /api/telegram/config ")) {
+                    responseBody = "{\"ok\":true}";
+                } else if (requestLine.startsWith("POST /api/telegram/test ")) {
+                    responseBody = "{\"ok\":true}";
+                } else if (requestLine.startsWith("POST /api/external-tools/ffmpeg/health ")) {
+                    responseBody = "{\"ok\":true,\"status\":\"Installed\"}";
+                } else if (requestLine.startsWith("GET /api/engines/capabilities ")) {
+                    responseBody = "{\"engines\":{}}";
+                } else {
+                    responseBody = "{\"ok\":true}";
+                }
+
+                socket->write(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
+                    + QByteArray::number(responseBody.size()) + "\r\n\r\n" + responseBody
+                );
+                socket->disconnectFromHost();
+            });
+        }
+    });
+
+    NovaApiClient client;
+    client.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())));
+    QSignalSpy servicesSpy(&client, &NovaApiClient::settingsServicesChanged);
+    QSignalSpy actionSpy(&client, &NovaApiClient::settingsServiceActionCompleted);
+
+    client.refreshSettingsServices();
+    QTRY_VERIFY_WITH_TIMEOUT(servicesSpy.count() >= 2, 3000);
+    QCOMPARE(client.externalTools().size(), 1);
+    QCOMPARE(client.telegramConfig().value(QStringLiteral("hasToken")).toBool(), true);
+
+    client.pingDnsProviders();
+    QTRY_VERIFY_WITH_TIMEOUT(client.dnsResults().size() == 1, 3000);
+    QCOMPARE(
+        client.dnsResults().first().toMap().value(QStringLiteral("ip")).toString(),
+        QStringLiteral("1.1.1.1")
+    );
+
+    client.updateTelegramConfig(QVariantMap{
+        {QStringLiteral("enabled"), true},
+        {QStringLiteral("chatId"), 987654},
+        {QStringLiteral("apiBase"), QStringLiteral("https://api.telegram.org")},
+        {QStringLiteral("fileUploadLimitMb"), 100}
+    });
+    client.testTelegram();
+    client.runExternalToolAction(QStringLiteral("ffmpeg"), QStringLiteral("health"));
+
+    QTRY_VERIFY_WITH_TIMEOUT(actionSpy.count() >= 3, 3000);
+
+    bool sawTelegramSave = false;
+    bool sawTelegramTest = false;
+    bool sawToolHealth = false;
+    for (int i = 0; i < requestLines.size(); ++i) {
+        const QByteArray line = requestLines.at(i);
+        if (line.startsWith("POST /api/telegram/config ")) {
+            sawTelegramSave = requestBodies.at(i).contains("\"chatId\":987654");
+        } else if (line.startsWith("POST /api/telegram/test ")) {
+            sawTelegramTest = true;
+        } else if (line.startsWith("POST /api/external-tools/ffmpeg/health ")) {
+            sawToolHealth = true;
+        }
+    }
+    QVERIFY(sawTelegramSave);
+    QVERIFY(sawTelegramTest);
+    QVERIFY(sawToolHealth);
 }
 
 QTEST_GUILESS_MAIN(NativeParityTests)
