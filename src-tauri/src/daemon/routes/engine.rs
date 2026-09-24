@@ -332,7 +332,7 @@ fn normalize_queue_catalog(
             "shutdownOnComplete": bool_value("shutdownOnComplete", false),
             "hangupOnComplete": bool_value("hangupOnComplete", false),
             "exitOnComplete": bool_value("exitOnComplete", false),
-            "retryCount": bounded_u64("retryCount", 3, 100),
+            "retryCount": bounded_u64("retryCount", 3, 9_999),
             "retryDelay": bounded_u64("retryDelay", 10, 86_400),
             "downloadOrder": download_order
         }));
@@ -556,6 +556,7 @@ pub async fn handle_queue_catalog_put(
 #[derive(Deserialize)]
 pub struct QueueCreateBody {
     name: String,
+    #[serde(rename = "taskId")]
     task_id: Option<String>,
 }
 
@@ -566,11 +567,13 @@ pub struct QueueUpdateBody {
 
 #[derive(Deserialize)]
 pub struct QueueReorderBody {
+    #[serde(rename = "queueIds")]
     queue_ids: Vec<String>,
 }
 
 #[derive(Deserialize)]
 pub struct QueueTaskOrderBody {
+    #[serde(rename = "taskIds")]
     task_ids: Vec<String>,
 }
 
