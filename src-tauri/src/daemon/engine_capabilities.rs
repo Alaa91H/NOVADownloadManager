@@ -1443,9 +1443,14 @@ pub fn native_media_status() -> Value {
             "audioExtraction": true,
             "audioExtractionMode": "existing-source-representation",
             "audioTranscoding": false,
-            "subtitles": false,
-            "autoSubtitles": false,
+            "subtitles": true,
+            "autoSubtitles": true,
+            "subtitleEmbed": false,
+            "thumbnailWrite": true,
+            "thumbnailEmbed": false,
             "thumbnailWriteEmbed": false,
+            "metadataSidecar": true,
+            "descriptionSidecar": true,
             "metadataWriteEmbed": false,
             "chapterSplit": false,
             "sponsorBlock": false,
@@ -2054,6 +2059,10 @@ mod tests {
         assert_eq!(status["capabilities"]["separateTrackTaskExecution"], true);
         assert_eq!(status["capabilities"]["formatSorting"], true);
         assert_eq!(status["capabilities"]["audioExtraction"], true);
+        assert_eq!(status["capabilities"]["subtitles"], true);
+        assert_eq!(status["capabilities"]["autoSubtitles"], true);
+        assert_eq!(status["capabilities"]["thumbnailWrite"], true);
+        assert_eq!(status["capabilities"]["metadataSidecar"], true);
         assert_eq!(
             status["capabilities"]["audioExtractionMode"],
             "existing-source-representation"
