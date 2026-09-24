@@ -120,6 +120,29 @@ ApplicationWindow {
         }
     }
 
+    Shortcut {
+        sequence: nativeSettings.shortcutsEnabled
+            ? String(nativeSettings.shortcutBindings.toggleNotifications || "Ctrl+M")
+            : ""
+        onActivated: {
+            nativeSettings.notificationsEnabled = !nativeSettings.notificationsEnabled
+        }
+    }
+
+    Shortcut {
+        sequence: nativeSettings.shortcutsEnabled
+            ? String(nativeSettings.shortcutBindings.toggleSpeedLimiter || "Ctrl+Shift+L")
+            : ""
+        onActivated: {
+            const advanced = nativeSettings.advancedSettings || ({})
+            const enabled = !Boolean(advanced.speedLimiterEnabled)
+            nativeSettings.setAdvancedValue("speedLimiterEnabled", enabled)
+            novaApi.setGlobalBandwidthLimit(
+                enabled ? Number(advanced.speedLimitKbs || 0) : 0
+            )
+        }
+    }
+
     menuBar: MenuBar {
         Menu {
             title: window.t("menu.file")
