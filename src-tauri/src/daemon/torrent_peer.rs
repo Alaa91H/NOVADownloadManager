@@ -601,6 +601,281 @@ impl PeerSession {
         Ok(message)
     }
 
+    pub async fn fetch_metadata(
+        &mut self,
+        info_hash: InfoHash,
+        trackers: &[String],
+        cancel: &CancellationToken,
+    ) -> Result<PeerMetadataResult, String> {
+        if !self.remote_supports_extensions {
+            return Err(format!(
+                "Peer {} does not support BEP 10 extended messaging",
+                self.address
+            ));
+        }
+
+        let remote = self.wait_for_extended_handshake(cancel).await?;
+        let remote_metadata_id = remote.ut_metadata.ok_or_else(|| {
+            format!("Peer {} does not advertise ut_metadata", self.address)
+        })?;
+        let total_size = remote.metadata_size.ok_or_else(|| {
+            format!("Peer {} did not advertise metadata_size", self.address)
+        })?;
+
+        let mut assembler = MetadataAssembler::new(info_hash, total_size)
+            .map_err(|error| format!("Invalid metadata geometry from peer {}: {error}", self.address))?;
+        let mut pending = VecDeque::from(
+            (0..assembler.piece_count())
+                .map(|piece| piece as u32)
+                .collect::<Vec<_>>(),
+        );
+        let mut outstanding = BTreeMap::<u32, MetadataOutstanding>::new();
+        let remote_reqq = remote
+            .request_queue
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(self.config.metadata_pipeline_depth);
+        let pipeline_depth = self
+            .config
+            .metadata_pipeline_depth
+            .max(1)
+            .min(remote_reqq.max(1))
+            .min(32);
+        let mut control_frames_without_progress = 0u32;
+
+        while !assembler.is_complete() {
+            self.fill_metadata_pipeline(
+                remote_metadata_id,
+                pipeline_depth,
+                &mut pending,
+                &mut outstanding,
+                cancel,
+            )
+            .await?;
+
+            let frame = tokio::select! {
+                _ = cancel.cancelled() => return Err("Magnet metadata download cancelled".to_owned()),
+                result = timeout(self.config.metadata_timeout, self.receive(cancel)) => result,
+            };
+
+            let message = match frame {
+                Ok(result) => result?,
+                Err(_) => {
+                    self.retry_oldest_metadata_request(
+                        remote_metadata_id,
+                        &mut outstanding,
+                        cancel,
+                    )
+                    .await?;
+                    continue;
+                }
+            };
+
+            match message {
+                PeerMessage::Extended {
+                    extension_id,
+                    payload,
+                } if extension_id == LOCAL_UT_METADATA_ID => {
+                    match MetadataMessage::parse(&payload)
+                        .map_err(|error| format!("Peer {} sent invalid ut_metadata payload: {error}", self.address))?
+                    {
+                        MetadataMessage::Data {
+                            piece,
+                            total_size,
+                            data,
+                        } => {
+                            if outstanding.remove(&piece).is_none() && !assembler.has_piece(piece) {
+                                return Err(format!(
+                                    "Peer {} sent unsolicited metadata piece {}",
+                                    self.address, piece
+                                ));
+                            }
+                            let complete = assembler
+                                .insert(piece, total_size, data)
+                                .map_err(|error| format!(
+                                    "Peer {} metadata assembly failed: {error}",
+                                    self.address
+                                ))?;
+                            control_frames_without_progress = 0;
+                            if complete {
+                                break;
+                            }
+                        }
+                        MetadataMessage::Reject { piece } => {
+                            outstanding.remove(&piece);
+                            return Err(format!(
+                                "Peer {} rejected metadata piece {}",
+                                self.address, piece
+                            ));
+                        }
+                        MetadataMessage::Request { piece } => {
+                            let payload = MetadataMessage::Reject { piece }
+                                .encode()
+                                .map_err(|error| format!(
+                                    "Could not encode metadata rejection: {error}"
+                                ))?;
+                            self.send(
+                                &PeerMessage::Extended {
+                                    extension_id: remote_metadata_id,
+                                    payload,
+                                },
+                                cancel,
+                            )
+                            .await?;
+                            control_frames_without_progress =
+                                control_frames_without_progress.saturating_add(1);
+                        }
+                    }
+                }
+                PeerMessage::Extended { .. }
+                | PeerMessage::KeepAlive
+                | PeerMessage::Choke
+                | PeerMessage::Unchoke
+                | PeerMessage::Interested
+                | PeerMessage::NotInterested
+                | PeerMessage::Have(_)
+                | PeerMessage::Bitfield(_)
+                | PeerMessage::Request { .. }
+                | PeerMessage::Piece { .. }
+                | PeerMessage::Cancel { .. }
+                | PeerMessage::Port(_) => {
+                    control_frames_without_progress =
+                        control_frames_without_progress.saturating_add(1);
+                }
+            }
+
+            if control_frames_without_progress > self.config.max_control_frames_without_progress {
+                return Err(format!(
+                    "Peer {} produced too many frames without metadata progress",
+                    self.address
+                ));
+            }
+        }
+
+        let raw_info = assembler
+            .finish()
+            .map_err(|error| format!("Peer {} metadata verification failed: {error}", self.address))?;
+        let metainfo = TorrentMetainfo::from_info_bytes(&raw_info, trackers)
+            .map_err(|error| format!("Peer {} returned invalid torrent metadata: {error}", self.address))?;
+        if metainfo.info_hash != info_hash {
+            return Err(format!(
+                "Peer {} metadata info hash changed after validation",
+                self.address
+            ));
+        }
+
+        Ok(PeerMetadataResult {
+            address: self.address,
+            peer_id: self.remote_peer_id,
+            metainfo,
+            pex_peers: self.take_discovered_pex_peers(),
+        })
+    }
+
+    async fn wait_for_extended_handshake(
+        &mut self,
+        cancel: &CancellationToken,
+    ) -> Result<ExtendedHandshake, String> {
+        if let Some(handshake) = self.remote_extensions.clone() {
+            return Ok(handshake);
+        }
+
+        for _ in 0..=self.config.max_control_frames_without_progress {
+            let message = self.receive(cancel).await?;
+            if matches!(
+                message,
+                PeerMessage::Extended {
+                    extension_id: EXTENSION_HANDSHAKE_ID,
+                    ..
+                }
+            ) {
+                if let Some(handshake) = self.remote_extensions.clone() {
+                    return Ok(handshake);
+                }
+            }
+        }
+
+        Err(format!(
+            "Peer {} did not provide an extended handshake",
+            self.address
+        ))
+    }
+
+    async fn fill_metadata_pipeline(
+        &mut self,
+        remote_metadata_id: u8,
+        pipeline_depth: usize,
+        pending: &mut VecDeque<u32>,
+        outstanding: &mut BTreeMap<u32, MetadataOutstanding>,
+        cancel: &CancellationToken,
+    ) -> Result<(), String> {
+        while outstanding.len() < pipeline_depth {
+            let Some(piece) = pending.pop_front() else {
+                break;
+            };
+            let payload = MetadataMessage::request(piece)
+                .encode()
+                .map_err(|error| format!("Could not encode metadata request: {error}"))?;
+            self.send(
+                &PeerMessage::Extended {
+                    extension_id: remote_metadata_id,
+                    payload,
+                },
+                cancel,
+            )
+            .await?;
+            outstanding.insert(
+                piece,
+                MetadataOutstanding {
+                    retries: 0,
+                    last_sent: Instant::now(),
+                },
+            );
+        }
+        Ok(())
+    }
+
+    async fn retry_oldest_metadata_request(
+        &mut self,
+        remote_metadata_id: u8,
+        outstanding: &mut BTreeMap<u32, MetadataOutstanding>,
+        cancel: &CancellationToken,
+    ) -> Result<(), String> {
+        let Some((&piece, oldest)) = outstanding
+            .iter()
+            .min_by_key(|(_, request)| request.last_sent)
+        else {
+            return Err(format!(
+                "Peer {} metadata transfer timed out without outstanding requests",
+                self.address
+            ));
+        };
+
+        if oldest.retries >= self.config.max_metadata_retries {
+            return Err(format!(
+                "Peer {} exhausted metadata retries for piece {}",
+                self.address, piece
+            ));
+        }
+
+        let payload = MetadataMessage::request(piece)
+            .encode()
+            .map_err(|error| format!("Could not encode metadata retry: {error}"))?;
+        self.send(
+            &PeerMessage::Extended {
+                extension_id: remote_metadata_id,
+                payload,
+            },
+            cancel,
+        )
+        .await?;
+
+        if let Some(request) = outstanding.get_mut(&piece) {
+            request.retries = request.retries.saturating_add(1);
+            request.last_sent = Instant::now();
+        }
+        Ok(())
+    }
+
     pub async fn download_piece(
         &mut self,
         metainfo: &TorrentMetainfo,
@@ -849,6 +1124,12 @@ impl PeerSession {
         }
         Ok(())
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct MetadataOutstanding {
+    retries: u32,
+    last_sent: Instant,
 }
 
 #[derive(Clone, Copy, Debug)]
