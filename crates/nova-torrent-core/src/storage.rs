@@ -501,12 +501,47 @@ impl TorrentStorage {
         Ok(())
     }
 
-    pub fn cleanup_resume_state(self) -> Result<(), StorageError> {
+    pub fn remove_resume_state(&mut self) -> Result<(), StorageError> {
         if self.control_dir.exists() {
             std::fs::remove_dir_all(&self.control_dir)
                 .map_err(|error| StorageError::Io(self.control_dir.clone(), error.to_string()))?;
         }
         Ok(())
+    }
+
+    pub fn delete_owned_payload_and_state(&mut self) -> Result<(), StorageError> {
+        let mut parents = Vec::new();
+        for (index, file) in self.meta.files.iter().enumerate() {
+            if !self.checkpoint.owned_files.is_set(index)? {
+                continue;
+            }
+            let path = target_path(&self.root, &file.path)?;
+            if path.exists() {
+                ensure_target_not_symlink(&path)?;
+                std::fs::remove_file(&path)
+                    .map_err(|error| StorageError::Io(path.clone(), error.to_string()))?;
+            }
+            self.checkpoint.owned_files.set(index, false)?;
+            if let Some(parent) = path.parent() {
+                parents.push(parent.to_path_buf());
+            }
+        }
+
+        self.remove_resume_state()?;
+
+        parents.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
+        parents.dedup();
+        for directory in parents {
+            if directory == self.root || !directory.starts_with(&self.root) {
+                continue;
+            }
+            let _ = std::fs::remove_dir(&directory);
+        }
+        Ok(())
+    }
+
+    pub fn cleanup_resume_state(mut self) -> Result<(), StorageError> {
+        self.remove_resume_state()
     }
 
     fn ensure_generation(&self, generation: u64) -> Result<(), StorageError> {
@@ -1247,6 +1282,30 @@ mod tests {
             TorrentStorage::resume(&root, meta),
             Err(StorageError::ExistingTarget(_))
         ));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn delete_owned_payload_removes_only_checkpoint_owned_files() {
+        let root = temp_root("delete-owned");
+        let meta = multi_meta();
+        let selection = TorrentSelection::new(
+            &meta,
+            vec![FilePriority::Skip, FilePriority::Normal],
+        )
+        .unwrap();
+        let mut storage =
+            TorrentStorage::create(&root, meta, selection, AllocationMode::Sparse).unwrap();
+
+        std::fs::create_dir_all(root.join("bundle")).unwrap();
+        std::fs::write(root.join("bundle/a.bin"), b"user-data").unwrap();
+        assert!(root.join("bundle/b.bin").exists());
+
+        storage.delete_owned_payload_and_state().unwrap();
+        assert!(root.join("bundle/a.bin").exists());
+        assert!(!root.join("bundle/b.bin").exists());
+        assert!(!storage.control_dir().exists());
+
         let _ = std::fs::remove_dir_all(root);
     }
 
