@@ -184,6 +184,24 @@ void NovaApiClient::createDownload(
     const QString &savePath,
     bool startImmediately
 ) {
+    createDownloadAdvanced(
+        url,
+        name,
+        savePath,
+        startImmediately,
+        0,
+        QVariantMap{}
+    );
+}
+
+void NovaApiClient::createDownloadAdvanced(
+    const QString &url,
+    const QString &name,
+    const QString &savePath,
+    bool startImmediately,
+    int connections,
+    const QVariantMap &directOptions
+) {
     const QString trimmedUrl = url.trimmed();
     if (trimmedUrl.isEmpty()) {
         emit downloadCreationFailed(QStringLiteral("Enter a download URL."));
@@ -193,6 +211,7 @@ void NovaApiClient::createDownload(
     QJsonObject body;
     body.insert(QStringLiteral("url"), trimmedUrl);
     body.insert(QStringLiteral("startImmediately"), startImmediately);
+    body.insert(QStringLiteral("connections"), qBound(0, connections, 64));
 
     const QString trimmedName = name.trimmed();
     if (!trimmedName.isEmpty()) {
@@ -202,6 +221,30 @@ void NovaApiClient::createDownload(
     const QString trimmedSavePath = savePath.trimmed();
     if (!trimmedSavePath.isEmpty()) {
         body.insert(QStringLiteral("savePath"), trimmedSavePath);
+    }
+
+    QVariantMap filteredOptions;
+    const QVariant supportedRaw =
+        m_engineCapabilities.value(QStringLiteral("supportedDirectOptionKeys"));
+    const QStringList supported = supportedRaw.toStringList();
+    for (auto it = directOptions.constBegin(); it != directOptions.constEnd(); ++it) {
+        if (!it.value().isValid() || it.value().isNull()) {
+            continue;
+        }
+        if (!supported.isEmpty() && !supported.contains(it.key())) {
+            continue;
+        }
+        if (it.value().metaType().id() == QMetaType::QString
+            && it.value().toString().trimmed().isEmpty()) {
+            continue;
+        }
+        filteredOptions.insert(it.key(), it.value());
+    }
+    if (!filteredOptions.isEmpty()) {
+        body.insert(
+            QStringLiteral("directOptions"),
+            QJsonObject::fromVariantMap(filteredOptions)
+        );
     }
 
     auto *reply = m_network.post(
@@ -2159,6 +2202,208 @@ void NovaApiClient::setLogLevel(const QString &levelText) {
     });
 }
 
+
+void NovaApiClient::refreshSettingsServices() {
+    refreshExternalTools();
+    refreshTelegramConfig();
+}
+
+void NovaApiClient::refreshExternalTools() {
+    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/external-tools")));
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit requestFailed(QStringLiteral("Unexpected external-tools response."));
+            return;
+        }
+        m_externalTools =
+            document.object().value(QStringLiteral("tools")).toArray().toVariantList();
+        emit settingsServicesChanged();
+    });
+}
+
+void NovaApiClient::runExternalToolAction(
+    const QString &toolIdText,
+    const QString &actionText,
+    const QString &pathText
+) {
+    const QString toolId = toolIdText.trimmed();
+    const QString action = actionText.trimmed().toLower();
+    static const QSet<QString> allowed{
+        QStringLiteral("discover"),
+        QStringLiteral("health"),
+        QStringLiteral("check-updates"),
+        QStringLiteral("install"),
+        QStringLiteral("update"),
+        QStringLiteral("set-path"),
+        QStringLiteral("uninstall")
+    };
+    if (toolId.isEmpty() || !allowed.contains(action)) {
+        emit requestFailed(QStringLiteral("Invalid external-tool operation."));
+        return;
+    }
+
+    const QString encodedTool = QString::fromUtf8(QUrl::toPercentEncoding(toolId));
+    QJsonObject body;
+    if (action == QStringLiteral("set-path")) {
+        const QString path = pathText.trimmed();
+        if (path.isEmpty()) {
+            emit requestFailed(QStringLiteral("Choose a tool executable first."));
+            return;
+        }
+        body.insert(QStringLiteral("path"), path);
+    }
+
+    auto *reply = m_network.post(
+        makeRequest(
+            QStringLiteral("/api/external-tools/%1/%2").arg(encodedTool, action)
+        ),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+    connect(reply, &QNetworkReply::finished, this, [this, reply, toolId, action]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit requestFailed(QStringLiteral("Unexpected external-tool action response."));
+            return;
+        }
+        const QJsonObject root = document.object();
+        if (root.contains(QStringLiteral("ok"))
+            && !root.value(QStringLiteral("ok")).toBool()) {
+            emit requestFailed(
+                root.value(QStringLiteral("error")).toString(
+                    QStringLiteral("External-tool operation failed.")
+                )
+            );
+            return;
+        }
+        emit settingsServiceActionCompleted(
+            QStringLiteral("external-tool"),
+            QStringLiteral("%1:%2").arg(toolId, action)
+        );
+        refreshExternalTools();
+        refreshEngineCapabilities();
+    });
+}
+
+void NovaApiClient::refreshTelegramConfig() {
+    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/telegram/config")));
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit requestFailed(QStringLiteral("Unexpected Telegram configuration response."));
+            return;
+        }
+        m_telegramConfig = document.object().toVariantMap();
+        emit settingsServicesChanged();
+    });
+}
+
+void NovaApiClient::updateTelegramConfig(const QVariantMap &config) {
+    QJsonObject body;
+    for (const QString &key : {
+             QStringLiteral("enabled"),
+             QStringLiteral("token"),
+             QStringLiteral("chatId"),
+             QStringLiteral("apiBase"),
+             QStringLiteral("fileUploadLimitMb")
+         }) {
+        if (config.contains(key)) {
+            body.insert(key, QJsonValue::fromVariant(config.value(key)));
+        }
+    }
+
+    auto *reply = m_network.post(
+        makeRequest(QStringLiteral("/api/telegram/config")),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+        emit settingsServiceActionCompleted(
+            QStringLiteral("telegram"),
+            QStringLiteral("saved")
+        );
+        refreshTelegramConfig();
+    });
+}
+
+void NovaApiClient::testTelegram() {
+    auto *reply = m_network.post(
+        makeRequest(QStringLiteral("/api/telegram/test")),
+        QByteArrayLiteral("{}")
+    );
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()
+            || !document.object().value(QStringLiteral("ok")).toBool()) {
+            emit requestFailed(
+                document.object().value(QStringLiteral("error")).toString(
+                    QStringLiteral("Telegram test failed.")
+                )
+            );
+            return;
+        }
+        emit settingsServiceActionCompleted(
+            QStringLiteral("telegram-test"),
+            QStringLiteral("ok")
+        );
+    });
+}
+
+void NovaApiClient::pingDnsProviders() {
+    auto *reply = m_network.post(
+        makeRequest(QStringLiteral("/api/dns/ping-all")),
+        QByteArrayLiteral("{}")
+    );
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit requestFailed(QStringLiteral("Unexpected DNS diagnostics response."));
+            return;
+        }
+        m_dnsResults =
+            document.object().value(QStringLiteral("results")).toArray().toVariantList();
+        emit settingsServicesChanged();
+        emit settingsServiceActionCompleted(
+            QStringLiteral("dns"),
+            QStringLiteral("complete")
+        );
+    });
+}
 
 void NovaApiClient::refreshBrowserIntegration() {
     if (!m_connected || m_browserIntegrationBusy) {
