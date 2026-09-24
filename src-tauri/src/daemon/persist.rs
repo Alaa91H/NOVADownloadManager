@@ -245,10 +245,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
                     last_modified: option_string("lastModified"),
                     content_length: (task.size_bytes > 0).then_some(task.size_bytes),
                 };
-                (
-                    id.clone(),
-                    RecoveryCheckpoint::from_task(task, resource),
-                )
+                (id.clone(), RecoveryCheckpoint::from_task(task, resource))
             })
             .collect();
         let telegram_last_update_id = *lock_or_err!(state.telegram_last_update_id);
