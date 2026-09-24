@@ -127,6 +127,9 @@ public:
     Q_INVOKABLE void resumeDownload(const QString &id);
     Q_INVOKABLE void redownloadDownload(const QString &id);
     Q_INVOKABLE void deleteDownload(const QString &id);
+    Q_INVOKABLE void resumeAllDownloads();
+    Q_INVOKABLE void pauseAllDownloads();
+    Q_INVOKABLE void deleteCompletedDownloads();
 
     Q_INVOKABLE void refreshQueue();
     Q_INVOKABLE void refreshQueueCatalog();
