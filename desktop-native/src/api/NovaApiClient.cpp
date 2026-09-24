@@ -6,6 +6,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QMap>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QRegularExpression>
@@ -14,6 +15,7 @@
 #include <QStringList>
 #include <QTimer>
 #include <QUrl>
+#include <QUrlQuery>
 
 namespace {
 
@@ -58,6 +60,14 @@ QNetworkRequest NovaApiClient::makeRequest(const QString &path) const {
     if (!m_bearerToken.isEmpty()) {
         request.setRawHeader("Authorization", QByteArray("Bearer ") + m_bearerToken.toUtf8());
     }
+    return request;
+}
+
+QNetworkRequest NovaApiClient::makeRequest(const QString &path, const QUrlQuery &query) const {
+    QNetworkRequest request = makeRequest(path);
+    QUrl url = request.url();
+    url.setQuery(query);
+    request.setUrl(url);
     return request;
 }
 
@@ -746,5 +756,356 @@ void NovaApiClient::sendNextBatchRequest() {
             m_batchFailed
         );
         pumpBatchRequests();
+    });
+}
+
+
+void NovaApiClient::probeMedia(const QString &urlText) {
+    const QString url = urlText.trimmed();
+    if (url.isEmpty()) {
+        emit mediaProbeFailed(QStringLiteral("Enter a media URL."));
+        return;
+    }
+
+    m_mediaProbeBusy = true;
+    m_mediaProbe.clear();
+    m_mediaFormats.clear();
+    emit mediaProbeChanged();
+
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("url"), url);
+    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/ytdlp/probe"), query));
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        m_mediaProbeBusy = false;
+
+        if (reply->error() != QNetworkReply::NoError) {
+            emit mediaProbeChanged();
+            emit mediaProbeFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit mediaProbeChanged();
+            emit mediaProbeFailed(QStringLiteral("Unexpected media probe response."));
+            return;
+        }
+
+        const QJsonObject root = document.object();
+        QVariantMap summary;
+        summary.insert(QStringLiteral("id"), root.value(QStringLiteral("id")).toVariant());
+        summary.insert(QStringLiteral("title"), root.value(QStringLiteral("title")).toString());
+        summary.insert(QStringLiteral("duration"), root.value(QStringLiteral("duration")).toDouble());
+        summary.insert(QStringLiteral("durationString"), root.value(QStringLiteral("durationString")).toString());
+        summary.insert(QStringLiteral("thumbnail"), root.value(QStringLiteral("thumbnail")).toString());
+        summary.insert(QStringLiteral("webpageUrl"), root.value(QStringLiteral("webpageUrl")).toString());
+        m_mediaProbe = summary;
+
+        QMap<int, QVariantMap> bestByHeight;
+        const QJsonArray formats = root.value(QStringLiteral("formats")).toArray();
+        for (const QJsonValue &value : formats) {
+            const QJsonObject format = value.toObject();
+            const int height = format.value(QStringLiteral("height")).toInt();
+            if (height <= 0) {
+                continue;
+            }
+
+            const QString vcodec = format.value(QStringLiteral("vcodec")).toString();
+            if (vcodec.isEmpty() || vcodec == QStringLiteral("none")) {
+                continue;
+            }
+
+            const qint64 fileSize = format.value(QStringLiteral("filesize")).toInteger(
+                format.value(QStringLiteral("filesize_approx")).toInteger()
+            );
+
+            QVariantMap item;
+            item.insert(QStringLiteral("formatId"), format.value(QStringLiteral("format_id")).toString());
+            item.insert(QStringLiteral("height"), height);
+            item.insert(QStringLiteral("width"), format.value(QStringLiteral("width")).toInt());
+            item.insert(QStringLiteral("ext"), format.value(QStringLiteral("ext")).toString());
+            item.insert(QStringLiteral("filesize"), fileSize);
+            item.insert(QStringLiteral("vcodec"), vcodec);
+            item.insert(QStringLiteral("acodec"), format.value(QStringLiteral("acodec")).toString());
+            item.insert(QStringLiteral("fps"), format.value(QStringLiteral("fps")).toDouble());
+            item.insert(QStringLiteral("tbr"), format.value(QStringLiteral("tbr")).toDouble());
+            item.insert(QStringLiteral("formatNote"), format.value(QStringLiteral("format_note")).toString());
+
+            const auto existing = bestByHeight.constFind(height);
+            if (existing == bestByHeight.constEnd()
+                || item.value(QStringLiteral("filesize")).toLongLong()
+                    > existing.value().value(QStringLiteral("filesize")).toLongLong()) {
+                bestByHeight.insert(height, item);
+            }
+        }
+
+        m_mediaFormats.clear();
+        for (auto it = bestByHeight.crbegin(); it != bestByHeight.crend(); ++it) {
+            m_mediaFormats.append(it.value());
+        }
+
+        emit mediaProbeChanged();
+    });
+}
+
+void NovaApiClient::probeMediaPlaylist(const QString &urlText) {
+    const QString url = urlText.trimmed();
+    if (url.isEmpty()) {
+        emit mediaPlaylistFailed(QStringLiteral("Enter a playlist URL."));
+        return;
+    }
+
+    m_mediaPlaylistBusy = true;
+    m_mediaPlaylistTitle.clear();
+    m_mediaPlaylistEntries.clear();
+    emit mediaPlaylistChanged();
+
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("url"), url);
+    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/ytdlp/probe-playlist"), query));
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        m_mediaPlaylistBusy = false;
+
+        if (reply->error() != QNetworkReply::NoError) {
+            emit mediaPlaylistChanged();
+            emit mediaPlaylistFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit mediaPlaylistChanged();
+            emit mediaPlaylistFailed(QStringLiteral("Unexpected playlist probe response."));
+            return;
+        }
+
+        const QJsonObject root = document.object();
+        m_mediaPlaylistTitle = root.value(QStringLiteral("title")).toString();
+        m_mediaPlaylistEntries = root.value(QStringLiteral("entries")).toArray().toVariantList();
+        emit mediaPlaylistChanged();
+    });
+}
+
+void NovaApiClient::refreshFfmpegStatus() {
+    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/ytdlp/ffmpeg")));
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        bool available = false;
+
+        if (reply->error() == QNetworkReply::NoError) {
+            const QJsonDocument document = QJsonDocument::fromJson(payload);
+            if (document.isObject()) {
+                available = document.object().value(QStringLiteral("available")).toBool();
+            }
+        }
+
+        if (m_ffmpegAvailable != available) {
+            m_ffmpegAvailable = available;
+            emit ffmpegChanged();
+        }
+    });
+}
+
+void NovaApiClient::createMediaDownload(
+    const QString &urlText,
+    const QString &nameText,
+    const QString &saveDirectory,
+    const QVariantMap &mediaOptions,
+    bool startImmediately
+) {
+    const QString url = urlText.trimmed();
+    if (url.isEmpty()) {
+        emit mediaProbeFailed(QStringLiteral("Enter a media URL."));
+        return;
+    }
+
+    QString name = nameText.trimmed();
+    if (name.isEmpty()) {
+        name = m_mediaProbe.value(QStringLiteral("title")).toString().trimmed();
+    }
+    if (name.isEmpty()) {
+        name = m_mediaPlaylistTitle.trimmed();
+    }
+    if (name.isEmpty()) {
+        name = QStringLiteral("media");
+    }
+
+    QJsonObject options = QJsonObject::fromVariantMap(mediaOptions);
+    const QString mode = options.value(QStringLiteral("mode")).toString(QStringLiteral("video"));
+
+    QJsonObject body;
+    body.insert(QStringLiteral("url"), url);
+    body.insert(QStringLiteral("name"), name);
+    body.insert(QStringLiteral("fileType"), mode == QStringLiteral("audio")
+        ? QStringLiteral("audio")
+        : QStringLiteral("video"));
+    body.insert(QStringLiteral("category"), mode == QStringLiteral("audio")
+        ? QStringLiteral("audio")
+        : QStringLiteral("video"));
+    body.insert(QStringLiteral("queueId"), QStringLiteral("main"));
+    body.insert(QStringLiteral("connections"), 1);
+    body.insert(QStringLiteral("resumable"), true);
+    body.insert(QStringLiteral("description"), QStringLiteral("Native media downloader request"));
+    body.insert(QStringLiteral("startImmediately"), startImmediately);
+    body.insert(QStringLiteral("mediaOptions"), options);
+
+    const QString directory = saveDirectory.trimmed();
+    if (!directory.isEmpty()) {
+        QString placeholder = name;
+        placeholder.replace(QRegularExpression(QStringLiteral(R"([\\/:*?"<>|])")), QStringLiteral("_"));
+        placeholder = placeholder.trimmed();
+        if (placeholder.isEmpty()) {
+            placeholder = QStringLiteral("media");
+        }
+        body.insert(
+            QStringLiteral("savePath"),
+            QDir(directory).filePath(placeholder + QStringLiteral(".media"))
+        );
+    }
+
+    auto *reply = m_network.post(
+        makeRequest(QStringLiteral("/api/downloads")),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit requestFailed(QStringLiteral("Unexpected media download response."));
+            return;
+        }
+
+        const QString taskId = document.object().value(QStringLiteral("id")).toString();
+        emit mediaDownloadCreated(taskId);
+        refreshDownloads();
+        refreshQueue();
+    });
+}
+
+void NovaApiClient::probeDirectLink(const QString &urlText) {
+    const QString url = urlText.trimmed();
+    if (url.isEmpty()) {
+        emit directProbeFailed(QStringLiteral("Enter a direct URL."));
+        return;
+    }
+
+    m_directProbeBusy = true;
+    m_directProbe.clear();
+    emit directProbeChanged();
+
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("url"), url);
+    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/probe"), query));
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        m_directProbeBusy = false;
+
+        if (reply->error() != QNetworkReply::NoError) {
+            emit directProbeChanged();
+            emit directProbeFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit directProbeChanged();
+            emit directProbeFailed(QStringLiteral("Unexpected link probe response."));
+            return;
+        }
+
+        m_directProbe = document.object().toVariantMap();
+        emit directProbeChanged();
+    });
+}
+
+void NovaApiClient::createDirectFromProbe(
+    const QString &saveDirectory,
+    bool startImmediately
+) {
+    if (m_directProbe.isEmpty()) {
+        emit directProbeFailed(QStringLiteral("Analyze a link before adding it."));
+        return;
+    }
+
+    QString url = m_directProbe.value(QStringLiteral("finalUrl")).toString().trimmed();
+    if (url.isEmpty()) {
+        url = m_directProbe.value(QStringLiteral("url")).toString().trimmed();
+    }
+    if (url.isEmpty()) {
+        emit directProbeFailed(QStringLiteral("The analyzed link has no usable URL."));
+        return;
+    }
+
+    QString fileName = m_directProbe.value(QStringLiteral("fileName")).toString().trimmed();
+    if (fileName.isEmpty()) {
+        fileName = QFileInfo(QUrl(url).path()).fileName();
+    }
+    if (fileName.isEmpty()) {
+        fileName = QStringLiteral("download");
+    }
+
+    QJsonObject body;
+    body.insert(QStringLiteral("url"), url);
+    body.insert(QStringLiteral("name"), fileName);
+    body.insert(QStringLiteral("fileType"), m_directProbe.value(QStringLiteral("fileType")).toString());
+    body.insert(QStringLiteral("sizeBytes"), m_directProbe.value(QStringLiteral("sizeBytes")).toLongLong());
+    body.insert(QStringLiteral("category"), m_directProbe.value(QStringLiteral("fileType")).toString());
+    body.insert(QStringLiteral("queueId"), QStringLiteral("main"));
+    body.insert(QStringLiteral("connections"), 0);
+    body.insert(QStringLiteral("resumable"), m_directProbe.value(QStringLiteral("resumable")).toBool());
+    body.insert(QStringLiteral("description"), QStringLiteral("Native link grabber import"));
+    body.insert(QStringLiteral("startImmediately"), startImmediately);
+
+    const QString directory = saveDirectory.trimmed();
+    if (!directory.isEmpty()) {
+        body.insert(QStringLiteral("savePath"), QDir(directory).filePath(fileName));
+    }
+
+    const QVariant mirrors = m_directProbe.value(QStringLiteral("linkMirrors"));
+    if (mirrors.isValid()) {
+        QJsonObject directOptions;
+        directOptions.insert(QStringLiteral("linkMirrors"), QJsonValue::fromVariant(mirrors));
+        body.insert(QStringLiteral("directOptions"), directOptions);
+    }
+
+    auto *reply = m_network.post(
+        makeRequest(QStringLiteral("/api/downloads")),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit directProbeFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit directProbeFailed(QStringLiteral("Unexpected add-download response."));
+            return;
+        }
+
+        const QString taskId = document.object().value(QStringLiteral("id")).toString();
+        emit directDownloadCreated(taskId);
+        refreshDownloads();
+        refreshQueue();
     });
 }

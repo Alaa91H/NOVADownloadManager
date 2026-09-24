@@ -7,6 +7,7 @@
 #include <QObject>
 #include <QStringList>
 #include <QUrl>
+#include <QUrlQuery>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -21,6 +22,15 @@ class NovaApiClient final : public QObject {
     Q_PROPERTY(QVariantList schedulerRules READ schedulerRules NOTIFY schedulerChanged)
     Q_PROPERTY(QVariantList activeSchedulerRuleIds READ activeSchedulerRuleIds NOTIFY schedulerChanged)
     Q_PROPERTY(bool batchRunning READ batchRunning NOTIFY batchStateChanged)
+    Q_PROPERTY(bool mediaProbeBusy READ mediaProbeBusy NOTIFY mediaProbeChanged)
+    Q_PROPERTY(QVariantMap mediaProbe READ mediaProbe NOTIFY mediaProbeChanged)
+    Q_PROPERTY(QVariantList mediaFormats READ mediaFormats NOTIFY mediaProbeChanged)
+    Q_PROPERTY(bool mediaPlaylistBusy READ mediaPlaylistBusy NOTIFY mediaPlaylistChanged)
+    Q_PROPERTY(QString mediaPlaylistTitle READ mediaPlaylistTitle NOTIFY mediaPlaylistChanged)
+    Q_PROPERTY(QVariantList mediaPlaylistEntries READ mediaPlaylistEntries NOTIFY mediaPlaylistChanged)
+    Q_PROPERTY(bool ffmpegAvailable READ ffmpegAvailable NOTIFY ffmpegChanged)
+    Q_PROPERTY(bool directProbeBusy READ directProbeBusy NOTIFY directProbeChanged)
+    Q_PROPERTY(QVariantMap directProbe READ directProbe NOTIFY directProbeChanged)
 
 public:
     explicit NovaApiClient(QObject *parent = nullptr);
@@ -34,6 +44,15 @@ public:
     QVariantList schedulerRules() const { return m_schedulerRules; }
     QVariantList activeSchedulerRuleIds() const { return m_activeSchedulerRuleIds; }
     bool batchRunning() const noexcept { return m_batchRunning; }
+    bool mediaProbeBusy() const noexcept { return m_mediaProbeBusy; }
+    QVariantMap mediaProbe() const { return m_mediaProbe; }
+    QVariantList mediaFormats() const { return m_mediaFormats; }
+    bool mediaPlaylistBusy() const noexcept { return m_mediaPlaylistBusy; }
+    QString mediaPlaylistTitle() const { return m_mediaPlaylistTitle; }
+    QVariantList mediaPlaylistEntries() const { return m_mediaPlaylistEntries; }
+    bool ffmpegAvailable() const noexcept { return m_ffmpegAvailable; }
+    bool directProbeBusy() const noexcept { return m_directProbeBusy; }
+    QVariantMap directProbe() const { return m_directProbe; }
 
     void setBaseUrl(const QUrl &baseUrl);
     void setBearerToken(const QString &token);
@@ -72,6 +91,23 @@ public:
         bool startImmediately
     );
 
+    Q_INVOKABLE void probeMedia(const QString &url);
+    Q_INVOKABLE void probeMediaPlaylist(const QString &url);
+    Q_INVOKABLE void refreshFfmpegStatus();
+    Q_INVOKABLE void createMediaDownload(
+        const QString &url,
+        const QString &name,
+        const QString &saveDirectory,
+        const QVariantMap &mediaOptions,
+        bool startImmediately
+    );
+
+    Q_INVOKABLE void probeDirectLink(const QString &url);
+    Q_INVOKABLE void createDirectFromProbe(
+        const QString &saveDirectory,
+        bool startImmediately
+    );
+
 signals:
     void connectionChanged();
     void downloadsLoaded(const QJsonArray &downloads);
@@ -92,8 +128,20 @@ signals:
     void batchImportProgress(int completed, int total, int accepted, int failed);
     void batchImportFinished(int total, int accepted, int failed, int duplicateCount);
 
+    void mediaProbeChanged();
+    void mediaProbeFailed(const QString &message);
+    void mediaPlaylistChanged();
+    void mediaPlaylistFailed(const QString &message);
+    void ffmpegChanged();
+    void mediaDownloadCreated(const QString &taskId);
+
+    void directProbeChanged();
+    void directProbeFailed(const QString &message);
+    void directDownloadCreated(const QString &taskId);
+
 private:
     QNetworkRequest makeRequest(const QString &path) const;
+    QNetworkRequest makeRequest(const QString &path, const QUrlQuery &query) const;
     void setConnectionState(bool connected, const QString &text);
     void runTaskAction(const QString &id, const QString &action);
     void processStreamChunk();
@@ -131,4 +179,15 @@ private:
     int m_batchInFlight{0};
     int m_batchAccepted{0};
     int m_batchFailed{0};
+
+    bool m_mediaProbeBusy{false};
+    QVariantMap m_mediaProbe;
+    QVariantList m_mediaFormats;
+    bool m_mediaPlaylistBusy{false};
+    QString m_mediaPlaylistTitle;
+    QVariantList m_mediaPlaylistEntries;
+    bool m_ffmpegAvailable{false};
+
+    bool m_directProbeBusy{false};
+    QVariantMap m_directProbe;
 };

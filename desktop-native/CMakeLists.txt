@@ -36,6 +36,8 @@ qt_add_qml_module(nova-native
         qml/components/StatusBar.qml
         qml/pages/BatchImportPage.qml
         qml/pages/DownloadsPage.qml
+        qml/pages/LinkGrabberPage.qml
+        qml/pages/MediaDownloaderPage.qml
         qml/pages/QueuePage.qml
         qml/pages/SchedulerPage.qml
 )

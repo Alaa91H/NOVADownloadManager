@@ -62,7 +62,11 @@ ApplicationWindow {
                                          ? batchImportPage
                                          : window.currentPage === "scheduler"
                                              ? schedulerPage
-                                             : placeholderPage
+                                             : window.currentPage === "media"
+                                                 ? mediaDownloaderPage
+                                                 : window.currentPage === "grabber"
+                                                     ? linkGrabberPage
+                                                     : placeholderPage
             }
 
             StatusBar {
@@ -107,6 +111,22 @@ ApplicationWindow {
         id: schedulerPage
 
         SchedulerPage {
+            api: novaApi
+        }
+    }
+
+    Component {
+        id: mediaDownloaderPage
+
+        MediaDownloaderPage {
+            api: novaApi
+        }
+    }
+
+    Component {
+        id: linkGrabberPage
+
+        LinkGrabberPage {
             api: novaApi
         }
     }
