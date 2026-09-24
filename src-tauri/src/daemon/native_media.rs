@@ -3012,8 +3012,9 @@ fn load_native_cookie_file(path: &Path, target_url: &str) -> Result<String, Stri
             || name
                 .bytes()
                 .any(|byte| byte <= b' ' || matches!(byte, b';' | b',' | b'='))
-            || value.contains(['', '
-', ';'])
+            || value
+                .chars()
+                .any(|character| matches!(character, '\r' | '\n' | ';'))
         {
             return Err(format!(
                 "Invalid cookie name/value at {}:{}",
