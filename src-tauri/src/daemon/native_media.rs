@@ -759,6 +759,10 @@ fn run_native_media_worker(
                     }
                     match assemble_ordered_parts(&staged.parts, &output_path) {
                         Ok(assembly) => {
+                            if paused_or_stale() {
+                                finish_native_cancelled(&state, &id, generation);
+                                return;
+                            }
                             complete_native_task(&state, &id, generation, assembly.bytes);
                             let _ = std::fs::remove_dir_all(&staging_dir);
                         }
