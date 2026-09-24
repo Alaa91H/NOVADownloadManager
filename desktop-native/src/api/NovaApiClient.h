@@ -41,6 +41,9 @@ class NovaApiClient final : public QObject {
     Q_PROPERTY(QString activeEngineProfile READ activeEngineProfile NOTIFY engineManagementChanged)
     Q_PROPERTY(QVariantMap bandwidthState READ bandwidthState NOTIFY engineManagementChanged)
     Q_PROPERTY(QVariantMap retryPolicy READ retryPolicy NOTIFY engineManagementChanged)
+    Q_PROPERTY(QVariantList externalTools READ externalTools NOTIFY settingsServicesChanged)
+    Q_PROPERTY(QVariantMap telegramConfig READ telegramConfig NOTIFY settingsServicesChanged)
+    Q_PROPERTY(QVariantList dnsResults READ dnsResults NOTIFY settingsServicesChanged)
     Q_PROPERTY(bool diagnosticsBusy READ diagnosticsBusy NOTIFY diagnosticsChanged)
     Q_PROPERTY(QVariantMap diagnosticsReport READ diagnosticsReport NOTIFY diagnosticsChanged)
     Q_PROPERTY(QVariantList logEntries READ logEntries NOTIFY logsChanged)
@@ -80,6 +83,9 @@ public:
     QString activeEngineProfile() const { return m_activeEngineProfile; }
     QVariantMap bandwidthState() const { return m_bandwidthState; }
     QVariantMap retryPolicy() const { return m_retryPolicy; }
+    QVariantList externalTools() const { return m_externalTools; }
+    QVariantMap telegramConfig() const { return m_telegramConfig; }
+    QVariantList dnsResults() const { return m_dnsResults; }
     bool diagnosticsBusy() const noexcept { return m_diagnosticsBusy; }
     QVariantMap diagnosticsReport() const { return m_diagnosticsReport; }
     QVariantList logEntries() const { return m_logEntries; }
@@ -103,6 +109,14 @@ public:
         const QString &name,
         const QString &savePath,
         bool startImmediately
+    );
+    Q_INVOKABLE void createDownloadAdvanced(
+        const QString &url,
+        const QString &name,
+        const QString &savePath,
+        bool startImmediately,
+        int connections,
+        const QVariantMap &directOptions
     );
     Q_INVOKABLE void updateDownloadMetadata(
         const QString &id,
@@ -175,6 +189,18 @@ public:
     Q_INVOKABLE void refreshLogs(const QString &minimumLevel = QString(), int limit = 300);
     Q_INVOKABLE void setLogLevel(const QString &level);
 
+    Q_INVOKABLE void refreshSettingsServices();
+    Q_INVOKABLE void refreshExternalTools();
+    Q_INVOKABLE void runExternalToolAction(
+        const QString &toolId,
+        const QString &action,
+        const QString &path = QString()
+    );
+    Q_INVOKABLE void refreshTelegramConfig();
+    Q_INVOKABLE void updateTelegramConfig(const QVariantMap &config);
+    Q_INVOKABLE void testTelegram();
+    Q_INVOKABLE void pingDnsProviders();
+
     Q_INVOKABLE void refreshBrowserIntegration();
     Q_INVOKABLE void setBrowserCaptureEnabled(bool enabled);
 
@@ -219,6 +245,9 @@ signals:
     void diagnosticsSaved(const QString &path);
     void logsChanged();
     void logsFailed(const QString &message);
+
+    void settingsServicesChanged();
+    void settingsServiceActionCompleted(const QString &action, const QString &message);
 
     void browserIntegrationChanged();
     void browserIntegrationFailed(const QString &message);
@@ -305,6 +334,9 @@ private:
     QString m_activeEngineProfile;
     QVariantMap m_bandwidthState;
     QVariantMap m_retryPolicy;
+    QVariantList m_externalTools;
+    QVariantMap m_telegramConfig;
+    QVariantList m_dnsResults;
 
     bool m_diagnosticsBusy{false};
     QVariantMap m_diagnosticsReport;
