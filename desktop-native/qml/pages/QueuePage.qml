@@ -8,6 +8,12 @@ Item {
 
     required property var api
     required property var downloads
+
+    property string selectedQueueId: "main"
+    property var selectedQueue: ({})
+    property string errorText: ""
+    property string statusText: ""
+    property string pendingDeleteQueueId: ""
     property string languageToken: i18n.language
 
     function t(key) {
@@ -16,26 +22,73 @@ Item {
     }
 
     function formatBytes(value) {
-        if (!value || value <= 0) return "—"
-        if (value >= 1024 * 1024 * 1024)
-            return (value / (1024 * 1024 * 1024)).toFixed(2) + " GB"
-        if (value >= 1024 * 1024)
-            return (value / (1024 * 1024)).toFixed(1) + " MB"
-        if (value >= 1024)
-            return (value / 1024).toFixed(0) + " KB"
-        return value + " B"
+        const bytes = Number(value || 0)
+        if (bytes <= 0) return "—"
+        if (bytes >= 1024 * 1024 * 1024)
+            return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB"
+        if (bytes >= 1024 * 1024)
+            return (bytes / (1024 * 1024)).toFixed(1) + " MB"
+        if (bytes >= 1024)
+            return (bytes / 1024).toFixed(0) + " KB"
+        return bytes + " B"
     }
 
     function formatKbps(value) {
-        if (!value || value <= 0) return "Unlimited"
-        if (value >= 1024)
-            return (value / 1024).toFixed(1) + " MB/s"
-        return value + " KB/s"
+        const kbps = Number(value || 0)
+        if (kbps <= 0) return root.t("queue.unlimited")
+        if (kbps >= 1024)
+            return (kbps / 1024).toFixed(1) + " MB/s"
+        return kbps + " KB/s"
     }
 
     function taskInfo(taskId) {
         const item = downloads.itemById(taskId)
         return item && item.taskId ? item : ({})
+    }
+
+    function queueById(queueId) {
+        for (let i = 0; i < api.queueCatalog.length; ++i) {
+            const queue = api.queueCatalog[i]
+            if (String(queue.id || "") === String(queueId || ""))
+                return queue
+        }
+        return ({})
+    }
+
+    function queueIndex(queueId) {
+        for (let i = 0; i < api.queueCatalog.length; ++i) {
+            if (String(api.queueCatalog[i].id || "") === String(queueId || ""))
+                return i
+        }
+        return -1
+    }
+
+    function queueLabelIndex(queueId) {
+        for (let i = 0; i < api.knownQueueIds.length; ++i) {
+            if (String(api.knownQueueIds[i]) === String(queueId || ""))
+                return i
+        }
+        return 0
+    }
+
+    function refreshSelectedQueue() {
+        let queue = queueById(selectedQueueId)
+        if (!queue.id) {
+            queue = queueById("main")
+            if (!queue.id && api.queueCatalog.length > 0)
+                queue = api.queueCatalog[0]
+            selectedQueueId = String(queue.id || "")
+        }
+        selectedQueue = queue
+    }
+
+    function engineQueueEntry(taskId) {
+        for (let i = 0; i < api.queueEntries.length; ++i) {
+            const entry = api.queueEntries[i]
+            if (String(entry.task_id || "") === String(taskId || ""))
+                return entry
+        }
+        return ({})
     }
 
     function priorityIndex(priority) {
@@ -46,13 +99,69 @@ Item {
         return 2
     }
 
-    Component.onCompleted: api.refreshQueue()
+    function taskMatchesSearch(info) {
+        const query = taskSearch.text.trim().toLowerCase()
+        if (query.length === 0)
+            return true
+        return String(info.name || "").toLowerCase().indexOf(query) >= 0
+            || String(info.url || "").toLowerCase().indexOf(query) >= 0
+            || String(info.taskId || "").toLowerCase().indexOf(query) >= 0
+    }
+
+    Component.onCompleted: {
+        api.refreshDownloads()
+        api.refreshQueueCatalog()
+        api.refreshQueue()
+    }
 
     Timer {
         interval: 5000
         repeat: true
         running: root.visible
-        onTriggered: api.refreshQueue()
+        onTriggered: {
+            api.refreshQueueCatalog()
+            api.refreshQueue()
+        }
+    }
+
+    Connections {
+        target: api
+
+        function onQueueCatalogChanged() {
+            root.refreshSelectedQueue()
+        }
+
+        function onQueueCatalogActionCompleted(action, queueId) {
+            root.errorText = ""
+            if (action === "create") {
+                root.selectedQueueId = queueId
+                root.refreshSelectedQueue()
+                root.statusText = root.t("queue.created")
+            } else if (action === "delete") {
+                if (root.selectedQueueId === queueId)
+                    root.selectedQueueId = "main"
+                root.pendingDeleteQueueId = ""
+                root.refreshSelectedQueue()
+                root.statusText = root.t("queue.deleted")
+            } else if (action === "move-task") {
+                root.statusText = root.t("queue.taskMoved")
+            } else if (action === "reorder-task" || action === "reorder") {
+                root.statusText = root.t("queue.reordered")
+            } else if (action === "update") {
+                root.statusText = root.t("queue.saved")
+            } else if (action === "start") {
+                root.statusText = root.t("queue.started")
+            } else if (action === "stop") {
+                root.statusText = root.t("queue.stopped")
+            }
+        }
+
+        function onRequestFailed(message) {
+            if (root.visible) {
+                root.errorText = message
+                root.statusText = ""
+            }
+        }
     }
 
     ColumnLayout {
@@ -72,7 +181,7 @@ Item {
                     font.weight: Font.DemiBold
                 }
                 Text {
-                    text: root.t("queue.subtitle")
+                    text: root.t("queue.managerSubtitle")
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontSmall
                 }
@@ -80,204 +189,449 @@ Item {
 
             Item { Layout.fillWidth: true }
 
+            Rectangle {
+                implicitWidth: 110
+                implicitHeight: 54
+                radius: Theme.radiusMedium
+                color: Theme.surface
+                border.color: Theme.border
+                Column {
+                    anchors.centerIn: parent
+                    spacing: 2
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: api.queueCatalog.length
+                        color: Theme.textPrimary
+                        font.pixelSize: Theme.fontMedium
+                        font.weight: Font.DemiBold
+                    }
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: root.t("queue.queues")
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.fontTiny
+                    }
+                }
+            }
+
+            Rectangle {
+                implicitWidth: 130
+                implicitHeight: 54
+                radius: Theme.radiusMedium
+                color: Theme.surface
+                border.color: Theme.border
+                Column {
+                    anchors.centerIn: parent
+                    spacing: 2
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: root.formatKbps(api.queueTotalBandwidthKbps)
+                        color: Theme.textPrimary
+                        font.pixelSize: Theme.fontSmall
+                        font.weight: Font.DemiBold
+                    }
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: root.t("queue.bandwidth")
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.fontTiny
+                    }
+                }
+            }
+
             Button {
                 text: root.t("action.refresh")
-                onClicked: api.refreshQueue()
-            }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 10
-
-            Repeater {
-                model: [
-                    { label: root.t("queue.entries"), value: String(api.queueEntries.length) },
-                    { label: root.t("queue.active"), value: String(api.queueActiveCount) },
-                    { label: root.t("queue.bandwidth"), value: root.formatKbps(api.queueTotalBandwidthKbps) },
-                    { label: root.t("queue.next"), value: api.nextQueuedTask.length > 0 ? api.nextQueuedTask : "—" }
-                ]
-
-                delegate: Rectangle {
-                    required property var modelData
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 66
-                    radius: Theme.radiusMedium
-                    color: Theme.surface
-                    border.color: Theme.border
-
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 10
-                        spacing: 2
-
-                        Text {
-                            text: modelData.label
-                            color: Theme.textMuted
-                            font.pixelSize: Theme.fontTiny
-                            font.weight: Font.DemiBold
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: modelData.value
-                            color: Theme.textPrimary
-                            font.pixelSize: Theme.fontMedium
-                            font.weight: Font.DemiBold
-                            elide: Text.ElideMiddle
-                        }
-                    }
+                onClicked: {
+                    api.refreshDownloads()
+                    api.refreshQueueCatalog()
+                    api.refreshQueue()
                 }
             }
         }
 
-        Rectangle {
+        SplitView {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: Theme.radiusMedium
-            color: Theme.surface
-            border.color: Theme.border
-            clip: true
+            orientation: Qt.Horizontal
 
-            ColumnLayout {
-                anchors.fill: parent
-                spacing: 0
+            Rectangle {
+                SplitView.preferredWidth: 260
+                SplitView.minimumWidth: 220
+                color: Theme.surface
+                radius: Theme.radiusMedium
+                border.color: Theme.border
 
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 34
-                    color: Theme.sidebar
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: 10
+                    spacing: 8
+
+                    Text {
+                        text: root.t("queue.queues")
+                        color: Theme.textPrimary
+                        font.pixelSize: Theme.fontBody
+                        font.weight: Font.DemiBold
+                    }
+
+                    ListView {
+                        id: queueCatalogList
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        model: api.queueCatalog
+                        spacing: 4
+                        clip: true
+                        ScrollBar.vertical: ScrollBar {}
+
+                        delegate: Rectangle {
+                            required property var modelData
+                            width: queueCatalogList.width
+                            height: 58
+                            radius: Theme.radiusSmall
+                            color: root.selectedQueueId === String(modelData.id)
+                                ? Theme.accentMuted
+                                : Theme.surfaceRaised
+                            border.color: root.selectedQueueId === String(modelData.id)
+                                ? Theme.accent
+                                : Theme.border
+
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: {
+                                    root.selectedQueueId = String(modelData.id)
+                                    root.refreshSelectedQueue()
+                                    root.pendingDeleteQueueId = ""
+                                }
+                            }
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.margins: 7
+                                spacing: 4
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 1
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: modelData.name || modelData.id
+                                        color: Theme.textPrimary
+                                        font.pixelSize: Theme.fontSmall
+                                        font.weight: Font.DemiBold
+                                        elide: Text.ElideRight
+                                    }
+                                    Text {
+                                        text: (modelData.downloadOrder ? modelData.downloadOrder.length : 0)
+                                            + " " + root.t("queue.tasks")
+                                        color: Theme.textMuted
+                                        font.pixelSize: Theme.fontTiny
+                                    }
+                                }
+
+                                ToolButton {
+                                    text: "↑"
+                                    enabled: root.queueIndex(String(modelData.id)) > 0
+                                    onClicked: api.moveQueue(String(modelData.id), -1)
+                                    Accessible.name: root.t("queue.moveUp")
+                                }
+                                ToolButton {
+                                    text: "↓"
+                                    enabled: {
+                                        const index = root.queueIndex(String(modelData.id))
+                                        return index >= 0 && index < api.queueCatalog.length - 1
+                                    }
+                                    onClicked: api.moveQueue(String(modelData.id), 1)
+                                    Accessible.name: root.t("queue.moveDown")
+                                }
+                            }
+                        }
+                    }
 
                     RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 12
-                        anchors.rightMargin: 12
-                        spacing: 10
-
-                        Text { Layout.fillWidth: true; text: root.t("queue.download"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
-                        Text { Layout.preferredWidth: 80; text: root.t("queue.position"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
-                        Text { Layout.preferredWidth: 100; text: root.t("common.size"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
-                        Text { Layout.preferredWidth: 120; text: root.t("queue.allocated"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
-                        Text { Layout.preferredWidth: 150; text: root.t("queue.priority"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
+                        Layout.fillWidth: true
+                        TextField {
+                            id: newQueueName
+                            Layout.fillWidth: true
+                            placeholderText: root.t("queue.newName")
+                            onAccepted: {
+                                if (text.trim().length > 0) {
+                                    api.createQueue(text.trim())
+                                    text = ""
+                                }
+                            }
+                        }
+                        Button {
+                            text: "+"
+                            enabled: newQueueName.text.trim().length > 0
+                            onClicked: {
+                                api.createQueue(newQueueName.text.trim())
+                                newQueueName.text = ""
+                            }
+                            Accessible.name: root.t("queue.create")
+                        }
                     }
                 }
+            }
 
-                ListView {
-                    id: queueList
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clip: true
-                    model: api.queueEntries
-                    ScrollBar.vertical: ScrollBar {}
+            Rectangle {
+                SplitView.fillWidth: true
+                SplitView.minimumWidth: 560
+                color: Theme.surface
+                radius: Theme.radiusMedium
+                border.color: Theme.border
 
-                    delegate: Rectangle {
-                        id: queueRow
-                        required property var modelData
-                        width: queueList.width
-                        height: 52
-                        color: mouse.containsMouse ? Theme.surfaceHover : "transparent"
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: 10
+                    spacing: 8
 
-                        readonly property var info: root.taskInfo(modelData.task_id)
-                        Accessible.name: queueRow.info.name || modelData.task_id
-                        Accessible.description: queueRow.info.status || ""
+                    RowLayout {
+                        Layout.fillWidth: true
 
-                        Rectangle {
-                            anchors.bottom: parent.bottom
-                            width: parent.width
-                            height: 1
-                            color: Theme.border
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+                            Text {
+                                Layout.fillWidth: true
+                                text: root.selectedQueue.name || root.selectedQueueId
+                                color: Theme.textPrimary
+                                font.pixelSize: Theme.fontMedium
+                                font.weight: Font.DemiBold
+                                elide: Text.ElideRight
+                            }
+                            Text {
+                                text: (root.selectedQueue.downloadOrder
+                                    ? root.selectedQueue.downloadOrder.length
+                                    : 0) + " " + root.t("queue.tasks")
+                                color: Theme.textMuted
+                                font.pixelSize: Theme.fontTiny
+                            }
                         }
 
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 12
-                            anchors.rightMargin: 12
-                            spacing: 10
+                        Button {
+                            text: root.t("queue.stop")
+                            enabled: api.connected && Boolean(root.selectedQueue.id)
+                            onClicked: api.stopQueue(root.selectedQueueId)
+                        }
+                        Button {
+                            text: root.t("queue.start")
+                            enabled: api.connected && Boolean(root.selectedQueue.id)
+                            onClicked: api.startQueue(root.selectedQueueId)
+                        }
 
-                            ColumnLayout {
+                        Button {
+                            visible: root.selectedQueueId !== "main"
+                                && root.pendingDeleteQueueId !== root.selectedQueueId
+                            text: root.t("queue.delete")
+                            onClicked: root.pendingDeleteQueueId = root.selectedQueueId
+                        }
+                        Button {
+                            visible: root.selectedQueueId !== "main"
+                                && root.pendingDeleteQueueId === root.selectedQueueId
+                            text: root.t("queue.confirmDelete")
+                            onClicked: api.deleteQueue(root.selectedQueueId)
+                        }
+                        Button {
+                            visible: root.pendingDeleteQueueId === root.selectedQueueId
+                                && root.selectedQueueId !== "main"
+                            text: root.t("common.cancel")
+                            onClicked: root.pendingDeleteQueueId = ""
+                        }
+                    }
+
+                    TabBar {
+                        id: queueTabs
+                        Layout.fillWidth: true
+                        TabButton { text: root.t("queue.tasks") }
+                        TabButton { text: root.t("queue.settings") }
+                    }
+
+                    StackLayout {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        currentIndex: queueTabs.currentIndex
+
+                        ColumnLayout {
+                            spacing: 8
+
+                            RowLayout {
                                 Layout.fillWidth: true
-                                spacing: 1
-
-                                Text {
+                                TextField {
+                                    id: taskSearch
                                     Layout.fillWidth: true
-                                    text: queueRow.info.name || modelData.task_id
-                                    color: Theme.textPrimary
-                                    font.pixelSize: Math.round(11 * Theme.fontScale)
-                                    font.weight: Font.Medium
-                                    elide: Text.ElideMiddle
+                                    placeholderText: root.t("queue.searchTasks")
                                 }
-
                                 Text {
-                                    Layout.fillWidth: true
-                                    text: queueRow.info.status || modelData.task_id
+                                    text: root.t("queue.next") + ": "
+                                        + (api.nextQueuedTask.length > 0 ? api.nextQueuedTask : "—")
                                     color: Theme.textMuted
                                     font.pixelSize: Theme.fontTiny
-                                    elide: Text.ElideRight
                                 }
                             }
 
-                            Text {
-                                Layout.preferredWidth: 80
-                                text: "#" + (Number(modelData.position) + 1)
-                                color: Theme.textSecondary
-                                font.pixelSize: Theme.fontSmall
-                                font.family: "monospace"
-                            }
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                color: Theme.surfaceRaised
+                                radius: Theme.radiusSmall
+                                border.color: Theme.border
+                                clip: true
 
-                            Text {
-                                Layout.preferredWidth: 100
-                                text: root.formatBytes(Number(modelData.size_bytes))
-                                color: Theme.textSecondary
-                                font.pixelSize: Theme.fontSmall
-                                font.family: "monospace"
-                            }
+                                ListView {
+                                    id: taskList
+                                    anchors.fill: parent
+                                    anchors.margins: 1
+                                    model: root.selectedQueue.downloadOrder || []
+                                    clip: true
+                                    spacing: 1
+                                    ScrollBar.vertical: ScrollBar {}
 
-                            Text {
-                                Layout.preferredWidth: 120
-                                text: root.formatKbps(Number(modelData.allocated_kbps))
-                                color: Number(modelData.allocated_kbps) > 0 ? Theme.textPrimary : Theme.textMuted
-                                font.pixelSize: Theme.fontSmall
-                                font.family: "monospace"
-                            }
+                                    delegate: Rectangle {
+                                        id: taskRow
+                                        required property var modelData
+                                        readonly property var info: root.taskInfo(String(modelData))
+                                        readonly property var engineEntry: root.engineQueueEntry(String(modelData))
+                                        readonly property bool matches: root.taskMatchesSearch(info)
 
-                            ComboBox {
-                                Layout.preferredWidth: 150
-                                model: ["Critical", "High", "Normal", "Low", "Background"]
-                                currentIndex: root.priorityIndex(modelData.priority)
-                                enabled: root.api.connected
-                                onActivated: index => root.api.setQueuePriority(modelData.task_id, index)
+                                        width: taskList.width
+                                        height: matches ? 60 : 0
+                                        visible: matches
+                                        color: rowMouse.containsMouse ? Theme.surfaceHover : "transparent"
+
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 9
+                                            anchors.rightMargin: 9
+                                            spacing: 7
+
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 1
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    text: taskRow.info.name || String(modelData)
+                                                    color: Theme.textPrimary
+                                                    font.pixelSize: Theme.fontSmall
+                                                    font.weight: Font.Medium
+                                                    elide: Text.ElideMiddle
+                                                }
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    text: (taskRow.info.status || root.t("common.unknown"))
+                                                        + " · " + root.formatBytes(taskRow.info.sizeBytes)
+                                                    color: Theme.textMuted
+                                                    font.pixelSize: Theme.fontTiny
+                                                    elide: Text.ElideRight
+                                                }
+                                            }
+
+                                            ToolButton {
+                                                text: "↑"
+                                                enabled: index > 0
+                                                onClicked: api.moveQueueTask(
+                                                    root.selectedQueueId,
+                                                    String(modelData),
+                                                    -1
+                                                )
+                                                Accessible.name: root.t("queue.moveUp")
+                                            }
+                                            ToolButton {
+                                                text: "↓"
+                                                enabled: index < taskList.count - 1
+                                                onClicked: api.moveQueueTask(
+                                                    root.selectedQueueId,
+                                                    String(modelData),
+                                                    1
+                                                )
+                                                Accessible.name: root.t("queue.moveDown")
+                                            }
+
+                                            ComboBox {
+                                                Layout.preferredWidth: 125
+                                                model: ["Critical", "High", "Normal", "Low", "Background"]
+                                                currentIndex: root.priorityIndex(taskRow.engineEntry.priority)
+                                                enabled: api.connected
+                                                onActivated: index => api.setQueuePriority(
+                                                    String(modelData),
+                                                    index
+                                                )
+                                                Accessible.name: root.t("queue.priority")
+                                            }
+
+                                            ComboBox {
+                                                Layout.preferredWidth: 150
+                                                model: api.knownQueueLabels
+                                                currentIndex: root.queueLabelIndex(root.selectedQueueId)
+                                                enabled: api.knownQueueIds.length > 1
+                                                onActivated: index => {
+                                                    if (index >= 0 && index < api.knownQueueIds.length) {
+                                                        const target = String(api.knownQueueIds[index])
+                                                        if (target !== root.selectedQueueId)
+                                                            api.moveTaskToQueue(String(modelData), target)
+                                                    }
+                                                }
+                                                Accessible.name: root.t("queue.moveTo")
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: rowMouse
+                                            anchors.fill: parent
+                                            acceptedButtons: Qt.NoButton
+                                            hoverEnabled: true
+                                        }
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    anchors.centerIn: parent
+                                    visible: !root.selectedQueue.downloadOrder
+                                        || root.selectedQueue.downloadOrder.length === 0
+                                    spacing: 4
+                                    Text {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: root.t("queue.empty")
+                                        color: Theme.textPrimary
+                                        font.pixelSize: Theme.fontBody
+                                        font.weight: Font.DemiBold
+                                    }
+                                    Text {
+                                        text: root.t("queue.emptyManagedSubtitle")
+                                        color: Theme.textMuted
+                                        font.pixelSize: Theme.fontSmall
+                                    }
+                                }
                             }
                         }
 
-                        MouseArea {
-                            id: mouse
-                            anchors.fill: parent
-                            acceptedButtons: Qt.NoButton
-                            hoverEnabled: true
+                        ScrollView {
+                            clip: true
+                            QueueSettingsPanel {
+                                width: parent.availableWidth
+                                api: root.api
+                                queue: root.selectedQueue
+                            }
                         }
                     }
                 }
             }
+        }
 
-            ColumnLayout {
-                anchors.centerIn: parent
-                visible: api.queueEntries.length === 0
-                spacing: 6
+        Text {
+            Layout.fillWidth: true
+            visible: root.errorText.length > 0
+            text: root.errorText
+            color: Theme.danger
+            font.pixelSize: Theme.fontSmall
+            wrapMode: Text.WordWrap
+        }
 
-                Text {
-                    Layout.alignment: Qt.AlignHCenter
-                    text: root.t("queue.empty")
-                    color: Theme.textPrimary
-                    font.pixelSize: Math.round(16 * Theme.fontScale)
-                    font.weight: Font.DemiBold
-                }
-
-                Text {
-                    text: root.t("queue.emptySubtitle")
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSmall
-                }
-            }
+        Text {
+            Layout.fillWidth: true
+            visible: root.statusText.length > 0 && root.errorText.length === 0
+            text: root.statusText
+            color: Theme.success
+            font.pixelSize: Theme.fontSmall
+            wrapMode: Text.WordWrap
         }
     }
 }
