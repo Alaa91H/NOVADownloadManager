@@ -9,6 +9,7 @@ use nova_torrent_core::{
 use reqwest::header::LOCATION;
 use tokio::net::{lookup_host, UdpSocket};
 use tokio::time::{sleep, timeout};
+use tokio_util::sync::CancellationToken;
 
 use crate::daemon::utils::{is_internal_ip, private_network_allowed};
 
@@ -38,6 +39,7 @@ impl Default for TrackerTransportConfig {
 pub struct TrackerAnnounceSuccess {
     pub tracker_url: String,
     pub interval_seconds: u32,
+    pub min_interval_seconds: Option<u32>,
     pub complete: Option<u32>,
     pub incomplete: Option<u32>,
     pub peers: Vec<TrackerPeer>,
@@ -100,6 +102,53 @@ impl TrackerTransport {
                 failures.join("; ")
             ))
         }
+    }
+
+    /// Cancellation-safe wrapper for a complete tier failover pass. Dropping
+    /// the inner future aborts in-flight HTTP/UDP work; the token gives task
+    /// owners an explicit pause/cancel boundary.
+    pub async fn announce_tiers_cancellable(
+        &self,
+        tiers: &[Vec<String>],
+        request: &TrackerAnnounceRequest,
+        cancel: &CancellationToken,
+    ) -> Result<TrackerAnnounceSuccess, String> {
+        tokio::select! {
+            _ = cancel.cancelled() => Err("Torrent tracker announce cancelled".to_owned()),
+            result = self.announce_tiers(tiers, request) => result,
+        }
+    }
+
+    /// Compute the next ordinary announce delay while respecting a tracker's
+    /// optional minimum interval. A small floor prevents malformed trackers
+    /// from forcing a busy loop; the upper bound avoids a stale session being
+    /// silent for an unbounded period.
+    pub fn next_announce_delay(success: &TrackerAnnounceSuccess) -> Duration {
+        const MIN_SECONDS: u32 = 15;
+        const MAX_SECONDS: u32 = 60 * 60;
+        let requested = success
+            .min_interval_seconds
+            .map_or(success.interval_seconds, |minimum| {
+                success.interval_seconds.max(minimum)
+            })
+            .clamp(MIN_SECONDS, MAX_SECONDS);
+        Duration::from_secs(u64::from(requested))
+    }
+
+    /// Clone a base request with the lifecycle event required by the tracker.
+    /// This keeps started/completed/stopped event construction consistent for
+    /// the future torrent task runner.
+    pub async fn announce_event(
+        &self,
+        tiers: &[Vec<String>],
+        request: &TrackerAnnounceRequest,
+        event: nova_torrent_core::TrackerEvent,
+        cancel: &CancellationToken,
+    ) -> Result<TrackerAnnounceSuccess, String> {
+        let mut event_request = request.clone();
+        event_request.event = event;
+        self.announce_tiers_cancellable(tiers, &event_request, cancel)
+            .await
     }
 
     /// Announce against one tracker with bounded retry/backoff.
@@ -186,9 +235,17 @@ impl TrackerTransport {
                             "HTTP tracker redirect is missing a valid Location header",
                         )
                     })?;
-                current = current.join(location).map_err(|error| {
+                let redirect_base = current.join(location).map_err(|error| {
                     TrackerAttemptError::hard(format!(
                         "HTTP tracker returned an invalid redirect: {error}"
+                    ))
+                })?;
+                let redirected_announce = request
+                    .to_http_url(redirect_base.as_str())
+                    .map_err(|error| TrackerAttemptError::hard(error.to_string()))?;
+                current = reqwest::Url::parse(&redirected_announce).map_err(|error| {
+                    TrackerAttemptError::hard(format!(
+                        "HTTP tracker redirect could not preserve announce parameters: {error}"
                     ))
                 })?;
                 continue;
@@ -212,6 +269,7 @@ impl TrackerTransport {
             return Ok(TrackerAnnounceSuccess {
                 tracker_url: current.to_string(),
                 interval_seconds: parsed.interval_seconds,
+                min_interval_seconds: parsed.min_interval_seconds,
                 complete: parsed.complete,
                 incomplete: parsed.incomplete,
                 peers: parsed.peers,
@@ -286,6 +344,7 @@ impl TrackerTransport {
         Ok(TrackerAnnounceSuccess {
             tracker_url: tracker_url.to_owned(),
             interval_seconds: parsed.interval_seconds,
+            min_interval_seconds: None,
             complete: Some(parsed.seeders),
             incomplete: Some(parsed.leechers),
             peers: parsed.peers,
@@ -392,6 +451,7 @@ fn pinned_http_client(
     request_timeout: Duration,
 ) -> Result<reqwest::Client, TrackerAttemptError> {
     let mut builder = reqwest::Client::builder()
+        .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(request_timeout)
         .timeout(request_timeout)
@@ -687,6 +747,49 @@ mod tests {
         assert_eq!(result.incomplete, Some(3));
         assert_eq!(result.peers.len(), 1);
         server.await.expect("server task");
+    }
+
+    #[test]
+    fn next_announce_delay_respects_tracker_minimum_and_safety_bounds() {
+        let base = TrackerAnnounceSuccess {
+            tracker_url: "https://tracker.test/announce".to_owned(),
+            interval_seconds: 5,
+            min_interval_seconds: Some(40),
+            complete: None,
+            incomplete: None,
+            peers: Vec::new(),
+            warning: None,
+        };
+        assert_eq!(
+            TrackerTransport::next_announce_delay(&base),
+            Duration::from_secs(40)
+        );
+
+        let mut huge = base.clone();
+        huge.interval_seconds = u32::MAX;
+        huge.min_interval_seconds = None;
+        assert_eq!(
+            TrackerTransport::next_announce_delay(&huge),
+            Duration::from_secs(3600)
+        );
+    }
+
+    #[tokio::test]
+    async fn cancellable_announce_stops_before_network_work() {
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let transport = TrackerTransport::for_tests(fast_test_config());
+        let result = transport
+            .announce_tiers_cancellable(
+                &[vec!["http://127.0.0.1:1/announce".to_owned()]],
+                &announce_request(),
+                &cancel,
+            )
+            .await;
+        assert_eq!(
+            result.expect_err("cancelled"),
+            "Torrent tracker announce cancelled"
+        );
     }
 
     #[tokio::test]
