@@ -31,7 +31,7 @@ public:
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    int count() const noexcept { return m_items.size(); }\n    int activeCount() const noexcept;
+    int count() const noexcept { return m_items.size(); }\n    Q_INVOKABLE QString taskIdAt(int row) const;\n    int activeCount() const noexcept;
     qint64 totalSpeed() const noexcept;
 
 public slots:
