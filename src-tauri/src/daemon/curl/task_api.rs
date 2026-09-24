@@ -7,6 +7,7 @@ use super::{
 };
 use crate::daemon::direct::DirectUrl;
 use crate::daemon::engine::extractor::{EngineStatus, Extractor, ValidateError};
+use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
 use crate::daemon::state::SharedState;
 use crate::daemon::types::{
     restart_task_state, transition_task_state, CreateDownloadBody, Task, TaskState,
@@ -268,6 +269,25 @@ pub async fn pause_task(state: &SharedState, id: &str) -> Result<Task, String> {
         .ok_or_else(|| "Task not found".to_owned())
 }
 
+fn ensure_native_media_queue_entry(state: &SharedState, task: &Task) {
+    let exists = state
+        .priority_queue
+        .entries()
+        .iter()
+        .any(|entry| entry.task_id == task.id);
+    if !exists {
+        state.priority_queue.enqueue(QueueEntry {
+            task_id: task.id.clone(),
+            priority: DownloadPriority::Normal,
+            added_at: std::time::Instant::now(),
+            size_bytes: task.size_bytes,
+            bandwidth_kbps: std::sync::Arc::new(
+                std::sync::atomic::AtomicU64::new(0),
+            ),
+        });
+    }
+}
+
 pub async fn resume_task(state: &SharedState, id: &str) -> Result<Task, String> {
     log::debug!("resume_task requested for {id}");
     {
@@ -355,6 +375,7 @@ pub async fn resume_task(state: &SharedState, id: &str) -> Result<Task, String> 
             let task = job.task.clone();
             drop(jobs);
             lock_or_err!(state.task_snapshot).insert(id.to_owned(), task.clone());
+            ensure_native_media_queue_entry(state, &task);
             state.mark_dirty();
             crate::daemon::native_media::start_native_media_process(state, id);
             log::info!("Task {id} resuming (native media)");
@@ -769,6 +790,7 @@ pub async fn redownload_task(state: &SharedState, id: &str) -> Result<Task, Stri
 
             crate::daemon::native_media::discard_native_media_task_artifacts(&path, true);
             lock_or_err!(state.task_snapshot).insert(id.to_owned(), task.clone());
+            ensure_native_media_queue_entry(state, &task);
             state.mark_dirty();
             crate::daemon::native_media::start_native_media_process(state, id);
             return Ok(task);
