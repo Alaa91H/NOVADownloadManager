@@ -25,7 +25,6 @@ pub fn check_latest_version(tool: &dyn ExternalTool, _http: &reqwest::Client) ->
     };
 
     match tool.id() {
-        ToolId::MediaBridge => Ok(packaged_media_bridge_update_info()),
         ToolId::Ffmpeg => check_ffmpeg_latest(os_pattern, arch_pattern),
     }
     .unwrap_or_else(|error| UpdateInfo {
@@ -197,23 +196,6 @@ fn check_ffmpeg_latest(os: &str, arch: &str) -> Result<UpdateInfo, String> {
         "FFmpeg build from BtbN/FFmpeg-Builds.".to_owned(),
     ))
 }
-
-fn packaged_media_bridge_update_info() -> UpdateInfo {
-    UpdateInfo {
-        available: false,
-        current_version: None,
-        latest_version: None,
-        download_url: None,
-        expected_sha256: None,
-        error: None,
-        release_notes: Some(
-            "NOVA Media Bridge is distributed only as part of a verified NOVA release package."
-                .to_owned(),
-        ),
-        published_at: None,
-    }
-}
-
 
 fn is_trusted_release_asset_url(url: &str) -> bool {
     let Ok(parsed) = reqwest::Url::parse(url) else {
@@ -559,7 +541,7 @@ pub fn uninstall_tool(
 mod tests {
     use super::{
         archive_entry_matches, asset_sha256, is_ffmpeg_static_asset,
-        is_trusted_release_asset_url, packaged_media_bridge_update_info, sha256_hex,
+        is_trusted_release_asset_url, sha256_hex,
     };
     use std::path::Path;
 
@@ -577,10 +559,10 @@ mod tests {
             "19e05df6b2e5fb94f3ee7eed2c02d340a1128a00231f5f6949641a143ab3b57a"
         );
         assert!(is_trusted_release_asset_url(
-            "https://github.com/example/media/releases/download/v1/media-bridge"
+            "https://github.com/example/media/releases/download/v1/ffmpeg.zip"
         ));
         assert!(!is_trusted_release_asset_url(
-            "http://github.com/example/media/releases/download/v1/media-bridge"
+            "http://github.com/example/media/releases/download/v1/ffmpeg.zip"
         ));
         assert!(!is_trusted_release_asset_url("https://example.test/tool"));
     }
@@ -617,12 +599,5 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn media_bridge_updates_are_release_package_managed() {
-        let update = packaged_media_bridge_update_info();
-        assert!(!update.available);
-        assert!(update.download_url.is_none());
-        assert!(update.error.is_none());
-    }
 
 }
