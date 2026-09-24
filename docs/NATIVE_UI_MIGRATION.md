@@ -136,48 +136,44 @@ Remaining before Stage 5 is complete:
 - High-DPI and multi-monitor validation.
 - macOS-specific visual/accessibility refinement beyond the implemented Dock progress integration, plus remaining cross-platform accessibility polish.
 
-### Stage 6 — Parity freeze
+### Stage 6.1 — True parity & production hardening
 
-Status: **in progress — executable parity gate and native preview pipeline added**.
+Status: **in progress — structural parity claims corrected; replacement gate is explicitly not ready**.
 
-Stage 6 freezes the feature surface: existing legacy-only capabilities must be tracked as explicit parity gaps, and newly covered native capabilities must carry verifiable implementation evidence.
+Stage 6.1 keeps the legacy UI intact while the Qt frontend is verified against real legacy behavior. A capability may be marked `covered` only when the migrated workflow is functionally equivalent enough for replacement, not merely because matching files, API names or source tokens exist.
 
 Implemented:
 
 - Machine-readable parity manifest at `desktop-native/parity/parity-manifest.json`.
-- Automated parity validation that checks every merge/removal gate has a tracked status.
-- Covered capabilities must reference real evidence files and required implementation/API tokens.
-- Partial, gap and externally blocked capabilities must carry an explicit blocker instead of being silently treated as complete.
-- CI now runs both localization and Stage 6 parity gates before installing Qt/building the native application.
-- Native UI workflow also runs when legacy `src/**`, daemon `src-tauri/**` or migration-plan changes can affect parity.
-- Every successful Windows/Linux/macOS CI build installs a versioned native preview bundle.
-- Core Downloads columns now support persistent show/hide configuration and persistent ascending/descending sorting through the native model/QSettings path.
-- Clipboard URL monitoring now matches the legacy 1.5-second detection behavior: it ignores pre-existing clipboard content, extracts new HTTP/HTTPS links and opens the native Add Download dialog only after the engine is connected.
-- Browser integration now exposes live daemon-backed status, enabled/paired state, bridge version, capture endpoint and direct/media/post-processing capabilities in the native Settings workspace.
-- Native Qt can now enable or disable browser capture through the daemon's existing `/api/browser-extension/config` endpoint. The daemon applies only the browser-enable patch atomically and preserves unrelated settings and protected pairing credential markers.
-- Native browser diagnostics validate Chrome/Chromium, Edge and Firefox Native Messaging registration plus the manifest/host executable.
-- Native Messaging registration repair is now user-scoped on Windows, macOS and Linux. The Qt application generates atomic manifests that point only to the bundled sibling `nova-native-host` executable.
-- The production native runtime is split into `nova-native` (Qt UI), `nova-native-backend` (headless Rust daemon) and `nova-native-host` (browser Native Messaging transport). Qt discovers an existing daemon first, otherwise starts the bundled backend and obtains its bearer token through the trusted loopback desktop auto-pair contract.
-- Native browser integration follows the project's zero-click pairing security model: pairing credentials are never displayed or copied by the Qt UI; setup links route users to the extension release and pairing documentation.
-- Windows preview bundles deploy the required Qt runtime through `windeployqt`.
-- Linux preview bundles include the Qt UI, Rust backend/native host, desktop entry, an `ldd` runtime dependency report and a live backend auto-pair smoke test.
-- macOS 15 ARM64 (Apple Silicon) preview builds are part of the native CI matrix and package the Rust backend/native host beside the Qt application executable. The runner is pinned to macOS 15 because Qt 6.8 LTS is the project baseline.
-- Platform-validation CI now also targets Windows 11 ARM64, Ubuntu 24.04 ARM64 and macOS 15 Intel, with architecture assertions for the Qt UI, Rust backend and Native Messaging host so emulated/wrong-architecture binaries cannot count as parity evidence.
-- Every preview bundle carries `PARITY_REPORT.md` and `BUILD_INFO.txt` for QA traceability.
-- Native CTest coverage now stress-loads 20,000 downloads, validates filter/sort/search responsiveness, forces a real SSE disconnect/reconnect, and verifies bounded reconnect backoff.
-- Download table parity now includes elapsed time, date added, retries, connection count, CRC32 placeholder parity, queue-derived priority, completed date, source URL and smart category, with persistent visibility/sort settings and synchronized horizontal scrolling for wide column sets.
-- The Qt bootstrap now recovers from an owned Rust backend process exit by rediscovering/restarting the backend and re-pairing without restarting the UI.
-- Preview artifacts are retained by GitHub Actions for 14 days.
+- The manifest now declares `releaseReplacementReady`; it is currently `false`.
+- The parity validator rejects any manifest that claims replacement readiness while partial/gap/blocked capabilities remain.
+- `check-parity.mjs --require-complete` is the production replacement gate.
+- Pull requests targeting `main` run the complete replacement gate, so the legacy UI cannot be removed while blockers remain.
+- Native preview builds still validate evidence files/tokens and carry a generated `PARITY_REPORT.md`.
+- Batch Import, Media, Queue, Scheduler and Settings were reclassified from `covered` to `partial` after direct comparison with the legacy UI.
+- Core Downloads columns support persistent show/hide configuration and persistent ascending/descending sorting through the native model/QSettings path.
+- Clipboard URL monitoring matches the legacy 1.5-second detection behavior and ignores pre-existing clipboard content.
+- Browser integration exposes daemon-backed status and user-scoped Native Messaging registration repair on Windows, macOS and Linux.
+- The native runtime remains split into `nova-native` (Qt UI), `nova-native-backend` (headless Rust daemon) and `nova-native-host` (browser Native Messaging transport).
+- Windows preview bundles deploy Qt through `windeployqt`; macOS uses `macdeployqt`; Linux preview builds include explicit runtime dependency reporting.
+- CI targets Windows x64/ARM64, Linux x64/ARM64 and macOS ARM64/x64 with architecture assertions.
+- Native CTest coverage stress-loads 20,000 downloads and validates SSE disconnect/reconnect with bounded backoff.
 
-Current parity blockers tracked by the executable manifest:
+Current replacement blockers:
 
-- Validate packaged browser capture end to end with the real NOVA extension on Windows, macOS and Linux.
+- Complete Batch Import parity: queue selection, Referer/User-Agent, proxy, custom headers, retry policy and timeout controls.
+- Complete Media parity: advanced format/sort/section/remux/SponsorBlock/network/cookie/header/rate/retry/fragment/sleep controls.
+- Complete Queue parity: queue creation/deletion/reordering, moving tasks between queues, per-queue ordering and advanced queue controls.
+- Complete Scheduler parity: queue-centric schedules, schedule modes/days, max-active, retry timing, completion actions, task ordering and engine-profile integration.
+- Complete Settings parity and validated migration of existing legacy UI preferences.
 - Full legacy language catalog beyond the current English/Arabic/German native baseline.
+- Packaged browser-capture E2E validation with the real NOVA extension on Windows, macOS and Linux.
 - Production signed automatic updater installation.
-- Windows ARM64, Linux ARM64 and macOS Intel validation beyond the current Windows/Linux x64 + macOS ARM64 matrix.
-- Final screen-reader, multi-monitor and platform accessibility validation.
+- Six-platform CI must complete successfully for the exact candidate commit.
+- Final screen-reader, multi-monitor, mixed-DPI and accessibility validation.
+- Production-grade Linux packaging and release/upgrade validation.
 
-Stage 6 does **not** authorize removing the legacy UI while any merge/removal blocker remains.
+Stage 6.1 does **not** authorize removing the legacy UI. Stage 7 may begin only after the complete replacement gate passes.
 
 ### Stage 7 — Replacement
 Merge the native frontend into the primary release pipeline, remove the old React/Tauri UI, and keep the Rust daemon/core unchanged unless separately justified.
