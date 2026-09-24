@@ -1579,7 +1579,7 @@ async fn run_queue_scheduler_tick(state: &SharedState) {
 
                 let is_failed = matches!(
                     state_now,
-                    Some(TaskState::Failed | TaskState::Interrupted)
+                    Some(TaskState::Failed) | Some(TaskState::Interrupted)
                 );
                 if !is_failed {
                     let _ = state.scheduler.queue_retry_due(
@@ -1597,7 +1597,7 @@ async fn run_queue_scheduler_tick(state: &SharedState) {
 
                 let should_start = matches!(
                     state_now,
-                    Some(TaskState::Queued | TaskState::Paused)
+                    Some(TaskState::Queued) | Some(TaskState::Paused)
                 );
                 let retry_due = is_failed
                     && state.scheduler.queue_retry_due(
