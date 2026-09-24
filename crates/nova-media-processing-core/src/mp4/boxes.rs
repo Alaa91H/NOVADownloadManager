@@ -104,10 +104,10 @@ pub fn parse_boxes(data: &[u8]) -> Result<Vec<Mp4Box<'_>>, MediaProcessingError>
     Ok(result)
 }
 
-pub fn child<'a>(
-    boxes: &'a [Mp4Box<'a>],
+pub fn child<'data, 'boxes>(
+    boxes: &'boxes [Mp4Box<'data>],
     kind: [u8; 4],
-) -> Option<&'a Mp4Box<'a>> {
+) -> Option<&'boxes Mp4Box<'data>> {
     boxes.iter().find(|item| item.kind == FourCc::new(kind))
 }
 
