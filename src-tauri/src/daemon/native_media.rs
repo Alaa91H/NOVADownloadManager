@@ -80,6 +80,11 @@ impl Extractor for NativeMediaExtractor {
             features: vec![
                 "native-resolution".to_owned(),
                 "native-format-selection".to_owned(),
+                "native-multi-track".to_owned(),
+                "native-mp4-demux".to_owned(),
+                "native-fmp4-demux".to_owned(),
+                "native-mp4-mux".to_owned(),
+                "native-remux".to_owned(),
                 "direct-media-handoff".to_owned(),
                 "request-context".to_owned(),
             ],
@@ -1062,8 +1067,11 @@ mod tests {
 
     #[test]
     fn generic_direct_media_resolves_without_network_probe() {
-        let resolved = resolve_native_direct(&body("https://cdn.test/movie.mp4"))
+        let resolved = resolve_native_execution(&body("https://cdn.test/movie.mp4"))
             .expect("native direct resolution");
+        let ResolvedNativeExecution::Direct(resolved) = resolved else {
+            panic!("generic direct media must not become a multi-track job");
+        };
         assert_eq!(resolved.url, "https://cdn.test/movie.mp4");
         assert_eq!(resolved.container.as_deref(), Some("mp4"));
     }
