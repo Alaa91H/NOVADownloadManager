@@ -65,6 +65,13 @@ Item {
             }
         }
 
+        function onEngineManagementChanged() {
+            if (!root.supportsDirect("segmented")
+                    || !root.supportsDirect("range")) {
+                connections.currentIndex = 1
+            }
+        }
+
         function onBatchImportStarted(total, duplicates) {
             root.totalCount = total
             root.completedCount = 0
