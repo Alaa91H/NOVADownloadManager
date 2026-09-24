@@ -9,6 +9,7 @@ edition = "2021"
 rust-version = "1.77"
 
 [dependencies]
+quick-xml = "0.41"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 url = "2"
