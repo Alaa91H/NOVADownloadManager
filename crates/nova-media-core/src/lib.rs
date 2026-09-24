@@ -197,13 +197,16 @@ impl MediaDescriptor {
         &self,
         target_url: &str,
     ) -> Result<HttpRequestContext, MediaError> {
-        let same_origin = same_http_origin(&self.metadata.webpage_url, target_url);
-        let mut context = HttpRequestContext::default();
-        merge_request_headers(&mut context, &self.request_headers, same_origin);
-        context
+        let context = self.request_context()?;
+        let scoped = scope_http_request_context(
+            &context,
+            &self.metadata.webpage_url,
+            target_url,
+        );
+        scoped
             .validate()
             .map_err(|error| MediaError::Transport(error.to_string()))?;
-        Ok(context)
+        Ok(scoped)
     }
 
     pub fn playable_streams(&self) -> impl Iterator<Item = &MediaStream> {
@@ -232,6 +235,23 @@ impl MediaDescriptor {
             .map_err(|error| MediaError::Transport(error.to_string()))?;
         Ok(context)
     }
+}
+
+pub fn scope_http_request_context(
+    context: &HttpRequestContext,
+    source_url: &str,
+    target_url: &str,
+) -> HttpRequestContext {
+    if same_http_origin(source_url, target_url) {
+        return context.clone();
+    }
+
+    let mut scoped = context.clone();
+    scoped.cookie_header = None;
+    scoped.headers.retain(|name, _| {
+        cross_origin_header_allowed(&name.to_ascii_lowercase())
+    });
+    scoped
 }
 
 fn same_http_origin(source: &str, target: &str) -> bool {
