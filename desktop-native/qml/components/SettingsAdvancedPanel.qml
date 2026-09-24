@@ -13,6 +13,7 @@ ScrollView {
     property string noticeText: ""
     property bool noticeError: false
     property string languageToken: i18n.language
+    property bool resetArmed: false
 
     function t(key) {
         const token = root.languageToken
@@ -127,6 +128,24 @@ ScrollView {
                     onToggled: root.setAdvanced("proxyEnabled", checked)
                 }
 
+                RowLayout {
+                    Layout.fillWidth: true
+                    enabled: Boolean(root.advanced("proxyEnabled", false))
+
+                    Text { text: root.t("settings.proxyType"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                    ComboBox {
+                        model: ["http", "https", "socks4", "socks4a", "socks5", "socks5h"]
+                        currentIndex: Math.max(0, model.indexOf(String(root.advanced("proxyType", "http"))))
+                        onActivated: root.setAdvanced("proxyType", currentText)
+                    }
+                    Switch {
+                        text: root.t("settings.proxyTunnel")
+                        checked: Boolean(root.advanced("proxyTunnel", false))
+                        onToggled: root.setAdvanced("proxyTunnel", checked)
+                    }
+                    Item { Layout.fillWidth: true }
+                }
+
                 GridLayout {
                     Layout.fillWidth: true
                     columns: 2
@@ -190,6 +209,104 @@ ScrollView {
                         onValueModified: root.setAdvanced("maxRedirs", value)
                     }
                     Item { Layout.fillWidth: true }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    Text { text: root.t("settings.retryCount"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                    SpinBox {
+                        from: 0; to: 9999
+                        value: Number(root.advanced("retryCount", 3))
+                        onValueModified: root.setAdvanced("retryCount", value)
+                    }
+                    Text { text: root.t("settings.retryDelay"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                    SpinBox {
+                        from: 1; to: 86400
+                        value: Number(root.advanced("retryDelaySec", 5))
+                        onValueModified: root.setAdvanced("retryDelaySec", value)
+                    }
+                    Switch {
+                        text: root.t("settings.dynamicAllocation")
+                        checked: Boolean(root.advanced("dynamicAllocation", true))
+                        onToggled: root.setAdvanced("dynamicAllocation", checked)
+                    }
+                    Text { text: root.t("settings.bufferKb"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                    SpinBox {
+                        from: 16; to: 1048576
+                        value: Number(root.advanced("bufferSizeKb", 256))
+                        onValueModified: root.setAdvanced("bufferSizeKb", value)
+                    }
+                    Item { Layout.fillWidth: true }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: vpnColumn.implicitHeight + 18
+                    radius: Theme.radiusSmall
+                    color: Theme.surfaceRaised
+                    border.color: Theme.border
+
+                    ColumnLayout {
+                        id: vpnColumn
+                        anchors.fill: parent
+                        anchors.margins: 9
+                        spacing: 7
+
+                        Switch {
+                            text: root.t("settings.vpnBinding")
+                            checked: Boolean(root.advanced("vpnEnabled", false))
+                            onToggled: root.setAdvanced("vpnEnabled", checked)
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            enabled: Boolean(root.advanced("vpnEnabled", false))
+
+                            ComboBox {
+                                id: vpnMode
+                                model: [
+                                    {label: root.t("settings.vpnSystem"), value: "system"},
+                                    {label: root.t("settings.vpnProxy"), value: "proxy"},
+                                    {label: root.t("settings.vpnBind"), value: "bind"}
+                                ]
+                                textRole: "label"
+                                valueRole: "value"
+                                currentIndex: {
+                                    const mode = String(root.advanced("vpnMode", "system"))
+                                    return mode === "proxy" ? 1 : mode === "bind" ? 2 : 0
+                                }
+                                onActivated: root.setAdvanced("vpnMode", currentValue)
+                            }
+
+                            TextField {
+                                Layout.fillWidth: true
+                                visible: vpnMode.currentValue === "proxy"
+                                placeholderText: root.t("settings.vpnProxyUrl")
+                                text: String(root.advanced("vpnProxyUrl", ""))
+                                LayoutMirroring.enabled: false
+                                horizontalAlignment: Text.AlignLeft
+                                onEditingFinished: root.setAdvanced("vpnProxyUrl", text)
+                            }
+
+                            TextField {
+                                Layout.fillWidth: true
+                                visible: vpnMode.currentValue === "bind"
+                                placeholderText: root.t("settings.vpnBindAddress")
+                                text: String(root.advanced("vpnBindAddress", ""))
+                                LayoutMirroring.enabled: false
+                                horizontalAlignment: Text.AlignLeft
+                                onEditingFinished: root.setAdvanced("vpnBindAddress", text)
+                            }
+
+                            Switch {
+                                text: root.t("settings.vpnKillSwitch")
+                                visible: vpnMode.currentValue === "bind"
+                                checked: Boolean(root.advanced("vpnKillSwitch", true))
+                                onToggled: root.setAdvanced("vpnKillSwitch", checked)
+                            }
+                        }
+                    }
                 }
 
                 RowLayout {
@@ -409,6 +526,18 @@ ScrollView {
                             Button {
                                 text: root.t("settings.update")
                                 onClicked: api.runExternalToolAction(root.externalToolId(modelData), "update")
+                            }
+                            Button {
+                                text: root.t("settings.setPath")
+                                onClicked: {
+                                    const path = desktop.chooseOpenFile("", root.t("settings.executableFiles") + " (*)")
+                                    if (path.length > 0)
+                                        api.runExternalToolAction(root.externalToolId(modelData), "set-path", path)
+                                }
+                            }
+                            Button {
+                                text: root.t("settings.uninstall")
+                                onClicked: api.runExternalToolAction(root.externalToolId(modelData), "uninstall")
                             }
                         }
                     }
@@ -641,8 +770,24 @@ ScrollView {
                     }
 
                     Button {
-                        text: root.t("settings.factoryReset")
-                        onClicked: settings.resetToDefaults()
+                        text: root.resetArmed
+                            ? root.t("settings.confirmFactoryReset")
+                            : root.t("settings.factoryReset")
+                        onClicked: {
+                            if (root.resetArmed) {
+                                settings.resetToDefaults()
+                                root.resetArmed = false
+                                root.showNotice(root.t("settings.resetComplete"), false)
+                            } else {
+                                root.resetArmed = true
+                            }
+                        }
+                    }
+
+                    Button {
+                        visible: root.resetArmed
+                        text: root.t("common.cancel")
+                        onClicked: root.resetArmed = false
                     }
 
                     Item { Layout.fillWidth: true }
