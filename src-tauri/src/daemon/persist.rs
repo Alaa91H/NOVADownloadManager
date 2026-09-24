@@ -6,7 +6,7 @@ use std::time::Duration;
 use nova_core_model::{RecoveryCheckpoint, ResourceIdentity};
 
 use crate::daemon::state::{AppState, SharedState};
-use crate::daemon::types::{Task, TaskState};
+use crate::daemon::types::{CreateDownloadBody, Task, TaskState};
 use crate::lock_or_err;
 
 /// On-disk snapshot of everything needed to rebuild the download list after
@@ -22,6 +22,11 @@ pub struct PersistedState {
     #[serde(default)]
     pub recovery_checkpoints: HashMap<String, RecoveryCheckpoint>,
     pub media_args: HashMap<String, Vec<String>>,
+    /// Sanitized first-party native media requests. Authentication/session
+    /// material is never persisted; tasks that require it are marked for
+    /// explicit re-authorization after restart.
+    #[serde(default)]
+    pub native_media_requests: HashMap<String, CreateDownloadBody>,
     #[serde(default)]
     pub curl_args: HashMap<String, Vec<String>>,
     /// Per-task libcurl options are persisted separately from diagnostic CLI
@@ -143,6 +148,47 @@ fn sanitize_direct_options(
         .collect()
 }
 
+
+fn native_request_requires_reauth(request: &CreateDownloadBody) -> bool {
+    if request.referer.as_deref().is_some_and(|value| !value.trim().is_empty()) {
+        return true;
+    }
+    if request
+        .direct_options
+        .as_ref()
+        .is_some_and(direct_options_require_reauth)
+    {
+        return true;
+    }
+    request.media_options.as_ref().is_some_and(|media| {
+        media.cookies
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+            || media
+                .referer
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty())
+            || media
+                .headers
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty())
+    })
+}
+
+fn sanitize_native_media_request(request: &CreateDownloadBody) -> CreateDownloadBody {
+    let mut sanitized = request.clone();
+    sanitized.referer = None;
+    if let Some(options) = sanitized.direct_options.take() {
+        sanitized.direct_options = Some(sanitize_direct_options(&options));
+    }
+    if let Some(media) = sanitized.media_options.as_mut() {
+        media.cookies = None;
+        media.referer = None;
+        media.headers = None;
+    }
+    sanitized
+}
+
 fn read_snapshot(path: &Path) -> Result<PersistedState, String> {
     let raw = std::fs::read_to_string(path)
         .map_err(|error| format!("could not read {}: {error}", path.display()))?;
@@ -184,11 +230,13 @@ pub fn load(data_dir: &str) -> PersistedState {
 }
 
 fn build_snapshot(state: &AppState) -> PersistedState {
-    // Acquire locks in documented order (media_jobs → curl_jobs → task_snapshot)
+    // Acquire locks in documented order
+    // (media_jobs → native_media_jobs → curl_jobs → task_snapshot)
     // within a block scope so curl_jobs is released before download_stats,
     // preventing AB-BA deadlock with transfer.rs (which locks download_stats → curl_jobs).
     let (
         media_args,
+        native_media_requests,
         curl_args,
         curl_direct_options,
         resume_requires_reauth,
@@ -197,12 +245,17 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         telegram_last_update_id,
     ) = {
         let media_jobs = lock_or_err!(state.media_jobs);
+        let native_media_jobs = lock_or_err!(state.native_media_jobs);
         let curl_jobs = lock_or_err!(state.curl_jobs);
         let snapshot = lock_or_err!(state.task_snapshot);
 
         let media_args: HashMap<String, Vec<String>> = media_jobs
             .iter()
             .map(|(id, job)| (id.clone(), sanitize_resume_args(&job.args)))
+            .collect();
+        let native_media_requests: HashMap<String, CreateDownloadBody> = native_media_jobs
+            .iter()
+            .map(|(id, job)| (id.clone(), sanitize_native_media_request(&job.request)))
             .collect();
         let curl_args: HashMap<String, Vec<String>> = curl_jobs
             .iter()
@@ -217,6 +270,12 @@ fn build_snapshot(state: &AppState) -> PersistedState {
             .filter(|(_, job)| job.args.iter().any(|arg| is_sensitive_resume_argument(arg)))
             .map(|(id, _)| id.clone())
             .collect();
+        resume_requires_reauth.extend(
+            native_media_jobs
+                .iter()
+                .filter(|(_, job)| native_request_requires_reauth(&job.request))
+                .map(|(id, _)| id.clone()),
+        );
         resume_requires_reauth.extend(
             curl_jobs
                 .iter()
@@ -251,6 +310,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         let telegram_last_update_id = *lock_or_err!(state.telegram_last_update_id);
         (
             media_args,
+            native_media_requests,
             curl_args,
             curl_direct_options,
             resume_requires_reauth,
@@ -263,10 +323,11 @@ fn build_snapshot(state: &AppState) -> PersistedState {
     let stats = lock_or_err!(state.download_stats).clone();
 
     PersistedState {
-        version: 2,
+        version: 3,
         tasks,
         recovery_checkpoints,
         media_args,
+        native_media_requests,
         curl_args,
         curl_direct_options,
         resume_requires_reauth,
