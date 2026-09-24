@@ -1492,6 +1492,8 @@ mod tests {
     fn extension_media_capabilities_do_not_require_postprocessing() {
         let status = serde_json::json!({
             "directReady": true,
+            "mediaExtractionReady": true,
+            "streamingReady": true,
             "mediaReady": true,
             "postProcessingReady": false,
             "engines": {
