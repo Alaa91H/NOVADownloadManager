@@ -2646,7 +2646,7 @@ fn sidecar_path(output_path: &Path, suffix: &str) -> PathBuf {
 }
 
 fn sidecar_extension_from_url(url: &str, fallback: &str) -> String {
-    url::Url::parse(url)
+    reqwest::Url::parse(url)
         .ok()
         .and_then(|url| {
             url.path_segments()
