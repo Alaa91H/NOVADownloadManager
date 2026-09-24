@@ -912,7 +912,7 @@ jobs:
           }
 
       # ── Package ──
-      - name: Build Tauri installer
+      - name: Build Tauri installer(s)
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -921,7 +921,11 @@ jobs:
           set -o pipefail
           run_tauri_build() {
             local log_file="$1"
-            pnpm run tauri:build --bundles ${{ matrix.bundle_targets }} 2>&1 | tee "$log_file"
+            if [ "${RUNNER_OS:-}" = "Windows" ]; then
+              node scripts/build-windows-installers.mjs 2>&1 | tee "$log_file"
+            else
+              pnpm run tauri:build --bundles ${{ matrix.bundle_targets }} 2>&1 | tee "$log_file"
+            fi
           }
 
           echo "::group::Tauri build output"
