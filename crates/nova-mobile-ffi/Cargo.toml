@@ -15,7 +15,9 @@ crate-type = ["lib", "cdylib", "staticlib"]
 [dependencies]
 nova-core-model = { path = "../nova-core-model" }
 nova-download-core = { path = "../nova-download-core", features = ["http2", "rustls", "static-curl"] }
+nova-media-core = { path = "../nova-media-core" }
 nova-mobile-core = { path = "../nova-mobile-core", features = ["http2", "rustls", "static-curl"] }
+serde_json = "1"
 thiserror = "2"
 uniffi = "0.32.0"
 
