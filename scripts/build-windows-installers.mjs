@@ -12,7 +12,7 @@ import { spawnSync } from 'node:child_process';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const RUNNER = join(ROOT, 'scripts', 'run-tauri-with-native-curl.mjs');
 const NSIS_DIR = join(ROOT, 'src-tauri', 'target', 'release', 'bundle', 'nsis');
-const STAGE_DIR = join(ROOT, 'src-tauri', 'target', 'release', 'bundle', 'nsis-scoped');
+const STAGE_DIR = join(ROOT, 'src-tauri', 'target', 'release', 'nova-installer-scopes');
 const USER_CONFIG = join(ROOT, 'src-tauri', 'tauri.user.conf.json');
 const MACHINE_CONFIG = join(ROOT, 'src-tauri', 'tauri.machine.conf.json');
 const passthroughArgs = process.argv.slice(2);
