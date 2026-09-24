@@ -456,6 +456,7 @@ mod tests {
                 max_block_retries: 1,
                 max_metadata_retries: 1,
                 max_control_frames_without_progress: 32,
+                enable_pex: true,
             },
             max_outbound_connections: 4,
         });
