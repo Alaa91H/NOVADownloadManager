@@ -149,11 +149,11 @@ impl TaskState {
             ),
             Self::Verifying => matches!(
                 next,
-                Self::Finalizing | Self::Pausing | Self::Paused | Self::Failed
+                Self::Finalizing | Self::Pausing | Self::Failed
             ),
             Self::Finalizing => matches!(
                 next,
-                Self::Completed | Self::Pausing | Self::Paused | Self::Failed
+                Self::Completed | Self::Pausing | Self::Failed
             ),
             Self::Completed => false,
             Self::Failed => matches!(next, Self::Queued | Self::Paused),
