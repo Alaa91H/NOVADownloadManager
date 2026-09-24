@@ -69,6 +69,21 @@ int main(int argc, char *argv[]) {
                      &app, syncClipboardPreferences);
     QObject::connect(&apiClient, &NovaApiClient::connectionChanged,
                      &app, syncClipboardPreferences);
+    QObject::connect(
+        &apiClient,
+        &NovaApiClient::settingsServiceActionCompleted,
+        &app,
+        [&nativeSettings](const QString &action, const QString &message) {
+            if (action == QStringLiteral("telegram")) {
+                nativeSettings.completeDaemonMigration(QStringLiteral("telegram"));
+            } else if (action == QStringLiteral("external-tool")
+                       && message.startsWith(QStringLiteral("ffmpeg:set-path"))) {
+                nativeSettings.completeDaemonMigration(
+                    QStringLiteral("external-tools")
+                );
+            }
+        }
+    );
     QObject::connect(&trayManager, &TrayManager::quitRequested,
                      &app, [&app]() { app.quit(); });
     QObject::connect(&apiClient, &NovaApiClient::schedulerExitRequested,
@@ -140,7 +155,8 @@ int main(int argc, char *argv[]) {
         &refreshTimer,
         &healthTimer,
         &schedulerTimer,
-        &browserIntegrationTimer
+        &browserIntegrationTimer,
+        &nativeSettings
     ](const QUrl &baseUrl, const QString &token) {
         if (!baseUrl.isValid() || token.trimmed().isEmpty()) {
             return;
@@ -158,6 +174,65 @@ int main(int argc, char *argv[]) {
         apiClient.refreshDownloads();
         apiClient.refreshScheduler();
         apiClient.refreshBrowserIntegration();
+        apiClient.refreshSettingsServices();
+
+        const QVariantMap advanced = nativeSettings.advancedSettings();
+        const bool speedLimited =
+            advanced.value(QStringLiteral("speedLimiterEnabled")).toBool();
+        const qint64 speedLimit =
+            advanced.value(QStringLiteral("speedLimitKbs")).toLongLong();
+        apiClient.setGlobalBandwidthLimit(speedLimited ? speedLimit : 0);
+
+        if (nativeSettings.daemonMigrationPending(QStringLiteral("external-tools"))) {
+            const QString ffmpegPath =
+                advanced.value(QStringLiteral("ffmpegPath")).toString().trimmed();
+            if (ffmpegPath.isEmpty()) {
+                nativeSettings.completeDaemonMigration(
+                    QStringLiteral("external-tools")
+                );
+            } else {
+                apiClient.runExternalToolAction(
+                    QStringLiteral("ffmpeg"),
+                    QStringLiteral("set-path"),
+                    ffmpegPath
+                );
+            }
+        }
+
+        if (nativeSettings.daemonMigrationPending(QStringLiteral("telegram"))) {
+            const QString tokenValue =
+                advanced.value(QStringLiteral("telegramToken")).toString().trimmed();
+            const QString chatValue =
+                advanced.value(QStringLiteral("telegramChatId")).toString().trimmed();
+            const bool enabled =
+                advanced.value(QStringLiteral("telegramEnabled")).toBool();
+            if (tokenValue.isEmpty() && chatValue.isEmpty() && !enabled) {
+                nativeSettings.completeDaemonMigration(QStringLiteral("telegram"));
+            } else {
+                QVariantMap telegram;
+                telegram.insert(QStringLiteral("enabled"), enabled);
+                if (!tokenValue.isEmpty()) {
+                    telegram.insert(QStringLiteral("token"), tokenValue);
+                }
+                bool chatOk = false;
+                const qlonglong chatId = chatValue.toLongLong(&chatOk);
+                if (chatOk) {
+                    telegram.insert(QStringLiteral("chatId"), chatId);
+                }
+                telegram.insert(
+                    QStringLiteral("apiBase"),
+                    advanced.value(QStringLiteral("telegramApiBase")).toString()
+                );
+                telegram.insert(
+                    QStringLiteral("fileUploadLimitMb"),
+                    advanced.value(
+                        QStringLiteral("telegramFileUploadLimitMb")
+                    ).toInt()
+                );
+                apiClient.updateTelegramConfig(telegram);
+            }
+        }
+
         apiClient.startDownloadStream();
     };
 
