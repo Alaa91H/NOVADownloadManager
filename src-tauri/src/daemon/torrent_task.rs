@@ -253,7 +253,7 @@ pub async fn create_torrent_task(
     .map_err(|error| format!("Could not prepare torrent storage: {error}"))?;
 
     let (persisted_source, _source_requires_reauth) =
-        persistable_magnet_source(&analysis.source_uri)?;
+        persistable_magnet_source(&analysis.source_uri, metainfo.private)?;
     let id = uuid::Uuid::new_v4().simple().to_string();
     let connections = body
         .connections
@@ -474,16 +474,16 @@ pub async fn reauthorize_torrent_task(
 ) -> Result<Task, String> {
     let magnet = MagnetLink::parse(magnet_uri.trim())
         .map_err(|error| format!("Invalid magnet URI: {error}"))?;
-    let expected = {
+    let (expected, private_torrent) = {
         let jobs = lock_or_err!(state.torrent_jobs);
         let job = jobs.get(id).ok_or_else(|| "Torrent task not found".to_owned())?;
-        info_hash_from_hex(&job.task.engine_id)?
+        (info_hash_from_hex(&job.task.engine_id)?, job.private)
     };
     if magnet.info_hash != expected {
         return Err("Replacement magnet belongs to a different torrent".to_owned());
     }
 
-    let (persisted, _removed_sensitive) = persistable_magnet_source(magnet_uri)?;
+    let (persisted, _removed_sensitive) = persistable_magnet_source(magnet_uri, private_torrent)?;
     let task = {
         let mut jobs = lock_or_err!(state.torrent_jobs);
         let job = jobs.get_mut(id).ok_or_else(|| "Torrent task not found".to_owned())?;
@@ -1469,7 +1469,7 @@ fn discovery_source_from_metainfo(metainfo: &TorrentMetainfo) -> String {
     format!("magnet:?{}", query.finish())
 }
 
-pub fn persistable_magnet_source(input: &str) -> Result<(String, bool), String> {
+pub fn persistable_magnet_source(input: &str, private_torrent: bool) -> Result<(String, bool), String> {
     let magnet = MagnetLink::parse(input)
         .map_err(|error| format!("Invalid magnet URI: {error}"))?;
     let mut query = url::form_urlencoded::Serializer::new(String::new());
@@ -1484,7 +1484,8 @@ pub fn persistable_magnet_source(input: &str) -> Result<(String, bool), String> 
     let mut removed_sensitive = false;
     for tracker in &magnet.trackers {
         let parsed = Url::parse(tracker).map_err(|_| "Invalid tracker URL".to_owned())?;
-        let sensitive = !parsed.username().is_empty()
+        let sensitive = private_torrent
+            || !parsed.username().is_empty()
             || parsed.password().is_some()
             || parsed.query().is_some()
             || parsed.fragment().is_some();
@@ -1563,16 +1564,13 @@ mod tests {
         assert_eq!(parsed.info_hash, metainfo.info_hash);
         assert_eq!(parsed.trackers.len(), 2);
 
-        let (persisted, requires_reauth) = persistable_magnet_source(&full).unwrap();
+        let (persisted, requires_reauth) = persistable_magnet_source(&full, true).unwrap();
         assert!(requires_reauth);
         assert!(!persisted.contains("passkey"));
         assert!(!persisted.contains("secret"));
         let sanitized = MagnetLink::parse(&persisted).unwrap();
         assert_eq!(sanitized.info_hash, metainfo.info_hash);
-        assert_eq!(
-            sanitized.trackers,
-            vec!["https://tracker.example/announce".to_owned()]
-        );
+        assert!(sanitized.trackers.is_empty());
     }
 
     #[tokio::test]
@@ -1694,7 +1692,7 @@ mod tests {
     #[test]
     fn persistence_strips_credentialed_trackers_but_keeps_safe_ones() {
         let source = "magnet:?xt=urn:btih:1111111111111111111111111111111111111111&dn=test&tr=https%3A%2F%2Fsafe.example%2Fannounce&tr=https%3A%2F%2Fprivate.example%2Fannounce%3Fpasskey%3Dsecret";
-        let (persisted, reauth) = persistable_magnet_source(source).unwrap();
+        let (persisted, reauth) = persistable_magnet_source(source, false).unwrap();
         assert!(reauth);
         assert!(persisted.contains("safe.example"));
         assert!(!persisted.contains("private.example"));

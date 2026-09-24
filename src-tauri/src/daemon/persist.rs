@@ -267,7 +267,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
                     .source_uri
                     .as_deref()
                     .unwrap_or(job.task.url.as_str());
-                crate::daemon::torrent_task::persistable_magnet_source(source)
+                crate::daemon::torrent_task::persistable_magnet_source(source, job.private)
                     .ok()
                     .map(|(sanitized, _)| (id.clone(), sanitized))
             })
@@ -308,7 +308,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
                         .source_uri
                         .as_deref()
                         .unwrap_or(job.task.url.as_str());
-                    let removed_sensitive = crate::daemon::torrent_task::persistable_magnet_source(source)
+                    let removed_sensitive = crate::daemon::torrent_task::persistable_magnet_source(source, job.private)
                         .map(|(_, removed)| removed)
                         .unwrap_or(true);
                     (job.requires_reauth || removed_sensitive).then_some(id.clone())
