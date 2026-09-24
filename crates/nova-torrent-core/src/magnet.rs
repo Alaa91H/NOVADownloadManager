@@ -51,19 +51,19 @@ impl MagnetLink {
                 }
                 "tr" => {
                     if trackers.len() >= MAX_MAGNET_TRACKERS
-                        && !trackers.iter().any(|existing| existing == value.as_ref())
+                        && !trackers.iter().any(|existing| existing.as_str() == value.as_ref())
                     {
                         return Err(MagnetParseError::TooManyTrackers);
                     }
-                    push_unique_url(&mut trackers, &value, true)?;
+                    push_unique_url(&mut trackers, value.as_ref(), true)?;
                 }
                 "ws" | "as" => {
                     if web_seeds.len() >= MAX_MAGNET_WEB_SEEDS
-                        && !web_seeds.iter().any(|existing| existing == value.as_ref())
+                        && !web_seeds.iter().any(|existing| existing.as_str() == value.as_ref())
                     {
                         return Err(MagnetParseError::TooManyWebSeeds);
                     }
-                    push_unique_url(&mut web_seeds, &value, false)?;
+                    push_unique_url(&mut web_seeds, value.as_ref(), false)?;
                 }
                 "xl" if exact_length.is_none() => {
                     exact_length = Some(
