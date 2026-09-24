@@ -792,41 +792,8 @@ void NovaApiClient::updateQueue(const QVariantMap &queue) {
         }
 
         applyQueueCatalog(document.object().value(QStringLiteral("queues")).toArray());
-
-        const QVariantMap updated = queueById(queueId);
-        const QStringList taskIds = orderedQueueTaskIds(queueId);
-        QJsonObject bandwidthBody;
-        if (updated.value(QStringLiteral("limitSpeed")).toBool()
-            && updated.value(QStringLiteral("speedLimitKbs")).toLongLong() > 0) {
-            QJsonObject taskLimits;
-            const qint64 limit = updated.value(QStringLiteral("speedLimitKbs")).toLongLong();
-            for (const QString &taskId : taskIds) {
-                taskLimits.insert(taskId, limit);
-            }
-            bandwidthBody.insert(QStringLiteral("task_limits"), taskLimits);
-        } else {
-            QJsonArray remove;
-            for (const QString &taskId : taskIds) {
-                remove.append(taskId);
-            }
-            bandwidthBody.insert(QStringLiteral("remove_task_limits"), remove);
-        }
-
-        auto *bandwidthReply = m_network.post(
-            makeRequest(QStringLiteral("/api/engine/bandwidth")),
-            QJsonDocument(bandwidthBody).toJson(QJsonDocument::Compact)
-        );
-        connect(bandwidthReply, &QNetworkReply::finished, this, [this, bandwidthReply, queueId]() {
-            const auto guardBandwidth =
-                qScopeGuard([bandwidthReply]() { bandwidthReply->deleteLater(); });
-            const QByteArray bandwidthPayload = bandwidthReply->readAll();
-            if (bandwidthReply->error() != QNetworkReply::NoError) {
-                emit requestFailed(responseErrorMessage(bandwidthReply, bandwidthPayload));
-                return;
-            }
-            emit queueCatalogActionCompleted(QStringLiteral("update"), queueId);
-            refreshQueue();
-        });
+        emit queueCatalogActionCompleted(QStringLiteral("update"), queueId);
+        refreshQueue();
     });
 }
 
