@@ -1,6 +1,10 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use nova_download_core::download_http_to_path_segmented_with_context;
+use nova_media_processing_core::{
+    mux_demuxers_to_mp4, MediaDemuxer, MediaMuxResult, Mp4Demuxer,
+};
 use thiserror::Error;
 
 use crate::{
@@ -24,6 +28,21 @@ pub enum YouTubeTransferOutput {
     },
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum YouTubeFinalizedOutput {
+    Single {
+        path: PathBuf,
+        bytes: u64,
+        stream_id: String,
+    },
+    Muxed {
+        path: PathBuf,
+        bytes: u64,
+        video_stream_id: String,
+        audio_stream_id: String,
+    },
+}
+
 #[derive(Debug, Error, Eq, PartialEq)]
 pub enum YouTubeTransferError {
     #[error("selected YouTube stream was not found: {0}")]
@@ -34,6 +53,12 @@ pub enum YouTubeTransferError {
     Transport(String),
     #[error("native YouTube transfer worker panicked")]
     WorkerPanic,
+    #[error("native YouTube media processing failed: {0}")]
+    Processing(String),
+    #[error("selected YouTube separate tracks are not ISO-BMFF/MP4 compatible: {0}")]
+    UnsupportedMuxContainer(String),
+    #[error("native YouTube mux requires a separate-track transfer")]
+    NotSeparateTracks,
 }
 
 /// Execute a selected YouTube plan through NOVA's existing native transfer
@@ -126,6 +151,112 @@ pub fn download_youtube_plan(
                 audio_stream_id: audio_stream_id.clone(),
             })
         }
+    }
+}
+
+/// Download a selected YouTube plan and finish all MP4-compatible
+/// post-processing inside NOVA's native media core.
+///
+/// Single-stream plans are returned directly. Separate MP4/M4A tracks are
+/// downloaded through nova-download-core and muxed in-process without FFmpeg.
+pub fn download_and_finalize_youtube_plan(
+    extraction: &YouTubeExtraction,
+    plan: &YouTubeDownloadPlan,
+    destination: &Path,
+    requested_connections: u32,
+) -> Result<YouTubeFinalizedOutput, YouTubeTransferError> {
+    if let YouTubeDownloadPlan::SeparateTracks {
+        video_stream_id,
+        audio_stream_id,
+    } = plan
+    {
+        let video = find_stream(&extraction.descriptor, video_stream_id)?;
+        let audio = find_stream(&extraction.descriptor, audio_stream_id)?;
+        ensure_mp4_muxable_stream(video)?;
+        ensure_mp4_muxable_stream(audio)?;
+    }
+
+    let staged = download_youtube_plan(
+        extraction,
+        plan,
+        destination,
+        requested_connections,
+    )?;
+
+    match &staged {
+        YouTubeTransferOutput::Single {
+            path,
+            bytes,
+            stream_id,
+        } => Ok(YouTubeFinalizedOutput::Single {
+            path: path.clone(),
+            bytes: *bytes,
+            stream_id: stream_id.clone(),
+        }),
+        YouTubeTransferOutput::SeparateTracks {
+            video_stream_id,
+            audio_stream_id,
+            ..
+        } => {
+            let muxed = mux_youtube_separate_tracks_to_mp4(&staged, destination)?;
+            Ok(YouTubeFinalizedOutput::Muxed {
+                path: destination.to_path_buf(),
+                bytes: muxed.bytes_written,
+                video_stream_id: video_stream_id.clone(),
+                audio_stream_id: audio_stream_id.clone(),
+            })
+        }
+    }
+}
+
+/// Mux already-downloaded YouTube MP4/M4A staging files into one MP4.
+///
+/// Staging files are deleted only after the destination has been finalized
+/// successfully. On any demux/mux failure they are retained for diagnostics
+/// and retry.
+pub fn mux_youtube_separate_tracks_to_mp4(
+    transfer: &YouTubeTransferOutput,
+    destination: &Path,
+) -> Result<MediaMuxResult, YouTubeTransferError> {
+    let YouTubeTransferOutput::SeparateTracks {
+        video_path,
+        audio_path,
+        ..
+    } = transfer
+    else {
+        return Err(YouTubeTransferError::NotSeparateTracks);
+    };
+
+    let mut video = Mp4Demuxer::open(video_path)
+        .map_err(|error| YouTubeTransferError::Processing(error.to_string()))?;
+    let mut audio = Mp4Demuxer::open(audio_path)
+        .map_err(|error| YouTubeTransferError::Processing(error.to_string()))?;
+    let mut inputs: [&mut dyn MediaDemuxer; 2] = [&mut video, &mut audio];
+    let result = mux_demuxers_to_mp4(destination, &mut inputs)
+        .map_err(|error| YouTubeTransferError::Processing(error.to_string()))?;
+
+    let _ = fs::remove_file(video_path);
+    let _ = fs::remove_file(audio_path);
+    Ok(result)
+}
+
+fn ensure_mp4_muxable_stream(stream: &MediaStream) -> Result<(), YouTubeTransferError> {
+    let container = stream
+        .container
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    if matches!(container.as_str(), "mp4" | "m4a" | "m4v" | "mov") {
+        Ok(())
+    } else {
+        Err(YouTubeTransferError::UnsupportedMuxContainer(
+            if container.is_empty() {
+                "unknown".to_owned()
+            } else {
+                container
+            },
+        ))
     }
 }
 
