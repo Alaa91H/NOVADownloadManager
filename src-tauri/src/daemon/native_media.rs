@@ -29,7 +29,8 @@ use crate::daemon::browser_cookies::{
 use crate::daemon::engine::extractor::{EngineStatus, Extractor, ValidateError};
 use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
 use crate::daemon::postprocess::{
-    FfmpegPostProcessor, MediaMuxRequest, MediaPostProcessor, PostProcessError,
+    FfmpegPostProcessor, MediaMuxRequest, MediaPostProcessor, MediaSubtitleEmbedRequest,
+    MediaSubtitleInput, PostProcessError, MEDIA_SUBTITLE_EMBED_OPTION,
 };
 use crate::daemon::state::SharedState;
 use crate::daemon::types::{
@@ -51,6 +52,7 @@ pub const NATIVE_MEDIA_OPTION_KEYS: &[&str] = &[
     "subtitles",
     "subtitleLanguages",
     "autoSubtitles",
+    "embedSubtitles",
     "writeThumbnail",
     "writeInfoJson",
     "writeDescription",
@@ -123,6 +125,7 @@ impl Extractor for NativeMediaExtractor {
                 "request-context".to_owned(),
                 "cookie-file-auth".to_owned(),
                 "browser-cookie-import-firefox".to_owned(),
+                "direct-subtitle-embedding".to_owned(),
             ],
         }
     }
@@ -219,14 +222,27 @@ pub async fn create_native_media_task(
         .await
         .map_err(|error| NativeMediaTaskError::Worker(error.to_string()))??;
 
-    if matches!(resolved, ResolvedNativeMedia::SeparateTracks(_)) {
+    let wants_subtitle_embedding = body
+        .media_options
+        .as_ref()
+        .and_then(|options| options.embed_subtitles)
+        .unwrap_or(false);
+    let needs_postprocessor =
+        matches!(resolved, ResolvedNativeMedia::SeparateTracks(_)) || wants_subtitle_embedding;
+    if needs_postprocessor {
         let postprocessor = FfmpegPostProcessor::new(state.ffmpeg_binary());
         if !postprocessor.is_available() {
             return Err(NativeMediaTaskError::UnsupportedFeature(
-                "the selected quality requires separate audio/video tracks, but the NOVA post-processing muxer is not available"
+                "the requested native media operation requires local post-processing, but the NOVA post-processor is not available"
                     .to_owned(),
             ));
         }
+    }
+    if wants_subtitle_embedding && !matches!(resolved, ResolvedNativeMedia::Direct(_)) {
+        return Err(NativeMediaTaskError::UnsupportedFeature(
+            "subtitle embedding is currently enabled for native direct-media tasks; manifest and separate-track embedding is still migrating"
+                .to_owned(),
+        ));
     }
 
     match resolved {
@@ -300,7 +316,37 @@ async fn create_native_direct_task(
 
     let source_url = direct.url.as_deref().unwrap_or_default();
     let (_, output_path) = crate::daemon::curl::destination_from_body(&direct, source_url);
-    prepare_native_sidecars(body, &descriptor, &chapters, &output_path)?;
+    let sidecars = prepare_native_sidecars(body, &descriptor, &chapters, &output_path)?;
+    if body
+        .media_options
+        .as_ref()
+        .and_then(|options| options.embed_subtitles)
+        .unwrap_or(false)
+    {
+        if sidecars.subtitles.is_empty() {
+            return Err(NativeMediaTaskError::UnsupportedFeature(
+                "subtitle embedding requested but no embeddable native subtitle was produced"
+                    .to_owned(),
+            ));
+        }
+        let cleanup_sidecars = body
+            .media_options
+            .as_ref()
+            .is_some_and(|options| {
+                options.subtitles != Some(true) && options.auto_subtitles != Some(true)
+            });
+        let request = MediaSubtitleEmbedRequest {
+            source_path: output_path.clone(),
+            subtitles: sidecars.subtitles,
+            cleanup_sidecars,
+        };
+        let value = serde_json::to_value(request)
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+        direct
+            .direct_options
+            .get_or_insert_with(HashMap::new)
+            .insert(MEDIA_SUBTITLE_EMBED_OPTION.to_owned(), value);
+    }
 
     log::info!(
         "NOVA Media Engine resolved media to native direct transport: {}",
@@ -2566,23 +2612,32 @@ fn ensure_requested_audio_container(
 const NATIVE_SUBTITLE_MAX_BYTES: usize = 8 * 1024 * 1024;
 const NATIVE_THUMBNAIL_MAX_BYTES: usize = 24 * 1024 * 1024;
 
+#[derive(Default)]
+struct NativeSidecarArtifacts {
+    subtitles: Vec<MediaSubtitleInput>,
+}
+
 fn prepare_native_sidecars(
     body: &CreateDownloadBody,
     descriptor: &MediaDescriptor,
     chapters: &[MediaChapter],
     output_path: &Path,
-) -> Result<(), NativeMediaTaskError> {
+) -> Result<NativeSidecarArtifacts, NativeMediaTaskError> {
     let Some(options) = body.media_options.as_ref() else {
-        return Ok(());
+        return Ok(NativeSidecarArtifacts::default());
     };
-    let wants_subtitles =
-        options.subtitles == Some(true) || options.auto_subtitles == Some(true);
+    let wants_embedding = options.embed_subtitles == Some(true);
+    let wants_subtitles = options.subtitles == Some(true)
+        || options.auto_subtitles == Some(true)
+        || wants_embedding;
     let wants_thumbnail = options.write_thumbnail == Some(true);
     let wants_info = options.write_info_json == Some(true);
     let wants_description = options.write_description == Some(true);
     if !wants_subtitles && !wants_thumbnail && !wants_info && !wants_description {
-        return Ok(());
+        return Ok(NativeSidecarArtifacts::default());
     }
+
+    let mut artifacts = NativeSidecarArtifacts::default();
 
     if let Some(parent) = output_path
         .parent()
@@ -2640,12 +2695,14 @@ fn prepare_native_sidecars(
 
     if wants_subtitles {
         let languages = requested_subtitle_languages(options);
+        let wants_manual = options.subtitles == Some(true)
+            || (wants_embedding && options.auto_subtitles != Some(true));
         let selected = descriptor
             .subtitles
             .iter()
             .filter(|track| {
                 (track.automatic && options.auto_subtitles == Some(true))
-                    || (!track.automatic && options.subtitles == Some(true))
+                    || (!track.automatic && wants_manual)
             })
             .filter(|track| subtitle_language_matches(&track.language, &languages))
             .collect::<Vec<_>>();
@@ -2670,16 +2727,35 @@ fn prepare_native_sidecars(
                 .as_deref()
                 .map(|value| safe_sidecar_component(value, "sub"))
                 .unwrap_or_else(|| "sub".to_owned());
+            if wants_embedding && !is_embeddable_subtitle_format(&format) {
+                return Err(NativeMediaTaskError::UnsupportedFeature(format!(
+                    "subtitle format '{format}' is not supported by the native embedding boundary"
+                )));
+            }
             let suffix = if track.automatic {
                 format!(".auto.{language}.{format}")
             } else {
                 format!(".{language}.{format}")
             };
-            write_atomic_sidecar(&sidecar_path(output_path, &suffix), &response.body)?;
+            let path = sidecar_path(output_path, &suffix);
+            write_atomic_sidecar(&path, &response.body)?;
+            if wants_embedding {
+                artifacts.subtitles.push(MediaSubtitleInput {
+                    path,
+                    language: language.clone(),
+                });
+            }
         }
     }
 
-    Ok(())
+    Ok(artifacts)
+}
+
+fn is_embeddable_subtitle_format(format: &str) -> bool {
+    matches!(
+        format.trim().to_ascii_lowercase().as_str(),
+        "vtt" | "srt" | "ass" | "ssa"
+    )
 }
 
 fn requested_subtitle_languages(options: &MediaDownloadOptions) -> Vec<String> {
@@ -3545,10 +3621,26 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_embed_option_is_rejected_by_native_engine() {
+    fn subtitle_embedding_is_advertised_but_thumbnail_embedding_remains_fail_closed() {
         let mut body = body("https://cdn.test/video.mp4");
         body.media_options.as_mut().expect("media").embed_subtitles = Some(true);
+        NativeMediaExtractor
+            .validate(&body)
+            .expect("subtitle embedding should be accepted by native validation");
+        assert!(NATIVE_MEDIA_OPTION_KEYS.contains(&"embedSubtitles"));
+
+        body.media_options.as_mut().expect("media").embed_thumbnail = Some(true);
         assert!(NativeMediaExtractor.validate(&body).is_err());
+    }
+
+    #[test]
+    fn native_embedding_accepts_only_text_subtitle_formats() {
+        for format in ["vtt", "SRT", "ass", "ssa"] {
+            assert!(is_embeddable_subtitle_format(format));
+        }
+        for format in ["json3", "srv3", "ttml", "bin"] {
+            assert!(!is_embeddable_subtitle_format(format));
+        }
     }
 
     #[test]
