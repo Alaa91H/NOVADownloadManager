@@ -27,7 +27,6 @@ const ALLOWED_YTDLP_ARGS: &[&str] = &[
     "--proxy",
     "--source-address",
     "--user-agent",
-    "-U",
     "--referer",
     "--add-header",
     "--cookies",
