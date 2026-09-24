@@ -25,6 +25,7 @@ pub struct Mp4Sample {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Mp4TrackIndex {
     pub track: MediaTrack,
+    pub duration_millis: Option<u64>,
     pub samples: Vec<Mp4Sample>,
 }
 
@@ -82,7 +83,11 @@ pub fn parse_movie(moov_payload: &[u8], fragmented: bool) -> Result<ParsedMp4, M
     let duration_millis = movie_duration.or_else(|| {
         tracks
             .iter()
-            .filter_map(|track| track_duration_millis(&track.track, track.samples.last()))
+            .filter_map(|track| {
+                track
+                    .duration_millis
+                    .or_else(|| track_duration_millis(&track.track, track.samples.last()))
+            })
             .max()
     });
 
@@ -172,8 +177,19 @@ fn parse_track(trak_payload: &[u8]) -> Result<Mp4TrackIndex, MediaProcessingErro
     let table = parse_sample_table(&stbl_children)?;
     let track = media_track(&metadata)?;
     let samples = build_sample_index(&table, metadata.timescale)?;
+    let duration_millis = if metadata.duration == u32::MAX as u64
+        || metadata.duration == u64::MAX
+    {
+        None
+    } else {
+        Some(scale_to_millis(metadata.duration, metadata.timescale))
+    };
 
-    Ok(Mp4TrackIndex { track, samples })
+    Ok(Mp4TrackIndex {
+        track,
+        duration_millis,
+        samples,
+    })
 }
 
 fn media_track(metadata: &TrackMetadata) -> Result<MediaTrack, MediaProcessingError> {
@@ -209,7 +225,7 @@ fn parse_tkhd(data: &[u8]) -> Result<(u32, Option<u32>, Option<u32>), MediaProce
     let (version, _, body) = full_box_body(data)?;
     let (track_id_offset, width_offset) = match version {
         0 => (8_usize, 76_usize),
-        1 => (16_usize, 88_usize),
+        1 => (16_usize, 84_usize),
         other => return Err(demux_error(format!("unsupported tkhd version {other}"))),
     };
     let track_id = read_u32(slice(body, track_id_offset, 4)?)?;
