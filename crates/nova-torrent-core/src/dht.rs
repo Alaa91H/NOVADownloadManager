@@ -608,7 +608,7 @@ fn dict_get<'a, 'b>(
 ) -> Option<&'b BValue<'a>> {
     dictionary
         .iter()
-        .find_map(|(entry_key, value)| (**entry_key == *key).then_some(value))
+        .find_map(|(entry_key, value)| (*entry_key == key).then_some(value))
 }
 
 fn dict_bytes<'a>(
