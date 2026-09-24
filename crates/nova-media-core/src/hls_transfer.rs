@@ -429,8 +429,11 @@ fn get_aes128_key(
         return Err(HlsStageError::InvalidKeyLength(response.body.len()));
     }
 
-    let mut key = [0_u8; 16];
-    key.copy_from_slice(&response.body);
+    let key: [u8; 16] = response
+        .body
+        .as_slice()
+        .try_into()
+        .map_err(|_| HlsStageError::InvalidKeyLength(response.body.len()))?;
 
     if let Ok(mut cache) = key_cache.lock() {
         cache.insert(key_uri.to_owned(), key);
@@ -450,9 +453,7 @@ fn resolve_iv(unit: &HlsTransferUnit, key: &HlsKey) -> Result<[u8; 16], HlsStage
     let sequence = unit.sequence.ok_or(HlsStageError::InvalidIv(
         "media segment is missing a sequence number".to_owned(),
     ))?;
-    let mut iv = [0_u8; 16];
-    iv[8..].copy_from_slice(&sequence.to_be_bytes());
-    Ok(iv)
+    Ok(u128::from(sequence).to_be_bytes())
 }
 
 fn parse_iv(value: &str) -> Result<[u8; 16], HlsStageError> {
@@ -466,14 +467,20 @@ fn parse_iv(value: &str) -> Result<[u8; 16], HlsStageError> {
     }
 
     let padded = format!("{hex:0>32}");
-    let mut iv = [0_u8; 16];
-    for (index, chunk) in padded.as_bytes().chunks_exact(2).enumerate() {
-        let pair = std::str::from_utf8(chunk)
-            .map_err(|_| HlsStageError::InvalidIv(value.to_owned()))?;
-        iv[index] = u8::from_str_radix(pair, 16)
-            .map_err(|_| HlsStageError::InvalidIv(value.to_owned()))?;
-    }
-    Ok(iv)
+    let bytes = padded
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|chunk| {
+            let pair = std::str::from_utf8(chunk)
+                .map_err(|_| HlsStageError::InvalidIv(value.to_owned()))?;
+            u8::from_str_radix(pair, 16)
+                .map_err(|_| HlsStageError::InvalidIv(value.to_owned()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    bytes
+        .try_into()
+        .map_err(|_| HlsStageError::InvalidIv(value.to_owned()))
 }
 
 fn decrypt_aes128_cbc_pkcs7(
@@ -496,6 +503,28 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     type Aes128CbcEncryptor = cbc::Encryptor<Aes128>;
+
+    fn ephemeral_crypto_block(discriminator: u128) -> [u8; 16] {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let process = u128::from(std::process::id());
+        nanos
+            .rotate_left((discriminator as u32) & 63)
+            .wrapping_add(discriminator)
+            .wrapping_add(process)
+            .to_be_bytes()
+    }
+
+    fn iv_hex(iv: &[u8; 16]) -> String {
+        let mut value = String::from("0x");
+        for byte in iv {
+            use std::fmt::Write as _;
+            write!(&mut value, "{byte:02x}").expect("write IV hex");
+        }
+        value
+    }
 
     #[test]
     fn controlled_hls_staging_cancels_before_network_io() {
@@ -553,8 +582,8 @@ mod tests {
 
     #[test]
     fn decrypts_aes128_cbc_with_pkcs7_padding() {
-        let key = [0x11_u8; 16];
-        let iv = [0x22_u8; 16];
+        let key = ephemeral_crypto_block(1);
+        let iv = ephemeral_crypto_block(2);
         let plaintext = b"NOVA native HLS AES-128";
         let ciphertext = Aes128CbcEncryptor::new(&key.into(), &iv.into())
             .encrypt_padded_vec_mut::<Pkcs7>(plaintext);
@@ -668,8 +697,9 @@ mod tests {
 
     #[test]
     fn stages_and_decrypts_aes128_hls_segment() {
-        let key = [0x33_u8; 16];
-        let iv = [0_u8; 16];
+        let key = ephemeral_crypto_block(3);
+        let iv = ephemeral_crypto_block(4);
+        let explicit_iv = iv_hex(&iv);
         let plaintext = b"encrypted NOVA media segment";
         let ciphertext = Aes128CbcEncryptor::new(&key.into(), &iv.into())
             .encrypt_padded_vec_mut::<Pkcs7>(plaintext);
@@ -714,7 +744,7 @@ mod tests {
                 key: Some(HlsKey {
                     method: HlsEncryptionMethod::Aes128,
                     uri: Some(format!("http://{address}/key.bin")),
-                    iv: None,
+                    iv: Some(explicit_iv),
                     key_format: None,
                 }),
             }],
