@@ -104,13 +104,15 @@ The metadata/discovery layer now includes:
 - 16 KiB metadata piece assembly with a 4 MiB metadata ceiling;
 - exact SHA-1 validation of the raw BEP 9 `info` dictionary against the magnet BTIH;
 - direct conversion of verified raw `info` bytes into the same validated `TorrentMetainfo` model used for `.torrent` files;
-- incoming BEP 11 `ut_pex` IPv4/IPv6 peer parsing, de-duplication and network-policy filtering;
+- incoming BEP 11 `ut_pex` IPv4/IPv6 peer parsing, de-duplication, per-session caps, and network-policy filtering;
+- PEX suppression for known-private torrents and for tracker-backed magnet metadata sessions while the private flag is still unknown;
 - BEP 5 KRPC codecs for `ping`, `find_node`, `get_peers`, and `announce_peer`;
 - compact IPv4/IPv6 DHT node and peer decoding;
 - bounded iterative UDP DHT `get_peers` lookup with transaction-ID validation, cancellation, timeouts, query limits, and closest-node ordering;
 - configurable DHT bootstrap nodes and optional `announce_peer` using returned tokens;
 - a native Magnet resolver that prefers tracker-discovered peers, consumes PEX during metadata exchange, and uses DHT automatically for trackerless magnets;
 - a privacy guard that does not automatically fall back from explicit trackers to DHT while the torrent's `private` flag is still unknown;
+- bounded Magnet URI size, tracker/web-seed counts, peer-candidate queues, metadata frames, and total extended-handshake wait time;
 - private-torrent cleanup that discards DHT/PEX candidate sets once verified metadata declares the torrent private;
 - local TCP/UDP protocol tests for BEP 9 metadata exchange and iterative DHT discovery.
 
