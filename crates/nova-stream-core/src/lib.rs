@@ -1,7 +1,7 @@
 //! Native streaming primitives for NOVA Download Manager.
 //!
 //! Protocol parsing lives in-process and deliberately has no Tauri,
-//! subprocess, Python, yt-dlp, FFmpeg or UI dependency.
+//! subprocess, scripting-runtime, external resolver, post-processor or UI dependency.
 
 mod dash;
 mod hls;

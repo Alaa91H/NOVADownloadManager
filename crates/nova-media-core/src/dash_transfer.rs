@@ -38,7 +38,7 @@ pub enum DashStageError {
 /// Download one static DASH representation into deterministic staging files.
 ///
 /// The representation plan already contains fully resolved URLs, so execution
-/// remains a pure native-transfer concern and does not depend on yt-dlp.
+/// remains a pure native-transfer concern and does not depend on an external media resolver.
 pub fn stage_dash_representation_plan(
     plan: &DashRepresentationPlan,
     context: &HttpRequestContext,

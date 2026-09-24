@@ -37,7 +37,7 @@ pub enum YouTubeTransferError {
 }
 
 /// Execute a selected YouTube plan through NOVA's existing native transfer
-/// engine. No yt-dlp subprocess participates in this path.
+/// engine. No external media-resolver subprocess participates in this path.
 ///
 /// Separate audio/video tracks are intentionally staged independently; the
 /// mux layer consumes the returned paths afterwards.

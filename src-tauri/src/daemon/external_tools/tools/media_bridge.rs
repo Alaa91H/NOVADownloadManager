@@ -21,9 +21,9 @@ impl ExternalTool for MediaBridgeTool {
 
     fn executable_names(&self) -> Vec<&'static str> {
         if cfg!(windows) {
-            vec!["yt-dlp.exe", "yt-dlp"]
+            vec!["nova-media-bridge.exe"]
         } else {
-            vec!["yt-dlp"]
+            vec!["nova-media-bridge"]
         }
     }
 
@@ -35,9 +35,9 @@ impl ExternalTool for MediaBridgeTool {
                 paths.push(PathBuf::from(appdata).join("Python").join("Scripts"));
             }
             if let Ok(local) = std::env::var("LOCALAPPDATA") {
-                paths.push(PathBuf::from(local).join("Programs").join("yt-dlp"));
+                paths.push(PathBuf::from(local).join("Programs").join("NOVA").join("MediaBridge"));
             }
-            paths.push(PathBuf::from("C:\\yt-dlp"));
+            paths.push(PathBuf::from("C:\\ProgramData\\NOVA\\MediaBridge"));
         } else if cfg!(target_os = "macos") {
             paths.push(PathBuf::from("/usr/local/bin"));
             paths.push(PathBuf::from("/opt/homebrew/bin"));
@@ -96,29 +96,29 @@ impl ExternalTool for MediaBridgeTool {
 
     fn source(&self) -> ToolSource {
         ToolSource {
-            name: "Verified media resolver source",
-            base_url: "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest",
+            name: "NOVA release package",
+            base_url: "nova://media-bridge",
             platform_patterns: &[
                 PlatformPattern {
                     os: "windows",
                     arch: "x86_64",
-                    pattern: "yt-dlp.exe",
-                    executable_name: "yt-dlp.exe",
+                    pattern: "nova-media-bridge.exe",
+                    executable_name: "nova-media-bridge.exe",
                 },
                 PlatformPattern {
                     os: "linux",
                     arch: "x86_64",
-                    pattern: "yt-dlp",
-                    executable_name: "yt-dlp",
+                    pattern: "nova-media-bridge",
+                    executable_name: "nova-media-bridge",
                 },
                 PlatformPattern {
                     os: "macos",
                     arch: "x86_64",
-                    pattern: "yt-dlp_macos",
-                    executable_name: "yt-dlp",
+                    pattern: "nova-media-bridge",
+                    executable_name: "nova-media-bridge",
                 },
             ],
-            requires_checksum: true,
+            requires_checksum: false,
         }
     }
 

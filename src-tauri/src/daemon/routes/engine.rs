@@ -1190,19 +1190,10 @@ async fn handle_engine_download(
 
     let (url, dest): (String, std::path::PathBuf) = match engine {
         "media-bridge" | "media_bridge" => {
-            let url = if cfg!(windows) {
-                "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
-            } else {
-                "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
-            };
-            (
-                url.to_owned(),
-                bin_dir.join(if cfg!(windows) {
-                    "yt-dlp.exe"
-                } else {
-                    "yt-dlp"
-                }),
-            )
+            return Json(serde_json::json!({
+                "ok": false,
+                "error": "NOVA Media Bridge is bundled with verified NOVA releases and cannot be downloaded independently."
+            }));
         }
         "ffmpeg" => {
             let url = if cfg!(windows) {
@@ -1365,7 +1356,14 @@ async fn handle_engine_latest_version(
     let engine = body.get("engine").and_then(|v| v.as_str()).unwrap_or("");
 
     let api_url = match engine {
-        "media-bridge" | "media_bridge" => "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest",
+        "media-bridge" | "media_bridge" => {
+            return Json(serde_json::json!({
+                "ok": true,
+                "engine": "media-bridge",
+                "latestVersion": "bundled",
+                "note": "NOVA Media Bridge follows the NOVA application release."
+            }));
+        }
         "ffmpeg" => {
             return Json(serde_json::json!({
                 "ok": true,
