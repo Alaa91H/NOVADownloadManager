@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -23,6 +24,7 @@ private slots:
     void streamReconnectsAfterDaemonReturns();
     void reconnectBackoffIsBounded();
     void legacyUiPreferencesMigrateOnce();
+    void batchImportCarriesAdvancedOptions();
 };
 
 void NativeParityTests::largeListRemainsResponsive() {
@@ -280,6 +282,106 @@ void NativeParityTests::legacyUiPreferencesMigrateOnce() {
     } else {
         qputenv("NOVA_NATIVE_DATA_DIR", previousDataDir);
     }
+}
+
+
+void NativeParityTests::batchImportCarriesAdvancedOptions() {
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+    QByteArray capturedBody;
+    connect(&server, &QTcpServer::newConnection, &server, [&]() {
+        while (server.hasPendingConnections()) {
+            QTcpSocket *socket = server.nextPendingConnection();
+            auto *buffer = new QByteArray();
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, [buffer]() {
+                delete buffer;
+            });
+            QObject::connect(socket, &QTcpSocket::readyRead, socket, [socket, buffer, &capturedBody]() {
+                buffer->append(socket->readAll());
+                const int headerEnd = buffer->indexOf("\r\n\r\n");
+                if (headerEnd < 0) {
+                    return;
+                }
+
+                const QByteArray headers = buffer->left(headerEnd);
+                const QRegularExpression lengthPattern(
+                    QStringLiteral("Content-Length:\\s*(\\d+)"),
+                    QRegularExpression::CaseInsensitiveOption
+                );
+                const QRegularExpressionMatch match =
+                    lengthPattern.match(QString::fromLatin1(headers));
+                if (!match.hasMatch()) {
+                    return;
+                }
+
+                const int contentLength = match.captured(1).toInt();
+                const int bodyStart = headerEnd + 4;
+                if (buffer->size() < bodyStart + contentLength) {
+                    return;
+                }
+
+                capturedBody = buffer->mid(bodyStart, contentLength);
+                socket->write(
+                    "HTTP/1.1 200 OK\r\n"
+                    "Content-Type: application/json\r\n"
+                    "Content-Length: 15\r\n"
+                    "Connection: close\r\n"
+                    "\r\n"
+                    "{\"id\":\"task-1\"}"
+                );
+                socket->flush();
+                socket->disconnectFromHost();
+            });
+        }
+    });
+
+    NovaApiClient client;
+    client.setBaseUrl(
+        QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort()))
+    );
+
+    const QVariantMap advanced{
+        {QStringLiteral("referer"), QStringLiteral("https://origin.test/page")},
+        {QStringLiteral("userAgent"), QStringLiteral("NOVA-Test-Agent")},
+        {QStringLiteral("retryCount"), 7},
+        {QStringLiteral("timeoutSec"), 45}
+    };
+    const QVariantMap options{
+        {QStringLiteral("queueId"), QStringLiteral("night")},
+        {QStringLiteral("advanced"), advanced}
+    };
+
+    client.importBatch(
+        QStringLiteral("https://example.test/file.zip"),
+        QString(),
+        8,
+        false,
+        options
+    );
+
+    QTRY_VERIFY_WITH_TIMEOUT(!capturedBody.isEmpty(), 3000);
+
+    const QJsonDocument request = QJsonDocument::fromJson(capturedBody);
+    QVERIFY(request.isObject());
+    const QJsonObject body = request.object();
+    QCOMPARE(body.value(QStringLiteral("queueId")).toString(), QStringLiteral("night"));
+    QCOMPARE(body.value(QStringLiteral("connections")).toInt(), 8);
+    QVERIFY(!body.value(QStringLiteral("startImmediately")).toBool());
+
+    const QJsonObject direct = body.value(QStringLiteral("directOptions")).toObject();
+    QCOMPARE(
+        direct.value(QStringLiteral("referer")).toString(),
+        QStringLiteral("https://origin.test/page")
+    );
+    QCOMPARE(
+        direct.value(QStringLiteral("userAgent")).toString(),
+        QStringLiteral("NOVA-Test-Agent")
+    );
+    QCOMPARE(direct.value(QStringLiteral("retryCount")).toInt(), 7);
+    QCOMPARE(direct.value(QStringLiteral("timeoutSec")).toInt(), 45);
+    QVERIFY(direct.value(QStringLiteral("segmented")).toBool());
 }
 
 QTEST_GUILESS_MAIN(NativeParityTests)
