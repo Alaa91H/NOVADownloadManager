@@ -795,8 +795,9 @@ pub async fn handle_native_media_resolve(
     let url = url.to_owned();
     let resolve = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, String> {
         use nova_media_core::{
-            select_youtube_download_plan, youtube_video_id, ExtractRequest, ExtractorRegistry,
-            YouTubeExtractor, YouTubeSelectionPolicy,
+            resolve_youtube_pending_formats, select_youtube_download_plan, youtube_video_id,
+            ExtractRequest, ExtractorRegistry, YouTubeExtractor, YouTubePlayerScriptSolver,
+            YouTubeSelectionPolicy,
         };
 
         let request = ExtractRequest::new(url.clone());
@@ -804,9 +805,25 @@ pub async fn handle_native_media_resolve(
 
         if youtube_video_id(&parsed).is_some() {
             let extractor = YouTubeExtractor;
-            let extraction = extractor
+            let mut extraction = extractor
                 .extract_native(&request)
                 .map_err(|error| error.to_string())?;
+
+            let challenge_resolution = if extraction.pending_formats.is_empty() {
+                serde_json::Value::Null
+            } else {
+                let context = request.request_context().map_err(|error| error.to_string())?;
+                let solver = YouTubePlayerScriptSolver;
+                match resolve_youtube_pending_formats(&mut extraction, &context, &solver) {
+                    Ok(resolution) => serde_json::json!({
+                        "resolved": resolution,
+                    }),
+                    Err(error) => serde_json::json!({
+                        "error": error.to_string(),
+                    }),
+                }
+            };
+
             let selection = select_youtube_download_plan(
                 &extraction,
                 YouTubeSelectionPolicy::default(),
@@ -817,6 +834,7 @@ pub async fn handle_native_media_resolve(
                 "extractor": "youtube-native",
                 "descriptor": extraction.descriptor,
                 "selection": selection,
+                "challengeResolution": challenge_resolution,
                 "youtube": {
                     "videoId": extraction.video_id,
                     "pendingFormats": extraction.pending_formats,
