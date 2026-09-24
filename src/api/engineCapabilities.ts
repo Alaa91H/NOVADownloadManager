@@ -15,7 +15,12 @@ export interface EngineRuntimeCapabilities {
 
 export interface EngineRoutingCapabilities {
   directHttpHttpsFtp?: string | null;
+  mediaExtraction?: string | null;
+  streaming?: string | null;
+  postProcessing?: string | null;
+  /** @deprecated compatibility alias for mediaExtraction */
   webMediaAndPlaylists?: string | null;
+  /** @deprecated compatibility alias for postProcessing */
   mergeRemuxExtractSubtitles?: string | null;
   torrentMagnet?: string | null;
 }
@@ -95,6 +100,9 @@ function parseRouting(value: unknown): EngineRoutingCapabilities {
   const routing = asRecord(value, 'routing');
   return {
     directHttpHttpsFtp: asOptionalEngineId(routing.directHttpHttpsFtp, 'routing.directHttpHttpsFtp'),
+    mediaExtraction: asOptionalEngineId(routing.mediaExtraction, 'routing.mediaExtraction'),
+    streaming: asOptionalEngineId(routing.streaming, 'routing.streaming'),
+    postProcessing: asOptionalEngineId(routing.postProcessing, 'routing.postProcessing'),
     webMediaAndPlaylists: asOptionalEngineId(routing.webMediaAndPlaylists, 'routing.webMediaAndPlaylists'),
     mergeRemuxExtractSubtitles: asOptionalEngineId(
       routing.mergeRemuxExtractSubtitles,
