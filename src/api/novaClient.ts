@@ -519,11 +519,7 @@ export const novaClient = {
 
   async probeMedia(url: string): Promise<MediaProbeResult> {
     const encoded = encodeURIComponent(url);
-    try {
-      return await request<MediaProbeResult>(`/api/media/probe?url=${encoded}`, undefined, 30000);
-    } catch {
-      return request<MediaProbeResult>(`/api/media/bridge/probe?url=${encoded}`, undefined, 30000);
-    }
+    return request<MediaProbeResult>(`/api/media/probe?url=${encoded}`, undefined, 30000);
   },
 
   async checkFfmpeg(): Promise<FfmpegStatus> {
