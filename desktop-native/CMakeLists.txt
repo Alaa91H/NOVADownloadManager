@@ -56,6 +56,7 @@ qt_add_qml_module(nova-native
         qml/components/ConfirmRedownloadDialog.qml
         qml/components/DownloadDetailsPanel.qml
         qml/components/DownloadPropertiesDialog.qml
+        qml/components/MediaAdvancedPanel.qml
         qml/components/NavigationRail.qml
         qml/components/StatusBar.qml
         qml/pages/BatchImportPage.qml
