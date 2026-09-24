@@ -183,12 +183,13 @@ Item {
         }
 
         ScrollView {
+            id: schedulerScroll
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
 
             QueueSettingsPanel {
-                width: parent.availableWidth
+                width: schedulerScroll.availableWidth
                 api: root.api
                 queue: root.selectedQueue
             }
