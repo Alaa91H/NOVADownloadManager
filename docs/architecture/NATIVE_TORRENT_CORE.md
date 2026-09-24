@@ -43,17 +43,28 @@ Torrent metadata and peer traffic are untrusted input. The core therefore applie
 
 ## Planned execution stages
 
-### Stage 2 — Tracker discovery
+### Stage 2 — Tracker discovery — implemented
 
-Protocol encoding/decoding is now implemented for HTTP(S) and UDP trackers. The remaining execution layer will add:
+The tracker execution layer is now implemented with:
 
-- actual HTTP(S)/UDP transport orchestration;
-- announce lifecycle scheduling (`started`, periodic, `completed`, `stopped`);
-- tracker tier failover and retry backoff;
-- request timeouts and cancellation;
-- SSRF and local-address protections aligned with NOVA's existing network policy.
+- first-party HTTP(S) tracker requests using DNS pinning after validating every resolved address;
+- automatic proxy bypass for tracker requests so environment proxies cannot bypass endpoint pinning;
+- manual redirect handling with full SSRF revalidation on every hop;
+- preservation of announce parameters across redirects;
+- first-party UDP connect/announce execution;
+- transaction-ID validation for UDP tracker responses;
+- ordered BEP 12 tracker-tier failover with duplicate suppression;
+- bounded retry with exponential backoff;
+- request timeouts and explicit cancellation through `CancellationToken`;
+- lifecycle event helpers for `started`, periodic, `completed`, and `stopped`;
+- scheduling based on tracker `interval` / `min interval` with safety bounds;
+- response-body, peer-count, warning, and error-message size limits;
+- tracker URL/token redaction in diagnostic failure aggregation;
+- local HTTP and UDP transport tests that exercise real sockets.
 
-### Stage 3 — Peer session engine
+The torrent engine still remains unavailable for task routing because peer-session transfer, metadata exchange, and durable resume are not complete.
+
+### Stage 3 — Peer session engine — next
 
 Add async peer connection orchestration:
 
