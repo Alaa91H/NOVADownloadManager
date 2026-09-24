@@ -1357,6 +1357,33 @@ var ytInitialPlayerResponse = {"videoDetails":{"title":"NOVA","videoId":"dQw4w9W
                         "kind": "asr"
                     }]
                 }
+            },
+            "playerOverlays": {
+                "playerOverlayRenderer": {
+                    "decoratedPlayerBarRenderer": {
+                        "decoratedPlayerBarRenderer": {
+                            "playerBar": {
+                                "multiMarkersPlayerBarRenderer": {
+                                    "markersMap": [{
+                                        "key": "DESCRIPTION_CHAPTERS",
+                                        "value": {
+                                            "chapters": [
+                                                {"chapterRenderer": {
+                                                    "title": {"simpleText": "Intro"},
+                                                    "timeRangeStartMillis": 0
+                                                }},
+                                                {"chapterRenderer": {
+                                                    "title": {"runs": [{"text": "Main"}]},
+                                                    "timeRangeStartMillis": 5000
+                                                }}
+                                            ]
+                                        }
+                                    }]
+                                }
+                            }
+                        }
+                    }
+                }
             }
         });
 
@@ -1378,6 +1405,21 @@ var ytInitialPlayerResponse = {"videoDetails":{"title":"NOVA","videoId":"dQw4w9W
         );
         assert_eq!(extraction.descriptor.subtitles.len(), 1);
         assert!(extraction.descriptor.subtitles[0].automatic);
+        assert_eq!(
+            extraction.chapters,
+            vec![
+                MediaChapter {
+                    title: "Intro".to_owned(),
+                    start_millis: 0,
+                    end_millis: Some(5_000),
+                },
+                MediaChapter {
+                    title: "Main".to_owned(),
+                    start_millis: 5_000,
+                    end_millis: Some(12_000),
+                },
+            ]
+        );
     }
 
     #[test]
