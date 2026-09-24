@@ -146,7 +146,7 @@ struct HlsLiveTaskCheckpoint {
     cursor: HlsLiveCursor,
     next_order: u64,
     total_bytes: u64,
-    last_init_uri: Option<String>,
+    last_init_identity: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -367,6 +367,11 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
             return;
         };
         let current = TaskState::from_status(&job.task.status);
+        let worker_was_started = job.run_generation.load(Ordering::Acquire) > 0;
+        if worker_was_started && current.is_some_and(TaskState::is_active) {
+            log::debug!("Native media task {id} already has an active worker");
+            return;
+        }
         if current == Some(TaskState::Queued) {
             if let Err(error) =
                 transition_task_state(&mut job.task, TaskState::Preparing, "starting")
@@ -739,7 +744,6 @@ where
             on_progress,
         );
     }
-    let (period, adaptation, representation) = (period, adaptation, representation);
     let plan = build_dash_representation_plan(
         &manifest,
         &response.effective_url,
@@ -813,15 +817,20 @@ where
             .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
 
         if let Some(mut plan) = refresh.plan.take() {
-            let mut last_init = checkpoint.last_init_uri.clone();
+            let mut last_init = checkpoint.last_init_identity.clone();
             plan.units.retain(|unit| {
                 if unit.kind != HlsTransferUnitKind::Initialization {
                     return true;
                 }
-                if last_init.as_deref() == Some(unit.uri.as_str()) {
+                let identity = format!(
+                    "{}|{:?}",
+                    unit.uri,
+                    unit.byte_range
+                );
+                if last_init.as_deref() == Some(identity.as_str()) {
                     return false;
                 }
-                last_init = Some(unit.uri.clone());
+                last_init = Some(identity);
                 true
             });
 
@@ -846,7 +855,7 @@ where
                 commit_live_parts(staging_dir, &files, &mut checkpoint.next_order)?;
                 checkpoint.total_bytes =
                     checkpoint.total_bytes.saturating_add(staged.total_bytes);
-                checkpoint.last_init_uri = last_init;
+                checkpoint.last_init_identity = last_init;
                 let _ = std::fs::remove_dir_all(tick_dir);
             }
         }
