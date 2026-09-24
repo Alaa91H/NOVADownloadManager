@@ -13,6 +13,7 @@ mod magnet;
 mod metainfo;
 mod peer;
 mod scheduler;
+mod tracker;
 
 pub use magnet::{MagnetLink, MagnetParseError};
 pub use metainfo::{
@@ -26,6 +27,11 @@ pub use peer::{
 pub use scheduler::{
     BlockRequest, PieceLayout, PieceScheduler, SchedulerError,
     DEFAULT_BLOCK_SIZE,
+};
+pub use tracker::{
+    HttpTrackerResponse, TrackerAnnounceRequest, TrackerEvent, TrackerPeer,
+    TrackerProtocolError, UdpAnnounceResponse, UdpConnectResponse,
+    MAX_TRACKER_PEERS, MAX_TRACKER_RESPONSE_BYTES,
 };
 
 /// Stable engine identifier used when the host exposes torrent tasks through
