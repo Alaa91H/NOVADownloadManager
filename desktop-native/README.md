@@ -57,7 +57,7 @@ Implemented native surfaces include:
 - File/folder actions and native file dialogs
 - Behaviorally covered Queue Manager, Scheduler and Batch Import
 - Behaviorally covered Media Downloader and Link Grabber
-- Engine settings, diagnostics and runtime logs
+- Behaviorally covered settings control center, engine management, diagnostics and runtime logs
 - System tray, notifications and Windows/Linux desktop progress
 - Stable/Preview release checks with automatic install intentionally disabled until updater signing is production-ready
 - English/Arabic/German live localization, RTL, System/Light/Dark themes, High Contrast, Reduced Motion and text scaling
