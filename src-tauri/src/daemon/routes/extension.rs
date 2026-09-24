@@ -54,25 +54,31 @@ pub async fn handle_v1_ping(State(state): State<SharedState>) -> Json<serde_json
     }))
 }
 
-fn trusted_auto_pair_caller(headers: &HeaderMap) -> bool {
+fn trusted_auto_pair_caller(headers: &HeaderMap, pairing_secret: &str) -> bool {
     let origin = headers.get(ORIGIN).and_then(|value| value.to_str().ok());
-    // A browser is required to attach its immutable extension Origin. The
-    // native host uses reqwest and has no Origin at all, so require that shape
-    // in addition to its marker header; an unrelated extension cannot turn
-    // itself into the native host merely by adding an X- header.
-    let native_host = origin.is_none()
-        && headers
-            .get(crate::daemon::NATIVE_HOST_PAIRING_HEADER)
-            .and_then(|value| value.to_str().ok())
-            == Some(crate::daemon::NATIVE_HOST_PAIRING_VALUE);
-    let native_desktop = origin.is_none()
-        && headers
+
+    // Native auto-pair is intentionally unavailable to direct browser HTTP
+    // callers. A non-browser local client must present both its role marker and
+    // the fresh per-daemon secret stored in the user's NOVA data directory.
+    if origin.is_some() {
+        return false;
+    }
+
+    let trusted_role = headers
+        .get(crate::daemon::NATIVE_HOST_PAIRING_HEADER)
+        .and_then(|value| value.to_str().ok())
+        == Some(crate::daemon::NATIVE_HOST_PAIRING_VALUE)
+        || headers
             .get(crate::daemon::NATIVE_DESKTOP_PAIRING_HEADER)
             .and_then(|value| value.to_str().ok())
             == Some(crate::daemon::NATIVE_DESKTOP_PAIRING_VALUE);
-    let chromium_extension = origin == Some(crate::daemon::NOVA_CHROMIUM_EXTENSION_ORIGIN);
 
-    native_host || native_desktop || chromium_extension
+    let valid_secret = headers
+        .get(crate::daemon::NATIVE_PAIRING_SECRET_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value == pairing_secret);
+
+    trusted_role && valid_secret
 }
 
 pub async fn handle_v1_pair_auto(
@@ -88,25 +94,21 @@ pub async fn handle_v1_pair_auto(
             "error": "pair-auto is only available from loopback"
         }));
     }
-    if !trusted_auto_pair_caller(&headers) {
-        // `moz-extension://` origins are intentionally not accepted here: the
-        // UUID is profile-specific and cannot provide an allowlist boundary.
-        // Firefox receives its token through the registered native host, while
-        // Chromium/Edge use NOVA's pinned extension origin.
+    if !trusted_auto_pair_caller(&headers, &state.native_pairing_secret) {
         return Json(serde_json::json!({
             "ok": false,
-            "error": "pair-auto requires the NOVA browser extension or native host"
+            "error": "pair-auto requires a trusted NOVA native client and the current daemon pairing proof"
         }));
     }
     Json(serde_json::json!({
         "ok": true,
-        "pairToken": state.api_token,
+        "pairToken": state.native_client_token,
         "autoApproved": true,
-        "method": "origin-or-native-host-verified",
+        "method": "native-client-secret-proof",
         "protocolVersion": 4,
         "minimumSupportedProtocolVersion": 4,
-        "ttlSeconds": 60 * 60 * 24 * 30,
-        "warning": "Token is scoped to the local NOVA browser integration. Do not expose it to untrusted code."
+        "ttlSeconds": 60 * 60 * 24,
+        "warning": "This local-client token is separate from the daemon master token and expires when the daemon restarts."
     }))
 }
 
@@ -115,58 +117,82 @@ mod auto_pair_tests {
     use super::trusted_auto_pair_caller;
     use axum::http::{header::ORIGIN, HeaderMap, HeaderValue};
 
-    #[test]
-    fn accepts_the_pinned_chromium_extension_origin() {
-        let mut headers = HeaderMap::new();
+    const SECRET: &str = "test-pairing-secret";
+
+    fn add_secret(headers: &mut HeaderMap, value: &'static str) {
         headers.insert(
-            ORIGIN,
-            HeaderValue::from_static(crate::daemon::NOVA_CHROMIUM_EXTENSION_ORIGIN),
+            crate::daemon::NATIVE_PAIRING_SECRET_HEADER,
+            HeaderValue::from_static(value),
         );
-        assert!(trusted_auto_pair_caller(&headers));
     }
 
     #[test]
-    fn accepts_the_native_desktop_marker() {
+    fn accepts_native_desktop_with_current_secret() {
         let mut headers = HeaderMap::new();
         headers.insert(
             crate::daemon::NATIVE_DESKTOP_PAIRING_HEADER,
             HeaderValue::from_static(crate::daemon::NATIVE_DESKTOP_PAIRING_VALUE),
         );
-        assert!(trusted_auto_pair_caller(&headers));
+        add_secret(&mut headers, SECRET);
+        assert!(trusted_auto_pair_caller(&headers, SECRET));
     }
 
     #[test]
-    fn accepts_the_native_host_marker() {
+    fn accepts_native_host_with_current_secret() {
         let mut headers = HeaderMap::new();
         headers.insert(
             crate::daemon::NATIVE_HOST_PAIRING_HEADER,
             HeaderValue::from_static(crate::daemon::NATIVE_HOST_PAIRING_VALUE),
         );
-        assert!(trusted_auto_pair_caller(&headers));
+        add_secret(&mut headers, SECRET);
+        assert!(trusted_auto_pair_caller(&headers, SECRET));
     }
 
     #[test]
-    fn rejects_unrelated_extension_origins() {
+    fn rejects_native_marker_without_secret() {
         let mut headers = HeaderMap::new();
         headers.insert(
-            ORIGIN,
-            HeaderValue::from_static("chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            crate::daemon::NATIVE_DESKTOP_PAIRING_HEADER,
+            HeaderValue::from_static(crate::daemon::NATIVE_DESKTOP_PAIRING_VALUE),
         );
-        assert!(!trusted_auto_pair_caller(&headers));
+        assert!(!trusted_auto_pair_caller(&headers, SECRET));
     }
 
     #[test]
-    fn rejects_native_marker_when_a_browser_origin_is_present() {
+    fn rejects_native_marker_with_wrong_secret() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            crate::daemon::NATIVE_HOST_PAIRING_HEADER,
+            HeaderValue::from_static(crate::daemon::NATIVE_HOST_PAIRING_VALUE),
+        );
+        add_secret(&mut headers, "wrong-pairing-secret");
+        assert!(!trusted_auto_pair_caller(&headers, SECRET));
+    }
+
+    #[test]
+    fn rejects_direct_browser_origin_even_if_pinned() {
         let mut headers = HeaderMap::new();
         headers.insert(
             ORIGIN,
-            HeaderValue::from_static("chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            HeaderValue::from_static(crate::daemon::NOVA_CHROMIUM_EXTENSION_ORIGIN),
+        );
+        add_secret(&mut headers, SECRET);
+        assert!(!trusted_auto_pair_caller(&headers, SECRET));
+    }
+
+    #[test]
+    fn rejects_native_marker_when_browser_origin_is_present() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            ORIGIN,
+            HeaderValue::from_static(crate::daemon::NOVA_CHROMIUM_EXTENSION_ORIGIN),
         );
         headers.insert(
             crate::daemon::NATIVE_HOST_PAIRING_HEADER,
             HeaderValue::from_static(crate::daemon::NATIVE_HOST_PAIRING_VALUE),
         );
-        assert!(!trusted_auto_pair_caller(&headers));
+        add_secret(&mut headers, SECRET);
+        assert!(!trusted_auto_pair_caller(&headers, SECRET));
     }
 }
 
