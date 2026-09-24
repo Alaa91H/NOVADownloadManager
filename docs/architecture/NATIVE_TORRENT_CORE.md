@@ -118,21 +118,36 @@ The metadata/discovery layer now includes:
 
 Stage 4 does not yet make torrent tasks routable. DHT server/routing-table persistence, metadata serving, durable torrent storage, resume checkpoints, and complete task lifecycle integration remain intentionally disabled or unadvertised.
 
-### Stage 5 — Durable storage and resume
+### Stage 5 — Durable storage and resume — implemented foundation
 
-Integrate torrent tasks with NOVA persistence:
+The durable execution layer now includes:
 
-- sparse/preallocated multi-file storage;
-- atomic resume checkpoints;
-- verified-piece bitmaps;
-- startup recheck;
-- selected-file priorities;
-- safe pause/resume/cancel generation handling;
-- rate limiting and priority-queue integration.
+- safe single-file and multi-file storage mapped directly from verified torrent payload ranges;
+- sparse allocation, explicit full preallocation, and no-preallocation modes;
+- selected-file storage that never creates user-visible files for `Skip` entries;
+- boundary-piece caching under NOVA's private control directory when one verified piece crosses selected and skipped files;
+- `High`, `Normal`, and `Skip` file priorities propagated into piece scheduling;
+- versioned atomic resume checkpoints with primary, temporary, and backup recovery candidates;
+- verified-piece, boundary-cache, and owned-target bitmaps;
+- fail-closed owned-file tracking so resume cannot adopt or overwrite an unrelated user file;
+- a tracker-redacted storage manifest that persists torrent geometry and piece hashes without storing tracker passkeys or credentialed discovery URLs;
+- restart from `root + info_hash` using the persisted manifest;
+- checkpoint-only startup verification plus optional full recheck that can recover valid data written before a checkpoint commit;
+- generation-safe async storage sessions: pause, cancel, selection changes, and resumed runs invalidate stale workers before they can commit pieces;
+- scheduler restoration from the persisted verified bitmap and file priorities;
+- exact selected-byte progress accounting and final file-length synchronization;
+- bounded end-to-end selected-piece transfer orchestration from native peers into durable storage;
+- restart behavior that skips already verified pieces and can finalize an already-complete selection without any peer connection;
+- a shared peer-request bandwidth limiter across torrent peer sessions;
+- live integration with NOVA's `PriorityBandwidthQueue` and `BandwidthManager`, including dynamic task allocation, global/per-task rate changes, and global pause semantics;
+- cancellation-safe bandwidth pacing that does not leave phantom reserved bandwidth after a paused run;
+- local storage, restart, corruption, generation-race, boundary-piece, policy, and TCP transfer tests.
+
+Stage 5 makes the native transfer/storage pipeline executable, but the public torrent engine remains fail-closed. `available` stays false and `routing.torrentMagnet` stays null until Stage 6 registers torrent jobs, APIs, lifecycle state, and UI surfaces.
 
 ### Stage 6 — Daemon and UI integration
 
-Only after stages 2–5 pass tests:
+With stages 2–5 implemented, the remaining integration work is:
 
 - register the native torrent extractor/router;
 - enable `routing.torrentMagnet = "native-torrent"`;
