@@ -122,6 +122,44 @@ ScrollView {
                     font.weight: Font.DemiBold
                 }
 
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    Switch {
+                        id: speedLimiterSwitch
+                        text: root.t("settings.speedLimiter")
+                        checked: Boolean(root.advanced("speedLimiterEnabled", false))
+                        onToggled: {
+                            root.setAdvanced("speedLimiterEnabled", checked)
+                            api.setGlobalBandwidthLimit(
+                                checked ? speedLimitSpin.value : 0
+                            )
+                        }
+                    }
+
+                    SpinBox {
+                        id: speedLimitSpin
+                        from: 0
+                        to: 100000000
+                        editable: true
+                        value: Number(root.advanced("speedLimitKbs", 0))
+                        enabled: speedLimiterSwitch.checked
+                        onValueModified: {
+                            root.setAdvanced("speedLimitKbs", value)
+                            if (speedLimiterSwitch.checked)
+                                api.setGlobalBandwidthLimit(value)
+                        }
+                    }
+
+                    Text {
+                        text: "KB/s"
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.fontTiny
+                    }
+
+                    Item { Layout.fillWidth: true }
+                }
+
                 Switch {
                     text: root.t("settings.enableProxy")
                     checked: Boolean(root.advanced("proxyEnabled", false))
