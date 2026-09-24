@@ -358,13 +358,17 @@ Item {
     }
 
     Shortcut {
-        sequence: StandardKey.Find
+        sequence: nativeSettings.shortcutsEnabled
+            ? String(nativeSettings.shortcutBindings.focusSearch || "Ctrl+F")
+            : ""
         enabled: !addDownloadDialog.visible
         onActivated: searchField.forceActiveFocus()
     }
 
     Shortcut {
-        sequence: "Delete"
+        sequence: nativeSettings.shortcutsEnabled
+            ? String(nativeSettings.shortcutBindings.deleteSelected || "Delete")
+            : ""
         enabled: root.selectedIndex >= 0
             && root.api.connected
             && !deleteDialog.visible
