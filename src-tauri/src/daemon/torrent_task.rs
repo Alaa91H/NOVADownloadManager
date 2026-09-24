@@ -846,6 +846,71 @@ async fn update_torrent_progress_once(
     state.mark_dirty();
 }
 
+pub async fn recheck_restored_completed_torrents(state: &SharedState) {
+    let jobs = {
+        let jobs = lock_or_err!(state.torrent_jobs);
+        jobs.iter()
+            .filter_map(|(id, job)| {
+                (TaskState::from_status(&job.task.status) == Some(TaskState::Completed))
+                    .then_some((id.clone(), job.clone()))
+            })
+            .collect::<Vec<_>>()
+    };
+
+    for (id, job) in jobs {
+        let validation = async {
+            let storage = ensure_storage_session(&job, job.storage.clone()).await?;
+            storage
+                .startup_recheck(RecheckMode::CheckpointOnly)
+                .await
+                .map_err(|error| format!("Torrent completion recheck failed: {error}"))?;
+            let progress = storage
+                .progress()
+                .await
+                .map_err(|error| format!("Could not read rechecked torrent progress: {error}"))?;
+            if progress.selected_total_bytes == 0
+                || progress.selected_completed_bytes != progress.selected_total_bytes
+            {
+                return Err(format!(
+                    "Completed torrent changed on disk: verified {} of {} selected bytes",
+                    progress.selected_completed_bytes, progress.selected_total_bytes
+                ));
+            }
+            Ok::<TorrentStorageProgress, String>(progress)
+        }
+        .await;
+
+        let task = {
+            let mut torrent_jobs = lock_or_err!(state.torrent_jobs);
+            let Some(current) = torrent_jobs.get_mut(&id) else {
+                continue;
+            };
+            if TaskState::from_status(&current.task.status) != Some(TaskState::Completed) {
+                continue;
+            }
+
+            match validation {
+                Ok(progress) => {
+                    current.task.downloaded_bytes = progress.selected_completed_bytes;
+                    current.task.size_bytes = progress.selected_total_bytes;
+                    current.task.engine_status = Some("completed-verified".to_owned());
+                    current.task.error_message = None;
+                }
+                Err(error) => {
+                    current.task.status = TaskState::Failed.as_status().to_owned();
+                    current.task.engine_status = Some("completion-invalid".to_owned());
+                    current.task.error_message = Some(limit_error(&error));
+                    current.task.speed_bytes_per_sec = 0;
+                    current.task.time_left_seconds = 0;
+                }
+            }
+            current.task.clone()
+        };
+        lock_or_err!(state.task_snapshot).insert(id, task);
+        state.mark_dirty();
+    }
+}
+
 pub async fn shutdown_torrent_tasks(state: &SharedState) {
     let pending = {
         let mut jobs = lock_or_err!(state.torrent_jobs);
@@ -992,27 +1057,60 @@ pub async fn delete_torrent_task(
 ) -> Result<(), String> {
     let job = {
         let mut jobs = lock_or_err!(state.torrent_jobs);
-        let job = jobs.get_mut(id).ok_or_else(|| "Torrent task not found".to_owned())?;
+        let job = jobs
+            .get_mut(id)
+            .ok_or_else(|| "Torrent task not found".to_owned())?;
         job.cancel_token.cancel();
         job.run_generation.fetch_add(1, Ordering::AcqRel);
-        job.clone()
+
+        let current = TaskState::from_status(&job.task.status);
+        if current != Some(TaskState::Completed) && current != Some(TaskState::Paused) {
+            if current.is_some_and(|state| state.can_transition_to(TaskState::Paused)) {
+                transition_task_state(&mut job.task, TaskState::Paused, "delete-requested")?;
+            } else {
+                job.task.status = TaskState::Paused.as_status().to_owned();
+                job.task.engine_status = Some("delete-requested".to_owned());
+            }
+            job.task.speed_bytes_per_sec = 0;
+            job.task.time_left_seconds = 0;
+        }
+        let snapshot = job.task.clone();
+        let cloned = job.clone();
+        drop(jobs);
+        lock_or_err!(state.task_snapshot).insert(id.to_owned(), snapshot);
+        cloned
     };
 
     release_queue_slot(state, id, &job.active_slot, true);
     state.bandwidth_manager.remove_task_limit(id);
+    state.mark_dirty();
 
-    let storage = ensure_storage_session(&job, job.storage.clone()).await.ok();
-    if let Some(storage) = storage {
-        if delete_files {
-            storage
-                .delete_owned_payload_and_state()
-                .await
-                .map_err(|error| format!("Could not delete torrent payload: {error}"))?;
-        } else {
-            storage
-                .remove_resume_state()
-                .await
-                .map_err(|error| format!("Could not remove torrent resume state: {error}"))?;
+    match ensure_storage_session(&job, job.storage.clone()).await {
+        Ok(storage) => {
+            if delete_files {
+                storage
+                    .delete_owned_payload_and_state()
+                    .await
+                    .map_err(|error| {
+                        format!(
+                            "Could not safely delete NOVA-owned torrent payload; task was kept: {error}"
+                        )
+                    })?;
+            } else if let Err(error) = storage.remove_resume_state().await {
+                log::warn!(
+                    "Torrent task {id} was removed but its resume state could not be cleaned: {error}"
+                );
+            }
+        }
+        Err(error) if delete_files => {
+            return Err(format!(
+                "Could not verify NOVA-owned torrent payload before deletion; task was kept: {error}"
+            ));
+        }
+        Err(error) => {
+            log::warn!(
+                "Torrent task {id} was removed without resume-state cleanup because storage could not be restored: {error}"
+            );
         }
     }
 
