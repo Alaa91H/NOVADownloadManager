@@ -411,6 +411,48 @@ fn replace_pinned_resolve(
     direct_options.remove("preflightSupportsRange");
 }
 
+pub fn move_task_to_queue(
+    state: &SharedState,
+    id: &str,
+    queue_id: &str,
+) -> Result<Task, String> {
+    let queue_id = queue_id.trim();
+    if queue_id.is_empty()
+        || queue_id.len() > 128
+        || !queue_id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | ':' | '-'))
+    {
+        return Err("Queue id is invalid".to_owned());
+    }
+
+    {
+        let mut jobs = lock_or_err!(state.media_jobs);
+        if let Some(job) = jobs.get_mut(id) {
+            job.task.queue_id = queue_id.to_owned();
+            let task = job.task.clone();
+            drop(jobs);
+            lock_or_err!(state.task_snapshot).insert(id.to_owned(), task.clone());
+            state.mark_dirty();
+            return Ok(task);
+        }
+    }
+
+    {
+        let mut jobs = lock_or_err!(state.curl_jobs);
+        if let Some(job) = jobs.get_mut(id) {
+            job.task.queue_id = queue_id.to_owned();
+            let task = job.task.clone();
+            drop(jobs);
+            lock_or_err!(state.task_snapshot).insert(id.to_owned(), task.clone());
+            state.mark_dirty();
+            return Ok(task);
+        }
+    }
+
+    Err("Task not found".to_owned())
+}
+
 pub async fn update_task_metadata(
     state: &SharedState,
     id: &str,
