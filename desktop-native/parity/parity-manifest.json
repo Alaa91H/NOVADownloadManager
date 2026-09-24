@@ -284,41 +284,63 @@
     {
       "id": "columns-sorting",
       "label": "Column configuration and sorting",
-      "status": "partial",
+      "status": "covered",
       "legacyEvidence": [
         "src/components/ColumnConfigPanel.tsx",
         "src/hooks/useColumnState.ts",
         "src/hooks/useTaskSortFilter.ts"
       ],
-      "blocker": "Core native columns can now be shown/hidden and sorted persistently. Legacy-only extended columns (retries, CRC32, priority, completed date, smart category and related metadata) are not yet available in the native table.",
       "evidence": [
         "desktop-native/qml/pages/DownloadsPage.qml",
         "desktop-native/src/models/DownloadListModel.cpp",
-        "desktop-native/src/settings/NativeSettings.cpp"
+        "desktop-native/src/settings/NativeSettings.cpp",
+        "desktop-native/tests/NativeParityTests.cpp",
+        "src/components/TaskTable.tsx",
+        "src/hooks/useColumnState.ts",
+        "src/hooks/useTaskSortFilter.ts"
       ],
       "contains": [
         {
           "file": "desktop-native/qml/pages/DownloadsPage.qml",
           "allOf": [
-            "columnsMenu",
-            "requestSort",
-            "toggleColumn"
+            "tableContentWidth",
+            "Flickable.HorizontalAndVerticalFlick",
+            "downloads.elapsed",
+            "downloads.retries",
+            "downloads.priority",
+            "downloads.completedDate",
+            "common.sourceUrl",
+            "downloads.smartCategory"
           ]
         },
         {
           "file": "desktop-native/src/models/DownloadListModel.cpp",
           "allOf": [
-            "setSortKey",
-            "setSortAscending",
+            "elapsedSeconds",
+            "queueId",
+            "retries",
+            "completedAt",
+            "crc32",
+            "sourceUrl",
+            "smartCategory",
             "std::stable_sort"
           ]
         },
         {
           "file": "desktop-native/src/settings/NativeSettings.cpp",
           "allOf": [
-            "downloadColumns",
-            "downloadSortKey",
-            "downloadSortAscending"
+            "canonicalDownloadColumn",
+            "completedDate",
+            "sourceUrl",
+            "smartCategory"
+          ]
+        },
+        {
+          "file": "desktop-native/tests/NativeParityTests.cpp",
+          "allOf": [
+            "setSortKey(QStringLiteral(\"priority\"))",
+            "setSortKey(QStringLiteral(\"elapsed\"))",
+            "setSortKey(QStringLiteral(\"sourceUrl\"))"
           ]
         }
       ]

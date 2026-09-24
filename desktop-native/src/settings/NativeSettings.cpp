@@ -1,5 +1,6 @@
 #include "settings/NativeSettings.h"
 
+#include <QHash>
 #include <QSet>
 #include <QStandardPaths>
 
@@ -7,6 +8,38 @@ namespace {
 QString defaultDownloadDirectory() {
     const QString location = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
     return location;
+}
+
+QString canonicalDownloadColumn(const QString &value) {
+    const QString key = value.trimmed().toLower();
+    static const QHash<QString, QString> columns{
+        {QStringLiteral("name"), QStringLiteral("name")},
+        {QStringLiteral("size"), QStringLiteral("size")},
+        {QStringLiteral("progress"), QStringLiteral("progress")},
+        {QStringLiteral("speed"), QStringLiteral("speed")},
+        {QStringLiteral("eta"), QStringLiteral("eta")},
+        {QStringLiteral("elapsed"), QStringLiteral("elapsed")},
+        {QStringLiteral("dateadded"), QStringLiteral("dateAdded")},
+        {QStringLiteral("status"), QStringLiteral("status")},
+        {QStringLiteral("retries"), QStringLiteral("retries")},
+        {QStringLiteral("connections"), QStringLiteral("connections")},
+        {QStringLiteral("crc32"), QStringLiteral("crc32")},
+        {QStringLiteral("priority"), QStringLiteral("priority")},
+        {QStringLiteral("completeddate"), QStringLiteral("completedDate")},
+        {QStringLiteral("sourceurl"), QStringLiteral("sourceUrl")},
+        {QStringLiteral("smartcategory"), QStringLiteral("smartCategory")}
+    };
+    return columns.value(key);
+}
+
+QString canonicalDownloadSortKey(const QString &value) {
+    const QString column = canonicalDownloadColumn(value);
+    if (!column.isEmpty()) {
+        return column;
+    }
+    return value.trimmed().compare(QStringLiteral("engine"), Qt::CaseInsensitive) == 0
+        ? QStringLiteral("engine")
+        : QString();
 }
 }
 
@@ -108,12 +141,21 @@ QStringList NativeSettings::downloadColumns() const {
         QStringLiteral("progress"),
         QStringLiteral("speed"),
         QStringLiteral("eta"),
-        QStringLiteral("status")
+        QStringLiteral("elapsed"),
+        QStringLiteral("dateAdded"),
+        QStringLiteral("status"),
+        QStringLiteral("retries"),
+        QStringLiteral("connections"),
+        QStringLiteral("crc32"),
+        QStringLiteral("priority"),
+        QStringLiteral("completedDate"),
+        QStringLiteral("sourceUrl"),
+        QStringLiteral("smartCategory")
     };
 
     QStringList result{QStringLiteral("name")};
     for (const QString &column : stored) {
-        const QString normalized = column.trimmed().toLower();
+        const QString normalized = canonicalDownloadColumn(column);
         if (normalized != QStringLiteral("name")
             && allowed.contains(normalized)
             && !result.contains(normalized)) {
@@ -135,11 +177,20 @@ QString NativeSettings::downloadSortKey() const {
         QStringLiteral("progress"),
         QStringLiteral("speed"),
         QStringLiteral("eta"),
+        QStringLiteral("elapsed"),
         QStringLiteral("status"),
         QStringLiteral("dateAdded"),
-        QStringLiteral("engine")
+        QStringLiteral("engine"),
+        QStringLiteral("retries"),
+        QStringLiteral("connections"),
+        QStringLiteral("crc32"),
+        QStringLiteral("priority"),
+        QStringLiteral("completedDate"),
+        QStringLiteral("sourceUrl"),
+        QStringLiteral("smartCategory")
     };
-    return allowed.contains(stored) ? stored : QStringLiteral("dateAdded");
+    const QString canonical = canonicalDownloadSortKey(stored);
+    return allowed.contains(canonical) ? canonical : QStringLiteral("dateAdded");
 }
 
 bool NativeSettings::downloadSortAscending() const {
@@ -238,12 +289,21 @@ void NativeSettings::setDownloadColumns(const QStringList &value) {
         QStringLiteral("progress"),
         QStringLiteral("speed"),
         QStringLiteral("eta"),
-        QStringLiteral("status")
+        QStringLiteral("elapsed"),
+        QStringLiteral("dateAdded"),
+        QStringLiteral("status"),
+        QStringLiteral("retries"),
+        QStringLiteral("connections"),
+        QStringLiteral("crc32"),
+        QStringLiteral("priority"),
+        QStringLiteral("completedDate"),
+        QStringLiteral("sourceUrl"),
+        QStringLiteral("smartCategory")
     };
 
     QStringList normalized{QStringLiteral("name")};
     for (const QString &column : value) {
-        const QString key = column.trimmed().toLower();
+        const QString key = canonicalDownloadColumn(column);
         if (key != QStringLiteral("name")
             && allowed.contains(key)
             && !normalized.contains(key)) {
@@ -260,11 +320,19 @@ void NativeSettings::setDownloadSortKey(const QString &value) {
         QStringLiteral("progress"),
         QStringLiteral("speed"),
         QStringLiteral("eta"),
+        QStringLiteral("elapsed"),
         QStringLiteral("status"),
         QStringLiteral("dateAdded"),
-        QStringLiteral("engine")
+        QStringLiteral("engine"),
+        QStringLiteral("retries"),
+        QStringLiteral("connections"),
+        QStringLiteral("crc32"),
+        QStringLiteral("priority"),
+        QStringLiteral("completedDate"),
+        QStringLiteral("sourceUrl"),
+        QStringLiteral("smartCategory")
     };
-    const QString normalized = value.trimmed();
+    const QString normalized = canonicalDownloadSortKey(value);
     store(
         QStringLiteral("downloads/sortKey"),
         allowed.contains(normalized) ? normalized : QStringLiteral("dateAdded")

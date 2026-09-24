@@ -28,10 +28,16 @@ QVariant DownloadListModel::data(const QModelIndex &index, int role) const {
     case ProgressRole: return item.progress;
     case SpeedRole: return item.speedBytesPerSec;
     case EtaRole: return item.etaSeconds;
+    case ElapsedRole: return item.elapsedSeconds;
     case SavePathRole: return item.savePath;
     case EngineRole: return item.engine;
+    case FileTypeRole: return item.fileType;
     case CategoryRole: return item.category;
+    case QueueIdRole: return item.queueId;
     case ConnectionsRole: return item.connections;
+    case RetriesRole: return item.retries;
+    case CompletedAtRole: return item.completedAt;
+    case Crc32Role: return item.crc32;
     case ResumableRole: return item.resumable;
     case DateAddedRole: return item.dateAdded;
     case ErrorMessageRole: return item.errorMessage;
@@ -50,10 +56,16 @@ QHash<int, QByteArray> DownloadListModel::roleNames() const {
         {ProgressRole, "progress"},
         {SpeedRole, "speedBytesPerSec"},
         {EtaRole, "etaSeconds"},
+        {ElapsedRole, "elapsedSeconds"},
         {SavePathRole, "savePath"},
         {EngineRole, "engine"},
+        {FileTypeRole, "fileType"},
         {CategoryRole, "category"},
+        {QueueIdRole, "queueId"},
         {ConnectionsRole, "connections"},
+        {RetriesRole, "retries"},
+        {CompletedAtRole, "completedAt"},
+        {Crc32Role, "crc32"},
         {ResumableRole, "resumable"},
         {DateAddedRole, "dateAdded"},
         {ErrorMessageRole, "errorMessage"}
@@ -83,10 +95,16 @@ QVariantMap DownloadListModel::itemAt(int row) const {
     result.insert(QStringLiteral("progress"), item.progress);
     result.insert(QStringLiteral("speedBytesPerSec"), item.speedBytesPerSec);
     result.insert(QStringLiteral("etaSeconds"), item.etaSeconds);
+    result.insert(QStringLiteral("elapsedSeconds"), item.elapsedSeconds);
     result.insert(QStringLiteral("savePath"), item.savePath);
     result.insert(QStringLiteral("engine"), item.engine);
+    result.insert(QStringLiteral("fileType"), item.fileType);
     result.insert(QStringLiteral("category"), item.category);
+    result.insert(QStringLiteral("queueId"), item.queueId);
     result.insert(QStringLiteral("connections"), item.connections);
+    result.insert(QStringLiteral("retries"), item.retries);
+    result.insert(QStringLiteral("completedAt"), item.completedAt);
+    result.insert(QStringLiteral("crc32"), item.crc32);
     result.insert(QStringLiteral("resumable"), item.resumable);
     result.insert(QStringLiteral("dateAdded"), item.dateAdded);
     result.insert(QStringLiteral("errorMessage"), item.errorMessage);
@@ -110,10 +128,16 @@ QVariantMap DownloadListModel::itemById(const QString &taskId) const {
         result.insert(QStringLiteral("progress"), item.progress);
         result.insert(QStringLiteral("speedBytesPerSec"), item.speedBytesPerSec);
         result.insert(QStringLiteral("etaSeconds"), item.etaSeconds);
+        result.insert(QStringLiteral("elapsedSeconds"), item.elapsedSeconds);
         result.insert(QStringLiteral("savePath"), item.savePath);
         result.insert(QStringLiteral("engine"), item.engine);
+        result.insert(QStringLiteral("fileType"), item.fileType);
         result.insert(QStringLiteral("category"), item.category);
+        result.insert(QStringLiteral("queueId"), item.queueId);
         result.insert(QStringLiteral("connections"), item.connections);
+        result.insert(QStringLiteral("retries"), item.retries);
+        result.insert(QStringLiteral("completedAt"), item.completedAt);
+        result.insert(QStringLiteral("crc32"), item.crc32);
         result.insert(QStringLiteral("resumable"), item.resumable);
         result.insert(QStringLiteral("dateAdded"), item.dateAdded);
         result.insert(QStringLiteral("errorMessage"), item.errorMessage);
@@ -183,8 +207,16 @@ void DownloadListModel::setSortKey(const QString &sortKey) {
         QStringLiteral("speed"),
         QStringLiteral("eta"),
         QStringLiteral("status"),
+        QStringLiteral("elapsed"),
         QStringLiteral("dateAdded"),
-        QStringLiteral("engine")
+        QStringLiteral("engine"),
+        QStringLiteral("retries"),
+        QStringLiteral("connections"),
+        QStringLiteral("crc32"),
+        QStringLiteral("priority"),
+        QStringLiteral("completedDate"),
+        QStringLiteral("sourceUrl"),
+        QStringLiteral("smartCategory")
     };
 
     const QString normalized = allowed.contains(sortKey.trimmed())
@@ -239,6 +271,9 @@ bool DownloadListModel::matchesCurrentFilter(const Item &item) const {
         || item.url.contains(needle, Qt::CaseInsensitive)
         || item.savePath.contains(needle, Qt::CaseInsensitive)
         || item.engine.contains(needle, Qt::CaseInsensitive)
+        || item.fileType.contains(needle, Qt::CaseInsensitive)
+        || item.category.contains(needle, Qt::CaseInsensitive)
+        || item.queueId.contains(needle, Qt::CaseInsensitive)
         || item.status.contains(needle, Qt::CaseInsensitive);
 }
 
@@ -267,6 +302,38 @@ int DownloadListModel::compareItems(
     }
     if (sortKey == QStringLiteral("eta")) {
         return compareNumber(left.etaSeconds, right.etaSeconds);
+    }
+    if (sortKey == QStringLiteral("elapsed")) {
+        return compareNumber(left.elapsedSeconds, right.elapsedSeconds);
+    }
+    if (sortKey == QStringLiteral("retries")) {
+        return compareNumber(left.retries, right.retries);
+    }
+    if (sortKey == QStringLiteral("connections")) {
+        return compareNumber(left.connections, right.connections);
+    }
+    if (sortKey == QStringLiteral("crc32")) {
+        return QString::compare(left.crc32, right.crc32, Qt::CaseInsensitive);
+    }
+    if (sortKey == QStringLiteral("priority")) {
+        const auto priority = [](const QString &queueId) {
+            const QString normalized = queueId.trimmed().toLower();
+            if (normalized == QStringLiteral("fast")) return 3;
+            if (normalized == QStringLiteral("night")) return 1;
+            return 2;
+        };
+        return compareNumber(priority(left.queueId), priority(right.queueId));
+    }
+    if (sortKey == QStringLiteral("completedDate")) {
+        return QString::compare(left.completedAt, right.completedAt, Qt::CaseInsensitive);
+    }
+    if (sortKey == QStringLiteral("sourceUrl")) {
+        return QString::compare(left.url, right.url, Qt::CaseInsensitive);
+    }
+    if (sortKey == QStringLiteral("smartCategory")) {
+        const QString leftCategory = left.fileType.isEmpty() ? left.category : left.fileType;
+        const QString rightCategory = right.fileType.isEmpty() ? right.category : right.fileType;
+        return QString::localeAwareCompare(leftCategory.toLower(), rightCategory.toLower());
     }
     if (sortKey == QStringLiteral("status")) {
         return QString::localeAwareCompare(left.status.toLower(), right.status.toLower());
@@ -321,10 +388,18 @@ void DownloadListModel::replaceFromJson(const QJsonArray &downloads) {
         item.downloadedBytes = object.value(QStringLiteral("downloadedBytes")).toInteger();
         item.speedBytesPerSec = object.value(QStringLiteral("speedBytesPerSec")).toInteger();
         item.etaSeconds = object.value(QStringLiteral("timeLeftSeconds")).toInt();
+        item.elapsedSeconds = object.value(QStringLiteral("elapsedSeconds")).toInt();
         item.savePath = object.value(QStringLiteral("savePath")).toString();
         item.engine = object.value(QStringLiteral("engine")).toString();
+        item.fileType = object.value(QStringLiteral("fileType")).toString();
         item.category = object.value(QStringLiteral("category")).toString();
+        item.queueId = object.value(QStringLiteral("queueId")).toString();
         item.connections = object.value(QStringLiteral("connections")).toInt();
+        item.retries = object.contains(QStringLiteral("retries"))
+            ? object.value(QStringLiteral("retries")).toInt()
+            : -1;
+        item.completedAt = object.value(QStringLiteral("completedAt")).toString();
+        item.crc32 = object.value(QStringLiteral("crc32")).toString();
         item.resumable = object.value(QStringLiteral("resumable")).toBool();
         item.dateAdded = object.value(QStringLiteral("dateAdded")).toString();
         item.errorMessage = object.value(QStringLiteral("errorMessage")).toString();

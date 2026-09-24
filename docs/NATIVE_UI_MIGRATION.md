@@ -150,7 +150,7 @@ Implemented:
 - Partial, gap and externally blocked capabilities must carry an explicit blocker instead of being silently treated as complete.
 - CI now runs both localization and Stage 6 parity gates before installing Qt/building the native application.
 - Native UI workflow also runs when legacy `src/**`, daemon `src-tauri/**` or migration-plan changes can affect parity.
-- Every successful Windows/Linux CI build installs a versioned native preview bundle.
+- Every successful Windows/Linux/macOS CI build installs a versioned native preview bundle.
 - Core Downloads columns now support persistent show/hide configuration and persistent ascending/descending sorting through the native model/QSettings path.
 - Clipboard URL monitoring now matches the legacy 1.5-second detection behavior: it ignores pre-existing clipboard content, extracts new HTTP/HTTPS links and opens the native Add Download dialog only after the engine is connected.
 - Browser integration now exposes live daemon-backed status, enabled/paired state, bridge version, capture endpoint and direct/media/post-processing capabilities in the native Settings workspace.
@@ -164,13 +164,13 @@ Implemented:
 - macOS 15 ARM64 (Apple Silicon) preview builds are part of the native CI matrix and package the Rust backend/native host beside the Qt application executable. The runner is pinned to macOS 15 because Qt 6.8 LTS is the project baseline.
 - Every preview bundle carries `PARITY_REPORT.md` and `BUILD_INFO.txt` for QA traceability.
 - Native CTest coverage now stress-loads 20,000 downloads, validates filter/sort/search responsiveness, forces a real SSE disconnect/reconnect, and verifies bounded reconnect backoff.
+- Download table parity now includes elapsed time, date added, retries, connection count, CRC32 placeholder parity, queue-derived priority, completed date, source URL and smart category, with persistent visibility/sort settings and synchronized horizontal scrolling for wide column sets.
 - The Qt bootstrap now recovers from an owned Rust backend process exit by rediscovering/restarting the backend and re-pairing without restarting the UI.
 - Preview artifacts are retained by GitHub Actions for 14 days.
 
 Current parity blockers tracked by the executable manifest:
 
 - Validate packaged browser capture end to end with the real NOVA extension on Windows, macOS and Linux.
-- Legacy-only advanced download columns beyond the native core set (for example retries, CRC32, priority, completed date and smart category metadata).
 - Full legacy language catalog beyond the current English/Arabic/German native baseline.
 - Production signed automatic updater installation.
 - Windows ARM64, Linux ARM64 and macOS Intel validation beyond the current Windows/Linux x64 + macOS ARM64 matrix.

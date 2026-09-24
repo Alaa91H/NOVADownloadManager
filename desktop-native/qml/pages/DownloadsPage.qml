@@ -145,6 +145,50 @@ Item {
         return Math.floor(value / 3600) + "h " + Math.floor((value % 3600) / 60) + "m"
     }
 
+    function formatElapsed(value) {
+        if (value === undefined || value === null || value < 0) return "—"
+        if (value < 60) return value + "s"
+        if (value < 3600) return Math.floor(value / 60) + "m " + (value % 60) + "s"
+        return Math.floor(value / 3600) + "h " + Math.floor((value % 3600) / 60) + "m"
+    }
+
+    function priorityLabel(queueId) {
+        const normalized = (queueId || "").toLowerCase()
+        if (normalized === "fast") return root.t("downloads.priorityHigh")
+        if (normalized === "night") return root.t("downloads.priorityLow")
+        return root.t("downloads.priorityNormal")
+    }
+
+    function smartCategoryLabel(fileType, category) {
+        const value = (fileType || category || "").trim()
+        return value.length > 0 ? value : "—"
+    }
+
+    function tableContentWidth() {
+        let width = 240
+        const widths = {
+            size: 88,
+            progress: 190,
+            speed: 90,
+            eta: 70,
+            elapsed: 80,
+            dateAdded: 130,
+            status: 100,
+            retries: 72,
+            connections: 96,
+            crc32: 90,
+            priority: 90,
+            completedDate: 130,
+            sourceUrl: 200,
+            smartCategory: 120
+        }
+        for (const key in widths) {
+            if (root.columnVisible(key))
+                width += widths[key] + 10
+        }
+        return Math.max(720, width + 24)
+    }
+
     function clearSelection() {
         selectedIndex = -1
         selectedItem = ({})
@@ -522,9 +566,9 @@ Item {
                         color: Theme.sidebar
 
                         RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 12
-                            anchors.rightMargin: 12
+                            x: 12 - list.contentX
+                            width: Math.max(parent.width - 24, root.tableContentWidth() - 24)
+                            height: parent.height
                             spacing: 10
 
                             ToolButton {
@@ -567,12 +611,84 @@ Item {
                                 onClicked: root.requestSort("eta")
                             }
                             ToolButton {
+                                Layout.preferredWidth: 80
+                                visible: root.columnVisible("elapsed")
+                                text: root.t("downloads.elapsed") + root.sortIndicator("elapsed")
+                                flat: true
+                                Accessible.name: text
+                                onClicked: root.requestSort("elapsed")
+                            }
+                            ToolButton {
+                                Layout.preferredWidth: 130
+                                visible: root.columnVisible("dateAdded")
+                                text: root.t("downloads.dateAdded") + root.sortIndicator("dateAdded")
+                                flat: true
+                                Accessible.name: text
+                                onClicked: root.requestSort("dateAdded")
+                            }
+                            ToolButton {
                                 Layout.preferredWidth: 100
                                 visible: root.columnVisible("status")
                                 text: root.t("common.status") + root.sortIndicator("status")
                                 flat: true
                                 Accessible.name: text
                                 onClicked: root.requestSort("status")
+                            }
+                            ToolButton {
+                                Layout.preferredWidth: 72
+                                visible: root.columnVisible("retries")
+                                text: root.t("downloads.retries") + root.sortIndicator("retries")
+                                flat: true
+                                Accessible.name: text
+                                onClicked: root.requestSort("retries")
+                            }
+                            ToolButton {
+                                Layout.preferredWidth: 96
+                                visible: root.columnVisible("connections")
+                                text: root.t("common.connections") + root.sortIndicator("connections")
+                                flat: true
+                                Accessible.name: text
+                                onClicked: root.requestSort("connections")
+                            }
+                            ToolButton {
+                                Layout.preferredWidth: 90
+                                visible: root.columnVisible("crc32")
+                                text: root.t("downloads.crc32") + root.sortIndicator("crc32")
+                                flat: true
+                                Accessible.name: text
+                                onClicked: root.requestSort("crc32")
+                            }
+                            ToolButton {
+                                Layout.preferredWidth: 90
+                                visible: root.columnVisible("priority")
+                                text: root.t("downloads.priority") + root.sortIndicator("priority")
+                                flat: true
+                                Accessible.name: text
+                                onClicked: root.requestSort("priority")
+                            }
+                            ToolButton {
+                                Layout.preferredWidth: 130
+                                visible: root.columnVisible("completedDate")
+                                text: root.t("downloads.completedDate") + root.sortIndicator("completedDate")
+                                flat: true
+                                Accessible.name: text
+                                onClicked: root.requestSort("completedDate")
+                            }
+                            ToolButton {
+                                Layout.preferredWidth: 200
+                                visible: root.columnVisible("sourceUrl")
+                                text: root.t("common.sourceUrl") + root.sortIndicator("sourceUrl")
+                                flat: true
+                                Accessible.name: text
+                                onClicked: root.requestSort("sourceUrl")
+                            }
+                            ToolButton {
+                                Layout.preferredWidth: 120
+                                visible: root.columnVisible("smartCategory")
+                                text: root.t("downloads.smartCategory") + root.sortIndicator("smartCategory")
+                                flat: true
+                                Accessible.name: text
+                                onClicked: root.requestSort("smartCategory")
                             }
                         }
                     }
@@ -583,8 +699,11 @@ Item {
                         Layout.fillHeight: true
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
+                        flickableDirection: Flickable.HorizontalAndVerticalFlick
+                        contentWidth: Math.max(width, root.tableContentWidth())
                         model: root.downloads
                         ScrollBar.vertical: ScrollBar {}
+                        ScrollBar.horizontal: ScrollBar {}
 
                         delegate: Rectangle {
                             required property int index
@@ -595,9 +714,19 @@ Item {
                             required property double progress
                             required property double speedBytesPerSec
                             required property int etaSeconds
+                            required property int elapsedSeconds
+                            required property string dateAdded
+                            required property string url
+                            required property string fileType
+                            required property string category
+                            required property string queueId
+                            required property int connections
+                            required property int retries
+                            required property string completedAt
+                            required property string crc32
                             required property string savePath
 
-                            width: list.width
+                            width: list.contentWidth
                             height: Theme.rowHeight
                             Accessible.name: name || root.t("common.unnamedDownload")
                             Accessible.description: (status || "") + " · " + Math.round(progress * 100) + "%"
@@ -692,6 +821,25 @@ Item {
                                 }
 
                                 Text {
+                                    Layout.preferredWidth: 80
+                                    visible: root.columnVisible("elapsed")
+                                    text: root.formatElapsed(elapsedSeconds)
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.fontSmall
+                                    font.family: "monospace"
+                                }
+
+                                Text {
+                                    Layout.preferredWidth: 130
+                                    visible: root.columnVisible("dateAdded")
+                                    text: dateAdded.length > 0 ? dateAdded : "—"
+                                    color: Theme.textMuted
+                                    font.pixelSize: Theme.fontTiny
+                                    font.family: "monospace"
+                                    elide: Text.ElideRight
+                                }
+
+                                Text {
                                     Layout.preferredWidth: 100
                                     visible: root.columnVisible("status")
                                     text: status
@@ -702,6 +850,76 @@ Item {
                                         : Theme.textSecondary
                                     font.pixelSize: Theme.fontSmall
                                     font.weight: Font.DemiBold
+                                }
+                                Text {
+                                    Layout.preferredWidth: 72
+                                    visible: root.columnVisible("retries")
+                                    text: retries >= 0 ? String(retries) : "—"
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.fontSmall
+                                    font.family: "monospace"
+                                }
+
+                                Text {
+                                    Layout.preferredWidth: 96
+                                    visible: root.columnVisible("connections")
+                                    text: connections === 0
+                                        ? root.t("downloads.autoConnections")
+                                        : String(connections)
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.fontSmall
+                                    font.family: "monospace"
+                                }
+
+                                Text {
+                                    Layout.preferredWidth: 90
+                                    visible: root.columnVisible("crc32")
+                                    text: crc32.length > 0 ? crc32 : "—"
+                                    color: crc32.length > 0 ? Theme.info : Theme.textMuted
+                                    font.pixelSize: Theme.fontTiny
+                                    font.family: "monospace"
+                                    elide: Text.ElideRight
+                                }
+
+                                Text {
+                                    Layout.preferredWidth: 90
+                                    visible: root.columnVisible("priority")
+                                    text: root.priorityLabel(queueId)
+                                    color: queueId === "fast"
+                                        ? Theme.danger
+                                        : queueId === "night" ? Theme.warning : Theme.textSecondary
+                                    font.pixelSize: Theme.fontSmall
+                                    font.weight: Font.DemiBold
+                                }
+
+                                Text {
+                                    Layout.preferredWidth: 130
+                                    visible: root.columnVisible("completedDate")
+                                    text: status === "completed" && completedAt.length > 0
+                                        ? completedAt : "—"
+                                    color: Theme.textMuted
+                                    font.pixelSize: Theme.fontTiny
+                                    font.family: "monospace"
+                                    elide: Text.ElideRight
+                                }
+
+                                Text {
+                                    Layout.preferredWidth: 200
+                                    visible: root.columnVisible("sourceUrl")
+                                    text: url.length > 0 ? url : "—"
+                                    color: Theme.textMuted
+                                    font.pixelSize: Theme.fontTiny
+                                    font.family: "monospace"
+                                    elide: Text.ElideMiddle
+                                }
+
+                                Text {
+                                    Layout.preferredWidth: 120
+                                    visible: root.columnVisible("smartCategory")
+                                    text: root.smartCategoryLabel(fileType, category)
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.fontSmall
+                                    elide: Text.ElideRight
                                 }
                             }
 
@@ -890,6 +1108,60 @@ Item {
             checkable: true
             checked: root.columnVisible("status")
             onTriggered: root.toggleColumn("status")
+        }
+        MenuItem {
+            text: root.t("downloads.elapsed")
+            checkable: true
+            checked: root.columnVisible("elapsed")
+            onTriggered: root.toggleColumn("elapsed")
+        }
+        MenuItem {
+            text: root.t("downloads.dateAdded")
+            checkable: true
+            checked: root.columnVisible("dateAdded")
+            onTriggered: root.toggleColumn("dateAdded")
+        }
+        MenuItem {
+            text: root.t("downloads.retries")
+            checkable: true
+            checked: root.columnVisible("retries")
+            onTriggered: root.toggleColumn("retries")
+        }
+        MenuItem {
+            text: root.t("common.connections")
+            checkable: true
+            checked: root.columnVisible("connections")
+            onTriggered: root.toggleColumn("connections")
+        }
+        MenuItem {
+            text: root.t("downloads.crc32")
+            checkable: true
+            checked: root.columnVisible("crc32")
+            onTriggered: root.toggleColumn("crc32")
+        }
+        MenuItem {
+            text: root.t("downloads.priority")
+            checkable: true
+            checked: root.columnVisible("priority")
+            onTriggered: root.toggleColumn("priority")
+        }
+        MenuItem {
+            text: root.t("downloads.completedDate")
+            checkable: true
+            checked: root.columnVisible("completedDate")
+            onTriggered: root.toggleColumn("completedDate")
+        }
+        MenuItem {
+            text: root.t("common.sourceUrl")
+            checkable: true
+            checked: root.columnVisible("sourceUrl")
+            onTriggered: root.toggleColumn("sourceUrl")
+        }
+        MenuItem {
+            text: root.t("downloads.smartCategory")
+            checkable: true
+            checked: root.columnVisible("smartCategory")
+            onTriggered: root.toggleColumn("smartCategory")
         }
         MenuSeparator {}
         MenuItem {

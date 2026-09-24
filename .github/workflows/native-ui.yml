@@ -80,6 +80,12 @@ jobs:
       - name: Build
         run: cmake --build build/native --config Release --parallel
 
+      - name: Deploy Qt test runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          windeployqt --release --no-translations "build/native/Release/nova-native-tests.exe"
+
       - name: Native stress and recovery tests
         run: ctest --test-dir build/native -C Release --output-on-failure
 

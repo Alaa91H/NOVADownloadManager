@@ -28,10 +28,16 @@ public:
         ProgressRole,
         SpeedRole,
         EtaRole,
+        ElapsedRole,
         SavePathRole,
         EngineRole,
+        FileTypeRole,
         CategoryRole,
+        QueueIdRole,
         ConnectionsRole,
+        RetriesRole,
+        CompletedAtRole,
+        Crc32Role,
         ResumableRole,
         DateAddedRole,
         ErrorMessageRole
@@ -82,10 +88,16 @@ private:
         qreal progress{0.0};
         qint64 speedBytesPerSec{0};
         int etaSeconds{0};
+        int elapsedSeconds{0};
         QString savePath;
         QString engine;
+        QString fileType;
         QString category;
+        QString queueId;
         int connections{0};
+        int retries{-1};
+        QString completedAt;
+        QString crc32;
         bool resumable{false};
         QString dateAdded;
         QString errorMessage;

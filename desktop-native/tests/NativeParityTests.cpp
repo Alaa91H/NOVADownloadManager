@@ -37,10 +37,23 @@ void NativeParityTests::largeListRemainsResponsive() {
         item.insert(QStringLiteral("downloadedBytes"), i % 4 == 0 ? 5'000'000 : 10'000'000 + i);
         item.insert(QStringLiteral("speedBytesPerSec"), i % 4 == 0 ? 2'000'000 + i : 0);
         item.insert(QStringLiteral("timeLeftSeconds"), i % 4 == 0 ? 5 : 0);
+        item.insert(QStringLiteral("elapsedSeconds"), i);
         item.insert(QStringLiteral("savePath"), QStringLiteral("/tmp/NOVA/download-%1.bin").arg(i));
         item.insert(QStringLiteral("engine"), QStringLiteral("native"));
-        item.insert(QStringLiteral("category"), QStringLiteral("binary"));
-        item.insert(QStringLiteral("connections"), 8);
+        item.insert(QStringLiteral("fileType"), i % 2 == 0 ? QStringLiteral("video") : QStringLiteral("document"));
+        item.insert(QStringLiteral("category"), i % 2 == 0 ? QStringLiteral("video") : QStringLiteral("document"));
+        item.insert(
+            QStringLiteral("queueId"),
+            i % 3 == 0 ? QStringLiteral("fast")
+                : i % 3 == 1 ? QStringLiteral("main") : QStringLiteral("night")
+        );
+        item.insert(QStringLiteral("connections"), i % 5 == 0 ? 0 : 8);
+        item.insert(QStringLiteral("retries"), i % 4);
+        item.insert(
+            QStringLiteral("completedAt"),
+            i % 4 == 0 ? QString() : QStringLiteral("2026-09-24T13:00:00Z")
+        );
+        item.insert(QStringLiteral("crc32"), QStringLiteral("%1").arg(i, 8, 16, QLatin1Char('0')));
         item.insert(QStringLiteral("resumable"), true);
         item.insert(
             QStringLiteral("dateAdded"),
@@ -86,9 +99,39 @@ void NativeParityTests::largeListRemainsResponsive() {
     model.setSearchQuery(QStringLiteral("download-19999.bin"));
     QCOMPARE(model.count(), 1);
     QCOMPARE(model.itemAt(0).value(QStringLiteral("taskId")).toString(), QStringLiteral("task-019999"));
+    const QVariantMap extended = model.itemAt(0);
+    QCOMPARE(extended.value(QStringLiteral("elapsedSeconds")).toInt(), 19999);
+    QCOMPARE(extended.value(QStringLiteral("fileType")).toString(), QStringLiteral("document"));
+    QCOMPARE(extended.value(QStringLiteral("queueId")).toString(), QStringLiteral("main"));
+    QCOMPARE(extended.value(QStringLiteral("connections")).toInt(), 8);
+    QCOMPARE(extended.value(QStringLiteral("retries")).toInt(), 3);
+    QVERIFY(!extended.value(QStringLiteral("completedAt")).toString().isEmpty());
+    QVERIFY(!extended.value(QStringLiteral("crc32")).toString().isEmpty());
     QVERIFY2(
         timer.elapsed() < 3000,
         "Searching 20k downloads exceeded the native UI stress budget"
+    );
+
+    model.setSearchQuery(QString());
+    model.setSortKey(QStringLiteral("priority"));
+    model.setSortAscending(false);
+    QCOMPARE(
+        model.itemAt(0).value(QStringLiteral("queueId")).toString(),
+        QStringLiteral("fast")
+    );
+
+    model.setSortKey(QStringLiteral("elapsed"));
+    model.setSortAscending(false);
+    QCOMPARE(
+        model.itemAt(0).value(QStringLiteral("elapsedSeconds")).toInt(),
+        itemCount - 1
+    );
+
+    model.setSortKey(QStringLiteral("sourceUrl"));
+    model.setSortAscending(true);
+    QVERIFY(
+        model.itemAt(0).value(QStringLiteral("url")).toString()
+            .startsWith(QStringLiteral("https://example.test/files/"))
     );
 }
 
