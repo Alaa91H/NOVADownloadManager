@@ -1468,6 +1468,7 @@ pub fn native_media_status() -> Value {
             "cookiesFromBrowser": true,
             "browserCookieSources": crate::daemon::browser_cookies::NATIVE_BROWSER_COOKIE_SOURCES,
             "browserCookieImportRequiresExplicitSource": true,
+            "chromiumBrowserCookies": "fail-closed-app-bound-encryption",
             "proxy": false,
             "sourceAddress": false,
             "retry": false,
