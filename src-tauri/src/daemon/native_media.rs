@@ -4,13 +4,14 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
-use nova_download_core::{fetch_http_bytes_with_context, HttpRequestContext};
+use nova_download_core::{fetch_http_bytes_with_context, HttpRequestContext, TransferControl};
 use nova_media_core::{
-    assemble_ordered_parts, resolve_youtube_pending_formats, select_youtube_download_plan,
-    stage_dash_representation_plan_controlled_with_progress,
+    assemble_ordered_parts, download_youtube_plan_controlled, resolve_youtube_pending_formats,
+    select_youtube_download_plan, stage_dash_representation_plan_controlled_with_progress,
     stage_hls_media_plan_controlled_with_progress, youtube_video_id, ExtractRequest,
-    MediaDescriptor, MediaProtocol, MediaStream, YouTubeDownloadPlan, YouTubeExtractor,
-    YouTubePlayerScriptSolver, YouTubeSelectionPolicy, DEFAULT_MANIFEST_MAX_BYTES,
+    MediaDescriptor, MediaProtocol, MediaStream, YouTubeDownloadPlan, YouTubeExtraction,
+    YouTubeExtractor, YouTubePlayerScriptSolver, YouTubeSelectionPolicy, YouTubeTransferOutput,
+    YouTubeTransferProgress, DEFAULT_MANIFEST_MAX_BYTES,
 };
 use nova_stream_core::{
     build_dash_live_refresh, build_dash_representation_plan, build_hls_live_refresh,
@@ -23,10 +24,13 @@ use uuid::Uuid;
 
 use crate::daemon::engine::extractor::{EngineStatus, Extractor, ValidateError};
 use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
+use crate::daemon::postprocess::{
+    FfmpegPostProcessor, MediaMuxRequest, MediaPostProcessor, PostProcessError,
+};
 use crate::daemon::state::SharedState;
 use crate::daemon::types::{
-    transition_task_state, CreateDownloadBody, MediaDownloadOptions, NativeMediaJob, Task,
-    TaskState,
+    transition_task_state, CreateDownloadBody, MediaDownloadOptions, NativeMediaJob, Segment,
+    Task, TaskState,
 };
 
 pub struct NativeMediaExtractor;
@@ -37,6 +41,7 @@ pub struct NativeMediaExtractor;
 pub const NATIVE_MEDIA_OPTION_KEYS: &[&str] = &[
     "mode",
     "quality",
+    "ffmpegEnabled",
     "outputTemplate",
     "cookies",
     "userAgent",
@@ -96,6 +101,8 @@ impl Extractor for NativeMediaExtractor {
                 "dash-static-task".to_owned(),
                 "dash-dynamic-task".to_owned(),
                 "manifest-pause-resume".to_owned(),
+                "parallel-av-staging".to_owned(),
+                "postprocess-mux".to_owned(),
                 "request-context".to_owned(),
             ],
         }
@@ -142,10 +149,20 @@ struct ResolvedManifestMedia {
     stream: MediaStream,
 }
 
+#[derive(Clone, Debug)]
+struct ResolvedSeparateTracks {
+    extraction: YouTubeExtraction,
+    video_stream_id: String,
+    audio_stream_id: String,
+    output_container: String,
+    expected_bytes: Option<u64>,
+}
+
 #[derive(Debug)]
 enum ResolvedNativeMedia {
     Direct(ResolvedDirectMedia),
     Manifest(ResolvedManifestMedia),
+    SeparateTracks(ResolvedSeparateTracks),
 }
 
 #[derive(Debug)]
@@ -176,9 +193,28 @@ pub async fn create_native_media_task(
     body: &CreateDownloadBody,
 ) -> Result<Task, NativeMediaTaskError> {
     let owned = body.clone();
-    let resolved = tokio::task::spawn_blocking(move || resolve_native_media(&owned))
+    let mut resolved = tokio::task::spawn_blocking(move || resolve_native_media(&owned))
         .await
         .map_err(|error| NativeMediaTaskError::Worker(error.to_string()))??;
+
+    if matches!(resolved, ResolvedNativeMedia::SeparateTracks(_)) {
+        let postprocessor = FfmpegPostProcessor::new(state.ffmpeg_binary());
+        if !postprocessor.is_available() {
+            let mut fallback = body.clone();
+            if let Some(options) = fallback.media_options.as_mut() {
+                options.ffmpeg_enabled = Some(false);
+            }
+            let fallback_resolved = tokio::task::spawn_blocking(move || resolve_native_media(&fallback))
+                .await
+                .map_err(|error| NativeMediaTaskError::Worker(error.to_string()))?;
+            resolved = fallback_resolved.map_err(|_| {
+                NativeMediaTaskError::UnsupportedFeature(
+                    "high-quality separate tracks require the NOVA post-processing muxer, and no usable FFmpeg installation is currently available"
+                        .to_owned(),
+                )
+            })?;
+        }
+    }
 
     match resolved {
         ResolvedNativeMedia::Direct(resolved) => {
@@ -186,6 +222,9 @@ pub async fn create_native_media_task(
         }
         ResolvedNativeMedia::Manifest(resolved) => {
             create_native_manifest_task(state, body, resolved)
+        }
+        ResolvedNativeMedia::SeparateTracks(resolved) => {
+            create_native_separate_track_task(state, body, resolved)
         }
     }
 }
