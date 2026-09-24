@@ -89,7 +89,7 @@ impl TrackerAnnounceRequest {
         }
 
         url.set_query(Some(&fields.join("&")));
-        Ok(url.into())
+        Ok(url.to_string())
     }
 
     pub fn to_udp_announce_packet(
@@ -692,10 +692,10 @@ fn dict_int(dictionary: &[(&[u8], TrackerBValue<'_>)], key: &[u8]) -> Option<i64
     }
 }
 
-fn dict_bytes<'a>(
-    dictionary: &'a [(&'a [u8], TrackerBValue<'a>)],
+fn dict_bytes<'data>(
+    dictionary: &[(&'data [u8], TrackerBValue<'data>)],
     key: &[u8],
-) -> Option<&'a [u8]> {
+) -> Option<&'data [u8]> {
     match dict_get(dictionary, key) {
         Some(TrackerBValue::Bytes(value)) => Some(*value),
         _ => None,
