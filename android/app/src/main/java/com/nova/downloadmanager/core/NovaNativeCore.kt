@@ -10,7 +10,7 @@ package com.nova.downloadmanager.core
  */
 internal object NovaNativeCore {
     private const val LIBRARY_NAME = "nova_mobile_ffi"
-    private const val CLIENT_BRIDGE_API_VERSION = 2
+    private const val CLIENT_BRIDGE_API_VERSION = 3
     private const val RESUME_APPEND = 0
     private const val RESUME_RESTART = 1
     private const val MISSING_CONTENT_RANGE = -1L
