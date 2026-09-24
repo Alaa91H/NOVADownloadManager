@@ -33,7 +33,7 @@ pub use selection::{
 };
 pub use youtube::{
     resolve_youtube_pending_formats, select_youtube_download_plan, youtube_video_id,
-    YouTubeChallengeKind, YouTubeChallengeResolution, YouTubeChallengeSolver,
+    MediaChapter, YouTubeChallengeKind, YouTubeChallengeResolution, YouTubeChallengeSolver,
     YouTubeDownloadPlan, YouTubeExtraction, YouTubeExtractor, YouTubePendingFormat,
     YouTubeSelectionPolicy,
 };
