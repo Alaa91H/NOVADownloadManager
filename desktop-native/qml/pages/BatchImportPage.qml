@@ -275,10 +275,7 @@ Item {
                 ComboBox {
                     id: queueSelector
                     Layout.fillWidth: true
-                    model: api.queueCatalog
-                    textRole: "name"
-                    valueRole: "id"
-                    editable: true
+                    model: api.knownQueueLabels
                     enabled: !api.batchRunning
                     Accessible.name: root.t("batch.queueId")
                 }
@@ -500,8 +497,9 @@ Item {
                         advanced.cookies = cookiesField.text.trim()
 
                     const selectedQueueId = queueSelector.currentIndex >= 0
-                        ? String(queueSelector.currentValue)
-                        : queueSelector.editText.trim()
+                        && queueSelector.currentIndex < api.knownQueueIds.length
+                        ? String(api.knownQueueIds[queueSelector.currentIndex])
+                        : root.defaultQueueId
 
                     api.importBatch(
                         linksInput.text,
