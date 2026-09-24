@@ -1384,6 +1384,67 @@ fn media_bridge_key_supported(
     }
 }
 
+pub fn native_media_status() -> Value {
+    let supported_keys: HashSet<String> = crate::daemon::native_media::NATIVE_MEDIA_OPTION_KEYS
+        .iter()
+        .map(|key| (*key).to_owned())
+        .collect();
+    let all_keys: HashSet<String> = MEDIA_BRIDGE_MEDIA_OPTION_KEYS
+        .iter()
+        .map(|key| (*key).to_owned())
+        .collect();
+    let unsupported_keys: HashSet<String> = all_keys.difference(&supported_keys).cloned().collect();
+
+    json!({
+        "id": "nova-media-engine",
+        "name": "NOVA Media Engine",
+        "role": "media-extraction-engine",
+        "available": true,
+        "version": env!("CARGO_PKG_VERSION"),
+        "source": "in-process Rust media core",
+        "runtimeCore": "nova-media-core",
+        "verifiedBy": ["compiled native core", "native media unit tests"],
+        "capabilities": {
+            "siteExtraction": true,
+            "nativeResolution": true,
+            "directMediaExecution": true,
+            "formatSelection": true,
+            "requestContext": true,
+            "explicitCookies": true,
+            "hlsParsing": true,
+            "dashParsing": true,
+            "hlsTaskExecution": false,
+            "dashTaskExecution": false,
+            "separateTrackTaskExecution": false,
+            "playlists": false,
+            "formatSorting": false,
+            "audioExtraction": false,
+            "subtitles": false,
+            "autoSubtitles": false,
+            "thumbnailWriteEmbed": false,
+            "metadataWriteEmbed": false,
+            "chapterSplit": false,
+            "sponsorBlock": false,
+            "partialSections": false,
+            "concurrentFragments": false,
+            "externalDownloader": false,
+            "cookies": true,
+            "cookiesFromBrowser": false,
+            "proxy": false,
+            "sourceAddress": false,
+            "retry": false,
+            "retrySleep": false,
+            "downloadArchive": false,
+            "liveFromStart": false,
+            "postProcessing": false,
+            "plugins": false
+        },
+        "supportedExternalDownloaders": ["native"],
+        "supportedMediaOptionKeys": sorted_vec(supported_keys),
+        "unsupportedMediaOptionKeys": sorted_vec(unsupported_keys)
+    })
+}
+
 pub fn media_bridge_status_with_context(media_bridge_bin: &str, ffmpeg_available: bool) -> Value {
     let (available, version, flags) = media_bridge_model(media_bridge_bin);
     let supported_keys: HashSet<String> = MEDIA_BRIDGE_MEDIA_OPTION_KEYS
@@ -1892,15 +1953,15 @@ pub fn validate_media_bridge_media_options(
     Ok(())
 }
 
-pub fn all_engine_status(media_bridge_bin: &str, ffmpeg_bin: &str) -> Value {
+pub fn all_engine_status(_media_bridge_bin: &str, ffmpeg_bin: &str) -> Value {
     let curl = curl_status();
+    let media = native_media_status();
     let ffmpeg = ffmpeg_status(ffmpeg_bin);
-    let ffmpeg_available = ffmpeg
+    let media_ready = media
         .get("available")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let media_bridge = media_bridge_status_with_context(media_bridge_bin, ffmpeg_available);
-    let media_bridge_available = media_bridge
+    let ffmpeg_available = ffmpeg
         .get("available")
         .and_then(Value::as_bool)
         .unwrap_or(false);
@@ -1915,23 +1976,23 @@ pub fn all_engine_status(media_bridge_bin: &str, ffmpeg_bin: &str) -> Value {
         .cloned()
         .unwrap_or_default();
     json!({
-        "status": if direct_ready { "connected" } else { "degraded" },
-        "allReady": direct_ready && media_bridge_available && post_processing_ready,
+        "status": if direct_ready && media_ready { "connected" } else { "degraded" },
+        "allReady": direct_ready && media_ready,
         "directReady": direct_ready,
-        "mediaReady": media_bridge_available,
+        "mediaReady": media_ready,
         "postProcessingReady": post_processing_ready,
         "directProtocols": direct_protocols,
         "compatibilityMode": "runtime-verified-capabilities",
         "routing": {
             "directHttpHttpsFtp": if direct_ready { json!("libcurl-multi") } else { Value::Null },
-            "webMediaAndPlaylists": if media_bridge_available { json!("nova-media-engine") } else { Value::Null },
+            "webMediaAndPlaylists": if media_ready { json!("nova-media-engine") } else { Value::Null },
             "mergeRemuxExtractSubtitles": if post_processing_ready { json!("nova-media-postprocess") } else { Value::Null },
             "torrentMagnet": Value::Null
         },
         "engines": {
             "curl": curl,
             "libcurlMulti": curl,
-            "media": media_bridge,
+            "media": media,
             "ffmpeg": ffmpeg
         }
     })
@@ -1940,6 +2001,32 @@ pub fn all_engine_status(media_bridge_bin: &str, ffmpeg_bin: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_media_status_is_in_process_and_fail_closed() {
+        let status = native_media_status();
+        assert_eq!(status["available"], true);
+        assert_eq!(status["runtimeCore"], "nova-media-core");
+        assert_eq!(status["capabilities"]["directMediaExecution"], true);
+        assert_eq!(status["capabilities"]["hlsTaskExecution"], false);
+        assert_eq!(status["capabilities"]["dashTaskExecution"], false);
+        let supported = status["supportedMediaOptionKeys"]
+            .as_array()
+            .expect("supportedMediaOptionKeys");
+        assert!(supported.iter().any(|value| value == "quality"));
+        assert!(!supported.iter().any(|value| value == "audioFormat"));
+    }
+
+    #[test]
+    fn media_readiness_does_not_depend_on_compatibility_binary() {
+        let status = all_engine_status(
+            "__nova_missing_compatibility_bridge__",
+            "__nova_missing_post_processor__",
+        );
+        assert_eq!(status["mediaReady"], true);
+        assert_eq!(status["engines"]["media"]["runtimeCore"], "nova-media-core");
+        assert_eq!(status["postProcessingReady"], false);
+    }
 
     #[test]
     fn normalizes_libcurl_build_suffixes() {
