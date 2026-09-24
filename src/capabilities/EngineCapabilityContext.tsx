@@ -234,12 +234,12 @@ function buildSnapshot(
 ): EngineCapabilitySnapshot {
   const root = asRecord(raw);
   const curl = readEngineRecord(root, 'libcurlMulti') || readEngineRecord(root, 'curl');
-  const ytdlp = readEngineRecord(root, 'ytdlp');
+  const media = readEngineRecord(root, 'media');
   const ffmpeg = readEngineRecord(root, 'ffmpeg');
   const routing = asRecord(root?.routing);
 
   const directReady = asBool(root?.directReady) || asBool(asRecord(curl?.capabilities)?.directDownloads);
-  const mediaReady = asBool(root?.mediaReady) || asBool(ytdlp?.available);
+  const mediaReady = asBool(root?.mediaReady) || asBool(media?.available);
   const ffmpegReady = asBool(ffmpeg?.available);
   const postProcessingReady = asBool(root?.postProcessingReady) || ffmpegReady;
 
@@ -252,12 +252,12 @@ function buildSnapshot(
       : Array.from(DIRECT_FALLBACK_KEYS),
   );
   const mediaOptionKeys = new Set(
-    asStringArray(ytdlp?.supportedMediaOptionKeys).length
-      ? asStringArray(ytdlp?.supportedMediaOptionKeys)
+    asStringArray(media?.supportedMediaOptionKeys).length
+      ? asStringArray(media?.supportedMediaOptionKeys)
       : Array.from(MEDIA_FALLBACK_KEYS),
   );
   const unsupportedDirectOptionKeys = new Set(asStringArray(curl?.unsupportedDirectOptionKeys));
-  const unsupportedMediaOptionKeys = new Set(asStringArray(ytdlp?.unsupportedMediaOptionKeys));
+  const unsupportedMediaOptionKeys = new Set(asStringArray(media?.unsupportedMediaOptionKeys));
   const enabledDirectOptionKeys = new Set(
     Array.from(directOptionKeys).filter((key) => !unsupportedDirectOptionKeys.has(key)),
   );
@@ -265,7 +265,7 @@ function buildSnapshot(
     Array.from(mediaOptionKeys).filter((key) => !unsupportedMediaOptionKeys.has(key)),
   );
   const directProtocolSet = lowerSet(directProtocols);
-  const supportedExternalDownloaders = new Set(asStringArray(ytdlp?.supportedExternalDownloaders));
+  const supportedExternalDownloaders = new Set(asStringArray(media?.supportedExternalDownloaders));
 
   const snapshot: EngineCapabilitySnapshot = {
     loading,

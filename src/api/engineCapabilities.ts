@@ -33,7 +33,7 @@ export interface EngineCapabilitiesResponse {
   engines: {
     curl: EngineRuntimeCapabilities;
     libcurlMulti: EngineRuntimeCapabilities;
-    ytdlp: EngineRuntimeCapabilities;
+    media: EngineRuntimeCapabilities;
     ffmpeg: EngineRuntimeCapabilities;
   };
 }
@@ -109,7 +109,7 @@ export function parseEngineCapabilitiesResponse(value: unknown): EngineCapabilit
     engines: {
       curl: asRecord(engines.curl, 'engines.curl'),
       libcurlMulti: asRecord(engines.libcurlMulti, 'engines.libcurlMulti'),
-      ytdlp: asRecord(engines.ytdlp, 'engines.ytdlp'),
+      media: asRecord(engines.media, 'engines.media'),
       ffmpeg: asRecord(engines.ffmpeg, 'engines.ffmpeg'),
     },
   };

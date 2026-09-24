@@ -25,7 +25,7 @@ interface NovaHealth {
       unsupportedDirectOptionKeys?: string[];
       error?: string;
     };
-    ytdlp: {
+    media: {
       available: boolean;
       version: string;
       capabilities?: Record<string, unknown>;
@@ -515,11 +515,11 @@ export const novaClient = {
   },
 
   async probeMedia(url: string): Promise<MediaProbeResult> {
-    return request<MediaProbeResult>(`/api/ytdlp/probe?url=${encodeURIComponent(url)}`, undefined, 30000);
+    return request<MediaProbeResult>(`/api/media/bridge/probe?url=${encodeURIComponent(url)}`, undefined, 30000);
   },
 
   async checkFfmpeg(): Promise<FfmpegStatus> {
-    return request<FfmpegStatus>('/api/ytdlp/ffmpeg', undefined, 5000);
+    return request<FfmpegStatus>('/api/media/postprocess/status', undefined, 5000);
   },
 
   async browserExtensionHealth(): Promise<BrowserExtensionHealth> {
@@ -539,7 +539,7 @@ export const novaClient = {
   },
 
   async probePlaylist(url: string): Promise<MediaPlaylistResult> {
-    return request<MediaPlaylistResult>(`/api/ytdlp/probe-playlist?url=${encodeURIComponent(url)}`, undefined, 60000);
+    return request<MediaPlaylistResult>(`/api/media/bridge/probe-playlist?url=${encodeURIComponent(url)}`, undefined, 60000);
   },
 
   async updateTelegramConfig(config: {

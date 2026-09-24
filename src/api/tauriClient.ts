@@ -23,7 +23,7 @@ export interface DiagnosticData {
   curlJobs?: number;
   mediaJobs?: number;
   curlAvailable?: boolean;
-  ytdlpAvailable?: boolean;
+  mediaAvailable?: boolean;
   ffmpegAvailable?: boolean;
   directEngine?: string;
   mediaEngine?: string;
@@ -125,7 +125,7 @@ export const tauriClient = {
 
     const curlReady = health.engines.curl.available;
     const directEngine = curlReady ? 'curl direct engine ready' : 'curl direct engine missing';
-    const mediaEngine = health.engines.ytdlp.available ? 'media engine ready' : 'media engine missing';
+    const mediaEngine = health.engines.media.available ? 'media engine ready' : 'media engine missing';
 
     return {
       status: curlReady ? 'connected' : 'degraded',
