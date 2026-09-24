@@ -20,14 +20,14 @@ export const EngineStatusBar: React.FC<EngineStatusBarProps> = ({
     {/* NOVA Media Engine */}
     <div className="flex items-center gap-1.5 flex-1 min-w-0">
       <Radio
-        className={`w-3.5 h-3.5 shrink-0 ${engineCapabilities.mediaReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
+        className={`w-3.5 h-3.5 shrink-0 ${engineCapabilities.mediaExtractionReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
       />
       <div className="min-w-0">
         <span className="text-[10px] font-bold text-[var(--text-primary)] block leading-none">NOVA Media Engine</span>
         <span
-          className={`text-[9px] ${engineCapabilities.mediaReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
+          className={`text-[9px] ${engineCapabilities.mediaExtractionReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
         >
-          {engineCapabilities.mediaReady ? 'Ready' : 'Unavailable'}
+          {engineCapabilities.mediaExtractionReady ? 'Ready' : 'Unavailable'}
         </span>
       </div>
     </div>
