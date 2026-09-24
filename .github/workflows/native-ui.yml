@@ -104,7 +104,8 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           version: "6.8.3"
-          arch: win64_msvc2022_arm64_cross_compiled
+          host: windows_arm64
+          arch: win64_msvc2022_arm64
           cache: true
 
       - name: Configure
