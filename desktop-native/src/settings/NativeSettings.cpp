@@ -226,6 +226,7 @@ QVariant normalizedAdvancedValue(const QString &key, const QVariant &candidate) 
         else value = value.toLower();
     } else if (key == QStringLiteral("logLevel")) {
         static const QSet<QString> allowed{
+            QStringLiteral("off"), QStringLiteral("trace"),
             QStringLiteral("debug"), QStringLiteral("info"),
             QStringLiteral("warn"), QStringLiteral("error")
         };
