@@ -47,7 +47,7 @@ int main(int argc, char *argv[]) {
     QObject::connect(&nativeSettings, &NativeSettings::settingsChanged,
                      &app, syncDesktopPreferences);
     QObject::connect(&trayManager, &TrayManager::quitRequested,
-                     &app, &QCoreApplication::quit);
+                     &app, [&app]() { app.quit(); });
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("novaApi"), &apiClient);
