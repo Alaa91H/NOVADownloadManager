@@ -2042,8 +2042,10 @@ pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
         },
         "routing": {
             "directHttpHttpsFtp": if direct_ready { json!("libcurl-multi") } else { Value::Null },
-            "webMediaAndPlaylists": if media_extraction_ready { json!("nova-media-engine") } else { Value::Null },
+            "mediaExtraction": if media_extraction_ready { json!("nova-media-engine") } else { Value::Null },
             "streaming": if streaming_ready { json!("nova-media-engine") } else { Value::Null },
+            "postProcessing": if post_processing_ready { json!("nova-media-postprocess") } else { Value::Null },
+            "webMediaAndPlaylists": if media_extraction_ready { json!("nova-media-engine") } else { Value::Null },
             "mergeRemuxExtractSubtitles": if post_processing_ready { json!("nova-media-postprocess") } else { Value::Null },
             "torrentMagnet": Value::Null
         },
