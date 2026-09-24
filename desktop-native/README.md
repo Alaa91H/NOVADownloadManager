@@ -56,7 +56,7 @@ Implemented native surfaces include:
 - Add/edit/pause/resume/retry/delete/redownload workflows
 - File/folder actions and native file dialogs
 - Queue and scheduler migration surfaces, plus behaviorally covered Batch Import
-- Media downloader and Link Grabber
+- Behaviorally covered Media Downloader and Link Grabber
 - Engine settings, diagnostics and runtime logs
 - System tray, notifications and Windows/Linux desktop progress
 - Stable/Preview release checks with automatic install intentionally disabled until updater signing is production-ready
