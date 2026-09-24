@@ -468,7 +468,9 @@ pub fn start_persistence_loop(state: SharedState) {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::daemon::types::{CurlJob, MediaJob, Segment, TelegramConfig};
+    use crate::daemon::types::{
+        CreateDownloadBody, CurlJob, MediaJob, Segment, TelegramConfig,
+    };
     use std::sync::atomic::{AtomicBool, AtomicU64};
     use std::sync::{Arc, Mutex, RwLock};
     use std::time::Instant;
@@ -702,6 +704,24 @@ pub(crate) mod tests {
             );
         }
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn browser_cookie_source_requires_reauth_and_is_not_persisted() {
+        let request: CreateDownloadBody = serde_json::from_value(serde_json::json!({
+            "url": "https://example.test/video",
+            "mediaOptions": {
+                "cookiesFromBrowser": "firefox:default-release",
+                "userAgent": "NOVA-UA"
+            }
+        }))
+        .expect("native media request");
+
+        assert!(native_request_requires_reauth(&request));
+        let sanitized = sanitize_native_media_request(&request);
+        let media = sanitized.media_options.expect("sanitized media options");
+        assert_eq!(media.cookies_from_browser, None);
+        assert_eq!(media.user_agent.as_deref(), Some("NOVA-UA"));
     }
 
     #[test]
