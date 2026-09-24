@@ -28,10 +28,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - windows-latest
-          - ubuntu-latest
-          - macos-15
+        include:
+          - os: windows-latest
+            platform: Windows
+            arch: x64
+          - os: windows-11-arm
+            platform: Windows
+            arch: arm64
+          - os: ubuntu-latest
+            platform: Linux
+            arch: x64
+          - os: ubuntu-24.04-arm
+            platform: Linux
+            arch: arm64
+          - os: macos-15
+            platform: macOS
+            arch: arm64
+          - os: macos-15-intel
+            platform: macOS
+            arch: x64
 
     runs-on: ${{ matrix.os }}
 
@@ -69,16 +84,89 @@ jobs:
         run: node desktop-native/scripts/check-parity.mjs
 
       - name: Install Qt
+        if: matrix.arch == 'x64' || runner.os == 'macOS'
         uses: jurplel/install-qt-action@v4
         with:
           version: "6.8.3"
           cache: true
 
+      - name: Install Qt (Linux ARM64)
+        if: runner.os == 'Linux' && matrix.arch == 'arm64'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: linux_arm64
+          arch: linux_gcc_arm64
+          cache: true
+
+      - name: Install Qt (Windows ARM64)
+        if: runner.os == 'Windows' && matrix.arch == 'arm64'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          arch: win64_msvc2022_arm64_cross_compiled
+          cache: true
+
       - name: Configure
+        if: runner.os != 'Windows' || matrix.arch != 'arm64'
         run: cmake -S desktop-native -B build/native -DCMAKE_BUILD_TYPE=Release -DNOVA_BUILD_TESTS=ON
+
+      - name: Configure (Windows ARM64)
+        if: runner.os == 'Windows' && matrix.arch == 'arm64'
+        run: cmake -S desktop-native -B build/native -A ARM64 -DCMAKE_BUILD_TYPE=Release -DNOVA_BUILD_TESTS=ON
 
       - name: Build
         run: cmake --build build/native --config Release --parallel
+      - name: Validate native architecture (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          function Get-PEMachine([string]$Path) {
+            $bytes = [System.IO.File]::ReadAllBytes($Path)
+            $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+            return [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          }
+          $expected = if ("${{ matrix.arch }}" -eq "arm64") { 0xAA64 } else { 0x8664 }
+          foreach ($binary in @(
+            "build/native/Release/nova-native.exe",
+            "src-tauri/target/release/nova-native-backend.exe",
+            "src-tauri/target/release/nova-native-host.exe"
+          )) {
+            $actual = Get-PEMachine $binary
+            if ($actual -ne $expected) { throw "$binary machine 0x$($actual.ToString('X4')) does not match expected ${{ matrix.arch }}" }
+          }
+
+      - name: Validate native architecture (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ matrix.arch }}'
+          for binary in build/native/nova-native src-tauri/target/release/nova-native-backend src-tauri/target/release/nova-native-host; do
+            description="$(file -b "$binary")"
+            if [ "$expected" = "arm64" ]; then
+              printf '%s' "$description" | grep -Eqi 'aarch64|ARM aarch64'
+            else
+              printf '%s' "$description" | grep -Eqi 'x86-64|x86_64'
+            fi
+          done
+
+      - name: Validate native architecture (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ matrix.arch }}'
+          app="$(find build/native -type d -name 'nova-native.app' -print -quit)"
+          test -n "$app"
+          qt_archs="$(lipo -archs "$app/Contents/MacOS/nova-native")"
+          backend_archs="$(lipo -archs src-tauri/target/release/nova-native-backend)"
+          host_archs="$(lipo -archs src-tauri/target/release/nova-native-host)"
+          if [ "$expected" = "arm64" ]; then
+            for archs in "$qt_archs" "$backend_archs" "$host_archs"; do printf '%s' "$archs" | grep -qw arm64; done
+          else
+            for archs in "$qt_archs" "$backend_archs" "$host_archs"; do printf '%s' "$archs" | grep -qw x86_64; done
+          fi
 
       - name: Deploy Qt test runtime (Windows)
         if: runner.os == 'Windows'
@@ -142,6 +230,7 @@ jobs:
           Commit: ${{ github.sha }}
           Branch: ${{ github.ref_name }}
           Platform: Windows
+          Architecture: ${{ matrix.arch }}
           Qt: 6.8.3
           Stage: 6 parity freeze
           Runtime: Qt UI + Rust backend + Native Messaging host
@@ -158,6 +247,7 @@ jobs:
             echo "Commit: ${GITHUB_SHA}"
             echo "Branch: ${GITHUB_REF_NAME}"
             echo "Platform: macOS"
+            echo "Architecture: ${{ matrix.arch }}"
             echo "Qt: 6.8.3"
             echo "Stage: 6 parity freeze"
             echo "Runtime: Qt UI + Rust backend + Native Messaging host"
@@ -200,6 +290,7 @@ jobs:
             echo "Commit: ${GITHUB_SHA}"
             echo "Branch: ${GITHUB_REF_NAME}"
             echo "Platform: Linux"
+            echo "Architecture: ${{ matrix.arch }}"
             echo "Qt: 6.8.3"
             echo "Stage: 6 parity freeze"
             echo "Runtime: Qt UI + Rust backend + Native Messaging host"
@@ -209,7 +300,7 @@ jobs:
       - name: Upload native preview
         uses: actions/upload-artifact@v4
         with:
-          name: NOVA-Native-Preview-${{ runner.os }}-${{ github.sha }}
+          name: NOVA-Native-Preview-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.sha }}
           path: preview/NOVA-Native-${{ runner.os }}/
           if-no-files-found: error
           retention-days: 14

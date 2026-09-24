@@ -162,6 +162,7 @@ Implemented:
 - Windows preview bundles deploy the required Qt runtime through `windeployqt`.
 - Linux preview bundles include the Qt UI, Rust backend/native host, desktop entry, an `ldd` runtime dependency report and a live backend auto-pair smoke test.
 - macOS 15 ARM64 (Apple Silicon) preview builds are part of the native CI matrix and package the Rust backend/native host beside the Qt application executable. The runner is pinned to macOS 15 because Qt 6.8 LTS is the project baseline.
+- Platform-validation CI now also targets Windows 11 ARM64, Ubuntu 24.04 ARM64 and macOS 15 Intel, with architecture assertions for the Qt UI, Rust backend and Native Messaging host so emulated/wrong-architecture binaries cannot count as parity evidence.
 - Every preview bundle carries `PARITY_REPORT.md` and `BUILD_INFO.txt` for QA traceability.
 - Native CTest coverage now stress-loads 20,000 downloads, validates filter/sort/search responsiveness, forces a real SSE disconnect/reconnect, and verifies bounded reconnect backoff.
 - Download table parity now includes elapsed time, date added, retries, connection count, CRC32 placeholder parity, queue-derived priority, completed date, source URL and smart category, with persistent visibility/sort settings and synchronized horizontal scrolling for wide column sets.

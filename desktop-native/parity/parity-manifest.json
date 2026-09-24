@@ -478,7 +478,7 @@
         "src-tauri/src/bin/nova-native-backend.rs",
         "src-tauri/src/bin/nova-native-host.rs"
       ],
-      "blocker": "Native CI validates Windows x64, Ubuntu x64 and macOS 15 ARM64 (Apple Silicon) preview bundles with the Qt UI plus Rust backend/native host. Windows ARM64, Linux ARM64 and macOS Intel remain explicit validation gaps."
+      "blocker": "Native CI now includes Windows x64/ARM64, Ubuntu x64/ARM64 and macOS Intel/Apple Silicon jobs with explicit binary-architecture assertions. This remains partial until the newly added ARM64/Intel jobs complete successfully on GitHub-hosted runners."
     },
     {
       "id": "accessibility-hidpi",
