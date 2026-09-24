@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -8,9 +9,11 @@ use crate::{
 };
 
 use super::boxes::{demux_error, parse_boxes, FourCc};
+use super::fragments::{parse_moof_packets, parse_trex_defaults, FragmentPacket};
 use super::parser::{parse_movie, Mp4Sample, ParsedMp4};
 
 const MAX_MOOV_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_MOOF_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_PACKET_BYTES: u64 = 256 * 1024 * 1024;
 
 #[derive(Clone, Debug)]
@@ -32,6 +35,8 @@ struct ScannedMp4 {
     file: File,
     file_len: u64,
     parsed: ParsedMp4,
+    fragment_packets: Vec<FragmentPacket>,
+    mdat_ranges: Vec<(u64, u64)>,
 }
 
 pub struct Mp4Demuxer {
@@ -44,21 +49,40 @@ pub struct Mp4Demuxer {
 impl Mp4Demuxer {
     pub fn open(path: &Path) -> Result<Self, MediaProcessingError> {
         let scanned = scan_mp4_file(path)?;
-        if scanned.parsed.fragmented {
-            return Err(MediaProcessingError::UnsupportedOperation(
-                "fragmented MP4 packet demux requires moof/traf/trun support".to_owned(),
-            ));
-        }
 
         let mut packets = Vec::new();
-        for track in &scanned.parsed.tracks {
-            for sample in &track.samples {
-                validate_sample_bounds(sample, scanned.file_len)?;
+        if scanned.parsed.fragmented {
+            for packet in &scanned.fragment_packets {
+                validate_sample_bounds(
+                    &packet.sample,
+                    scanned.file_len,
+                    &scanned.mdat_ranges,
+                )?;
                 packets.push(PacketLocator {
-                    track_id: track.track.id,
-                    time_base: track.track.time_base,
-                    sample: sample.clone(),
+                    track_id: packet.track_id,
+                    time_base: packet.time_base,
+                    sample: packet.sample.clone(),
                 });
+            }
+            if packets.is_empty() {
+                return Err(demux_error(
+                    "fragmented MP4 contains no supported moof/traf/trun samples",
+                ));
+            }
+        } else {
+            for track in &scanned.parsed.tracks {
+                for sample in &track.samples {
+                    validate_sample_bounds(
+                        sample,
+                        scanned.file_len,
+                        &scanned.mdat_ranges,
+                    )?;
+                    packets.push(PacketLocator {
+                        track_id: track.track.id,
+                        time_base: track.track.time_base,
+                        sample: sample.clone(),
+                    });
+                }
             }
         }
 
@@ -153,26 +177,7 @@ fn scan_mp4_file(path: &Path) -> Result<ScannedMp4, MediaProcessingError> {
         .copied()
         .ok_or_else(|| demux_error("MP4 file is missing moov"))?;
 
-    let payload_size = moov
-        .size
-        .checked_sub(moov.header_size)
-        .ok_or_else(|| demux_error("invalid moov size"))?;
-    if payload_size > MAX_MOOV_BYTES {
-        return Err(demux_error(format!(
-            "MP4 moov size {payload_size} exceeds safety limit {MAX_MOOV_BYTES}"
-        )));
-    }
-    let payload_len = usize::try_from(payload_size)
-        .map_err(|_| demux_error("MP4 moov size does not fit platform"))?;
-    let mut moov_payload = vec![0_u8; payload_len];
-    file.seek(SeekFrom::Start(
-        moov.offset
-            .checked_add(moov.header_size)
-            .ok_or_else(|| demux_error("moov payload offset overflow"))?,
-    ))
-    .and_then(|_| file.read_exact(&mut moov_payload))
-    .map_err(|error| MediaProcessingError::Io(error.to_string()))?;
-
+    let moov_payload = read_top_level_payload(&mut file, moov, MAX_MOOV_BYTES)?;
     let has_top_level_moof = top_level
         .iter()
         .any(|item| item.kind == FourCc::new(*b"moof"));
@@ -181,11 +186,81 @@ fn scan_mp4_file(path: &Path) -> Result<ScannedMp4, MediaProcessingError> {
         .any(|item| item.kind == FourCc::new(*b"mvex"));
     let parsed = parse_movie(&moov_payload, has_top_level_moof || has_mvex)?;
 
+    let mdat_ranges = top_level
+        .iter()
+        .filter(|item| item.kind == FourCc::new(*b"mdat"))
+        .map(|item| {
+            let start = item
+                .offset
+                .checked_add(item.header_size)
+                .ok_or_else(|| demux_error("mdat payload offset overflow"))?;
+            let end = item
+                .offset
+                .checked_add(item.size)
+                .ok_or_else(|| demux_error("mdat end offset overflow"))?;
+            Ok((start, end))
+        })
+        .collect::<Result<Vec<_>, MediaProcessingError>>()?;
+
+    let mut fragment_packets = Vec::new();
+    if parsed.fragmented {
+        let defaults = parse_trex_defaults(&moov_payload)?;
+        let time_bases = parsed
+            .tracks
+            .iter()
+            .map(|track| (track.track.id, track.track.time_base))
+            .collect::<BTreeMap<_, _>>();
+
+        for moof in top_level
+            .iter()
+            .filter(|item| item.kind == FourCc::new(*b"moof"))
+            .copied()
+        {
+            let payload = read_top_level_payload(&mut file, moof, MAX_MOOF_BYTES)?;
+            fragment_packets.extend(parse_moof_packets(
+                &payload,
+                moof.offset,
+                &time_bases,
+                &defaults,
+            )?);
+        }
+    }
+
     Ok(ScannedMp4 {
         file,
         file_len,
         parsed,
+        fragment_packets,
+        mdat_ranges,
     })
+}
+
+fn read_top_level_payload(
+    file: &mut File,
+    item: TopLevelBox,
+    max_bytes: u64,
+) -> Result<Vec<u8>, MediaProcessingError> {
+    let payload_size = item
+        .size
+        .checked_sub(item.header_size)
+        .ok_or_else(|| demux_error("invalid top-level box size"))?;
+    if payload_size > max_bytes {
+        return Err(demux_error(format!(
+            "ISO-BMFF {} payload size {payload_size} exceeds safety limit {max_bytes}",
+            item.kind
+        )));
+    }
+    let payload_len = usize::try_from(payload_size)
+        .map_err(|_| demux_error("top-level payload size does not fit platform"))?;
+    let mut payload = vec![0_u8; payload_len];
+    let payload_offset = item
+        .offset
+        .checked_add(item.header_size)
+        .ok_or_else(|| demux_error("top-level payload offset overflow"))?;
+    file.seek(SeekFrom::Start(payload_offset))
+        .and_then(|_| file.read_exact(&mut payload))
+        .map_err(|error| MediaProcessingError::Io(error.to_string()))?;
+    Ok(payload)
 }
 
 fn scan_top_level_boxes(
@@ -253,7 +328,11 @@ fn scan_top_level_boxes(
     Ok(result)
 }
 
-fn validate_sample_bounds(sample: &Mp4Sample, file_len: u64) -> Result<(), MediaProcessingError> {
+fn validate_sample_bounds(
+    sample: &Mp4Sample,
+    file_len: u64,
+    mdat_ranges: &[(u64, u64)],
+) -> Result<(), MediaProcessingError> {
     let end = sample
         .offset
         .checked_add(u64::from(sample.size))
@@ -261,6 +340,16 @@ fn validate_sample_bounds(sample: &Mp4Sample, file_len: u64) -> Result<(), Media
     if end > file_len {
         return Err(demux_error(format!(
             "MP4 sample range {}..{end} exceeds file length {file_len}",
+            sample.offset
+        )));
+    }
+
+    let inside_mdat = mdat_ranges
+        .iter()
+        .any(|(start, mdat_end)| sample.offset >= *start && end <= *mdat_end);
+    if !inside_mdat {
+        return Err(demux_error(format!(
+            "MP4 sample range {}..{end} is outside mdat payloads",
             sample.offset
         )));
     }
