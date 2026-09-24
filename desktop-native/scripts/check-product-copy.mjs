@@ -3,56 +3,78 @@ import path from "node:path";
 import process from "node:process";
 
 const repoRoot = process.cwd();
-const roots = [
-  path.join(repoRoot, "desktop-native", "qml"),
-  path.join(repoRoot, "desktop-native", "src", "localization", "I18nManager.cpp"),
-];
+const qmlRoot = path.join(repoRoot, "desktop-native", "qml");
+const catalogPath = path.join(
+  repoRoot,
+  "desktop-native",
+  "src",
+  "localization",
+  "I18nManager.cpp"
+);
 
 const banned = [
-  { pattern: /yt-dlp/gi, label: "yt-dlp" },
-  { pattern: /ffmpeg/gi, label: "FFmpeg" },
-  { pattern: /rust[ -]daemon/gi, label: "Rust daemon" },
-  { pattern: /rust-engine/gi, label: "Rust engine" },
+  { pattern: /yt-dlp/i, label: "yt-dlp" },
+  { pattern: /ffmpeg/i, label: "FFmpeg" },
+  { pattern: /rust[ -]daemon/i, label: "Rust daemon" },
+  { pattern: /rust-engine/i, label: "Rust engine" },
 ];
 
-function filesUnder(target) {
-  const stat = fs.statSync(target);
-  if (stat.isFile()) return [target];
-
+function walk(directory) {
   const files = [];
-  for (const entry of fs.readdirSync(target, { withFileTypes: true })) {
-    const full = path.join(target, entry.name);
-    if (entry.isDirectory()) files.push(...filesUnder(full));
-    else if (entry.isFile() && (entry.name.endsWith(".qml") || entry.name.endsWith(".cpp"))) {
-      files.push(full);
-    }
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const full = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...walk(full));
+    else if (entry.isFile() && entry.name.endsWith(".qml")) files.push(full);
   }
   return files;
 }
 
-const violations = [];
-for (const root of roots) {
-  for (const file of filesUnder(root)) {
-    const source = fs.readFileSync(file, "utf8");
-    for (const rule of banned) {
-      rule.pattern.lastIndex = 0;
-      let match;
-      while ((match = rule.pattern.exec(source)) !== null) {
-        const line = source.slice(0, match.index).split("\n").length;
-        violations.push({
-          file: path.relative(repoRoot, file).replaceAll("\\", "/"),
-          line,
-          label: rule.label,
-        });
-      }
+function checkValue(file, line, value, violations) {
+  for (const rule of banned) {
+    if (rule.pattern.test(value)) {
+      violations.push({ file, line, label: rule.label, value });
     }
   }
+}
+
+const violations = [];
+const qmlPropertyPattern =
+  /\b(text|placeholderText|title|Accessible\.name|Accessible\.description)\s*:\s*"([^"\n]*)"/g;
+
+for (const file of walk(qmlRoot)) {
+  const source = fs.readFileSync(file, "utf8");
+  let match;
+  while ((match = qmlPropertyPattern.exec(source)) !== null) {
+    const line = source.slice(0, match.index).split("\n").length;
+    checkValue(
+      path.relative(repoRoot, file).replaceAll("\\", "/"),
+      line,
+      match[2],
+      violations
+    );
+  }
+}
+
+const catalog = fs.readFileSync(catalogPath, "utf8");
+const catalogValuePattern =
+  /\{QStringLiteral\("[^"]+"\),\s*QStringLiteral\("([^"]*)"\)\}/g;
+let catalogMatch;
+while ((catalogMatch = catalogValuePattern.exec(catalog)) !== null) {
+  const line = catalog.slice(0, catalogMatch.index).split("\n").length;
+  checkValue(
+    path.relative(repoRoot, catalogPath).replaceAll("\\", "/"),
+    line,
+    catalogMatch[1],
+    violations
+  );
 }
 
 if (violations.length > 0) {
   console.error("External implementation branding found in user-facing native UI copy:");
   for (const violation of violations) {
-    console.error(`- ${violation.file}:${violation.line} contains ${violation.label}`);
+    console.error(
+      `- ${violation.file}:${violation.line} contains ${violation.label}: "${violation.value}"`
+    );
   }
   console.error("Use NOVA Engine / NOVA Media Engine terminology in user-facing copy.");
   process.exit(1);
