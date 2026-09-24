@@ -18,6 +18,8 @@ pub enum MediaProcessingError {
     Mux(String),
     #[error("native media processing I/O failed: {0}")]
     Io(String),
+    #[error("native media processing was paused")]
+    Paused,
     #[error("native media processing was cancelled")]
     Cancelled,
 }
