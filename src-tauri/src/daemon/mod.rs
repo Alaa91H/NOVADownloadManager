@@ -27,6 +27,8 @@ pub(crate) const NATIVE_HOST_PAIRING_VALUE: &str = "1";
 /// clients can present it on the loopback transport.
 pub(crate) const NATIVE_DESKTOP_PAIRING_HEADER: &str = "x-nova-native-desktop";
 pub(crate) const NATIVE_DESKTOP_PAIRING_VALUE: &str = "1";
+/// Per-daemon proof header required for every non-browser auto-pair request.
+pub(crate) const NATIVE_PAIRING_SECRET_HEADER: &str = "x-nova-pairing-secret";
 
 use axum::routing::get;
 use axum::Router;
@@ -214,7 +216,8 @@ async fn auth_middleware(
 
     if let Some(auth) = request.headers().get(axum::http::header::AUTHORIZATION) {
         if let Ok(auth_str) = auth.to_str() {
-            if auth_str.strip_prefix("Bearer ").unwrap_or("") == state.api_token {
+            let bearer = auth_str.strip_prefix("Bearer ").unwrap_or("");
+            if bearer == state.api_token || bearer == state.native_client_token {
                 return Ok(next.run(request).await);
             }
         }
@@ -229,7 +232,7 @@ async fn auth_middleware(
         if let Some(query) = request.uri().query() {
             for pair in query.split('&') {
                 if let Some(token) = pair.strip_prefix("token=") {
-                    if token == state.api_token {
+                    if token == state.api_token || token == state.native_client_token {
                         log::warn!(
                             "SSE token accepted via URL query parameter on {path}; \
                              the token can leak into browser history, Referer headers, \
@@ -460,6 +463,8 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     mirror_managers: Mutex::new(HashMap::new()),
                     extractor_registry,
                     api_token: shared_api_token(),
+                    native_client_token: generate_api_token(),
+                    native_pairing_secret: generate_api_token(),
                     download_stats: Mutex::new({
                         let mut s = restored.stats.clone();
                         s.session_started_at = Some(chrono::Utc::now().to_rfc3339());
@@ -689,6 +694,39 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 {
                     log::warn!("Failed to write daemon port file: {e}");
                 }
+
+                // Publish a per-start pairing proof beside the port file. Native
+                // clients must prove possession of this random secret before the
+                // daemon issues its separate local-client bearer token.
+                let pairing_file =
+                    std::path::Path::new(&data_dir).join("nova-daemon.pairing.json");
+                let pairing_payload = serde_json::json!({
+                    "port": port,
+                    "pid": std::process::id(),
+                    "secret": state.native_pairing_secret,
+                    "protocolVersion": 1
+                });
+                match serde_json::to_vec(&pairing_payload) {
+                    Ok(payload) => {
+                        if let Err(e) = std::fs::write(&pairing_file, payload) {
+                            log::warn!("Failed to write daemon pairing proof file: {e}");
+                        } else {
+                            #[cfg(unix)]
+                            {
+                                use std::os::unix::fs::PermissionsExt;
+                                if let Err(e) = std::fs::set_permissions(
+                                    &pairing_file,
+                                    std::fs::Permissions::from_mode(0o600),
+                                ) {
+                                    log::warn!(
+                                        "Failed to restrict daemon pairing proof permissions: {e}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => log::warn!("Failed to serialize daemon pairing proof: {e}"),
+                }
                 let (shutdown_tx, shutdown_rx) = oneshot::channel();
                 *SHUTDOWN_TX.lock().unwrap() = Some(shutdown_tx);
                 let shutdown_state = state.clone();
@@ -786,6 +824,9 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 // Remove the port file on clean shutdown.
                 let _ =
                     std::fs::remove_file(std::path::Path::new(&data_dir).join("nova-daemon.port"));
+                let _ = std::fs::remove_file(
+                    std::path::Path::new(&data_dir).join("nova-daemon.pairing.json"),
+                );
             });
         }));
         if let Err(panic) = result {
