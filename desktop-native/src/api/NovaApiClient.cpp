@@ -521,6 +521,53 @@ void NovaApiClient::redownloadDownload(const QString &id) {
     runTaskAction(id, QStringLiteral("redownload"));
 }
 
+void NovaApiClient::resumeAllDownloads() {
+    const QJsonArray snapshot = m_currentDownloads;
+    for (const QJsonValue &value : snapshot) {
+        const QJsonObject task = value.toObject();
+        const QString status = task.value(QStringLiteral("status")).toString().trimmed().toLower();
+        if (status == QStringLiteral("paused")
+            || status == QStringLiteral("queued")
+            || status == QStringLiteral("failed")
+            || status == QStringLiteral("error")
+            || status == QStringLiteral("interrupted")) {
+            runTaskAction(task.value(QStringLiteral("id")).toString(), QStringLiteral("resume"));
+        }
+    }
+}
+
+void NovaApiClient::pauseAllDownloads() {
+    const QJsonArray snapshot = m_currentDownloads;
+    for (const QJsonValue &value : snapshot) {
+        const QJsonObject task = value.toObject();
+        const QString status = task.value(QStringLiteral("status")).toString().trimmed().toLower();
+        if (status == QStringLiteral("queued")
+            || status == QStringLiteral("preparing")
+            || status == QStringLiteral("probing")
+            || status == QStringLiteral("downloading")
+            || status == QStringLiteral("retrying")
+            || status == QStringLiteral("recovering")
+            || status == QStringLiteral("failed")
+            || status == QStringLiteral("error")
+            || status == QStringLiteral("interrupted")) {
+            runTaskAction(task.value(QStringLiteral("id")).toString(), QStringLiteral("pause"));
+        }
+    }
+}
+
+void NovaApiClient::deleteCompletedDownloads() {
+    const QJsonArray snapshot = m_currentDownloads;
+    for (const QJsonValue &value : snapshot) {
+        const QJsonObject task = value.toObject();
+        if (task.value(QStringLiteral("status")).toString().trimmed().compare(
+                QStringLiteral("completed"),
+                Qt::CaseInsensitive
+            ) == 0) {
+            deleteDownload(task.value(QStringLiteral("id")).toString());
+        }
+    }
+}
+
 void NovaApiClient::deleteDownload(const QString &id) {
     if (id.isEmpty()) {
         return;
