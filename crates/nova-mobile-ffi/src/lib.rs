@@ -122,6 +122,16 @@ impl From<nova_download_core::TransportError> for TransportError {
             nova_download_core::TransportError::RangeResponseRejected { message } => {
                 Self::RangeResponseRejected { message }
             }
+            nova_download_core::TransportError::InvalidRequestContext { message } => {
+                Self::RequestFailed { message }
+            }
+            nova_download_core::TransportError::ResponseTooLarge { limit_bytes } => {
+                Self::RequestFailed {
+                    message: format!(
+                        "native HTTP response exceeded the in-memory limit of {limit_bytes} bytes"
+                    ),
+                }
+            }
             nova_download_core::TransportError::Paused => Self::Paused,
             nova_download_core::TransportError::Cancelled => Self::Cancelled,
         }
