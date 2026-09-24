@@ -180,7 +180,10 @@ fn transport_error(error: curl::Error) -> TransportError {
 }
 
 fn validate_request_value(value: &str, label: &str) -> Result<(), TransportError> {
-    if value.contains(['\\r', '\\n', '\\0']) {
+    if value
+        .chars()
+        .any(|character| matches!(character, '\\r' | '\\n' | '\\0'))
+    {
         return Err(TransportError::InvalidRequestContext {
             message: format!("{label} contains a forbidden control character"),
         });
@@ -1073,6 +1076,7 @@ pub fn download_http_to_path_controlled_with_context<F: FnMut() -> TransferContr
                     existing_bytes,
                     total_bytes - 1,
                     &mut file,
+                    context,
                     Some(&identity.validator),
                     &mut control,
                 ) {
@@ -1369,14 +1373,14 @@ pub fn download_http_to_path_segmented_controlled_with_context<
         })?;
     }
 
-    let probe = probe_http_resource(url)?;
+    let probe = probe_http_resource_with_context(url, context)?;
     let Some(identity) = ResumeIdentity::from_probe(&probe) else {
         return download_http_to_path_controlled_with_context(url, destination, context, || control());
     };
     let total_bytes = identity.content_length;
     let ranges = plan_transfer_ranges(total_bytes, requested_connections);
     if ranges.len() <= 1 {
-        return download_http_to_path_controlled(url, destination, || control());
+        return download_http_to_path_controlled_with_context(url, destination, context, || control());
     }
 
     // A legacy/single-stream partial destination is allowed to finish through
@@ -1387,7 +1391,7 @@ pub fn download_http_to_path_segmented_controlled_with_context<
     let has_segments =
         segment_artifacts_exist(destination, MAX_PARALLEL_SEGMENTS as usize);
     if existing_destination > 0 && !has_segments {
-        return download_http_to_path_controlled(url, destination, || control());
+        return download_http_to_path_controlled_with_context(url, destination, context, || control());
     }
 
     let stored_identity = read_resume_identity(destination);
@@ -1462,6 +1466,7 @@ pub fn download_http_to_path_segmented_controlled_with_context<
                     start,
                     range.end,
                     &mut writer,
+                    context,
                     Some(validator),
                     || {
                         let command = control();
@@ -1535,7 +1540,7 @@ pub fn download_http_to_path_segmented_controlled_with_context<
         cleanup_segment_artifacts(destination, MAX_PARALLEL_SEGMENTS as usize);
         remove_resume_identity(destination);
         let _ = std::fs::remove_file(destination);
-        return download_http_to_path_controlled(url, destination, || control());
+        return download_http_to_path_controlled_with_context(url, destination, context, || control());
     }
 
     if let Some(error) = results.into_iter().find_map(Result::err) {
