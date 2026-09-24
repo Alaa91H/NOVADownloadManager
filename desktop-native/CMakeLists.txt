@@ -69,6 +69,18 @@ target_include_directories(nova-native PRIVATE src)
 target_compile_definitions(nova-native PRIVATE NOVA_NATIVE_VERSION="${NOVA_APP_VERSION}")
 
 if(APPLE)
+    enable_language(OBJCXX)
+    target_sources(nova-native PRIVATE
+        src/platform/MacDockProgress.mm
+    )
+    set_source_files_properties(
+        src/platform/MacDockProgress.mm
+        PROPERTIES
+            COMPILE_FLAGS "-fobjc-arc"
+    )
+    find_library(COCOA_FRAMEWORK Cocoa REQUIRED)
+    target_link_libraries(nova-native PRIVATE ${COCOA_FRAMEWORK})
+
     set_target_properties(nova-native PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.nova.downloadmanager"

@@ -27,6 +27,15 @@
 #include <QDBusMessage>
 #endif
 
+#if defined(Q_OS_MACOS)
+extern "C" void novaSetMacDockProgress(
+    bool visible,
+    bool indeterminate,
+    double progress,
+    int activeCount
+);
+#endif
+
 
 namespace {
 
@@ -737,6 +746,13 @@ void DesktopIntegration::setDesktopProgress(
             taskbar->SetProgressValue(hwnd, completed, 1000);
         }
     }
+#elif defined(Q_OS_MACOS)
+    novaSetMacDockProgress(
+        visible,
+        indeterminate,
+        qBound<qreal>(0.0, progress, 1.0),
+        activeCount
+    );
 #elif defined(Q_OS_LINUX)
     QVariantMap properties;
     properties.insert(QStringLiteral("progress-visible"), visible);

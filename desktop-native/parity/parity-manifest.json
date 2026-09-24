@@ -210,28 +210,42 @@
     {
       "id": "desktop-integration",
       "label": "Tray, notifications and taskbar/launcher progress",
-      "status": "partial",
+      "status": "covered",
       "evidence": [
         "desktop-native/src/platform/TrayManager.cpp",
-        "desktop-native/src/platform/DesktopIntegration.cpp"
+        "desktop-native/src/platform/DesktopIntegration.cpp",
+        "desktop-native/src/platform/MacDockProgress.mm",
+        "desktop-native/CMakeLists.txt",
+        ".github/workflows/native-ui.yml"
       ],
       "contains": [
-        {
-          "file": "desktop-native/src/platform/TrayManager.cpp",
-          "allOf": [
-            "QSystemTrayIcon",
-            "showNotification"
-          ]
-        },
         {
           "file": "desktop-native/src/platform/DesktopIntegration.cpp",
           "allOf": [
             "ITaskbarList3",
-            "LauncherEntry"
+            "LauncherEntry",
+            "novaSetMacDockProgress",
+            "setDesktopProgress"
+          ]
+        },
+        {
+          "file": "desktop-native/src/platform/MacDockProgress.mm",
+          "allOf": [
+            "NSDockTile",
+            "applicationIconImage",
+            "controlAccentColor",
+            "setBadgeLabel"
+          ]
+        },
+        {
+          "file": "desktop-native/CMakeLists.txt",
+          "allOf": [
+            "enable_language(OBJCXX)",
+            "MacDockProgress.mm",
+            "COCOA_FRAMEWORK"
           ]
         }
-      ],
-      "blocker": "macOS Dock progress and macOS platform validation are not yet implemented."
+      ]
     },
     {
       "id": "keyboard-rtl-theme",

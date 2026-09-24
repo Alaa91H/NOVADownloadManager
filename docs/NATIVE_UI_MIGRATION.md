@@ -89,6 +89,7 @@ Implemented:
 - Native file and folder dialogs through `QFileDialog`.
 - Windows taskbar download progress through `ITaskbarList3`.
 - Linux launcher progress/count integration through Unity LauncherEntry DBus.
+- macOS Dock integration renders aggregate download progress over the application icon and exposes the active-download count through the native Dock badge.
 - Desktop menu bar and global navigation/workflow shortcuts.
 - Native Settings workspace for engine capabilities, profiles, bandwidth and retry policy.
 - Full daemon diagnostics and structured runtime log viewer.
@@ -98,7 +99,6 @@ Implemented:
 Remaining before Stage 4 is considered complete:
 
 - Signed automatic updater installation after the existing updater signing requirements are satisfied.
-- macOS Dock progress integration and platform validation.
 - Final desktop menu/shortcut behavior validation across Windows, macOS and Linux.
 
 ### Stage 5 — Localization and platform polish
@@ -134,7 +134,7 @@ Remaining before Stage 5 is complete:
 - Accessibility labels/descriptions and tab order for all dialogs, lists, tables and form controls.
 - Screen-reader validation and color-contrast validation.
 - High-DPI and multi-monitor validation.
-- macOS-specific visual/accessibility refinement and cross-platform platform polish.
+- macOS-specific visual/accessibility refinement beyond the implemented Dock progress integration, plus remaining cross-platform accessibility polish.
 
 ### Stage 6 — Parity freeze
 
