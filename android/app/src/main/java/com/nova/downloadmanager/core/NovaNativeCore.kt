@@ -52,6 +52,45 @@ internal object NovaNativeCore {
         val totalBytes: Long,
     )
 
+    internal data class NativeMediaStream(
+        val id: String,
+        val kind: String,
+        val protocol: String,
+        val url: String,
+        val container: String?,
+        val videoCodec: String?,
+        val audioCodec: String?,
+        val width: Int?,
+        val height: Int?,
+        val fps: Double?,
+        val bitrateBps: Long?,
+        val audioBitrateBps: Long?,
+        val contentLength: Long?,
+        val language: String?,
+    )
+
+    internal data class NativeSubtitleTrack(
+        val language: String,
+        val name: String?,
+        val url: String,
+        val format: String?,
+        val automatic: Boolean,
+    )
+
+    internal data class NativeMediaDescriptor(
+        val sourceKind: String,
+        val title: String,
+        val description: String?,
+        val durationMillis: Long?,
+        val uploader: String?,
+        val webpageUrl: String,
+        val thumbnailUrl: String?,
+        val isLive: Boolean,
+        val streams: List<NativeMediaStream>,
+        val subtitles: List<NativeSubtitleTrack>,
+        val engine: String,
+    )
+
     private val loadFailure: Throwable? = runCatching {
         System.loadLibrary(LIBRARY_NAME)
     }.exceptionOrNull()
@@ -80,6 +119,13 @@ internal object NovaNativeCore {
         responseStatus: Int,
         contentRangeStart: Long,
     ): Int
+
+    private external fun nativeResolveMediaJson(
+        url: String,
+        userAgent: String,
+        referer: String,
+        cookieHeader: String,
+    ): String
 
     private external fun nativeDownloadToAppPrivate(
         taskId: String,
@@ -178,6 +224,91 @@ internal object NovaNativeCore {
             RESUME_RESTART -> ResumeAction.RESTART
             else -> error("NOVA native core rejected resume planning inputs")
         }
+    }
+
+    fun resolveMedia(
+        url: String,
+        userAgent: String? = null,
+        referer: String? = null,
+        cookieHeader: String? = null,
+    ): NativeMediaDescriptor {
+        requireCompatible()
+        require(url.isNotBlank()) { "url must not be blank" }
+
+        val payload = nativeResolveMediaJson(
+            url,
+            userAgent.orEmpty(),
+            referer.orEmpty(),
+            cookieHeader.orEmpty(),
+        )
+        val root = org.json.JSONObject(payload)
+
+        fun optionalString(obj: org.json.JSONObject, key: String): String? =
+            if (obj.isNull(key)) null else obj.optString(key).takeIf { it.isNotBlank() }
+
+        fun optionalLong(obj: org.json.JSONObject, key: String): Long? =
+            if (obj.isNull(key)) null else obj.optLong(key)
+
+        fun optionalInt(obj: org.json.JSONObject, key: String): Int? =
+            if (obj.isNull(key)) null else obj.optInt(key)
+
+        fun optionalDouble(obj: org.json.JSONObject, key: String): Double? =
+            if (obj.isNull(key)) null else obj.optDouble(key)
+
+        val streamsJson = root.optJSONArray("streams") ?: org.json.JSONArray()
+        val streams = buildList {
+            for (index in 0 until streamsJson.length()) {
+                val stream = streamsJson.getJSONObject(index)
+                add(
+                    NativeMediaStream(
+                        id = stream.getString("id"),
+                        kind = stream.getString("kind"),
+                        protocol = stream.getString("protocol"),
+                        url = stream.getString("url"),
+                        container = optionalString(stream, "container"),
+                        videoCodec = optionalString(stream, "videoCodec"),
+                        audioCodec = optionalString(stream, "audioCodec"),
+                        width = optionalInt(stream, "width"),
+                        height = optionalInt(stream, "height"),
+                        fps = optionalDouble(stream, "fps"),
+                        bitrateBps = optionalLong(stream, "bitrateBps"),
+                        audioBitrateBps = optionalLong(stream, "audioBitrateBps"),
+                        contentLength = optionalLong(stream, "contentLength"),
+                        language = optionalString(stream, "language"),
+                    ),
+                )
+            }
+        }
+
+        val subtitlesJson = root.optJSONArray("subtitles") ?: org.json.JSONArray()
+        val subtitles = buildList {
+            for (index in 0 until subtitlesJson.length()) {
+                val subtitle = subtitlesJson.getJSONObject(index)
+                add(
+                    NativeSubtitleTrack(
+                        language = subtitle.getString("language"),
+                        name = optionalString(subtitle, "name"),
+                        url = subtitle.getString("url"),
+                        format = optionalString(subtitle, "format"),
+                        automatic = subtitle.optBoolean("automatic", false),
+                    ),
+                )
+            }
+        }
+
+        return NativeMediaDescriptor(
+            sourceKind = root.getString("sourceKind"),
+            title = root.getString("title"),
+            description = optionalString(root, "description"),
+            durationMillis = optionalLong(root, "durationMillis"),
+            uploader = optionalString(root, "uploader"),
+            webpageUrl = root.getString("webpageUrl"),
+            thumbnailUrl = optionalString(root, "thumbnailUrl"),
+            isLive = root.optBoolean("isLive", false),
+            streams = streams,
+            subtitles = subtitles,
+            engine = root.optString("engine", "nova-media-engine"),
+        )
     }
 
     /**
