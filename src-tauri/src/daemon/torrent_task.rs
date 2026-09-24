@@ -451,7 +451,7 @@ pub async fn reauthorize_torrent_task(
         job.task.url = persisted;
         job.task.error_message = None;
         if TaskState::from_status(&job.task.status) == Some(TaskState::Failed) {
-            transition_task_state(&mut job.task, TaskState::Paused, "reauthorized")?;
+            restart_task_state(&mut job.task, "reauthorized")?;
         } else {
             job.task.engine_status = Some("reauthorized".to_owned());
         }
@@ -968,7 +968,13 @@ pub async fn resume_torrent_task(state: &SharedState, id: &str) -> Result<Task, 
         if current.is_active() {
             return Err(format!("Torrent task is still active in '{}'", current.as_status()));
         }
-        transition_task_state(&mut job.task, TaskState::Queued, "resume-requested")?;
+        if current == TaskState::Failed {
+            restart_task_state(&mut job.task, "resume-requested")?;
+        } else if current != TaskState::Queued {
+            transition_task_state(&mut job.task, TaskState::Queued, "resume-requested")?;
+        } else {
+            job.task.engine_status = Some("resume-requested".to_owned());
+        }
         job.task.error_message = None;
         let task = job.task.clone();
         drop(jobs);
