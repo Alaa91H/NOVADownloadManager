@@ -219,7 +219,8 @@ fn sanitize_native_media_request(
 }
 
 fn build_snapshot(state: &AppState) -> PersistedState {
-    // Acquire locks in documented order (media_jobs → curl_jobs → task_snapshot)
+    // Acquire locks in documented order
+    // (media_jobs → native_media_jobs → curl_jobs → task_snapshot)
     // within a block scope so curl_jobs is released before download_stats,
     // preventing AB-BA deadlock with transfer.rs (which locks download_stats → curl_jobs).
     let (
