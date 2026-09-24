@@ -9,12 +9,18 @@
 //! sockets and peer connection orchestration are layered on top of these
 //! validated primitives rather than being mixed into the data model.
 
+mod extension;
 mod magnet;
 mod metainfo;
 mod peer;
 mod scheduler;
 mod tracker;
 
+pub use extension::{
+    ExtendedHandshake, ExtensionError, MetadataAssembler, MetadataMessage, PeerExchange,
+    EXTENSION_HANDSHAKE_ID, LOCAL_UT_METADATA_ID, LOCAL_UT_PEX_ID, MAX_EXTENDED_HANDSHAKE_BYTES,
+    MAX_METADATA_SIZE, MAX_PEX_PEERS, METADATA_PIECE_SIZE,
+};
 pub use magnet::{MagnetLink, MagnetParseError};
 pub use metainfo::{
     FileSlice, InfoHash, TorrentFile, TorrentMetainfo, TorrentMetainfoError,
