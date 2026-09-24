@@ -154,10 +154,11 @@ jobs:
             exit 1
           fi
 
-      - name: Test native media cores
+      - name: Test native protocol cores
         run: |
           cargo test --manifest-path crates/nova-stream-core/Cargo.toml
           cargo test --manifest-path crates/nova-media-core/Cargo.toml
+          cargo test --manifest-path crates/nova-torrent-core/Cargo.toml
 
       - name: Clippy (lib + bin, zero warnings)
         id: clippy
