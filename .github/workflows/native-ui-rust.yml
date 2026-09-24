@@ -10,6 +10,8 @@ on:
       - "src/api/novaClient.ts"
       - "src/api/__tests__/novaClient.request.test.ts"
       - "src/components/AppShell.tsx"
+      - "src/store/queueStore.ts"
+      - "src/store/__tests__/queueStore.test.ts"
       - ".github/workflows/native-ui-rust.yml"
   pull_request:
     branches:
@@ -22,6 +24,8 @@ on:
       - "src/api/novaClient.ts"
       - "src/api/__tests__/novaClient.request.test.ts"
       - "src/components/AppShell.tsx"
+      - "src/store/queueStore.ts"
+      - "src/store/__tests__/queueStore.test.ts"
       - ".github/workflows/native-ui-rust.yml"
   workflow_dispatch:
 
@@ -90,6 +94,7 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml pairing_secret_parser_requires_matching_port_and_strong_secret --lib
           cargo test --manifest-path src-tauri/Cargo.toml browser_config_tests --lib
           cargo test --manifest-path src-tauri/Cargo.toml queue_catalog_preserves_empty_custom_queues --lib
+          cargo test --manifest-path src-tauri/Cargo.toml queue_catalog_preserves_legacy_advanced_limits --lib
           cargo test --manifest-path src-tauri/Cargo.toml queue_catalog_rejects_invalid_or_duplicate_ids --lib
           cargo test --manifest-path src-tauri/Cargo.toml queue_catalog_round_trips_on_disk --lib
 
@@ -99,8 +104,10 @@ jobs:
       - name: Legacy migration bridge typecheck
         run: pnpm exec tsc --noEmit
 
-      - name: Legacy queue-catalog request test
-        run: pnpm exec vitest run src/api/__tests__/novaClient.request.test.ts
+      - name: Legacy queue compatibility tests
+        run: |
+          pnpm exec vitest run src/api/__tests__/novaClient.request.test.ts
+          pnpm exec vitest run src/store/__tests__/queueStore.test.ts
 
       - name: Browser pairing typecheck
         run: pnpm --filter nova-browser-extension typecheck
