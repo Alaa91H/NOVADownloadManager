@@ -2,6 +2,8 @@ use std::fmt;
 
 use crate::MediaProcessingError;
 
+const MAX_BOXES_PER_PARENT: usize = 1_000_000;
+
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct FourCc(pub [u8; 4]);
 
@@ -87,6 +89,11 @@ pub fn parse_boxes(data: &[u8]) -> Result<Vec<Mp4Box<'_>>, MediaProcessingError>
             )));
         }
 
+        if result.len() >= MAX_BOXES_PER_PARENT {
+            return Err(demux_error(format!(
+                "ISO-BMFF parent exceeds box-count safety limit {MAX_BOXES_PER_PARENT}"
+            )));
+        }
         result.push(Mp4Box {
             kind,
             offset: cursor,
