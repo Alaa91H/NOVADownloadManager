@@ -442,7 +442,10 @@ fn stream_http_range_controlled_with_validator<W: Write, F: FnMut() -> TransferC
         transfer
             .write_function(|data| {
                 if !headers_validated.get() {
-                    return Ok(0);
+                    // Redirect/error response bodies are consumed but never
+                    // forwarded to the destination. Returning the consumed
+                    // length lets libcurl continue to the final response.
+                    return Ok(data.len());
                 }
 
                 let Some(next_total) = bytes_received.get().checked_add(data.len() as u64) else {
@@ -597,7 +600,10 @@ fn stream_http_full_controlled<W: Write, F: FnMut() -> TransferControl>(
         transfer
             .write_function(|data| {
                 if !headers_validated.get() {
-                    return Ok(0);
+                    // Redirect/error response bodies are consumed but never
+                    // forwarded to the destination. Returning the consumed
+                    // length lets libcurl continue to the final response.
+                    return Ok(data.len());
                 }
                 if let Err(error) = sink.write_all(data) {
                     sink_error.replace(Some(format!(
@@ -836,6 +842,74 @@ pub fn download_http_to_path_controlled<F: FnMut() -> TransferControl>(
     })
 }
 
+fn segment_manifest_path(destination: &Path) -> PathBuf {
+    append_suffix(destination, ".nova-segments")
+}
+
+fn write_segment_manifest(
+    destination: &Path,
+    ranges: &[ByteRange],
+) -> Result<(), TransportError> {
+    let path = segment_manifest_path(destination);
+    let tmp = append_suffix(&path, ".tmp");
+    let mut payload = format!("NOVA-SEGMENTS-1\n{}\n", ranges.len());
+    for range in ranges {
+        payload.push_str(&format!("{}-{}\n", range.start, range.end));
+    }
+
+    {
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&tmp)
+            .map_err(|error| TransportError::RequestFailed {
+                message: format!("failed to create segment manifest: {error}"),
+            })?;
+        file.write_all(payload.as_bytes())
+            .and_then(|_| file.sync_all())
+            .map_err(|error| TransportError::RequestFailed {
+                message: format!("failed to persist segment manifest: {error}"),
+            })?;
+    }
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(|error| TransportError::RequestFailed {
+            message: format!("failed to replace segment manifest: {error}"),
+        })?;
+    }
+    std::fs::rename(&tmp, &path).map_err(|error| TransportError::RequestFailed {
+        message: format!("failed to commit segment manifest: {error}"),
+    })
+}
+
+fn read_segment_manifest(destination: &Path) -> Option<Vec<ByteRange>> {
+    let payload = std::fs::read_to_string(segment_manifest_path(destination)).ok()?;
+    let mut lines = payload.lines();
+    if lines.next()? != "NOVA-SEGMENTS-1" {
+        return None;
+    }
+    let count: usize = lines.next()?.parse().ok()?;
+    if count == 0 || count > MAX_PARALLEL_SEGMENTS as usize {
+        return None;
+    }
+
+    let mut ranges = Vec::with_capacity(count);
+    for _ in 0..count {
+        let (start, end) = lines.next()?.split_once('-')?;
+        let start: u64 = start.parse().ok()?;
+        let end: u64 = end.parse().ok()?;
+        if end < start {
+            return None;
+        }
+        ranges.push(ByteRange { start, end });
+    }
+    Some(ranges)
+}
+
+fn remove_segment_manifest(destination: &Path) {
+    let _ = std::fs::remove_file(segment_manifest_path(destination));
+}
+
 fn segment_part_path(destination: &Path, index: usize) -> PathBuf {
     append_suffix(destination, &format!(".nova-seg-{index:04}"))
 }
@@ -854,6 +928,7 @@ fn cleanup_segment_artifacts(destination: &Path, segment_count: usize) {
         let _ = std::fs::remove_file(segment_done_path(destination, index));
     }
     let _ = std::fs::remove_file(segment_merge_path(destination));
+    remove_segment_manifest(destination);
 }
 
 fn segment_artifacts_exist(destination: &Path, segment_count: usize) -> bool {
@@ -887,7 +962,7 @@ fn prepare_segment_part(
     // A full-size part without its fsynced completion marker is not trusted:
     // it may be a crash-time/preallocated artifact. Partial files are safe to
     // resume because their representation identity is checked before this call.
-    let existing = if actual > expected_bytes || actual == expected_bytes {
+    let existing = if actual >= expected_bytes {
         if part.exists() {
             let file = OpenOptions::new()
                 .write(true)
@@ -984,18 +1059,26 @@ pub fn download_http_to_path_segmented_controlled<
     let existing_destination = std::fs::metadata(destination)
         .map(|metadata| metadata.len())
         .unwrap_or(0);
-    let has_segments = segment_artifacts_exist(destination, ranges.len());
+    let has_segments =
+        segment_artifacts_exist(destination, MAX_PARALLEL_SEGMENTS as usize);
     if existing_destination > 0 && !has_segments {
         return download_http_to_path_controlled(url, destination, || control());
     }
 
     let stored_identity = read_resume_identity(destination);
-    if has_segments && stored_identity.as_ref() != Some(&identity) {
-        cleanup_segment_artifacts(destination, ranges.len());
+    let stored_ranges = read_segment_manifest(destination);
+    let reusable_segments = has_segments
+        && stored_identity.as_ref() == Some(&identity)
+        && stored_ranges.as_deref() == Some(ranges.as_slice());
+    if has_segments && !reusable_segments {
+        cleanup_segment_artifacts(destination, MAX_PARALLEL_SEGMENTS as usize);
         remove_resume_identity(destination);
     }
     if read_resume_identity(destination).as_ref() != Some(&identity) {
         write_resume_identity(destination, &identity)?;
+    }
+    if read_segment_manifest(destination).as_deref() != Some(ranges.as_slice()) {
+        write_segment_manifest(destination, &ranges)?;
     }
 
     let mut prepared = Vec::with_capacity(ranges.len());
@@ -1113,7 +1196,7 @@ pub fn download_http_to_path_segmented_controlled<
     match control() {
         TransferControl::Pause => return Err(TransportError::Paused),
         TransferControl::Cancel => {
-            cleanup_segment_artifacts(destination, ranges.len());
+            cleanup_segment_artifacts(destination, MAX_PARALLEL_SEGMENTS as usize);
             remove_resume_identity(destination);
             return Err(TransportError::Cancelled);
         }
@@ -1124,14 +1207,14 @@ pub fn download_http_to_path_segmented_controlled<
         .iter()
         .any(|result| matches!(result, Err(TransportError::RangeResponseRejected { .. })))
     {
-        cleanup_segment_artifacts(destination, ranges.len());
+        cleanup_segment_artifacts(destination, MAX_PARALLEL_SEGMENTS as usize);
         remove_resume_identity(destination);
         let _ = std::fs::remove_file(destination);
         return download_http_to_path_controlled(url, destination, || control());
     }
 
     if let Some(error) = results.into_iter().find_map(Result::err) {
-        if matches!(error, TransportError::Cancelled) && abort.load(Ordering::Acquire) {
+        if matches!(&error, TransportError::Cancelled) && abort.load(Ordering::Acquire) {
             return Err(TransportError::RequestFailed {
                 message: "parallel transfer aborted after a segment failure".to_owned(),
             });
@@ -1189,8 +1272,8 @@ pub fn download_http_to_path_segmented_controlled<
 
     if let Err(error) = merge_result {
         let _ = std::fs::remove_file(&merge_path);
-        if matches!(error, TransportError::Cancelled) {
-            cleanup_segment_artifacts(destination, ranges.len());
+        if matches!(&error, TransportError::Cancelled) {
+            cleanup_segment_artifacts(destination, MAX_PARALLEL_SEGMENTS as usize);
             remove_resume_identity(destination);
         }
         return Err(error);
@@ -1204,7 +1287,7 @@ pub fn download_http_to_path_segmented_controlled<
     std::fs::rename(&merge_path, destination).map_err(|error| TransportError::RequestFailed {
         message: format!("failed to commit merged download: {error}"),
     })?;
-    cleanup_segment_artifacts(destination, ranges.len());
+    cleanup_segment_artifacts(destination, MAX_PARALLEL_SEGMENTS as usize);
     remove_resume_identity(destination);
     progress(total_bytes, Some(total_bytes));
 
@@ -1230,7 +1313,6 @@ pub fn download_http_to_path_segmented(
         |_, _| {},
     )
 }
-
 
 /// Remove every durable artifact owned by the shared HTTP transfer engine.
 ///
@@ -1539,6 +1621,24 @@ mod tests {
         assert_eq!(result.resumed_from, 0);
         assert_eq!(std::fs::read(&path).expect("read restarted file"), b"abcdefgh");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn segment_manifest_rejects_changed_parallel_geometry() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("nova-core-layout-{unique}.part"));
+        let four_way = plan_transfer_ranges(100, 4);
+        let two_way = plan_transfer_ranges(100, 2);
+
+        write_segment_manifest(&path, &four_way).expect("write segment manifest");
+        assert_eq!(read_segment_manifest(&path).as_deref(), Some(four_way.as_slice()));
+        assert_ne!(read_segment_manifest(&path).as_deref(), Some(two_way.as_slice()));
+
+        cleanup_segment_artifacts(&path, MAX_PARALLEL_SEGMENTS as usize);
+        assert!(!segment_manifest_path(&path).exists());
     }
 
     #[test]
