@@ -7,7 +7,7 @@
 
 class DownloadListModel final : public QAbstractListModel {
     Q_OBJECT
-    Q_PROPERTY(int activeCount READ activeCount NOTIFY summaryChanged)
+    Q_PROPERTY(int count READ count NOTIFY summaryChanged)\n    Q_PROPERTY(int activeCount READ activeCount NOTIFY summaryChanged)
     Q_PROPERTY(qint64 totalSpeed READ totalSpeed NOTIFY summaryChanged)
 
 public:
@@ -31,7 +31,7 @@ public:
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    int activeCount() const noexcept;
+    int count() const noexcept { return m_items.size(); }\n    int activeCount() const noexcept;
     qint64 totalSpeed() const noexcept;
 
 public slots:
