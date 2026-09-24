@@ -57,8 +57,14 @@ pub(super) fn extension_capabilities_from_status(status: &serde_json::Value) -> 
     let direct_ready = bool_from_status(status, "/directReady");
     let media_ready = bool_from_status(status, "/mediaReady");
     let post_ready = bool_from_status(status, "/postProcessingReady");
-    let hls_ready = media_ready && post_ready;
-    let dash_ready = media_ready && post_ready;
+    let hls_ready =
+        media_ready && bool_from_status(status, "/engines/media/capabilities/hlsTaskExecution");
+    let dash_ready =
+        media_ready && bool_from_status(status, "/engines/media/capabilities/dashTaskExecution");
+    let subtitle_ready =
+        media_ready && bool_from_status(status, "/engines/media/capabilities/subtitles");
+    let audio_ready =
+        media_ready && bool_from_status(status, "/engines/media/capabilities/audioExtraction");
     let mut items = Vec::new();
     if direct_ready {
         items.push("candidate.directUrl");
@@ -84,14 +90,18 @@ pub(super) fn extension_capabilities_from_status(status: &serde_json::Value) -> 
     }
     if hls_ready || dash_ready {
         items.push("stream.quality.select");
-        if post_ready {
-            items.push("stream.subtitles");
-            items.push("stream.audioTracks");
-        }
+    }
+    if subtitle_ready {
+        items.push("stream.subtitles");
+    }
+    if audio_ready {
+        items.push("stream.audioTracks");
     }
     items.push("events.sse");
     items.push("settings.snapshot");
-    items.push("media.analyze");
+    if media_ready {
+        items.push("media.analyze");
+    }
     items.sort_unstable();
     items.dedup();
     let direct_protocols = status
