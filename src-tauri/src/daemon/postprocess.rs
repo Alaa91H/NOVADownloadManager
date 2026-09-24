@@ -249,11 +249,21 @@ mod tests {
             .map(|value| value.to_string_lossy().to_string())
             .collect::<Vec<_>>();
 
-        assert!(args.windows(2).any(|pair| pair == ["-i", "video.track"]));
-        assert!(args.windows(2).any(|pair| pair == ["-i", "audio.track"]));
-        assert!(args.windows(2).any(|pair| pair == ["-map", "0:v:0"]));
-        assert!(args.windows(2).any(|pair| pair == ["-map", "1:a:0"]));
-        assert!(args.windows(2).any(|pair| pair == ["-c", "copy"]));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-i" && pair[1] == "video.track"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-i" && pair[1] == "audio.track"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-map" && pair[1] == "0:v:0"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-map" && pair[1] == "1:a:0"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-c" && pair[1] == "copy"));
         assert!(!args.iter().any(|arg| arg == "-filter_complex"));
         assert_eq!(
             args.last().map(String::as_str),
