@@ -453,10 +453,9 @@ fn parse_transform_body(
         r#"(?P<object>[A-Za-z_$][A-Za-z0-9_$]*)\s*\[\s*["'](?P<method>[A-Za-z_$][A-Za-z0-9_$]*)["']\s*\]\s*\(\s*(?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)(?:\s*,\s*(?P<value>\d+))?\s*\)"#,
     )
     .map_err(|error| error.to_string())?;
-    let undefined_guard = Regex::new(&format!(
-        r#"^if\s*\(\s*typeof\s+[A-Za-z_$][A-Za-z0-9_$]*\s*={2,3}\s*["']undefined["']\s*\)\s*return\s+{}$"#,
-        regex::escape(argument)
-    ))
+    let undefined_guard = Regex::new(
+        r#"^if\s*\(\s*typeof\s+[A-Za-z_$][A-Za-z0-9_$]*\s*={2,3}\s*["']undefined["']\s*\)\s*return\s+[A-Za-z_$][A-Za-z0-9_$]*$"#,
+    )
     .map_err(|error| error.to_string())?;
     let rotate_left_apply = Regex::new(&format!(
         r#"{}\.push\.apply\(\s*{},\s*{}\.splice\(0,\s*(\d+)\)\s*\)"#,
