@@ -1,5 +1,7 @@
 #include <QtTest>
 
+#include <algorithm>
+
 #include <QElapsedTimer>
 #include <QFile>
 #include <QHostAddress>
@@ -1158,11 +1160,11 @@ void NativeParityTests::queueStartStopHonorsMaxActive() {
 
     NovaApiClient client;
     client.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())));
+    QSignalSpy downloadsSpy(&client, &NovaApiClient::downloadsLoaded);
     client.refreshQueueCatalog();
     client.refreshDownloads();
 
     QTRY_COMPARE_WITH_TIMEOUT(client.queueCatalog().size(), 1, 3000);
-    QSignalSpy downloadsSpy(&client, &NovaApiClient::downloadsLoaded);
     QTRY_VERIFY_WITH_TIMEOUT(downloadsSpy.count() >= 1, 3000);
 
     requestLines.clear();
