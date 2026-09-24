@@ -340,6 +340,128 @@ mod tests {
         }
     }
 
+    fn processing_video_track() -> nova_media_processing_core::MediaTrack {
+        use nova_media_processing_core as processing;
+        processing::MediaTrack {
+            id: 1,
+            kind: processing::MediaTrackKind::Video,
+            codec: processing::MediaCodec::H264,
+            time_base: processing::MediaTimeBase::new(1, 1000).expect("time base"),
+            language: None,
+            video: Some(processing::VideoParameters {
+                width: 640,
+                height: 360,
+                frame_rate: Some(1.0),
+                bitrate_bps: None,
+            }),
+            audio: None,
+            codec_private: vec![1, 66, 0, 30],
+        }
+    }
+
+    fn processing_audio_track() -> nova_media_processing_core::MediaTrack {
+        use nova_media_processing_core as processing;
+        processing::MediaTrack {
+            id: 1,
+            kind: processing::MediaTrackKind::Audio,
+            codec: processing::MediaCodec::Aac,
+            time_base: processing::MediaTimeBase::new(1, 48_000).expect("time base"),
+            language: Some("eng".to_owned()),
+            video: None,
+            audio: Some(processing::AudioParameters {
+                sample_rate_hz: 48_000,
+                channels: 2,
+                bitrate_bps: None,
+            }),
+            codec_private: vec![0, 0, 0, 0],
+        }
+    }
+
+    fn write_processing_track(
+        path: &Path,
+        track: nova_media_processing_core::MediaTrack,
+        duration: i64,
+        bytes: &[u8],
+    ) {
+        use nova_media_processing_core::{
+            MediaMuxer, MediaPacket, MediaPacketFlags, MediaTimestamp, Mp4Muxer,
+        };
+        let mut muxer = Mp4Muxer::create(path).expect("create staging MP4");
+        let output_id = muxer.add_track(&track).expect("add staging track");
+        let packet = MediaPacket {
+            track_id: output_id,
+            pts: Some(MediaTimestamp {
+                value: 0,
+                time_base: track.time_base,
+            }),
+            dts: Some(MediaTimestamp {
+                value: 0,
+                time_base: track.time_base,
+            }),
+            duration: Some(MediaTimestamp {
+                value: duration,
+                time_base: track.time_base,
+            }),
+            flags: MediaPacketFlags {
+                keyframe: true,
+                discontinuity: false,
+                corrupted: false,
+            },
+            data: bytes.to_vec(),
+        };
+        muxer.write_packet(&packet).expect("write staging packet");
+        muxer.finalize().expect("finalize staging MP4");
+    }
+
+    #[test]
+    fn native_youtube_mux_merges_separate_mp4_tracks_and_cleans_staging() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("nova-youtube-mux-{unique}"));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let video_path = dir.join("video.part");
+        let audio_path = dir.join("audio.part");
+        let destination = dir.join("final.mp4");
+
+        write_processing_track(
+            &video_path,
+            processing_video_track(),
+            1000,
+            b"VIDEO",
+        );
+        write_processing_track(
+            &audio_path,
+            processing_audio_track(),
+            48_000,
+            b"AUDIO",
+        );
+
+        let transfer = YouTubeTransferOutput::SeparateTracks {
+            video_path: video_path.clone(),
+            audio_path: audio_path.clone(),
+            video_bytes: 5,
+            audio_bytes: 5,
+            video_stream_id: "137".to_owned(),
+            audio_stream_id: "140".to_owned(),
+        };
+
+        let result = mux_youtube_separate_tracks_to_mp4(&transfer, &destination)
+            .expect("native YouTube mux");
+        assert_eq!(result.tracks_written, 2);
+        assert!(!video_path.exists());
+        assert!(!audio_path.exists());
+
+        let probe = nova_media_processing_core::probe_mp4_file(&destination)
+            .expect("probe merged output");
+        assert_eq!(probe.tracks.len(), 2);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn missing_selected_stream_is_rejected_before_network_io() {
         let error = download_youtube_plan(
