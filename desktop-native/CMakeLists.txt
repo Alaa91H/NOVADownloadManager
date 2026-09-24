@@ -26,6 +26,7 @@ qt_add_qml_module(nova-native
         qml/Theme.qml
         qml/components/AddDownloadDialog.qml
         qml/components/CommandBar.qml
+        qml/components/ConfirmDeleteDialog.qml
         qml/components/DownloadDetailsPanel.qml
         qml/components/NavigationRail.qml
         qml/components/StatusBar.qml

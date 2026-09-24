@@ -21,7 +21,6 @@ Dialog {
         urlField.clear()
         nameField.clear()
         pathField.clear()
-        startImmediately.checked = true
         errorText = ""
         submitting = false
     }
@@ -98,45 +97,22 @@ Dialog {
             }
         }
 
-        RowLayout {
+        ColumnLayout {
             Layout.fillWidth: true
-            spacing: 10
+            spacing: 6
 
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 6
-
-                Text {
-                    text: "File name"
-                    color: Theme.textSecondary
-                    font.pixelSize: 11
-                    font.weight: Font.DemiBold
-                }
-
-                TextField {
-                    id: nameField
-                    Layout.fillWidth: true
-                    placeholderText: "Optional — detect automatically"
-                    selectByMouse: true
-                }
+            Text {
+                text: "File name"
+                color: Theme.textSecondary
+                font.pixelSize: 11
+                font.weight: Font.DemiBold
             }
 
-            ColumnLayout {
-                Layout.preferredWidth: 150
-                spacing: 6
-
-                Text {
-                    text: "Start"
-                    color: Theme.textSecondary
-                    font.pixelSize: 11
-                    font.weight: Font.DemiBold
-                }
-
-                CheckBox {
-                    id: startImmediately
-                    text: "Immediately"
-                    checked: true
-                }
+            TextField {
+                id: nameField
+                Layout.fillWidth: true
+                placeholderText: "Optional — detect automatically"
+                selectByMouse: true
             }
         }
 
@@ -215,7 +191,7 @@ Dialog {
                     verticalAlignment: Text.AlignVCenter
                 }
 
-                onClicked: root.submit(startImmediately.checked)
+                onClicked: root.submit(true)
             }
         }
     }

@@ -13,6 +13,8 @@ Item {
     property int selectedIndex: -1
     property var selectedItem: ({})
     property string query: ""
+    property string pendingDeleteId: ""
+    property string pendingDeleteName: ""
 
     function pageTitle() {
         if (page === "active") return "Active downloads"
@@ -75,6 +77,17 @@ Item {
         downloads.filterState = page
     }
 
+    function requestDelete() {
+        if (selectedIndex < 0)
+            return
+
+        updateSelection()
+        pendingDeleteId = downloads.taskIdAt(selectedIndex)
+        pendingDeleteName = selectedItem.name || "Selected download"
+        if (pendingDeleteId.length > 0)
+            deleteDialog.open()
+    }
+
     Component.onCompleted: {
         downloads.filterState = page
         downloads.searchQuery = query
@@ -92,6 +105,29 @@ Item {
         function onFilterChanged() {
             root.clearSelection()
         }
+    }
+
+    Shortcut {
+        sequence: StandardKey.New
+        enabled: root.api.connected && !addDownloadDialog.visible
+        onActivated: addDownloadDialog.openNew()
+    }
+
+    Shortcut {
+        sequence: StandardKey.Find
+        enabled: !addDownloadDialog.visible
+        onActivated: searchField.forceActiveFocus()
+    }
+
+    Shortcut {
+        sequence: "F5"
+        onActivated: root.api.refreshDownloads()
+    }
+
+    Shortcut {
+        sequence: "Escape"
+        enabled: root.selectedIndex >= 0 && !addDownloadDialog.visible && !deleteDialog.visible
+        onActivated: root.clearSelection()
     }
 
     ColumnLayout {
@@ -142,6 +178,48 @@ Item {
             }
         }
 
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 34
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            visible: !root.api.connected
+            radius: Theme.radiusMedium
+            color: Qt.rgba(0.82, 0.60, 0.13, 0.10)
+            border.color: Theme.warning
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 10
+                anchors.rightMargin: 10
+                spacing: 8
+
+                Rectangle {
+                    width: 7
+                    height: 7
+                    radius: 4
+                    color: Theme.warning
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: "NOVA engine is unavailable. Existing data remains visible, but download actions are disabled until the engine reconnects."
+                    color: Theme.textSecondary
+                    font.pixelSize: 10
+                    elide: Text.ElideRight
+                }
+
+                Button {
+                    text: "Retry"
+                    flat: true
+                    onClicked: {
+                        root.api.checkHealth()
+                        root.api.refreshDownloads()
+                    }
+                }
+            }
+        }
+
         CommandBar {
             Layout.fillWidth: true
             hasSelection: root.selectedIndex >= 0
@@ -156,12 +234,7 @@ Item {
                 if (root.selectedIndex >= 0)
                     root.api.resumeDownload(root.downloads.taskIdAt(root.selectedIndex))
             }
-            onDeleteRequested: {
-                if (root.selectedIndex >= 0) {
-                    root.api.deleteDownload(root.downloads.taskIdAt(root.selectedIndex))
-                    root.clearSelection()
-                }
-            }
+            onDeleteRequested: root.requestDelete()
         }
 
         RowLayout {
@@ -391,5 +464,21 @@ Item {
         parent: Overlay.overlay
         x: parent ? Math.round((parent.width - width) / 2) : 0
         y: parent ? Math.round((parent.height - height) / 2) : 0
+    }
+
+    ConfirmDeleteDialog {
+        id: deleteDialog
+        downloadName: root.pendingDeleteName
+        parent: Overlay.overlay
+        x: parent ? Math.round((parent.width - width) / 2) : 0
+        y: parent ? Math.round((parent.height - height) / 2) : 0
+
+        onConfirmed: {
+            if (root.pendingDeleteId.length > 0)
+                root.api.deleteDownload(root.pendingDeleteId)
+            root.pendingDeleteId = ""
+            root.pendingDeleteName = ""
+            root.clearSelection()
+        }
     }
 }
