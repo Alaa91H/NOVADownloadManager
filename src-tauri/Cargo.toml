@@ -29,7 +29,8 @@ tauri-plugin-clipboard-manager = "2"
 flexi_logger = "0.31"
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
-tauri-plugin-single-instance = "2"
+tauri-plugin-single-instance = { version = "2.4.5", features = ["deep-link"] }
+tauri-plugin-deep-link = "2.4.10"
 tauri-plugin-updater = "2"
 tokio = { version = "1", features = ["rt", "macros", "time", "net", "sync", "io-util", "signal"] }
 axum = { version = "0.8", features = ["macros", "query"] }

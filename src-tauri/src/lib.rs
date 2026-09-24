@@ -4,6 +4,7 @@
 #![recursion_limit = "512"]
 
 use serde::Serialize;
+use std::collections::VecDeque;
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -12,7 +13,7 @@ use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager,
+    Emitter, Manager,
 };
 
 const DEFAULT_DAEMON_PORT: u16 = 3199;
@@ -77,6 +78,192 @@ pub(crate) use daemon::utils::hide_command_window;
 pub use native_host::{is_native_messaging_launch, run_native_messaging_host};
 
 struct DaemonUrl(Mutex<String>);
+
+
+const TORRENT_OPEN_EVENT: &str = "nova-torrent-open";
+const MAX_PENDING_TORRENT_OPENS: usize = 16;
+const MAX_ALLOWED_TORRENT_FILES: usize = 32;
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", content = "value", rename_all = "camelCase")]
+enum TorrentOpenRequest {
+    Magnet(String),
+    File(String),
+}
+
+#[derive(Default)]
+struct TorrentOpenInner {
+    pending: VecDeque<TorrentOpenRequest>,
+    allowed_files: VecDeque<PathBuf>,
+    frontend_ready: bool,
+}
+
+struct TorrentOpenState(Mutex<TorrentOpenInner>);
+
+fn validate_torrent_open_path(path: &Path, cwd: Option<&Path>) -> Result<PathBuf, String> {
+    let candidate = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.unwrap_or_else(|| Path::new(".")).join(path)
+    };
+
+    #[cfg(windows)]
+    if candidate.to_string_lossy().starts_with(r"\\") {
+        return Err("Network torrent paths are not accepted by system-open integration.".to_owned());
+    }
+
+    let extension = candidate
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    if !extension.eq_ignore_ascii_case("torrent") {
+        return Err("System-open file is not a .torrent metadata file.".to_owned());
+    }
+
+    let canonical = candidate
+        .canonicalize()
+        .map_err(|error| format!("Could not resolve torrent file: {error}"))?;
+    let metadata = std::fs::metadata(&canonical)
+        .map_err(|error| format!("Could not inspect torrent file: {error}"))?;
+    if !metadata.is_file() {
+        return Err("System-open torrent source is not a regular file.".to_owned());
+    }
+    if metadata.len() == 0 {
+        return Err("System-open torrent file is empty.".to_owned());
+    }
+    if metadata.len() > nova_torrent_core::MAX_METAINFO_BYTES as u64 {
+        return Err(format!(
+            "System-open torrent file exceeds the {} byte metadata safety limit.",
+            nova_torrent_core::MAX_METAINFO_BYTES
+        ));
+    }
+
+    Ok(canonical)
+}
+
+fn torrent_open_request_from_argument(
+    argument: &str,
+    cwd: Option<&Path>,
+) -> Result<Option<TorrentOpenRequest>, String> {
+    let value = argument.trim();
+    if value.is_empty() || value.contains('\0') {
+        return Ok(None);
+    }
+
+    if value.len() >= 7 && value[..7].eq_ignore_ascii_case("magnet:") {
+        nova_torrent_core::MagnetLink::parse(value)
+            .map_err(|error| format!("Invalid magnet link from system open: {error}"))?;
+        return Ok(Some(TorrentOpenRequest::Magnet(value.to_owned())));
+    }
+
+    let path = Path::new(value);
+    let is_torrent = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("torrent"));
+    if !is_torrent {
+        return Ok(None);
+    }
+
+    validate_torrent_open_path(path, cwd)
+        .map(|path| Some(TorrentOpenRequest::File(path.display().to_string())))
+}
+
+fn dispatch_torrent_open(app: &tauri::AppHandle, request: TorrentOpenRequest) {
+    let should_emit = {
+        let state = app.state::<TorrentOpenState>();
+        let Ok(mut inner) = state.0.lock() else {
+            log::error!("Torrent open state lock is poisoned");
+            return;
+        };
+
+        if let TorrentOpenRequest::File(path) = &request {
+            let path = PathBuf::from(path);
+            if !inner.allowed_files.contains(&path) {
+                inner.allowed_files.push_back(path);
+                while inner.allowed_files.len() > MAX_ALLOWED_TORRENT_FILES {
+                    inner.allowed_files.pop_front();
+                }
+            }
+        }
+
+        if inner.frontend_ready {
+            true
+        } else {
+            if !inner.pending.contains(&request) {
+                inner.pending.push_back(request.clone());
+                while inner.pending.len() > MAX_PENDING_TORRENT_OPENS {
+                    inner.pending.pop_front();
+                }
+            }
+            false
+        }
+    };
+
+    if should_emit {
+        if let Err(error) = app.emit(TORRENT_OPEN_EVENT, request) {
+            log::warn!("Could not emit torrent system-open event: {error}");
+        }
+    }
+}
+
+fn dispatch_torrent_arguments(
+    app: &tauri::AppHandle,
+    arguments: &[String],
+    cwd: Option<&Path>,
+) {
+    for argument in arguments {
+        match torrent_open_request_from_argument(argument, cwd) {
+            Ok(Some(request)) => dispatch_torrent_open(app, request),
+            Ok(None) => {}
+            Err(error) => log::warn!("{error}"),
+        }
+    }
+}
+
+#[tauri::command]
+fn take_pending_torrent_opens(
+    state: tauri::State<TorrentOpenState>,
+) -> Vec<TorrentOpenRequest> {
+    let Ok(mut inner) = state.0.lock() else {
+        return Vec::new();
+    };
+    inner.frontend_ready = true;
+    inner.pending.drain(..).collect()
+}
+
+#[tauri::command]
+fn read_opened_torrent_file(
+    state: tauri::State<TorrentOpenState>,
+    path: String,
+) -> Result<tauri::ipc::Response, String> {
+    let canonical = validate_torrent_open_path(Path::new(&path), None)?;
+
+    {
+        let inner = state
+            .0
+            .lock()
+            .map_err(|_| "Torrent open state lock is poisoned".to_owned())?;
+        if !inner.allowed_files.contains(&canonical) {
+            return Err("Torrent file was not authorized by a system-open event.".to_owned());
+        }
+    }
+
+    let bytes = std::fs::read(&canonical)
+        .map_err(|error| format!("Could not read opened torrent file: {error}"))?;
+    if bytes.is_empty() || bytes.len() > nova_torrent_core::MAX_METAINFO_BYTES {
+        return Err("Opened torrent metadata failed the size safety check.".to_owned());
+    }
+
+    if let Ok(mut inner) = state.0.lock() {
+        if let Some(index) = inner.allowed_files.iter().position(|item| item == &canonical) {
+            inner.allowed_files.remove(index);
+        }
+    }
+
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 
 #[derive(Serialize)]
 struct BrowserExtensionPaths {
@@ -1190,19 +1377,36 @@ pub fn run_integration_mode() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+    let app = tauri::Builder::default()
+        .manage(TorrentOpenState(Mutex::new(TorrentOpenInner::default())))
+        // Single-instance must be registered before the deep-link plugin so
+        // Windows/Linux forward magnet launches to the already-running app.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            dispatch_torrent_arguments(app, &argv, Some(Path::new(&cwd)));
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
         }))
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            let startup_args = std::env::args().collect::<Vec<_>>();
+            let startup_cwd = std::env::current_dir().ok();
+            dispatch_torrent_arguments(app.handle(), &startup_args, startup_cwd.as_deref());
+
+            #[cfg(any(target_os = "linux", all(debug_assertions, target_os = "windows")))]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                if let Err(error) = app.deep_link().register_all() {
+                    log::warn!("Could not register configured deep links for this build: {error}");
+                }
+            }
+
             let daemon_data_dir = app
                 .path()
                 .app_data_dir()
@@ -1314,15 +1518,96 @@ pub fn run() {
             save_config,
             load_config,
             write_text_file,
-            restart_daemon
+            restart_daemon,
+            take_pending_torrent_opens,
+            read_opened_torrent_file
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Opened { urls } = event {
+            for url in urls {
+                let request = if url.scheme() == "magnet" {
+                    torrent_open_request_from_argument(url.as_str(), None)
+                        .ok()
+                        .flatten()
+                } else if url.scheme() == "file" {
+                    url.to_file_path()
+                        .ok()
+                        .and_then(|path| validate_torrent_open_path(&path, None).ok())
+                        .map(|path| TorrentOpenRequest::File(path.display().to_string()))
+                } else {
+                    None
+                };
+                if let Some(request) = request {
+                    dispatch_torrent_open(app_handle, request);
+                }
+            }
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        let _ = (app_handle, event);
+    });
 }
 
 #[cfg(test)]
 mod port_selection_tests {
     use super::*;
+
+    #[test]
+    fn system_open_accepts_valid_magnet_and_ignores_unrelated_arguments() {
+        let magnet = "magnet:?xt=urn:btih:1111111111111111111111111111111111111111&dn=test";
+        assert_eq!(
+            torrent_open_request_from_argument(magnet, None).unwrap(),
+            Some(TorrentOpenRequest::Magnet(magnet.to_owned()))
+        );
+        assert_eq!(
+            torrent_open_request_from_argument("--integration", None).unwrap(),
+            None
+        );
+        assert!(torrent_open_request_from_argument("magnet:?dn=missing-hash", None).is_err());
+    }
+
+    #[test]
+    fn system_open_accepts_only_existing_bounded_torrent_files() {
+        let root = std::env::temp_dir().join(format!(
+            "nova-torrent-system-open-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let torrent = root.join("sample.torrent");
+        let other = root.join("sample.txt");
+        std::fs::write(&torrent, b"d4:infode").unwrap();
+        std::fs::write(&other, b"not torrent").unwrap();
+
+        let request = torrent_open_request_from_argument("sample.torrent", Some(&root))
+            .unwrap()
+            .expect("torrent request");
+        assert!(matches!(request, TorrentOpenRequest::File(_)));
+        assert_eq!(
+            torrent_open_request_from_argument("sample.txt", Some(&root)).unwrap(),
+            None
+        );
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn tauri_bundle_declares_magnet_and_torrent_associations() {
+        let config: serde_json::Value =
+            serde_json::from_str(TAURI_CONFIG_JSON).expect("parse tauri config");
+        assert_eq!(
+            config["plugins"]["deep-link"]["desktop"]["schemes"][0],
+            "magnet"
+        );
+        assert_eq!(config["bundle"]["fileAssociations"][0]["ext"][0], "torrent");
+        assert_eq!(
+            config["bundle"]["fileAssociations"][0]["mimeType"],
+            "application/x-bittorrent"
+        );
+    }
 
     #[test]
     fn browser_extension_pages_launch_the_browser_directly_without_cmd() {

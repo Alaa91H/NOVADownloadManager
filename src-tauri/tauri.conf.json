@@ -27,6 +27,13 @@
     }
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "magnet"
+        ]
+      }
+    },
     "updater": {
       "endpoints": [
         "https://__UPDATER_ENDPOINT__"
@@ -127,6 +134,18 @@
         "sidebarImage": "./windows/installer-sidebar.bmp",
         "uninstallerHeaderImage": "./windows/installer-header.bmp"
       }
-    }
+    },
+    "fileAssociations": [
+      {
+        "ext": [
+          "torrent"
+        ],
+        "name": "BitTorrent Metadata",
+        "description": "BitTorrent metadata file",
+        "mimeType": "application/x-bittorrent",
+        "role": "Viewer",
+        "rank": "Default"
+      }
+    ]
   }
 }
