@@ -31,7 +31,10 @@ impl TorrentRunLease {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TorrentTransferPlan {
     pub metainfo: TorrentMetainfo,
+    /// Per-piece priority used by the piece scheduler.
     pub priorities: Vec<FilePriority>,
+    /// Exact per-file selection/priority state persisted by the checkpoint.
+    pub file_priorities: Vec<FilePriority>,
     pub completed: Vec<bool>,
 }
 
@@ -274,10 +277,12 @@ impl TorrentStorageSession {
                 .map_err(|_| TorrentSessionError::LockPoisoned("storage"))?;
             let metainfo = storage.metainfo().clone();
             let priorities = storage.selection().piece_priorities(&metainfo)?;
+            let file_priorities = storage.selection().priorities().to_vec();
             let completed = storage.checkpoint().verified.to_bools();
             Ok::<_, TorrentSessionError>(TorrentTransferPlan {
                 metainfo,
                 priorities,
+                file_priorities,
                 completed,
             })
         })
