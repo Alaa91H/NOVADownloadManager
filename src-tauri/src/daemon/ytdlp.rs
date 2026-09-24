@@ -8,7 +8,7 @@ use crate::daemon::state::SharedState;
 use crate::daemon::types::{
     transition_task_state, CreateDownloadBody, MediaJob, Segment, Task, TaskState,
 };
-use crate::daemon::utils::{hide_command_window, now_str, push_arg};
+use crate::daemon::utils::{hide_command_window, kill_process, now_str, push_arg};
 use crate::lock_or_err;
 
 // Only these yt-dlp flags are allowed in user-supplied extra_args.
