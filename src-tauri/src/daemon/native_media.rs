@@ -7,8 +7,9 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use nova_download_core::{fetch_http_bytes_with_context, HttpRequestContext, TransferControl};
 use nova_media_core::{
     assemble_ordered_parts, download_youtube_plan_controlled, resolve_youtube_pending_formats,
-    select_youtube_download_plan, stage_dash_representation_plan_controlled_with_progress,
-    stage_hls_media_plan_controlled_with_progress, youtube_video_id, ExtractRequest,
+    select_youtube_download_plan,
+    stage_dash_representation_plan_controlled_with_progress_scoped,
+    stage_hls_media_plan_controlled_with_progress_scoped, youtube_video_id, ExtractRequest,
     select_media_stream, MediaChapter, MediaDescriptor, MediaProtocol, MediaSelectionMode,
     MediaSelectionPolicy, MediaSortKey, MediaStream, YouTubeDownloadPlan, YouTubeExtraction,
     YouTubeExtractor, YouTubePlayerScriptSolver, YouTubeSelectionPolicy, YouTubeTransferOutput,
@@ -1227,9 +1228,14 @@ where
     if manifest.kind == HlsPlaylistKind::Master {
         let variant = select_best_hls_variant(&manifest)
             .ok_or_else(|| NativeMediaTaskError::Resolution("HLS master has no variants".to_owned()))?;
+        let variant_context = nova_media_core::scope_http_request_context(
+            context,
+            manifest_url,
+            &variant.uri,
+        );
         let response = fetch_http_bytes_with_context(
             &variant.uri,
-            context,
+            &variant_context,
             DEFAULT_MANIFEST_MAX_BYTES,
         )
         .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
@@ -1240,11 +1246,17 @@ where
             .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
     }
 
+    let media_context = nova_media_core::scope_http_request_context(
+        context,
+        manifest_url,
+        &media_url,
+    );
+
     if !manifest.end_list {
         return stage_hls_live_stream(
             &media_url,
             manifest,
-            context,
+            &media_context,
             staging_dir,
             connections,
             should_cancel,
@@ -1253,9 +1265,10 @@ where
     }
     let plan = build_hls_media_plan(&manifest)
         .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
-    let staged = stage_hls_media_plan_controlled_with_progress(
+    let staged = stage_hls_media_plan_controlled_with_progress_scoped(
         &plan,
-        context,
+        &media_context,
+        Some(&media_url),
         staging_dir,
         connections,
         || should_cancel(),
@@ -1295,6 +1308,11 @@ where
         .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
     let (period, adaptation, representation) = best_dash_representation_indices(&manifest)
         .ok_or_else(|| NativeMediaTaskError::Resolution("DASH manifest has no representations".to_owned()))?;
+    let manifest_context = nova_media_core::scope_http_request_context(
+        context,
+        manifest_url,
+        &response.effective_url,
+    );
     if manifest.is_dynamic {
         return stage_dash_live_stream(
             &response.effective_url,
@@ -1302,7 +1320,7 @@ where
             period,
             adaptation,
             representation,
-            context,
+            &manifest_context,
             staging_dir,
             connections,
             should_cancel,
@@ -1317,9 +1335,10 @@ where
         representation,
     )
     .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
-    let staged = stage_dash_representation_plan_controlled_with_progress(
+    let staged = stage_dash_representation_plan_controlled_with_progress_scoped(
         &plan,
-        context,
+        &manifest_context,
+        Some(&response.effective_url),
         staging_dir,
         connections,
         || should_cancel(),
@@ -1402,9 +1421,10 @@ where
             if !plan.units.is_empty() {
                 let tick_dir = staging_dir.join(format!("hls-tick-{tick:08}"));
                 let base = checkpoint.total_bytes;
-                let staged = stage_hls_media_plan_controlled_with_progress(
+                let staged = stage_hls_media_plan_controlled_with_progress_scoped(
                     &plan,
                     context,
+                    Some(media_url),
                     &tick_dir,
                     connections,
                     || should_cancel(),
@@ -1511,9 +1531,10 @@ where
         if let Some(plan) = refresh.plan {
             let tick_dir = staging_dir.join(format!("dash-tick-{tick:08}"));
             let base = checkpoint.total_bytes;
-            let staged = stage_dash_representation_plan_controlled_with_progress(
+            let staged = stage_dash_representation_plan_controlled_with_progress_scoped(
                 &plan,
                 context,
+                Some(&effective_url),
                 &tick_dir,
                 connections,
                 || should_cancel(),
