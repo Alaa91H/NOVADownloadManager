@@ -137,25 +137,22 @@ impl MediaExtractor for YouTubeExtractor {
 
 pub fn youtube_video_id(url: &Url) -> Option<String> {
     let host = url.host_str()?.trim_start_matches("www.").to_ascii_lowercase();
-    let id = match host.as_str() {
-        "youtu.be" => url.path_segments()?.next(),
+    let candidate = match host.as_str() {
+        "youtu.be" => url.path_segments()?.next()?.to_owned(),
         "youtube.com" | "m.youtube.com" | "music.youtube.com" => {
-            let first = url.path_segments()?.next().unwrap_or_default();
-            match first {
+            let mut segments = url.path_segments()?;
+            match segments.next().unwrap_or_default() {
                 "watch" => url
                     .query_pairs()
-                    .find_map(|(key, value)| (key == "v").then(|| value.into_owned()))
-                    .as_deref()
-                    .map(str::to_owned),
-                "shorts" | "live" | "embed" => url.path_segments()?.nth(1).map(str::to_owned),
-                _ => None,
+                    .find_map(|(key, value)| (key == "v").then(|| value.into_owned()))?,
+                "shorts" | "live" | "embed" => segments.next()?.to_owned(),
+                _ => return None,
             }
-            .as_deref()
         }
-        _ => None,
-    }?;
+        _ => return None,
+    };
 
-    let id = id.trim();
+    let id = candidate.trim();
     (id.len() == 11
         && id
             .bytes()
@@ -213,7 +210,7 @@ fn fetch_innertube_player(
         bootstrap.api_key
     );
     let body = json!({
-        "context": bootstrap.context,
+        "context": bootstrap.context.clone(),
         "videoId": video_id,
         "playbackContext": {
             "contentPlaybackContext": {
