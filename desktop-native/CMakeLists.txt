@@ -59,6 +59,7 @@ qt_add_qml_module(nova-native
         qml/components/MediaAdvancedPanel.qml
         qml/components/QueueSettingsPanel.qml
         qml/components/QueueSchedulerPanel.qml
+        qml/components/SettingsAdvancedPanel.qml
         qml/components/NavigationRail.qml
         qml/components/StatusBar.qml
         qml/pages/BatchImportPage.qml
