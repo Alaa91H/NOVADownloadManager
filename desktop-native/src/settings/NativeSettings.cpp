@@ -6,6 +6,7 @@
 #include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMetaType>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
@@ -658,6 +659,12 @@ bool NativeSettings::exportBackup(const QString &path) const {
     settings.insert(QStringLiteral("highContrast"), highContrast());
     settings.insert(QStringLiteral("reducedMotion"), reducedMotion());
     settings.insert(QStringLiteral("fontScale"), fontScale());
+    settings.insert(
+        QStringLiteral("downloadColumns"),
+        QJsonArray::fromStringList(downloadColumns())
+    );
+    settings.insert(QStringLiteral("downloadSortKey"), downloadSortKey());
+    settings.insert(QStringLiteral("downloadSortAscending"), downloadSortAscending());
     settings.insert(QStringLiteral("advanced"), QJsonObject::fromVariantMap(advanced));
     settings.insert(
         QStringLiteral("shortcutBindings"),
@@ -702,26 +709,77 @@ bool NativeSettings::importBackup(const QString &path) {
         return false;
     }
 
-    const auto setIfPresent = [this, &settings](const QString &jsonKey, const QString &settingsKey) {
-        if (settings.contains(jsonKey)) {
-            m_settings.setValue(settingsKey, settings.value(jsonKey).toVariant());
+    if (settings.value(QStringLiteral("defaultSaveDirectory")).isString()) {
+        setDefaultSaveDirectory(
+            settings.value(QStringLiteral("defaultSaveDirectory")).toString()
+        );
+    }
+    if (settings.value(QStringLiteral("defaultConnections")).isDouble()) {
+        setDefaultConnections(
+            settings.value(QStringLiteral("defaultConnections")).toInt()
+        );
+    }
+    if (settings.value(QStringLiteral("startImmediately")).isBool()) {
+        setStartImmediately(settings.value(QStringLiteral("startImmediately")).toBool());
+    }
+    if (settings.value(QStringLiteral("monitorClipboard")).isBool()) {
+        setMonitorClipboard(settings.value(QStringLiteral("monitorClipboard")).toBool());
+    }
+    if (settings.value(QStringLiteral("closeToTray")).isBool()) {
+        setCloseToTray(settings.value(QStringLiteral("closeToTray")).toBool());
+    }
+    if (settings.value(QStringLiteral("startMinimized")).isBool()) {
+        setStartMinimized(settings.value(QStringLiteral("startMinimized")).toBool());
+    }
+    if (settings.value(QStringLiteral("notificationsEnabled")).isBool()) {
+        setNotificationsEnabled(
+            settings.value(QStringLiteral("notificationsEnabled")).toBool()
+        );
+    }
+    if (settings.value(QStringLiteral("notifyOnComplete")).isBool()) {
+        setNotifyOnComplete(settings.value(QStringLiteral("notifyOnComplete")).toBool());
+    }
+    if (settings.value(QStringLiteral("notifyOnFailure")).isBool()) {
+        setNotifyOnFailure(settings.value(QStringLiteral("notifyOnFailure")).toBool());
+    }
+    if (settings.value(QStringLiteral("updateChannel")).isString()) {
+        setUpdateChannel(settings.value(QStringLiteral("updateChannel")).toString());
+    }
+    if (settings.value(QStringLiteral("uiLanguage")).isString()) {
+        setUiLanguage(settings.value(QStringLiteral("uiLanguage")).toString());
+    }
+    if (settings.value(QStringLiteral("appearanceMode")).isString()) {
+        setAppearanceMode(settings.value(QStringLiteral("appearanceMode")).toString());
+    }
+    if (settings.value(QStringLiteral("highContrast")).isBool()) {
+        setHighContrast(settings.value(QStringLiteral("highContrast")).toBool());
+    }
+    if (settings.value(QStringLiteral("reducedMotion")).isBool()) {
+        setReducedMotion(settings.value(QStringLiteral("reducedMotion")).toBool());
+    }
+    if (settings.value(QStringLiteral("fontScale")).isDouble()) {
+        setFontScale(settings.value(QStringLiteral("fontScale")).toDouble());
+    }
+    if (settings.value(QStringLiteral("downloadColumns")).isArray()) {
+        QStringList columns;
+        for (const QJsonValue &value :
+             settings.value(QStringLiteral("downloadColumns")).toArray()) {
+            if (value.isString()) {
+                columns.append(value.toString());
+            }
         }
-    };
-    setIfPresent(QStringLiteral("defaultSaveDirectory"), QStringLiteral("downloads/defaultDirectory"));
-    setIfPresent(QStringLiteral("defaultConnections"), QStringLiteral("downloads/defaultConnections"));
-    setIfPresent(QStringLiteral("startImmediately"), QStringLiteral("downloads/startImmediately"));
-    setIfPresent(QStringLiteral("monitorClipboard"), QStringLiteral("downloads/monitorClipboard"));
-    setIfPresent(QStringLiteral("closeToTray"), QStringLiteral("desktop/closeToTray"));
-    setIfPresent(QStringLiteral("startMinimized"), QStringLiteral("desktop/startMinimized"));
-    setIfPresent(QStringLiteral("notificationsEnabled"), QStringLiteral("notifications/enabled"));
-    setIfPresent(QStringLiteral("notifyOnComplete"), QStringLiteral("notifications/onComplete"));
-    setIfPresent(QStringLiteral("notifyOnFailure"), QStringLiteral("notifications/onFailure"));
-    setIfPresent(QStringLiteral("updateChannel"), QStringLiteral("updates/channel"));
-    setIfPresent(QStringLiteral("uiLanguage"), QStringLiteral("appearance/language"));
-    setIfPresent(QStringLiteral("appearanceMode"), QStringLiteral("appearance/mode"));
-    setIfPresent(QStringLiteral("highContrast"), QStringLiteral("appearance/highContrast"));
-    setIfPresent(QStringLiteral("reducedMotion"), QStringLiteral("appearance/reducedMotion"));
-    setIfPresent(QStringLiteral("fontScale"), QStringLiteral("appearance/fontScale"));
+        setDownloadColumns(columns);
+    }
+    if (settings.value(QStringLiteral("downloadSortKey")).isString()) {
+        setDownloadSortKey(
+            settings.value(QStringLiteral("downloadSortKey")).toString()
+        );
+    }
+    if (settings.value(QStringLiteral("downloadSortAscending")).isBool()) {
+        setDownloadSortAscending(
+            settings.value(QStringLiteral("downloadSortAscending")).toBool()
+        );
+    }
 
     const QJsonObject advanced = settings.value(QStringLiteral("advanced")).toObject();
     for (auto it = advanced.begin(); it != advanced.end(); ++it) {
