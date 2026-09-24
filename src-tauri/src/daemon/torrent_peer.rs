@@ -7,7 +7,7 @@ use nova_torrent_core::{
     BlockRequest, ExtendedHandshake, InfoHash, MetadataAssembler, MetadataMessage, PeerExchange,
     PeerHandshake, PeerMessage, PeerState, PieceLayout, TorrentMetainfo, DEFAULT_BLOCK_SIZE,
     EXTENSION_HANDSHAKE_ID, LOCAL_UT_METADATA_ID, LOCAL_UT_PEX_ID, MAX_PEER_FRAME_BYTES,
-    PEER_HANDSHAKE_LEN,
+    MAX_PEX_PEERS, PEER_HANDSHAKE_LEN,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -686,6 +686,9 @@ impl PeerSession {
                 let pex = PeerExchange::parse(payload)
                     .map_err(|error| format!("Peer {} sent invalid ut_pex payload: {error}", self.address))?;
                 for peer in pex.added {
+                    if self.discovered_pex_peers.len() >= MAX_PEX_PEERS {
+                        break;
+                    }
                     if peer.port() == 0
                         || (is_internal_ip(peer.ip()) && !self.allow_private_network)
                         || self.discovered_pex_peers.contains(&peer)
