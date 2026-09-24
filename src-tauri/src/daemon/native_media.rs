@@ -9,7 +9,7 @@ use nova_media_core::{
     assemble_ordered_parts, download_youtube_plan_controlled, resolve_youtube_pending_formats,
     select_youtube_download_plan, stage_dash_representation_plan_controlled_with_progress,
     stage_hls_media_plan_controlled_with_progress, youtube_video_id, ExtractRequest,
-    select_media_stream, MediaDescriptor, MediaProtocol, MediaSelectionMode,
+    select_media_stream, MediaChapter, MediaDescriptor, MediaProtocol, MediaSelectionMode,
     MediaSelectionPolicy, MediaSortKey, MediaStream, YouTubeDownloadPlan, YouTubeExtraction,
     YouTubeExtractor, YouTubePlayerScriptSolver, YouTubeSelectionPolicy, YouTubeTransferOutput,
     YouTubeTransferProgress, DEFAULT_MANIFEST_MAX_BYTES,
@@ -152,12 +152,14 @@ struct ResolvedDirectMedia {
     content_length: Option<u64>,
     context: HttpRequestContext,
     descriptor: MediaDescriptor,
+    chapters: Vec<MediaChapter>,
 }
 
 #[derive(Clone, Debug)]
 struct ResolvedManifestMedia {
     descriptor: MediaDescriptor,
     stream: MediaStream,
+    chapters: Vec<MediaChapter>,
 }
 
 #[derive(Clone, Debug)]
@@ -237,6 +239,7 @@ async fn create_native_direct_task(
     resolved: ResolvedDirectMedia,
 ) -> Result<Task, NativeMediaTaskError> {
     let descriptor = resolved.descriptor.clone();
+    let chapters = resolved.chapters.clone();
     let mut direct = body.clone();
     direct.url = Some(resolved.url);
     direct.media_options = None;
@@ -275,7 +278,7 @@ async fn create_native_direct_task(
 
     let source_url = direct.url.as_deref().unwrap_or_default();
     let (_, output_path) = crate::daemon::curl::destination_from_body(&direct, source_url);
-    prepare_native_sidecars(body, &descriptor, &output_path)?;
+    prepare_native_sidecars(body, &descriptor, &chapters, &output_path)?;
 
     log::info!(
         "NOVA Media Engine resolved media to native direct transport: {}",
@@ -337,7 +340,12 @@ fn create_native_manifest_task(
         std::fs::create_dir_all(parent)
             .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
     }
-    prepare_native_sidecars(body, &resolved.descriptor, &output_path)?;
+    prepare_native_sidecars(
+        body,
+        &resolved.descriptor,
+        &resolved.chapters,
+        &output_path,
+    )?;
 
     let id = Uuid::new_v4().to_string();
     let connections = crate::daemon::curl::requested_connections(body.connections);
@@ -481,6 +489,7 @@ fn create_native_separate_track_task(
     prepare_native_sidecars(
         body,
         &resolved.extraction.descriptor,
+        &resolved.extraction.chapters,
         &output_path,
     )?;
 
@@ -2342,7 +2351,9 @@ fn resolve_native_media(
                     ));
                 }
                 ensure_requested_audio_container(stream, body.media_options.as_ref())?;
-                resolved_from_descriptor(&extraction.descriptor, stream)
+                let mut resolved = resolved_from_descriptor(&extraction.descriptor, stream)?;
+                attach_native_chapters(&mut resolved, extraction.chapters.clone());
+                Ok(resolved)
             }
             YouTubeDownloadPlan::SeparateTracks {
                 video_stream_id,
@@ -2460,6 +2471,7 @@ const NATIVE_THUMBNAIL_MAX_BYTES: usize = 24 * 1024 * 1024;
 fn prepare_native_sidecars(
     body: &CreateDownloadBody,
     descriptor: &MediaDescriptor,
+    chapters: &[MediaChapter],
     output_path: &Path,
 ) -> Result<(), NativeMediaTaskError> {
     let Some(options) = body.media_options.as_ref() else {
@@ -2483,7 +2495,7 @@ fn prepare_native_sidecars(
     }
 
     if wants_info {
-        let payload = safe_descriptor_info_json(descriptor);
+        let payload = safe_descriptor_info_json(descriptor, chapters);
         write_atomic_sidecar(
             &sidecar_path(output_path, ".info.json"),
             serde_json::to_vec_pretty(&payload)
@@ -2591,7 +2603,10 @@ fn subtitle_language_matches(language: &str, requested: &[String]) -> bool {
     })
 }
 
-fn safe_descriptor_info_json(descriptor: &MediaDescriptor) -> Value {
+fn safe_descriptor_info_json(
+    descriptor: &MediaDescriptor,
+    chapters: &[MediaChapter],
+) -> Value {
     let streams = descriptor
         .streams
         .iter()
@@ -2638,6 +2653,7 @@ fn safe_descriptor_info_json(descriptor: &MediaDescriptor) -> Value {
         },
         "streams": streams,
         "subtitles": subtitles,
+        "chapters": chapters,
     })
 }
 
@@ -2728,6 +2744,17 @@ fn separate_track_output_container(video: &MediaStream, audio: &MediaStream) -> 
     "mkv".to_owned()
 }
 
+fn attach_native_chapters(
+    resolved: &mut ResolvedNativeMedia,
+    chapters: Vec<MediaChapter>,
+) {
+    match resolved {
+        ResolvedNativeMedia::Direct(media) => media.chapters = chapters,
+        ResolvedNativeMedia::Manifest(media) => media.chapters = chapters,
+        ResolvedNativeMedia::SeparateTracks(media) => media.extraction.chapters = chapters,
+    }
+}
+
 fn resolved_from_descriptor(
     descriptor: &MediaDescriptor,
     stream: &MediaStream,
@@ -2744,12 +2771,14 @@ fn resolved_from_descriptor(
                 content_length: stream.content_length,
                 context,
                 descriptor: descriptor.clone(),
+                chapters: Vec::new(),
             }))
         }
         MediaProtocol::Hls | MediaProtocol::Dash => Ok(ResolvedNativeMedia::Manifest(
             ResolvedManifestMedia {
                 descriptor: descriptor.clone(),
                 stream: stream.clone(),
+                chapters: Vec::new(),
             },
         )),
     }
@@ -3074,7 +3103,8 @@ mod tests {
         };
 
         let serialized =
-            serde_json::to_string(&safe_descriptor_info_json(&descriptor)).expect("metadata json");
+            serde_json::to_string(&safe_descriptor_info_json(&descriptor, &[]))
+                .expect("metadata json");
         assert!(serialized.contains("Safe metadata"));
         assert!(!serialized.contains("secret-cookie"));
         assert!(!serialized.contains("secret-header"));
