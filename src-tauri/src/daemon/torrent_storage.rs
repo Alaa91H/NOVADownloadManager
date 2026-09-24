@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use nova_torrent_core::{
-    AllocationMode, InfoHash, PieceCommit, PieceLayout, PieceScheduler, RecheckMode,
+    AllocationMode, FilePriority, InfoHash, PieceCommit, PieceLayout, PieceScheduler, RecheckMode,
     RecheckReport, StorageError, TorrentMetainfo, TorrentSelection, TorrentStorage,
 };
 use tokio_util::sync::CancellationToken;
@@ -26,6 +26,13 @@ impl TorrentRunLease {
     pub fn is_cancelled(&self) -> bool {
         self.cancel.is_cancelled()
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TorrentTransferPlan {
+    pub metainfo: TorrentMetainfo,
+    pub priorities: Vec<FilePriority>,
+    pub completed: Vec<bool>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -259,6 +266,25 @@ impl TorrentStorageSession {
         .map_err(join_error)?
     }
 
+    pub async fn transfer_plan(&self) -> Result<TorrentTransferPlan, TorrentSessionError> {
+        let storage = self.storage.clone();
+        tokio::task::spawn_blocking(move || {
+            let storage = storage
+                .lock()
+                .map_err(|_| TorrentSessionError::LockPoisoned("storage"))?;
+            let metainfo = storage.metainfo().clone();
+            let priorities = storage.selection().piece_priorities(&metainfo)?;
+            let completed = storage.checkpoint().verified.to_bools();
+            Ok::<_, TorrentSessionError>(TorrentTransferPlan {
+                metainfo,
+                priorities,
+                completed,
+            })
+        })
+        .await
+        .map_err(join_error)?
+    }
+
     pub async fn restored_scheduler(&self) -> Result<PieceScheduler, TorrentSessionError> {
         let storage = self.storage.clone();
         tokio::task::spawn_blocking(move || {
@@ -340,7 +366,7 @@ pub enum TorrentSessionError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nova_torrent_core::{FilePriority, TorrentFile, TorrentMetainfo};
+    use nova_torrent_core::{TorrentFile, TorrentMetainfo};
     use sha1::{Digest, Sha1};
     use std::time::{SystemTime, UNIX_EPOCH};
 
