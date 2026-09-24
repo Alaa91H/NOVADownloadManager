@@ -68,6 +68,16 @@ qt_add_qml_module(nova-native
 target_include_directories(nova-native PRIVATE src)
 target_compile_definitions(nova-native PRIVATE NOVA_NATIVE_VERSION="${NOVA_APP_VERSION}")
 
+if(APPLE)
+    set_target_properties(nova-native PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.nova.downloadmanager"
+        MACOSX_BUNDLE_BUNDLE_NAME "NOVA Download Manager"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+    )
+endif()
+
 target_link_libraries(nova-native
     PRIVATE
         Qt6::Quick
