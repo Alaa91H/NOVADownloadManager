@@ -1428,6 +1428,122 @@ fn limit_error(value: &str) -> String {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn completed_torrent_recheck_invalidates_changed_payload() {
+        use nova_torrent_core::TorrentFile;
+        use sha1::{Digest, Sha1};
+
+        let data_dir = std::env::temp_dir().join(format!(
+            "nova-torrent-completion-recheck-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let payload_root = data_dir.join("payload");
+        std::fs::create_dir_all(&data_dir).unwrap();
+
+        let digest = Sha1::digest(b"abcd");
+        let mut piece_hash = [0u8; 20];
+        piece_hash.copy_from_slice(&digest);
+        let info_hash = InfoHash::new([0x42; 20]);
+        let metainfo = TorrentMetainfo {
+            info_hash,
+            name: "complete.bin".to_owned(),
+            piece_length: 4,
+            piece_hashes: vec![piece_hash],
+            files: vec![TorrentFile {
+                path: "complete.bin".to_owned(),
+                length: 4,
+                offset: 0,
+            }],
+            total_length: 4,
+            trackers: Vec::new(),
+            tracker_tiers: Vec::new(),
+            private: false,
+        };
+
+        let storage = TorrentStorageSession::create(
+            payload_root.clone(),
+            metainfo.clone(),
+            TorrentSelection::all(&metainfo),
+            AllocationMode::Sparse,
+        )
+        .await
+        .unwrap();
+        let lease = storage.begin_run().await.unwrap();
+        storage
+            .commit_piece(&lease, 0, b"abcd".to_vec())
+            .await
+            .unwrap();
+        storage.finalize_selected(&lease).await.unwrap();
+
+        let source = format!("magnet:?xt=urn:btih:{}", info_hash.to_hex());
+        let task = Task {
+            id: "completed-torrent".to_owned(),
+            name: "complete.bin".to_owned(),
+            url: source.clone(),
+            file_type: "torrent".to_owned(),
+            status: TaskState::Completed.as_status().to_owned(),
+            size_bytes: 4,
+            downloaded_bytes: 4,
+            speed_bytes_per_sec: 0,
+            time_left_seconds: 0,
+            elapsed_seconds: 1,
+            date_added: "2026-09-24T00:00:00Z".to_owned(),
+            category: "torrent".to_owned(),
+            queue_id: "main".to_owned(),
+            connections: 1,
+            resumable: true,
+            save_path: payload_root.display().to_string(),
+            description: "test torrent".to_owned(),
+            segments: Vec::new(),
+            referer: None,
+            engine: TORRENT_ENGINE_ID.to_owned(),
+            engine_id: info_hash.to_hex(),
+            engine_status: Some("completed".to_owned()),
+            error_message: None,
+        };
+
+        let mut job = restore_torrent_job(task.clone(), Some(source), false).unwrap();
+        job.storage = Arc::new(tokio::sync::Mutex::new(Some(storage)));
+        let state = Arc::new(crate::daemon::persist::tests::test_state(
+            &data_dir.display().to_string(),
+        ));
+        state
+            .torrent_jobs
+            .lock()
+            .unwrap()
+            .insert(task.id.clone(), job);
+        state
+            .task_snapshot
+            .lock()
+            .unwrap()
+            .insert(task.id.clone(), task);
+
+        recheck_restored_completed_torrents(&state).await;
+        {
+            let jobs = state.torrent_jobs.lock().unwrap();
+            let verified = jobs.get("completed-torrent").unwrap();
+            assert_eq!(verified.task.status, "completed");
+            assert_eq!(
+                verified.task.engine_status.as_deref(),
+                Some("completed-verified")
+            );
+        }
+
+        std::fs::write(payload_root.join("complete.bin"), b"xbcd").unwrap();
+        recheck_restored_completed_torrents(&state).await;
+        {
+            let jobs = state.torrent_jobs.lock().unwrap();
+            let invalid = jobs.get("completed-torrent").unwrap();
+            assert_eq!(invalid.task.status, "error");
+            assert_eq!(
+                invalid.task.engine_status.as_deref(),
+                Some("completion-invalid")
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
     #[test]
     fn persistence_strips_credentialed_trackers_but_keeps_safe_ones() {
         let source = "magnet:?xt=urn:btih:1111111111111111111111111111111111111111&dn=test&tr=https%3A%2F%2Fsafe.example%2Fannounce&tr=https%3A%2F%2Fprivate.example%2Fannounce%3Fpasskey%3Dsecret";
