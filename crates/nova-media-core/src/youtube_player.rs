@@ -44,7 +44,13 @@ impl YouTubeChallengeSolver for YouTubePlayerScriptSolver {
         value: &str,
     ) -> Result<String, String> {
         let operations = cached_throttling_operations(player_javascript)?;
-        apply_transform_operations(value, &operations)
+        match apply_transform_operations(value, &operations) {
+            Ok(transformed) => Ok(transformed),
+            Err(error) => {
+                invalidate_throttling_plan(player_javascript);
+                Err(error)
+            }
+        }
     }
 }
 
@@ -63,9 +69,7 @@ fn cached_throttling_operations(script: &str) -> Result<Vec<TransformOperation>,
         ));
     }
 
-    let mut hasher = DefaultHasher::new();
-    script.hash(&mut hasher);
-    let key = hasher.finish();
+    let key = player_script_cache_key(script);
     let cache = THROTTLING_PLAN_CACHE.get_or_init(|| Mutex::new(VecDeque::new()));
 
     if let Ok(cache) = cache.lock() {
@@ -82,6 +86,23 @@ fn cached_throttling_operations(script: &str) -> Result<Vec<TransformOperation>,
         cache.push_back((key, operations.clone()));
     }
     Ok(operations)
+}
+
+
+fn player_script_cache_key(script: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    script.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn invalidate_throttling_plan(script: &str) {
+    let key = player_script_cache_key(script);
+    let Some(cache) = THROTTLING_PLAN_CACHE.get() else {
+        return;
+    };
+    if let Ok(mut cache) = cache.lock() {
+        cache.retain(|(cached, _)| *cached != key);
+    }
 }
 
 fn extract_throttling_operations(script: &str) -> Result<Vec<TransformOperation>, String> {
