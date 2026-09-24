@@ -2042,6 +2042,8 @@ pub fn native_torrent_status() -> Value {
             "fullPreallocation": true,
             "generationSafePauseResume": true,
             "sharedBandwidthLimit": true,
+            "novaPriorityQueueIntegration": true,
+            "novaBandwidthPolicyIntegration": true,
             "restartSchedulerRestore": true,
             "durableResume": true,
             "daemonTaskRouting": false,
@@ -2134,6 +2136,8 @@ mod tests {
         assert_eq!(status["capabilities"]["ownedTargetTracking"], true);
         assert_eq!(status["capabilities"]["generationSafePauseResume"], true);
         assert_eq!(status["capabilities"]["sharedBandwidthLimit"], true);
+        assert_eq!(status["capabilities"]["novaPriorityQueueIntegration"], true);
+        assert_eq!(status["capabilities"]["novaBandwidthPolicyIntegration"], true);
         assert_eq!(status["capabilities"]["durableResume"], true);
         assert_eq!(status["capabilities"]["daemonTaskRouting"], false);
     }
