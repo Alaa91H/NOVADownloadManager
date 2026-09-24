@@ -648,7 +648,7 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
     let state = state.clone();
     let id = id.to_owned();
     std::thread::spawn(move || {
-        run_native_manifest_worker(
+        run_native_media_worker(
             state,
             id,
             generation,
@@ -659,7 +659,7 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
     });
 }
 
-fn run_native_manifest_worker(
+fn run_native_media_worker(
     state: SharedState,
     id: String,
     generation: u64,
@@ -668,37 +668,28 @@ fn run_native_manifest_worker(
     request: CreateDownloadBody,
 ) {
     let still_current = || run_generation.load(Ordering::Acquire) == generation;
-    let cancelled = || cancel_token.load(Ordering::Acquire) || !still_current();
+    let paused_or_stale = || cancel_token.load(Ordering::Acquire) || !still_current();
 
-    if cancelled() {
+    if paused_or_stale() {
         finish_native_cancelled(&state, &id, generation);
         return;
     }
     if let Err(error) =
-        transition_native_task(&state, &id, generation, TaskState::Probing, "resolving-manifest")
+        transition_native_task(&state, &id, generation, TaskState::Probing, "resolving-media")
     {
         fail_native_task(&state, &id, generation, error);
         return;
     }
 
     let resolved = match resolve_native_media(&request) {
-        Ok(ResolvedNativeMedia::Manifest(manifest)) => manifest,
-        Ok(ResolvedNativeMedia::Direct(_)) => {
-            fail_native_task(
-                &state,
-                &id,
-                generation,
-                "media source changed from manifest to direct transport".to_owned(),
-            );
-            return;
-        }
+        Ok(resolved) => resolved,
         Err(error) => {
             fail_native_task(&state, &id, generation, error.to_string());
             return;
         }
     };
 
-    if cancelled() {
+    if paused_or_stale() {
         finish_native_cancelled(&state, &id, generation);
         return;
     }
@@ -724,66 +715,265 @@ fn run_native_manifest_worker(
         .join(&id)
         .join("working");
 
-    let progress_state = state.clone();
-    let progress_id = id.clone();
-    let progress = |bytes: u64| {
-        update_native_progress(&progress_state, &progress_id, generation, bytes);
-    };
+    match resolved {
+        ResolvedNativeMedia::Manifest(resolved) => {
+            let progress_state = state.clone();
+            let progress_id = id.clone();
+            let progress = |bytes: u64| {
+                update_native_progress(&progress_state, &progress_id, generation, bytes);
+            };
 
-    let result = stage_manifest_transfer(
-        &resolved,
-        &staging_dir,
-        connections,
-        &cancelled,
-        &progress,
-    );
+            let result = stage_manifest_transfer(
+                &resolved,
+                &staging_dir,
+                connections,
+                &paused_or_stale,
+                &progress,
+            );
 
-    match result {
-        Ok(staged) => {
-            if cancelled() {
-                finish_native_cancelled(&state, &id, generation);
-                return;
-            }
-            update_native_progress(&state, &id, generation, staged.staged_bytes);
-            if let Err(error) = transition_native_task(
-                &state,
-                &id,
-                generation,
-                TaskState::Verifying,
-                "verifying-staged-media",
-            ) {
-                fail_native_task(&state, &id, generation, error);
-                return;
-            }
-            if let Err(error) = verify_staged_parts(&staged.parts, staged.staged_bytes) {
-                fail_native_task(&state, &id, generation, error);
-                return;
-            }
-            if cancelled() {
-                finish_native_cancelled(&state, &id, generation);
-                return;
-            }
-            if let Err(error) = transition_native_task(
-                &state,
-                &id,
-                generation,
-                TaskState::Finalizing,
-                "assembling-media",
-            ) {
-                fail_native_task(&state, &id, generation, error);
-                return;
-            }
-            match assemble_ordered_parts(&staged.parts, &output_path) {
-                Ok(assembly) => {
-                    complete_native_task(&state, &id, generation, assembly.bytes);
-                    let _ = std::fs::remove_dir_all(&staging_dir);
+            match result {
+                Ok(staged) => {
+                    if paused_or_stale() {
+                        finish_native_cancelled(&state, &id, generation);
+                        return;
+                    }
+                    update_native_progress(&state, &id, generation, staged.staged_bytes);
+                    if let Err(error) = transition_native_task(
+                        &state,
+                        &id,
+                        generation,
+                        TaskState::Verifying,
+                        "verifying-staged-media",
+                    ) {
+                        fail_native_task(&state, &id, generation, error);
+                        return;
+                    }
+                    if let Err(error) = verify_staged_parts(&staged.parts, staged.staged_bytes) {
+                        fail_native_task(&state, &id, generation, error);
+                        return;
+                    }
+                    if paused_or_stale() {
+                        finish_native_cancelled(&state, &id, generation);
+                        return;
+                    }
+                    if let Err(error) = transition_native_task(
+                        &state,
+                        &id,
+                        generation,
+                        TaskState::Finalizing,
+                        "assembling-media",
+                    ) {
+                        fail_native_task(&state, &id, generation, error);
+                        return;
+                    }
+                    match assemble_ordered_parts(&staged.parts, &output_path) {
+                        Ok(assembly) => {
+                            complete_native_task(&state, &id, generation, assembly.bytes);
+                            let _ = std::fs::remove_dir_all(&staging_dir);
+                        }
+                        Err(error) => {
+                            fail_native_task(&state, &id, generation, error.to_string())
+                        }
+                    }
+                }
+                Err(_error) if paused_or_stale() => {
+                    finish_native_cancelled(&state, &id, generation)
                 }
                 Err(error) => fail_native_task(&state, &id, generation, error.to_string()),
             }
         }
-        Err(_error) if cancelled() => finish_native_cancelled(&state, &id, generation),
-        Err(error) => fail_native_task(&state, &id, generation, error.to_string()),
+        ResolvedNativeMedia::SeparateTracks(resolved) => {
+            run_native_separate_track_execution(
+                &state,
+                &id,
+                generation,
+                &cancel_token,
+                &run_generation,
+                resolved,
+                &staging_dir,
+                &output_path,
+                connections,
+            );
+        }
+        ResolvedNativeMedia::Direct(_) => {
+            fail_native_task(
+                &state,
+                &id,
+                generation,
+                "media source changed to direct transport while resuming a native media task"
+                    .to_owned(),
+            );
+        }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_native_separate_track_execution(
+    state: &SharedState,
+    id: &str,
+    generation: u64,
+    cancel_token: &Arc<AtomicBool>,
+    run_generation: &Arc<AtomicU64>,
+    resolved: ResolvedSeparateTracks,
+    staging_dir: &Path,
+    output_path: &Path,
+    connections: u32,
+) {
+    let postprocessor = FfmpegPostProcessor::new(state.ffmpeg_binary());
+    if !postprocessor.is_available() {
+        fail_native_task(
+            state,
+            id,
+            generation,
+            "NOVA post-processing muxer is unavailable; the native video/audio tracks were not downloaded"
+                .to_owned(),
+        );
+        return;
+    }
+
+    let control = || {
+        if run_generation.load(Ordering::Acquire) != generation {
+            TransferControl::Cancel
+        } else if cancel_token.load(Ordering::Acquire) {
+            TransferControl::Pause
+        } else {
+            TransferControl::Continue
+        }
+    };
+    let should_cancel = || control() != TransferControl::Continue;
+
+    let plan = YouTubeDownloadPlan::SeparateTracks {
+        video_stream_id: resolved.video_stream_id.clone(),
+        audio_stream_id: resolved.audio_stream_id.clone(),
+    };
+    let track_base = staging_dir.join("youtube-tracks");
+    let progress_state = state.clone();
+    let progress_id = id.to_owned();
+    let transfer = download_youtube_plan_controlled(
+        &resolved.extraction,
+        &plan,
+        &track_base,
+        connections,
+        || control(),
+        |progress| {
+            update_native_multitrack_progress(
+                &progress_state,
+                &progress_id,
+                generation,
+                progress,
+            );
+        },
+    );
+
+    let output = match transfer {
+        Ok(YouTubeTransferOutput::SeparateTracks {
+            video_path,
+            audio_path,
+            video_bytes,
+            audio_bytes,
+            ..
+        }) => {
+            update_native_multitrack_progress(
+                state,
+                id,
+                generation,
+                YouTubeTransferProgress {
+                    video_downloaded: video_bytes,
+                    video_total: Some(video_bytes),
+                    audio_downloaded: audio_bytes,
+                    audio_total: Some(audio_bytes),
+                },
+            );
+            (video_path, audio_path, video_bytes, audio_bytes)
+        }
+        Ok(YouTubeTransferOutput::Single { .. }) => {
+            fail_native_task(
+                state,
+                id,
+                generation,
+                "separate-track task unexpectedly produced a single stream".to_owned(),
+            );
+            return;
+        }
+        Err(_error) if should_cancel() => {
+            finish_native_cancelled(state, id, generation);
+            return;
+        }
+        Err(error) => {
+            fail_native_task(state, id, generation, error.to_string());
+            return;
+        }
+    };
+
+    if let Err(error) = transition_native_task(
+        state,
+        id,
+        generation,
+        TaskState::Verifying,
+        "verifying-audio-video-tracks",
+    ) {
+        fail_native_task(state, id, generation, error);
+        return;
+    }
+    if let Err(error) = verify_native_track(&output.0, output.2, "video")
+        .and_then(|_| verify_native_track(&output.1, output.3, "audio"))
+    {
+        fail_native_task(state, id, generation, error);
+        return;
+    }
+    set_native_track_activity(state, id, generation, false);
+
+    if should_cancel() {
+        finish_native_cancelled(state, id, generation);
+        return;
+    }
+    if let Err(error) = transition_native_task(
+        state,
+        id,
+        generation,
+        TaskState::Finalizing,
+        "muxing-audio-video",
+    ) {
+        fail_native_task(state, id, generation, error);
+        return;
+    }
+
+    let request = MediaMuxRequest {
+        video_path: output.0,
+        audio_path: output.1,
+        destination: output_path.to_path_buf(),
+    };
+    match postprocessor.mux(&request, &should_cancel) {
+        Ok(bytes) => {
+            complete_native_task(state, id, generation, bytes);
+            let _ = std::fs::remove_dir_all(staging_dir);
+        }
+        Err(PostProcessError::Cancelled) if should_cancel() => {
+            finish_native_cancelled(state, id, generation)
+        }
+        Err(error) => fail_native_task(state, id, generation, error.to_string()),
+    }
+}
+
+fn verify_native_track(path: &Path, expected_bytes: u64, label: &str) -> Result<(), String> {
+    let metadata = std::fs::metadata(path)
+        .map_err(|error| format!("Native {label} track is missing: {error}"))?;
+    if !metadata.is_file() {
+        return Err(format!(
+            "Native {label} track is not a regular file: {}",
+            path.display()
+        ));
+    }
+    if metadata.len() == 0 {
+        return Err(format!("Native {label} track is empty"));
+    }
+    if expected_bytes > 0 && metadata.len() != expected_bytes {
+        return Err(format!(
+            "Native {label} track size mismatch: expected {expected_bytes} bytes, found {}",
+            metadata.len()
+        ));
+    }
+    Ok(())
 }
 
 fn stage_manifest_transfer<F, P>(
