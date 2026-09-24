@@ -112,6 +112,7 @@ Item {
         api.refreshDownloads()
         api.refreshQueueCatalog()
         api.refreshQueue()
+        api.refreshEngineProfiles()
     }
 
     Timer {
