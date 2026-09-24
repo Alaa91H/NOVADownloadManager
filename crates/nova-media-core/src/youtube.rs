@@ -56,6 +56,141 @@ struct YouTubeBootstrap {
     visitor_data: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct YouTubeSelectionPolicy {
+    pub max_height: Option<u32>,
+    pub prefer_separate_tracks: bool,
+}
+
+impl Default for YouTubeSelectionPolicy {
+    fn default() -> Self {
+        Self {
+            max_height: None,
+            prefer_separate_tracks: true,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum YouTubeDownloadPlan {
+    SingleStream {
+        stream_id: String,
+    },
+    SeparateTracks {
+        video_stream_id: String,
+        audio_stream_id: String,
+    },
+}
+
+pub fn select_youtube_download_plan(
+    extraction: &YouTubeExtraction,
+    policy: YouTubeSelectionPolicy,
+) -> Option<YouTubeDownloadPlan> {
+    let pending_itags: std::collections::BTreeSet<u64> = extraction
+        .pending_formats
+        .iter()
+        .filter_map(|format| format.itag)
+        .collect();
+
+    let usable = extraction
+        .descriptor
+        .streams
+        .iter()
+        .filter(|stream| {
+            stream_itag(stream)
+                .map(|itag| !pending_itags.contains(&itag))
+                .unwrap_or(true)
+        })
+        .filter(|stream| {
+            policy
+                .max_height
+                .is_none_or(|limit| stream.height.is_none_or(|height| height <= limit))
+        })
+        .collect::<Vec<_>>();
+
+    let best_muxed = usable
+        .iter()
+        .copied()
+        .filter(|stream| stream.kind == MediaTrackKind::AudioVideo)
+        .filter(|stream| matches!(stream.protocol, MediaProtocol::Http | MediaProtocol::Https))
+        .max_by_key(|stream| stream_quality_score(stream));
+
+    let best_video = usable
+        .iter()
+        .copied()
+        .filter(|stream| stream.kind == MediaTrackKind::Video)
+        .filter(|stream| matches!(stream.protocol, MediaProtocol::Http | MediaProtocol::Https))
+        .max_by_key(|stream| stream_quality_score(stream));
+
+    let best_audio = usable
+        .iter()
+        .copied()
+        .filter(|stream| stream.kind == MediaTrackKind::Audio)
+        .filter(|stream| matches!(stream.protocol, MediaProtocol::Http | MediaProtocol::Https))
+        .max_by_key(|stream| {
+            (
+                stream.audio_bitrate_bps.or(stream.bitrate_bps).unwrap_or(0),
+                stream.content_length.unwrap_or(0),
+            )
+        });
+
+    if policy.prefer_separate_tracks {
+        if let (Some(video), Some(audio)) = (best_video, best_audio) {
+            let separate_is_better = best_muxed.is_none_or(|muxed| {
+                stream_quality_score(video) > stream_quality_score(muxed)
+            });
+            if separate_is_better {
+                return Some(YouTubeDownloadPlan::SeparateTracks {
+                    video_stream_id: video.id.clone(),
+                    audio_stream_id: audio.id.clone(),
+                });
+            }
+        }
+    }
+
+    if let Some(stream) = best_muxed {
+        return Some(YouTubeDownloadPlan::SingleStream {
+            stream_id: stream.id.clone(),
+        });
+    }
+
+    if let (Some(video), Some(audio)) = (best_video, best_audio) {
+        return Some(YouTubeDownloadPlan::SeparateTracks {
+            video_stream_id: video.id.clone(),
+            audio_stream_id: audio.id.clone(),
+        });
+    }
+
+    usable
+        .into_iter()
+        .filter(|stream| matches!(stream.protocol, MediaProtocol::Hls | MediaProtocol::Dash))
+        .max_by_key(|stream| {
+            (
+                u8::from(stream.protocol == MediaProtocol::Dash),
+                stream_quality_score(stream),
+            )
+        })
+        .map(|stream| YouTubeDownloadPlan::SingleStream {
+            stream_id: stream.id.clone(),
+        })
+}
+
+fn stream_itag(stream: &MediaStream) -> Option<u64> {
+    stream
+        .id
+        .strip_prefix("youtube-itag-")
+        .and_then(|value| value.parse().ok())
+}
+
+fn stream_quality_score(stream: &MediaStream) -> (u32, u32, u64) {
+    (
+        stream.height.unwrap_or(0),
+        stream.fps.map(|fps| (fps * 1000.0) as u32).unwrap_or(0),
+        stream.bitrate_bps.unwrap_or(0),
+    )
+}
+
 pub struct YouTubeExtractor;
 
 impl YouTubeExtractor {
@@ -840,6 +975,114 @@ var ytInitialPlayerResponse = {"videoDetails":{"title":"NOVA","videoId":"dQw4w9W
         );
         assert_eq!(extraction.descriptor.subtitles.len(), 1);
         assert!(extraction.descriptor.subtitles[0].automatic);
+    }
+
+    #[test]
+    fn format_planner_prefers_higher_quality_separate_tracks() {
+        let mut extraction = YouTubeExtraction {
+            video_id: "dQw4w9WgXcQ".to_owned(),
+            descriptor: MediaDescriptor {
+                source_kind: MediaSourceKind::Site,
+                metadata: MediaMetadata {
+                    title: "test".to_owned(),
+                    description: None,
+                    duration_millis: None,
+                    uploader: None,
+                    webpage_url: "https://youtube.test/watch".to_owned(),
+                    thumbnail_url: None,
+                },
+                streams: vec![
+                    MediaStream {
+                        id: "youtube-itag-18".to_owned(),
+                        kind: MediaTrackKind::AudioVideo,
+                        protocol: MediaProtocol::Https,
+                        url: "https://video.test/360.mp4".to_owned(),
+                        container: Some("mp4".to_owned()),
+                        video_codec: Some("avc1".to_owned()),
+                        audio_codec: Some("mp4a".to_owned()),
+                        width: Some(640),
+                        height: Some(360),
+                        fps: Some(30.0),
+                        bitrate_bps: Some(600_000),
+                        audio_bitrate_bps: Some(96_000),
+                        content_length: None,
+                        language: None,
+                        headers: BTreeMap::new(),
+                    },
+                    MediaStream {
+                        id: "youtube-itag-137".to_owned(),
+                        kind: MediaTrackKind::Video,
+                        protocol: MediaProtocol::Https,
+                        url: "https://video.test/1080.mp4".to_owned(),
+                        container: Some("mp4".to_owned()),
+                        video_codec: Some("avc1".to_owned()),
+                        audio_codec: None,
+                        width: Some(1920),
+                        height: Some(1080),
+                        fps: Some(60.0),
+                        bitrate_bps: Some(4_500_000),
+                        audio_bitrate_bps: None,
+                        content_length: None,
+                        language: None,
+                        headers: BTreeMap::new(),
+                    },
+                    MediaStream {
+                        id: "youtube-itag-140".to_owned(),
+                        kind: MediaTrackKind::Audio,
+                        protocol: MediaProtocol::Https,
+                        url: "https://video.test/audio.m4a".to_owned(),
+                        container: Some("mp4".to_owned()),
+                        video_codec: None,
+                        audio_codec: Some("mp4a".to_owned()),
+                        width: None,
+                        height: None,
+                        fps: None,
+                        bitrate_bps: Some(128_000),
+                        audio_bitrate_bps: Some(128_000),
+                        content_length: None,
+                        language: Some("en".to_owned()),
+                        headers: BTreeMap::new(),
+                    },
+                ],
+                subtitles: Vec::new(),
+                request_headers: BTreeMap::new(),
+                is_live: false,
+            },
+            pending_formats: Vec::new(),
+            player_js_url: None,
+            visitor_data: None,
+        };
+
+        assert_eq!(
+            select_youtube_download_plan(
+                &extraction,
+                YouTubeSelectionPolicy::default(),
+            ),
+            Some(YouTubeDownloadPlan::SeparateTracks {
+                video_stream_id: "youtube-itag-137".to_owned(),
+                audio_stream_id: "youtube-itag-140".to_owned(),
+            })
+        );
+
+        extraction.pending_formats.push(YouTubePendingFormat {
+            itag: Some(137),
+            mime_type: None,
+            cipher_url: None,
+            encrypted_signature: Some("cipher".to_owned()),
+            signature_parameter: Some("sig".to_owned()),
+            throttling_parameter: None,
+            challenge: YouTubeChallengeKind::Signature,
+        });
+
+        assert_eq!(
+            select_youtube_download_plan(
+                &extraction,
+                YouTubeSelectionPolicy::default(),
+            ),
+            Some(YouTubeDownloadPlan::SingleStream {
+                stream_id: "youtube-itag-18".to_owned(),
+            })
+        );
     }
 
     #[test]
