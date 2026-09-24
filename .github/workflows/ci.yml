@@ -175,6 +175,26 @@ jobs:
             exit 1
           fi
 
+      - name: Enforce native-only public media API
+        run: |
+          set -euo pipefail
+          if grep -nE 'MediaBridgeExtractor::new|create_media_bridge_task' \
+            src-tauri/src/daemon/mod.rs \
+            src-tauri/src/daemon/routes/downloads.rs \
+            src-tauri/src/daemon/routes/extension.rs; then
+            echo "::error::Public runtime routing must not register or execute the compatibility media bridge."
+            exit 1
+          fi
+          grep -q '"/api/media/resolve"' src-tauri/src/daemon/routes/probes.rs
+          grep -q '"/api/media/download"' src-tauri/src/daemon/routes/downloads.rs
+          grep -q '"mediaExtractionReady"' src-tauri/src/daemon/engine_capabilities.rs
+          grep -q '"streamingReady"' src-tauri/src/daemon/engine_capabilities.rs
+          if grep -nE 'media-bridge.*=> Ok\(ToolId::MediaBridge\)|media_bridge.*=> Ok\(ToolId::MediaBridge\)' \
+            src-tauri/src/daemon/routes/external_tools.rs; then
+            echo "::error::Compatibility media bridge must not be exposed as a public external tool."
+            exit 1
+          fi
+
       - name: Test native media cores
         run: |
           cargo test --manifest-path crates/nova-stream-core/Cargo.toml
