@@ -71,6 +71,8 @@ int main(int argc, char *argv[]) {
                      &app, syncClipboardPreferences);
     QObject::connect(&trayManager, &TrayManager::quitRequested,
                      &app, [&app]() { app.quit(); });
+    QObject::connect(&apiClient, &NovaApiClient::schedulerExitRequested,
+                     &app, [&app]() { app.quit(); });
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("novaApi"), &apiClient);
@@ -104,6 +106,15 @@ int main(int argc, char *argv[]) {
     healthTimer.setInterval(10000);
     QObject::connect(&healthTimer, &QTimer::timeout, &apiClient, &NovaApiClient::checkHealth);
 
+    QTimer schedulerTimer;
+    schedulerTimer.setInterval(10000);
+    QObject::connect(
+        &schedulerTimer,
+        &QTimer::timeout,
+        &apiClient,
+        &NovaApiClient::refreshScheduler
+    );
+
     QTimer browserIntegrationTimer;
     browserIntegrationTimer.setInterval(15000);
     QObject::connect(
@@ -128,6 +139,7 @@ int main(int argc, char *argv[]) {
         &apiClient,
         &refreshTimer,
         &healthTimer,
+        &schedulerTimer,
         &browserIntegrationTimer
     ](const QUrl &baseUrl, const QString &token) {
         if (!baseUrl.isValid() || token.trimmed().isEmpty()) {
@@ -139,10 +151,12 @@ int main(int argc, char *argv[]) {
 
         refreshTimer.start();
         healthTimer.start();
+        schedulerTimer.start();
         browserIntegrationTimer.start();
 
         apiClient.checkHealth();
         apiClient.refreshDownloads();
+        apiClient.refreshScheduler();
         apiClient.refreshBrowserIntegration();
         apiClient.startDownloadStream();
     };
