@@ -1860,12 +1860,6 @@ mod tests {
     fn queue_catalog_preserves_empty_custom_queues() {
         let queues = vec![
             serde_json::json!({
-                "id": "main",
-                "name": "Main Queue",
-                "active": true,
-                "downloadOrder": []
-            }),
-            serde_json::json!({
                 "id": "night",
                 "name": "Night Queue",
                 "scheduled": true,
@@ -1873,12 +1867,24 @@ mod tests {
                 "days": [1, 3, 5],
                 "downloadOrder": []
             }),
+            serde_json::json!({
+                "id": "archive",
+                "name": "Archive Queue",
+                "downloadOrder": []
+            }),
+            serde_json::json!({
+                "id": "main",
+                "name": "Main Queue",
+                "active": true,
+                "downloadOrder": []
+            }),
         ];
 
         let normalized = normalize_queue_catalog(queues).expect("normalize queue catalog");
-        assert_eq!(normalized.len(), 2);
+        assert_eq!(normalized.len(), 3);
         assert_eq!(normalized[0]["id"], "main");
         assert_eq!(normalized[1]["id"], "night");
+        assert_eq!(normalized[2]["id"], "archive");
         assert_eq!(normalized[1]["name"], "Night Queue");
         assert_eq!(normalized[1]["downloadOrder"].as_array().map(Vec::len), Some(0));
     }
