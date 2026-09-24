@@ -28,6 +28,8 @@ private slots:
     void batchPatternsMatchLegacySyntax();
     void batchImportCarriesAdvancedOptions();
     void batchImportHonorsRuntimeCapabilities();
+    void mediaDownloadCarriesAdvancedOptions();
+    void mediaDownloadHonorsRuntimeCapabilities();
 };
 
 void NativeParityTests::largeListRemainsResponsive() {
@@ -639,6 +641,266 @@ void NativeParityTests::batchImportHonorsRuntimeCapabilities() {
     QVERIFY(!direct.contains(QStringLiteral("segmented")));
 }
 
+
+
+void NativeParityTests::mediaDownloadCarriesAdvancedOptions() {
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+    QByteArray capturedBody;
+    connect(&server, &QTcpServer::newConnection, &server, [&]() {
+        while (server.hasPendingConnections()) {
+            QTcpSocket *socket = server.nextPendingConnection();
+            auto *buffer = new QByteArray();
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, [buffer]() { delete buffer; });
+            QObject::connect(socket, &QTcpSocket::readyRead, socket, [socket, buffer, &capturedBody]() {
+                buffer->append(socket->readAll());
+                const int headerEnd = buffer->indexOf("\r\n\r\n");
+                if (headerEnd < 0) return;
+
+                const QByteArray headers = buffer->left(headerEnd);
+                const QByteArray requestLine = headers.left(headers.indexOf("\r\n"));
+
+                if (requestLine.startsWith("GET /api/downloads ")) {
+                    const QByteArray body = "[]";
+                    socket->write(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
+                        + QByteArray::number(body.size()) + "\r\n\r\n" + body
+                    );
+                    socket->disconnectFromHost();
+                    return;
+                }
+                if (requestLine.startsWith("GET /api/engine/queue ")) {
+                    const QByteArray body =
+                        "{\"ok\":true,\"entries\":[],\"active_count\":0,\"total_bandwidth_kbps\":0,\"next_to_start\":null}";
+                    socket->write(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
+                        + QByteArray::number(body.size()) + "\r\n\r\n" + body
+                    );
+                    socket->disconnectFromHost();
+                    return;
+                }
+
+                const QRegularExpression lengthPattern(
+                    QStringLiteral("Content-Length:\\s*(\\d+)"),
+                    QRegularExpression::CaseInsensitiveOption
+                );
+                const auto match = lengthPattern.match(QString::fromLatin1(headers));
+                if (!match.hasMatch()) return;
+                const int contentLength = match.captured(1).toInt();
+                const int bodyStart = headerEnd + 4;
+                if (buffer->size() < bodyStart + contentLength) return;
+
+                capturedBody = buffer->mid(bodyStart, contentLength);
+                const QByteArray responseBody = "{\"id\":\"media-task-1\"}";
+                socket->write(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
+                    + QByteArray::number(responseBody.size()) + "\r\n\r\n" + responseBody
+                );
+                socket->disconnectFromHost();
+            });
+        }
+    });
+
+    NovaApiClient client;
+    client.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())));
+
+    const QVariantMap options{
+        {QStringLiteral("mode"), QStringLiteral("video")},
+        {QStringLiteral("quality"), QStringLiteral("1080p")},
+        {QStringLiteral("formatSelector"), QStringLiteral("bv*+ba/b")},
+        {QStringLiteral("formatSort"), QStringLiteral("res,codec:avc:m4a")},
+        {QStringLiteral("audioFormat"), QStringLiteral("m4a")},
+        {QStringLiteral("ffmpegEnabled"), true},
+        {QStringLiteral("bitrate"), QStringLiteral("320K")},
+        {QStringLiteral("outputTemplate"), QStringLiteral("%(title)s.%(ext)s")},
+        {QStringLiteral("playlist"), true},
+        {QStringLiteral("playlistItems"), QStringLiteral("1-3,5")},
+        {QStringLiteral("subtitles"), true},
+        {QStringLiteral("subtitleLanguages"), QStringLiteral("en,ar")},
+        {QStringLiteral("autoSubtitles"), true},
+        {QStringLiteral("embedSubtitles"), true},
+        {QStringLiteral("writeThumbnail"), true},
+        {QStringLiteral("embedThumbnail"), true},
+        {QStringLiteral("writeInfoJson"), true},
+        {QStringLiteral("writeDescription"), true},
+        {QStringLiteral("splitChapters"), true},
+        {QStringLiteral("sponsorBlock"), QStringLiteral("sponsor,selfpromo")},
+        {QStringLiteral("proxy"), QStringLiteral("https://8.8.8.8:8080")},
+        {QStringLiteral("cookiesFromBrowser"), QStringLiteral("firefox")},
+        {QStringLiteral("userAgent"), QStringLiteral("NOVA-Media-Test")},
+        {QStringLiteral("referer"), QStringLiteral("https://origin.test/page")},
+        {QStringLiteral("headers"), QStringLiteral("X-Test: one\nX-Trace: two")},
+        {QStringLiteral("cookies"), QStringLiteral("sid=abc")},
+        {QStringLiteral("rateLimitKbs"), 512},
+        {QStringLiteral("retries"), 7},
+        {QStringLiteral("fragmentRetries"), 9},
+        {QStringLiteral("concurrentFragments"), 4},
+        {QStringLiteral("sleepIntervalSec"), 2},
+        {QStringLiteral("maxSleepIntervalSec"), 5},
+        {QStringLiteral("downloadSections"), QStringLiteral("*00:01:00-00:03:00")},
+        {QStringLiteral("matchFilter"), QStringLiteral("duration < 3600")},
+        {QStringLiteral("remuxFormat"), QStringLiteral("mp4")}
+    };
+
+    client.createMediaDownload(
+        QStringLiteral("https://example.test/watch?v=abc"),
+        QStringLiteral("Media title"),
+        QStringLiteral("/tmp/NOVA"),
+        options,
+        false
+    );
+
+    QTRY_VERIFY_WITH_TIMEOUT(!capturedBody.isEmpty(), 3000);
+    const QJsonObject body = QJsonDocument::fromJson(capturedBody).object();
+    QCOMPARE(body.value(QStringLiteral("fileType")).toString(), QStringLiteral("video"));
+    QVERIFY(!body.value(QStringLiteral("startImmediately")).toBool());
+
+    const QJsonObject media = body.value(QStringLiteral("mediaOptions")).toObject();
+    QCOMPARE(media.value(QStringLiteral("formatSelector")).toString(), QStringLiteral("bv*+ba/b"));
+    QCOMPARE(media.value(QStringLiteral("formatSort")).toString(), QStringLiteral("res,codec:avc:m4a"));
+    QCOMPARE(media.value(QStringLiteral("downloadSections")).toString(), QStringLiteral("*00:01:00-00:03:00"));
+    QCOMPARE(media.value(QStringLiteral("matchFilter")).toString(), QStringLiteral("duration < 3600"));
+    QCOMPARE(media.value(QStringLiteral("remuxFormat")).toString(), QStringLiteral("mp4"));
+    QCOMPARE(media.value(QStringLiteral("sponsorBlock")).toString(), QStringLiteral("sponsor,selfpromo"));
+    QCOMPARE(media.value(QStringLiteral("proxy")).toString(), QStringLiteral("https://8.8.8.8:8080"));
+    QCOMPARE(media.value(QStringLiteral("cookiesFromBrowser")).toString(), QStringLiteral("firefox"));
+    QCOMPARE(media.value(QStringLiteral("headers")).toString(), QStringLiteral("X-Test: one\nX-Trace: two"));
+    QCOMPARE(media.value(QStringLiteral("cookies")).toString(), QStringLiteral("sid=abc"));
+    QCOMPARE(media.value(QStringLiteral("rateLimitKbs")).toInt(), 512);
+    QCOMPARE(media.value(QStringLiteral("retries")).toInt(), 7);
+    QCOMPARE(media.value(QStringLiteral("fragmentRetries")).toInt(), 9);
+    QCOMPARE(media.value(QStringLiteral("concurrentFragments")).toInt(), 4);
+    QCOMPARE(media.value(QStringLiteral("sleepIntervalSec")).toInt(), 2);
+    QCOMPARE(media.value(QStringLiteral("maxSleepIntervalSec")).toInt(), 5);
+    QVERIFY(media.value(QStringLiteral("autoSubtitles")).toBool());
+    QVERIFY(media.value(QStringLiteral("splitChapters")).toBool());
+}
+
+void NativeParityTests::mediaDownloadHonorsRuntimeCapabilities() {
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+    QByteArray capturedBody;
+    connect(&server, &QTcpServer::newConnection, &server, [&]() {
+        while (server.hasPendingConnections()) {
+            QTcpSocket *socket = server.nextPendingConnection();
+            auto *buffer = new QByteArray();
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, [buffer]() { delete buffer; });
+            QObject::connect(socket, &QTcpSocket::readyRead, socket, [socket, buffer, &capturedBody]() {
+                buffer->append(socket->readAll());
+                const int headerEnd = buffer->indexOf("\r\n\r\n");
+                if (headerEnd < 0) return;
+                const QByteArray headers = buffer->left(headerEnd);
+                const QByteArray requestLine = headers.left(headers.indexOf("\r\n"));
+
+                if (requestLine.startsWith("GET /api/engines/capabilities ")) {
+                    const QByteArray responseBody =
+                        "{"
+                        "\"mediaReady\":true,"
+                        "\"postProcessingReady\":true,"
+                        "\"engines\":{\"ytdlp\":{\"supportedMediaOptionKeys\":["
+                        "\"mode\",\"quality\",\"formatSelector\",\"headers\",\"retries\",\"ffmpegEnabled\""
+                        "]}}"
+                        "}";
+                    socket->write(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
+                        + QByteArray::number(responseBody.size()) + "\r\n\r\n" + responseBody
+                    );
+                    socket->disconnectFromHost();
+                    return;
+                }
+
+                if (requestLine.startsWith("GET /api/downloads ")) {
+                    const QByteArray responseBody = "[]";
+                    socket->write(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
+                        + QByteArray::number(responseBody.size()) + "\r\n\r\n" + responseBody
+                    );
+                    socket->disconnectFromHost();
+                    return;
+                }
+                if (requestLine.startsWith("GET /api/engine/queue ")) {
+                    const QByteArray responseBody =
+                        "{\"ok\":true,\"entries\":[],\"active_count\":0,\"total_bandwidth_kbps\":0,\"next_to_start\":null}";
+                    socket->write(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
+                        + QByteArray::number(responseBody.size()) + "\r\n\r\n" + responseBody
+                    );
+                    socket->disconnectFromHost();
+                    return;
+                }
+
+                const QRegularExpression lengthPattern(
+                    QStringLiteral("Content-Length:\\s*(\\d+)"),
+                    QRegularExpression::CaseInsensitiveOption
+                );
+                const auto match = lengthPattern.match(QString::fromLatin1(headers));
+                if (!match.hasMatch()) return;
+                const int contentLength = match.captured(1).toInt();
+                const int bodyStart = headerEnd + 4;
+                if (buffer->size() < bodyStart + contentLength) return;
+
+                capturedBody = buffer->mid(bodyStart, contentLength);
+                const QByteArray responseBody = "{\"id\":\"media-task-2\"}";
+                socket->write(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
+                    + QByteArray::number(responseBody.size()) + "\r\n\r\n" + responseBody
+                );
+                socket->disconnectFromHost();
+            });
+        }
+    });
+
+    NovaApiClient client;
+    client.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())));
+
+    QSignalSpy capabilitySpy(&client, &NovaApiClient::engineManagementChanged);
+    client.refreshEngineCapabilities();
+    QTRY_VERIFY_WITH_TIMEOUT(capabilitySpy.count() >= 1, 3000);
+
+    QVERIFY(client.mediaOptionSupported(QStringLiteral("formatSelector")));
+    QVERIFY(client.mediaOptionSupported(QStringLiteral("headers")));
+    QVERIFY(client.mediaOptionSupported(QStringLiteral("retries")));
+    QVERIFY(!client.mediaOptionSupported(QStringLiteral("proxy")));
+    QVERIFY(!client.mediaOptionSupported(QStringLiteral("cookies")));
+    QVERIFY(!client.mediaOptionSupported(QStringLiteral("remuxFormat")));
+
+    client.createMediaDownload(
+        QStringLiteral("https://example.test/watch?v=abc"),
+        QStringLiteral("Capability test"),
+        QString(),
+        QVariantMap{
+            {QStringLiteral("mode"), QStringLiteral("video")},
+            {QStringLiteral("quality"), QStringLiteral("720p")},
+            {QStringLiteral("formatSelector"), QStringLiteral("bv*+ba/b")},
+            {QStringLiteral("headers"), QStringLiteral("X-Test: allowed")},
+            {QStringLiteral("retries"), 4},
+            {QStringLiteral("ffmpegEnabled"), true},
+            {QStringLiteral("proxy"), QStringLiteral("https://8.8.8.8:8080")},
+            {QStringLiteral("cookies"), QStringLiteral("sid=blocked")},
+            {QStringLiteral("remuxFormat"), QStringLiteral("mp4")},
+            {QStringLiteral("sleepIntervalSec"), 9}
+        },
+        true
+    );
+
+    QTRY_VERIFY_WITH_TIMEOUT(!capturedBody.isEmpty(), 3000);
+    const QJsonObject media =
+        QJsonDocument::fromJson(capturedBody).object()
+            .value(QStringLiteral("mediaOptions")).toObject();
+
+    QCOMPARE(media.value(QStringLiteral("formatSelector")).toString(), QStringLiteral("bv*+ba/b"));
+    QCOMPARE(media.value(QStringLiteral("headers")).toString(), QStringLiteral("X-Test: allowed"));
+    QCOMPARE(media.value(QStringLiteral("retries")).toInt(), 4);
+    QVERIFY(media.value(QStringLiteral("ffmpegEnabled")).toBool());
+    QVERIFY(!media.contains(QStringLiteral("proxy")));
+    QVERIFY(!media.contains(QStringLiteral("cookies")));
+    QVERIFY(!media.contains(QStringLiteral("remuxFormat")));
+    QVERIFY(!media.contains(QStringLiteral("sleepIntervalSec")));
+}
 
 QTEST_GUILESS_MAIN(NativeParityTests)
 #include "NativeParityTests.moc"
