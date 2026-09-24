@@ -1098,30 +1098,33 @@ pub struct ProfileSetActiveBody {
     profile_id: String,
 }
 
+fn apply_engine_profile(state: &SharedState, profile_id: &str) -> bool {
+    let success = state.profile_manager.set_active(profile_id);
+    if !success {
+        return false;
+    }
+
+    let profile = state.profile_manager.active_profile();
+    if let Ok(mut policy) = state.default_retry_policy.write() {
+        *policy = profile.to_retry_policy();
+    }
+    let kbps = profile.rate_limit_kbps.unwrap_or(0);
+    state.bandwidth_manager.set_global_limit(kbps);
+    state.priority_queue.set_total_bandwidth(kbps);
+    state.event_bus.publish(
+        crate::daemon::engine::event_bus::EngineEvent::ProfileSwitched {
+            task_id: "global".to_owned(),
+            profile: profile.name,
+        },
+    );
+    true
+}
+
 pub async fn handle_profiles_set_active(
     State(state): State<SharedState>,
     Json(body): Json<ProfileSetActiveBody>,
 ) -> Json<serde_json::Value> {
-    let success = state.profile_manager.set_active(&body.profile_id);
-    if success {
-        let profile = state.profile_manager.active_profile();
-        // Applying a profile replaces the engine-wide retry policy and rate
-        // limit as one coherent setting. A profile without a limit explicitly
-        // restores unlimited bandwidth (0); otherwise switching from
-        // economical/background to balanced would leave the old cap active.
-        if let Ok(mut policy) = state.default_retry_policy.write() {
-            *policy = profile.to_retry_policy();
-        }
-        let kbps = profile.rate_limit_kbps.unwrap_or(0);
-        state.bandwidth_manager.set_global_limit(kbps);
-        state.priority_queue.set_total_bandwidth(kbps);
-        state.event_bus.publish(
-            crate::daemon::engine::event_bus::EngineEvent::ProfileSwitched {
-                task_id: "global".to_owned(),
-                profile: profile.name,
-            },
-        );
-    }
+    let success = apply_engine_profile(&state, &body.profile_id);
     Json(serde_json::json!({"ok": success, "profile_id": body.profile_id}))
 }
 
