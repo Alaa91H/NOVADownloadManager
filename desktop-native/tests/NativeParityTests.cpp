@@ -245,7 +245,7 @@ void NativeParityTests::legacyUiPreferencesMigrateOnce() {
         },
         {
             QStringLiteral("extra"),
-            QJsonObject{{QStringLiteral("language"), QStringLiteral("de-DE")}}
+            QJsonObject{{QStringLiteral("language"), QStringLiteral("fr-FR")}}
         }
     };
     config.write(QJsonDocument(legacy).toJson(QJsonDocument::Compact));
@@ -257,7 +257,7 @@ void NativeParityTests::legacyUiPreferencesMigrateOnce() {
         QCOMPARE(settings.defaultSaveDirectory(), QStringLiteral("/legacy/downloads"));
         QCOMPARE(settings.defaultConnections(), 24);
         QVERIFY(settings.monitorClipboard());
-        QCOMPARE(settings.uiLanguage(), QStringLiteral("de"));
+        QCOMPARE(settings.uiLanguage(), QStringLiteral("fr"));
 
         settings.setDefaultConnections(8);
         settings.setMonitorClipboard(false);
@@ -290,7 +290,7 @@ void NativeParityTests::legacyUiPreferencesMigrateOnce() {
         QCOMPARE(settings.defaultSaveDirectory(), QStringLiteral("/legacy/downloads"));
         QCOMPARE(settings.defaultConnections(), 8);
         QVERIFY(!settings.monitorClipboard());
-        QCOMPARE(settings.uiLanguage(), QStringLiteral("de"));
+        QCOMPARE(settings.uiLanguage(), QStringLiteral("fr"));
         settings.resetToDefaults();
     }
 
