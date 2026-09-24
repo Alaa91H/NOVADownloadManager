@@ -14,7 +14,10 @@ Item {
     property var selectedItem: ({})
     property string query: ""
     property string pendingDeleteId: ""
+    property var pendingDeleteIds: []
+    property bool pendingDeleteCompleted: false
     property string pendingDeleteName: ""
+    property bool allVisibleSelected: false
     property string pendingRedownloadId: ""
     property string pendingRedownloadName: ""
     property bool pendingRedownloadRetryMode: false
@@ -192,6 +195,7 @@ Item {
     function clearSelection() {
         selectedIndex = -1
         selectedItem = ({})
+        allVisibleSelected = false
     }
 
     function updateSelection() {
@@ -203,8 +207,49 @@ Item {
     }
 
     function selectRow(index) {
+        allVisibleSelected = false
         selectedIndex = index
         updateSelection()
+    }
+
+    function selectAllVisible() {
+        selectedIndex = -1
+        selectedItem = ({})
+        allVisibleSelected = downloads.count > 0
+    }
+
+    function visibleTaskIds(predicate) {
+        const ids = []
+        for (let i = 0; i < downloads.count; ++i) {
+            const item = downloads.itemAt(i)
+            if (!predicate || predicate(item))
+                ids.push(String(item.taskId || ""))
+        }
+        return ids.filter(id => id.length > 0)
+    }
+
+    function resumeSelectedShortcut() {
+        if (allVisibleSelected) {
+            const ids = visibleTaskIds(item => canResumeStatus(item.status))
+            for (let i = 0; i < ids.length; ++i)
+                api.resumeDownload(ids[i])
+            return
+        }
+        const id = selectedTaskId()
+        if (id.length > 0 && canResumeStatus(selectedItem.status))
+            api.resumeDownload(id)
+    }
+
+    function pauseSelectedShortcut() {
+        if (allVisibleSelected) {
+            const ids = visibleTaskIds(item => canPauseStatus(item.status))
+            for (let i = 0; i < ids.length; ++i)
+                api.pauseDownload(ids[i])
+            return
+        }
+        const id = selectedTaskId()
+        if (id.length > 0 && canPauseStatus(selectedItem.status))
+            api.pauseDownload(id)
     }
 
     function applyPageFilter() {
@@ -252,6 +297,17 @@ Item {
     }
 
     function requestDelete() {
+        pendingDeleteCompleted = false
+        pendingDeleteIds = []
+
+        if (allVisibleSelected) {
+            pendingDeleteIds = visibleTaskIds()
+            pendingDeleteName = pendingDeleteIds.length + " " + root.t("downloads.selectedItems")
+            if (pendingDeleteIds.length > 0)
+                deleteDialog.open()
+            return
+        }
+
         if (selectedIndex < 0)
             return
 
@@ -260,6 +316,14 @@ Item {
         pendingDeleteName = selectedItem.name || root.t("common.selectedDownload")
         if (pendingDeleteId.length > 0)
             deleteDialog.open()
+    }
+
+    function requestDeleteCompleted() {
+        pendingDeleteId = ""
+        pendingDeleteIds = []
+        pendingDeleteCompleted = true
+        pendingDeleteName = root.t("downloads.completedItems")
+        deleteDialog.open()
     }
 
     function requestRedownload() {
@@ -367,9 +431,49 @@ Item {
 
     Shortcut {
         sequence: nativeSettings.shortcutsEnabled
+            ? String(nativeSettings.shortcutBindings.selectAllDownloads || "Ctrl+A")
+            : ""
+        enabled: !addDownloadDialog.visible && downloads.count > 0
+        onActivated: root.selectAllVisible()
+    }
+
+    Shortcut {
+        sequence: nativeSettings.shortcutsEnabled
+            ? String(nativeSettings.shortcutBindings.resumeSelected || "Ctrl+R")
+            : ""
+        enabled: root.api.connected && (root.selectedIndex >= 0 || root.allVisibleSelected)
+        onActivated: root.resumeSelectedShortcut()
+    }
+
+    Shortcut {
+        sequence: nativeSettings.shortcutsEnabled
+            ? String(nativeSettings.shortcutBindings.resumeAll || "Ctrl+Shift+R")
+            : ""
+        enabled: root.api.connected
+        onActivated: root.api.resumeAllDownloads()
+    }
+
+    Shortcut {
+        sequence: nativeSettings.shortcutsEnabled
+            ? String(nativeSettings.shortcutBindings.stopSelected || "Ctrl+S")
+            : ""
+        enabled: root.api.connected && (root.selectedIndex >= 0 || root.allVisibleSelected)
+        onActivated: root.pauseSelectedShortcut()
+    }
+
+    Shortcut {
+        sequence: nativeSettings.shortcutsEnabled
+            ? String(nativeSettings.shortcutBindings.stopAll || "Ctrl+Shift+S")
+            : ""
+        enabled: root.api.connected
+        onActivated: root.api.pauseAllDownloads()
+    }
+
+    Shortcut {
+        sequence: nativeSettings.shortcutsEnabled
             ? String(nativeSettings.shortcutBindings.deleteSelected || "Delete")
             : ""
-        enabled: root.selectedIndex >= 0
+        enabled: (root.selectedIndex >= 0 || root.allVisibleSelected)
             && root.api.connected
             && !deleteDialog.visible
             && !redownloadDialog.visible
@@ -377,8 +481,16 @@ Item {
     }
 
     Shortcut {
+        sequence: nativeSettings.shortcutsEnabled
+            ? String(nativeSettings.shortcutBindings.deleteCompleted || "Ctrl+Shift+Delete")
+            : ""
+        enabled: root.api.connected && !deleteDialog.visible
+        onActivated: root.requestDeleteCompleted()
+    }
+
+    Shortcut {
         sequence: "Escape"
-        enabled: root.selectedIndex >= 0
+        enabled: (root.selectedIndex >= 0 || root.allVisibleSelected)
             && !addDownloadDialog.visible
             && !deleteDialog.visible
             && !redownloadDialog.visible
@@ -518,7 +630,7 @@ Item {
 
         CommandBar {
             Layout.fillWidth: true
-            hasSelection: root.selectedIndex >= 0
+            hasSelection: root.selectedIndex >= 0 || root.allVisibleSelected
             engineConnected: root.api.connected
             selectedStatus: root.selectedItem.status || ""
             canPauseSelection: root.canPauseStatus(root.selectedItem.status)
@@ -734,7 +846,7 @@ Item {
                             height: Theme.rowHeight
                             Accessible.name: name || root.t("common.unnamedDownload")
                             Accessible.description: (status || "") + " · " + Math.round(progress * 100) + "%"
-                            color: root.selectedIndex === index
+                            color: root.allVisibleSelected || root.selectedIndex === index
                                 ? Theme.surfaceSelected
                                 : mouse.containsMouse ? Theme.surfaceHover : "transparent"
 
@@ -1200,9 +1312,18 @@ Item {
         y: parent ? Math.round((parent.height - height) / 2) : 0
 
         onConfirmed: {
-            if (root.pendingDeleteId.length > 0)
+            if (root.pendingDeleteCompleted) {
+                root.api.deleteCompletedDownloads()
+            } else if (root.pendingDeleteIds.length > 0) {
+                const ids = root.pendingDeleteIds.slice()
+                for (let i = 0; i < ids.length; ++i)
+                    root.api.deleteDownload(ids[i])
+            } else if (root.pendingDeleteId.length > 0) {
                 root.api.deleteDownload(root.pendingDeleteId)
+            }
             root.pendingDeleteId = ""
+            root.pendingDeleteIds = []
+            root.pendingDeleteCompleted = false
             root.pendingDeleteName = ""
             root.clearSelection()
         }
