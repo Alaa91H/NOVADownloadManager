@@ -627,8 +627,9 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     });
                 }
 
-                // Periodic smart-scheduler evaluation: applies time-window and
-                // bandwidth-triggered rules (pause/start/limit/notify) for real.
+                // Periodic scheduler evaluation: applies queue windows/retry timing
+                // plus generic time/bandwidth rules. Five seconds keeps queue retry
+                // delays responsive without putting meaningful load on the daemon.
                 //
                 // Runs on a dedicated OS thread with its own current-thread tokio
                 // runtime instead of `spawn_blocking` + `block_on`, so a tick can
@@ -646,7 +647,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                         }
                     };
                     rt.block_on(async move {
-                        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
+                        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(5));
                         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
                         loop {
                             ticker.tick().await;
