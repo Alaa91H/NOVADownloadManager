@@ -150,10 +150,11 @@ Implemented:
 - `check-parity.mjs --require-complete` is the production replacement gate.
 - Pull requests targeting `main` run the complete replacement gate, so the legacy UI cannot be removed while blockers remain.
 - Native preview builds still validate evidence files/tokens and carry a generated `PARITY_REPORT.md`.
-- Scheduler and Settings remain `partial` after direct comparison with the legacy UI. Batch Import, Media Downloader and Queue Management have returned to `covered` after behavioral parity work and migration tests.
+- Settings remains `partial` after direct comparison with the legacy UI. Batch Import, Media Downloader, Queue Management and Scheduler have returned to `covered` after behavioral parity work and migration tests.
 - Batch Import is behaviorally covered: clipboard paste, 10k bounded numeric/alphabetic/stepped/combined expansion, preview counting, exact deduplication, runtime protocol/capability gating, queue selection, destination/connections/start behavior and advanced Referer/User-Agent/proxy/header/cookie/retry/timeout controls.
 - Media Downloader is behaviorally covered: debounced probing, playlist auto-detection and item selection, quality/audio/output-template workflows, subtitles/thumbnails/metadata, format selector/sort/sections/filter/remux/SponsorBlock, proxy/source-address/browser cookies/headers/cookies and rate/retry/fragment/sleep controls, all filtered against runtime media capabilities.
-- Queue Management is behaviorally covered: daemon-owned persistent catalogs, one-time legacy migration, queue create/update/delete/reorder, authoritative task membership, per-queue task ordering, priority controls, `maxActive` start/stop behavior, queue speed limits and persistence of schedule/retry/completion settings. Execution of time schedules and completion actions remains part of Scheduler parity.
+- Queue Management is behaviorally covered: daemon-owned persistent catalogs, one-time legacy migration, queue create/update/delete/reorder, authoritative task membership, per-queue task ordering, priority controls, `maxActive` start/stop behavior, queue speed limits and persistence of schedule/retry/completion settings.
+- Scheduler is behaviorally covered: daemon-owned Once/Daily/Custom queue windows (including overnight custom-day handling), ordered max-active execution, fixed-delay queue retry policy, temporary one-run bandwidth limits, per-queue engine profiles, edge-triggered completion actions, opt-in Shutdown/Sleep power commands and native `exitOnComplete` handling. Generic automation rules remain available separately.
 - Legacy queue definitions are bridged through the daemon `/api/queues` catalog so Qt can select empty custom queues without reading WebView localStorage directly.
 - Core Downloads columns support persistent show/hide configuration and persistent ascending/descending sorting through the native model/QSettings path.
 - Clipboard URL monitoring matches the legacy 1.5-second detection behavior and ignores pre-existing clipboard content.
@@ -166,7 +167,6 @@ Implemented:
 
 Current replacement blockers:
 
-- Complete Scheduler parity: queue-centric schedules, schedule modes/days, max-active, retry timing, completion actions, task ordering and engine-profile integration.
 - Complete Settings parity and validated migration of existing legacy UI preferences.
 - Full legacy language catalog beyond the current English/Arabic/German native baseline.
 - Packaged browser-capture E2E validation with the real NOVA extension on Windows, macOS and Linux.
