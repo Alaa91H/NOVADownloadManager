@@ -117,19 +117,19 @@ fn which_on_path_in(path_var: &std::ffi::OsStr, name: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{discover_tool, which_on_path_in};
-    use crate::daemon::external_tools::tools::media_bridge::MediaBridgeTool;
+    use crate::daemon::external_tools::tools::ffmpeg::FfmpegTool;
     use crate::daemon::external_tools::types::{ToolRegistry, ToolRegistryEntry};
     use crate::daemon::external_tools::ToolId;
     use std::collections::HashMap;
 
     #[test]
     fn managed_registry_path_is_discovered_before_system_paths() {
-        let managed_path = std::env::temp_dir().join("nova-managed-media-bridge");
+        let managed_path = std::env::temp_dir().join("nova-managed-ffmpeg");
         let registry = ToolRegistry {
             tools: HashMap::from([(
-                "media-bridge".to_owned(),
+                "ffmpeg".to_owned(),
                 ToolRegistryEntry {
-                    tool_id: "media-bridge".to_owned(),
+                    tool_id: "ffmpeg".to_owned(),
                     path: managed_path.display().to_string(),
                     version: Some("2026.01.01".to_owned()),
                     installed_by_app: true,
@@ -145,7 +145,7 @@ mod tests {
             auto_update: false,
         };
 
-        let candidates = discover_tool(&MediaBridgeTool, &registry);
+        let candidates = discover_tool(&FfmpegTool, &registry);
         assert_eq!(
             candidates.first().map(|candidate| &candidate.path),
             Some(&managed_path)
@@ -175,8 +175,8 @@ mod tests {
         fs::create_dir_all(&blocked_dir).expect("create blocked directory");
         fs::create_dir_all(&valid_dir).expect("create valid directory");
 
-        let blocked = blocked_dir.join("media-bridge");
-        let valid = valid_dir.join("media-bridge");
+        let blocked = blocked_dir.join("ffmpeg");
+        let valid = valid_dir.join("ffmpeg");
         fs::write(&blocked, "#!/bin/sh\nexit 0\n").expect("write blocked candidate");
         fs::write(&valid, "#!/bin/sh\nexit 0\n").expect("write valid candidate");
         fs::set_permissions(&blocked, fs::Permissions::from_mode(0o644))
@@ -186,7 +186,7 @@ mod tests {
 
         let path = std::env::join_paths([&blocked_dir, &valid_dir]).expect("compose PATH");
         assert_eq!(
-            which_on_path_in(path.as_os_str(), "media-bridge"),
+            which_on_path_in(path.as_os_str(), "ffmpeg"),
             Some(valid.clone())
         );
 
@@ -198,7 +198,6 @@ mod tests {
         let tool_id = ToolId::Ffmpeg;
         let names = match tool_id {
             ToolId::Ffmpeg => vec!["ffmpeg.exe"],
-            ToolId::MediaBridge => vec!["media-bridge.exe"],
         };
         assert!(!names.is_empty());
     }
