@@ -373,7 +373,16 @@ mod tests {
     }
 
     fn full_box(payload: Vec<u8>) -> Vec<u8> {
-        let mut bytes = vec![0, 0, 0, 0];
+        full_box_with_flags(0, payload)
+    }
+
+    fn full_box_with_flags(flags: u32, payload: Vec<u8>) -> Vec<u8> {
+        let mut bytes = vec![
+            0,
+            ((flags >> 16) & 0xff) as u8,
+            ((flags >> 8) & 0xff) as u8,
+            (flags & 0xff) as u8,
+        ];
         bytes.extend_from_slice(&payload);
         bytes
     }
@@ -468,20 +477,57 @@ mod tests {
     }
 
     #[test]
-    fn probe_accepts_fragmented_initialization_metadata() {
+    fn demuxer_reads_standard_fragmented_mp4_packet() {
         let ftyp = box_bytes(b"ftyp", b"iso6\0\0\0\0iso6".to_vec());
         let mut moov = movie_with_sample_offset(0);
-        let size = u32::from_be_bytes(moov[0..4].try_into().expect("size"));
+        let original_moov_size = u32::from_be_bytes(moov[0..4].try_into().expect("size"));
         let mvex = box_bytes(b"mvex", Vec::new());
         moov.extend_from_slice(&mvex);
-        let new_size = size + u32::try_from(mvex.len()).expect("mvex size");
-        moov[0..4].copy_from_slice(&new_size.to_be_bytes());
+        let new_moov_size =
+            original_moov_size + u32::try_from(mvex.len()).expect("mvex size");
+        moov[0..4].copy_from_slice(&new_moov_size.to_be_bytes());
+
+        let mut tfhd_body = 7_u32.to_be_bytes().to_vec();
+        tfhd_body.extend_from_slice(&1000_u32.to_be_bytes());
+        tfhd_body.extend_from_slice(&4_u32.to_be_bytes());
+        let tfhd = box_bytes(
+            b"tfhd",
+            full_box_with_flags(0x000008 | 0x000010, tfhd_body),
+        );
+        let tfdt = box_bytes(b"tfdt", full_box(0_u32.to_be_bytes().to_vec()));
+
+        let make_moof = |data_offset: i32| {
+            let mut trun_body = 1_u32.to_be_bytes().to_vec();
+            trun_body.extend_from_slice(&data_offset.to_be_bytes());
+            let trun = box_bytes(
+                b"trun",
+                full_box_with_flags(0x000001, trun_body),
+            );
+            let traf = box_bytes(b"traf", [tfhd.clone(), tfdt.clone(), trun].concat());
+            box_bytes(b"moof", traf)
+        };
+
+        let placeholder = make_moof(0);
+        let relative_data_offset =
+            i32::try_from(placeholder.len() + 8).expect("relative data offset");
+        let moof = make_moof(relative_data_offset);
+        let mdat = box_bytes(b"mdat", b"FRAG".to_vec());
 
         let path = temp_path();
-        fs::write(&path, [ftyp, moov].concat()).expect("fixture");
+        fs::write(&path, [ftyp, moov, moof, mdat].concat()).expect("fixture");
+
         let probe = probe_mp4_file(&path).expect("probe");
         assert_eq!(probe.container, MediaContainer::FragmentedMp4);
-        assert!(Mp4Demuxer::open(&path).is_err());
+
+        let mut demuxer = Mp4Demuxer::open(&path).expect("fragmented demuxer");
+        assert_eq!(demuxer.packet_count(), 1);
+        let packet = demuxer
+            .next_packet()
+            .expect("packet result")
+            .expect("fragment packet");
+        assert_eq!(packet.track_id, 7);
+        assert_eq!(packet.data, b"FRAG");
+        assert_eq!(packet.dts.map(|value| value.value), Some(0));
 
         let _ = fs::remove_file(path);
     }
