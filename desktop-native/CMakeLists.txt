@@ -117,6 +117,8 @@ if(NOVA_BUILD_TESTS)
         src/api/NovaApiClient.h
         src/models/DownloadListModel.cpp
         src/models/DownloadListModel.h
+        src/settings/NativeSettings.cpp
+        src/settings/NativeSettings.h
     )
     target_include_directories(nova-native-tests PRIVATE src)
     target_link_libraries(nova-native-tests
