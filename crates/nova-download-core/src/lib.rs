@@ -3,13 +3,13 @@
 //! This crate is shared by desktop and mobile hosts. It deliberately owns no
 //! Tauri, Axum, Android, JNI, Compose, notification, or storage-provider types.
 
-use curl::easy::Easy;
+use curl::easy::{Easy, List};
 use std::cell::{Cell, RefCell};
 use std::fs::{File, OpenOptions};
-use std::io::{self, Write};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::Duration;
 
 pub use nova_core_model::{ByteRange, ResumeAction, MAX_PARALLEL_SEGMENTS};
@@ -21,6 +21,49 @@ pub struct HttpResourceProbe {
     pub effective_url: String,
     pub etag: Option<String>,
     pub last_modified: Option<String>,
+}
+
+impl HttpResourceProbe {
+    /// Strong representation validator suitable for HTTP If-Range.
+    ///
+    /// Weak ETags are deliberately rejected because they do not prove byte
+    /// identity. Last-Modified is the conservative fallback when available.
+    pub fn if_range_validator(&self) -> Option<&str> {
+        self.etag
+            .as_deref()
+            .filter(|etag| !etag.trim_start().starts_with("W/"))
+            .or(self.last_modified.as_deref())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ResumeIdentity {
+    content_length: u64,
+    validator_kind: &'static str,
+    validator: String,
+}
+
+impl ResumeIdentity {
+    fn from_probe(probe: &HttpResourceProbe) -> Option<Self> {
+        let content_length = probe.content_length?;
+        let etag = probe
+            .etag
+            .as_deref()
+            .filter(|etag| !etag.trim_start().starts_with("W/"));
+        let (validator_kind, validator) = if let Some(etag) = etag {
+            ("etag", etag)
+        } else {
+            ("last-modified", probe.last_modified.as_deref()?)
+        };
+        if validator.contains('\r') || validator.contains('\n') {
+            return None;
+        }
+        Some(Self {
+            content_length,
+            validator_kind,
+            validator: validator.to_owned(),
+        })
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -86,6 +129,87 @@ fn parse_http_status(header: &[u8]) -> Option<u16> {
         return None;
     }
     line.split_whitespace().nth(1)?.parse().ok()
+}
+
+fn parse_header_value(header: &[u8], expected_name: &str) -> Option<String> {
+    let line = std::str::from_utf8(header).ok()?.trim();
+    let (name, value) = line.split_once(':')?;
+    if !name.eq_ignore_ascii_case(expected_name) {
+        return None;
+    }
+    Some(value.trim().to_owned())
+}
+
+fn append_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut value = path.as_os_str().to_os_string();
+    value.push(suffix);
+    PathBuf::from(value)
+}
+
+fn resume_identity_path(destination: &Path) -> PathBuf {
+    append_suffix(destination, ".nova-identity")
+}
+
+fn write_resume_identity(
+    destination: &Path,
+    identity: &ResumeIdentity,
+) -> Result<(), TransportError> {
+    let path = resume_identity_path(destination);
+    let tmp = append_suffix(&path, ".tmp");
+    let payload = format!(
+        "NOVA-IDENTITY-1\n{}\n{}\n{}\n",
+        identity.content_length, identity.validator_kind, identity.validator
+    );
+    {
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&tmp)
+            .map_err(|error| TransportError::RequestFailed {
+                message: format!("failed to create resume identity: {error}"),
+            })?;
+        file.write_all(payload.as_bytes())
+            .and_then(|_| file.sync_all())
+            .map_err(|error| TransportError::RequestFailed {
+                message: format!("failed to persist resume identity: {error}"),
+            })?;
+    }
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(|error| TransportError::RequestFailed {
+            message: format!("failed to replace resume identity: {error}"),
+        })?;
+    }
+    std::fs::rename(&tmp, &path).map_err(|error| TransportError::RequestFailed {
+        message: format!("failed to commit resume identity: {error}"),
+    })
+}
+
+fn read_resume_identity(destination: &Path) -> Option<ResumeIdentity> {
+    let payload = std::fs::read_to_string(resume_identity_path(destination)).ok()?;
+    let mut lines = payload.lines();
+    if lines.next()? != "NOVA-IDENTITY-1" {
+        return None;
+    }
+    let content_length = lines.next()?.parse().ok()?;
+    let validator_kind = match lines.next()? {
+        "etag" => "etag",
+        "last-modified" => "last-modified",
+        _ => return None,
+    };
+    let validator = lines.next()?.to_owned();
+    if validator.is_empty() || validator.contains('\r') || validator.contains('\n') {
+        return None;
+    }
+    Some(ResumeIdentity {
+        content_length,
+        validator_kind,
+        validator,
+    })
+}
+
+fn remove_resume_identity(destination: &Path) {
+    let _ = std::fs::remove_file(resume_identity_path(destination));
 }
 
 fn parse_content_range(header: &[u8]) -> Option<(u64, u64)> {
@@ -165,29 +289,22 @@ pub fn probe_http_resource(url: &str) -> Result<HttpResourceProbe, TransportErro
     easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
         .map_err(transport_error)?;
 
-    // Keep validators from the final response block only. Redirect/proxy/auth
-    // headers must never become the identity of the selected representation.
+    // libcurl reports headers for every redirect/auth response. Keep only the
+    // validator set belonging to the final response block.
     let validators = Arc::new(Mutex::new((None::<String>, None::<String>)));
-    let validators_for_headers = validators.clone();
+    let validators_for_headers = Arc::clone(&validators);
     easy.header_function(move |header| {
-        let Ok(line) = std::str::from_utf8(header) else {
-            return true;
-        };
-        let line = line.trim();
-        if line.starts_with("HTTP/") {
-            if let Ok(mut state) = validators_for_headers.lock() {
-                *state = (None, None);
+        if parse_http_status(header).is_some() {
+            if let Ok(mut values) = validators_for_headers.lock() {
+                *values = (None, None);
             }
             return true;
         }
-        let Some((name, value)) = line.split_once(':') else {
-            return true;
-        };
-        if let Ok(mut state) = validators_for_headers.lock() {
-            if name.eq_ignore_ascii_case("etag") {
-                state.0 = Some(value.trim().to_owned());
-            } else if name.eq_ignore_ascii_case("last-modified") {
-                state.1 = Some(value.trim().to_owned());
+        if let Ok(mut values) = validators_for_headers.lock() {
+            if let Some(etag) = parse_header_value(header, "etag") {
+                values.0 = Some(etag);
+            } else if let Some(last_modified) = parse_header_value(header, "last-modified") {
+                values.1 = Some(last_modified);
             }
         }
         true
@@ -214,9 +331,10 @@ pub fn probe_http_resource(url: &str) -> Result<HttpResourceProbe, TransportErro
         .map_err(transport_error)?
         .unwrap_or(url)
         .to_owned();
+
     let (etag, last_modified) = validators
         .lock()
-        .map(|state| state.clone())
+        .map(|values| values.clone())
         .unwrap_or((None, None));
 
     Ok(HttpResourceProbe {
@@ -248,22 +366,15 @@ pub fn stream_http_range_controlled<W: Write, F: FnMut() -> TransferControl>(
     sink: &mut W,
     control: F,
 ) -> Result<HttpRangeProbe, TransportError> {
-    stream_http_range_controlled_with_timeout(
-        url,
-        start,
-        end,
-        sink,
-        Some(Duration::from_secs(30)),
-        control,
-    )
+    stream_http_range_controlled_with_validator(url, start, end, sink, None, control)
 }
 
-fn stream_http_range_controlled_with_timeout<W: Write, F: FnMut() -> TransferControl>(
+fn stream_http_range_controlled_with_validator<W: Write, F: FnMut() -> TransferControl>(
     url: &str,
     start: u64,
     end: u64,
     sink: &mut W,
-    total_timeout: Option<Duration>,
+    if_range: Option<&str>,
     mut control: F,
 ) -> Result<HttpRangeProbe, TransportError> {
     ensure_http_url(url)?;
@@ -281,14 +392,18 @@ fn stream_http_range_controlled_with_timeout<W: Write, F: FnMut() -> TransferCon
     easy.max_redirections(10).map_err(transport_error)?;
     easy.connect_timeout(Duration::from_secs(15))
         .map_err(transport_error)?;
-    if let Some(timeout) = total_timeout {
-        easy.timeout(timeout).map_err(transport_error)?;
-    }
     easy.accept_encoding("identity").map_err(transport_error)?;
     easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
         .map_err(transport_error)?;
     easy.range(&format!("{start}-{end}"))
         .map_err(transport_error)?;
+    if let Some(validator) = if_range {
+        let mut headers = List::new();
+        headers
+            .append(&format!("If-Range: {validator}"))
+            .map_err(transport_error)?;
+        easy.http_headers(headers).map_err(transport_error)?;
+    }
     easy.progress(true).map_err(transport_error)?;
 
     let header_status = Cell::new(None::<u16>);
@@ -327,7 +442,10 @@ fn stream_http_range_controlled_with_timeout<W: Write, F: FnMut() -> TransferCon
         transfer
             .write_function(|data| {
                 if !headers_validated.get() {
-                    return Ok(0);
+                    // Redirect/error response bodies are consumed but never
+                    // forwarded to the destination. Returning the consumed
+                    // length lets libcurl continue to the final response.
+                    return Ok(data.len());
                 }
 
                 let Some(next_total) = bytes_received.get().checked_add(data.len() as u64) else {
@@ -482,7 +600,10 @@ fn stream_http_full_controlled<W: Write, F: FnMut() -> TransferControl>(
         transfer
             .write_function(|data| {
                 if !headers_validated.get() {
-                    return Ok(0);
+                    // Redirect/error response bodies are consumed but never
+                    // forwarded to the destination. Returning the consumed
+                    // length lets libcurl continue to the final response.
+                    return Ok(data.len());
                 }
                 if let Err(error) = sink.write_all(data) {
                     sink_error.replace(Some(format!(
@@ -563,6 +684,8 @@ pub fn download_http_to_path_controlled<F: FnMut() -> TransferControl>(
     } else {
         None
     };
+    let current_identity = ResumeIdentity::from_probe(&probe);
+    let stored_identity = read_resume_identity(destination);
 
     let mut existing_bytes = match std::fs::metadata(destination) {
         Ok(metadata) => metadata.len(),
@@ -574,6 +697,26 @@ pub fn download_http_to_path_controlled<F: FnMut() -> TransferControl>(
         }
     };
 
+    // Existing bytes are reusable only when they were written under the same
+    // byte-stable representation identity. Size alone is never sufficient.
+    if existing_bytes > 0
+        && (current_identity.is_none() || stored_identity.as_ref() != current_identity.as_ref())
+    {
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(destination)
+            .map_err(|error| TransportError::RequestFailed {
+                message: format!("failed to reset stale staging file: {error}"),
+            })?;
+        file.sync_all().map_err(|error| TransportError::RequestFailed {
+            message: format!("failed to sync reset staging file: {error}"),
+        })?;
+        existing_bytes = 0;
+        remove_resume_identity(destination);
+    }
+
     if let Some(total_bytes) = usable_length {
         if existing_bytes > total_bytes {
             let file = OpenOptions::new()
@@ -584,11 +727,15 @@ pub fn download_http_to_path_controlled<F: FnMut() -> TransferControl>(
                 .map_err(|error| TransportError::RequestFailed {
                     message: format!("failed to reset oversized staging file: {error}"),
                 })?;
-            drop(file);
+            file.sync_all().map_err(|error| TransportError::RequestFailed {
+                message: format!("failed to sync reset staging file: {error}"),
+            })?;
             existing_bytes = 0;
+            remove_resume_identity(destination);
         }
 
-        if existing_bytes == total_bytes {
+        if existing_bytes == total_bytes && total_bytes > 0 {
+            remove_resume_identity(destination);
             return Ok(HttpFileTransfer {
                 response_status: probe.response_status,
                 final_bytes: total_bytes,
@@ -598,51 +745,78 @@ pub fn download_http_to_path_controlled<F: FnMut() -> TransferControl>(
             });
         }
 
+        // Range-based transfer is used only when an If-Range-capable identity
+        // exists. If a server exposes only Content-Length, a full transfer is
+        // safer than resuming unverifiable bytes.
         if total_bytes > 0 {
-            let mut file = OpenOptions::new()
-                .create(true)
-                .append(existing_bytes > 0)
-                .write(true)
-                .truncate(existing_bytes == 0)
-                .open(destination)
-                .map_err(|error| TransportError::RequestFailed {
-                    message: format!("failed to open download staging file: {error}"),
-                })?;
+            if let Some(identity) = current_identity.as_ref() {
+                if existing_bytes == 0 {
+                    write_resume_identity(destination, identity)?;
+                }
 
-            match stream_http_range_controlled_with_timeout(
-                &probe.effective_url,
-                existing_bytes,
-                total_bytes - 1,
-                &mut file,
-                None,
-                &mut control,
-            ) {
-                Ok(range) => {
-                    file.flush().map_err(|error| TransportError::RequestFailed {
-                        message: format!("failed to flush download staging file: {error}"),
+                let mut file = OpenOptions::new()
+                    .create(true)
+                    .append(existing_bytes > 0)
+                    .write(true)
+                    .truncate(existing_bytes == 0)
+                    .open(destination)
+                    .map_err(|error| TransportError::RequestFailed {
+                        message: format!("failed to open download staging file: {error}"),
                     })?;
-                    let final_bytes = existing_bytes
-                        .checked_add(range.bytes_received)
-                        .ok_or_else(|| TransportError::RequestFailed {
-                            message: "download byte counter overflow".to_owned(),
-                        })?;
-                    return Ok(HttpFileTransfer {
-                        response_status: range.response_status,
-                        final_bytes,
-                        total_bytes: Some(total_bytes),
-                        resumed_from: existing_bytes,
-                        effective_url: range.effective_url,
-                    });
+
+                match stream_http_range_controlled_with_validator(
+                    &probe.effective_url,
+                    existing_bytes,
+                    total_bytes - 1,
+                    &mut file,
+                    Some(&identity.validator),
+                    &mut control,
+                ) {
+                    Ok(range) => {
+                        file.flush()
+                            .and_then(|_| file.sync_all())
+                            .map_err(|error| TransportError::RequestFailed {
+                                message: format!("failed to sync download staging file: {error}"),
+                            })?;
+                        let final_bytes = existing_bytes
+                            .checked_add(range.bytes_received)
+                            .ok_or_else(|| TransportError::RequestFailed {
+                                message: "download byte counter overflow".to_owned(),
+                            })?;
+                        if final_bytes != total_bytes {
+                            return Err(TransportError::RequestFailed {
+                                message: format!(
+                                    "download completed at {final_bytes} bytes but expected {total_bytes}"
+                                ),
+                            });
+                        }
+                        remove_resume_identity(destination);
+                        return Ok(HttpFileTransfer {
+                            response_status: range.response_status,
+                            final_bytes,
+                            total_bytes: Some(total_bytes),
+                            resumed_from: existing_bytes,
+                            effective_url: range.effective_url,
+                        });
+                    }
+                    Err(TransportError::RangeResponseRejected { .. }) => {
+                        // If-Range failed or the origin ignored Range. Discard
+                        // the partial representation and restart from zero.
+                        remove_resume_identity(destination);
+                    }
+                    Err(error) => {
+                        // Paused/network-failed partial data retains its
+                        // identity sidecar and can be validated on the next run.
+                        let _ = file.flush();
+                        let _ = file.sync_all();
+                        return Err(error);
+                    }
                 }
-                Err(TransportError::RangeResponseRejected { .. }) => {
-                    // The origin does not honor byte ranges. Restart safely from
-                    // zero rather than mixing a full response with partial data.
-                }
-                Err(error) => return Err(error),
             }
         }
     }
 
+    remove_resume_identity(destination);
     let mut file = OpenOptions::new()
         .create(true)
         .write(true)
@@ -653,9 +827,11 @@ pub fn download_http_to_path_controlled<F: FnMut() -> TransferControl>(
         })?;
     let (response_status, final_bytes, effective_url) =
         stream_http_full_controlled(&probe.effective_url, &mut file, &mut control)?;
-    file.flush().map_err(|error| TransportError::RequestFailed {
-        message: format!("failed to flush download staging file: {error}"),
-    })?;
+    file.flush()
+        .and_then(|_| file.sync_all())
+        .map_err(|error| TransportError::RequestFailed {
+            message: format!("failed to sync download staging file: {error}"),
+        })?;
 
     Ok(HttpFileTransfer {
         response_status,
@@ -666,299 +842,202 @@ pub fn download_http_to_path_controlled<F: FnMut() -> TransferControl>(
     })
 }
 
-const SEGMENT_DIRECTORY_SUFFIX: &str = ".nova-segments";
-const SEGMENT_MANIFEST_NAME: &str = "manifest";
-const SEGMENT_FILE_PREFIX: &str = "segment-";
-const SEGMENT_FILE_SUFFIX: &str = ".part";
-const SEGMENT_RETRY_ATTEMPTS: usize = 3;
-const SEGMENT_RETRY_BASE_MS: u64 = 250;
-
-fn segment_directory(destination: &Path) -> PathBuf {
-    let mut value = destination.as_os_str().to_os_string();
-    value.push(SEGMENT_DIRECTORY_SUFFIX);
-    PathBuf::from(value)
+fn segment_manifest_path(destination: &Path) -> PathBuf {
+    append_suffix(destination, ".nova-segments")
 }
 
-fn segment_path(directory: &Path, index: usize) -> PathBuf {
-    directory.join(format!(
-        "{SEGMENT_FILE_PREFIX}{index:03}{SEGMENT_FILE_SUFFIX}"
-    ))
-}
-
-fn segment_manifest(
-    total_bytes: u64,
-    segment_count: usize,
-    etag: Option<&str>,
-    last_modified: Option<&str>,
-) -> String {
-    format!(
-        "nova.segment.v2\ntotal={total_bytes}\nsegments={segment_count}\netag={etag:?}\nlast_modified={last_modified:?}\n"
-    )
-}
-
-fn prepare_segment_directory(
+fn write_segment_manifest(
     destination: &Path,
-    total_bytes: u64,
-    segment_count: usize,
-    etag: Option<&str>,
-    last_modified: Option<&str>,
-) -> Result<PathBuf, TransportError> {
-    let directory = segment_directory(destination);
-    let expected_manifest = segment_manifest(total_bytes, segment_count, etag, last_modified);
-    let manifest_path = directory.join(SEGMENT_MANIFEST_NAME);
-
-    let reusable = std::fs::read_to_string(&manifest_path)
-        .ok()
-        .is_some_and(|value| value == expected_manifest);
-    if directory.exists() && !reusable {
-        std::fs::remove_dir_all(&directory).map_err(|error| TransportError::RequestFailed {
-            message: format!("failed to reset stale segment state: {error}"),
-        })?;
-    }
-
-    std::fs::create_dir_all(&directory).map_err(|error| TransportError::RequestFailed {
-        message: format!("failed to create segment staging directory: {error}"),
-    })?;
-    if !reusable {
-        std::fs::write(&manifest_path, expected_manifest).map_err(|error| {
-            TransportError::RequestFailed {
-                message: format!("failed to persist segment manifest: {error}"),
-            }
-        })?;
-    }
-    Ok(directory)
-}
-
-/// Return the number of durable bytes available for a staging destination.
-///
-/// Segmented transfers store each range separately until every range validates,
-/// so progress is the sum of segment files rather than the not-yet-merged
-/// destination length. Single-stream transfers continue to report the staging
-/// file length.
-pub fn staged_downloaded_bytes(destination: &Path) -> Result<u64, TransportError> {
-    let directory = segment_directory(destination);
-    if directory.is_dir() {
-        let mut total = 0_u64;
-        let entries = std::fs::read_dir(&directory).map_err(|error| {
-            TransportError::RequestFailed {
-                message: format!("failed to inspect segment staging directory: {error}"),
-            }
-        })?;
-        for entry in entries {
-            let entry = entry.map_err(|error| TransportError::RequestFailed {
-                message: format!("failed to inspect segment staging entry: {error}"),
-            })?;
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if !name.starts_with(SEGMENT_FILE_PREFIX) || !name.ends_with(SEGMENT_FILE_SUFFIX) {
-                continue;
-            }
-            let len = entry
-                .metadata()
-                .map_err(|error| TransportError::RequestFailed {
-                    message: format!("failed to inspect segment staging file: {error}"),
-                })?
-                .len();
-            total = total.checked_add(len).ok_or_else(|| TransportError::RequestFailed {
-                message: "segment progress byte counter overflow".to_owned(),
-            })?;
-        }
-        return Ok(total);
-    }
-
-    match std::fs::metadata(destination) {
-        Ok(metadata) => Ok(metadata.len()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(0),
-        Err(error) => Err(TransportError::RequestFailed {
-            message: format!("failed to inspect download staging file: {error}"),
-        }),
-    }
-}
-
-/// Remove only NOVA's deterministic segment sidecars for a destination.
-pub fn cleanup_segment_state(destination: &Path) -> Result<(), TransportError> {
-    let directory = segment_directory(destination);
-    match std::fs::remove_dir_all(directory) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(TransportError::RequestFailed {
-            message: format!("failed to remove segment staging state: {error}"),
-        }),
-    }
-}
-
-fn reset_segment_file(path: &Path) -> Result<(), TransportError> {
-    OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(path)
-        .map(drop)
-        .map_err(|error| TransportError::RequestFailed {
-            message: format!("failed to reset segment file: {error}"),
-        })
-}
-
-fn segment_existing_bytes(path: &Path, expected_bytes: u64) -> Result<u64, TransportError> {
-    match std::fs::metadata(path) {
-        Ok(metadata) if metadata.len() <= expected_bytes => Ok(metadata.len()),
-        Ok(_) => {
-            reset_segment_file(path)?;
-            Ok(0)
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(0),
-        Err(error) => Err(TransportError::RequestFailed {
-            message: format!("failed to inspect segment file: {error}"),
-        }),
-    }
-}
-
-fn download_segment_with_retries<F: FnMut() -> TransferControl>(
-    url: &str,
-    range: ByteRange,
-    path: &Path,
-    mut control: F,
+    ranges: &[ByteRange],
 ) -> Result<(), TransportError> {
-    for attempt in 0..SEGMENT_RETRY_ATTEMPTS {
-        match control() {
-            TransferControl::Pause => return Err(TransportError::Paused),
-            TransferControl::Cancel => return Err(TransportError::Cancelled),
-            TransferControl::Continue => {}
-        }
+    let path = segment_manifest_path(destination);
+    let tmp = append_suffix(&path, ".tmp");
+    let mut payload = format!("NOVA-SEGMENTS-1\n{}\n", ranges.len());
+    for range in ranges {
+        payload.push_str(&format!("{}-{}\n", range.start, range.end));
+    }
 
-        let existing = segment_existing_bytes(path, range.len())?;
-        if existing == range.len() {
-            return Ok(());
-        }
-
-        let start = range.start.checked_add(existing).ok_or_else(|| {
-            TransportError::RequestFailed {
-                message: "segment resume offset overflow".to_owned(),
-            }
-        })?;
+    {
         let mut file = OpenOptions::new()
             .create(true)
-            .append(existing > 0)
             .write(true)
-            .truncate(existing == 0)
-            .open(path)
+            .truncate(true)
+            .open(&tmp)
             .map_err(|error| TransportError::RequestFailed {
-                message: format!("failed to open segment file: {error}"),
+                message: format!("failed to create segment manifest: {error}"),
             })?;
-
-        match stream_http_range_controlled_with_timeout(
-            url,
-            start,
-            range.end,
-            &mut file,
-            None,
-            &mut control,
-        ) {
-            Ok(_) => {
-                file.flush().map_err(|error| TransportError::RequestFailed {
-                    message: format!("failed to flush segment file: {error}"),
-                })?;
-                if segment_existing_bytes(path, range.len())? == range.len() {
-                    return Ok(());
-                }
-            }
-            Err(TransportError::Paused) => return Err(TransportError::Paused),
-            Err(TransportError::Cancelled) => return Err(TransportError::Cancelled),
-            Err(error @ TransportError::RangeResponseRejected { .. }) => return Err(error),
-            Err(error) => {
-                if attempt + 1 == SEGMENT_RETRY_ATTEMPTS {
-                    return Err(error);
-                }
-                thread::sleep(Duration::from_millis(
-                    SEGMENT_RETRY_BASE_MS.saturating_mul(1_u64 << attempt.min(4)),
-                ));
-            }
-        }
+        file.write_all(payload.as_bytes())
+            .and_then(|_| file.sync_all())
+            .map_err(|error| TransportError::RequestFailed {
+                message: format!("failed to persist segment manifest: {error}"),
+            })?;
     }
-
-    Err(TransportError::RequestFailed {
-        message: format!(
-            "segment {}-{} ended before all bytes were persisted",
-            range.start, range.end
-        ),
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(|error| TransportError::RequestFailed {
+            message: format!("failed to replace segment manifest: {error}"),
+        })?;
+    }
+    std::fs::rename(&tmp, &path).map_err(|error| TransportError::RequestFailed {
+        message: format!("failed to commit segment manifest: {error}"),
     })
 }
 
-fn merge_segments(
+fn read_segment_manifest(destination: &Path) -> Option<Vec<ByteRange>> {
+    let payload = std::fs::read_to_string(segment_manifest_path(destination)).ok()?;
+    let mut lines = payload.lines();
+    if lines.next()? != "NOVA-SEGMENTS-1" {
+        return None;
+    }
+    let count: usize = lines.next()?.parse().ok()?;
+    if count == 0 || count > MAX_PARALLEL_SEGMENTS as usize {
+        return None;
+    }
+
+    let mut ranges = Vec::with_capacity(count);
+    for _ in 0..count {
+        let (start, end) = lines.next()?.split_once('-')?;
+        let start: u64 = start.parse().ok()?;
+        let end: u64 = end.parse().ok()?;
+        if end < start {
+            return None;
+        }
+        ranges.push(ByteRange { start, end });
+    }
+    Some(ranges)
+}
+
+fn remove_segment_manifest(destination: &Path) {
+    let _ = std::fs::remove_file(segment_manifest_path(destination));
+}
+
+fn segment_part_path(destination: &Path, index: usize) -> PathBuf {
+    append_suffix(destination, &format!(".nova-seg-{index:04}"))
+}
+
+fn segment_done_path(destination: &Path, index: usize) -> PathBuf {
+    append_suffix(&segment_part_path(destination, index), ".done")
+}
+
+fn segment_merge_path(destination: &Path) -> PathBuf {
+    append_suffix(destination, ".nova-merge")
+}
+
+fn cleanup_segment_artifacts(destination: &Path, segment_count: usize) {
+    for index in 0..segment_count {
+        let _ = std::fs::remove_file(segment_part_path(destination, index));
+        let _ = std::fs::remove_file(segment_done_path(destination, index));
+    }
+    let _ = std::fs::remove_file(segment_merge_path(destination));
+    remove_segment_manifest(destination);
+}
+
+fn segment_artifacts_exist(destination: &Path, segment_count: usize) -> bool {
+    (0..segment_count).any(|index| {
+        segment_part_path(destination, index).exists()
+            || segment_done_path(destination, index).exists()
+    })
+}
+
+fn prepare_segment_part(
     destination: &Path,
-    directory: &Path,
-    ranges: &[ByteRange],
-) -> Result<(), TransportError> {
-    let merged = directory.join("merged.tmp");
-    let mut output = OpenOptions::new()
+    index: usize,
+    expected_bytes: u64,
+) -> Result<(u64, bool), TransportError> {
+    let part = segment_part_path(destination, index);
+    let done = segment_done_path(destination, index);
+    let actual = match std::fs::metadata(&part) {
+        Ok(metadata) => metadata.len(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(error) => {
+            return Err(TransportError::RequestFailed {
+                message: format!("failed to inspect segment {index}: {error}"),
+            })
+        }
+    };
+
+    if actual == expected_bytes && done.is_file() {
+        return Ok((actual, true));
+    }
+
+    // A full-size part without its fsynced completion marker is not trusted:
+    // it may be a crash-time/preallocated artifact. Partial files are safe to
+    // resume because their representation identity is checked before this call.
+    let existing = if actual >= expected_bytes {
+        if part.exists() {
+            let file = OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(&part)
+                .map_err(|error| TransportError::RequestFailed {
+                    message: format!("failed to reset segment {index}: {error}"),
+                })?;
+            file.sync_all().map_err(|error| TransportError::RequestFailed {
+                message: format!("failed to sync reset segment {index}: {error}"),
+            })?;
+        }
+        0
+    } else {
+        actual
+    };
+    let _ = std::fs::remove_file(done);
+    Ok((existing, false))
+}
+
+fn mark_segment_complete(destination: &Path, index: usize) -> Result<(), TransportError> {
+    let marker = segment_done_path(destination, index);
+    let mut file = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
-        .open(&merged)
+        .open(marker)
         .map_err(|error| TransportError::RequestFailed {
-            message: format!("failed to create merged staging file: {error}"),
+            message: format!("failed to create segment completion marker: {error}"),
         })?;
-
-    for (index, range) in ranges.iter().enumerate() {
-        let path = segment_path(directory, index);
-        let length = std::fs::metadata(&path)
-            .map_err(|error| TransportError::RequestFailed {
-                message: format!("failed to inspect completed segment {index}: {error}"),
-            })?
-            .len();
-        if length != range.len() {
-            return Err(TransportError::RequestFailed {
-                message: format!(
-                    "completed segment {index} has {length} bytes, expected {}",
-                    range.len()
-                ),
-            });
-        }
-
-        let mut input = File::open(&path).map_err(|error| TransportError::RequestFailed {
-            message: format!("failed to open completed segment {index}: {error}"),
-        })?;
-        io::copy(&mut input, &mut output).map_err(|error| TransportError::RequestFailed {
-            message: format!("failed to merge segment {index}: {error}"),
-        })?;
-    }
-
-    output.flush().map_err(|error| TransportError::RequestFailed {
-        message: format!("failed to flush merged staging file: {error}"),
-    })?;
-    output.sync_all().map_err(|error| TransportError::RequestFailed {
-        message: format!("failed to sync merged staging file: {error}"),
-    })?;
-    drop(output);
-
-    if destination.exists() {
-        std::fs::remove_file(destination).map_err(|error| TransportError::RequestFailed {
-            message: format!("failed to replace previous staging file: {error}"),
-        })?;
-    }
-    std::fs::rename(&merged, destination).map_err(|error| TransportError::RequestFailed {
-        message: format!("failed to publish merged staging file: {error}"),
-    })?;
-    cleanup_segment_state(destination)?;
-    Ok(())
+    file.write_all(b"NOVA-SEGMENT-DONE-1\n")
+        .and_then(|_| file.sync_all())
+        .map_err(|error| TransportError::RequestFailed {
+            message: format!("failed to sync segment completion marker: {error}"),
+        })
 }
 
-/// Download a known-length HTTP resource using parallel validated ranges.
+struct ProgressWriter<'a, W, P> {
+    inner: W,
+    aggregate: &'a AtomicU64,
+    total: u64,
+    progress: &'a P,
+}
+
+impl<W: Write, P: Fn(u64, Option<u64>) + Sync> Write for ProgressWriter<'_, W, P> {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        let written = self.inner.write(data)?;
+        if written > 0 {
+            let downloaded =
+                self.aggregate.fetch_add(written as u64, Ordering::AcqRel) + written as u64;
+            (self.progress)(downloaded.min(self.total), Some(self.total));
+        }
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+/// Download a known, validator-backed representation through independent byte
+/// ranges and atomically merge the completed segments.
 ///
-/// Range files are durable. If Android pauses, the process dies, or a transient
-/// request fails, a later invocation recomputes the same geometry and resumes
-/// each segment from its own persisted length. Servers that do not honor ranges
-/// fall back safely to the existing single-stream resumable path.
-pub fn download_http_to_path_segmented_controlled<F>(
+/// Parallelism is a policy input; range geometry, response validation, durable
+/// segment artifacts and corruption avoidance remain platform-neutral.
+pub fn download_http_to_path_segmented_controlled<
+    F: Fn() -> TransferControl + Sync,
+    P: Fn(u64, Option<u64>) + Sync,
+>(
     url: &str,
     destination: &Path,
     requested_connections: u32,
-    max_segments: u32,
     control: F,
-) -> Result<HttpFileTransfer, TransportError>
-where
-    F: Fn() -> TransferControl + Sync,
-{
+    progress: P,
+) -> Result<HttpFileTransfer, TransportError> {
     if let Some(parent) = destination.parent().filter(|path| !path.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(|error| TransportError::RequestFailed {
             message: format!("failed to create download staging directory: {error}"),
@@ -966,109 +1045,283 @@ where
     }
 
     let probe = probe_http_resource(url)?;
-    let total_bytes = if (200..300).contains(&probe.response_status) {
-        probe.content_length
-    } else {
-        None
-    };
-
-    let Some(total_bytes) = total_bytes.filter(|value| *value > 0) else {
-        cleanup_segment_state(destination)?;
+    let Some(identity) = ResumeIdentity::from_probe(&probe) else {
         return download_http_to_path_controlled(url, destination, || control());
     };
-
-    let existing_destination = match std::fs::metadata(destination) {
-        Ok(metadata) => metadata.len(),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
-        Err(error) => {
-            return Err(TransportError::RequestFailed {
-                message: format!("failed to inspect download staging file: {error}"),
-            })
-        }
-    };
-    if existing_destination > 0 {
-        // Preserve compatibility with staging files created by the previous
-        // single-stream engine. They remain safely resumable as one range.
-        cleanup_segment_state(destination)?;
-        return download_http_to_path_controlled(url, destination, || control());
-    }
-
-    if probe_http_range(&probe.effective_url, 0, 0).is_err() {
-        cleanup_segment_state(destination)?;
-        return download_http_to_path_controlled(url, destination, || control());
-    }
-
-    let ranges = plan_transfer_ranges_with_limit(
-        total_bytes,
-        requested_connections,
-        max_segments,
-    );
+    let total_bytes = identity.content_length;
+    let ranges = plan_transfer_ranges(total_bytes, requested_connections);
     if ranges.len() <= 1 {
-        cleanup_segment_state(destination)?;
         return download_http_to_path_controlled(url, destination, || control());
     }
 
-    let directory = prepare_segment_directory(
-        destination,
-        total_bytes,
-        ranges.len(),
-        probe.etag.as_deref(),
-        probe.last_modified.as_deref(),
-    )?;
-    let resumed_from = staged_downloaded_bytes(destination)?.min(total_bytes);
+    // A legacy/single-stream partial destination is allowed to finish through
+    // the single-stream recovery path instead of being re-sharded in place.
+    let existing_destination = std::fs::metadata(destination)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    let has_segments =
+        segment_artifacts_exist(destination, MAX_PARALLEL_SEGMENTS as usize);
+    if existing_destination > 0 && !has_segments {
+        return download_http_to_path_controlled(url, destination, || control());
+    }
 
-    let results = thread::scope(|scope| {
-        let mut handles = Vec::with_capacity(ranges.len());
-        for (index, range) in ranges.iter().copied().enumerate() {
-            let path = segment_path(&directory, index);
-            let effective_url = &probe.effective_url;
+    let stored_identity = read_resume_identity(destination);
+    let stored_ranges = read_segment_manifest(destination);
+    let reusable_segments = has_segments
+        && stored_identity.as_ref() == Some(&identity)
+        && stored_ranges.as_deref() == Some(ranges.as_slice());
+    if has_segments && !reusable_segments {
+        cleanup_segment_artifacts(destination, MAX_PARALLEL_SEGMENTS as usize);
+        remove_resume_identity(destination);
+    }
+    if read_resume_identity(destination).as_ref() != Some(&identity) {
+        write_resume_identity(destination, &identity)?;
+    }
+    if read_segment_manifest(destination).as_deref() != Some(ranges.as_slice()) {
+        write_segment_manifest(destination, &ranges)?;
+    }
+
+    let mut prepared = Vec::with_capacity(ranges.len());
+    let mut resumed_from = 0_u64;
+    for (index, range) in ranges.iter().copied().enumerate() {
+        let expected = range.end - range.start + 1;
+        let (existing, complete) = prepare_segment_part(destination, index, expected)?;
+        resumed_from = resumed_from
+            .checked_add(existing)
+            .ok_or_else(|| TransportError::RequestFailed {
+                message: "segment resume byte counter overflow".to_owned(),
+            })?;
+        prepared.push((index, range, existing, complete));
+    }
+
+    let aggregate = AtomicU64::new(resumed_from);
+    progress(resumed_from.min(total_bytes), Some(total_bytes));
+    let abort = AtomicBool::new(false);
+    let effective_url = probe.effective_url.clone();
+    let validator = identity.validator.clone();
+
+    let mut results = Vec::new();
+    std::thread::scope(|scope| {
+        let mut handles = Vec::new();
+        for &(index, range, existing, complete) in &prepared {
+            if complete {
+                continue;
+            }
+            let part = segment_part_path(destination, index);
+            let aggregate = &aggregate;
+            let abort = &abort;
             let control = &control;
-            handles.push(scope.spawn(move || {
-                download_segment_with_retries(effective_url, range, &path, || control())
+            let progress = &progress;
+            let effective_url = &effective_url;
+            let validator = &validator;
+
+            handles.push(scope.spawn(move || -> Result<(), TransportError> {
+                let mut file = OpenOptions::new()
+                    .create(true)
+                    .append(existing > 0)
+                    .write(true)
+                    .truncate(existing == 0)
+                    .open(&part)
+                    .map_err(|error| TransportError::RequestFailed {
+                        message: format!("failed to open segment {index}: {error}"),
+                    })?;
+                let start = range.start + existing;
+                let mut writer = ProgressWriter {
+                    inner: &mut file,
+                    aggregate,
+                    total: total_bytes,
+                    progress,
+                };
+                let result = stream_http_range_controlled_with_validator(
+                    effective_url,
+                    start,
+                    range.end,
+                    &mut writer,
+                    Some(validator),
+                    || {
+                        let command = control();
+                        if command != TransferControl::Continue {
+                            return command;
+                        }
+                        if abort.load(Ordering::Acquire) {
+                            TransferControl::Cancel
+                        } else {
+                            TransferControl::Continue
+                        }
+                    },
+                );
+                drop(writer);
+
+                if let Err(error) = file.flush().and_then(|_| file.sync_all()) {
+                    abort.store(true, Ordering::Release);
+                    return Err(TransportError::RequestFailed {
+                        message: format!("failed to sync segment {index}: {error}"),
+                    });
+                }
+
+                match result {
+                    Ok(_) => {
+                        let expected = range.end - range.start + 1;
+                        let actual = std::fs::metadata(&part)
+                            .map(|metadata| metadata.len())
+                            .unwrap_or(0);
+                        if actual != expected {
+                            abort.store(true, Ordering::Release);
+                            return Err(TransportError::RequestFailed {
+                                message: format!(
+                                    "segment {index} completed at {actual} bytes but expected {expected}"
+                                ),
+                            });
+                        }
+                        mark_segment_complete(destination, index)
+                    }
+                    Err(error) => {
+                        abort.store(true, Ordering::Release);
+                        Err(error)
+                    }
+                }
             }));
         }
 
-        handles
-            .into_iter()
-            .map(|handle| {
-                handle.join().unwrap_or_else(|_| {
-                    Err(TransportError::RequestFailed {
-                        message: "native segment worker panicked".to_owned(),
-                    })
-                })
-            })
-            .collect::<Vec<_>>()
+        for handle in handles {
+            match handle.join() {
+                Ok(result) => results.push(result),
+                Err(_) => results.push(Err(TransportError::RequestFailed {
+                    message: "native segment worker panicked".to_owned(),
+                })),
+            }
+        }
     });
 
-    let mut range_rejected = false;
-    for result in results {
-        match result {
-            Ok(()) => {}
-            Err(TransportError::Paused) => return Err(TransportError::Paused),
-            Err(TransportError::Cancelled) => {
-                cleanup_segment_state(destination)?;
-                return Err(TransportError::Cancelled);
-            }
-            Err(TransportError::RangeResponseRejected { .. }) => {
-                range_rejected = true;
-            }
-            Err(error) => return Err(error),
+    match control() {
+        TransferControl::Pause => return Err(TransportError::Paused),
+        TransferControl::Cancel => {
+            cleanup_segment_artifacts(destination, MAX_PARALLEL_SEGMENTS as usize);
+            remove_resume_identity(destination);
+            return Err(TransportError::Cancelled);
         }
+        TransferControl::Continue => {}
     }
 
-    if range_rejected {
-        cleanup_segment_state(destination)?;
+    if results
+        .iter()
+        .any(|result| matches!(result, Err(TransportError::RangeResponseRejected { .. })))
+    {
+        cleanup_segment_artifacts(destination, MAX_PARALLEL_SEGMENTS as usize);
+        remove_resume_identity(destination);
+        let _ = std::fs::remove_file(destination);
         return download_http_to_path_controlled(url, destination, || control());
     }
 
-    merge_segments(destination, &directory, &ranges)?;
+    if let Some(error) = results.into_iter().find_map(Result::err) {
+        if matches!(&error, TransportError::Cancelled) && abort.load(Ordering::Acquire) {
+            return Err(TransportError::RequestFailed {
+                message: "parallel transfer aborted after a segment failure".to_owned(),
+            });
+        }
+        return Err(error);
+    }
+
+    let merge_path = segment_merge_path(destination);
+    let merge_result = (|| -> Result<(), TransportError> {
+        let mut merged = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&merge_path)
+            .map_err(|error| TransportError::RequestFailed {
+                message: format!("failed to create segment merge file: {error}"),
+            })?;
+
+        for index in 0..ranges.len() {
+            match control() {
+                TransferControl::Pause => return Err(TransportError::Paused),
+                TransferControl::Cancel => return Err(TransportError::Cancelled),
+                TransferControl::Continue => {}
+            }
+            let mut part =
+                File::open(segment_part_path(destination, index)).map_err(|error| {
+                    TransportError::RequestFailed {
+                        message: format!("failed to open segment {index} for merge: {error}"),
+                    }
+                })?;
+            std::io::copy(&mut part, &mut merged).map_err(|error| {
+                TransportError::RequestFailed {
+                    message: format!("failed to merge segment {index}: {error}"),
+                }
+            })?;
+        }
+        merged
+            .flush()
+            .and_then(|_| merged.sync_all())
+            .map_err(|error| TransportError::RequestFailed {
+                message: format!("failed to sync merged download: {error}"),
+            })?;
+        let merged_bytes = std::fs::metadata(&merge_path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        if merged_bytes != total_bytes {
+            return Err(TransportError::RequestFailed {
+                message: format!(
+                    "merged download is {merged_bytes} bytes but expected {total_bytes}"
+                ),
+            });
+        }
+        Ok(())
+    })();
+
+    if let Err(error) = merge_result {
+        let _ = std::fs::remove_file(&merge_path);
+        if matches!(&error, TransportError::Cancelled) {
+            cleanup_segment_artifacts(destination, MAX_PARALLEL_SEGMENTS as usize);
+            remove_resume_identity(destination);
+        }
+        return Err(error);
+    }
+
+    if destination.exists() {
+        std::fs::remove_file(destination).map_err(|error| TransportError::RequestFailed {
+            message: format!("failed to replace existing download destination: {error}"),
+        })?;
+    }
+    std::fs::rename(&merge_path, destination).map_err(|error| TransportError::RequestFailed {
+        message: format!("failed to commit merged download: {error}"),
+    })?;
+    cleanup_segment_artifacts(destination, MAX_PARALLEL_SEGMENTS as usize);
+    remove_resume_identity(destination);
+    progress(total_bytes, Some(total_bytes));
+
     Ok(HttpFileTransfer {
         response_status: 206,
         final_bytes: total_bytes,
         total_bytes: Some(total_bytes),
         resumed_from,
-        effective_url: probe.effective_url,
+        effective_url,
     })
+}
+
+pub fn download_http_to_path_segmented(
+    url: &str,
+    destination: &Path,
+    requested_connections: u32,
+) -> Result<HttpFileTransfer, TransportError> {
+    download_http_to_path_segmented_controlled(
+        url,
+        destination,
+        requested_connections,
+        || TransferControl::Continue,
+        |_, _| {},
+    )
+}
+
+/// Remove every durable artifact owned by the shared HTTP transfer engine.
+///
+/// Hosts should call this for an explicit destructive cancel/delete operation,
+/// including when no native session is currently alive.
+pub fn discard_http_download_artifacts(destination: &Path) {
+    let _ = std::fs::remove_file(destination);
+    remove_resume_identity(destination);
+    cleanup_segment_artifacts(destination, MAX_PARALLEL_SEGMENTS as usize);
 }
 
 #[cfg(test)]
@@ -1078,7 +1331,7 @@ mod tests {
     use std::io::ErrorKind;
     use std::net::TcpListener;
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     fn spawn_optional_server(listener: TcpListener, response: &'static [u8]) -> thread::JoinHandle<()> {
         thread::spawn(move || {
@@ -1230,7 +1483,7 @@ mod tests {
             assert!(head_request.starts_with("HEAD /payload.bin HTTP/"));
             head_stream
                 .write_all(
-                    b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\n",
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nETag: \"resume-v1\"\r\nConnection: close\r\n\r\n",
                 )
                 .expect("write HEAD response");
 
@@ -1241,6 +1494,7 @@ mod tests {
                 .expect("read range request");
             let range_request = String::from_utf8_lossy(&range_request[..read]);
             assert!(range_request.contains("Range: bytes=4-7"));
+            assert!(range_request.contains("If-Range: \"resume-v1\""));
             range_stream
                 .write_all(
                     b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 4-7/8\r\nContent-Length: 4\r\nConnection: close\r\n\r\nefgh",
@@ -1254,6 +1508,15 @@ mod tests {
             .as_nanos();
         let path = std::env::temp_dir().join(format!("nova-core-resume-{unique}.part"));
         std::fs::write(&path, b"abcd").expect("seed partial file");
+        write_resume_identity(
+            &path,
+            &ResumeIdentity {
+                content_length: 8,
+                validator_kind: "etag",
+                validator: "\"resume-v1\"".to_owned(),
+            },
+        )
+        .expect("persist resume identity");
 
         let url = format!("http://{address}/payload.bin");
         let result = download_http_to_path(&url, &path).expect("resume transfer");
@@ -1262,6 +1525,187 @@ mod tests {
         assert_eq!(result.resumed_from, 4);
         assert_eq!(result.final_bytes, 8);
         assert_eq!(std::fs::read(&path).expect("read result"), b"abcdefgh");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn stale_identity_discards_same_size_partial_before_resume() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind stale identity server");
+        let address = listener.local_addr().expect("stale identity address");
+        let server = thread::spawn(move || {
+            let (mut head_stream, _) = listener.accept().expect("accept HEAD connection");
+            let mut request = [0_u8; 2048];
+            let _ = head_stream.read(&mut request).expect("read HEAD request");
+            head_stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nETag: \"v2\"\r\nConnection: close\r\n\r\n",
+                )
+                .expect("write HEAD response");
+
+            let (mut range_stream, _) = listener.accept().expect("accept fresh range");
+            let mut request = [0_u8; 2048];
+            let read = range_stream.read(&mut request).expect("read fresh range");
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.contains("Range: bytes=0-7"));
+            assert!(request.contains("If-Range: \"v2\""));
+            range_stream
+                .write_all(
+                    b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-7/8\r\nContent-Length: 8\r\nConnection: close\r\n\r\nABCDEFGH",
+                )
+                .expect("write fresh representation");
+        });
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("nova-core-stale-{unique}.part"));
+        std::fs::write(&path, b"abcd").expect("seed stale bytes");
+        write_resume_identity(
+            &path,
+            &ResumeIdentity {
+                content_length: 8,
+                validator_kind: "etag",
+                validator: "\"v1\"".to_owned(),
+            },
+        )
+        .expect("seed stale identity");
+
+        let url = format!("http://{address}/payload.bin");
+        let result = download_http_to_path(&url, &path).expect("restart stale representation");
+        server.join().expect("stale identity server");
+
+        assert_eq!(result.resumed_from, 0);
+        assert_eq!(std::fs::read(&path).expect("read fresh file"), b"ABCDEFGH");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn existing_partial_without_validator_restarts_with_full_get() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind no-validator server");
+        let address = listener.local_addr().expect("no-validator address");
+        let server = thread::spawn(move || {
+            let (mut head_stream, _) = listener.accept().expect("accept HEAD connection");
+            let mut request = [0_u8; 2048];
+            let _ = head_stream.read(&mut request).expect("read HEAD request");
+            head_stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\n",
+                )
+                .expect("write HEAD response");
+
+            let (mut get_stream, _) = listener.accept().expect("accept full GET");
+            let mut request = [0_u8; 2048];
+            let read = get_stream.read(&mut request).expect("read full GET");
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.starts_with("GET /payload.bin HTTP/"));
+            assert!(!request.contains("Range:"));
+            get_stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\nabcdefgh",
+                )
+                .expect("write full response");
+        });
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("nova-core-unverified-{unique}.part"));
+        std::fs::write(&path, b"stale").expect("seed unverifiable bytes");
+
+        let url = format!("http://{address}/payload.bin");
+        let result = download_http_to_path(&url, &path).expect("safe full restart");
+        server.join().expect("no-validator server");
+
+        assert_eq!(result.resumed_from, 0);
+        assert_eq!(std::fs::read(&path).expect("read restarted file"), b"abcdefgh");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn segment_manifest_rejects_changed_parallel_geometry() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("nova-core-layout-{unique}.part"));
+        let four_way = plan_transfer_ranges(100, 4);
+        let two_way = plan_transfer_ranges(100, 2);
+
+        write_segment_manifest(&path, &four_way).expect("write segment manifest");
+        assert_eq!(read_segment_manifest(&path).as_deref(), Some(four_way.as_slice()));
+        assert_ne!(read_segment_manifest(&path).as_deref(), Some(two_way.as_slice()));
+
+        cleanup_segment_artifacts(&path, MAX_PARALLEL_SEGMENTS as usize);
+        assert!(!segment_manifest_path(&path).exists());
+    }
+
+    #[test]
+    fn segmented_transfer_downloads_parallel_ranges_and_merges_in_order() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind segmented server");
+        let address = listener.local_addr().expect("segmented server address");
+        let server = thread::spawn(move || {
+            let (mut head_stream, _) = listener.accept().expect("accept HEAD connection");
+            let mut request = [0_u8; 2048];
+            let _ = head_stream.read(&mut request).expect("read HEAD request");
+            head_stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nETag: \"seg-v1\"\r\nConnection: close\r\n\r\n",
+                )
+                .expect("write HEAD response");
+
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().expect("accept segment connection");
+                let mut request = [0_u8; 2048];
+                let read = stream.read(&mut request).expect("read segment request");
+                let request = String::from_utf8_lossy(&request[..read]);
+                assert!(request.contains("If-Range: \"seg-v1\""));
+                if request.contains("Range: bytes=0-3") {
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-3/8\r\nContent-Length: 4\r\nConnection: close\r\n\r\nabcd",
+                        )
+                        .expect("write first range");
+                } else if request.contains("Range: bytes=4-7") {
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 4-7/8\r\nContent-Length: 4\r\nConnection: close\r\n\r\nefgh",
+                        )
+                        .expect("write second range");
+                } else {
+                    panic!("unexpected segmented request: {request}");
+                }
+            }
+        });
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("nova-core-segmented-{unique}.part"));
+        let latest_progress = AtomicU64::new(0);
+        let url = format!("http://{address}/payload.bin");
+        let result = download_http_to_path_segmented_controlled(
+            &url,
+            &path,
+            2,
+            || TransferControl::Continue,
+            |downloaded, total| {
+                assert_eq!(total, Some(8));
+                latest_progress.store(downloaded, Ordering::Release);
+            },
+        )
+        .expect("parallel segmented transfer");
+        server.join().expect("segmented server");
+
+        assert_eq!(result.final_bytes, 8);
+        assert_eq!(result.resumed_from, 0);
+        assert_eq!(latest_progress.load(Ordering::Acquire), 8);
+        assert_eq!(std::fs::read(&path).expect("read merged result"), b"abcdefgh");
+        assert!(!resume_identity_path(&path).exists());
+        assert!(!segment_part_path(&path, 0).exists());
+        assert!(!segment_part_path(&path, 1).exists());
         let _ = std::fs::remove_file(path);
     }
 
@@ -1308,148 +1752,4 @@ mod tests {
         assert_eq!(std::fs::read(&path).expect("read result"), b"abcdefgh");
         let _ = std::fs::remove_file(path);
     }
-
-    fn spawn_segment_test_server(
-        payload: &'static [u8],
-        expected_requests: usize,
-    ) -> (String, thread::JoinHandle<()>) {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind segmented server");
-        let address = listener.local_addr().expect("segmented server address");
-        let server = thread::spawn(move || {
-            let mut handlers = Vec::with_capacity(expected_requests);
-            for _ in 0..expected_requests {
-                let (mut stream, _) = listener.accept().expect("accept segmented request");
-                handlers.push(thread::spawn(move || {
-                    let mut request = [0_u8; 4096];
-                    let read = stream.read(&mut request).expect("read segmented request");
-                    let request = String::from_utf8_lossy(&request[..read]);
-
-                    if request.starts_with("HEAD ") {
-                        let response = format!(
-                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n",
-                            payload.len(),
-                        );
-                        stream
-                            .write_all(response.as_bytes())
-                            .expect("write segmented HEAD response");
-                        return;
-                    }
-
-                    let range = request
-                        .lines()
-                        .find_map(|line| line.strip_prefix("Range: bytes="))
-                        .expect("segmented range header");
-                    let (start, end) = range.split_once('-').expect("segmented range bounds");
-                    let start: usize = start.parse().expect("segmented range start");
-                    let end: usize = end.parse().expect("segmented range end");
-                    let body = &payload[start..=end];
-                    let response = format!(
-                        "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {start}-{end}/{}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                        payload.len(),
-                        body.len(),
-                    );
-                    stream
-                        .write_all(response.as_bytes())
-                        .expect("write segmented range headers");
-                    stream.write_all(body).expect("write segmented range body");
-                }));
-            }
-            for handler in handlers {
-                handler.join().expect("segmented request handler");
-            }
-        });
-        (format!("http://{address}/payload.bin"), server)
-    }
-
-    fn segmented_test_path(label: &str) -> std::path::PathBuf {
-        let unique = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        std::env::temp_dir().join(format!("nova-core-{label}-{unique}.part"))
-    }
-
-    #[test]
-    fn segmented_transfer_downloads_ranges_in_parallel_and_merges_them() {
-        const PAYLOAD: &[u8] = b"abcdefghijklmnop";
-        let (url, server) = spawn_segment_test_server(PAYLOAD, 6);
-        let path = segmented_test_path("segments");
-
-        let result = download_http_to_path_segmented_controlled(
-            &url,
-            &path,
-            4,
-            4,
-            || TransferControl::Continue,
-        )
-        .expect("segmented transfer");
-        server.join().expect("segmented server thread");
-
-        assert_eq!(result.final_bytes, PAYLOAD.len() as u64);
-        assert_eq!(result.total_bytes, Some(PAYLOAD.len() as u64));
-        assert_eq!(result.resumed_from, 0);
-        assert_eq!(std::fs::read(&path).expect("read merged payload"), PAYLOAD);
-        assert!(!segment_directory(&path).exists());
-        let _ = std::fs::remove_file(path);
-    }
-
-    #[test]
-    fn segmented_transfer_resumes_each_persisted_range_independently() {
-        const PAYLOAD: &[u8] = b"abcdefghijklmnop";
-        let path = segmented_test_path("segment-resume");
-        let directory =
-            prepare_segment_directory(&path, PAYLOAD.len() as u64, 4, None, None)
-                .expect("segment directory");
-        std::fs::write(segment_path(&directory, 0), b"ab").expect("seed partial segment");
-        std::fs::write(segment_path(&directory, 1), b"efgh").expect("seed complete segment");
-        assert_eq!(staged_downloaded_bytes(&path).expect("staged bytes"), 6);
-
-        // HEAD + one range capability probe + three unfinished range requests.
-        let (url, server) = spawn_segment_test_server(PAYLOAD, 5);
-        let result = download_http_to_path_segmented_controlled(
-            &url,
-            &path,
-            4,
-            4,
-            || TransferControl::Continue,
-        )
-        .expect("resumed segmented transfer");
-        server.join().expect("segmented resume server thread");
-
-        assert_eq!(result.resumed_from, 6);
-        assert_eq!(result.final_bytes, PAYLOAD.len() as u64);
-        assert_eq!(std::fs::read(&path).expect("read resumed payload"), PAYLOAD);
-        assert!(!segment_directory(&path).exists());
-        let _ = std::fs::remove_file(path);
-    }
-
-    #[test]
-    fn segmented_checkpoint_discards_bytes_when_validator_changes() {
-        let path = segmented_test_path("validator-change");
-        let first = prepare_segment_directory(
-            &path,
-            16,
-            4,
-            Some("\"v1\""),
-            Some("Wed, 21 Oct 2015 07:28:00 GMT"),
-        )
-        .expect("initial segment directory");
-        std::fs::write(segment_path(&first, 0), b"abcd").expect("seed old segment");
-        assert_eq!(staged_downloaded_bytes(&path).expect("old staged bytes"), 4);
-
-        let second = prepare_segment_directory(
-            &path,
-            16,
-            4,
-            Some("\"v2\""),
-            Some("Wed, 21 Oct 2015 07:28:00 GMT"),
-        )
-        .expect("replacement segment directory");
-
-        assert_eq!(first, second);
-        assert_eq!(staged_downloaded_bytes(&path).expect("reset staged bytes"), 0);
-        assert!(!segment_path(&second, 0).exists());
-        cleanup_segment_state(&path).expect("cleanup segment state");
-    }
-
 }
