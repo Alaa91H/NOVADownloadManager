@@ -763,8 +763,9 @@ fn run_native_media_worker(
                                 finish_native_cancelled(&state, &id, generation);
                                 return;
                             }
-                            complete_native_task(&state, &id, generation, assembly.bytes);
-                            let _ = std::fs::remove_dir_all(&staging_dir);
+                            if complete_native_task(&state, &id, generation, assembly.bytes) {
+                                let _ = std::fs::remove_dir_all(&staging_dir);
+                            }
                         }
                         Err(error) => {
                             fail_native_task(&state, &id, generation, error.to_string())
@@ -940,8 +941,9 @@ fn run_native_separate_track_execution(
     };
     match postprocessor.mux(&request, &should_cancel) {
         Ok(bytes) => {
-            complete_native_task(state, id, generation, bytes);
-            let _ = std::fs::remove_dir_all(staging_dir);
+            if complete_native_task(state, id, generation, bytes) {
+                let _ = std::fs::remove_dir_all(staging_dir);
+            }
         }
         Err(PostProcessError::Cancelled) if should_cancel() => {
             finish_native_cancelled(state, id, generation)
@@ -1555,7 +1557,7 @@ fn update_native_progress(state: &SharedState, id: &str, generation: u64, bytes:
     let task = {
         let mut jobs = match state.native_media_jobs.lock() {
             Ok(jobs) => jobs,
-            Err(_) => return,
+            Err(_) => return false,
         };
         let Some(job) = jobs.get_mut(id) else {
             return;
@@ -1796,7 +1798,7 @@ fn fail_native_task(state: &SharedState, id: &str, generation: u64, error: Strin
     state.mark_dirty();
 }
 
-fn complete_native_task(state: &SharedState, id: &str, generation: u64, bytes: u64) {
+fn complete_native_task(state: &SharedState, id: &str, generation: u64, bytes: u64) -> bool {
     enum Completion {
         Completed(Task),
         Paused(Task),
@@ -1850,6 +1852,7 @@ fn complete_native_task(state: &SharedState, id: &str, generation: u64, bytes: u
                     stats.total_downloaded_bytes.saturating_add(bytes);
             }
             state.mark_dirty();
+            true
         }
         Completion::Paused(task) => {
             if let Ok(mut snapshot) = state.task_snapshot.lock() {
@@ -1858,8 +1861,9 @@ fn complete_native_task(state: &SharedState, id: &str, generation: u64, bytes: u
             state.priority_queue.release_active_slot();
             state.mark_dirty();
             crate::daemon::persist::save_now(state.as_ref());
+            false
         }
-        Completion::Stale => {}
+        Completion::Stale => false,
     }
 }
 
