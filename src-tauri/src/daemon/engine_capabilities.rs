@@ -1988,9 +1988,9 @@ pub fn native_torrent_status() -> Value {
         "id": nova_torrent_core::ENGINE_ID,
         "name": "NOVA Torrent Engine",
         "role": "torrent-download-engine",
-        // Protocol, discovery, peer transfer, storage, and durable resume are
-        // implemented, but Stage 6 daemon task routing/API registration is not.
-        "available": false,
+        // Protocol, discovery, transfer, durable storage, task lifecycle, and
+        // authenticated daemon APIs are connected end-to-end.
+        "available": true,
         "foundationReady": true,
         "version": env!("CARGO_PKG_VERSION"),
         "source": "in-process Rust torrent core",
@@ -2054,8 +2054,12 @@ pub fn native_torrent_status() -> Value {
             "novaBandwidthPolicyIntegration": true,
             "restartSchedulerRestore": true,
             "durableResume": true,
-            "daemonTaskRouting": false,
-            "torrentTaskLifecycleApi": false
+            "daemonTaskRouting": true,
+            "torrentTaskLifecycleApi": true,
+            "torrentAnalysisApi": true,
+            "torrentFilePriorityApi": true,
+            "torrentReauthorizationApi": true,
+            "genericMagnetCreateRouting": true
         }
     })
 }
@@ -2095,7 +2099,7 @@ pub fn all_engine_status(_media_bridge_bin: &str, ffmpeg_bin: &str) -> Value {
             "directHttpHttpsFtp": if direct_ready { json!("libcurl-multi") } else { Value::Null },
             "webMediaAndPlaylists": if media_ready { json!("nova-media-engine") } else { Value::Null },
             "mergeRemuxExtractSubtitles": if post_processing_ready { json!("nova-media-postprocess") } else { Value::Null },
-            "torrentMagnet": Value::Null
+            "torrentMagnet": json!(nova_torrent_core::ENGINE_ID)
         },
         "engines": {
             "curl": curl,
@@ -2116,7 +2120,7 @@ mod tests {
         let status = native_torrent_status();
         assert_eq!(status["runtimeCore"], "nova-torrent-core");
         assert_eq!(status["foundationReady"], true);
-        assert_eq!(status["available"], false);
+        assert_eq!(status["available"], true);
         assert_eq!(status["capabilities"]["metainfoV1"], true);
         assert_eq!(status["capabilities"]["magnetBtih"], true);
         assert_eq!(status["capabilities"]["httpTrackerProtocol"], true);
@@ -2147,17 +2151,28 @@ mod tests {
         assert_eq!(status["capabilities"]["novaPriorityQueueIntegration"], true);
         assert_eq!(status["capabilities"]["novaBandwidthPolicyIntegration"], true);
         assert_eq!(status["capabilities"]["durableResume"], true);
-        assert_eq!(status["capabilities"]["daemonTaskRouting"], false);
+        assert_eq!(status["capabilities"]["daemonTaskRouting"], true);
+        assert_eq!(status["capabilities"]["torrentTaskLifecycleApi"], true);
+        assert_eq!(status["capabilities"]["torrentAnalysisApi"], true);
+        assert_eq!(status["capabilities"]["torrentFilePriorityApi"], true);
+        assert_eq!(status["capabilities"]["torrentReauthorizationApi"], true);
     }
 
     #[test]
-    fn torrent_routing_stays_disabled_after_durable_core_completion() {
+    fn torrent_routing_is_enabled_only_after_daemon_lifecycle_integration() {
         let status = all_engine_status("", "");
-        assert!(status["routing"]["torrentMagnet"].is_null());
-        assert_eq!(status["engines"]["torrent"]["available"], false);
+        assert_eq!(
+            status["routing"]["torrentMagnet"],
+            nova_torrent_core::ENGINE_ID
+        );
+        assert_eq!(status["engines"]["torrent"]["available"], true);
         assert_eq!(
             status["engines"]["torrent"]["capabilities"]["daemonTaskRouting"],
-            false
+            true
+        );
+        assert_eq!(
+            status["engines"]["torrent"]["capabilities"]["torrentTaskLifecycleApi"],
+            true
         );
     }
 
