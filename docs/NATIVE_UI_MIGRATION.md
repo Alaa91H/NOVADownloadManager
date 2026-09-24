@@ -103,7 +103,7 @@ Remaining before Stage 4 is considered complete:
 
 ### Stage 5 — Localization and platform polish
 
-Status: **in progress — localization/theme/accessibility foundation implemented**.
+Status: **in progress — functional localization/theme/accessibility layer implemented; platform validation remains**.
 
 Implemented in the first Stage 5 slice:
 
@@ -117,15 +117,18 @@ Implemented in the first Stage 5 slice:
 - Adjustable text scale and shared typography tokens.
 - Dynamic light/dark semantic color palette.
 - Localized main menus, navigation rail, command bar, status bar and primary Settings headings.
-- Localized Downloads workspace, queue manager, batch import, media downloader, link grabber and core download dialogs.
+- Localized Downloads workspace, queue manager, batch import, scheduler, media downloader, link grabber, Settings/Diagnostics and core download dialogs.
 - RTL-safe URL/path/output-template fields that explicitly remain left-to-right inside Arabic layouts.
-- Shared text-scale tokens applied across the newly localized workflows.
+- Shared text-scale tokens applied across the localized workflows.
+- Explicit keyboard tab order for primary create/edit dialogs and scheduler rule entry.
+- Expanded accessibility names/descriptions for navigation, download rows, scheduler rules, logs and primary form controls.
+- Explicit Qt High-DPI scale-factor rounding policy.
+- CI localization gate that rejects newly introduced hard-coded user-visible English QML copy while allowing narrowly scoped technical literals.
 - Keyboard focus rings and accessibility names for the primary navigation and command actions.
 
 Remaining before Stage 5 is complete:
 
-- Finish migrating the remaining Scheduler sub-dialog text, advanced Settings strings and residual workflow labels into the localization catalog.
-- Import the full language set supported by the legacy UI.
+- Import the full language set supported by the legacy UI beyond the current English, Arabic and German baseline.
 - Complete per-page RTL layout review, especially tables, inspectors and mixed URL/path content.
 - Extend typography scaling to every legacy-sized text declaration.
 - Accessibility labels/descriptions and tab order for all dialogs, lists, tables and form controls.
