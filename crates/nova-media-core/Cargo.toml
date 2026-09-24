@@ -1,0 +1,15 @@
+[package]
+name = "nova-media-core"
+version = "0.1.0"
+description = "Native media extraction and orchestration core for NOVA Download Manager"
+authors = ["NOVA"]
+license = "MIT"
+repository = "https://github.com/Alaa91H/NOVADownloadManager"
+edition = "2021"
+rust-version = "1.77"
+
+[dependencies]
+nova-stream-core = { path = "../nova-stream-core" }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+url = "2"
