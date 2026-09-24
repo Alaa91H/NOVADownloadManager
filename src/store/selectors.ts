@@ -27,6 +27,7 @@ export function useTaskActions() {
   return useMemo(
     () => ({
       setSelectedTaskId: uiStore.getState().setSelectedTaskId,
+      setTasksWith: taskStore.getState().setTasksWith,
       addTask: taskStore.getState().addTask,
       pauseTask: taskStore.getState().pauseTask,
       resumeTask: taskStore.getState().resumeTask,
