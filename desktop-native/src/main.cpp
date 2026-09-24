@@ -7,6 +7,8 @@
 
 #include "api/NovaApiClient.h"
 #include "models/DownloadListModel.h"
+#include "localization/I18nManager.h"
+#include "platform/AppearanceManager.h"
 #include "platform/DesktopIntegration.h"
 #include "platform/TrayManager.h"
 #include "platform/UpdaterManager.h"
@@ -22,6 +24,8 @@ int main(int argc, char *argv[]) {
 
     NovaApiClient apiClient;
     DownloadListModel downloadsModel;
+    I18nManager i18nManager;
+    AppearanceManager appearanceManager;
     DesktopIntegration desktopIntegration;
     NativeSettings nativeSettings;
     TrayManager trayManager;
@@ -59,6 +63,8 @@ int main(int argc, char *argv[]) {
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("novaApi"), &apiClient);
+    engine.rootContext()->setContextProperty(QStringLiteral("i18n"), &i18nManager);
+    engine.rootContext()->setContextProperty(QStringLiteral("appearanceManager"), &appearanceManager);
     engine.rootContext()->setContextProperty(QStringLiteral("downloadsModel"), &downloadsModel);
     engine.rootContext()->setContextProperty(QStringLiteral("desktopIntegration"), &desktopIntegration);
     engine.rootContext()->setContextProperty(QStringLiteral("nativeSettings"), &nativeSettings);

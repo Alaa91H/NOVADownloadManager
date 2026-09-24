@@ -10,6 +10,12 @@ Rectangle {
     property int activeCount: 0
     property int totalCount: 0
     property double totalSpeed: 0
+    property string languageToken: i18n.language
+
+    function t(key) {
+        const token = root.languageToken
+        return i18n.translate(key)
+    }
 
     function formatSpeed(bytesPerSecond) {
         if (bytesPerSecond >= 1024 * 1024 * 1024)
@@ -40,7 +46,7 @@ Rectangle {
         Text {
             text: root.engineStatus
             color: Theme.textSecondary
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontSmall
         }
 
         Rectangle {
@@ -50,9 +56,9 @@ Rectangle {
         }
 
         Text {
-            text: root.activeCount + " active"
+            text: root.activeCount + " " + root.t("status.active")
             color: Theme.textSecondary
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontSmall
         }
 
         Rectangle {
@@ -64,16 +70,16 @@ Rectangle {
         Text {
             text: "↓ " + root.formatSpeed(root.totalSpeed)
             color: Theme.textPrimary
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontSmall
             font.family: "monospace"
         }
 
         Item { Layout.fillWidth: true }
 
         Text {
-            text: root.totalCount + " downloads"
+            text: root.totalCount + " " + root.t("status.downloads")
             color: Theme.textMuted
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontSmall
         }
     }
 }

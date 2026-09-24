@@ -1,5 +1,6 @@
 #include "settings/NativeSettings.h"
 
+#include <QSet>
 #include <QStandardPaths>
 
 namespace {
@@ -54,6 +55,35 @@ QString NativeSettings::updateChannel() const {
         : QStringLiteral("stable");
 }
 
+QString NativeSettings::uiLanguage() const {
+    const QString stored = value<QString>(QStringLiteral("appearance/language"), QStringLiteral("system"))
+        .trimmed()
+        .toLower();
+    return stored.isEmpty() ? QStringLiteral("system") : stored;
+}
+
+QString NativeSettings::appearanceMode() const {
+    const QString stored = value<QString>(QStringLiteral("appearance/mode"), QStringLiteral("system"))
+        .trimmed()
+        .toLower();
+    if (stored == QStringLiteral("light") || stored == QStringLiteral("dark")) {
+        return stored;
+    }
+    return QStringLiteral("system");
+}
+
+bool NativeSettings::highContrast() const {
+    return value<bool>(QStringLiteral("appearance/highContrast"), false);
+}
+
+bool NativeSettings::reducedMotion() const {
+    return value<bool>(QStringLiteral("appearance/reducedMotion"), false);
+}
+
+double NativeSettings::fontScale() const {
+    return qBound(0.85, value<double>(QStringLiteral("appearance/fontScale"), 1.0), 1.35);
+}
+
 void NativeSettings::setDefaultSaveDirectory(const QString &value) {
     store(QStringLiteral("downloads/defaultDirectory"), value.trimmed());
 }
@@ -91,6 +121,40 @@ void NativeSettings::setUpdateChannel(const QString &value) {
         ? QStringLiteral("preview")
         : QStringLiteral("stable");
     store(QStringLiteral("updates/channel"), normalized);
+}
+
+void NativeSettings::setUiLanguage(const QString &value) {
+    QString normalized = value.trimmed().toLower();
+    static const QSet<QString> allowed{
+        QStringLiteral("system"),
+        QStringLiteral("en"),
+        QStringLiteral("ar"),
+        QStringLiteral("de")
+    };
+    if (!allowed.contains(normalized)) {
+        normalized = QStringLiteral("system");
+    }
+    store(QStringLiteral("appearance/language"), normalized);
+}
+
+void NativeSettings::setAppearanceMode(const QString &value) {
+    QString normalized = value.trimmed().toLower();
+    if (normalized != QStringLiteral("light") && normalized != QStringLiteral("dark")) {
+        normalized = QStringLiteral("system");
+    }
+    store(QStringLiteral("appearance/mode"), normalized);
+}
+
+void NativeSettings::setHighContrast(bool value) {
+    store(QStringLiteral("appearance/highContrast"), value);
+}
+
+void NativeSettings::setReducedMotion(bool value) {
+    store(QStringLiteral("appearance/reducedMotion"), value);
+}
+
+void NativeSettings::setFontScale(double value) {
+    store(QStringLiteral("appearance/fontScale"), qBound(0.85, value, 1.35));
 }
 
 void NativeSettings::resetToDefaults() {

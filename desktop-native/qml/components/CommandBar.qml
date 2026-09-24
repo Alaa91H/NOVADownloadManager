@@ -22,6 +22,12 @@ Rectangle {
     property bool canResumeSelection: false
     property string selectedStatus: ""
     property bool hasSavePath: false
+    property string languageToken: i18n.language
+
+    function t(key) {
+        const token = root.languageToken
+        return i18n.translate(key)
+    }
 
     readonly property string normalizedStatus: selectedStatus.toLowerCase()
     readonly property bool canOpenFile: hasSelection
@@ -41,9 +47,9 @@ Rectangle {
         spacing: 4
 
         Button {
-            text: "+  New download"
+            text: "+  " + root.t("action.newDownload")
             enabled: root.engineConnected
-            font.pixelSize: 12
+            font.pixelSize: Theme.fontBody
             font.weight: Font.DemiBold
 
             background: Rectangle {
@@ -67,8 +73,10 @@ Rectangle {
         ToolSeparator {}
 
         Button {
-            text: "Resume"
+            text: root.t("action.resume")
             flat: true
+            activeFocusOnTab: true
+            Accessible.name: text
             enabled: root.hasSelection
                 && root.engineConnected
                 && root.canResumeSelection
@@ -76,8 +84,10 @@ Rectangle {
         }
 
         Button {
-            text: "Pause"
+            text: root.t("action.pause")
             flat: true
+            activeFocusOnTab: true
+            Accessible.name: text
             enabled: root.hasSelection
                 && root.engineConnected
                 && root.canPauseSelection
@@ -85,8 +95,10 @@ Rectangle {
         }
 
         Button {
-            text: root.failedSelection ? "Retry" : "Redownload"
+            text: root.failedSelection ? root.t("action.retry") : root.t("action.redownload")
             flat: true
+            activeFocusOnTab: true
+            Accessible.name: text
             enabled: root.hasSelection && root.engineConnected
             onClicked: root.redownloadRequested()
         }
@@ -94,29 +106,37 @@ Rectangle {
         ToolSeparator {}
 
         Button {
-            text: "Open"
+            text: root.t("action.open")
             flat: true
+            activeFocusOnTab: true
+            Accessible.name: text
             enabled: root.canOpenFile
             onClicked: root.openFileRequested()
         }
 
         Button {
-            text: "Folder"
+            text: root.t("action.folder")
             flat: true
+            activeFocusOnTab: true
+            Accessible.name: text
             enabled: root.hasSelection && root.hasSavePath
             onClicked: root.openFolderRequested()
         }
 
         Button {
-            text: "Properties"
+            text: root.t("action.properties")
             flat: true
+            activeFocusOnTab: true
+            Accessible.name: text
             enabled: root.hasSelection
             onClicked: root.propertiesRequested()
         }
 
         Button {
-            text: "Delete"
+            text: root.t("action.delete")
             flat: true
+            activeFocusOnTab: true
+            Accessible.name: text
             enabled: root.hasSelection && root.engineConnected
             onClicked: root.deleteRequested()
         }
@@ -124,7 +144,9 @@ Rectangle {
         Item { Layout.fillWidth: true }
 
         ToolButton {
-            text: "Refresh"
+            text: root.t("action.refresh")
+            activeFocusOnTab: true
+            Accessible.name: text
             onClicked: root.refreshRequested()
         }
     }

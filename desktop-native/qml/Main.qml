@@ -11,10 +11,46 @@ ApplicationWindow {
     height: 820
     minimumWidth: 1040
     minimumHeight: 660
-    title: "NOVA Download Manager"
+    title: t("app.name")
     color: Theme.window
 
     property string currentPage: "downloads"
+    property string languageToken: i18n.language
+
+    LayoutMirroring.enabled: i18n.rtl
+    LayoutMirroring.childrenInherit: true
+
+    function t(key) {
+        const token = window.languageToken
+        return i18n.translate(key)
+    }
+
+    function syncUiPreferences() {
+        i18n.setLanguage(nativeSettings.uiLanguage)
+
+        const mode = nativeSettings.appearanceMode
+        Theme.darkMode = mode === "dark"
+            || (mode === "system" && appearanceManager.systemDark)
+        Theme.highContrast = nativeSettings.highContrast
+        Theme.reducedMotion = nativeSettings.reducedMotion
+        Theme.fontScale = nativeSettings.fontScale
+    }
+
+    Component.onCompleted: syncUiPreferences()
+
+    Connections {
+        target: nativeSettings
+        function onSettingsChanged() {
+            window.syncUiPreferences()
+        }
+    }
+
+    Connections {
+        target: appearanceManager
+        function onSystemThemeChanged() {
+            window.syncUiPreferences()
+        }
+    }
 
     function openNewDownload() {
         window.currentPage = "downloads"
@@ -26,7 +62,7 @@ ApplicationWindow {
 
     Action {
         id: newDownloadAction
-        text: "New Download"
+        text: window.t("action.newDownload")
         shortcut: StandardKey.New
         enabled: novaApi.connected
         onTriggered: window.openNewDownload()
@@ -34,7 +70,7 @@ ApplicationWindow {
 
     Action {
         id: refreshAction
-        text: "Refresh"
+        text: window.t("action.refresh")
         shortcut: "F5"
         onTriggered: {
             if (window.currentPage === "settings") {
@@ -48,14 +84,14 @@ ApplicationWindow {
 
     Action {
         id: settingsAction
-        text: "Settings"
+        text: window.t("nav.settings")
         shortcut: "Ctrl+,"
         onTriggered: window.currentPage = "settings"
     }
 
     Action {
         id: checkUpdatesAction
-        text: "Check for Updates"
+        text: window.t("action.checkUpdates")
         onTriggered: {
             window.currentPage = "settings"
             updaterManager.checkForUpdates(nativeSettings.updateChannel)
@@ -64,44 +100,44 @@ ApplicationWindow {
 
     menuBar: MenuBar {
         Menu {
-            title: "File"
+            title: window.t("menu.file")
             MenuItem { action: newDownloadAction }
             MenuItem {
-                text: "Batch Import"
+                text: window.t("nav.batch")
                 shortcut: "Ctrl+Shift+B"
                 onTriggered: window.currentPage = "batch"
             }
             MenuSeparator {}
             MenuItem {
-                text: "Quit"
+                text: window.t("action.quit")
                 shortcut: StandardKey.Quit
                 onTriggered: Qt.quit()
             }
         }
 
         Menu {
-            title: "View"
-            MenuItem { text: "Downloads"; shortcut: "Alt+1"; onTriggered: window.currentPage = "downloads" }
-            MenuItem { text: "Active"; shortcut: "Alt+2"; onTriggered: window.currentPage = "active" }
-            MenuItem { text: "Queued"; shortcut: "Alt+3"; onTriggered: window.currentPage = "queued" }
-            MenuItem { text: "Completed"; shortcut: "Alt+4"; onTriggered: window.currentPage = "completed" }
-            MenuItem { text: "Failed"; shortcut: "Alt+5"; onTriggered: window.currentPage = "failed" }
+            title: window.t("menu.view")
+            MenuItem { text: window.t("nav.downloads"); shortcut: "Alt+1"; onTriggered: window.currentPage = "downloads" }
+            MenuItem { text: window.t("nav.active"); shortcut: "Alt+2"; onTriggered: window.currentPage = "active" }
+            MenuItem { text: window.t("nav.queued"); shortcut: "Alt+3"; onTriggered: window.currentPage = "queued" }
+            MenuItem { text: window.t("nav.completed"); shortcut: "Alt+4"; onTriggered: window.currentPage = "completed" }
+            MenuItem { text: window.t("nav.failed"); shortcut: "Alt+5"; onTriggered: window.currentPage = "failed" }
             MenuSeparator {}
             MenuItem { action: refreshAction }
         }
 
         Menu {
-            title: "Tools"
-            MenuItem { text: "Queue Manager"; onTriggered: window.currentPage = "queue" }
-            MenuItem { text: "Scheduler"; onTriggered: window.currentPage = "scheduler" }
-            MenuItem { text: "Media Downloader"; shortcut: "Ctrl+Shift+M"; onTriggered: window.currentPage = "media" }
-            MenuItem { text: "Link Grabber"; shortcut: "Ctrl+L"; onTriggered: window.currentPage = "grabber" }
+            title: window.t("menu.tools")
+            MenuItem { text: window.t("nav.queue"); onTriggered: window.currentPage = "queue" }
+            MenuItem { text: window.t("nav.scheduler"); onTriggered: window.currentPage = "scheduler" }
+            MenuItem { text: window.t("nav.media"); shortcut: "Ctrl+Shift+M"; onTriggered: window.currentPage = "media" }
+            MenuItem { text: window.t("nav.grabber"); shortcut: "Ctrl+L"; onTriggered: window.currentPage = "grabber" }
             MenuSeparator {}
             MenuItem { action: settingsAction }
         }
 
         Menu {
-            title: "Help"
+            title: window.t("menu.help")
             MenuItem { action: checkUpdatesAction }
         }
     }

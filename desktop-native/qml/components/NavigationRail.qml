@@ -7,6 +7,12 @@ Rectangle {
     id: root
 
     property string currentPage: "downloads"
+    property string languageToken: i18n.language
+
+    function t(key) {
+        const token = root.languageToken
+        return i18n.translate(key)
+    }
     property int activeDownloads: 0
     signal pageSelected(string page)
 
@@ -50,9 +56,9 @@ Rectangle {
                     font.weight: Font.DemiBold
                 }
                 Text {
-                    text: "Download Manager"
+                    text: root.t("app.name").replace("NOVA ", "")
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontSmall
                 }
             }
         }
@@ -61,20 +67,20 @@ Rectangle {
             Layout.leftMargin: 10
             Layout.topMargin: 2
             Layout.bottomMargin: 3
-            text: "LIBRARY"
+            text: root.t("nav.library")
             color: Theme.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontTiny
             font.weight: Font.DemiBold
             font.letterSpacing: 0.8
         }
 
         Repeater {
             model: [
-                { page: "downloads", label: "Downloads", badge: "" },
-                { page: "active", label: "Active", badge: root.activeDownloads > 0 ? String(root.activeDownloads) : "" },
-                { page: "queued", label: "Queued", badge: "" },
-                { page: "completed", label: "Completed", badge: "" },
-                { page: "failed", label: "Failed", badge: "" }
+                { page: "downloads", label: root.t("nav.downloads"), badge: "" },
+                { page: "active", label: root.t("nav.active"), badge: root.activeDownloads > 0 ? String(root.activeDownloads) : "" },
+                { page: "queued", label: root.t("nav.queued"), badge: "" },
+                { page: "completed", label: root.t("nav.completed"), badge: "" },
+                { page: "failed", label: root.t("nav.failed"), badge: "" }
             ]
 
             delegate: Button {
@@ -84,9 +90,16 @@ Rectangle {
                 Layout.preferredHeight: 34
                 flat: true
                 hoverEnabled: true
+                activeFocusOnTab: true
+                Accessible.name: modelData.label
+                Accessible.description: modelData.page === root.currentPage
+                    ? modelData.label + " — selected"
+                    : modelData.label
 
                 background: Rectangle {
                     radius: Theme.radiusMedium
+                    border.width: parent.activeFocus ? 2 : 0
+                    border.color: Theme.focusRing
                     color: modelData.page === root.currentPage
                         ? Theme.surfaceSelected
                         : parent.hovered ? Theme.surfaceHover : "transparent"
@@ -98,7 +111,7 @@ Rectangle {
                     Text {
                         text: modelData.label
                         color: modelData.page === root.currentPage ? Theme.textPrimary : Theme.textSecondary
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontBody
                         font.weight: modelData.page === root.currentPage ? Font.DemiBold : Font.Normal
                     }
 
@@ -116,7 +129,7 @@ Rectangle {
                             anchors.centerIn: parent
                             text: modelData.badge
                             color: Theme.textSecondary
-                            font.pixelSize: 10
+                            font.pixelSize: Theme.fontSmall
                         }
                     }
                 }
@@ -129,20 +142,20 @@ Rectangle {
             Layout.leftMargin: 10
             Layout.topMargin: 14
             Layout.bottomMargin: 3
-            text: "TOOLS"
+            text: root.t("nav.tools")
             color: Theme.textMuted
-            font.pixelSize: 9
+            font.pixelSize: Theme.fontTiny
             font.weight: Font.DemiBold
             font.letterSpacing: 0.8
         }
 
         Repeater {
             model: [
-                { page: "queue", label: "Queue Manager" },
-                { page: "batch", label: "Batch Import" },
-                { page: "scheduler", label: "Scheduler" },
-                { page: "media", label: "Media Downloader" },
-                { page: "grabber", label: "Link Grabber" }
+                { page: "queue", label: root.t("nav.queue") },
+                { page: "batch", label: root.t("nav.batch") },
+                { page: "scheduler", label: root.t("nav.scheduler") },
+                { page: "media", label: root.t("nav.media") },
+                { page: "grabber", label: root.t("nav.grabber") }
             ]
 
             delegate: Button {
@@ -163,7 +176,7 @@ Rectangle {
                 contentItem: Text {
                     text: modelData.label
                     color: modelData.page === root.currentPage ? Theme.textPrimary : Theme.textSecondary
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.fontBody
                     font.weight: modelData.page === root.currentPage ? Font.DemiBold : Font.Normal
                     verticalAlignment: Text.AlignVCenter
                 }
@@ -185,18 +198,22 @@ Rectangle {
             Layout.preferredHeight: 36
             flat: true
             hoverEnabled: true
+            activeFocusOnTab: true
+            Accessible.name: root.t("nav.settings")
 
             background: Rectangle {
                 radius: Theme.radiusMedium
+                border.width: parent.activeFocus ? 2 : 0
+                border.color: Theme.focusRing
                 color: root.currentPage === "settings"
                     ? Theme.surfaceSelected
                     : parent.hovered ? Theme.surfaceHover : "transparent"
             }
 
             contentItem: Text {
-                text: "Settings"
+                text: root.t("nav.settings")
                 color: root.currentPage === "settings" ? Theme.textPrimary : Theme.textSecondary
-                font.pixelSize: 12
+                font.pixelSize: Theme.fontBody
                 font.weight: root.currentPage === "settings" ? Font.DemiBold : Font.Normal
                 verticalAlignment: Text.AlignVCenter
             }

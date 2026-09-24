@@ -16,6 +16,11 @@ class NativeSettings final : public QObject {
     Q_PROPERTY(bool notifyOnComplete READ notifyOnComplete WRITE setNotifyOnComplete NOTIFY settingsChanged)
     Q_PROPERTY(bool notifyOnFailure READ notifyOnFailure WRITE setNotifyOnFailure NOTIFY settingsChanged)
     Q_PROPERTY(QString updateChannel READ updateChannel WRITE setUpdateChannel NOTIFY settingsChanged)
+    Q_PROPERTY(QString uiLanguage READ uiLanguage WRITE setUiLanguage NOTIFY settingsChanged)
+    Q_PROPERTY(QString appearanceMode READ appearanceMode WRITE setAppearanceMode NOTIFY settingsChanged)
+    Q_PROPERTY(bool highContrast READ highContrast WRITE setHighContrast NOTIFY settingsChanged)
+    Q_PROPERTY(bool reducedMotion READ reducedMotion WRITE setReducedMotion NOTIFY settingsChanged)
+    Q_PROPERTY(double fontScale READ fontScale WRITE setFontScale NOTIFY settingsChanged)
 
 public:
     explicit NativeSettings(QObject *parent = nullptr);
@@ -29,6 +34,11 @@ public:
     bool notifyOnComplete() const;
     bool notifyOnFailure() const;
     QString updateChannel() const;
+    QString uiLanguage() const;
+    QString appearanceMode() const;
+    bool highContrast() const;
+    bool reducedMotion() const;
+    double fontScale() const;
 
     void setDefaultSaveDirectory(const QString &value);
     void setDefaultConnections(int value);
@@ -39,6 +49,11 @@ public:
     void setNotifyOnComplete(bool value);
     void setNotifyOnFailure(bool value);
     void setUpdateChannel(const QString &value);
+    void setUiLanguage(const QString &value);
+    void setAppearanceMode(const QString &value);
+    void setHighContrast(bool value);
+    void setReducedMotion(bool value);
+    void setFontScale(double value);
 
     Q_INVOKABLE void resetToDefaults();
 

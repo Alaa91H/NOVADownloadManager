@@ -14,6 +14,21 @@ Item {
 
     property string noticeText: ""
     property bool noticeError: false
+    property string languageToken: i18n.language
+
+    function t(key) {
+        const token = root.languageToken
+        return i18n.translate(key)
+    }
+
+    function languageIndex() {
+        const code = settings.uiLanguage
+        for (let i = 0; i < i18n.supportedLanguages.length; ++i) {
+            if (i18n.supportedLanguages[i].code === code)
+                return i
+        }
+        return 0
+    }
 
     function engine(id) {
         const caps = api.engineCapabilities || ({})
@@ -88,14 +103,14 @@ Item {
                 spacing: 2
 
                 Text {
-                    text: "Settings & Diagnostics"
+                    text: root.t("settings.title")
                     color: Theme.textPrimary
-                    font.pixelSize: 21
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                 }
 
                 Text {
-                    text: "Native preferences, Rust engine controls and runtime diagnostics"
+                    text: root.t("settings.subtitle")
                     color: Theme.textMuted
                     font.pixelSize: 10
                 }
@@ -134,9 +149,9 @@ Item {
             id: tabs
             Layout.fillWidth: true
 
-            TabButton { text: "General" }
-            TabButton { text: "Engine" }
-            TabButton { text: "Diagnostics" }
+            TabButton { text: root.t("settings.general") }
+            TabButton { text: root.t("settings.engine") }
+            TabButton { text: root.t("settings.diagnostics") }
         }
 
         StackLayout {
@@ -150,6 +165,136 @@ Item {
                 ColumnLayout {
                     width: parent.availableWidth
                     spacing: 12
+
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: appearanceColumn.implicitHeight + 28
+                        radius: Theme.radiusMedium
+                        color: Theme.surface
+                        border.color: Theme.border
+
+                        ColumnLayout {
+                            id: appearanceColumn
+                            anchors.fill: parent
+                            anchors.margins: 14
+                            spacing: 12
+
+                            Text {
+                                text: root.t("settings.appearance")
+                                color: Theme.textPrimary
+                                font.pixelSize: Theme.fontMedium
+                                font.weight: Font.DemiBold
+                            }
+
+                            GridLayout {
+                                Layout.fillWidth: true
+                                columns: 2
+                                columnSpacing: 12
+                                rowSpacing: 10
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 4
+
+                                    Text {
+                                        text: root.t("settings.language")
+                                        color: Theme.textMuted
+                                        font.pixelSize: Theme.fontSmall
+                                    }
+
+                                    ComboBox {
+                                        id: languageBox
+                                        Layout.fillWidth: true
+                                        model: i18n.supportedLanguages
+                                        textRole: "label"
+                                        valueRole: "code"
+                                        currentIndex: root.languageIndex()
+                                        Accessible.name: root.t("settings.language")
+                                        onActivated: settings.uiLanguage = currentValue
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 4
+
+                                    Text {
+                                        text: root.t("settings.theme")
+                                        color: Theme.textMuted
+                                        font.pixelSize: Theme.fontSmall
+                                    }
+
+                                    ComboBox {
+                                        id: appearanceBox
+                                        Layout.fillWidth: true
+                                        model: [
+                                            { label: root.t("settings.system"), value: "system" },
+                                            { label: root.t("settings.light"), value: "light" },
+                                            { label: root.t("settings.dark"), value: "dark" }
+                                        ]
+                                        textRole: "label"
+                                        valueRole: "value"
+                                        currentIndex: settings.appearanceMode === "light"
+                                            ? 1
+                                            : settings.appearanceMode === "dark" ? 2 : 0
+                                        Accessible.name: root.t("settings.theme")
+                                        onActivated: settings.appearanceMode = currentValue
+                                    }
+                                }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 18
+
+                                Switch {
+                                    text: root.t("settings.highContrast")
+                                    checked: settings.highContrast
+                                    Accessible.name: text
+                                    onToggled: settings.highContrast = checked
+                                }
+
+                                Switch {
+                                    text: root.t("settings.reducedMotion")
+                                    checked: settings.reducedMotion
+                                    Accessible.name: text
+                                    onToggled: settings.reducedMotion = checked
+                                }
+
+                                Item { Layout.fillWidth: true }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 10
+
+                                Text {
+                                    text: root.t("settings.fontScale")
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.fontSmall
+                                }
+
+                                Slider {
+                                    id: fontScaleSlider
+                                    Layout.fillWidth: true
+                                    from: 0.85
+                                    to: 1.35
+                                    stepSize: 0.05
+                                    value: settings.fontScale
+                                    Accessible.name: root.t("settings.fontScale")
+                                    onMoved: settings.fontScale = value
+                                }
+
+                                Text {
+                                    text: Math.round(settings.fontScale * 100) + "%"
+                                    color: Theme.textPrimary
+                                    font.pixelSize: Theme.fontSmall
+                                    font.family: "monospace"
+                                }
+                            }
+                        }
+                    }
 
                     Rectangle {
                         Layout.fillWidth: true
@@ -165,7 +310,7 @@ Item {
                             spacing: 12
 
                             Text {
-                                text: "Download defaults"
+                                text: root.t("settings.downloadDefaults")
                                 color: Theme.textPrimary
                                 font.pixelSize: 13
                                 font.weight: Font.DemiBold
@@ -237,7 +382,7 @@ Item {
                             spacing: 10
 
                             Text {
-                                text: "Desktop integration"
+                                text: root.t("settings.desktopIntegration")
                                 color: Theme.textPrimary
                                 font.pixelSize: 13
                                 font.weight: Font.DemiBold
@@ -284,7 +429,7 @@ Item {
                                 Layout.fillWidth: true
 
                                 Text {
-                                    text: "Notifications"
+                                    text: root.t("settings.notifications")
                                     color: Theme.textPrimary
                                     font.pixelSize: 13
                                     font.weight: Font.DemiBold

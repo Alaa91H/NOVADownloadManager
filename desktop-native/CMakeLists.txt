@@ -19,6 +19,10 @@ qt_add_executable(nova-native
     src/api/NovaApiClient.h
     src/models/DownloadListModel.cpp
     src/models/DownloadListModel.h
+    src/localization/I18nManager.cpp
+    src/localization/I18nManager.h
+    src/platform/AppearanceManager.cpp
+    src/platform/AppearanceManager.h
     src/platform/DesktopIntegration.cpp
     src/platform/DesktopIntegration.h
     src/platform/TrayManager.cpp
