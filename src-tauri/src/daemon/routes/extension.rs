@@ -1029,19 +1029,33 @@ pub async fn handle_v1_stream_resolve(
         })
         .max();
 
-    Json(serde_json::json!({
-        "ok": true,
-        "resolved": true,
-        "manifestType": manifest_type,
-        "qualities": qualities,
-        "durationSec": info.get("duration").and_then(serde_json::Value::as_f64),
-        "isLive": info.get("isLive").and_then(serde_json::Value::as_bool).unwrap_or(false),
-        "drmProtected": false,
-        "subtitleTracks": [],
-        "audioTracks": [],
-        "estimatedSizeBytes": estimated_size,
-        "engine": "nova-media-engine"
-    }))
+    let mut payload = serde_json::Map::new();
+    payload.insert("ok".to_owned(), json!(true));
+    payload.insert("resolved".to_owned(), json!(true));
+    payload.insert("manifestType".to_owned(), json!(manifest_type));
+    payload.insert("qualities".to_owned(), json!(qualities));
+    payload.insert(
+        "isLive".to_owned(),
+        json!(
+            info.get("isLive")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+        ),
+    );
+    payload.insert("drmProtected".to_owned(), json!(false));
+    payload.insert("subtitleTracks".to_owned(), json!([]));
+    payload.insert("audioTracks".to_owned(), json!([]));
+    payload.insert("engine".to_owned(), json!("nova-media-engine"));
+    if let Some(duration) = info
+        .get("duration")
+        .and_then(serde_json::Value::as_f64)
+    {
+        payload.insert("durationSec".to_owned(), json!(duration));
+    }
+    if let Some(size) = estimated_size {
+        payload.insert("estimatedSizeBytes".to_owned(), json!(size));
+    }
+    Json(serde_json::Value::Object(payload))
 }
 
 fn managed_media_is_drm_protected(body: &serde_json::Value) -> bool {
@@ -1384,9 +1398,15 @@ pub async fn handle_v1_analyze(
     result.insert("ok".to_owned(), json!(true));
     result.insert("stage".to_owned(), json!("complete"));
     result.insert("url".to_owned(), json!(url));
-    result.insert("title".to_owned(), json!(title));
-    result.insert("durationSec".to_owned(), json!(duration_sec));
-    result.insert("thumbnail".to_owned(), json!(thumbnail));
+    if let Some(title) = title {
+        result.insert("title".to_owned(), json!(title));
+    }
+    if let Some(duration_sec) = duration_sec {
+        result.insert("durationSec".to_owned(), json!(duration_sec));
+    }
+    if let Some(thumbnail) = thumbnail {
+        result.insert("thumbnail".to_owned(), json!(thumbnail));
+    }
     result.insert("isLive".to_owned(), json!(is_live));
     result.insert("drmProtected".to_owned(), json!(false));
     result.insert("detectedType".to_owned(), json!(detected_type));
