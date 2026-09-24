@@ -397,6 +397,7 @@ export interface AppSettings {
       compressed: string;
       video: string;
       audio: string;
+      torrent: string;
       other: string;
     };
   };
