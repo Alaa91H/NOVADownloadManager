@@ -606,7 +606,9 @@ fn dict_get<'a, 'b>(
     dictionary: &'b BTreeMap<&'a [u8], BValue<'a>>,
     key: &[u8],
 ) -> Option<&'b BValue<'a>> {
-    dictionary.get(key)
+    dictionary
+        .iter()
+        .find_map(|(entry_key, value)| (**entry_key == *key).then_some(value))
 }
 
 fn dict_bytes<'a>(
