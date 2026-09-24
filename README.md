@@ -376,7 +376,7 @@ Every release is built natively for each operating system and CPU architecture �
 
 | OS                                                       | Architectures                      | Packages                                |
 | -------------------------------------------------------- | ---------------------------------- | --------------------------------------- |
-| Windows 10 / 11                                          | x64, ARM64                         | NSIS installer (`.exe`)                 |
+| Windows 10 / 11                                          | x64, ARM64                         | NSIS user + machine installers (`.exe`)  |
 | macOS                                                    | Intel (x64), Apple Silicon (ARM64) | `.dmg`, `.app`                          |
 | Linux — Debian, Ubuntu, Linux Mint, Pop!\_OS, elementary | x64, ARM64                         | `.deb`                                  |
 | Linux — Fedora, RHEL, CentOS Stream, openSUSE            | x64, ARM64                         | `.rpm`                                  |
@@ -432,11 +432,19 @@ Build extension packages:
 pnpm run extension:package
 ```
 
-Build the full Tauri/NSIS installer (builds native curl, fetches engines, packages extension, then builds the installer):
+Build the default Tauri bundle (Windows defaults to a non-elevated current-user install):
 
 ```bash
 pnpm run tauri:build
 ```
+
+On Windows, build both release installer scopes from the same application binary:
+
+```bash
+pnpm run windows:installers
+```
+
+The Windows release pipeline publishes a `*-user-setup.exe` installer that installs under the current user's local app data without Administrator privileges, plus a `*-machine-setup.exe` installer for system-wide installation with elevation.
 
 The CI pipeline (`ci.yml`) runs on `windows-latest` with pnpm 11.6.0, Node 24, and Rust stable 1.97.0. It produces:
 
@@ -555,7 +563,7 @@ The single source for product icons, logos, and installer banners is `branding/s
 
 The installer lifecycle covers:
 
-- **Install** — fresh installation with Start Menu shortcuts and registry entries
+- **Install** — current-user installation is the default and does not require Administrator privileges; release builds also include an explicit per-machine installer for all-users deployment
 - **Upgrade** — semver comparison detects existing installations, preserves user data
 - **Repair** — maintenance-style reinstall that keeps settings intact
 - **Uninstall** — clean removal with optional data preservation
