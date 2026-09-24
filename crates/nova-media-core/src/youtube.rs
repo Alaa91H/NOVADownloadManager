@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use nova_download_core::{
     fetch_http_bytes_with_context, post_http_bytes_with_context, HttpRequestContext,
@@ -14,6 +14,9 @@ use crate::{
 
 const WATCH_PAGE_MAX_BYTES: usize = 6 * 1024 * 1024;
 const PLAYER_RESPONSE_MAX_BYTES: usize = 4 * 1024 * 1024;
+const PLAYLIST_RESPONSE_MAX_BYTES: usize = 8 * 1024 * 1024;
+const MAX_PLAYLIST_PAGES: usize = 100;
+const MAX_PLAYLIST_ENTRIES: usize = 5_000;
 const YOUTUBE_ORIGIN: &str = "https://www.youtube.com";
 const YOUTUBE_BROWSER_UA: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
@@ -43,6 +46,25 @@ pub struct MediaChapter {
     pub title: String,
     pub start_millis: u64,
     pub end_millis: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct YouTubePlaylistEntry {
+    pub id: String,
+    pub title: String,
+    pub url: String,
+    pub duration_millis: Option<u64>,
+    pub thumbnail_url: Option<String>,
+    pub index: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct YouTubePlaylist {
+    pub id: String,
+    pub title: String,
+    pub webpage_url: String,
+    pub entries: Vec<YouTubePlaylistEntry>,
+    pub truncated: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -537,6 +559,339 @@ pub fn youtube_video_id(url: &Url) -> Option<String> {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')))
     .then(|| id.to_owned())
+}
+
+pub fn youtube_playlist_id(url: &Url) -> Option<String> {
+    let host = url.host_str()?.trim_start_matches("www.").to_ascii_lowercase();
+    if !matches!(
+        host.as_str(),
+        "youtube.com" | "m.youtube.com" | "music.youtube.com"
+    ) {
+        return None;
+    }
+    let id = url
+        .query_pairs()
+        .find_map(|(key, value)| (key == "list").then(|| value.into_owned()))?;
+    let id = id.trim();
+    (!id.is_empty()
+        && id.len() <= 128
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')))
+    .then(|| id.to_owned())
+}
+
+pub fn resolve_youtube_playlist(
+    request: &ExtractRequest,
+) -> Result<YouTubePlaylist, MediaError> {
+    let parsed = request.parsed_url()?;
+    let playlist_id = youtube_playlist_id(&parsed).ok_or_else(|| MediaError::ExtractorFailed {
+        extractor: "youtube-native-playlist",
+        message: "YouTube URL does not contain a supported playlist id".to_owned(),
+    })?;
+
+    let mut context = request.request_context()?;
+    if context.user_agent.is_none() {
+        context.user_agent = Some(YOUTUBE_BROWSER_UA.to_owned());
+    }
+    let playlist_url = format!("{YOUTUBE_ORIGIN}/playlist?list={playlist_id}&hl=en");
+    if context.referer.is_none() {
+        context.referer = Some(playlist_url.clone());
+    }
+
+    let response =
+        fetch_http_bytes_with_context(&playlist_url, &context, PLAYLIST_RESPONSE_MAX_BYTES)
+            .map_err(|error| MediaError::Transport(error.to_string()))?;
+    let html = String::from_utf8(response.body).map_err(|_| MediaError::ExtractorFailed {
+        extractor: "youtube-native-playlist",
+        message: "YouTube playlist page is not valid UTF-8".to_owned(),
+    })?;
+    let bootstrap = extract_bootstrap(&html);
+    let initial = extract_initial_data(&html).ok_or_else(|| MediaError::ExtractorFailed {
+        extractor: "youtube-native-playlist",
+        message: "YouTube playlist page did not expose initial data".to_owned(),
+    })?;
+
+    let mut playlist = normalize_playlist_payload(&playlist_id, &playlist_url, &initial);
+    let mut seen_ids = playlist
+        .entries
+        .iter()
+        .map(|entry| entry.id.clone())
+        .collect::<BTreeSet<_>>();
+    let mut continuations = collect_playlist_continuations(&initial);
+    let mut seen_tokens = BTreeSet::new();
+    let mut page_count = 0_usize;
+
+    while let Some(token) = continuations.pop() {
+        if playlist.entries.len() >= MAX_PLAYLIST_ENTRIES || page_count >= MAX_PLAYLIST_PAGES {
+            playlist.truncated = true;
+            break;
+        }
+        if !seen_tokens.insert(token.clone()) {
+            continue;
+        }
+        let Some(bootstrap) = bootstrap.as_ref() else {
+            playlist.truncated = true;
+            break;
+        };
+        let page = fetch_innertube_browse(&token, bootstrap, &context)?;
+        page_count = page_count.saturating_add(1);
+
+        let page_playlist = normalize_playlist_payload(&playlist_id, &playlist_url, &page);
+        if playlist.title == "Playlist" && page_playlist.title != "Playlist" {
+            playlist.title = page_playlist.title;
+        }
+        for mut entry in page_playlist.entries {
+            if playlist.entries.len() >= MAX_PLAYLIST_ENTRIES {
+                playlist.truncated = true;
+                break;
+            }
+            if seen_ids.insert(entry.id.clone()) {
+                entry.index = playlist.entries.len().saturating_add(1);
+                playlist.entries.push(entry);
+            }
+        }
+        for continuation in collect_playlist_continuations(&page) {
+            if !seen_tokens.contains(&continuation) {
+                continuations.push(continuation);
+            }
+        }
+    }
+
+    Ok(playlist)
+}
+
+fn fetch_innertube_browse(
+    continuation: &str,
+    bootstrap: &YouTubeBootstrap,
+    base_context: &HttpRequestContext,
+) -> Result<Value, MediaError> {
+    let endpoint = format!(
+        "{YOUTUBE_ORIGIN}/youtubei/v1/browse?key={}&prettyPrint=false",
+        bootstrap.api_key
+    );
+    let body = serde_json::to_vec(&json!({
+        "context": bootstrap.context.clone(),
+        "continuation": continuation,
+    }))
+    .map_err(|error| MediaError::ExtractorFailed {
+        extractor: "youtube-native-playlist",
+        message: format!("failed to encode playlist continuation request: {error}"),
+    })?;
+
+    let mut context = base_context.clone();
+    context
+        .headers
+        .insert("Origin".to_owned(), YOUTUBE_ORIGIN.to_owned());
+    if let Some(client_name) = &bootstrap.client_name_header {
+        context
+            .headers
+            .insert("X-Youtube-Client-Name".to_owned(), client_name.clone());
+    }
+    if let Some(client_version) = &bootstrap.client_version {
+        context
+            .headers
+            .insert("X-Youtube-Client-Version".to_owned(), client_version.clone());
+    }
+
+    let response = post_http_bytes_with_context(
+        &endpoint,
+        &context,
+        "application/json",
+        &body,
+        PLAYLIST_RESPONSE_MAX_BYTES,
+    )
+    .map_err(|error| MediaError::Transport(error.to_string()))?;
+    serde_json::from_slice(&response.body).map_err(|error| MediaError::ExtractorFailed {
+        extractor: "youtube-native-playlist",
+        message: format!("invalid playlist continuation JSON: {error}"),
+    })
+}
+
+fn extract_initial_data(html: &str) -> Option<Value> {
+    extract_json_object_after_markers(
+        html,
+        &[
+            "var ytInitialData =",
+            "ytInitialData =",
+            "window.ytInitialData =",
+            "window[\"ytInitialData\"] =",
+        ],
+    )
+}
+
+fn normalize_playlist_payload(
+    playlist_id: &str,
+    webpage_url: &str,
+    payload: &Value,
+) -> YouTubePlaylist {
+    let mut title = "Playlist".to_owned();
+    find_playlist_title(payload, &mut title);
+
+    let mut entries = Vec::new();
+    collect_playlist_entries(payload, &mut entries);
+    let mut seen = BTreeSet::new();
+    entries.retain(|entry| seen.insert(entry.id.clone()));
+    for (index, entry) in entries.iter_mut().enumerate() {
+        entry.index = index.saturating_add(1);
+    }
+
+    YouTubePlaylist {
+        id: playlist_id.to_owned(),
+        title,
+        webpage_url: webpage_url.to_owned(),
+        entries,
+        truncated: false,
+    }
+}
+
+fn find_playlist_title(value: &Value, title: &mut String) {
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map {
+                if matches!(key.as_str(), "playlistMetadataRenderer" | "playlistHeaderRenderer") {
+                    if let Some(found) = child
+                        .get("title")
+                        .and_then(text_value)
+                        .filter(|value| !value.trim().is_empty())
+                    {
+                        *title = found;
+                        return;
+                    }
+                }
+                find_playlist_title(child, title);
+                if title != "Playlist" {
+                    return;
+                }
+            }
+        }
+        Value::Array(values) => {
+            for child in values {
+                find_playlist_title(child, title);
+                if title != "Playlist" {
+                    return;
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_playlist_entries(value: &Value, entries: &mut Vec<YouTubePlaylistEntry>) {
+    match value {
+        Value::Object(map) => {
+            if let Some(renderer) = map.get("playlistVideoRenderer") {
+                if let Some(entry) = playlist_entry_from_renderer(renderer) {
+                    entries.push(entry);
+                }
+            }
+            for child in map.values() {
+                collect_playlist_entries(child, entries);
+            }
+        }
+        Value::Array(values) => {
+            for child in values {
+                collect_playlist_entries(child, entries);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn playlist_entry_from_renderer(renderer: &Value) -> Option<YouTubePlaylistEntry> {
+    let id = renderer.get("videoId")?.as_str()?.to_owned();
+    let title = renderer
+        .get("title")
+        .and_then(text_value)
+        .unwrap_or_else(|| id.clone());
+    let duration_millis = renderer
+        .get("lengthSeconds")
+        .and_then(Value::as_str)
+        .and_then(|value| value.parse::<u64>().ok())
+        .or_else(|| {
+            renderer
+                .get("lengthText")
+                .and_then(text_value)
+                .and_then(|value| parse_clock_seconds(&value))
+        })
+        .and_then(|seconds| seconds.checked_mul(1_000));
+    let thumbnail_url = renderer
+        .pointer("/thumbnail/thumbnails")
+        .and_then(Value::as_array)
+        .and_then(|values| values.last())
+        .and_then(|value| value.get("url"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+
+    Some(YouTubePlaylistEntry {
+        url: format!("{YOUTUBE_ORIGIN}/watch?v={id}"),
+        id,
+        title,
+        duration_millis,
+        thumbnail_url,
+        index: 0,
+    })
+}
+
+fn collect_playlist_continuations(value: &Value) -> Vec<String> {
+    let mut tokens = Vec::new();
+    collect_playlist_continuations_into(value, &mut tokens);
+    tokens
+}
+
+fn collect_playlist_continuations_into(value: &Value, tokens: &mut Vec<String>) {
+    match value {
+        Value::Object(map) => {
+            if let Some(token) = map
+                .pointer("/continuationEndpoint/continuationCommand/token")
+                .and_then(Value::as_str)
+            {
+                tokens.push(token.to_owned());
+            }
+            if let Some(token) = map
+                .pointer("/nextContinuationData/continuation")
+                .and_then(Value::as_str)
+            {
+                tokens.push(token.to_owned());
+            }
+            for child in map.values() {
+                collect_playlist_continuations_into(child, tokens);
+            }
+        }
+        Value::Array(values) => {
+            for child in values {
+                collect_playlist_continuations_into(child, tokens);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn text_value(value: &Value) -> Option<String> {
+    value
+        .get("simpleText")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| {
+            value
+                .get("runs")
+                .and_then(Value::as_array)
+                .map(|runs| {
+                    runs.iter()
+                        .filter_map(|run| run.get("text").and_then(Value::as_str))
+                        .collect::<String>()
+                })
+                .filter(|value| !value.is_empty())
+        })
+}
+
+fn parse_clock_seconds(value: &str) -> Option<u64> {
+    value
+        .split(':')
+        .try_fold(0_u64, |total, part| {
+            let value = part.trim().parse::<u64>().ok()?;
+            total.checked_mul(60)?.checked_add(value)
+        })
 }
 
 fn extract_bootstrap(html: &str) -> Option<YouTubeBootstrap> {
