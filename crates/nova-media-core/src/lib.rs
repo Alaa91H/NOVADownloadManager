@@ -10,6 +10,7 @@ mod dash_transfer;
 mod generic;
 mod hls_live;
 mod hls_transfer;
+mod youtube;
 
 pub use assembly::{assemble_ordered_parts, AssemblyError, AssemblyResult};
 pub use dash_live::{refresh_and_stage_dash_live_once, DashLiveError, DashLiveStageRefresh};
@@ -19,6 +20,10 @@ pub use dash_transfer::{
 pub use generic::{GenericDirectMediaExtractor, GenericManifestExtractor};
 pub use hls_live::{refresh_and_stage_hls_live_once, HlsLiveError, HlsLiveStageRefresh};
 pub use hls_transfer::{stage_hls_media_plan, HlsStageError, HlsStageFile, HlsStageResult};
+pub use youtube::{
+    youtube_video_id, YouTubeChallengeKind, YouTubeExtraction, YouTubeExtractor,
+    YouTubePendingFormat,
+};
 
 use std::collections::BTreeMap;
 
@@ -235,6 +240,15 @@ impl ExtractRequest {
             scheme => Err(MediaError::UnsupportedScheme(scheme.to_owned())),
         }
     }
+
+    pub fn request_context(&self) -> Result<HttpRequestContext, MediaError> {
+        let mut context = HttpRequestContext::default();
+        merge_request_headers(&mut context, &self.headers);
+        context
+            .validate()
+            .map_err(|error| MediaError::Transport(error.to_string()))?;
+        Ok(context)
+    }
 }
 
 #[derive(Debug, Error, Eq, PartialEq)]
@@ -289,6 +303,7 @@ pub struct ExtractorRegistry {
 impl ExtractorRegistry {
     pub fn with_native_defaults() -> Self {
         let mut registry = Self::default();
+        registry.register(YouTubeExtractor);
         registry.register(GenericManifestExtractor);
         registry.register(GenericDirectMediaExtractor);
         registry
@@ -471,7 +486,7 @@ mod tests {
         let registry = ExtractorRegistry::with_native_defaults();
         assert_eq!(
             registry.ids(),
-            vec!["generic-manifest", "generic-direct-media"]
+            vec!["youtube-native", "generic-manifest", "generic-direct-media"]
         );
         assert_eq!(
             registry
