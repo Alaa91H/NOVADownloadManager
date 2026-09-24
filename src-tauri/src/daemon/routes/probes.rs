@@ -774,6 +774,95 @@ pub async fn handle_probe_post(
     probe_url_with_options(&state, url, Some(&body)).await
 }
 
+pub async fn handle_native_media_resolve(
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let url = params.get("url").map_or("", String::as_str).trim();
+    if url.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Missing url"})),
+        ));
+    }
+    if let Err(error) = crate::daemon::utils::is_safe_target_url(url) {
+        log::warn!("Blocked native media resolve of unsafe URL {url}: {error}");
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": error})),
+        ));
+    }
+
+    let url = url.to_owned();
+    let resolve = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, String> {
+        use nova_media_core::{
+            select_youtube_download_plan, youtube_video_id, ExtractRequest, ExtractorRegistry,
+            YouTubeExtractor, YouTubeSelectionPolicy,
+        };
+
+        let request = ExtractRequest::new(url.clone());
+        let parsed = request.parsed_url().map_err(|error| error.to_string())?;
+
+        if youtube_video_id(&parsed).is_some() {
+            let extractor = YouTubeExtractor;
+            let extraction = extractor
+                .extract_native(&request)
+                .map_err(|error| error.to_string())?;
+            let selection = select_youtube_download_plan(
+                &extraction,
+                YouTubeSelectionPolicy::default(),
+            );
+
+            return Ok(serde_json::json!({
+                "engine": "nova-native",
+                "extractor": "youtube-native",
+                "descriptor": extraction.descriptor,
+                "selection": selection,
+                "youtube": {
+                    "videoId": extraction.video_id,
+                    "pendingFormats": extraction.pending_formats,
+                    "playerJsUrl": extraction.player_js_url,
+                    "visitorData": extraction.visitor_data,
+                }
+            }));
+        }
+
+        let registry = ExtractorRegistry::with_native_defaults();
+        let descriptor = registry.resolve(&request).map_err(|error| error.to_string())?;
+        Ok(serde_json::json!({
+            "engine": "nova-native",
+            "extractor": "registry",
+            "descriptor": descriptor,
+            "selection": serde_json::Value::Null,
+        }))
+    });
+
+    let result = tokio::time::timeout(Duration::from_secs(35), resolve)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::GATEWAY_TIMEOUT,
+                Json(serde_json::json!({"error": "Native media resolve timed out"})),
+            )
+        })?
+        .map_err(|error| {
+            log::error!("Native media resolve worker failed: {error}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Native media resolve worker failed"})),
+            )
+        })?
+        .map_err(|error| {
+            log::warn!("Native media resolve failed: {error}");
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({"error": error})),
+            )
+        })?;
+
+    Ok(Json(result))
+}
+
+
 pub async fn handle_ytdlp_probe(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<SharedState>,
@@ -1021,6 +1110,10 @@ mod bounded_body_tests {
 pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
     router
         .route("/api/probe", get(handle_probe).post(handle_probe_post))
+        .route(
+            "/api/media/native/resolve",
+            get(handle_native_media_resolve),
+        )
         .route("/api/ytdlp/probe", get(handle_ytdlp_probe))
         .route(
             "/api/ytdlp/probe-playlist",
