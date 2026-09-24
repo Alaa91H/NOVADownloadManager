@@ -153,6 +153,35 @@ pub fn load_storage_manifest(path: &Path) -> Result<TorrentStorageManifest, Mani
     TorrentStorageManifest::parse(&bytes)
 }
 
+pub fn load_storage_manifest_recovering(
+    path: &Path,
+) -> Result<TorrentStorageManifest, ManifestError> {
+    let candidates = [
+        path.to_path_buf(),
+        append_suffix(path, ".tmp"),
+        append_suffix(path, ".bak"),
+    ];
+    let mut first_error = None;
+
+    for candidate in candidates {
+        if !candidate.exists() {
+            continue;
+        }
+        match load_storage_manifest(&candidate) {
+            Ok(manifest) => return Ok(manifest),
+            Err(error) => {
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
+            }
+        }
+    }
+
+    Err(first_error.unwrap_or_else(|| {
+        ManifestError::Io(path.to_path_buf(), "storage manifest is missing".to_owned())
+    }))
+}
+
 pub fn save_storage_manifest_atomic(
     path: &Path,
     manifest: &TorrentStorageManifest,
@@ -462,6 +491,24 @@ mod tests {
         assert!(parsed.had_trackers);
         assert!(parsed.metainfo.trackers.is_empty());
         assert!(parsed.metainfo.tracker_tiers.is_empty());
+    }
+
+    #[test]
+    fn recovering_loader_accepts_valid_backup_after_corrupt_primary() {
+        let dir = std::env::temp_dir().join(format!(
+            "nova-manifest-recovery-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("manifest.bin");
+        let manifest = TorrentStorageManifest::from_metainfo(&meta());
+        std::fs::write(&path, b"corrupt").unwrap();
+        std::fs::write(append_suffix(&path, ".bak"), manifest.encode().unwrap()).unwrap();
+
+        let recovered = load_storage_manifest_recovering(&path).unwrap();
+        assert_eq!(recovered.metainfo.info_hash, manifest.metainfo.info_hash);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
