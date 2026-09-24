@@ -1463,6 +1463,109 @@ function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
     }
 
     #[test]
+    fn quality_ceiling_selects_expected_separate_video_track() {
+        let mut streams = vec![MediaStream {
+            id: "muxed-720".to_owned(),
+            kind: MediaTrackKind::AudioVideo,
+            protocol: MediaProtocol::Https,
+            url: "https://video.test/720.mp4".to_owned(),
+            container: Some("mp4".to_owned()),
+            video_codec: Some("avc1".to_owned()),
+            audio_codec: Some("mp4a".to_owned()),
+            width: Some(1280),
+            height: Some(720),
+            fps: Some(30.0),
+            bitrate_bps: Some(2_000_000),
+            audio_bitrate_bps: Some(128_000),
+            content_length: Some(100),
+            language: None,
+            headers: BTreeMap::new(),
+        }];
+        for (id, width, height, bitrate) in [
+            ("video-1080", 1920, 1080, 4_000_000),
+            ("video-1440", 2560, 1440, 8_000_000),
+            ("video-2160", 3840, 2160, 14_000_000),
+        ] {
+            streams.push(MediaStream {
+                id: id.to_owned(),
+                kind: MediaTrackKind::Video,
+                protocol: MediaProtocol::Https,
+                url: format!("https://video.test/{height}.mp4"),
+                container: Some("mp4".to_owned()),
+                video_codec: Some("avc1".to_owned()),
+                audio_codec: None,
+                width: Some(width),
+                height: Some(height),
+                fps: Some(60.0),
+                bitrate_bps: Some(bitrate),
+                audio_bitrate_bps: None,
+                content_length: Some(200),
+                language: None,
+                headers: BTreeMap::new(),
+            });
+        }
+        streams.push(MediaStream {
+            id: "audio".to_owned(),
+            kind: MediaTrackKind::Audio,
+            protocol: MediaProtocol::Https,
+            url: "https://video.test/audio.m4a".to_owned(),
+            container: Some("m4a".to_owned()),
+            video_codec: None,
+            audio_codec: Some("mp4a".to_owned()),
+            width: None,
+            height: None,
+            fps: None,
+            bitrate_bps: Some(160_000),
+            audio_bitrate_bps: Some(160_000),
+            content_length: Some(20),
+            language: None,
+            headers: BTreeMap::new(),
+        });
+
+        let extraction = YouTubeExtraction {
+            video_id: "quality-matrix".to_owned(),
+            descriptor: MediaDescriptor {
+                source_kind: MediaSourceKind::Site,
+                metadata: MediaMetadata {
+                    title: "quality matrix".to_owned(),
+                    description: None,
+                    duration_millis: None,
+                    uploader: None,
+                    webpage_url: "https://youtube.test/watch?v=quality".to_owned(),
+                    thumbnail_url: None,
+                },
+                streams,
+                subtitles: Vec::new(),
+                request_headers: BTreeMap::new(),
+                is_live: false,
+            },
+            pending_formats: Vec::new(),
+            player_js_url: None,
+            visitor_data: None,
+        };
+
+        for (limit, expected_video) in [
+            (1080, "video-1080"),
+            (1440, "video-1440"),
+            (2160, "video-2160"),
+        ] {
+            assert_eq!(
+                select_youtube_download_plan(
+                    &extraction,
+                    YouTubeSelectionPolicy {
+                        max_height: Some(limit),
+                        prefer_separate_tracks: true,
+                    },
+                ),
+                Some(YouTubeDownloadPlan::SeparateTracks {
+                    video_stream_id: expected_video.to_owned(),
+                    audio_stream_id: "audio".to_owned(),
+                })
+            );
+        }
+    }
+
+    #[test]
     fn balanced_json_handles_nested_braces_inside_strings() {
         let input = r#"{"a":{"b":"value } still string"},"c":1} trailing"#;
         assert_eq!(
