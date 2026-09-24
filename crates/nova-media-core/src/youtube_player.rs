@@ -703,10 +703,73 @@ AB=function(a){a=a.split("");ZZ.XX(a,2);return a.join("")};
     }
 
     #[test]
-    fn n_transform_fails_closed_until_native_parser_is_added() {
+    fn resolves_named_n_transform_from_n_parameter_call_site() {
+        let player = r#"
+NT=function(a){a=a.split("");a.reverse();a=a.slice(1);return a.join("")};
+function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert_eq!(
+            solver
+                .transform_throttling_parameter(player, "abcdef")
+                .expect("n transform"),
+            "edcba"
+        );
+    }
+
+    #[test]
+    fn resolves_indexed_n_transform_and_rotate_left() {
+        let player = r#"
+var NX=[function(a){a=a.split("");a.push.apply(a,a.splice(0,2));return a.join("")}];
+function apply(p){var x=p.get("n");x&&(x=NX[0](x),p.set("n",x))}
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert_eq!(
+            solver
+                .transform_throttling_parameter(player, "abcdef")
+                .expect("indexed n transform"),
+            "cdefab"
+        );
+    }
+
+    #[test]
+    fn n_transform_supports_indexed_helper_operations() {
+        let player = r#"
+var HH=[
+function(a){a.reverse()},
+function(a,b){a.splice(0,b)}
+];
+NT=function(a){a=a.split("");HH[0](a);HH[1](a,2);return a.join("")};
+function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert_eq!(
+            solver
+                .transform_throttling_parameter(player, "abcdef")
+                .expect("helper n transform"),
+            "dcba"
+        );
+    }
+
+    #[test]
+    fn n_transform_fails_closed_without_a_verified_call_site() {
+        let player = r#"NT=function(a){a=a.split("");a.reverse();return a.join("")};"#;
         let solver = YouTubePlayerScriptSolver;
         assert!(solver
-            .transform_throttling_parameter("player", "abc")
+            .transform_throttling_parameter(player, "abc")
+            .is_err());
+    }
+
+    #[test]
+    fn n_transform_rejects_unknown_helpers() {
+        let player = r#"
+var HH={XX:function(a){a.push("x")}};
+NT=function(a){a=a.split("");HH.XX(a);return a.join("")};
+function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert!(solver
+            .transform_throttling_parameter(player, "abc")
             .is_err());
     }
 }
