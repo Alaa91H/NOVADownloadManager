@@ -117,6 +117,7 @@ public:
     Q_INVOKABLE void setSchedulerRuleEnabled(const QString &ruleId, bool enabled);
     Q_INVOKABLE void deleteSchedulerRule(const QString &ruleId);
 
+    Q_INVOKABLE QVariantMap batchExpansionPreview(const QString &input) const;
     Q_INVOKABLE void importBatch(
         const QString &input,
         const QString &saveDirectory,
