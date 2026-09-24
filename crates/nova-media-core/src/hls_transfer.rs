@@ -265,6 +265,7 @@ fn decrypt_staged_unit(
     fs::write(path, &plaintext).map_err(|error| HlsStageError::Io(error.to_string()))?;
     let file = OpenOptions::new()
         .read(true)
+        .write(true)
         .open(path)
         .map_err(|error| HlsStageError::Io(error.to_string()))?;
     file.sync_all()
@@ -342,7 +343,7 @@ fn decrypt_aes128_cbc_pkcs7(
     key: &[u8; 16],
     iv: &[u8; 16],
 ) -> Result<Vec<u8>, HlsStageError> {
-    Aes128CbcDecryptor::new(key.into(), iv.into())
+    Aes128CbcDecryptor::new(&(*key).into(), &(*iv).into())
         .decrypt_padded_vec_mut::<Pkcs7>(ciphertext)
         .map_err(|_| HlsStageError::InvalidCiphertext)
 }
