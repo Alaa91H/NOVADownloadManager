@@ -1513,10 +1513,27 @@ pub async fn handle_media_bridge_probe_playlist(
     })))
 }
 
-pub async fn handle_media_bridge_ffmpeg(State(state): State<SharedState>) -> Json<serde_json::Value> {
+pub async fn handle_media_postprocess_status(
+    State(state): State<SharedState>,
+) -> Json<serde_json::Value> {
     let ffmpeg_bin = state.ffmpeg_binary();
-    let available = hidden_output(&ffmpeg_bin, &["-version"]).is_ok_and(|o| o.status.success());
-    Json(serde_json::json!({"available": available, "binary": ffmpeg_bin}))
+    let available = hidden_output(&ffmpeg_bin, &["-version"]).is_ok_and(|output| output.status.success());
+    Json(serde_json::json!({
+        "available": available,
+        "engine": "nova-media-postprocess",
+        "backend": "ffmpeg"
+    }))
+}
+
+async fn handle_deprecated_media_bridge_route() -> (StatusCode, Json<serde_json::Value>) {
+    (
+        StatusCode::GONE,
+        Json(serde_json::json!({
+            "error": "The Media Bridge API has been retired.",
+            "replacement": "/api/media/probe",
+            "engine": "nova-media-engine"
+        })),
+    )
 }
 
 #[cfg(test)]
@@ -1536,6 +1553,10 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
     router
         .route("/api/probe", get(handle_probe).post(handle_probe_post))
         .route(
+            "/api/media/resolve",
+            get(handle_native_media_resolve).post(handle_native_media_resolve_post),
+        )
+        .route(
             "/api/media/native/resolve",
             get(handle_native_media_resolve).post(handle_native_media_resolve_post),
         )
@@ -1544,12 +1565,18 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
             "/api/media/probe-playlist",
             get(handle_native_media_probe_playlist),
         )
-        .route("/api/media/bridge/probe", get(handle_media_bridge_probe))
+        .route(
+            "/api/media/bridge/probe",
+            get(handle_deprecated_media_bridge_route),
+        )
         .route(
             "/api/media/bridge/probe-playlist",
-            get(handle_media_bridge_probe_playlist),
+            get(handle_deprecated_media_bridge_route),
         )
-        .route("/api/media/postprocess/status", get(handle_media_bridge_ffmpeg))
+        .route(
+            "/api/media/postprocess/status",
+            get(handle_media_postprocess_status),
+        )
 }
 
 #[cfg(test)]
