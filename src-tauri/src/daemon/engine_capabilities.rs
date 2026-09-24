@@ -1385,6 +1385,7 @@ fn media_bridge_key_supported(
 }
 
 pub fn native_media_status() -> Value {
+    let core = nova_media_core::native_media_core_capabilities();
     let supported_keys: HashSet<String> = crate::daemon::native_media::NATIVE_MEDIA_OPTION_KEYS
         .iter()
         .map(|key| (*key).to_owned())
@@ -1405,14 +1406,23 @@ pub fn native_media_status() -> Value {
         "runtimeCore": "nova-media-core",
         "verifiedBy": ["compiled native core", "native media unit tests"],
         "capabilities": {
-            "siteExtraction": true,
+            "siteExtraction": core.youtube_extraction,
             "nativeResolution": true,
-            "directMediaExecution": true,
+            "directMediaExecution": core.generic_direct_extraction,
             "formatSelection": true,
             "requestContext": true,
             "explicitCookies": true,
-            "hlsParsing": true,
-            "dashParsing": true,
+            "hlsParsing": core.hls_parsing,
+            "hlsStaging": core.hls_staging,
+            "hlsLiveRefresh": core.hls_live_refresh,
+            "hlsAes128Cbc": core.hls_aes128_cbc,
+            "dashParsing": core.dash_parsing,
+            "dashStaging": core.dash_staging,
+            "dashLiveRefresh": core.dash_live_refresh,
+            "orderedAssembly": core.ordered_assembly,
+            "youtubeSignatureTransform": core.youtube_signature_transform,
+            "youtubeThrottlingTransform": core.youtube_throttling_transform,
+            "separateTrackStaging": core.separate_track_staging,
             "hlsTaskExecution": false,
             "dashTaskExecution": false,
             "separateTrackTaskExecution": false,
@@ -2008,6 +2018,9 @@ mod tests {
         assert_eq!(status["available"], true);
         assert_eq!(status["runtimeCore"], "nova-media-core");
         assert_eq!(status["capabilities"]["directMediaExecution"], true);
+        assert_eq!(status["capabilities"]["hlsStaging"], true);
+        assert_eq!(status["capabilities"]["dashStaging"], true);
+        assert_eq!(status["capabilities"]["youtubeThrottlingTransform"], false);
         assert_eq!(status["capabilities"]["hlsTaskExecution"], false);
         assert_eq!(status["capabilities"]["dashTaskExecution"], false);
         let supported = status["supportedMediaOptionKeys"]
