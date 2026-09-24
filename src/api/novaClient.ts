@@ -100,9 +100,8 @@ interface MediaProbeResult {
 
 interface FfmpegStatus {
   available: boolean;
-  binary?: string;
-  version?: string;
-  versionText?: string;
+  engine?: 'nova-media-postprocess';
+  backend?: 'ffmpeg';
 }
 
 interface BrowserExtensionConfig {
