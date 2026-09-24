@@ -6,6 +6,7 @@
 #include <QNetworkReply>
 #include <QObject>
 #include <QStringList>
+#include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
 #include <QVariantList>
