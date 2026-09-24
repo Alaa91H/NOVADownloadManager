@@ -25,6 +25,8 @@ pub struct PersistedState {
     #[serde(default)]
     pub native_media_requests: HashMap<String, crate::daemon::types::CreateDownloadBody>,
     #[serde(default)]
+    pub native_media_protocols: HashMap<String, String>,
+    #[serde(default)]
     pub curl_args: HashMap<String, Vec<String>>,
     /// Per-task libcurl options are persisted separately from diagnostic CLI
     /// arguments. Authentication-bearing options are removed before writing
@@ -226,6 +228,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
     let (
         media_args,
         native_media_requests,
+        native_media_protocols,
         curl_args,
         curl_direct_options,
         resume_requires_reauth,
@@ -247,6 +250,10 @@ fn build_snapshot(state: &AppState) -> PersistedState {
                 .iter()
                 .map(|(id, job)| (id.clone(), sanitize_native_media_request(&job.request)))
                 .collect();
+        let native_media_protocols: HashMap<String, String> = native_media_jobs
+            .iter()
+            .map(|(id, job)| (id.clone(), job.protocol.clone()))
+            .collect();
         let curl_args: HashMap<String, Vec<String>> = curl_jobs
             .iter()
             .map(|(id, job)| (id.clone(), sanitize_resume_args(&job.args)))
@@ -301,6 +308,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         (
             media_args,
             native_media_requests,
+            native_media_protocols,
             curl_args,
             curl_direct_options,
             resume_requires_reauth,
@@ -318,6 +326,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         recovery_checkpoints,
         media_args,
         native_media_requests,
+        native_media_protocols,
         curl_args,
         curl_direct_options,
         resume_requires_reauth,
