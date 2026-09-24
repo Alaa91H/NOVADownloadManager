@@ -3056,6 +3056,7 @@ dependencies = [
 name = "nova-media-core"
 version = "0.1.0"
 dependencies = [
+ "nova-download-core",
  "nova-stream-core",
  "serde",
  "thiserror 2.0.20",
