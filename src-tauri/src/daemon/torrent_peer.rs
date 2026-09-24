@@ -151,13 +151,16 @@ impl Default for PeerEngineConfig {
 pub struct PeerEngine {
     config: PeerEngineConfig,
     reputation: Arc<Mutex<PeerReputationBook>>,
+    connection_slots: Arc<Semaphore>,
 }
 
 impl PeerEngine {
     pub fn new(config: PeerEngineConfig) -> Self {
+        let limit = config.max_outbound_connections.max(1);
         Self {
             config,
             reputation: Arc::new(Mutex::new(PeerReputationBook::default())),
+            connection_slots: Arc::new(Semaphore::new(limit)),
         }
     }
 
@@ -186,11 +189,10 @@ impl PeerEngine {
     ) -> Vec<PeerSession> {
         let ranked = self.ranked_candidates(candidates).await;
         let limit = self.config.max_outbound_connections.max(1);
-        let semaphore = Arc::new(Semaphore::new(limit));
         let mut tasks = JoinSet::new();
 
         for address in ranked {
-            let permit = semaphore.clone();
+            let permit = self.connection_slots.clone();
             let config = self.config.session.clone();
             let child_cancel = cancel.child_token();
             tasks.spawn(async move {
