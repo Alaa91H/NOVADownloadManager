@@ -29,10 +29,17 @@ The core currently provides:
 
 `mp4_demux` and `fragmented_mp4_demux` are enabled.
 
-`mp4_mux`, `native_remux`, audio transcoding, video transcoding, and
-hardware acceleration remain disabled until their implementations are present
-and covered by native tests.
+`mp4_mux` and `native_remux` are enabled. The native muxer writes `ftyp`, an
+extended-size `mdat`, and a generated `moov` with `stsd`, `stts`, optional
+`ctts`, `stsc`, `stsz`, `co64`, and `stss` tables. It supports packet-preserving
+video/audio MP4 output for H.264, HEVC, AV1, VP8/VP9, AAC, Opus, and MP3 when
+the required codec configuration is available.
 
-The next container milestone is the native MP4 muxer. It will consume the
-existing `MediaMuxer` contract and write packet-preserving MP4 output so
-separate video/audio downloads can be merged without an external executable.
+The media core also exposes a YouTube finalization path that downloads separate
+MP4/M4A tracks and muxes them inside NOVA without FFmpeg. WebM separate-track
+finalization remains intentionally rejected until the native WebM/Matroska
+demuxer is implemented.
+
+Audio transcoding, video transcoding, subtitles/data muxing, edit-list timeline
+handling, and hardware acceleration remain disabled until their implementations
+are present and covered by native tests.
