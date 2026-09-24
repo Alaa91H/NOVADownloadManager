@@ -167,9 +167,11 @@ export const taskStore = create<TaskState>()((set, get) => ({
   addTask: async (newItem, downloadImmediately, silent = false, captureReviewId) => {
     const { status: bridgeStatus } = bridgeStore.getState();
     if (bridgeStatus === 'connecting' || bridgeStatus === 'disconnected') {
-      uiStore
-        .getState()
-        .addToast('error', 'NOVA daemon unavailable', 'Start the local NOVA daemon before creating downloads.');
+      if (!silent) {
+        uiStore
+          .getState()
+          .addToast('error', 'NOVA daemon unavailable', 'Start the local NOVA daemon before creating downloads.');
+      }
       return null;
     }
     try {
