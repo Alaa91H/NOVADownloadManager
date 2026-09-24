@@ -1300,15 +1300,26 @@ pub async fn handle_media_postprocess_status(
     }))
 }
 
-async fn handle_deprecated_media_bridge_route() -> (StatusCode, Json<serde_json::Value>) {
+fn retired_media_bridge_response(
+    replacement: &'static str,
+) -> (StatusCode, Json<serde_json::Value>) {
     (
         StatusCode::GONE,
         Json(serde_json::json!({
             "error": "The Media Bridge API has been retired.",
-            "replacement": "/api/media/probe",
+            "replacement": replacement,
             "engine": "nova-media-engine"
         })),
     )
+}
+
+async fn handle_deprecated_media_bridge_probe() -> (StatusCode, Json<serde_json::Value>) {
+    retired_media_bridge_response("/api/media/probe")
+}
+
+async fn handle_deprecated_media_bridge_playlist_probe(
+) -> (StatusCode, Json<serde_json::Value>) {
+    retired_media_bridge_response("/api/media/probe-playlist")
 }
 
 #[cfg(test)]
@@ -1342,11 +1353,11 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
         )
         .route(
             "/api/media/bridge/probe",
-            get(handle_deprecated_media_bridge_route),
+            get(handle_deprecated_media_bridge_probe),
         )
         .route(
             "/api/media/bridge/probe-playlist",
-            get(handle_deprecated_media_bridge_route),
+            get(handle_deprecated_media_bridge_playlist_probe),
         )
         .route(
             "/api/media/postprocess/status",
