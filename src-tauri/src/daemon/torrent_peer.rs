@@ -357,7 +357,7 @@ fn limit_peer_error(error: &str) -> String {
 #[derive(Debug)]
 pub struct PeerSession {
     address: SocketAddr,
-    connection_permit: Option<OwnedSemaphorePermit>,
+    _connection_permit: Option<OwnedSemaphorePermit>,
     remote_peer_id: [u8; 20],
     remote_supports_extensions: bool,
     remote_supports_dht: bool,
@@ -451,7 +451,7 @@ impl PeerSession {
 
         Ok(Self {
             address,
-            connection_permit: None,
+            _connection_permit: None,
             remote_peer_id: remote.peer_id,
             remote_supports_extensions: remote.supports_extension_protocol(),
             remote_supports_dht: remote.supports_dht_port(),
@@ -462,7 +462,7 @@ impl PeerSession {
     }
 
     fn attach_connection_permit(&mut self, permit: OwnedSemaphorePermit) {
-        self.connection_permit = Some(permit);
+        self._connection_permit = Some(permit);
     }
 
     pub const fn address(&self) -> SocketAddr {
