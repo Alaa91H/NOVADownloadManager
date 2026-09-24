@@ -3059,12 +3059,21 @@ dependencies = [
  "aes 0.8.4",
  "cbc",
  "nova-download-core",
+ "nova-media-processing-core",
  "nova-stream-core",
  "serde",
  "thiserror 2.0.20",
  "url",
  "serde_json",
  "regex",
+]
+
+[[package]]
+name = "nova-media-processing-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
