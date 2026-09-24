@@ -18,6 +18,7 @@ Item {
     property string resultText: ""
     property bool advancedExpanded: false
     property string defaultQueueId: "main"
+    property var capabilitySnapshot: api.engineCapabilities
     property string languageToken: i18n.language
 
     function t(key) {
@@ -25,10 +26,16 @@ Item {
         return i18n.translate(key)
     }
 
+    function supportsDirect(key) {
+        const snapshot = root.capabilitySnapshot
+        return api.directOptionSupported(key)
+    }
+
     Component.onCompleted: {
         saveDirectory.text = settings.defaultSaveDirectory
         startImmediately.checked = settings.startImmediately
-        api.refreshEngineCapabilities()
+        if (api.connected)
+            api.refreshEngineCapabilities()
         for (let i = 0; i < connections.model.length; ++i) {
             if (connections.model[i].value === settings.defaultConnections) {
                 connections.currentIndex = i
@@ -224,6 +231,7 @@ Item {
                     id: queueSelector
                     Layout.fillWidth: true
                     model: api.knownQueueIds
+                    editable: true
                     enabled: !api.batchRunning
                     Accessible.name: root.t("batch.queueId")
                 }
@@ -240,7 +248,7 @@ Item {
                     to: 100
                     value: 3
                     enabled: !api.batchRunning
-                        && api.directOptionSupported("retryCount")
+                        && root.supportsDirect("retryCount")
                 }
 
                 Text {
@@ -254,7 +262,7 @@ Item {
                     Layout.columnSpan: 3
                     Layout.fillWidth: true
                     enabled: !api.batchRunning
-                        && api.directOptionSupported("referer")
+                        && root.supportsDirect("referer")
                     LayoutMirroring.enabled: false
                     horizontalAlignment: Text.AlignLeft
                 }
@@ -270,7 +278,7 @@ Item {
                     Layout.columnSpan: 3
                     Layout.fillWidth: true
                     enabled: !api.batchRunning
-                        && api.directOptionSupported("userAgent")
+                        && root.supportsDirect("userAgent")
                     LayoutMirroring.enabled: false
                     horizontalAlignment: Text.AlignLeft
                 }
@@ -287,7 +295,7 @@ Item {
                     to: 3600
                     value: 60
                     enabled: !api.batchRunning
-                        && api.directOptionSupported("timeoutSec")
+                        && root.supportsDirect("timeoutSec")
                 }
 
                 Item { Layout.columnSpan: 2; Layout.fillWidth: true }
@@ -304,7 +312,7 @@ Item {
                     Layout.fillWidth: true
                     placeholderText: root.t("batch.proxyHint")
                     enabled: !api.batchRunning
-                        && api.directOptionSupported("proxy")
+                        && root.supportsDirect("proxy")
                     LayoutMirroring.enabled: false
                     horizontalAlignment: Text.AlignLeft
                 }
@@ -322,7 +330,7 @@ Item {
                     Layout.preferredHeight: 72
                     placeholderText: root.t("batch.headersHint")
                     enabled: !api.batchRunning
-                        && api.directOptionSupported("headers")
+                        && root.supportsDirect("headers")
                     wrapMode: TextEdit.NoWrap
                     LayoutMirroring.enabled: false
                     horizontalAlignment: Text.AlignLeft
@@ -340,7 +348,7 @@ Item {
                     Layout.fillWidth: true
                     placeholderText: root.t("batch.cookiesHint")
                     enabled: !api.batchRunning
-                        && api.directOptionSupported("cookies")
+                        && root.supportsDirect("cookies")
                     LayoutMirroring.enabled: false
                     horizontalAlignment: Text.AlignLeft
                 }
