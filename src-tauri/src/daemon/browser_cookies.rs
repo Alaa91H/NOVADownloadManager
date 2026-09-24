@@ -409,6 +409,8 @@ mod tests {
         validate_browser_cookie_source("firefox").expect("Firefox source");
         validate_browser_cookie_source("Firefox").expect("case-insensitive Firefox source");
         validate_browser_cookie_source("firefox:default-release").expect("Firefox profile");
+        validate_browser_cookie_source("firefox:validation-does-not-read-profile")
+            .expect("validation must not access the browser profile");
         assert!(validate_browser_cookie_source("chrome").is_err());
         assert!(validate_browser_cookie_source("edge").is_err());
         assert!(validate_browser_cookie_source("firefox:../../secret").is_err());
