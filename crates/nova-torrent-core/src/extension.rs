@@ -43,12 +43,7 @@ impl ExtendedHandshake {
         let mut out = Vec::new();
         out.push(b'd');
 
-        // Keys are encoded in canonical byte order.
-        if let Some(metadata_size) = self.metadata_size {
-            bstr(&mut out, b"metadata_size");
-            bint(&mut out, metadata_size as i64);
-        }
-
+        // Keys are encoded in canonical byte order: m, metadata_size, reqq, v.
         bstr(&mut out, b"m");
         out.push(b'd');
         if let Some(ut_metadata) = self.ut_metadata {
@@ -62,6 +57,11 @@ impl ExtendedHandshake {
             bint(&mut out, i64::from(ut_pex));
         }
         out.push(b'e');
+
+        if let Some(metadata_size) = self.metadata_size {
+            bstr(&mut out, b"metadata_size");
+            bint(&mut out, metadata_size as i64);
+        }
 
         if let Some(reqq) = self.request_queue {
             bstr(&mut out, b"reqq");
