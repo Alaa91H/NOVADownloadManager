@@ -5,6 +5,7 @@ pub mod engine;
 pub mod engine_capabilities;
 pub mod external_tools;
 pub mod persist;
+pub mod postprocess;
 pub mod resource_intelligence;
 pub mod routes;
 pub mod state;
