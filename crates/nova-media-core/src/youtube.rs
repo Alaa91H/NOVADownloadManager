@@ -207,6 +207,8 @@ pub struct YouTubeSelectionPolicy {
     pub prefer_separate_tracks: bool,
     pub preferred_container: Option<String>,
     pub preferred_language: Option<String>,
+    pub preferred_video_codec: Option<String>,
+    pub preferred_audio_codec: Option<String>,
     pub sort: Vec<MediaSortKey>,
 }
 
@@ -218,6 +220,8 @@ impl Default for YouTubeSelectionPolicy {
             prefer_separate_tracks: true,
             preferred_container: None,
             preferred_language: None,
+            preferred_video_codec: None,
+            preferred_audio_codec: None,
             sort: vec![
                 MediaSortKey::Quality,
                 MediaSortKey::Bitrate,
@@ -349,7 +353,7 @@ fn compare_youtube_streams(
 fn youtube_preference_score(
     stream: &MediaStream,
     policy: &YouTubeSelectionPolicy,
-) -> (u8, u8) {
+) -> (u8, u8, u8, u8) {
     let container_match = policy
         .preferred_container
         .as_deref()
@@ -368,7 +372,32 @@ fn youtube_preference_score(
                 .as_deref()
                 .is_some_and(|actual| actual.eq_ignore_ascii_case(wanted))
         });
-    (u8::from(container_match), u8::from(language_match))
+    let video_codec_match = youtube_codec_matches(
+        stream.video_codec.as_deref(),
+        policy.preferred_video_codec.as_deref(),
+    );
+    let audio_codec_match = youtube_codec_matches(
+        stream.audio_codec.as_deref(),
+        policy.preferred_audio_codec.as_deref(),
+    );
+    (
+        u8::from(container_match),
+        u8::from(language_match),
+        u8::from(video_codec_match),
+        u8::from(audio_codec_match),
+    )
+}
+
+fn youtube_codec_matches(actual: Option<&str>, wanted: Option<&str>) -> bool {
+    let Some(wanted) = wanted.map(str::trim).filter(|value| !value.is_empty()) else {
+        return false;
+    };
+    actual.is_some_and(|actual| {
+        actual
+            .trim()
+            .to_ascii_lowercase()
+            .starts_with(&wanted.to_ascii_lowercase())
+    })
 }
 
 fn youtube_sort_value(stream: &MediaStream, key: MediaSortKey) -> u64 {
@@ -1617,6 +1646,7 @@ function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
                     YouTubeSelectionPolicy {
                         max_height: Some(limit),
                         prefer_separate_tracks: true,
+                        ..YouTubeSelectionPolicy::default()
                     },
                 ),
                 Some(YouTubeDownloadPlan::SeparateTracks {
