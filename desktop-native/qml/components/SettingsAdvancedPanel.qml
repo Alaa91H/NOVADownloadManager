@@ -945,6 +945,18 @@ ScrollView {
                             const path = desktop.chooseOpenFile("", "JSON (*.json)")
                             if (path.length > 0) {
                                 const ok = settings.importBackup(path)
+                                if (ok) {
+                                    const a = settings.advancedSettings || ({})
+                                    api.setGlobalBandwidthLimit(
+                                        Boolean(a.speedLimiterEnabled)
+                                            ? Number(a.speedLimitKbs || 0)
+                                            : 0
+                                    )
+                                    api.setLogLevel(String(a.logLevel || "info"))
+                                    const ffmpeg = String(a.ffmpegPath || "").trim()
+                                    if (ffmpeg.length > 0)
+                                        api.runExternalToolAction("ffmpeg", "set-path", ffmpeg)
+                                }
                                 root.showNotice(
                                     ok ? root.t("settings.importSuccess") : root.t("settings.importFailed"),
                                     !ok
@@ -960,6 +972,8 @@ ScrollView {
                         onClicked: {
                             if (root.resetArmed) {
                                 settings.resetToDefaults()
+                                api.setGlobalBandwidthLimit(0)
+                                api.setLogLevel("info")
                                 root.resetArmed = false
                                 root.showNotice(root.t("settings.resetComplete"), false)
                             } else {
