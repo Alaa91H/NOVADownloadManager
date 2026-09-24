@@ -3035,7 +3035,7 @@ fn load_native_cookie_file(path: &Path, target_url: &str) -> Result<String, Stri
         if !cookie_domain_matches(&target_host, raw_domain, include_subdomains) {
             continue;
         }
-        if !target_path.starts_with(cookie_path) {
+        if !cookie_path_matches(target_path, cookie_path) {
             continue;
         }
 
@@ -3067,6 +3067,21 @@ fn cookie_domain_matches(host: &str, cookie_domain: &str, include_subdomains: bo
         && host
             .strip_suffix(&domain)
             .is_some_and(|prefix| prefix.ends_with('.'))
+}
+
+fn cookie_path_matches(target_path: &str, cookie_path: &str) -> bool {
+    let cookie_path = if cookie_path.is_empty() { "/" } else { cookie_path };
+    if target_path == cookie_path {
+        return true;
+    }
+    if !target_path.starts_with(cookie_path) {
+        return false;
+    }
+    cookie_path.ends_with('/')
+        || target_path
+            .as_bytes()
+            .get(cookie_path.len())
+            .is_some_and(|next| *next == b'/')
 }
 
 fn parse_quality_height(value: &str) -> Option<u32> {
@@ -3337,6 +3352,16 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn native_cookie_path_matching_respects_segment_boundaries() {
+        assert!(cookie_path_matches("/private", "/private"));
+        assert!(cookie_path_matches("/private/video", "/private"));
+        assert!(cookie_path_matches("/private/video", "/private/"));
+        assert!(cookie_path_matches("/anything", "/"));
+        assert!(!cookie_path_matches("/private-video", "/private"));
+        assert!(!cookie_path_matches("/public", "/private"));
     }
 
     #[test]
