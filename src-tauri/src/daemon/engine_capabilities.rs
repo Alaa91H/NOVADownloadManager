@@ -1438,8 +1438,11 @@ pub fn native_media_status() -> Value {
             "separateTrackMuxBackend": "nova-media-postprocess",
             "separateTrackMuxRequiresPostProcessingReady": true,
             "playlists": false,
-            "formatSorting": false,
-            "audioExtraction": false,
+            "formatSorting": true,
+            "formatSelector": "stream-id-or-itag",
+            "audioExtraction": true,
+            "audioExtractionMode": "existing-source-representation",
+            "audioTranscoding": false,
             "subtitles": false,
             "autoSubtitles": false,
             "thumbnailWriteEmbed": false,
@@ -2049,6 +2052,12 @@ mod tests {
             "single-representation-native"
         );
         assert_eq!(status["capabilities"]["separateTrackTaskExecution"], true);
+        assert_eq!(status["capabilities"]["formatSorting"], true);
+        assert_eq!(status["capabilities"]["audioExtraction"], true);
+        assert_eq!(
+            status["capabilities"]["audioExtractionMode"],
+            "existing-source-representation"
+        );
         assert_eq!(
             status["capabilities"]["separateTrackMuxBackend"],
             "nova-media-postprocess"
@@ -2061,6 +2070,9 @@ mod tests {
             .as_array()
             .expect("supportedMediaOptionKeys");
         assert!(supported.iter().any(|value| value == "quality"));
+        assert!(supported.iter().any(|value| value == "formatSelector"));
+        assert!(supported.iter().any(|value| value == "formatSort"));
+        assert!(supported.iter().any(|value| value == "audioFormat"));
         assert!(!supported.iter().any(|value| value == "audioFormat"));
     }
 
