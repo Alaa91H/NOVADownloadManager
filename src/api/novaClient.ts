@@ -544,7 +544,11 @@ export const novaClient = {
   },
 
   async probePlaylist(url: string): Promise<MediaPlaylistResult> {
-    return request<MediaPlaylistResult>(`/api/media/bridge/probe-playlist?url=${encodeURIComponent(url)}`, undefined, 60000);
+    return request<MediaPlaylistResult>(
+      `/api/media/probe-playlist?url=${encodeURIComponent(url)}`,
+      undefined,
+      60000,
+    );
   },
 
   async updateTelegramConfig(config: {
