@@ -49,6 +49,45 @@ pub use nova_stream_core::{
 /// Default hard ceiling for in-memory HLS/DASH manifest acquisition.
 pub const DEFAULT_MANIFEST_MAX_BYTES: usize = 8 * 1024 * 1024;
 
+/// Compile-time capability matrix for the first-party Rust media core.
+///
+/// This describes what the core itself implements. Platform adapters may expose
+/// a narrower execution surface until task lifecycle integration reaches parity.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct NativeMediaCoreCapabilities {
+    pub generic_direct_extraction: bool,
+    pub hls_parsing: bool,
+    pub hls_staging: bool,
+    pub hls_live_refresh: bool,
+    pub hls_aes128_cbc: bool,
+    pub dash_parsing: bool,
+    pub dash_staging: bool,
+    pub dash_live_refresh: bool,
+    pub ordered_assembly: bool,
+    pub youtube_extraction: bool,
+    pub youtube_signature_transform: bool,
+    pub youtube_throttling_transform: bool,
+    pub separate_track_staging: bool,
+}
+
+pub const fn native_media_core_capabilities() -> NativeMediaCoreCapabilities {
+    NativeMediaCoreCapabilities {
+        generic_direct_extraction: true,
+        hls_parsing: true,
+        hls_staging: true,
+        hls_live_refresh: true,
+        hls_aes128_cbc: true,
+        dash_parsing: true,
+        dash_staging: true,
+        dash_live_refresh: true,
+        ordered_assembly: true,
+        youtube_extraction: true,
+        youtube_signature_transform: true,
+        youtube_throttling_transform: false,
+        separate_track_staging: true,
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum MediaSourceKind {
@@ -354,6 +393,18 @@ impl ExtractorRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_capability_matrix_exposes_deliberate_boundaries() {
+        let capabilities = native_media_core_capabilities();
+        assert!(capabilities.hls_parsing);
+        assert!(capabilities.hls_staging);
+        assert!(capabilities.dash_parsing);
+        assert!(capabilities.dash_staging);
+        assert!(capabilities.separate_track_staging);
+        assert!(capabilities.youtube_signature_transform);
+        assert!(!capabilities.youtube_throttling_transform);
+    }
 
     struct TestExtractor {
         id: &'static str,
