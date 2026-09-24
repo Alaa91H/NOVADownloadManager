@@ -9,10 +9,11 @@ use crate::youtube::YouTubeChallengeSolver;
 const PLAYER_SCRIPT_PARSE_CACHE_SIZE: usize = 8;
 const PLAYER_SCRIPT_MAX_BYTES: usize = 8 * 1024 * 1024;
 
-static SIGNATURE_PLAN_CACHE: OnceLock<Mutex<VecDeque<(u64, Vec<TransformOperation>)>>> =
-    OnceLock::new();
-static THROTTLING_PLAN_CACHE: OnceLock<Mutex<VecDeque<(u64, Vec<TransformOperation>)>>> =
-    OnceLock::new();
+type TransformPlan = Vec<TransformOperation>;
+type TransformPlanCache = OnceLock<Mutex<VecDeque<(u64, TransformPlan)>>>;
+
+static SIGNATURE_PLAN_CACHE: TransformPlanCache = OnceLock::new();
+static THROTTLING_PLAN_CACHE: TransformPlanCache = OnceLock::new();
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TransformOperation {
@@ -75,7 +76,7 @@ fn cached_signature_operations(script: &str) -> Result<Vec<TransformOperation>, 
 }
 
 fn cached_operations(
-    cache: &'static OnceLock<Mutex<VecDeque<(u64, Vec<TransformOperation>)>>>,
+    cache: &'static TransformPlanCache,
     script: &str,
     extractor: fn(&str) -> Result<Vec<TransformOperation>, String>,
 ) -> Result<Vec<TransformOperation>, String> {
@@ -118,7 +119,7 @@ fn player_script_cache_key(script: &str) -> u64 {
 }
 
 fn invalidate_plan(
-    cache: &'static OnceLock<Mutex<VecDeque<(u64, Vec<TransformOperation>)>>>,
+    cache: &'static TransformPlanCache,
     script: &str,
 ) {
     let key = player_script_cache_key(script);
