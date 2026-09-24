@@ -45,6 +45,12 @@ pub const NATIVE_MEDIA_OPTION_KEYS: &[&str] = &[
     "formatSelector",
     "formatSort",
     "audioFormat",
+    "subtitles",
+    "subtitleLanguages",
+    "autoSubtitles",
+    "writeThumbnail",
+    "writeInfoJson",
+    "writeDescription",
     "ffmpegEnabled",
     "outputTemplate",
     "cookies",
@@ -145,6 +151,7 @@ struct ResolvedDirectMedia {
     container: Option<String>,
     content_length: Option<u64>,
     context: HttpRequestContext,
+    descriptor: MediaDescriptor,
 }
 
 #[derive(Clone, Debug)]
@@ -2183,6 +2190,18 @@ fn validate_native_options(options: &MediaDownloadOptions) -> Result<(), String>
         ));
     }
 
+    if options
+        .subtitle_languages
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+        && options.subtitles != Some(true)
+        && options.auto_subtitles != Some(true)
+    {
+        return Err(
+            "subtitleLanguages requires subtitles=true or autoSubtitles=true".to_owned(),
+        );
+    }
+
     if let Some(template) = options.output_template.as_deref().map(str::trim) {
         if !template.is_empty() && template != "%(title)s.%(ext)s" {
             return Err("Custom media output templates are not migrated yet".to_owned());
@@ -2424,6 +2443,245 @@ fn ensure_requested_audio_container(
     }
 }
 
+const NATIVE_SUBTITLE_MAX_BYTES: usize = 8 * 1024 * 1024;
+const NATIVE_THUMBNAIL_MAX_BYTES: usize = 24 * 1024 * 1024;
+
+fn prepare_native_sidecars(
+    body: &CreateDownloadBody,
+    descriptor: &MediaDescriptor,
+    output_path: &Path,
+) -> Result<(), NativeMediaTaskError> {
+    let Some(options) = body.media_options.as_ref() else {
+        return Ok(());
+    };
+    let wants_subtitles =
+        options.subtitles == Some(true) || options.auto_subtitles == Some(true);
+    let wants_thumbnail = options.write_thumbnail == Some(true);
+    let wants_info = options.write_info_json == Some(true);
+    let wants_description = options.write_description == Some(true);
+    if !wants_subtitles && !wants_thumbnail && !wants_info && !wants_description {
+        return Ok(());
+    }
+
+    if let Some(parent) = output_path
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    }
+
+    if wants_info {
+        let payload = safe_descriptor_info_json(descriptor);
+        write_atomic_sidecar(
+            &sidecar_path(output_path, ".info.json"),
+            serde_json::to_vec_pretty(&payload)
+                .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?
+                .as_slice(),
+        )?;
+    }
+
+    if wants_description {
+        write_atomic_sidecar(
+            &sidecar_path(output_path, ".description.txt"),
+            descriptor
+                .metadata
+                .description
+                .as_deref()
+                .unwrap_or_default()
+                .as_bytes(),
+        )?;
+    }
+
+    let context = descriptor
+        .request_context()
+        .map_err(|error| NativeMediaTaskError::InvalidRequest(error.to_string()))?;
+
+    if wants_thumbnail {
+        let url = descriptor
+            .metadata
+            .thumbnail_url
+            .as_deref()
+            .ok_or_else(|| {
+                NativeMediaTaskError::UnsupportedFeature(
+                    "the media descriptor does not expose a thumbnail".to_owned(),
+                )
+            })?;
+        let response = fetch_http_bytes_with_context(url, &context, NATIVE_THUMBNAIL_MAX_BYTES)
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+        let extension = sidecar_extension_from_url(&response.effective_url, "jpg");
+        write_atomic_sidecar(
+            &sidecar_path(output_path, &format!(".thumbnail.{extension}")),
+            &response.body,
+        )?;
+    }
+
+    if wants_subtitles {
+        let languages = requested_subtitle_languages(options);
+        let selected = descriptor
+            .subtitles
+            .iter()
+            .filter(|track| {
+                (track.automatic && options.auto_subtitles == Some(true))
+                    || (!track.automatic && options.subtitles == Some(true))
+            })
+            .filter(|track| subtitle_language_matches(&track.language, &languages))
+            .collect::<Vec<_>>();
+        if selected.is_empty() {
+            return Err(NativeMediaTaskError::UnsupportedFeature(
+                "no subtitle track matches the requested native subtitle policy".to_owned(),
+            ));
+        }
+
+        for track in selected {
+            let response =
+                fetch_http_bytes_with_context(&track.url, &context, NATIVE_SUBTITLE_MAX_BYTES)
+                    .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+            let language = safe_sidecar_component(&track.language, "und");
+            let format = track
+                .format
+                .as_deref()
+                .map(|value| safe_sidecar_component(value, "sub"))
+                .unwrap_or_else(|| "sub".to_owned());
+            let suffix = if track.automatic {
+                format!(".auto.{language}.{format}")
+            } else {
+                format!(".{language}.{format}")
+            };
+            write_atomic_sidecar(&sidecar_path(output_path, &suffix), &response.body)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn requested_subtitle_languages(options: &MediaDownloadOptions) -> Vec<String> {
+    options
+        .subtitle_languages
+        .as_deref()
+        .unwrap_or("en")
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+        .collect()
+}
+
+fn subtitle_language_matches(language: &str, requested: &[String]) -> bool {
+    if requested.is_empty() || requested.iter().any(|value| value == "all" || value == "*") {
+        return true;
+    }
+    let language = language.to_ascii_lowercase();
+    requested.iter().any(|wanted| {
+        language == *wanted
+            || language
+                .strip_prefix(wanted)
+                .is_some_and(|suffix| suffix.starts_with('-'))
+    })
+}
+
+fn safe_descriptor_info_json(descriptor: &MediaDescriptor) -> Value {
+    let streams = descriptor
+        .streams
+        .iter()
+        .map(|stream| {
+            serde_json::json!({
+                "id": stream.id,
+                "kind": stream.kind,
+                "protocol": stream.protocol,
+                "container": stream.container,
+                "videoCodec": stream.video_codec,
+                "audioCodec": stream.audio_codec,
+                "width": stream.width,
+                "height": stream.height,
+                "fps": stream.fps,
+                "bitrateBps": stream.bitrate_bps,
+                "audioBitrateBps": stream.audio_bitrate_bps,
+                "contentLength": stream.content_length,
+                "language": stream.language,
+            })
+        })
+        .collect::<Vec<_>>();
+    let subtitles = descriptor
+        .subtitles
+        .iter()
+        .map(|track| {
+            serde_json::json!({
+                "language": track.language,
+                "name": track.name,
+                "format": track.format,
+                "automatic": track.automatic,
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "schemaVersion": 1,
+        "sourceKind": descriptor.source_kind,
+        "isLive": descriptor.is_live,
+        "metadata": descriptor.metadata,
+        "streams": streams,
+        "subtitles": subtitles,
+    })
+}
+
+fn sidecar_path(output_path: &Path, suffix: &str) -> PathBuf {
+    let parent = output_path.parent().unwrap_or_else(|| Path::new(""));
+    let stem = output_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("nova-media");
+    parent.join(format!("{stem}{suffix}"))
+}
+
+fn sidecar_extension_from_url(url: &str, fallback: &str) -> String {
+    url::Url::parse(url)
+        .ok()
+        .and_then(|url| {
+            url.path_segments()
+                .and_then(|mut segments| segments.next_back())
+                .and_then(|name| Path::new(name).extension())
+                .and_then(|extension| extension.to_str())
+                .map(|extension| safe_sidecar_component(extension, fallback))
+        })
+        .unwrap_or_else(|| fallback.to_owned())
+}
+
+fn safe_sidecar_component(value: &str, fallback: &str) -> String {
+    let safe = value
+        .chars()
+        .filter(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
+        .take(32)
+        .collect::<String>();
+    if safe.is_empty() {
+        fallback.to_owned()
+    } else {
+        safe
+    }
+}
+
+fn write_atomic_sidecar(path: &Path, bytes: &[u8]) -> Result<(), NativeMediaTaskError> {
+    let mut temp = path.as_os_str().to_os_string();
+    temp.push(".tmp");
+    let temp = PathBuf::from(temp);
+    std::fs::write(&temp, bytes)
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    let file = std::fs::File::open(&temp)
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    file.sync_all()
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    drop(file);
+    if path.exists() {
+        std::fs::remove_file(path)
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    }
+    std::fs::rename(&temp, path)
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    Ok(())
+}
+
 fn separate_track_output_container(video: &MediaStream, audio: &MediaStream) -> String {
     let video_container = video
         .container
@@ -2468,6 +2726,7 @@ fn resolved_from_descriptor(
                 container: stream.container.clone(),
                 content_length: stream.content_length,
                 context,
+                descriptor: descriptor.clone(),
             }))
         }
         MediaProtocol::Hls | MediaProtocol::Dash => Ok(ResolvedNativeMedia::Manifest(
