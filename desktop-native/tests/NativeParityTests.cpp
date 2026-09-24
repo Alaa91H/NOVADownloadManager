@@ -335,6 +335,14 @@ void NativeParityTests::legacyLocalizationCatalogCoversFullLanguageSet() {
     i18n.setLanguage(QStringLiteral("fr-FR"));
     QCOMPARE(i18n.language(), QStringLiteral("fr"));
     QCOMPARE(i18n.translate(QStringLiteral("action.delete")), QStringLiteral("Supprimer"));
+    QCOMPARE(
+        i18n.translate(QStringLiteral("nav.downloads")),
+        QStringLiteral("Tous les téléchargements")
+    );
+    QVERIFY(
+        i18n.translate(QStringLiteral("settings.language"))
+            != QStringLiteral("Language")
+    );
     QVERIFY(!i18n.rtl());
 
     i18n.setLanguage(QStringLiteral("ur"));
