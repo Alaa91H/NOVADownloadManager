@@ -22,6 +22,10 @@ public:
     Q_INVOKABLE bool repairBrowserNativeHost();
     Q_INVOKABLE QString readClipboardText() const;
     Q_INVOKABLE QString chooseDirectory(const QString &initialDirectory = QString());
+    Q_INVOKABLE QString chooseOpenFile(
+        const QString &initialPath = QString(),
+        const QString &filter = QStringLiteral("All files (*)")
+    );
     Q_INVOKABLE QString chooseSaveFile(
         const QString &suggestedPath = QString(),
         const QString &filter = QStringLiteral("All files (*)")
