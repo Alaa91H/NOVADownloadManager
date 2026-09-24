@@ -791,6 +791,7 @@ pub async fn handle_queue_delete(
     }
 
     queues.retain(|queue| queue_value_id(queue) != Some(queue_id.as_str()));
+    state.scheduler.reset_queue_runtime(&queue_id);
     let mut queues = reconcile_queue_catalog(&state, queues);
 
     if let Some(main) = queues
@@ -1495,7 +1496,7 @@ async fn run_queue_scheduler_tick(state: &SharedState) {
             .get("scheduled")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
-        let window_active = queue_schedule_window_active(queue, now);
+        let window_active = queue_schedule_window_active(queue, &now);
         let (entered_window, left_window) =
             state.scheduler.queue_window_transition(&queue_id, window_active);
 
@@ -1683,6 +1684,27 @@ async fn run_queue_scheduler_tick(state: &SharedState) {
                     .and_then(|status| TaskState::from_status(status))
                     == Some(TaskState::Completed)
             });
+
+        if all_complete
+            && queue
+                .get("scheduleType")
+                .and_then(serde_json::Value::as_str)
+                == Some("once")
+        {
+            if let Some(object) = queue.as_object_mut() {
+                if !object
+                    .get("scheduleCompleted")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    object.insert(
+                        "scheduleCompleted".to_owned(),
+                        serde_json::Value::Bool(true),
+                    );
+                    catalog_changed = true;
+                }
+            }
+        }
 
         if state
             .scheduler
