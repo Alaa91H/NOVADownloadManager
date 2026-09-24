@@ -91,6 +91,11 @@ impl Extractor for NativeMediaExtractor {
                 "native-resolution".to_owned(),
                 "native-format-selection".to_owned(),
                 "direct-media-handoff".to_owned(),
+                "hls-vod-task".to_owned(),
+                "hls-live-task".to_owned(),
+                "dash-static-task".to_owned(),
+                "dash-dynamic-task".to_owned(),
+                "manifest-pause-resume".to_owned(),
                 "request-context".to_owned(),
             ],
         }
@@ -150,6 +155,7 @@ struct ManifestStageOutput {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 struct HlsLiveTaskCheckpoint {
     cursor: HlsLiveCursor,
     next_order: u64,
@@ -158,6 +164,7 @@ struct HlsLiveTaskCheckpoint {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 struct DashLiveTaskCheckpoint {
     cursor: DashLiveCursor,
     next_order: u64,
@@ -307,7 +314,7 @@ fn create_native_manifest_task(
         category: body.category.clone().unwrap_or_else(|| "video".to_owned()),
         queue_id: body.queue_id.clone().unwrap_or_else(|| "main".to_owned()),
         connections,
-        resumable: true,
+        resumable: body.resumable.unwrap_or(true),
         save_path: output_path.to_string_lossy().to_string(),
         description: body
             .description
