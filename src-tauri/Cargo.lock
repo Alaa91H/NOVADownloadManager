@@ -3011,6 +3011,7 @@ dependencies = [
  "nova-download-core",
  "nova-media-core",
  "nova-stream-core",
+ "nova-torrent-core",
  "regex",
  "reqwest",
  "serde",
@@ -3073,6 +3074,16 @@ version = "0.1.0"
 dependencies = [
  "quick-xml",
  "serde",
+ "thiserror 2.0.20",
+ "url",
+]
+
+[[package]]
+name = "nova-torrent-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "sha1 0.10.7",
  "thiserror 2.0.20",
  "url",
 ]
