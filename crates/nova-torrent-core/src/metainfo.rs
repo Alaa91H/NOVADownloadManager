@@ -5,6 +5,7 @@ use std::ops::Range;
 use url::Url;
 
 pub const MAX_METAINFO_BYTES: usize = 32 * 1024 * 1024;
+pub const MAX_PIECE_LENGTH_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_BENCODE_DEPTH: usize = 64;
 const MAX_CONTAINER_ITEMS: usize = 1_000_000;
 
@@ -126,6 +127,15 @@ impl TorrentMetainfo {
             return Err(TorrentMetainfoError::InvalidField {
                 field: "info.piece length",
                 message: "piece length must be greater than zero".to_owned(),
+            });
+        }
+        if piece_length > MAX_PIECE_LENGTH_BYTES {
+            return Err(TorrentMetainfoError::InvalidField {
+                field: "info.piece length",
+                message: format!(
+                    "piece length exceeds {} byte safety limit",
+                    MAX_PIECE_LENGTH_BYTES
+                ),
             });
         }
 
@@ -869,6 +879,24 @@ mod tests {
         bytes.extend_from_slice(b"ee");
         let error = TorrentMetainfo::parse(&bytes).expect_err("unsafe path must fail");
         assert!(matches!(error, TorrentMetainfoError::UnsafePath(_)));
+    }
+
+    #[test]
+    fn rejects_excessive_piece_length() {
+        let bytes = format!(
+            "d4:infod6:lengthi1e4:name1:x12:piece lengthi{}e6:pieces20:",
+            MAX_PIECE_LENGTH_BYTES + 1
+        );
+        let mut torrent = bytes.into_bytes();
+        torrent.extend_from_slice(&[9u8; 20]);
+        torrent.extend_from_slice(b"ee");
+        assert!(matches!(
+            TorrentMetainfo::parse(&torrent),
+            Err(TorrentMetainfoError::InvalidField {
+                field: "info.piece length",
+                ..
+            })
+        ));
     }
 
     #[test]
