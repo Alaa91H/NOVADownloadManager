@@ -96,6 +96,30 @@ where
     F: Fn() -> bool + Sync,
     P: Fn(u64) + Sync,
 {
+    stage_dash_representation_plan_controlled_with_progress_scoped(
+        plan,
+        context,
+        None,
+        staging_dir,
+        requested_parallelism,
+        should_cancel,
+        on_progress,
+    )
+}
+
+pub fn stage_dash_representation_plan_controlled_with_progress_scoped<F, P>(
+    plan: &DashRepresentationPlan,
+    context: &HttpRequestContext,
+    context_origin: Option<&str>,
+    staging_dir: &Path,
+    requested_parallelism: u32,
+    should_cancel: F,
+    on_progress: P,
+) -> Result<DashStageResult, DashStageError>
+where
+    F: Fn() -> bool + Sync,
+    P: Fn(u64) + Sync,
+{
     if plan.units.is_empty() {
         return Err(DashStageError::EmptyPlan);
     }
@@ -146,10 +170,15 @@ where
                         .open(&temp_path)
                         .map_err(|error| DashStageError::Io(error.to_string()))?;
 
+                    let request_context = context_origin
+                        .map(|origin| {
+                            crate::scope_http_request_context(context, origin, &unit.url)
+                        })
+                        .unwrap_or_else(|| context.clone());
                     let bytes = stream_http_body_controlled_with_context(
                         &unit.url,
                         &mut file,
-                        context,
+                        &request_context,
                         || {
                             if should_cancel() {
                                 TransferControl::Cancel
