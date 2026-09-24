@@ -83,11 +83,18 @@ impl TorrentStorage {
         // Persist recovery identity before creating payload files. If the
         // process stops during allocation, resume() can safely finish creating
         // missing files instead of treating them as unrelated user data.
-        let checkpoint = TorrentResumeCheckpoint::new(&meta, &selection)?;
+        let mut checkpoint = TorrentResumeCheckpoint::new(&meta, &selection)?;
         save_checkpoint_atomic(&checkpoint_path, &checkpoint)?;
         let manifest = TorrentStorageManifest::from_metainfo(&meta);
         save_storage_manifest_atomic(&manifest_path, &manifest)?;
-        prepare_selected_files(&root, &meta, &selection, allocation, false)?;
+        prepare_selected_files_owned(
+            &root,
+            &meta,
+            &selection,
+            allocation,
+            &mut checkpoint,
+            &checkpoint_path,
+        )?;
 
         Ok(Self {
             root,
@@ -118,7 +125,7 @@ impl TorrentStorage {
         }
         let checkpoint_path = control_dir.join(RESUME_FILE_NAME);
         let manifest_path = control_dir.join(MANIFEST_FILE_NAME);
-        let checkpoint = load_checkpoint_recovering(&checkpoint_path, &meta)?
+        let mut checkpoint = load_checkpoint_recovering(&checkpoint_path, &meta)?
             .ok_or_else(|| StorageError::MissingResumeState(checkpoint_path.clone()))?;
         let selection = checkpoint.selection(&meta)?;
 
@@ -134,7 +141,14 @@ impl TorrentStorage {
             manifest
         };
 
-        prepare_selected_files(&root, &meta, &selection, AllocationMode::Sparse, false)?;
+        prepare_selected_files_owned(
+            &root,
+            &meta,
+            &selection,
+            AllocationMode::Sparse,
+            &mut checkpoint,
+            &checkpoint_path,
+        )?;
 
         Ok(Self {
             root,
@@ -230,32 +244,13 @@ impl TorrentStorage {
     ) -> Result<u64, StorageError> {
         validate_selection(&self.meta, &selection)?;
 
-        // A path that was previously skipped was never owned by this torrent
-        // storage session. Refuse to adopt an unrelated file if the user later
-        // selects that path.
-        for (index, file) in self.meta.files.iter().enumerate() {
-            let old = self
-                .selection
-                .file_priority(index)
-                .ok_or(StorageError::FileIndexOutOfRange(index))?;
-            let new = selection
-                .file_priority(index)
-                .ok_or(StorageError::FileIndexOutOfRange(index))?;
-            if !old.is_selected() && new.is_selected() {
-                let path = target_path(&self.root, &file.path)?;
-                if path.exists() {
-                    ensure_target_not_symlink(&path)?;
-                    return Err(StorageError::ExistingTarget(path));
-                }
-            }
-        }
-
-        prepare_selected_files(
+        prepare_selected_files_owned(
             &self.root,
             &self.meta,
             &selection,
             AllocationMode::Sparse,
-            false,
+            &mut self.checkpoint,
+            &self.checkpoint_path,
         )?;
 
         // Verified state is reusable only when the set of selected file slices
@@ -792,12 +787,13 @@ fn preflight_selected_files(
     Ok(())
 }
 
-fn prepare_selected_files(
+fn prepare_selected_files_owned(
     root: &Path,
     meta: &TorrentMetainfo,
     selection: &TorrentSelection,
     allocation: AllocationMode,
-    create_new: bool,
+    checkpoint: &mut TorrentResumeCheckpoint,
+    checkpoint_path: &Path,
 ) -> Result<(), StorageError> {
     for (index, file) in meta.files.iter().enumerate() {
         let priority = selection
@@ -806,27 +802,32 @@ fn prepare_selected_files(
         if !priority.is_selected() {
             continue;
         }
+
         let path = target_path(root, &file.path)?;
         let parent = path
             .parent()
             .ok_or_else(|| StorageError::UnsafePath(file.path.clone()))?;
         ensure_safe_directory(root, parent)?;
         ensure_target_not_symlink(&path)?;
+        let owned = checkpoint.owned_files.is_set(index)?;
 
-        if create_new && path.exists() {
-            return Err(StorageError::ExistingTarget(path));
+        if path.exists() {
+            if !owned {
+                return Err(StorageError::ExistingTarget(path));
+            }
+            continue;
         }
 
-        if !path.exists() {
-            let mut handle = OpenOptions::new()
-                .create_new(true)
-                .read(true)
-                .write(true)
-                .open(&path)
-                .map_err(|error| StorageError::Io(path.clone(), error.to_string()))?;
-            allocate_file(&mut handle, file.length, allocation)
-                .map_err(|error| StorageError::Io(path.clone(), error.to_string()))?;
-        }
+        let mut handle = OpenOptions::new()
+            .create_new(true)
+            .read(true)
+            .write(true)
+            .open(&path)
+            .map_err(|error| StorageError::Io(path.clone(), error.to_string()))?;
+        allocate_file(&mut handle, file.length, allocation)
+            .map_err(|error| StorageError::Io(path.clone(), error.to_string()))?;
+        checkpoint.owned_files.set(index, true)?;
+        save_checkpoint_atomic(checkpoint_path, checkpoint)?;
     }
     Ok(())
 }
@@ -1223,6 +1224,27 @@ mod tests {
             Err(StorageError::StaleGeneration { .. })
         ));
 
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn resume_refuses_existing_file_not_marked_as_owned() {
+        let root = temp_root("unowned-resume");
+        let meta = multi_meta();
+        let selection = TorrentSelection::all(&meta);
+        let storage =
+            TorrentStorage::create(&root, meta.clone(), selection, AllocationMode::Sparse)
+                .unwrap();
+        let checkpoint_path = storage.checkpoint_path.clone();
+        let mut checkpoint = storage.checkpoint.clone();
+        checkpoint.owned_files.set(0, false).unwrap();
+        save_checkpoint_atomic(&checkpoint_path, &checkpoint).unwrap();
+        drop(storage);
+
+        assert!(matches!(
+            TorrentStorage::resume(&root, meta),
+            Err(StorageError::ExistingTarget(_))
+        ));
         let _ = std::fs::remove_dir_all(root);
     }
 
