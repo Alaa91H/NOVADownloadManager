@@ -3,6 +3,8 @@
 #include <QRegularExpression>
 #include <QtGlobal>
 
+#include <utility>
+
 namespace Nova::BatchPattern {
 namespace {
 
@@ -101,7 +103,7 @@ QStringList bracketValues(const Bracket &bracket) {
     }
 
     for (qint64 value = bracket.low; value <= bracket.high; value += bracket.step) {
-        values.append(QString(QChar(static_cast<char16_t>(value))));
+        values.append(QString(1, QChar(static_cast<char16_t>(value))));
     }
     return values;
 }
