@@ -6,6 +6,7 @@ use url::Url;
 pub const MAX_TRACKER_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_TRACKER_PEERS: usize = 10_000;
 const MAX_TRACKER_BENCODE_DEPTH: usize = 16;
+const MAX_TRACKER_MESSAGE_BYTES: usize = 1024;
 const UDP_TRACKER_PROTOCOL_ID: u64 = 0x4172_7101_980;
 const UDP_CONNECT_ACTION: u32 = 0;
 const UDP_ANNOUNCE_ACTION: u32 = 1;
@@ -266,7 +267,7 @@ impl HttpTrackerResponse {
 
         if let Some(reason) = dict_bytes(&dict, b"failure reason") {
             return Err(TrackerProtocolError::TrackerFailure(
-                String::from_utf8_lossy(reason).into_owned(),
+                lossy_limited_message(reason),
             ));
         }
 
@@ -313,10 +314,19 @@ impl HttpTrackerResponse {
                 .map(|value| bounded_u32(value, "incomplete"))
                 .transpose()?,
             warning: dict_bytes(&dict, b"warning message")
-                .map(|value| String::from_utf8_lossy(value).into_owned()),
+                .map(lossy_limited_message),
             peers,
         })
     }
+}
+
+fn lossy_limited_message(bytes: &[u8]) -> String {
+    let limited = &bytes[..bytes.len().min(MAX_TRACKER_MESSAGE_BYTES)];
+    let mut message = String::from_utf8_lossy(limited).into_owned();
+    if bytes.len() > MAX_TRACKER_MESSAGE_BYTES {
+        message.push_str("...");
+    }
+    message
 }
 
 fn percent_encode_bytes(bytes: &[u8]) -> String {
