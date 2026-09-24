@@ -145,7 +145,7 @@ Item {
             Layout.fillWidth: true
             implicitHeight: powerRow.implicitHeight + 16
             radius: Theme.radiusMedium
-            color: Theme.warningMuted
+            color: Theme.surfaceRaised
             border.color: Theme.border
 
             RowLayout {
