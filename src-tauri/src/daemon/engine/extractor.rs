@@ -306,9 +306,13 @@ mod tests {
             media_options: Some(Default::default()),
         };
 
-        let error = reg
-            .validate(&body)
-            .expect_err("fail-closed extractor must block fallback");
+        let error = match reg.validate(&body) {
+            Ok(selected) => panic!(
+                "fail-closed extractor unexpectedly fell through to {}",
+                selected.id()
+            ),
+            Err(error) => error,
+        };
         assert!(error
             .to_string()
             .contains("native-first rejected the request without fallback"));
