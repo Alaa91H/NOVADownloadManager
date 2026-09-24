@@ -12,6 +12,7 @@ mod hls_live;
 mod hls_transfer;
 mod youtube;
 mod youtube_player;
+mod youtube_transfer;
 
 pub use assembly::{assemble_ordered_parts, AssemblyError, AssemblyResult};
 pub use dash_live::{refresh_and_stage_dash_live_once, DashLiveError, DashLiveStageRefresh};
@@ -28,6 +29,7 @@ pub use youtube::{
     YouTubeSelectionPolicy,
 };
 pub use youtube_player::YouTubePlayerScriptSolver;
+pub use youtube_transfer::{download_youtube_plan, YouTubeTransferError, YouTubeTransferOutput};
 
 use std::collections::BTreeMap;
 
