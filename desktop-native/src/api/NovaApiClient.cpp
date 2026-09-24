@@ -529,46 +529,60 @@ bool NovaApiClient::directOptionSupported(const QString &key) const {
 }
 
 void NovaApiClient::recomputeKnownQueueIds() {
-    QSet<QString> ids;
-    ids.insert(QStringLiteral("main"));
+    QStringList nextIds;
+    QStringList nextLabels;
+    QSet<QString> seen;
 
-    QHash<QString, QString> labels;
-    labels.insert(QStringLiteral("main"), QStringLiteral("Main Queue"));
+    const auto appendQueue = [&nextIds, &nextLabels, &seen](
+        const QString &id,
+        const QString &label
+    ) {
+        const QString normalizedId = id.trimmed();
+        if (normalizedId.isEmpty() || seen.contains(normalizedId)) {
+            return;
+        }
+        seen.insert(normalizedId);
+        nextIds.append(normalizedId);
+        nextLabels.append(label.trimmed().isEmpty() ? normalizedId : label.trimmed());
+    };
 
     for (const QVariant &value : m_queueCatalog) {
         const QVariantMap queue = value.toMap();
-        const QString queueId = queue.value(QStringLiteral("id")).toString().trimmed();
-        if (queueId.isEmpty()) {
-            continue;
-        }
-        ids.insert(queueId);
-
-        const QString name = queue.value(QStringLiteral("name")).toString().trimmed();
-        labels.insert(queueId, name.isEmpty() ? queueId : name);
+        appendQueue(
+            queue.value(QStringLiteral("id")).toString(),
+            queue.value(QStringLiteral("name")).toString()
+        );
     }
 
+    if (!seen.contains(QStringLiteral("main"))) {
+        nextIds.prepend(QStringLiteral("main"));
+        nextLabels.prepend(QStringLiteral("Main Queue"));
+        seen.insert(QStringLiteral("main"));
+    } else {
+        const int mainIndex = nextIds.indexOf(QStringLiteral("main"));
+        if (mainIndex > 0) {
+            const QString mainId = nextIds.takeAt(mainIndex);
+            const QString mainLabel = nextLabels.takeAt(mainIndex);
+            nextIds.prepend(mainId);
+            nextLabels.prepend(mainLabel);
+        }
+    }
+
+    QStringList liveExtras;
     for (const QJsonValue &value : m_currentDownloads) {
         const QString queueId = value.toObject()
             .value(QStringLiteral("queueId"))
             .toString()
             .trimmed();
-        if (!queueId.isEmpty()) {
-            ids.insert(queueId);
-            if (!labels.contains(queueId)) {
-                labels.insert(queueId, queueId);
-            }
+        if (!queueId.isEmpty() && !seen.contains(queueId)) {
+            liveExtras.append(queueId);
+            seen.insert(queueId);
         }
     }
-
-    QStringList nextIds = ids.values();
-    nextIds.sort(Qt::CaseInsensitive);
-    nextIds.removeAll(QStringLiteral("main"));
-    nextIds.prepend(QStringLiteral("main"));
-
-    QStringList nextLabels;
-    nextLabels.reserve(nextIds.size());
-    for (const QString &id : nextIds) {
-        nextLabels.append(labels.value(id, id));
+    liveExtras.sort(Qt::CaseInsensitive);
+    for (const QString &queueId : liveExtras) {
+        nextIds.append(queueId);
+        nextLabels.append(queueId);
     }
 
     if (nextIds == m_knownQueueIds && nextLabels == m_knownQueueLabels) {
