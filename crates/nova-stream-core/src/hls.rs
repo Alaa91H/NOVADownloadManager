@@ -413,6 +413,105 @@ fn push_attribute<'a>(raw: &'a str, output: &mut Vec<(&'a str, &'a str)>) {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum HlsTransferUnitKind {
+    Initialization,
+    MediaSegment,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct HlsTransferUnit {
+    pub order: u64,
+    pub kind: HlsTransferUnitKind,
+    pub uri: String,
+    pub byte_range: Option<HlsByteRange>,
+    pub sequence: Option<u64>,
+    pub discontinuity: bool,
+    pub key: Option<HlsKey>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct HlsMediaPlan {
+    pub units: Vec<HlsTransferUnit>,
+    pub end_list: bool,
+    pub target_duration_seconds: Option<u64>,
+}
+
+#[derive(Debug, Error, Eq, PartialEq)]
+pub enum HlsPlanError {
+    #[error("HLS transfer planning requires a media playlist")]
+    MasterPlaylist,
+    #[error("HLS media playlist contains no segments")]
+    EmptyMediaPlaylist,
+}
+
+/// Select the highest quality advertised variant using resolution first and
+/// bandwidth second. This intentionally avoids codec policy so callers can
+/// layer device/container preferences above the protocol parser.
+pub fn select_best_hls_variant(manifest: &HlsManifest) -> Option<&HlsVariant> {
+    manifest.variants.iter().max_by_key(|variant| {
+        let (width, height) = variant.resolution.unwrap_or((0, 0));
+        (
+            u64::from(width) * u64::from(height),
+            variant.average_bandwidth.or(variant.bandwidth).unwrap_or(0),
+        )
+    })
+}
+
+/// Convert one HLS media playlist into ordered native transfer units.
+///
+/// Initialization maps are emitted only when they change. Encryption metadata
+/// stays attached to each media segment so the media executor can fetch keys
+/// and decrypt without re-parsing the manifest.
+pub fn build_hls_media_plan(manifest: &HlsManifest) -> Result<HlsMediaPlan, HlsPlanError> {
+    if manifest.kind != HlsPlaylistKind::Media {
+        return Err(HlsPlanError::MasterPlaylist);
+    }
+    if manifest.segments.is_empty() {
+        return Err(HlsPlanError::EmptyMediaPlaylist);
+    }
+
+    let mut units = Vec::with_capacity(manifest.segments.len() + 1);
+    let mut order = 0_u64;
+    let mut active_map: Option<HlsInitMap> = None;
+
+    for segment in &manifest.segments {
+        if segment.init_map != active_map {
+            if let Some(init_map) = &segment.init_map {
+                units.push(HlsTransferUnit {
+                    order,
+                    kind: HlsTransferUnitKind::Initialization,
+                    uri: init_map.uri.clone(),
+                    byte_range: init_map.byte_range.clone(),
+                    sequence: None,
+                    discontinuity: false,
+                    key: None,
+                });
+                order += 1;
+            }
+            active_map = segment.init_map.clone();
+        }
+
+        units.push(HlsTransferUnit {
+            order,
+            kind: HlsTransferUnitKind::MediaSegment,
+            uri: segment.uri.clone(),
+            byte_range: segment.byte_range.clone(),
+            sequence: Some(segment.sequence),
+            discontinuity: segment.discontinuity,
+            key: segment.key.clone(),
+        });
+        order += 1;
+    }
+
+    Ok(HlsMediaPlan {
+        units,
+        end_list: manifest.end_list,
+        target_duration_seconds: manifest.target_duration_seconds,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -479,6 +578,39 @@ mod tests {
         assert_eq!(
             parse_byte_range("abc"),
             Err(HlsError::InvalidByteRange("abc".to_owned()))
+        );
+    }
+
+    #[test]
+    fn selects_highest_resolution_variant_before_bandwidth() {
+        let manifest = parse_hls(
+            "https://cdn.test/master.m3u8",
+            "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=9000000,RESOLUTION=1280x720\n720.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080\n1080.m3u8\n",
+        )
+        .expect("master");
+
+        assert_eq!(
+            select_best_hls_variant(&manifest).map(|variant| variant.uri.as_str()),
+            Some("https://cdn.test/1080.m3u8")
+        );
+    }
+
+    #[test]
+    fn media_plan_emits_init_map_once_and_preserves_encryption_metadata() {
+        let manifest = parse_hls(
+            "https://cdn.test/vod/index.m3u8",
+            "#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXT-X-KEY:METHOD=AES-128,URI=\"key.bin\"\n#EXTINF:4,\na.m4s\n#EXTINF:4,\nb.m4s\n#EXT-X-ENDLIST\n",
+        )
+        .expect("media");
+        let plan = build_hls_media_plan(&manifest).expect("plan");
+
+        assert_eq!(plan.units.len(), 3);
+        assert_eq!(plan.units[0].kind, HlsTransferUnitKind::Initialization);
+        assert_eq!(plan.units[1].sequence, Some(0));
+        assert_eq!(plan.units[2].sequence, Some(1));
+        assert_eq!(
+            plan.units[1].key.as_ref().map(|key| &key.method),
+            Some(&HlsEncryptionMethod::Aes128)
         );
     }
 }
