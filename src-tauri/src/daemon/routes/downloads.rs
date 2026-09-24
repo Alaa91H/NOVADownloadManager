@@ -20,9 +20,7 @@ use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
 use crate::daemon::engine::rules::RuleAction;
 use crate::daemon::state::SharedState;
 use crate::daemon::telegram::telegram_notify;
-use crate::daemon::types::{
-    transition_task_state, CreateDownloadBody, Task, TaskState,
-};
+use crate::daemon::types::{transition_task_state, CreateDownloadBody, Task, TaskState};
 use crate::daemon::ytdlp::create_ytdlp_task;
 use crate::lock_or_err;
 
@@ -939,9 +937,7 @@ fn start_curl_task_by_id(state: &SharedState, task_id: &str) {
             );
             return;
         }
-        if let Err(error) =
-            transition_task_state(&mut job.task, TaskState::Preparing, "starting")
-        {
+        if let Err(error) = transition_task_state(&mut job.task, TaskState::Preparing, "starting") {
             log::error!("Task {task_id}: could not enter preparing state: {error}");
             return;
         }
@@ -1042,9 +1038,7 @@ pub async fn handle_stats(State(state): State<SharedState>) -> Json<serde_json::
     let active = {
         let snap = lock_or_err!(state.task_snapshot);
         snap.values()
-            .filter(|task| {
-                TaskState::from_status(&task.status).is_some_and(TaskState::is_active)
-            })
+            .filter(|task| TaskState::from_status(&task.status).is_some_and(TaskState::is_active))
             .count()
     };
     Json(serde_json::json!({

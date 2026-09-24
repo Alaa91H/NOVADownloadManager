@@ -687,8 +687,7 @@ mod tests {
 
     #[test]
     fn stale_part_detection_matches_cleanup_naming_convention() {
-        let root =
-            std::env::temp_dir().join(format!("nova-part-detect-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("nova-part-detect-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let output = root.join("archive.zip");
         let part = root.join("archive.zip.part007");
@@ -699,7 +698,10 @@ mod tests {
         assert!(FileWriter::has_stale_parts_for(&output));
         FileWriter::remove_stale_parts_for(&output);
         assert!(!FileWriter::has_stale_parts_for(&output));
-        assert!(unrelated.exists(), "cleanup must not remove unrelated files");
+        assert!(
+            unrelated.exists(),
+            "cleanup must not remove unrelated files"
+        );
 
         let _ = std::fs::remove_dir_all(root);
     }

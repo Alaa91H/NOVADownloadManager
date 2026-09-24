@@ -709,9 +709,11 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                                 .store(true, std::sync::atomic::Ordering::Release);
                             let current = TaskState::from_status(&job.task.status);
                             if current != Some(TaskState::Completed) {
-                                if let Err(error) =
-                                    transition_task_state(&mut job.task, TaskState::Paused, "shutdown")
-                                {
+                                if let Err(error) = transition_task_state(
+                                    &mut job.task,
+                                    TaskState::Paused,
+                                    "shutdown",
+                                ) {
                                     // Verifying/finalizing deliberately cannot
                                     // be paused mid-commit. Leave that active
                                     // state intact; restart recovery will mark
@@ -719,7 +721,8 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                                     // finish during the shutdown grace period.
                                     log::info!(
                                         "Task {} kept in state '{}' during shutdown: {error}",
-                                        job.task.id, job.task.status
+                                        job.task.id,
+                                        job.task.status
                                     );
                                 }
                             }
@@ -880,9 +883,8 @@ fn restore_persisted_tasks(
         }
 
         let restored_state = TaskState::from_status(&task.status);
-        let was_running = restored_state.is_some_and(|state| {
-            state.is_active() || state == TaskState::Queued
-        });
+        let was_running =
+            restored_state.is_some_and(|state| state.is_active() || state == TaskState::Queued);
         if was_running {
             // A process restart interrupts every active phase, including the
             // new Verifying/Finalizing states. Preserve the public paused
@@ -978,27 +980,23 @@ fn restore_persisted_tasks(
                                     .unwrap_or_default();
                                 if let Some(checkpoint) = recovery_checkpoints.get(&task.id) {
                                     if let Some(etag) = checkpoint.resource.etag.as_ref() {
-                                        options
-                                            .entry("etag".to_owned())
-                                            .or_insert_with(|| serde_json::Value::String(etag.clone()));
+                                        options.entry("etag".to_owned()).or_insert_with(|| {
+                                            serde_json::Value::String(etag.clone())
+                                        });
                                     }
                                     if let Some(last_modified) =
                                         checkpoint.resource.last_modified.as_ref()
                                     {
-                                        options
-                                            .entry("lastModified".to_owned())
-                                            .or_insert_with(|| {
-                                                serde_json::Value::String(last_modified.clone())
-                                            });
+                                        options.entry("lastModified".to_owned()).or_insert_with(
+                                            || serde_json::Value::String(last_modified.clone()),
+                                        );
                                     }
                                     if let Some(effective_url) =
                                         checkpoint.resource.effective_url.as_ref()
                                     {
-                                        options
-                                            .entry("effectiveUrl".to_owned())
-                                            .or_insert_with(|| {
-                                                serde_json::Value::String(effective_url.clone())
-                                            });
+                                        options.entry("effectiveUrl".to_owned()).or_insert_with(
+                                            || serde_json::Value::String(effective_url.clone()),
+                                        );
                                     }
                                 }
                                 options
@@ -1145,8 +1143,10 @@ mod tests {
 
     #[test]
     fn restoration_keeps_completed_direct_task_only_when_file_matches() {
-        let data_dir =
-            std::env::temp_dir().join(format!("nova-restore-complete-test-{}", uuid::Uuid::new_v4()));
+        let data_dir = std::env::temp_dir().join(format!(
+            "nova-restore-complete-test-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&data_dir).expect("create test data directory");
         let data_dir_string = data_dir.display().to_string();
         let state = Arc::new(persist::tests::test_state(&data_dir_string));

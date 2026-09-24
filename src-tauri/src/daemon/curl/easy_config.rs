@@ -2023,10 +2023,7 @@ mod tests {
         assert!(capture.header(b"HTTP/1.1 206 Partial Content\r\n"));
         assert!(capture.header(b"Last-Modified: Wed, 23 Sep 2026 20:00:00 GMT\r\n"));
         assert!(capture.header(b"ETag: \"nova-v2\"\r\n"));
-        assert_eq!(
-            capture.validator(),
-            Some(("\"nova-v2\"".to_owned(), true))
-        );
+        assert_eq!(capture.validator(), Some(("\"nova-v2\"".to_owned(), true)));
     }
 
     #[test]

@@ -232,10 +232,8 @@ mod tests {
 
     #[test]
     fn completion_gate_accepts_exact_regular_file() {
-        let dir = std::env::temp_dir().join(format!(
-            "nova-completion-gate-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("nova-completion-gate-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let output = dir.join("complete.bin");
         std::fs::write(&output, b"nova").unwrap();
@@ -266,11 +264,7 @@ mod tests {
 
     #[test]
     fn segment_geometry_accepts_complete_unsorted_coverage() {
-        let ranges = vec![
-            segment(2, 8, 9),
-            segment(0, 0, 3),
-            segment(1, 4, 7),
-        ];
+        let ranges = vec![segment(2, 8, 9), segment(0, 0, 3), segment(1, 4, 7)];
         assert!(validate_segment_geometry(10, &ranges).is_ok());
     }
 
