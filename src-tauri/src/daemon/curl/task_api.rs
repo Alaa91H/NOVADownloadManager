@@ -237,6 +237,12 @@ pub async fn pause_task(state: &SharedState, id: &str) -> Result<Task, String> {
         if let Some(job) = jobs.get_mut(id) {
             let current = TaskState::from_status(&job.task.status)
                 .ok_or_else(|| format!("Task {id} has unknown state '{}'", job.task.status))?;
+            if matches!(current, TaskState::Verifying | TaskState::Finalizing) {
+                return Err(format!(
+                    "Cannot pause '{}': libcurl is committing the final output.",
+                    job.task.name
+                ));
+            }
             let next = if current.is_active() {
                 TaskState::Pausing
             } else {
