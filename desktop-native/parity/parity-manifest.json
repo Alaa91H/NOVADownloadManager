@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "stage": "6-parity-freeze",
+  "stage": "6.1-true-parity-hardening",
   "nativePreviewVersion": "2.4.48-alpha",
   "statuses": [
     "covered",
@@ -96,7 +96,7 @@
     {
       "id": "queue",
       "label": "Queue management",
-      "status": "covered",
+      "status": "partial",
       "evidence": [
         "desktop-native/qml/pages/QueuePage.qml",
         "desktop-native/src/api/NovaApiClient.cpp"
@@ -109,12 +109,13 @@
             "setQueuePriority"
           ]
         }
-      ]
+      ],
+      "blocker": "Native queue page currently exposes queue state and task priority, but legacy parity is incomplete for queue creation/deletion/reordering, moving tasks between queues, per-queue ordering and advanced queue controls."
     },
     {
       "id": "scheduler",
       "label": "Scheduler",
-      "status": "covered",
+      "status": "partial",
       "evidence": [
         "desktop-native/qml/pages/SchedulerPage.qml",
         "desktop-native/src/api/NovaApiClient.cpp"
@@ -129,12 +130,13 @@
             "deleteSchedulerRule"
           ]
         }
-      ]
+      ],
+      "blocker": "Native scheduler supports daemon-backed rules, but legacy parity is incomplete for queue-centric schedules, days/schedule modes, max-active controls, retry timing, completion actions, task ordering and engine-profile integration."
     },
     {
       "id": "batch-import",
       "label": "Batch import",
-      "status": "covered",
+      "status": "partial",
       "evidence": [
         "desktop-native/qml/pages/BatchImportPage.qml",
         "desktop-native/src/api/NovaApiClient.cpp"
@@ -147,12 +149,13 @@
             "pumpBatchRequests"
           ]
         }
-      ]
+      ],
+      "blocker": "Native batch import currently covers URL expansion, destination, connection count and start behavior, but legacy parity is incomplete for queue selection, Referer/User-Agent, proxy, custom headers, retry policy and timeout controls."
     },
     {
       "id": "media",
       "label": "Media downloader",
-      "status": "covered",
+      "status": "partial",
       "evidence": [
         "desktop-native/qml/pages/MediaDownloaderPage.qml",
         "desktop-native/src/api/NovaApiClient.cpp"
@@ -166,7 +169,8 @@
             "createMediaDownload"
           ]
         }
-      ]
+      ],
+      "blocker": "Native media workflow covers probing, quality/audio selection, playlists, subtitles, thumbnails and metadata, but legacy advanced controls are incomplete (format overrides/sorting, sections, remux, SponsorBlock, proxy/cookies/headers, rate/retry/fragment and sleep controls)."
     },
     {
       "id": "link-grabber",
@@ -189,7 +193,7 @@
     {
       "id": "settings-diagnostics",
       "label": "Settings and diagnostics",
-      "status": "covered",
+      "status": "partial",
       "evidence": [
         "desktop-native/qml/pages/SettingsPage.qml",
         "desktop-native/src/settings/NativeSettings.cpp",
@@ -205,7 +209,8 @@
             "refreshEngineManagement"
           ]
         }
-      ]
+      ],
+      "blocker": "Native settings covers core preferences, engine controls, browser integration, updater checks, diagnostics and logs, but legacy parity is incomplete for network/performance, media, external tools, backup/restore, Telegram and shortcut settings; legacy UI preference migration is also not implemented."
     },
     {
       "id": "desktop-integration",
@@ -546,5 +551,12 @@
         }
       ]
     }
+  ],
+  "releaseReplacementReady": false,
+  "releaseReplacementBlockers": [
+    "All parity capabilities must be covered before native UI can replace the legacy UI.",
+    "Signed automatic updater must be production-configured.",
+    "Six-platform CI and packaged browser-capture E2E must pass.",
+    "Legacy user settings migration must be validated."
   ]
 }
