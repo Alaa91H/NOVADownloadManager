@@ -10,8 +10,8 @@ use crate::daemon::types::{Task, TaskState};
 use crate::lock_or_err;
 
 /// On-disk snapshot of everything needed to rebuild the download list after
-/// a restart: the last known task state plus the argument vectors needed to
-/// resume interrupted curl and media-bridge jobs.
+/// a restart: the last known task state plus first-party native/libcurl
+/// recovery context needed to resume interrupted transfers.
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 pub struct PersistedState {
     pub version: u32,
@@ -21,7 +21,6 @@ pub struct PersistedState {
     /// authority and old task snapshots remain backward compatible.
     #[serde(default)]
     pub recovery_checkpoints: HashMap<String, RecoveryCheckpoint>,
-    pub media_args: HashMap<String, Vec<String>>,
     #[serde(default)]
     pub native_media_requests: HashMap<String, crate::daemon::types::CreateDownloadBody>,
     #[serde(default)]
@@ -227,11 +226,10 @@ fn sanitize_native_media_request(
 
 fn build_snapshot(state: &AppState) -> PersistedState {
     // Acquire locks in documented order
-    // (media_jobs → native_media_jobs → curl_jobs → task_snapshot)
+    // (native_media_jobs → curl_jobs → task_snapshot)
     // within a block scope so curl_jobs is released before download_stats,
     // preventing AB-BA deadlock with transfer.rs (which locks download_stats → curl_jobs).
     let (
-        media_args,
         native_media_requests,
         native_media_protocols,
         curl_args,
@@ -241,15 +239,10 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         recovery_checkpoints,
         telegram_last_update_id,
     ) = {
-        let media_jobs = lock_or_err!(state.media_jobs);
         let native_media_jobs = lock_or_err!(state.native_media_jobs);
         let curl_jobs = lock_or_err!(state.curl_jobs);
         let snapshot = lock_or_err!(state.task_snapshot);
 
-        let media_args: HashMap<String, Vec<String>> = media_jobs
-            .iter()
-            .map(|(id, job)| (id.clone(), sanitize_resume_args(&job.args)))
-            .collect();
         let native_media_requests: HashMap<String, crate::daemon::types::CreateDownloadBody> =
             native_media_jobs
                 .iter()
@@ -267,20 +260,14 @@ fn build_snapshot(state: &AppState) -> PersistedState {
             .iter()
             .map(|(id, job)| (id.clone(), sanitize_direct_options(&job.direct_options)))
             .collect();
-        let mut resume_requires_reauth: Vec<String> = media_jobs
+        let mut resume_requires_reauth: Vec<String> = curl_jobs
             .iter()
-            .filter(|(_, job)| job.args.iter().any(|arg| is_sensitive_resume_argument(arg)))
+            .filter(|(_, job)| {
+                job.args.iter().any(|arg| is_sensitive_resume_argument(arg))
+                    || direct_options_require_reauth(&job.direct_options)
+            })
             .map(|(id, _)| id.clone())
             .collect();
-        resume_requires_reauth.extend(
-            curl_jobs
-                .iter()
-                .filter(|(_, job)| {
-                    job.args.iter().any(|arg| is_sensitive_resume_argument(arg))
-                        || direct_options_require_reauth(&job.direct_options)
-                })
-                .map(|(id, _)| id.clone()),
-        );
         resume_requires_reauth.extend(
             native_media_jobs
                 .iter()
@@ -311,7 +298,6 @@ fn build_snapshot(state: &AppState) -> PersistedState {
             .collect();
         let telegram_last_update_id = *lock_or_err!(state.telegram_last_update_id);
         (
-            media_args,
             native_media_requests,
             native_media_protocols,
             curl_args,
@@ -329,7 +315,6 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         version: 2,
         tasks,
         recovery_checkpoints,
-        media_args,
         native_media_requests,
         native_media_protocols,
         curl_args,
@@ -468,9 +453,7 @@ pub fn start_persistence_loop(state: SharedState) {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::daemon::types::{
-        CreateDownloadBody, CurlJob, MediaJob, Segment, TelegramConfig,
-    };
+    use crate::daemon::types::{CreateDownloadBody, CurlJob, Segment, TelegramConfig};
     use std::sync::atomic::{AtomicBool, AtomicU64};
     use std::sync::{Arc, Mutex, RwLock};
     use std::time::Instant;
@@ -514,7 +497,6 @@ pub(crate) mod tests {
 
     pub(crate) fn test_state(data_dir: &str) -> AppState {
         AppState {
-            media_jobs: Mutex::new(HashMap::new()),
             native_media_jobs: Mutex::new(HashMap::new()),
             curl_jobs: Mutex::new(HashMap::new()),
             task_snapshot: Mutex::new(HashMap::new()),
@@ -524,9 +506,7 @@ pub(crate) mod tests {
             http_client: reqwest::Client::new(),
             resource_dir: String::new(),
             data_dir: data_dir.to_string(),
-            media_bridge_bin: RwLock::new(String::new()),
             ffmpeg_bin: RwLock::new(String::new()),
-            bundled_media_bridge_bin: String::new(),
             bundled_ffmpeg_bin: String::new(),
             telegram_last_update_id: Mutex::new(0),
             engine_capabilities_cache: RwLock::new(None),
@@ -597,29 +577,7 @@ pub(crate) mod tests {
             .task_snapshot
             .lock()
             .unwrap()
-            .insert("m1".to_string(), sample_task("m1", "media-bridge", "downloading"));
-        state
-            .task_snapshot
-            .lock()
-            .unwrap()
             .insert("c1".to_string(), sample_task("c1", "curl", "downloading"));
-        state.media_jobs.lock().unwrap().insert(
-            "m1".to_string(),
-            MediaJob {
-                task: sample_task("m1", "media-bridge", "downloading"),
-                child: None,
-                args: vec![
-                    "-f".to_string(),
-                    "best".to_string(),
-                    "--username".to_string(),
-                    "private-user".to_string(),
-                    "--password=private-password".to_string(),
-                    "--add-header".to_string(),
-                    "Cookie: session=private-cookie".to_string(),
-                ],
-                start_time: Instant::now(),
-            },
-        );
         state.curl_jobs.lock().unwrap().insert(
             "c1".to_string(),
             CurlJob {
@@ -655,7 +613,7 @@ pub(crate) mod tests {
         save(&state);
         let loaded = load(&dir_str);
 
-        assert_eq!(loaded.tasks.len(), 3);
+        assert_eq!(loaded.tasks.len(), 2);
         assert_eq!(loaded.version, 2);
         let checkpoint = loaded
             .recovery_checkpoints
@@ -670,20 +628,13 @@ pub(crate) mod tests {
             Some("https://example.com/c1")
         );
         assert_eq!(
-            loaded.media_args.get("m1"),
-            Some(&vec!["-f".to_string(), "best".to_string()])
-        );
-        assert_eq!(
             loaded.curl_args.get("c1"),
             Some(&vec![
                 "--location".to_string(),
                 "https://example.com/c1".to_string()
             ])
         );
-        assert_eq!(
-            loaded.resume_requires_reauth,
-            vec!["c1".to_string(), "m1".to_string()]
-        );
+        assert_eq!(loaded.resume_requires_reauth, vec!["c1".to_string()]);
         let direct_options = loaded.curl_direct_options.get("c1").unwrap();
         assert_eq!(
             direct_options.get("retries"),
