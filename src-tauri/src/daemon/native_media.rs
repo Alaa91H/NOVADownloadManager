@@ -193,26 +193,17 @@ pub async fn create_native_media_task(
     body: &CreateDownloadBody,
 ) -> Result<Task, NativeMediaTaskError> {
     let owned = body.clone();
-    let mut resolved = tokio::task::spawn_blocking(move || resolve_native_media(&owned))
+    let resolved = tokio::task::spawn_blocking(move || resolve_native_media(&owned))
         .await
         .map_err(|error| NativeMediaTaskError::Worker(error.to_string()))??;
 
     if matches!(resolved, ResolvedNativeMedia::SeparateTracks(_)) {
         let postprocessor = FfmpegPostProcessor::new(state.ffmpeg_binary());
         if !postprocessor.is_available() {
-            let mut fallback = body.clone();
-            if let Some(options) = fallback.media_options.as_mut() {
-                options.ffmpeg_enabled = Some(false);
-            }
-            let fallback_resolved = tokio::task::spawn_blocking(move || resolve_native_media(&fallback))
-                .await
-                .map_err(|error| NativeMediaTaskError::Worker(error.to_string()))?;
-            resolved = fallback_resolved.map_err(|_| {
-                NativeMediaTaskError::UnsupportedFeature(
-                    "high-quality separate tracks require the NOVA post-processing muxer, and no usable FFmpeg installation is currently available"
-                        .to_owned(),
-                )
-            })?;
+            return Err(NativeMediaTaskError::UnsupportedFeature(
+                "the selected quality requires separate audio/video tracks, but the NOVA post-processing muxer is not available"
+                    .to_owned(),
+            ));
         }
     }
 
@@ -1932,7 +1923,7 @@ fn resolve_native_media(
             .media_options
             .as_ref()
             .and_then(|options| options.ffmpeg_enabled)
-            .unwrap_or(true);
+            .unwrap_or(false);
         let plan = select_youtube_download_plan(
             &extraction,
             YouTubeSelectionPolicy {
