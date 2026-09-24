@@ -65,10 +65,15 @@ impl TrackerAnnounceRequest {
         }
 
         let mut fields = Vec::new();
-        if let Some(existing) = url.query() {
-            if !existing.is_empty() {
-                fields.push(existing.to_owned());
+        for (key, value) in url.query_pairs() {
+            if is_announce_query_key(&key) {
+                continue;
             }
+            fields.push(format!(
+                "{}={}",
+                percent_encode_query_component(key.as_bytes()),
+                percent_encode_query_component(value.as_bytes())
+            ));
         }
         fields.push(format!(
             "info_hash={}",
@@ -90,6 +95,7 @@ impl TrackerAnnounceRequest {
         }
 
         url.set_query(Some(&fields.join("&")));
+        url.set_fragment(None);
         Ok(url.to_string())
     }
 
@@ -327,6 +333,39 @@ fn lossy_limited_message(bytes: &[u8]) -> String {
         message.push_str("...");
     }
     message
+}
+
+fn is_announce_query_key(key: &str) -> bool {
+    matches!(
+        key,
+        "info_hash"
+            | "peer_id"
+            | "port"
+            | "uploaded"
+            | "downloaded"
+            | "left"
+            | "compact"
+            | "no_peer_id"
+            | "key"
+            | "numwant"
+            | "event"
+            | "ip"
+    )
+}
+
+fn percent_encode_query_component(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut output = String::with_capacity(bytes.len());
+    for byte in bytes {
+        if byte.is_ascii_alphanumeric() || matches!(*byte, b'-' | b'.' | b'_' | b'~') {
+            output.push(*byte as char);
+        } else {
+            output.push('%');
+            output.push(HEX[(byte >> 4) as usize] as char);
+            output.push(HEX[(byte & 0x0f) as usize] as char);
+        }
+    }
+    output
 }
 
 fn percent_encode_bytes(bytes: &[u8]) -> String {
@@ -733,11 +772,13 @@ mod tests {
     #[test]
     fn http_announce_percent_encodes_binary_identity() {
         let url = request()
-            .to_http_url("https://tracker.test/announce?token=abc")
+            .to_http_url("https://tracker.test/announce?token=abc&info_hash=stale&event=stopped")
             .expect("http tracker");
         assert!(url.contains("token=abc&info_hash=%01%01%01"));
         assert!(url.contains("peer_id=%2D%4E%56%30"));
         assert!(url.contains("event=started"));
+        assert!(!url.contains("info_hash=stale"));
+        assert!(!url.contains("event=stopped"));
         assert!(url.contains("compact=1"));
     }
 
