@@ -1,6 +1,7 @@
 use crate::{
-    FilePriority, ResumeError, TorrentMetainfo, TorrentSelection, TorrentResumeCheckpoint,
-    load_checkpoint_recovering, save_checkpoint_atomic,
+    FilePriority, InfoHash, ManifestError, ResumeError, TorrentMetainfo, TorrentSelection,
+    TorrentResumeCheckpoint, TorrentStorageManifest, load_checkpoint_recovering,
+    load_storage_manifest, save_checkpoint_atomic, save_storage_manifest_atomic,
 };
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
@@ -9,6 +10,7 @@ use std::path::{Component, Path, PathBuf};
 
 const CONTROL_DIR_NAME: &str = ".nova-torrent";
 const RESUME_FILE_NAME: &str = "resume.state";
+const MANIFEST_FILE_NAME: &str = "manifest.bin";
 const BOUNDARY_DIR_NAME: &str = "boundary";
 const FULL_ALLOCATION_CHUNK: usize = 1024 * 1024;
 
@@ -50,9 +52,11 @@ pub struct TorrentStorage {
     control_dir: PathBuf,
     boundary_dir: PathBuf,
     checkpoint_path: PathBuf,
+    manifest_path: PathBuf,
     meta: TorrentMetainfo,
     selection: TorrentSelection,
     checkpoint: TorrentResumeCheckpoint,
+    had_trackers: bool,
 }
 
 impl TorrentStorage {
@@ -75,12 +79,15 @@ impl TorrentStorage {
         ensure_safe_directory(&root, &control_dir)?;
         ensure_safe_directory(&root, &boundary_dir)?;
         let checkpoint_path = control_dir.join(RESUME_FILE_NAME);
+        let manifest_path = control_dir.join(MANIFEST_FILE_NAME);
 
-        // Persist the torrent identity before creating payload files. If the
+        // Persist recovery identity before creating payload files. If the
         // process stops during allocation, resume() can safely finish creating
-        // the missing files instead of treating them as unrelated user data.
+        // missing files instead of treating them as unrelated user data.
         let checkpoint = TorrentResumeCheckpoint::new(&meta, &selection)?;
         save_checkpoint_atomic(&checkpoint_path, &checkpoint)?;
+        let manifest = TorrentStorageManifest::from_metainfo(&meta);
+        save_storage_manifest_atomic(&manifest_path, &manifest)?;
         prepare_selected_files(&root, &meta, &selection, allocation, false)?;
 
         Ok(Self {
@@ -88,9 +95,11 @@ impl TorrentStorage {
             control_dir,
             boundary_dir,
             checkpoint_path,
+            manifest_path,
             meta,
             selection,
             checkpoint,
+            had_trackers: manifest.had_trackers,
         })
     }
 
@@ -109,9 +118,23 @@ impl TorrentStorage {
             ensure_safe_directory(&root, &boundary_dir)?;
         }
         let checkpoint_path = control_dir.join(RESUME_FILE_NAME);
+        let manifest_path = control_dir.join(MANIFEST_FILE_NAME);
         let checkpoint = load_checkpoint_recovering(&checkpoint_path, &meta)?
             .ok_or_else(|| StorageError::MissingResumeState(checkpoint_path.clone()))?;
         let selection = checkpoint.selection(&meta)?;
+
+        let manifest = if manifest_path.exists() {
+            let manifest = load_storage_manifest(&manifest_path)?;
+            if manifest.metainfo.info_hash != meta.info_hash {
+                return Err(StorageError::ManifestIdentityMismatch);
+            }
+            manifest
+        } else {
+            let manifest = TorrentStorageManifest::from_metainfo(&meta);
+            save_storage_manifest_atomic(&manifest_path, &manifest)?;
+            manifest
+        };
+
         prepare_selected_files(&root, &meta, &selection, AllocationMode::Sparse, false)?;
 
         Ok(Self {
@@ -119,10 +142,27 @@ impl TorrentStorage {
             control_dir,
             boundary_dir,
             checkpoint_path,
+            manifest_path,
             meta,
             selection,
             checkpoint,
+            had_trackers: manifest.had_trackers,
         })
+    }
+
+    pub fn resume_from_manifest(
+        root: impl AsRef<Path>,
+        info_hash: InfoHash,
+    ) -> Result<Self, StorageError> {
+        let root = prepare_root(root.as_ref())?;
+        let control_dir = control_dir(&root, info_hash.to_hex());
+        ensure_existing_safe_directory(&root, &control_dir)?;
+        let manifest_path = control_dir.join(MANIFEST_FILE_NAME);
+        let manifest = load_storage_manifest(&manifest_path)?;
+        if manifest.metainfo.info_hash != info_hash {
+            return Err(StorageError::ManifestIdentityMismatch);
+        }
+        Self::resume(&root, manifest.metainfo)
     }
 
     pub fn open_or_create(
@@ -153,6 +193,14 @@ impl TorrentStorage {
 
     pub fn control_dir(&self) -> &Path {
         &self.control_dir
+    }
+
+    pub fn manifest_path(&self) -> &Path {
+        &self.manifest_path
+    }
+
+    pub const fn had_trackers(&self) -> bool {
+        self.had_trackers
     }
 
     pub fn metainfo(&self) -> &TorrentMetainfo {
@@ -835,6 +883,8 @@ pub enum StorageError {
     #[error(transparent)]
     Resume(#[from] ResumeError),
     #[error(transparent)]
+    Manifest(#[from] ManifestError),
+    #[error(transparent)]
     Selection(#[from] crate::SelectionError),
     #[error(transparent)]
     Metainfo(#[from] crate::TorrentMetainfoError),
@@ -860,6 +910,8 @@ pub enum StorageError {
     },
     #[error("torrent storage length arithmetic overflow")]
     LengthOverflow,
+    #[error("torrent storage manifest identity does not match requested torrent")]
+    ManifestIdentityMismatch,
     #[error("torrent storage run generation is stale: expected {expected}, got {actual}")]
     StaleGeneration { expected: u64, actual: u64 },
     #[error("selected torrent files are not complete")]
@@ -1023,6 +1075,29 @@ mod tests {
         assert_eq!(report.invalid_pieces, 1);
         assert!(!resumed.checkpoint().verified.is_set(1).unwrap());
 
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn resume_from_manifest_reconstructs_metainfo_without_tracker_secrets() {
+        let root = temp_root("manifest-resume");
+        let mut meta = multi_meta();
+        meta.trackers = vec!["https://tracker.example/announce?passkey=secret".to_owned()];
+        meta.tracker_tiers = vec![meta.trackers.clone()];
+        let info_hash = meta.info_hash;
+        let selection = TorrentSelection::all(&meta);
+        let storage =
+            TorrentStorage::create(&root, meta, selection, AllocationMode::Sparse).unwrap();
+        assert!(storage.had_trackers());
+        drop(storage);
+
+        let resumed = TorrentStorage::resume_from_manifest(&root, info_hash).unwrap();
+        assert_eq!(resumed.metainfo().info_hash, info_hash);
+        assert!(resumed.metainfo().trackers.is_empty());
+        assert!(resumed.had_trackers());
+
+        let raw = std::fs::read(resumed.manifest_path()).unwrap();
+        assert!(!String::from_utf8_lossy(&raw).contains("passkey"));
         let _ = std::fs::remove_dir_all(root);
     }
 
