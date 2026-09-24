@@ -144,6 +144,13 @@ jobs:
       - name: Cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml
 
+      - name: Verify Rust lockfile is synchronized
+        run: |
+          if ! git diff --exit-code -- src-tauri/Cargo.lock; then
+            echo "::error::src-tauri/Cargo.lock is out of sync with Cargo.toml. Regenerate and commit the lockfile."
+            exit 1
+          fi
+
       - name: Enforce native media ownership boundary
         run: |
           set -euo pipefail
