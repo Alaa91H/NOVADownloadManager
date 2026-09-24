@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Improved
 
-- **Made Windows release packaging scope-aware.** CI now produces distinct `user` and `machine` NSIS artifacts, Scoop prefers the non-elevated user installer, and WinGet manifests advertise both supported installation scopes.
+- **Made Windows release packaging scope-aware without breaking existing links.** CI now adds a distinct non-elevated `user` NSIS artifact while retaining the historical setup filename for the machine-wide installer; Scoop prefers the user installer and WinGet advertises both scopes.
 - **Moved Android direct-download bytes off Android DownloadManager and into NOVA's Rust core.** Kotlin now owns lifecycle/catalog projection while libcurl performs the network transfer.
 - **Added validated resume, pause, and cancel semantics.** Partial staging bytes are retained for pause/failure resume, while cancellation removes partial output and encrypted transfer intent.
 - **Unified desktop and mobile segment planning.** Desktop preserves its higher host-specific connection ceiling while sharing the same range geometry implementation.
