@@ -23,6 +23,7 @@ function validCapabilities() {
       libcurlMulti: engine,
       media: engine,
       ffmpeg: engine,
+      torrent: { ...engine, available: false },
     },
   };
 }
@@ -34,6 +35,7 @@ describe('engine capabilities contract', () => {
     expect(capabilities.directProtocols).toEqual(['http', 'https', 'ftp']);
     expect(capabilities.engines.libcurlMulti.available).toBe(true);
     expect(capabilities.routing.torrentMagnet).toBeNull();
+    expect(capabilities.engines.torrent.available).toBe(false);
   });
 
   it('rejects capability responses without required readiness flags', () => {
