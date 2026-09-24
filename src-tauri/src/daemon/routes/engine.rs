@@ -166,7 +166,7 @@ pub async fn handle_engine_events_for_task(
 }
 
 const MAX_QUEUE_CATALOG_ENTRIES: usize = 128;
-const MAX_QUEUE_DOWNLOAD_ORDER: usize = 10_000;
+const MAX_QUEUE_DOWNLOAD_ORDER: usize = 100_000;
 
 #[derive(Deserialize)]
 pub struct QueueCatalogBody {
@@ -271,20 +271,25 @@ fn normalize_queue_catalog(
             })
             .unwrap_or_else(|| vec![0, 1, 2, 3, 4, 5, 6]);
 
-        let download_order: Vec<String> = object
+        let download_order: Vec<String> = if let Some(values) = object
             .get("downloadOrder")
             .and_then(serde_json::Value::as_array)
-            .map(|values| {
-                values
-                    .iter()
-                    .filter_map(serde_json::Value::as_str)
-                    .map(str::trim)
-                    .filter(|id| !id.is_empty() && id.len() <= 128)
-                    .take(MAX_QUEUE_DOWNLOAD_ORDER)
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default();
+        {
+            if values.len() > MAX_QUEUE_DOWNLOAD_ORDER {
+                return Err(format!(
+                    "Queue {id} exceeds the maximum task order size of {MAX_QUEUE_DOWNLOAD_ORDER}"
+                ));
+            }
+            values
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|task_id| !task_id.is_empty() && task_id.len() <= 128)
+                .map(str::to_owned)
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         let bounded_u64 = |key: &str, default: u64, max: u64| {
             object
