@@ -6,12 +6,11 @@ use std::time::Instant;
 
 use nova_download_core::{
     discard_http_download_artifacts, download_http_to_path_segmented_controlled_with_context,
-    HttpRequestContext, TransferControl, TransportError,
+    HttpRequestContext, TransferControl,
 };
 use nova_media_core::{
     processing::{
-        mux_demuxers_to_mp4_controlled, MediaDemuxer, MediaProcessingControl,
-        MediaProcessingError, Mp4Demuxer,
+        mux_demuxers_to_mp4_controlled, MediaDemuxer, MediaProcessingControl, Mp4Demuxer,
     },
     resolve_youtube_pending_formats, select_youtube_download_plan, youtube_video_id,
     ExtractRequest, MediaDescriptor, MediaProtocol, MediaStream, YouTubeDownloadPlan,
@@ -267,6 +266,8 @@ fn create_native_separate_task(
         request: body.clone(),
         cancel_token: Arc::new(AtomicBool::new(false)),
         run_generation: Arc::new(AtomicU64::new(0)),
+        worker_active: Arc::new(AtomicBool::new(false)),
+        run_start_downloaded_bytes: task.downloaded_bytes,
         start_time: Instant::now(),
     };
 
@@ -318,8 +319,16 @@ pub fn discard_native_media_task_artifacts(destination: &Path, delete_final: boo
     }
 }
 
+struct NativeWorkerGuard(Arc<AtomicBool>);
+
+impl Drop for NativeWorkerGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
 pub fn start_native_media_process(state: &SharedState, id: &str) {
-    let (request, destination, connections, token, generation, task) = {
+    let (request, destination, connections, token, generation, worker_active, task) = {
         let mut jobs = lock_or_err!(state.native_media_jobs);
         let Some(job) = jobs.get_mut(id) else { return; };
         let Some(current) = TaskState::from_status(&job.task.status) else { return; };
@@ -337,13 +346,16 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
             return;
         }
         job.task.error_message = None;
+        job.run_start_downloaded_bytes = job.task.downloaded_bytes;
         job.start_time = Instant::now();
+        job.worker_active.store(true, Ordering::Release);
         (
             job.request.clone(),
             PathBuf::from(&job.task.save_path),
             job.task.connections.max(1),
             job.cancel_token.clone(),
             generation,
+            job.worker_active.clone(),
             job.task.clone(),
         )
     };
@@ -354,6 +366,7 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
     let state = state.clone();
     let id = id.to_owned();
     std::thread::spawn(move || {
+        let _worker_guard = NativeWorkerGuard(worker_active);
         if !native_transition(&state, &id, generation, TaskState::Downloading, "downloading-tracks") {
             return;
         }
@@ -589,7 +602,8 @@ fn update_native_media_progress(
         }
         let elapsed = job.start_time.elapsed().as_secs().max(1);
         job.task.elapsed_seconds = elapsed;
-        job.task.speed_bytes_per_sec = downloaded / elapsed;
+        let run_bytes = downloaded.saturating_sub(job.run_start_downloaded_bytes);
+        job.task.speed_bytes_per_sec = run_bytes / elapsed;
         job.task.time_left_seconds = if job.task.speed_bytes_per_sec > 0
             && job.task.size_bytes > downloaded
         {
