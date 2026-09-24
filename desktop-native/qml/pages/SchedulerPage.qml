@@ -26,31 +26,43 @@ Item {
                 + root.twoDigit(trigger.end_hour) + ":"
                 + root.twoDigit(trigger.end_minute)
         if (trigger.type === "BandwidthBelow")
-            return root.t("scheduler.bandwidthBelow") + " " + trigger.threshold_kbps + " KB/s"
-        if (trigger.type === "QueueEmpty") return root.t("scheduler.queueEmpty")
-        if (trigger.type === "AllComplete") return root.t("scheduler.allComplete")
+            return root.t("scheduler.bandwidthBelow") + " "
+                + trigger.threshold_kbps + " KB/s"
+        if (trigger.type === "QueueEmpty")
+            return root.t("scheduler.queueEmpty")
+        if (trigger.type === "AllComplete")
+            return root.t("scheduler.allComplete")
         return trigger.type || root.t("scheduler.unknownTrigger")
     }
 
     function actionSummary(action) {
         if (!action) return root.t("scheduler.unknownAction")
         if (action.type === "StartDownload")
-            return root.t("scheduler.startTasks") + " " + ((action.task_ids || []).length) + " " + root.t("scheduler.tasks")
+            return root.t("scheduler.startTasks") + " "
+                + ((action.task_ids || []).length) + " "
+                + root.t("scheduler.tasks")
         if (action.type === "PauseDownload")
-            return root.t("scheduler.pauseTasks") + " " + ((action.task_ids || []).length) + " " + root.t("scheduler.tasks")
+            return root.t("scheduler.pauseTasks") + " "
+                + ((action.task_ids || []).length) + " "
+                + root.t("scheduler.tasks")
         if (action.type === "SetBandwidthLimit")
             return root.t("scheduler.setBandwidth") + " " + action.kbps + " KB/s"
         if (action.type === "SetPriority")
             return root.t("scheduler.setPriority") + " " + action.priority
         if (action.type === "Notify")
             return root.t("scheduler.notify") + ": " + action.message
-        if (action.type === "Shutdown") return root.t("scheduler.shutdown")
-        if (action.type === "Sleep") return root.t("scheduler.sleep")
+        if (action.type === "Shutdown")
+            return root.t("scheduler.shutdown")
+        if (action.type === "Sleep")
+            return root.t("scheduler.sleep")
         return action.type || root.t("scheduler.unknownAction")
     }
 
     function parsedTaskIds() {
-        return taskIdsField.text.split(/[\s,;]+/).map(v => v.trim()).filter(v => v.length > 0)
+        return taskIdsField.text
+            .split(/[\s,;]+/)
+            .map(v => v.trim())
+            .filter(v => v.length > 0)
     }
 
     function createRule() {
@@ -86,7 +98,7 @@ Item {
             action = { type: "Notify", message: message }
         }
 
-        const rule = {
+        api.addSchedulerRule({
             id: "native-" + Date.now().toString(),
             name: name,
             enabled: true,
@@ -98,31 +110,38 @@ Item {
                 end_minute: endMinute.value
             },
             action: action
-        }
+        })
 
         formError.text = ""
-        api.addSchedulerRule(rule)
         newRuleDialog.close()
     }
 
-    Component.onCompleted: api.refreshScheduler()
+    Component.onCompleted: {
+        api.refreshScheduler()
+        api.refreshQueueCatalog()
+        api.refreshEngineProfiles()
+    }
 
     Timer {
         interval: 10000
         repeat: true
         running: root.visible
-        onTriggered: api.refreshScheduler()
+        onTriggered: {
+            api.refreshScheduler()
+            api.refreshQueueCatalog()
+        }
     }
 
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 16
-        spacing: 12
+        spacing: 10
 
         RowLayout {
             Layout.fillWidth: true
 
             ColumnLayout {
+                Layout.fillWidth: true
                 spacing: 2
 
                 Text {
@@ -133,29 +152,25 @@ Item {
                 }
 
                 Text {
-                    text: root.t("scheduler.subtitle")
+                    text: root.t("scheduler.paritySubtitle")
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontSmall
                 }
             }
 
-            Item { Layout.fillWidth: true }
-
-            Button {
-                text: "+ " + root.t("scheduler.newRule")
-                enabled: api.connected
-                onClicked: newRuleDialog.open()
-            }
-
             Button {
                 text: root.t("action.refresh")
-                onClicked: api.refreshScheduler()
+                onClicked: {
+                    api.refreshScheduler()
+                    api.refreshQueueCatalog()
+                    api.refreshEngineProfiles()
+                }
             }
         }
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 42
+            implicitHeight: 42
             radius: Theme.radiusMedium
             color: Theme.accentMuted
             border.color: Theme.border
@@ -167,14 +182,18 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: api.schedulerRules.length + " " + root.t("scheduler.rulesConfigured") + " · "
-                        + api.activeSchedulerRuleIds.length + " " + root.t("scheduler.currentlyActive")
+                    text: api.queueCatalog.length + " "
+                        + root.t("scheduler.queuesConfigured")
+                        + " · " + api.schedulerRules.length + " "
+                        + root.t("scheduler.rulesConfigured")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fontSmall
                 }
 
                 Text {
-                    text: api.connected ? root.t("scheduler.online") : root.t("scheduler.engineUnavailable")
+                    text: api.connected
+                        ? root.t("scheduler.online")
+                        : root.t("scheduler.engineUnavailable")
                     color: api.connected ? Theme.success : Theme.warning
                     font.pixelSize: Theme.fontSmall
                     font.weight: Font.DemiBold
@@ -182,114 +201,172 @@ Item {
             }
         }
 
-        ListView {
-            id: ruleList
+        TabBar {
+            id: schedulerTabs
             Layout.fillWidth: true
-            Layout.fillHeight: true
-            spacing: 8
-            clip: true
-            model: api.schedulerRules
-            ScrollBar.vertical: ScrollBar {}
 
-            delegate: Rectangle {
-                required property var modelData
-                Accessible.name: modelData.name || root.t("scheduler.unnamedRule")
-                Accessible.description: root.triggerSummary(modelData.trigger) + " · " + root.actionSummary(modelData.action)
-                width: ruleList.width
-                height: 92
-                radius: Theme.radiusMedium
-                color: Theme.surface
-                border.color: api.activeSchedulerRuleIds.indexOf(modelData.id) >= 0
-                    ? Theme.accent
-                    : Theme.border
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.margins: 12
-                    spacing: 12
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 4
-
-                        RowLayout {
-                            Layout.fillWidth: true
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: modelData.name || root.t("scheduler.unnamedRule")
-                                color: Theme.textPrimary
-                                font.pixelSize: Theme.fontBody
-                                font.weight: Font.DemiBold
-                                elide: Text.ElideRight
-                            }
-
-                            Text {
-                                text: api.activeSchedulerRuleIds.indexOf(modelData.id) >= 0 ? root.t("scheduler.activeLabel") : ""
-                                color: Theme.accent
-                                font.pixelSize: Theme.fontTiny
-                                font.weight: Font.Bold
-                            }
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: root.triggerSummary(modelData.trigger)
-                            color: Theme.textSecondary
-                            font.pixelSize: Theme.fontSmall
-                            elide: Text.ElideRight
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: root.actionSummary(modelData.action)
-                            color: Theme.textMuted
-                            font.pixelSize: Theme.fontSmall
-                            elide: Text.ElideRight
-                        }
-                    }
-
-                    Switch {
-                        checked: Boolean(modelData.enabled)
-                        enabled: api.connected
-                        text: checked ? root.t("scheduler.enabled") : root.t("scheduler.disabled")
-                        onClicked: api.setSchedulerRuleEnabled(modelData.id, checked)
-                    }
-
-                    Button {
-                        text: root.t("action.delete")
-                        flat: true
-                        enabled: api.connected
-                        onClicked: api.deleteSchedulerRule(modelData.id)
-                    }
-                }
+            TabButton {
+                text: root.t("scheduler.queueSchedules")
+            }
+            TabButton {
+                text: root.t("scheduler.automationRules")
             }
         }
 
-        ColumnLayout {
-            Layout.alignment: Qt.AlignCenter
-            visible: api.schedulerRules.length === 0
-            spacing: 6
+        StackLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            currentIndex: schedulerTabs.currentIndex
 
-            Text {
-                Layout.alignment: Qt.AlignHCenter
-                text: root.t("scheduler.noRules")
-                color: Theme.textPrimary
-                font.pixelSize: Math.round(16 * Theme.fontScale)
-                font.weight: Font.DemiBold
+            QueueSchedulerPanel {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                api: root.api
             }
 
-            Text {
-                text: root.t("scheduler.noRulesSubtitle")
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontSmall
+            ColumnLayout {
+                spacing: 8
+
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 1
+                        Text {
+                            text: root.t("scheduler.automationRules")
+                            color: Theme.textPrimary
+                            font.pixelSize: Theme.fontBody
+                            font.weight: Font.DemiBold
+                        }
+                        Text {
+                            text: root.t("scheduler.automationRulesHint")
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontTiny
+                        }
+                    }
+
+                    Button {
+                        text: "+ " + root.t("scheduler.newRule")
+                        enabled: api.connected
+                        onClicked: newRuleDialog.open()
+                    }
+                }
+
+                ListView {
+                    id: ruleList
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    spacing: 8
+                    clip: true
+                    model: api.schedulerRules
+                    ScrollBar.vertical: ScrollBar {}
+
+                    delegate: Rectangle {
+                        required property var modelData
+                        width: ruleList.width
+                        height: 92
+                        radius: Theme.radiusMedium
+                        color: Theme.surface
+                        border.color: api.activeSchedulerRuleIds.indexOf(modelData.id) >= 0
+                            ? Theme.accent
+                            : Theme.border
+                        Accessible.name: modelData.name || root.t("scheduler.unnamedRule")
+                        Accessible.description: root.triggerSummary(modelData.trigger)
+                            + " · " + root.actionSummary(modelData.action)
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.margins: 12
+                            spacing: 12
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: modelData.name || root.t("scheduler.unnamedRule")
+                                        color: Theme.textPrimary
+                                        font.pixelSize: Theme.fontBody
+                                        font.weight: Font.DemiBold
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Text {
+                                        text: api.activeSchedulerRuleIds.indexOf(modelData.id) >= 0
+                                            ? root.t("scheduler.activeLabel")
+                                            : ""
+                                        color: Theme.accent
+                                        font.pixelSize: Theme.fontTiny
+                                        font.weight: Font.Bold
+                                    }
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: root.triggerSummary(modelData.trigger)
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.fontSmall
+                                    elide: Text.ElideRight
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: root.actionSummary(modelData.action)
+                                    color: Theme.textMuted
+                                    font.pixelSize: Theme.fontSmall
+                                    elide: Text.ElideRight
+                                }
+                            }
+
+                            Switch {
+                                checked: Boolean(modelData.enabled)
+                                enabled: api.connected
+                                text: checked
+                                    ? root.t("scheduler.enabled")
+                                    : root.t("scheduler.disabled")
+                                onClicked: api.setSchedulerRuleEnabled(modelData.id, checked)
+                            }
+
+                            Button {
+                                text: root.t("action.delete")
+                                flat: true
+                                enabled: api.connected
+                                onClicked: api.deleteSchedulerRule(modelData.id)
+                            }
+                        }
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.alignment: Qt.AlignCenter
+                    visible: api.schedulerRules.length === 0
+                    spacing: 6
+
+                    Text {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: root.t("scheduler.noRules")
+                        color: Theme.textPrimary
+                        font.pixelSize: Math.round(16 * Theme.fontScale)
+                        font.weight: Font.DemiBold
+                    }
+
+                    Text {
+                        text: root.t("scheduler.noRulesSubtitle")
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.fontSmall
+                    }
+                }
             }
         }
     }
 
     Dialog {
         id: newRuleDialog
-
         modal: true
         focus: true
         closePolicy: Popup.CloseOnEscape
@@ -311,37 +388,48 @@ Item {
                 Layout.fillWidth: true
                 placeholderText: root.t("scheduler.ruleName")
                 Accessible.name: root.t("scheduler.ruleName")
-                KeyNavigation.tab: startHour
             }
 
             Text {
                 text: root.t("scheduler.timeWindow")
                 color: Theme.textSecondary
-                font.pixelSize: Math.round(11 * Theme.fontScale)
+                font.pixelSize: Theme.fontSmall
                 font.weight: Font.DemiBold
             }
 
             RowLayout {
                 Layout.fillWidth: true
 
-                Text { text: root.t("scheduler.start"); color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
-                SpinBox { id: startHour; from: 0; to: 23; value: 1; Accessible.name: root.t("scheduler.start") + " hour"; KeyNavigation.tab: startMinute }
+                Text {
+                    text: root.t("scheduler.start")
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontSmall
+                }
+                SpinBox { id: startHour; from: 0; to: 23; value: 1 }
                 Text { text: ":"; color: Theme.textMuted }
-                SpinBox { id: startMinute; from: 0; to: 59; value: 0; Accessible.name: root.t("scheduler.start") + " minute"; KeyNavigation.tab: endHour }
+                SpinBox { id: startMinute; from: 0; to: 59; value: 0 }
 
                 Item { Layout.fillWidth: true }
 
-                Text { text: root.t("scheduler.end"); color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
-                SpinBox { id: endHour; from: 0; to: 23; value: 7; Accessible.name: root.t("scheduler.end") + " hour"; KeyNavigation.tab: endMinute }
+                Text {
+                    text: root.t("scheduler.end")
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontSmall
+                }
+                SpinBox { id: endHour; from: 0; to: 23; value: 7 }
                 Text { text: ":"; color: Theme.textMuted }
-                SpinBox { id: endMinute; from: 0; to: 59; value: 0; Accessible.name: root.t("scheduler.end") + " minute"; KeyNavigation.tab: actionType }
+                SpinBox { id: endMinute; from: 0; to: 59; value: 0 }
             }
 
             ComboBox {
                 id: actionType
                 Layout.fillWidth: true
-                Accessible.name: root.t("scheduler.unknownAction")
-                model: [root.t("scheduler.startDownloads"), root.t("scheduler.pauseDownloads"), root.t("scheduler.setBandwidthLimit"), root.t("scheduler.notification")]
+                model: [
+                    root.t("scheduler.startDownloads"),
+                    root.t("scheduler.pauseDownloads"),
+                    root.t("scheduler.setBandwidthLimit"),
+                    root.t("scheduler.notification")
+                ]
             }
 
             TextField {
@@ -351,7 +439,6 @@ Item {
                 placeholderText: root.t("scheduler.taskIds")
                 LayoutMirroring.enabled: false
                 horizontalAlignment: Text.AlignLeft
-                Accessible.name: root.t("scheduler.taskIds")
             }
 
             RowLayout {
@@ -370,12 +457,6 @@ Item {
                     to: 1000000
                     value: 5000
                     editable: true
-                }
-
-                Text {
-                    text: root.t("scheduler.unlimited")
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSmall
                 }
             }
 
