@@ -9,6 +9,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.nova.downloadmanager.downloads.DownloadSummary
 import com.nova.downloadmanager.downloads.NovaTransferCore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -24,9 +25,6 @@ class NovaTransferWorker(
     appContext: Context,
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
-    @Volatile
-    private var activeTaskId: String? = null
-
     override suspend fun doWork(): Result = coroutineScope {
         val taskId = inputData.getString(NovaTransferScheduler.EXTRA_TASK_ID)
             ?.takeIf(String::isNotBlank)
@@ -36,54 +34,52 @@ class NovaTransferWorker(
             .getOrElse { return@coroutineScope Result.failure() }
         val initial = core.task(taskId) ?: return@coroutineScope Result.failure()
 
-        activeTaskId = taskId
-        setForeground(foregroundInfo(initial))
+        try {
+            setForeground(foregroundInfo(initial))
 
-        val transfer = async(Dispatchers.IO) {
-            core.execute(taskId)
-        }
+            val transfer = async(Dispatchers.IO) {
+                core.execute(taskId)
+            }
 
-        while (!transfer.isCompleted) {
-            delay(PROGRESS_UPDATE_INTERVAL_MS)
-            (core.checkpointProgress(taskId) ?: core.task(taskId))?.let { summary ->
-                setProgress(
-                    workDataOf(
-                        PROGRESS_DOWNLOADED_BYTES to summary.downloadedBytes,
-                        PROGRESS_TOTAL_BYTES to summary.totalBytes,
-                        PROGRESS_STATUS to summary.status,
-                    ),
-                )
+            while (!transfer.isCompleted) {
+                delay(PROGRESS_UPDATE_INTERVAL_MS)
+                (core.checkpointProgress(taskId) ?: core.task(taskId))?.let { summary ->
+                    setProgress(
+                        workDataOf(
+                            PROGRESS_DOWNLOADED_BYTES to summary.downloadedBytes,
+                            PROGRESS_TOTAL_BYTES to summary.totalBytes,
+                            PROGRESS_STATUS to summary.status,
+                        ),
+                    )
+                    setForeground(foregroundInfo(summary))
+                }
+            }
+
+            val outcome = transfer.await()
+            val summary = core.task(taskId)
+            if (summary != null) {
                 setForeground(foregroundInfo(summary))
             }
-        }
 
-        val outcome = transfer.await()
-        activeTaskId = null
-        val summary = core.task(taskId)
-        if (summary != null) {
-            setForeground(foregroundInfo(summary))
+            outcome.fold(
+                onSuccess = { completed ->
+                    when (completed.status) {
+                        "completed", "paused", "cancelled" -> Result.success()
+                        "failed" -> if (runAttemptCount < MAX_RETRIES) Result.retry() else Result.failure()
+                        else -> Result.success()
+                    }
+                },
+                onFailure = {
+                    if (runAttemptCount < MAX_RETRIES) Result.retry() else Result.failure()
+                },
+            )
+        } catch (cancelled: CancellationException) {
+            // CoroutineWorker.onStopped() is final in current WorkManager.
+            // Cancellation is propagated to doWork(), so pause the native task
+            // here before rethrowing to preserve WorkManager cancellation semantics.
+            runCatching { core.pause(taskId) }
+            throw cancelled
         }
-
-        outcome.fold(
-            onSuccess = { completed ->
-                when (completed.status) {
-                    "completed", "paused", "cancelled" -> Result.success()
-                    "failed" -> if (runAttemptCount < MAX_RETRIES) Result.retry() else Result.failure()
-                    else -> Result.success()
-                }
-            },
-            onFailure = {
-                if (runAttemptCount < MAX_RETRIES) Result.retry() else Result.failure()
-            },
-        )
-    }
-
-    override fun onStopped() {
-        activeTaskId?.let { taskId ->
-            runCatching { NovaTransferCore(applicationContext).pause(taskId) }
-        }
-        activeTaskId = null
-        super.onStopped()
     }
 
     private fun foregroundInfo(summary: DownloadSummary): ForegroundInfo {
