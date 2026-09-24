@@ -133,7 +133,7 @@ const CURL_DIRECT_OPTION_KEYS: &[&str] = &[
     "bufferSize",
 ];
 
-const MEDIA_BRIDGE_MEDIA_OPTION_KEYS: &[&str] = &[
+const MEDIA_OPTION_KEYS: &[&str] = &[
     "mode",
     "quality",
     "formatSelector",
@@ -1390,7 +1390,7 @@ pub fn native_media_status() -> Value {
         .iter()
         .map(|key| (*key).to_owned())
         .collect();
-    let all_keys: HashSet<String> = MEDIA_BRIDGE_MEDIA_OPTION_KEYS
+    let all_keys: HashSet<String> = MEDIA_OPTION_KEYS
         .iter()
         .map(|key| (*key).to_owned())
         .collect();
@@ -1480,7 +1480,6 @@ pub fn native_media_status() -> Value {
             "postProcessing": false,
             "plugins": false
         },
-        "supportedExternalDownloaders": ["native"],
         "supportedMediaOptionKeys": sorted_vec(supported_keys),
         "unsupportedMediaOptionKeys": sorted_vec(unsupported_keys)
     })
@@ -1488,12 +1487,12 @@ pub fn native_media_status() -> Value {
 
 pub fn media_bridge_status_with_context(media_bridge_bin: &str, ffmpeg_available: bool) -> Value {
     let (available, version, flags) = media_bridge_model(media_bridge_bin);
-    let supported_keys: HashSet<String> = MEDIA_BRIDGE_MEDIA_OPTION_KEYS
+    let supported_keys: HashSet<String> = MEDIA_OPTION_KEYS
         .iter()
         .filter(|key| media_bridge_key_supported(key, available, &flags, ffmpeg_available))
         .map(|key| (*key).to_owned())
         .collect();
-    let all_keys: HashSet<String> = MEDIA_BRIDGE_MEDIA_OPTION_KEYS
+    let all_keys: HashSet<String> = MEDIA_OPTION_KEYS
         .iter()
         .map(|key| (*key).to_owned())
         .collect();
@@ -1924,7 +1923,7 @@ pub fn validate_media_bridge_media_options(
         .is_some_and(|path| Path::new(path).exists())
         || ffmpeg_available(ffmpeg_bin);
     let mut unsupported = Vec::new();
-    for key in MEDIA_BRIDGE_MEDIA_OPTION_KEYS {
+    for key in MEDIA_OPTION_KEYS {
         if media_option_requested(media, key)
             && !media_bridge_key_supported(key, available, &flags, ffmpeg_ok)
         {
@@ -1998,10 +1997,19 @@ pub fn all_engine_status(_media_bridge_bin: &str, ffmpeg_bin: &str) -> Value {
     let curl = curl_status();
     let media = native_media_status();
     let ffmpeg = ffmpeg_status(ffmpeg_bin);
-    let media_ready = media
+    let media_extraction_ready = media
         .get("available")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let hls_ready = media
+        .pointer("/capabilities/hlsTaskExecution")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let dash_ready = media
+        .pointer("/capabilities/dashTaskExecution")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let streaming_ready = media_extraction_ready && (hls_ready || dash_ready);
     let ffmpeg_available = ffmpeg
         .get("available")
         .and_then(Value::as_bool)
@@ -2017,16 +2025,25 @@ pub fn all_engine_status(_media_bridge_bin: &str, ffmpeg_bin: &str) -> Value {
         .cloned()
         .unwrap_or_default();
     json!({
-        "status": if direct_ready && media_ready { "connected" } else { "degraded" },
-        "allReady": direct_ready && media_ready,
+        "status": if direct_ready && media_extraction_ready && streaming_ready { "connected" } else { "degraded" },
+        "allReady": direct_ready && media_extraction_ready && streaming_ready,
         "directReady": direct_ready,
-        "mediaReady": media_ready,
+        "mediaExtractionReady": media_extraction_ready,
+        "streamingReady": streaming_ready,
+        "mediaReady": media_extraction_ready,
         "postProcessingReady": post_processing_ready,
         "directProtocols": direct_protocols,
         "compatibilityMode": "runtime-verified-capabilities",
+        "mediaApi": {
+            "resolve": "/api/media/resolve",
+            "probe": "/api/media/probe",
+            "download": "/api/media/download",
+            "postprocessStatus": "/api/media/postprocess/status"
+        },
         "routing": {
             "directHttpHttpsFtp": if direct_ready { json!("libcurl-multi") } else { Value::Null },
-            "webMediaAndPlaylists": if media_ready { json!("nova-media-engine") } else { Value::Null },
+            "webMediaAndPlaylists": if media_extraction_ready { json!("nova-media-engine") } else { Value::Null },
+            "streaming": if streaming_ready { json!("nova-media-engine") } else { Value::Null },
             "mergeRemuxExtractSubtitles": if post_processing_ready { json!("nova-media-postprocess") } else { Value::Null },
             "torrentMagnet": Value::Null
         },
@@ -2118,9 +2135,13 @@ mod tests {
             "__nova_missing_compatibility_bridge__",
             "__nova_missing_post_processor__",
         );
+        assert_eq!(status["mediaExtractionReady"], true);
+        assert_eq!(status["streamingReady"], true);
         assert_eq!(status["mediaReady"], true);
         assert_eq!(status["engines"]["media"]["runtimeCore"], "nova-media-core");
         assert_eq!(status["postProcessingReady"], false);
+        assert_eq!(status["mediaApi"]["resolve"], "/api/media/resolve");
+        assert_eq!(status["mediaApi"]["download"], "/api/media/download");
     }
 
     #[test]
