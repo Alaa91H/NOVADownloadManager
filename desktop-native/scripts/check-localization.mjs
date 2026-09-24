@@ -6,6 +6,9 @@ const root = path.resolve(process.cwd(), "desktop-native", "qml");
 const allowed = new Set([
   "%(title)s.%(ext)s",
   "Optional: 1-10,15,20",
+  "N",
+  "NOVA",
+  "HTTP",
 ]);
 
 function walk(directory) {
