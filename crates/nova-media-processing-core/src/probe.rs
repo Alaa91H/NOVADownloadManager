@@ -1,4 +1,28 @@
-use crate::MediaContainer;
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
+
+use crate::{MediaContainer, MediaProcessingError};
+
+const PROBE_PREFIX_BYTES: usize = 4096;
+
+/// Read a small prefix from a local media file and identify its container
+/// without invoking an external probing executable.
+pub fn probe_file_container(path: &Path) -> Result<MediaContainer, MediaProcessingError> {
+    let mut file = File::open(path).map_err(|error| MediaProcessingError::Io(error.to_string()))?;
+    let mut prefix = vec![0_u8; PROBE_PREFIX_BYTES];
+    let read = file
+        .read(&mut prefix)
+        .map_err(|error| MediaProcessingError::Io(error.to_string()))?;
+    prefix.truncate(read);
+
+    sniff_media_container(&prefix).ok_or_else(|| {
+        MediaProcessingError::Probe(format!(
+            "container signature is not recognized for {}",
+            path.display()
+        ))
+    })
+}
 
 /// Detect common media containers using bytes from the beginning of a file.
 ///
@@ -10,6 +34,12 @@ pub fn sniff_media_container(bytes: &[u8]) -> Option<MediaContainer> {
         return Some(MediaContainer::Mp4);
     }
     if is_ebml(bytes) {
+        if bytes
+            .windows(4)
+            .any(|window| window.eq_ignore_ascii_case(b"webm"))
+        {
+            return Some(MediaContainer::WebM);
+        }
         return Some(MediaContainer::Matroska);
     }
     if is_mpeg_ts(bytes) {
@@ -40,10 +70,16 @@ fn is_ebml(bytes: &[u8]) -> bool {
 }
 
 fn is_mpeg_ts(bytes: &[u8]) -> bool {
-    if bytes.first() != Some(&0x47) {
+    if bytes.len() < 188 || bytes.first() != Some(&0x47) {
         return false;
     }
-    bytes.len() < 189 || bytes.get(188) == Some(&0x47)
+    if bytes.len() > 188 && bytes.get(188) != Some(&0x47) {
+        return false;
+    }
+    if bytes.len() > 376 && bytes.get(376) != Some(&0x47) {
+        return false;
+    }
+    true
 }
 
 fn is_adts(bytes: &[u8]) -> bool {
@@ -57,6 +93,8 @@ fn is_mpeg_audio_frame(bytes: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn sniffs_iso_bmff_mp4() {
@@ -64,6 +102,13 @@ mod tests {
             0, 0, 0, 24, b'f', b't', b'y', b'p', b'i', b's', b'o', b'm',
         ];
         assert_eq!(sniff_media_container(&bytes), Some(MediaContainer::Mp4));
+    }
+
+    #[test]
+    fn distinguishes_webm_ebml_header() {
+        let mut bytes = vec![0x1A, 0x45, 0xDF, 0xA3];
+        bytes.extend_from_slice(b"\x42\x82webm");
+        assert_eq!(sniff_media_container(&bytes), Some(MediaContainer::WebM));
     }
 
     #[test]
@@ -75,6 +120,23 @@ mod tests {
             sniff_media_container(&bytes),
             Some(MediaContainer::MpegTs)
         );
+    }
+
+    #[test]
+    fn probes_real_file_prefix() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("nova-probe-{unique}.mp4"));
+        fs::write(
+            &path,
+            [0, 0, 0, 24, b'f', b't', b'y', b'p', b'i', b's', b'o', b'm'],
+        )
+        .expect("write fixture");
+
+        assert_eq!(probe_file_container(&path), Ok(MediaContainer::Mp4));
+        let _ = fs::remove_file(path);
     }
 
     #[test]
