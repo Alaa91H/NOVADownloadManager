@@ -19,7 +19,10 @@ mod types;
 
 pub use demux::MediaDemuxer;
 pub use mux::{MediaMuxResult, MediaMuxer};
-pub use mp4::{probe_mp4_file, Mp4Demuxer, Mp4Sample, Mp4TrackIndex, ParsedMp4};
+pub use mp4::{
+    mux_demuxers_to_mp4, probe_mp4_file, Mp4Demuxer, Mp4Muxer, Mp4Sample,
+    Mp4TrackIndex, ParsedMp4,
+};
 pub use capabilities::{
     native_media_processing_capabilities, NativeMediaProcessingCapabilities,
 };
