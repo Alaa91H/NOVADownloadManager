@@ -1931,7 +1931,7 @@ pub fn all_engine_status(media_bridge_bin: &str, ffmpeg_bin: &str) -> Value {
         "engines": {
             "curl": curl,
             "libcurlMulti": curl,
-            "media_bridge": media_bridge,
+            "media": media_bridge,
             "ffmpeg": ffmpeg
         }
     })

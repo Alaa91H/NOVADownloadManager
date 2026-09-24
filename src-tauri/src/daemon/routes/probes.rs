@@ -987,7 +987,7 @@ pub async fn handle_native_media_resolve_post(
 }
 
 
-pub async fn handle_ytdlp_probe(
+pub async fn handle_media_bridge_probe(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<SharedState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
@@ -1005,25 +1005,25 @@ pub async fn handle_ytdlp_probe(
         ));
     }
     if let Err(e) = crate::daemon::utils::is_safe_target_url(url) {
-        log::warn!("Blocked yt-dlp probe of unsafe URL {url}: {e}");
+        log::warn!("Blocked media-bridge probe of unsafe URL {url}: {e}");
         return Err((
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": e})),
         ));
     }
 
-    let ytdlp_bin = state.ytdlp_binary();
+    let media_bridge_bin = state.media_bridge_binary();
     let url2 = url.to_owned();
     let output = tokio::task::spawn_blocking(move || {
         hidden_output_timed(
-            &ytdlp_bin,
+            &media_bridge_bin,
             &["--dump-json", "--no-playlist", "--no-warnings", "--", &url2],
             Duration::from_secs(30),
         )
     })
     .await
     .map_err(|e| {
-        log::error!("yt-dlp spawn failed: {e}");
+        log::error!("media-bridge spawn failed: {e}");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": "Probe failed"})),
@@ -1031,13 +1031,13 @@ pub async fn handle_ytdlp_probe(
     })?
     .map_err(|e| {
         if e.kind() == std::io::ErrorKind::TimedOut {
-            log::warn!("yt-dlp probe timed out for {url}");
+            log::warn!("media-bridge probe timed out for {url}");
             return (
                 StatusCode::GATEWAY_TIMEOUT,
                 Json(serde_json::json!({"error": "Probe timed out"})),
             );
         }
-        log::error!("yt-dlp probe failed: {e}");
+        log::error!("media-bridge probe failed: {e}");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": "Probe failed"})),
@@ -1046,7 +1046,7 @@ pub async fn handle_ytdlp_probe(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        log::error!("yt-dlp probe stderr: {stderr}");
+        log::error!("media-bridge probe stderr: {stderr}");
         return Err((
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": "Probe failed"})),
@@ -1055,7 +1055,7 @@ pub async fn handle_ytdlp_probe(
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let info: serde_json::Value = serde_json::from_str(&stdout).map_err(|e| {
-        log::error!("yt-dlp probe parse failed: {e}");
+        log::error!("media-bridge probe parse failed: {e}");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": "Probe failed"})),
@@ -1089,7 +1089,7 @@ pub async fn handle_ytdlp_probe(
     })))
 }
 
-pub async fn handle_ytdlp_probe_playlist(
+pub async fn handle_media_bridge_probe_playlist(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<SharedState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
@@ -1107,18 +1107,18 @@ pub async fn handle_ytdlp_probe_playlist(
         ));
     }
     if let Err(e) = crate::daemon::utils::is_safe_target_url(url) {
-        log::warn!("Blocked yt-dlp playlist probe of unsafe URL {url}: {e}");
+        log::warn!("Blocked media-bridge playlist probe of unsafe URL {url}: {e}");
         return Err((
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": e})),
         ));
     }
 
-    let ytdlp_bin = state.ytdlp_binary();
+    let media_bridge_bin = state.media_bridge_binary();
     let url2 = url.to_owned();
     let output = tokio::task::spawn_blocking(move || {
         hidden_output_timed(
-            &ytdlp_bin,
+            &media_bridge_bin,
             &[
                 "--flat-playlist",
                 "--dump-json",
@@ -1131,7 +1131,7 @@ pub async fn handle_ytdlp_probe_playlist(
     })
     .await
     .map_err(|e| {
-        log::error!("yt-dlp spawn failed: {e}");
+        log::error!("media-bridge spawn failed: {e}");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": "Probe failed"})),
@@ -1139,13 +1139,13 @@ pub async fn handle_ytdlp_probe_playlist(
     })?
     .map_err(|e| {
         if e.kind() == std::io::ErrorKind::TimedOut {
-            log::warn!("yt-dlp playlist probe timed out for {url}");
+            log::warn!("media-bridge playlist probe timed out for {url}");
             return (
                 StatusCode::GATEWAY_TIMEOUT,
                 Json(serde_json::json!({"error": "Probe timed out"})),
             );
         }
-        log::error!("yt-dlp probe failed: {e}");
+        log::error!("media-bridge probe failed: {e}");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": "Probe failed"})),
@@ -1154,7 +1154,7 @@ pub async fn handle_ytdlp_probe_playlist(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        log::error!("yt-dlp probe playlist stderr: {stderr}");
+        log::error!("media-bridge probe playlist stderr: {stderr}");
         return Err((
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": "Probe failed"})),
@@ -1212,7 +1212,7 @@ pub async fn handle_ytdlp_probe_playlist(
     })))
 }
 
-pub async fn handle_ytdlp_ffmpeg(State(state): State<SharedState>) -> Json<serde_json::Value> {
+pub async fn handle_media_bridge_ffmpeg(State(state): State<SharedState>) -> Json<serde_json::Value> {
     let ffmpeg_bin = state.ffmpeg_binary();
     let available = hidden_output(&ffmpeg_bin, &["-version"]).is_ok_and(|o| o.status.success());
     Json(serde_json::json!({"available": available, "binary": ffmpeg_bin}))
@@ -1238,12 +1238,12 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
             "/api/media/native/resolve",
             get(handle_native_media_resolve).post(handle_native_media_resolve_post),
         )
-        .route("/api/ytdlp/probe", get(handle_ytdlp_probe))
+        .route("/api/media_bridge/probe", get(handle_media_bridge_probe))
         .route(
-            "/api/ytdlp/probe-playlist",
-            get(handle_ytdlp_probe_playlist),
+            "/api/media_bridge/probe-playlist",
+            get(handle_media_bridge_probe_playlist),
         )
-        .route("/api/ytdlp/ffmpeg", get(handle_ytdlp_ffmpeg))
+        .route("/api/media_bridge/ffmpeg", get(handle_media_bridge_ffmpeg))
 }
 
 #[cfg(test)]

@@ -19,7 +19,7 @@ use crate::daemon::state::{
     PendingCaptureReview, SharedState, CAPTURE_REVIEW_TTL, MAX_PENDING_CAPTURE_REVIEWS,
 };
 use crate::daemon::types::{CreateDownloadBody, Task};
-use crate::daemon::ytdlp::create_ytdlp_task;
+use crate::daemon::media_bridge::create_media_bridge_task;
 
 use super::common::hidden_output_timed;
 use super::engine::extension_capabilities_from_status;
@@ -176,7 +176,7 @@ pub async fn handle_v1_extension_settings(
         "settings": {
             "captureEndpoint": "/captures",
             "directEngine": "libcurl-multi",
-            "mediaEngine": "yt-dlp",
+            "mediaEngine": "media-bridge",
             "postProcessor": "ffmpeg",
             "torrentMagnet": false
         }
@@ -231,7 +231,7 @@ pub(super) fn browser_ext_response(state: &SharedState) -> Json<serde_json::Valu
         "mediaDownloads": capabilities.get("mediaReady").cloned().unwrap_or(serde_json::Value::Bool(false)),
         "postProcessing": capabilities.get("postProcessingReady").cloned().unwrap_or(serde_json::Value::Bool(false)),
         "directEngine": "libcurl-multi",
-        "mediaEngine": "yt-dlp",
+        "mediaEngine": "media-bridge",
         "postProcessor": "ffmpeg",
         "engineCapabilities": capabilities,
         "capabilities": extension_capabilities
@@ -445,7 +445,7 @@ pub(super) fn extension_candidate_to_download_body(
         media_type == "manifest" || source == "hls-manifest" || source == "dash-manifest";
     if is_stream_manifest {
         if !(url.starts_with("http://") || url.starts_with("https://")) {
-            return Err("Only http(s) HLS/DASH manifests can be handed off to yt-dlp.".to_owned());
+            return Err("Only http(s) HLS/DASH manifests can be handed off to media-bridge.".to_owned());
         }
     } else if !(url.starts_with("http://")
         || url.starts_with("https://")
@@ -527,7 +527,7 @@ pub(super) fn extension_candidate_to_download_body(
         save_path: json_str(body, "savePath"),
         description: json_str(body, "description").or_else(|| {
             Some(if is_stream_manifest {
-                "Browser extension HLS/DASH stream via yt-dlp + FFmpeg".to_owned()
+                "Browser extension HLS/DASH stream via NOVA Media Engine".to_owned()
             } else {
                 "Browser extension capture via runtime-verified libcurl multi".to_owned()
             })
@@ -653,12 +653,12 @@ async fn create_download_from_body(
         .ok_or_else(|| "Missing candidate URL".to_owned())?;
     crate::daemon::utils::is_safe_target_url(url)?;
     match state.extractor_registry.validate(download_body) {
-        Ok(extractor) if extractor.id() == "yt-dlp" => {
-            create_ytdlp_task(state, download_body).await
+        Ok(extractor) if extractor.id() == "media-bridge" => {
+            create_media_bridge_task(state, download_body).await
         }
         Ok(_) => direct_create(state, download_body).await,
         Err(_) if download_body.media_options.is_some() => {
-            create_ytdlp_task(state, download_body).await
+            create_media_bridge_task(state, download_body).await
         }
         Err(_) => direct_create(state, download_body).await,
     }
@@ -857,11 +857,11 @@ pub async fn handle_v1_stream_resolve(
         );
     }
 
-    let ytdlp_bin = state.ytdlp_binary();
+    let media_bridge_bin = state.media_bridge_binary();
     let url2 = url.to_owned();
     let joined = tokio::task::spawn_blocking(move || {
         hidden_output_timed(
-            &ytdlp_bin,
+            &media_bridge_bin,
             &[
                 "--dump-json",
                 "--no-playlist",
@@ -892,13 +892,13 @@ pub async fn handle_v1_stream_resolve(
                 );
             }
             return Json(
-                serde_json::json!({"ok": false, "resolved": false, "message": format!("yt-dlp failed to start: {}", error), "qualities": []}),
+                serde_json::json!({"ok": false, "resolved": false, "message": format!("NOVA Media Engine bridge failed to start: {}", error), "qualities": []}),
             );
         }
     };
     if !process_output.status.success() {
         return Json(
-            serde_json::json!({"ok": false, "resolved": false, "message": String::from_utf8_lossy(&process_output.stderr).lines().next().unwrap_or("yt-dlp could not resolve this stream"), "qualities": []}),
+            serde_json::json!({"ok": false, "resolved": false, "message": String::from_utf8_lossy(&process_output.stderr).lines().next().unwrap_or("NOVA Media Engine could not resolve this stream"), "qualities": []}),
         );
     }
     let stdout = String::from_utf8_lossy(&process_output.stdout);
@@ -906,7 +906,7 @@ pub async fn handle_v1_stream_resolve(
         Ok(value) => value,
         Err(_) => {
             return Json(
-                serde_json::json!({"ok": false, "resolved": false, "message": "Could not parse yt-dlp stream metadata", "qualities": []}),
+                serde_json::json!({"ok": false, "resolved": false, "message": "Could not parse media-bridge stream metadata", "qualities": []}),
             )
         }
     };
@@ -1077,7 +1077,7 @@ pub async fn handle_v1_media_add(
     let selected = body
         .get("selectedFormat")
         .unwrap_or(&serde_json::Value::Null);
-    let (format_selector, has_video) = match ytdlp_selector_for_selected_format(selected) {
+    let (format_selector, has_video) = match media_bridge_selector_for_selected_format(selected) {
         Ok(selection) => selection,
         Err(message) => {
             return Json(
@@ -1130,13 +1130,13 @@ pub async fn handle_v1_media_add(
         connections: Some(1),
         resumable: Some(true),
         save_path: None,
-        description: Some("Browser extension selected yt-dlp format".to_owned()),
+        description: Some("Browser extension selected NOVA media format".to_owned()),
         referer: media_options.referer.clone(),
         start_immediately: Some(true),
         direct_options: None,
         media_options: Some(media_options),
     };
-    match create_ytdlp_task(&state, &body).await {
+    match create_media_bridge_task(&state, &body).await {
         Ok(task) => Json(
             serde_json::json!({"ok": true, "accepted": true, "taskId": task.id, "taskIds": [task.id], "message": "Media added"}),
         ),
@@ -1146,7 +1146,7 @@ pub async fn handle_v1_media_add(
     }
 }
 
-fn ytdlp_selector_for_selected_format(
+fn media_bridge_selector_for_selected_format(
     selected: &serde_json::Value,
 ) -> Result<(String, bool), &'static str> {
     let format_id = selected
@@ -1154,7 +1154,7 @@ fn ytdlp_selector_for_selected_format(
         .and_then(serde_json::Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or("The selected media format has no yt-dlp format id.")?;
+        .ok_or("The selected media format has no NOVA media format id.")?;
     let has_video = selected
         .get("hasVideo")
         .and_then(serde_json::Value::as_bool)
@@ -1169,7 +1169,7 @@ fn ytdlp_selector_for_selected_format(
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(!has_video);
     let selector = if has_video && !has_audio {
-        // YouTube commonly exposes video-only tracks. Let yt-dlp merge the
+        // YouTube commonly exposes video-only tracks. Let media-bridge merge the
         // selected video with the best compatible audio rather than producing
         // a silent file from the stream URL shown in the browser.
         format!("{format_id}+bestaudio/best")
@@ -1266,13 +1266,13 @@ pub async fn handle_v1_stream_add(
         connections: Some(1),
         resumable: Some(true),
         save_path: None,
-        description: Some("Browser extension HLS/DASH stream via yt-dlp + FFmpeg".to_owned()),
+        description: Some("Browser extension HLS/DASH stream via NOVA Media Engine".to_owned()),
         referer: media_options.referer.clone(),
         start_immediately: Some(true),
         direct_options: None,
         media_options: Some(media_options),
     };
-    match create_ytdlp_task(&state, &body).await {
+    match create_media_bridge_task(&state, &body).await {
         Ok(task) => Json(
             serde_json::json!({"ok": true, "accepted": true, "taskId": task.id, "taskIds": [task.id], "message": "Stream added"}),
         ),
@@ -1286,7 +1286,7 @@ pub async fn handle_v1_stream_add(
 //
 // The extension sends a URL plus optional context. The daemon runs:
 //   1. HTTP HEAD probe (size, type, range support)
-//   2. yt-dlp probe (full format catalog, title, duration)
+//   2. media-bridge probe (full format catalog, title, duration)
 //   3. RIE analysis (strategy, retry, connections)
 // and returns a unified analysis result with all the data the extension
 // needs to present a rich format catalog to the user.
@@ -1325,12 +1325,12 @@ pub async fn handle_v1_analyze(
     // the browser referer needed by hotlink-protected hosts.
     let http_meta = http_probe_for_analyze(&state, &url, &context).await;
 
-    // Stage 2: yt-dlp probe (for video/audio URLs)
-    let ytdlp_probe = ytdlp_probe_for_analyze(&state, &url).await;
-    let (ytdlp_result, analysis_code) = match ytdlp_probe {
+    // Stage 2: media-bridge probe (for video/audio URLs)
+    let media_bridge_probe = media_bridge_probe_for_analyze(&state, &url).await;
+    let (media_bridge_result, analysis_code) = match media_bridge_probe {
         Ok(info) => (Some(info), None),
         Err(code) => {
-            log::debug!("managed media analysis did not return a yt-dlp catalog: {code}");
+            log::debug!("managed media analysis did not return a media catalog: {code}");
             (None, Some(code))
         }
     };
@@ -1343,7 +1343,7 @@ pub async fn handle_v1_analyze(
     let mut is_live = false;
     let mut drm_protected = false;
 
-    if let Some(ref info) = ytdlp_result {
+    if let Some(ref info) = media_bridge_result {
         title = info
             .get("title")
             .and_then(|v| v.as_str())
@@ -1426,7 +1426,7 @@ pub async fn handle_v1_analyze(
         }
     }
 
-    // If no yt-dlp formats but HTTP probe found something, add a single entry
+    // If no NOVA media formats but HTTP probe found something, add a single entry
     if formats.is_empty() {
         if let Some(ref meta) = http_meta {
             let content_type = meta
@@ -1604,17 +1604,17 @@ pub async fn handle_v1_analyze_progress(
             return;
         }
 
-        yield_event!(json!({"stage": "ytdlp.probing", "url": &url}));
+        yield_event!(json!({"stage": "media.probing", "url": &url}));
 
-        let ytdlp_result = tokio::select! {
-            result = ytdlp_probe_for_analyze(&state, &url) => result.ok(),
+        let media_bridge_result = tokio::select! {
+            result = media_bridge_probe_for_analyze(&state, &url) => result.ok(),
             () = cancel.cancelled() => None,
         };
-        if let Some(ref info) = ytdlp_result {
+        if let Some(ref info) = media_bridge_result {
             let format_count = info.get("formats").and_then(|v| v.as_array()).map_or(0, std::vec::Vec::len);
-            yield_event!(json!({"stage": "ytdlp.done", "formatCount": format_count, "title": info.get("title")}));
+            yield_event!(json!({"stage": "media.done", "formatCount": format_count, "title": info.get("title")}));
         } else {
-            yield_event!(json!({"stage": "ytdlp.done", "formatCount": 0}));
+            yield_event!(json!({"stage": "media.done", "formatCount": 0}));
         }
 
         if cancel.is_cancelled() {
@@ -1674,15 +1674,15 @@ async fn http_probe_for_analyze(
     }
 }
 
-async fn ytdlp_probe_for_analyze(
+async fn media_bridge_probe_for_analyze(
     state: &SharedState,
     url: &str,
 ) -> Result<serde_json::Value, &'static str> {
-    let ytdlp_bin = state.ytdlp_binary();
+    let media_bridge_bin = state.media_bridge_binary();
     let url2 = url.to_owned();
     let output = tokio::task::spawn_blocking(move || {
         hidden_output_timed(
-            &ytdlp_bin,
+            &media_bridge_bin,
             &[
                 "--dump-json",
                 "--no-playlist",
@@ -1713,7 +1713,7 @@ async fn ytdlp_probe_for_analyze(
     let stdout = String::from_utf8_lossy(&process_output.stdout);
     if stdout.len() > 1_048_576 {
         log::warn!(
-            "yt-dlp output exceeded 1 MB size limit ({} bytes)",
+            "media-bridge output exceeded 1 MB size limit ({} bytes)",
             stdout.len()
         );
         return Err("output_too_large");
@@ -1883,8 +1883,8 @@ mod tests {
         assert!(!managed_media_is_drm_protected(&serde_json::json!({})));
     }
     #[test]
-    fn ytdlp_selected_video_only_format_merges_best_audio() {
-        let (selector, has_video) = ytdlp_selector_for_selected_format(&serde_json::json!({
+    fn media_bridge_selected_video_only_format_merges_best_audio() {
+        let (selector, has_video) = media_bridge_selector_for_selected_format(&serde_json::json!({
             "formatId": "137",
             "height": 1080,
             "hasVideo": true,
@@ -1896,8 +1896,8 @@ mod tests {
     }
 
     #[test]
-    fn ytdlp_selected_muxed_or_audio_format_preserves_format_id() {
-        let (muxed, muxed_is_video) = ytdlp_selector_for_selected_format(&serde_json::json!({
+    fn media_bridge_selected_muxed_or_audio_format_preserves_format_id() {
+        let (muxed, muxed_is_video) = media_bridge_selector_for_selected_format(&serde_json::json!({
             "formatId": "22",
             "hasVideo": true,
             "hasAudio": true,
@@ -1906,7 +1906,7 @@ mod tests {
         assert!(muxed_is_video);
         assert_eq!(muxed, "22");
 
-        let (audio, audio_is_video) = ytdlp_selector_for_selected_format(&serde_json::json!({
+        let (audio, audio_is_video) = media_bridge_selector_for_selected_format(&serde_json::json!({
             "formatId": "251",
             "hasVideo": false,
             "hasAudio": true,
@@ -1917,8 +1917,8 @@ mod tests {
     }
 
     #[test]
-    fn ytdlp_selected_format_requires_format_id() {
-        assert!(ytdlp_selector_for_selected_format(&serde_json::json!({
+    fn media_bridge_selected_format_requires_format_id() {
+        assert!(media_bridge_selector_for_selected_format(&serde_json::json!({
             "hasVideo": true,
             "hasAudio": false,
         }))
