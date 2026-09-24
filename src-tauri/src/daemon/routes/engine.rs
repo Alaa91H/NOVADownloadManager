@@ -2786,6 +2786,12 @@ mod tests {
             "exitOnComplete": true,
             "retryCount": 9999,
             "retryDelay": 120,
+            "profileId": "background",
+            "scheduled": true,
+            "scheduleType": "custom",
+            "days": [1, 3, 5],
+            "startTime": "22:00",
+            "endTime": "06:00",
             "downloadOrder": []
         })])
         .expect("normalize advanced queue settings");
@@ -2794,6 +2800,12 @@ mod tests {
         assert_eq!(normalized[0]["speedLimitKbs"], 8192);
         assert_eq!(normalized[0]["retryCount"], 9999);
         assert_eq!(normalized[0]["retryDelay"], 120);
+        assert_eq!(normalized[0]["profileId"], "background");
+        assert_eq!(normalized[0]["scheduled"], true);
+        assert_eq!(normalized[0]["scheduleType"], "custom");
+        assert_eq!(normalized[0]["days"], serde_json::json!([1, 3, 5]));
+        assert_eq!(normalized[0]["startTime"], "22:00");
+        assert_eq!(normalized[0]["endTime"], "06:00");
         assert_eq!(normalized[0]["oneTimeLimit"], true);
         assert_eq!(normalized[0]["shutdownOnComplete"], true);
         assert_eq!(normalized[0]["hangupOnComplete"], true);
