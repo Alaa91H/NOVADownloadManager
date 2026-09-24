@@ -333,7 +333,19 @@ fn normalize_queue_catalog(
     }
 
     if !seen.contains("main") {
-        normalized.insert(0, default_queue_catalog().remove(0));
+        let main = default_queue_catalog()
+            .into_iter()
+            .next()
+            .expect("default queue catalog always contains main");
+        normalized.insert(0, main);
+    } else if let Some(main_index) = normalized
+        .iter()
+        .position(|queue| queue.get("id").and_then(serde_json::Value::as_str) == Some("main"))
+    {
+        if main_index != 0 {
+            let main = normalized.remove(main_index);
+            normalized.insert(0, main);
+        }
     }
 
     Ok(normalized)
