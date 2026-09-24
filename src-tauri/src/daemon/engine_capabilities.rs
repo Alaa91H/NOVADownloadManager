@@ -1437,6 +1437,8 @@ pub fn native_media_status() -> Value {
             "separateTrackTaskExecution": true,
             "separateTrackMuxBackend": "nova-media-postprocess",
             "separateTrackMuxRequiresPostProcessingReady": true,
+            "playlistProbe": true,
+            "playlistPagination": true,
             "playlists": false,
             "formatSorting": true,
             "formatSelector": "stream-id-or-itag",
@@ -2058,6 +2060,8 @@ mod tests {
         );
         assert_eq!(status["capabilities"]["separateTrackTaskExecution"], true);
         assert_eq!(status["capabilities"]["formatSorting"], true);
+        assert_eq!(status["capabilities"]["playlistProbe"], true);
+        assert_eq!(status["capabilities"]["playlistPagination"], true);
         assert_eq!(status["capabilities"]["audioExtraction"], true);
         assert_eq!(status["capabilities"]["subtitles"], true);
         assert_eq!(status["capabilities"]["autoSubtitles"], true);
