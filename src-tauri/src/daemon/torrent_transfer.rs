@@ -65,21 +65,7 @@ impl TorrentTransferCoordinator {
         bandwidth_manager: BandwidthManager,
         external_cancel: &CancellationToken,
     ) -> Result<TorrentTransferReport, TorrentTransferError> {
-        let plan = storage.transfer_plan().await?;
-        let selected_size = plan
-            .priorities
-            .iter()
-            .enumerate()
-            .filter(|(_, priority)| priority.is_selected())
-            .try_fold(0u64, |total, (piece_index, _)| {
-                let piece_size = plan
-                    .metainfo
-                    .piece_size(piece_index)
-                    .ok_or(TorrentTransferError::InvalidPlan)?;
-                total
-                    .checked_add(piece_size)
-                    .ok_or(TorrentTransferError::LengthOverflow)
-            })?;
+        let selected_size = storage.progress().await?.selected_total_bytes;
 
         let policy = TorrentNovaPolicyLease::start(
             task_id,
