@@ -311,8 +311,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
                     let removed_sensitive = crate::daemon::torrent_task::persistable_magnet_source(source)
                         .map(|(_, removed)| removed)
                         .unwrap_or(true);
-                    (job.requires_reauth || (job.private && removed_sensitive))
-                        .then_some(id.clone())
+                    (job.requires_reauth || removed_sensitive).then_some(id.clone())
                 }),
         );
         resume_requires_reauth.sort();
