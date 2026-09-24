@@ -9,7 +9,7 @@ use nova_torrent_core::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinSet;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
@@ -196,7 +196,7 @@ impl PeerEngine {
             let config = self.config.session.clone();
             let child_cancel = cancel.child_token();
             tasks.spawn(async move {
-                let _permit = permit.acquire_owned().await.ok()?;
+                let connection_permit = permit.acquire_owned().await.ok()?;
                 let result = PeerSession::connect(
                     address,
                     info_hash,
@@ -205,7 +205,11 @@ impl PeerEngine {
                     config,
                     &child_cancel,
                 )
-                .await;
+                .await
+                .map(|mut session| {
+                    session.attach_connection_permit(connection_permit);
+                    session
+                });
                 Some((address, result))
             });
         }
@@ -260,6 +264,13 @@ impl PeerEngine {
                 return Err("Torrent peer selection cancelled".to_owned());
             }
 
+            let connection_permit = tokio::select! {
+                _ = cancel.cancelled() => return Err("Torrent peer selection cancelled".to_owned()),
+                permit = self.connection_slots.clone().acquire_owned() => {
+                    permit.map_err(|_| "Torrent peer connection limiter is closed".to_owned())?
+                }
+            };
+
             let mut session = match PeerSession::connect(
                 address,
                 metainfo.info_hash,
@@ -270,7 +281,10 @@ impl PeerEngine {
             )
             .await
             {
-                Ok(session) => session,
+                Ok(mut session) => {
+                    session.attach_connection_permit(connection_permit);
+                    session
+                },
                 Err(error) => {
                     self.record_failure(address, &error).await;
                     failures.push(format!("{address}: {}", limit_peer_error(&error)));
@@ -343,6 +357,7 @@ fn limit_peer_error(error: &str) -> String {
 #[derive(Debug)]
 pub struct PeerSession {
     address: SocketAddr,
+    connection_permit: Option<OwnedSemaphorePermit>,
     remote_peer_id: [u8; 20],
     remote_supports_extensions: bool,
     remote_supports_dht: bool,
@@ -436,6 +451,7 @@ impl PeerSession {
 
         Ok(Self {
             address,
+            connection_permit: None,
             remote_peer_id: remote.peer_id,
             remote_supports_extensions: remote.supports_extension_protocol(),
             remote_supports_dht: remote.supports_dht_port(),
@@ -443,6 +459,10 @@ impl PeerSession {
             stream,
             config,
         })
+    }
+
+    fn attach_connection_permit(&mut self, permit: OwnedSemaphorePermit) {
+        self.connection_permit = Some(permit);
     }
 
     pub const fn address(&self) -> SocketAddr {
