@@ -532,14 +532,19 @@ void NovaApiClient::recomputeKnownQueueIds() {
     QSet<QString> ids;
     ids.insert(QStringLiteral("main"));
 
+    QHash<QString, QString> labels;
+    labels.insert(QStringLiteral("main"), QStringLiteral("Main Queue"));
+
     for (const QVariant &value : m_queueCatalog) {
-        const QString queueId = value.toMap()
-            .value(QStringLiteral("id"))
-            .toString()
-            .trimmed();
-        if (!queueId.isEmpty()) {
-            ids.insert(queueId);
+        const QVariantMap queue = value.toMap();
+        const QString queueId = queue.value(QStringLiteral("id")).toString().trimmed();
+        if (queueId.isEmpty()) {
+            continue;
         }
+        ids.insert(queueId);
+
+        const QString name = queue.value(QStringLiteral("name")).toString().trimmed();
+        labels.insert(queueId, name.isEmpty() ? queueId : name);
     }
 
     for (const QJsonValue &value : m_currentDownloads) {
@@ -549,19 +554,29 @@ void NovaApiClient::recomputeKnownQueueIds() {
             .trimmed();
         if (!queueId.isEmpty()) {
             ids.insert(queueId);
+            if (!labels.contains(queueId)) {
+                labels.insert(queueId, queueId);
+            }
         }
     }
 
-    QStringList next = ids.values();
-    next.sort(Qt::CaseInsensitive);
-    next.removeAll(QStringLiteral("main"));
-    next.prepend(QStringLiteral("main"));
+    QStringList nextIds = ids.values();
+    nextIds.sort(Qt::CaseInsensitive);
+    nextIds.removeAll(QStringLiteral("main"));
+    nextIds.prepend(QStringLiteral("main"));
 
-    if (next == m_knownQueueIds) {
+    QStringList nextLabels;
+    nextLabels.reserve(nextIds.size());
+    for (const QString &id : std::as_const(nextIds)) {
+        nextLabels.append(labels.value(id, id));
+    }
+
+    if (nextIds == m_knownQueueIds && nextLabels == m_knownQueueLabels) {
         return;
     }
 
-    m_knownQueueIds = next;
+    m_knownQueueIds = nextIds;
+    m_knownQueueLabels = nextLabels;
     emit queueCatalogChanged();
 }
 
