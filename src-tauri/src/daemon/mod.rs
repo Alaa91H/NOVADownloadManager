@@ -626,6 +626,13 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
 
                 crate::daemon::routes::record_daemon_start();
                 restore_persisted_tasks(&state, restored);
+                let torrent_recheck_state = state.clone();
+                tokio::spawn(async move {
+                    crate::daemon::torrent_task::recheck_restored_completed_torrents(
+                        &torrent_recheck_state,
+                    )
+                    .await;
+                });
                 persist::start_persistence_loop(state.clone());
 
                 start_telegram_bot(state.clone(), rt.handle().clone());
