@@ -131,6 +131,7 @@ request URL + authorized headers/cookies
 - native YouTube chapter normalization with start/end timestamps included in metadata sidecars;
 - native remux policy that permits same-container/direct output and compatible copy-mux containers while failing closed when additional post-processing is required;
 - native YouTube playlist probing with continuation pagination, bounded page/entry limits and a first-party `/api/media/probe-playlist` endpoint;
+- native playlist batch task creation with bounded frontend scheduling and one first-party media task per selected entry;
 - native Netscape cookie-file loading with bounded file size and URL-scoped domain, path, secure and expiry filtering;
 - native Firefox `cookies.sqlite` import with profile discovery, read-only SQLite access and URL-scoped domain/path/secure/expiry filtering;
 - sensitive native request context is kept in memory and omitted from restart snapshots, forcing reauthorization when needed;
@@ -143,7 +144,6 @@ Still isolated behind typed interfaces:
 - newly observed throttling/challenge transform families that fall outside the verified native parser subset;
 - a fully in-process Rust container muxer that can replace the temporary host post-processing adapter;
 - HLS/DASH manifests that require composing separate audio/video representations into one output;
-- playlist batch-task creation; playlist discovery/probing and pagination are already native;
 - subtitle/thumbnail/metadata embedding into the final container;
 - chapter splitting and time-based partial-section extraction;
 - audio transcoding targets such as MP3/FLAC/WAV when no matching source representation exists;
@@ -167,7 +167,7 @@ The temporary bridge can be deleted after native acceptance tests pass for:
 - DASH VOD and dynamic manifests — task path implemented, final cross-platform acceptance still required;
 - separate audio/video tracks — native staging/resume/task execution and copy-mux path implemented, final cross-platform acceptance still required;
 - subtitles — native manual/automatic sidecars implemented; embed acceptance remains;
-- playlists — native probe/pagination implemented; batch task creation remains;
+- playlists — native probe/pagination and bounded batch task creation implemented; final cross-platform acceptance remains;
 - byte-range manifests;
 - interrupted-transfer recovery;
 - explicit user-authorized request context;
