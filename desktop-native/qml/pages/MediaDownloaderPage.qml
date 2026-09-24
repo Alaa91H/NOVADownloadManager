@@ -13,6 +13,8 @@ Item {
     property string errorText: ""
     property string statusText: ""
     property bool playlistMode: false
+    property var capabilitySnapshot: api.engineCapabilities
+    property bool ffmpegTouched: false
     property string languageToken: i18n.language
 
     function t(key) {
@@ -77,6 +79,15 @@ Item {
 
         const isAudio = modeBox.currentIndex === 1
         const qualityValue = qualityBox.currentValue || "best"
+        if (api.engineCapabilities.mediaReady !== true) {
+            errorText = root.t("media.engineUnavailable")
+            return
+        }
+        if (isAudio && api.engineCapabilities.postProcessingReady !== true) {
+            errorText = root.t("media.audioRequiresPostProcessing")
+            return
+        }
+
         const options = {
             mode: isAudio ? "audio" : "video",
             quality: qualityValue,
@@ -101,6 +112,10 @@ Item {
             writeDescription: descriptionCheck.checked
         }
 
+        const advancedOptions = mediaAdvanced.buildOptions()
+        for (const key in advancedOptions)
+            options[key] = advancedOptions[key]
+
         let displayName = ""
         if (playlistMode)
             displayName = api.mediaPlaylistTitle
@@ -119,6 +134,7 @@ Item {
     }
 
     Component.onCompleted: {
+        api.refreshEngineCapabilities()
         api.refreshFfmpegStatus()
         rebuildQualityModel()
         saveDirectory.text = settings.defaultSaveDirectory
@@ -127,6 +143,20 @@ Item {
 
     Connections {
         target: api
+
+        function onConnectionChanged() {
+            if (api.connected) {
+                api.refreshEngineCapabilities()
+                api.refreshFfmpegStatus()
+            }
+        }
+
+        function onFfmpegChanged() {
+            if (!root.ffmpegTouched)
+                ffmpegCheck.checked = api.ffmpegAvailable
+            if (!api.ffmpegAvailable)
+                ffmpegCheck.checked = false
+        }
 
         function onMediaProbeChanged() {
             if (!api.mediaProbeBusy)
@@ -428,7 +458,10 @@ Item {
                                 id: ffmpegCheck
                                 text: root.t("media.useFfmpeg")
                                 Accessible.name: text
-                                checked: true
+                                checked: false
+                                enabled: api.ffmpegAvailable
+                                    && api.mediaOptionSupported("ffmpegEnabled")
+                                onClicked: root.ffmpegTouched = true
                             }
 
                             CheckBox {
@@ -478,6 +511,12 @@ Item {
                             selectByMouse: true
                             LayoutMirroring.enabled: false
                             horizontalAlignment: Text.AlignLeft
+                        }
+
+                        MediaAdvancedPanel {
+                            id: mediaAdvanced
+                            Layout.fillWidth: true
+                            api: root.api
                         }
 
                         Rectangle {
@@ -678,6 +717,7 @@ Item {
             Button {
                 text: root.t("media.start")
                 enabled: api.connected
+                    && api.engineCapabilities.mediaReady === true
                     && !api.mediaProbeBusy
                     && !api.mediaPlaylistBusy
                     && urlField.text.trim().length > 0
