@@ -379,8 +379,18 @@ impl PeerSession {
                     control_frames_without_progress = 0;
                 }
                 PeerMessage::Choke => {
-                    // Outstanding requests are retained. A compliant peer may
-                    // later unchoke; timeout handling prevents indefinite waits.
+                    // BEP 3 permits a peer to discard outstanding requests as
+                    // soon as it chokes us. Put them back into the pending
+                    // queue so they are re-issued only after a future unchoke.
+                    let mut cancelled = outstanding
+                        .values()
+                        .map(|block| block.request)
+                        .collect::<Vec<_>>();
+                    cancelled.sort_by_key(|request| request.begin);
+                    for request in cancelled.into_iter().rev() {
+                        pending.push_front(request);
+                    }
+                    outstanding.clear();
                     control_frames_without_progress =
                         control_frames_without_progress.saturating_add(1);
                 }
@@ -670,7 +680,7 @@ mod tests {
         let metainfo = test_metainfo();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        let remote_peer_id = *b"-NVTEST-REMOTE-000001";
+        let remote_peer_id = *b"-NVTEST-REMOTE-00001";
         let info_hash = metainfo.info_hash;
 
         let server = tokio::spawn(async move {
@@ -759,7 +769,7 @@ mod tests {
             stream.read_exact(&mut handshake).await.unwrap();
             let wrong = PeerHandshake::new(
                 InfoHash::new([9u8; 20]),
-                *b"-NVTEST-REMOTE-000001",
+                *b"-NVTEST-REMOTE-00001",
             );
             stream.write_all(&wrong.encode()).await.unwrap();
         });
@@ -791,7 +801,7 @@ mod tests {
             stream.read_exact(&mut handshake).await.unwrap();
             let remote = PeerHandshake::new(
                 info_hash,
-                *b"-NVTEST-REMOTE-000001",
+                *b"-NVTEST-REMOTE-00001",
             );
             stream.write_all(&remote.encode()).await.unwrap();
             let _ = read_peer_frame(
