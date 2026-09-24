@@ -3,7 +3,7 @@ name: Native UI
 on:
   push:
     branches:
-      - "الواجهة-الجديدة"
+      - "feature/qt6-native-desktop-ui"
     paths:
       - "desktop-native/**"
       - ".github/workflows/native-ui.yml"
@@ -36,7 +36,6 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           version: "6.8.3"
-          modules: "qtdeclarative"
           cache: true
 
       - name: Configure
