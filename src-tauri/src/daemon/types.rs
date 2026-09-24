@@ -248,14 +248,6 @@ impl Default for TelegramConfig {
 }
 
 #[derive(Clone)]
-pub struct MediaJob {
-    pub task: Task,
-    pub child: Option<u32>,
-    pub args: Vec<String>,
-    pub start_time: Instant,
-}
-
-#[derive(Clone)]
 pub struct NativeMediaJob {
     pub task: Task,
     pub request: CreateDownloadBody,
