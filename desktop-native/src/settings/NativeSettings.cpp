@@ -126,6 +126,14 @@ QVariantMap advancedDefaults() {
         {QStringLiteral("dnsResolver"), QStringLiteral("system")},
         {QStringLiteral("dnsCustomResolver"), QString()},
         {QStringLiteral("dnsCacheTimeoutSec"), 300},
+        {QStringLiteral("keepaliveTimeSec"), 0},
+        {QStringLiteral("httpVersion"), QString()},
+        {QStringLiteral("insecure"), false},
+        {QStringLiteral("caCert"), QString()},
+        {QStringLiteral("clientCert"), QString()},
+        {QStringLiteral("clientKey"), QString()},
+        {QStringLiteral("tlsMin"), QString()},
+        {QStringLiteral("ciphers"), QString()},
         {QStringLiteral("userAgent"), QStringLiteral("NOVA Native")},
         {QStringLiteral("vpnEnabled"), false},
         {QStringLiteral("vpnMode"), QStringLiteral("system")},
@@ -191,6 +199,7 @@ QVariant normalizedAdvancedValue(const QString &key, const QVariant &candidate) 
         else if (key == QStringLiteral("retryDelaySec")) value = qBound(1, value, 86400);
         else if (key == QStringLiteral("maxRedirs")) value = qBound(0, value, 1000);
         else if (key == QStringLiteral("dnsCacheTimeoutSec")) value = qBound(0, value, 86400);
+        else if (key == QStringLiteral("keepaliveTimeSec")) value = qBound(0, value, 86400);
         else if (key == QStringLiteral("bufferSizeKb")) value = qBound(16, value, 1024 * 1024);
         else if (key == QStringLiteral("speedLimitKbs")) value = qBound(0, value, 100000000);
         else if (key == QStringLiteral("telegramFileUploadLimitMb")) value = qBound(1, value, 2000);
