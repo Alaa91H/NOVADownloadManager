@@ -48,6 +48,19 @@ pub async fn handle_health(State(state): State<SharedState>) -> Json<serde_json:
         "version": env!("CARGO_PKG_VERSION"),
         "pid": std::process::id(),
         "allEnginesReady": status.get("allReady").cloned().unwrap_or(serde_json::json!(false)),
+        "directReady": status.get("directReady").cloned().unwrap_or(serde_json::json!(false)),
+        "mediaExtractionReady": status
+            .get("mediaExtractionReady")
+            .cloned()
+            .unwrap_or(serde_json::json!(false)),
+        "streamingReady": status
+            .get("streamingReady")
+            .cloned()
+            .unwrap_or(serde_json::json!(false)),
+        "postProcessingReady": status
+            .get("postProcessingReady")
+            .cloned()
+            .unwrap_or(serde_json::json!(false)),
         "routing": status.get("routing").cloned().unwrap_or(serde_json::json!({})),
         "engines": status.get("engines").cloned().unwrap_or(serde_json::json!({}))
     }))
