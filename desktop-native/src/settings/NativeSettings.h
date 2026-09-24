@@ -26,6 +26,9 @@ class NativeSettings final : public QObject {
     Q_PROPERTY(QStringList downloadColumns READ downloadColumns WRITE setDownloadColumns NOTIFY settingsChanged)
     Q_PROPERTY(QString downloadSortKey READ downloadSortKey WRITE setDownloadSortKey NOTIFY settingsChanged)
     Q_PROPERTY(bool downloadSortAscending READ downloadSortAscending WRITE setDownloadSortAscending NOTIFY settingsChanged)
+    Q_PROPERTY(QVariantMap advancedSettings READ advancedSettings NOTIFY settingsChanged)
+    Q_PROPERTY(QVariantMap shortcutBindings READ shortcutBindings NOTIFY settingsChanged)
+    Q_PROPERTY(bool shortcutsEnabled READ shortcutsEnabled NOTIFY settingsChanged)
 
 public:
     explicit NativeSettings(QObject *parent = nullptr);
@@ -49,6 +52,9 @@ public:
     QStringList downloadColumns() const;
     QString downloadSortKey() const;
     bool downloadSortAscending() const;
+    QVariantMap advancedSettings() const;
+    QVariantMap shortcutBindings() const;
+    bool shortcutsEnabled() const;
 
     void setDefaultSaveDirectory(const QString &value);
     void setDefaultConnections(int value);
@@ -69,6 +75,11 @@ public:
     void setDownloadSortKey(const QString &value);
     void setDownloadSortAscending(bool value);
 
+    Q_INVOKABLE void setAdvancedValue(const QString &key, const QVariant &value);
+    Q_INVOKABLE void setShortcutBinding(const QString &action, const QString &sequence);
+    Q_INVOKABLE void setShortcutsEnabled(bool enabled);
+    Q_INVOKABLE bool exportBackup(const QString &path) const;
+    Q_INVOKABLE bool importBackup(const QString &path);
     Q_INVOKABLE void resetToDefaults();
 
 signals:
