@@ -99,16 +99,16 @@ describe('queueStore', () => {
     }).not.toThrow();
   });
 
-  it('removeTaskFromQueue removes task from all queues', () => {
+  it('removeTaskFromQueue keeps main tasks canonical and moves custom tasks back to main', () => {
     queueStore.getState().removeTaskFromQueue('task1');
-    const main = queueStore.getState().queues.find((q) => q.id === 'main');
-    expect(main).toBeDefined();
-    if (!main) return;
-    expect(main.downloadOrder).toEqual(['task2']);
+    let main = queueStore.getState().queues.find((q) => q.id === 'main');
+    expect(main?.downloadOrder).toEqual(['task1', 'task2']);
+
+    queueStore.getState().removeTaskFromQueue('task3');
+    main = queueStore.getState().queues.find((q) => q.id === 'main');
     const q2 = queueStore.getState().queues.find((q) => q.id === 'q2');
-    expect(q2).toBeDefined();
-    if (!q2) return;
-    expect(q2.downloadOrder).toEqual(['task3']);
+    expect(main?.downloadOrder).toEqual(['task1', 'task2', 'task3']);
+    expect(q2?.downloadOrder).toEqual([]);
   });
 
   it('moveTaskToQueue moves task between queues', () => {
@@ -162,6 +162,8 @@ describe('queueStore', () => {
     const newQ = queueStore.getState().queues[queueStore.getState().queues.length - 1];
     expect(newQ.name).toBe('New Q');
     expect(newQ.downloadOrder).toContain('task1');
+    expect(queueStore.getState().queues[0].downloadOrder).not.toContain('task1');
+    expect(queueStore.getState().queues.flatMap((q) => q.downloadOrder).filter((id) => id === 'task1')).toHaveLength(1);
   });
 
   it('reorderQueues moves queue from one index to another', () => {
