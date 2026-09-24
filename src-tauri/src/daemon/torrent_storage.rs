@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use nova_torrent_core::{
-    AllocationMode, FilePriority, InfoHash, PieceCommit, PieceLayout, PieceScheduler, RecheckMode,
+    AllocationMode, InfoHash, PieceCommit, PieceLayout, PieceScheduler, RecheckMode,
     RecheckReport, StorageError, TorrentMetainfo, TorrentSelection, TorrentStorage,
 };
 use tokio_util::sync::CancellationToken;
@@ -340,7 +340,7 @@ pub enum TorrentSessionError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nova_torrent_core::{TorrentFile, TorrentMetainfo};
+    use nova_torrent_core::{FilePriority, TorrentFile, TorrentMetainfo};
     use sha1::{Digest, Sha1};
     use std::time::{SystemTime, UNIX_EPOCH};
 
