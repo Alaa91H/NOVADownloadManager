@@ -76,9 +76,12 @@ impl TorrentStorage {
         ensure_safe_directory(&root, &boundary_dir)?;
         let checkpoint_path = control_dir.join(RESUME_FILE_NAME);
 
-        prepare_selected_files(&root, &meta, &selection, allocation, true)?;
+        // Persist the torrent identity before creating payload files. If the
+        // process stops during allocation, resume() can safely finish creating
+        // the missing files instead of treating them as unrelated user data.
         let checkpoint = TorrentResumeCheckpoint::new(&meta, &selection)?;
         save_checkpoint_atomic(&checkpoint_path, &checkpoint)?;
+        prepare_selected_files(&root, &meta, &selection, allocation, false)?;
 
         Ok(Self {
             root,
