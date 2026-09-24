@@ -74,6 +74,8 @@ signals:
     void settingsChanged();
 
 private:
+    void migrateLegacySettingsIfNeeded();
+
     template <typename T>
     T value(const QString &key, const T &fallback) const {
         return m_settings.value(key, QVariant::fromValue(fallback)).template value<T>();
