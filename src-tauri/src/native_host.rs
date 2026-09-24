@@ -213,6 +213,37 @@ fn read_port_file() -> Option<u16> {
     None
 }
 
+fn pairing_secret_for_base_url(base_url: &str) -> Option<String> {
+    let port = base_url
+        .rsplit_once(':')
+        .and_then(|(_, value)| value.parse::<u16>().ok())?;
+
+    for port_path in port_file_paths() {
+        let Some(parent) = port_path.parent() else {
+            continue;
+        };
+        let pairing_path = parent.join("nova-daemon.pairing.json");
+        let Ok(content) = std::fs::read_to_string(&pairing_path) else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&content) else {
+            continue;
+        };
+        if value.get("port").and_then(Value::as_u64) != Some(u64::from(port)) {
+            continue;
+        }
+        if let Some(secret) = value
+            .get("secret")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|secret| secret.len() >= 24)
+        {
+            return Some(secret.to_owned());
+        }
+    }
+    None
+}
+
 /// Compute platform-specific paths where the daemon may have written its port.
 /// These MUST match the directories the daemon actually uses:
 /// - Tauri mode:      `app_data_dir` for identifier `com.nova.downloadmanager`
@@ -290,9 +321,11 @@ fn ping_daemon(client: &reqwest::blocking::Client, base_url: &str) -> bool {
     }
 }
 
-/// Call POST /v1/pair/auto to obtain the daemon's API token. The pair endpoint
-/// is exempt from auth and returns the real daemon token.
+/// Call POST /v1/pair/auto to obtain the daemon's separate native-client
+/// bearer token. The native host must prove possession of the per-daemon
+/// pairing secret published beside the daemon port file.
 fn obtain_api_token(client: &reqwest::blocking::Client, base_url: &str) -> Option<String> {
+    let pairing_secret = pairing_secret_for_base_url(base_url)?;
     let url = format!("{base_url}/v1/pair/auto");
     let response = client
         .post(&url)
@@ -301,10 +334,14 @@ fn obtain_api_token(client: &reqwest::blocking::Client, base_url: &str) -> Optio
             crate::daemon::NATIVE_HOST_PAIRING_HEADER,
             crate::daemon::NATIVE_HOST_PAIRING_VALUE,
         )
+        .header(crate::daemon::NATIVE_PAIRING_SECRET_HEADER, pairing_secret)
         .json(&json!({}))
         .send()
         .ok()?;
     let value: Value = response.json().ok()?;
+    if value.get("ok").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
     value
         .get("pairToken")
         .and_then(Value::as_str)
