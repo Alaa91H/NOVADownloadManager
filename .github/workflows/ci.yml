@@ -144,6 +144,16 @@ jobs:
       - name: Cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml
 
+      - name: Enforce native media ownership boundary
+        run: |
+          set -euo pipefail
+          if grep -RInE 'create_media_bridge_task|media_bridge::|yt-dlp|youtube-dl' \
+            src-tauri/src/daemon/native_media.rs \
+            crates/nova-media-core; then
+            echo "::error::Native media code must not delegate to an external resolver or Media Bridge."
+            exit 1
+          fi
+
       - name: Test native media cores
         run: |
           cargo test --manifest-path crates/nova-stream-core/Cargo.toml
