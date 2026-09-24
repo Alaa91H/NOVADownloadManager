@@ -176,6 +176,16 @@ impl MediaMuxer for Mp4Muxer {
 
         let dts = required_timestamp(packet.dts, "DTS", track_time_base)?;
         let pts = optional_timestamp(packet.pts, dts, "PTS", track_time_base)?;
+        let composition_offset = pts
+            .checked_sub(dts)
+            .ok_or_else(|| mux_error("MP4 composition timestamp overflow"))?;
+        if composition_offset < i64::from(i32::MIN)
+            || composition_offset > i64::from(u32::MAX)
+        {
+            return Err(MediaProcessingError::UnsupportedOperation(
+                "MP4 composition offset exceeds ctts v0/v1 range".to_owned(),
+            ));
+        }
         let duration = required_duration(packet.duration, track_time_base)?;
 
         if previous_sample_count == 0 && dts != 0 {
@@ -346,7 +356,7 @@ fn validate_video_track(track: &MediaTrack) -> Result<(), MediaProcessingError> 
         return Err(mux_error("video dimensions are invalid for MP4 sample entry"));
     }
 
-    match track.codec {
+    match &track.codec {
         MediaCodec::H264
         | MediaCodec::Hevc
         | MediaCodec::Av1
@@ -373,7 +383,7 @@ fn validate_audio_track(track: &MediaTrack) -> Result<(), MediaProcessingError> 
         return Err(mux_error("audio parameters are invalid for MP4 sample entry"));
     }
 
-    match track.codec {
+    match &track.codec {
         MediaCodec::Aac | MediaCodec::Opus => {
             if track.codec_private.is_empty() {
                 return Err(mux_error(format!(
@@ -443,17 +453,13 @@ fn required_duration(
 }
 
 fn make_ftyp() -> Vec<u8> {
-    make_box(
-        *b"ftyp",
-        [
-            b"isom".as_slice(),
-            &0x0000_0200_u32.to_be_bytes(),
-            b"isom",
-            b"iso6",
-            b"mp41",
-        ]
-        .concat(),
-    )
+    let mut payload = Vec::with_capacity(20);
+    payload.extend_from_slice(b"isom");
+    payload.extend_from_slice(&0x0000_0200_u32.to_be_bytes());
+    payload.extend_from_slice(b"isom");
+    payload.extend_from_slice(b"iso6");
+    payload.extend_from_slice(b"mp41");
+    make_box(*b"ftyp", payload)
 }
 
 fn make_moov(
@@ -654,7 +660,7 @@ fn make_video_sample_entry(track: &MediaTrack) -> Result<Vec<u8>, MediaProcessin
     let width = u16::try_from(video.width).map_err(|_| mux_error("video width exceeds u16"))?;
     let height = u16::try_from(video.height).map_err(|_| mux_error("video height exceeds u16"))?;
 
-    let (entry_kind, config_kind) = match track.codec {
+    let (entry_kind, config_kind) = match &track.codec {
         MediaCodec::H264 => (*b"avc1", *b"avcC"),
         MediaCodec::Hevc => (*b"hvc1", *b"hvcC"),
         MediaCodec::Av1 => (*b"av01", *b"av1C"),
@@ -688,7 +694,7 @@ fn make_audio_sample_entry(track: &MediaTrack) -> Result<Vec<u8>, MediaProcessin
     let sample_rate = u16::try_from(audio.sample_rate_hz)
         .map_err(|_| mux_error("audio sample rate exceeds classic MP4 sample entry"))?;
 
-    let (entry_kind, config) = match track.codec {
+    let (entry_kind, config) = match &track.codec {
         MediaCodec::Aac => (
             *b"mp4a",
             Some(make_box(*b"esds", track.codec_private.clone())),
