@@ -1,4 +1,5 @@
 #include "api/NovaApiClient.h"
+#include "batch/BatchPatternExpander.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -171,6 +172,7 @@ void NovaApiClient::refreshDownloads() {
         }
 
         m_currentDownloads = document.array();
+        recomputeKnownQueueIds();
         emit downloadsLoaded(m_currentDownloads);
     });
 }
@@ -379,6 +381,7 @@ void NovaApiClient::processStreamEvent(const QByteArray &eventBlock) {
         m_streamReconnectAttempt = 0;
         setLiveUpdatesConnected(true);
         m_currentDownloads = document.array();
+        recomputeKnownQueueIds();
         emit downloadsLoaded(m_currentDownloads);
         return;
     }
@@ -435,6 +438,7 @@ void NovaApiClient::mergeDownloadsDelta(const QJsonObject &delta) {
     }
 
     m_currentDownloads = next;
+    recomputeKnownQueueIds();
     emit downloadsLoaded(m_currentDownloads);
 }
 
@@ -495,6 +499,59 @@ void NovaApiClient::deleteDownload(const QString &id) {
     });
 }
 
+
+bool NovaApiClient::directOptionSupported(const QString &key) const {
+    const QString normalized = key.trimmed();
+    if (normalized.isEmpty()) {
+        return false;
+    }
+
+    const QVariantMap engines =
+        m_engineCapabilities.value(QStringLiteral("engines")).toMap();
+    const QVariantMap curl = engines.value(QStringLiteral("curl")).toMap();
+    const QVariantList supported =
+        curl.value(QStringLiteral("supportedDirectOptionKeys")).toList();
+
+    // Capabilities may not have been fetched yet. Preserve normal daemon-side
+    // validation until the runtime capability snapshot arrives.
+    if (supported.isEmpty()) {
+        return true;
+    }
+
+    for (const QVariant &value : supported) {
+        if (value.toString() == normalized) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void NovaApiClient::recomputeKnownQueueIds() {
+    QSet<QString> ids;
+    ids.insert(QStringLiteral("main"));
+
+    for (const QJsonValue &value : m_currentDownloads) {
+        const QString queueId = value.toObject()
+            .value(QStringLiteral("queueId"))
+            .toString()
+            .trimmed();
+        if (!queueId.isEmpty()) {
+            ids.insert(queueId);
+        }
+    }
+
+    QStringList next = ids.values();
+    next.sort(Qt::CaseInsensitive);
+    next.removeAll(QStringLiteral("main"));
+    next.prepend(QStringLiteral("main"));
+
+    if (next == m_knownQueueIds) {
+        return;
+    }
+
+    m_knownQueueIds = next;
+    emit queueCatalogChanged();
+}
 
 void NovaApiClient::refreshQueue() {
     auto *reply = m_network.get(makeRequest(QStringLiteral("/api/engine/queue")));
@@ -666,48 +723,20 @@ void NovaApiClient::importBatch(
         return;
     }
 
-    QStringList candidates;
-    const QRegularExpression numericPattern(QStringLiteral(R"(\[(\d+)-(\d+)\])"));
-    const QStringList rawLines = input.split(QRegularExpression(QStringLiteral("[\\r\\n]+")), Qt::SkipEmptyParts);
+    const Nova::BatchPattern::ExpansionResult expansion =
+        Nova::BatchPattern::expandInput(input);
+    if (!expansion.ok()) {
+        emit requestFailed(expansion.error);
+        return;
+    }
+    const QStringList candidates = expansion.urls;
 
-    constexpr int maxBatchUrls = 500;
-    for (const QString &rawLine : rawLines) {
-        const QString line = rawLine.trimmed();
-        if (line.isEmpty()) {
-            continue;
-        }
-
-        const QRegularExpressionMatch match = numericPattern.match(line);
-        if (!match.hasMatch()) {
-            candidates.append(line);
-            if (candidates.size() >= maxBatchUrls) {
-                break;
-            }
-            continue;
-        }
-
-        bool startOk = false;
-        bool endOk = false;
-        const int rangeStart = match.captured(1).toInt(&startOk);
-        const int rangeEnd = match.captured(2).toInt(&endOk);
-        if (!startOk || !endOk || rangeEnd < rangeStart) {
-            candidates.append(line);
-            continue;
-        }
-
-        const int width = qMax(match.captured(1).size(), match.captured(2).size());
-        for (int value = rangeStart; value <= rangeEnd && candidates.size() < maxBatchUrls; ++value) {
-            QString expanded = line;
-            expanded.replace(
-                match.capturedStart(0),
-                match.capturedLength(0),
-                QStringLiteral("%1").arg(value, width, 10, QLatin1Char('0'))
-            );
-            candidates.append(expanded);
-        }
-
-        if (candidates.size() >= maxBatchUrls) {
-            break;
+    QSet<QString> supportedProtocols;
+    for (const QVariant &protocol :
+         m_engineCapabilities.value(QStringLiteral("directProtocols")).toList()) {
+        const QString normalized = protocol.toString().trimmed().toLower();
+        if (!normalized.isEmpty()) {
+            supportedProtocols.insert(normalized);
         }
     }
 
@@ -721,12 +750,16 @@ void NovaApiClient::importBatch(
             continue;
         }
 
-        const QString normalized = url.toString(QUrl::FullyEncoded);
-        if (seen.contains(normalized)) {
+        if (!supportedProtocols.isEmpty()
+            && !supportedProtocols.contains(url.scheme().toLower())) {
+            continue;
+        }
+
+        if (seen.contains(value)) {
             ++duplicates;
             continue;
         }
-        seen.insert(normalized);
+        seen.insert(value);
         uniqueUrls.append(value);
     }
 
@@ -738,37 +771,55 @@ void NovaApiClient::importBatch(
     m_batchRunning = true;
     m_batchUrls = uniqueUrls;
     m_batchSaveDirectory = saveDirectory.trimmed();
-    m_batchQueueId = batchOptions.value(QStringLiteral("queueId")).toString().trimmed();
-    if (m_batchQueueId.isEmpty()) {
-        m_batchQueueId = QStringLiteral("main");
-    }
+
+    const QString requestedQueueId =
+        batchOptions.value(QStringLiteral("queueId")).toString().trimmed();
+    m_batchQueueId = m_knownQueueIds.contains(requestedQueueId)
+        ? requestedQueueId
+        : QStringLiteral("main");
 
     m_batchAdvancedOptions.clear();
     const QVariantMap requestedOptions =
         batchOptions.value(QStringLiteral("advanced")).toMap();
 
-    const QString referer = requestedOptions.value(QStringLiteral("referer")).toString().trimmed();
-    if (!referer.isEmpty()) {
-        m_batchAdvancedOptions.insert(QStringLiteral("referer"), referer);
-    }
+    const auto insertStringOption = [this, &requestedOptions](const QString &key) {
+        if (!directOptionSupported(key)) {
+            return;
+        }
+        const QString value = requestedOptions.value(key).toString().trimmed();
+        if (!value.isEmpty()) {
+            m_batchAdvancedOptions.insert(key, value);
+        }
+    };
 
-    const QString userAgent = requestedOptions.value(QStringLiteral("userAgent")).toString().trimmed();
-    if (!userAgent.isEmpty()) {
-        m_batchAdvancedOptions.insert(QStringLiteral("userAgent"), userAgent);
+    for (const QString &key : {
+             QStringLiteral("referer"),
+             QStringLiteral("userAgent"),
+             QStringLiteral("proxy"),
+             QStringLiteral("headers"),
+             QStringLiteral("cookies")
+         }) {
+        insertStringOption(key);
     }
 
     const int retryCount = requestedOptions.value(QStringLiteral("retryCount")).toInt();
-    if (retryCount > 0) {
-        m_batchAdvancedOptions.insert(QStringLiteral("retryCount"), qBound(1, retryCount, 100));
+    if (retryCount > 0 && directOptionSupported(QStringLiteral("retryCount"))) {
+        m_batchAdvancedOptions.insert(
+            QStringLiteral("retryCount"),
+            qBound(1, retryCount, 100)
+        );
     }
 
     const int timeoutSec = requestedOptions.value(QStringLiteral("timeoutSec")).toInt();
-    if (timeoutSec > 0) {
-        m_batchAdvancedOptions.insert(QStringLiteral("timeoutSec"), qBound(1, timeoutSec, 3600));
+    if (timeoutSec > 0 && directOptionSupported(QStringLiteral("timeoutSec"))) {
+        m_batchAdvancedOptions.insert(
+            QStringLiteral("timeoutSec"),
+            qBound(1, timeoutSec, 3600)
+        );
     }
 
-    m_batchConnections = qMax(0, connections);
-    if (m_batchConnections > 1) {
+    m_batchConnections = qBound(0, connections, 32);
+    if (m_batchConnections > 1 && directOptionSupported(QStringLiteral("segmented"))) {
         m_batchAdvancedOptions.insert(QStringLiteral("segmented"), true);
     }
     m_batchStartImmediately = startImmediately;
