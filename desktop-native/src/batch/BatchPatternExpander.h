@@ -14,6 +14,14 @@ struct ExpansionResult {
     bool ok() const noexcept { return error.isEmpty(); }
 };
 
+struct CountResult {
+    qint64 count{0};
+    QString error;
+
+    bool ok() const noexcept { return error.isEmpty(); }
+};
+
 ExpansionResult expandInput(const QString &input);
+CountResult countInput(const QString &input);
 
 } // namespace Nova::BatchPattern
