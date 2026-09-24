@@ -2,8 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use nova_download_core::{
-    download_http_to_path_segmented_controlled_with_context,
-    download_http_to_path_segmented_with_context, TransferControl, TransportError,
+    download_http_to_path_segmented_controlled_with_context, TransferControl, TransportError,
 };
 use thiserror::Error;
 
