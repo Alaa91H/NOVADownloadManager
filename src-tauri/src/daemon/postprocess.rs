@@ -242,8 +242,10 @@ mod tests {
             audio_path: PathBuf::from("audio.track"),
             destination: PathBuf::from("output.mp4"),
         };
-        let command =
-            processor.build_mux_command(&request, Path::new("output.nova-mux.tmp.mp4"));
+        let command = processor.build_mux_command(
+            &request,
+            Path::new("output.nova-mux.tmp.mp4"),
+        );
         let args = command
             .get_args()
             .map(|value| value.to_string_lossy().to_string())
