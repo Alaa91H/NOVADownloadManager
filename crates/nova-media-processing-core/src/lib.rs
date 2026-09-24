@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Native in-process media processing foundation for NOVA Download Manager.
 //!
 //! This crate owns container/packet processing contracts that replace external
@@ -5,13 +7,17 @@
 //! shell, subprocess, network resolver, or UI dependency.
 
 mod capabilities;
+mod demux;
 mod error;
 mod job;
+mod mux;
 mod pipeline;
 mod probe;
 mod progress;
 mod types;
 
+pub use demux::MediaDemuxer;
+pub use mux::{MediaMuxResult, MediaMuxer};
 pub use capabilities::{
     native_media_processing_capabilities, NativeMediaProcessingCapabilities,
 };
@@ -23,7 +29,7 @@ pub use job::{
 pub use pipeline::{
     plan_media_pipeline, MediaPipelinePlan, MediaPipelineStage,
 };
-pub use probe::sniff_media_container;
+pub use probe::{probe_file_container, sniff_media_container};
 pub use progress::{
     MediaProcessingPhase, MediaProcessingProgress, MediaProgressSink,
 };
