@@ -182,6 +182,9 @@ int main(int argc, char *argv[]) {
         const qint64 speedLimit =
             advanced.value(QStringLiteral("speedLimitKbs")).toLongLong();
         apiClient.setGlobalBandwidthLimit(speedLimited ? speedLimit : 0);
+        apiClient.setLogLevel(
+            advanced.value(QStringLiteral("logLevel")).toString().trimmed()
+        );
 
         if (nativeSettings.daemonMigrationPending(QStringLiteral("external-tools"))) {
             const QString ffmpegPath =
