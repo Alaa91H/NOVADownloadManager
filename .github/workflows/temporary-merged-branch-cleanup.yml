@@ -1,0 +1,54 @@
+name: Temporary merged branch cleanup
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete branches already merged into main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          branches=(
+            "android/native-core-phase1"
+            "android/native-segments-phase2"
+            "android/native-transfer-phase2"
+            "feat/android-background-execution-phase3"
+            "feat/android-native-transfer-engine"
+            "feat/android-native-transfer-phase2"
+            "feat/android-shared-download-core-phase1"
+            "feat/integrity-gate-phase1"
+            "feat/resume-hardening-phase1"
+            "feat/shared-recovery-core"
+            "feat/shared-segmented-mobile-engine"
+            "feat/shared-segmented-mobile-engine-v2"
+            "fix/android-background-resume-phase3"
+            "fix/quality-gate-audit-20260816"
+            "fix/verified-transfer-progress"
+          )
+
+          for branch in "${branches[@]}"; do
+            if ! gh api "repos/$REPO/git/ref/heads/$branch" >/dev/null 2>&1; then
+              echo "Already absent: $branch"
+              continue
+            fi
+
+            ahead="$(gh api "repos/$REPO/compare/main...$branch" --jq '.ahead_by')"
+            if [[ "$ahead" != "0" ]]; then
+              echo "::error::Refusing to delete unmerged branch $branch (ahead_by=$ahead)"
+              exit 1
+            fi
+
+            gh api -X DELETE "repos/$REPO/git/refs/heads/$branch"
+            echo "Deleted: $branch"
+          done
