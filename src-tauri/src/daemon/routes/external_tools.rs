@@ -66,11 +66,7 @@ async fn handle_list_tools(
     let manager = state.external_tools.clone();
     let tool_states = tokio::task::spawn_blocking(move || {
         let manager = lock_or_err!(manager);
-        manager
-            .all_tool_states()
-            .into_iter()
-            .filter(|tool| tool.id == ToolId::Ffmpeg.as_str())
-            .collect::<Vec<_>>()
+        vec![manager.tool_state(ToolId::Ffmpeg)]
     })
     .await
     .map_err(|error| external_tool_worker_error("list", error))?;
@@ -344,6 +340,23 @@ async fn handle_check_capability(
     State(state): State<SharedState>,
     Path(capability_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if matches!(
+        capability_id.as_str(),
+        "media.resolve"
+            | "media.metadata"
+            | "media.format_discovery"
+            | "media.platform_extraction"
+            | "media.direct_url_resolution"
+    ) {
+        return Ok(Json(serde_json::json!({
+            "capabilityId": capability_id,
+            "available": true,
+            "toolId": serde_json::Value::Null,
+            "engine": "nova-media-engine",
+            "requiresMessage": serde_json::Value::Null,
+        })));
+    }
+
     let manager = state.external_tools.clone();
     let availability = tokio::task::spawn_blocking(move || {
         let manager = lock_or_err!(manager);
@@ -364,25 +377,19 @@ async fn handle_health_all(
     State(state): State<SharedState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let manager = state.external_tools.clone();
-    let installations = tokio::task::spawn_blocking(move || {
+    let installation = tokio::task::spawn_blocking(move || {
         let manager = lock_or_err!(manager);
-        manager.discover_all()
+        manager.discover(ToolId::Ffmpeg)
     })
     .await
     .map_err(|error| external_tool_worker_error("health summary", error))?;
 
-    let results: Vec<serde_json::Value> = installations
-        .iter()
-        .filter(|inst| inst.tool_id == ToolId::Ffmpeg)
-        .map(|inst| {
-            serde_json::json!({
-                "toolId": inst.tool_id.as_str(),
-                "status": inst.status.display_text(),
-                "healthy": inst.health_ok,
-                "version": inst.version.as_ref().map(std::string::ToString::to_string),
-            })
-        })
-        .collect();
+    let results = vec![serde_json::json!({
+        "toolId": installation.tool_id.as_str(),
+        "status": installation.status.display_text(),
+        "healthy": installation.health_ok,
+        "version": installation.version.as_ref().map(std::string::ToString::to_string),
+    })];
 
     Ok(Json(serde_json::json!({
         "tools": results,
@@ -407,7 +414,10 @@ mod tests {
 
     #[test]
     fn public_external_tools_accept_only_postprocessing_tools() {
-        assert_eq!(parse_tool_id("ffmpeg").expect("FFmpeg must remain public"), ToolId::Ffmpeg);
+        assert_eq!(
+            parse_tool_id("ffmpeg").expect("FFmpeg must remain public"),
+            ToolId::Ffmpeg
+        );
         assert!(parse_tool_id("media-bridge").is_err());
         assert!(parse_tool_id("media_bridge").is_err());
     }
