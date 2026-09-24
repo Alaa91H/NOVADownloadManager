@@ -3063,6 +3063,7 @@ dependencies = [
  "serde",
  "thiserror 2.0.20",
  "url",
+ "serde_json",
 ]
 
 [[package]]
