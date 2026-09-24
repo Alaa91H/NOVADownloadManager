@@ -25,6 +25,9 @@ export interface EngineCapabilitiesResponse {
   status: CapabilityStatus;
   allReady: boolean;
   directReady: boolean;
+  mediaExtractionReady: boolean;
+  streamingReady: boolean;
+  /** @deprecated compatibility alias for mediaExtractionReady */
   mediaReady: boolean;
   postProcessingReady: boolean;
   directProtocols: string[];
@@ -101,6 +104,8 @@ export function parseEngineCapabilitiesResponse(value: unknown): EngineCapabilit
     status,
     allReady: asBoolean(root.allReady, 'allReady'),
     directReady: asBoolean(root.directReady, 'directReady'),
+    mediaExtractionReady: asBoolean(root.mediaExtractionReady, 'mediaExtractionReady'),
+    streamingReady: asBoolean(root.streamingReady, 'streamingReady'),
     mediaReady: asBoolean(root.mediaReady, 'mediaReady'),
     postProcessingReady: asBoolean(root.postProcessingReady, 'postProcessingReady'),
     directProtocols: asStringArray(root.directProtocols, 'directProtocols'),
