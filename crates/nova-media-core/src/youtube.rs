@@ -26,7 +26,7 @@ pub enum YouTubeChallengeKind {
     SignatureAndThrottling,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct YouTubePendingFormat {
     pub itag: Option<u64>,
     pub mime_type: Option<String>,
