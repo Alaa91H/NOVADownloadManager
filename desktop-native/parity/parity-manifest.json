@@ -467,24 +467,125 @@
     {
       "id": "settings-diagnostics",
       "label": "Settings and diagnostics",
-      "status": "partial",
+      "status": "covered",
       "evidence": [
         "desktop-native/qml/pages/SettingsPage.qml",
+        "desktop-native/qml/components/SettingsAdvancedPanel.qml",
+        "desktop-native/qml/components/AddDownloadDialog.qml",
+        "desktop-native/qml/pages/MediaDownloaderPage.qml",
         "desktop-native/src/settings/NativeSettings.cpp",
-        "desktop-native/src/api/NovaApiClient.cpp"
+        "desktop-native/src/api/NovaApiClient.cpp",
+        "desktop-native/src/main.cpp",
+        "desktop-native/tests/NativeParityTests.cpp",
+        "src-tauri/src/daemon/routes/external_tools.rs",
+        "src-tauri/src/daemon/routes/dns_routes.rs",
+        "src-tauri/src/daemon/telegram.rs"
       ],
       "contains": [
+        {
+          "file": "desktop-native/src/settings/NativeSettings.cpp",
+          "allOf": [
+            "legacyAdvancedImported",
+            "advancedSettings",
+            "shortcutBindings",
+            "exportBackup",
+            "importBackup",
+            "daemonMigrationPending",
+            "completeDaemonMigration",
+            "speedLimiterEnabled",
+            "keepaliveTimeSec",
+            "httpVersion",
+            "clientCert",
+            "telegramToken",
+            "logLevel"
+          ]
+        },
         {
           "file": "desktop-native/src/api/NovaApiClient.cpp",
           "allOf": [
             "runDiagnostics",
             "refreshLogs",
             "setLogLevel",
-            "refreshEngineManagement"
+            "refreshEngineManagement",
+            "createDownloadAdvanced",
+            "refreshSettingsServices",
+            "runExternalToolAction",
+            "updateTelegramConfig",
+            "testTelegram",
+            "pingDnsProviders",
+            "resumeAllDownloads",
+            "pauseAllDownloads",
+            "deleteCompletedDownloads"
+          ]
+        },
+        {
+          "file": "desktop-native/qml/components/SettingsAdvancedPanel.qml",
+          "allOf": [
+            "proxyEnabled",
+            "speedLimiterEnabled",
+            "vpnEnabled",
+            "keepaliveTimeSec",
+            "httpVersion",
+            "tlsMin",
+            "ffmpegPath",
+            "telegramConfig",
+            "shortcutBindings",
+            "exportBackup",
+            "importBackup"
+          ]
+        },
+        {
+          "file": "desktop-native/qml/components/AddDownloadDialog.qml",
+          "allOf": [
+            "buildNetworkOptions",
+            "createDownloadAdvanced",
+            "vpnKillSwitch",
+            "dnsServers",
+            "clientCert",
+            "tlsMin"
+          ]
+        },
+        {
+          "file": "desktop-native/qml/pages/MediaDownloaderPage.qml",
+          "allOf": [
+            "applyNativeDefaults",
+            "videoQuality",
+            "downloadSubtitles",
+            "sourceAddress",
+            "bufferSizeKbs"
+          ]
+        },
+        {
+          "file": "desktop-native/qml/pages/DownloadsPage.qml",
+          "allOf": [
+            "selectAllDownloads",
+            "resumeSelected",
+            "resumeAll",
+            "stopSelected",
+            "stopAll",
+            "deleteCompleted"
+          ]
+        },
+        {
+          "file": "desktop-native/src/main.cpp",
+          "allOf": [
+            "daemonMigrationPending",
+            "completeDaemonMigration",
+            "setGlobalBandwidthLimit",
+            "setLogLevel",
+            "updateTelegramConfig"
+          ]
+        },
+        {
+          "file": "desktop-native/tests/NativeParityTests.cpp",
+          "allOf": [
+            "advancedSettingsMigrateAndBackupSafely",
+            "advancedDownloadCarriesNetworkDefaults",
+            "settingsServicesReachDaemon",
+            "bulkShortcutActionsRespectTaskLifecycle"
           ]
         }
-      ],
-      "blocker": "Native settings covers core preferences, engine controls, browser integration, updater checks, diagnostics and logs. Core legacy UI preferences now migrate once into native settings, but parity remains incomplete for network/performance, media, external tools, backup/restore, Telegram, shortcut settings and migration of those advanced preferences."
+      ]
     },
     {
       "id": "desktop-integration",
