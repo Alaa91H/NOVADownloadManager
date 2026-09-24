@@ -59,9 +59,6 @@ impl TorrentTransferCoordinator {
         external_cancel: &CancellationToken,
     ) -> Result<TorrentTransferReport, TorrentTransferError> {
         let candidates = bounded_candidates(candidates, self.config.max_candidate_peers);
-        if candidates.is_empty() {
-            return Err(TorrentTransferError::NoPeers);
-        }
 
         let lease = storage.begin_run().await?;
         let plan = storage.transfer_plan().await?;
@@ -104,6 +101,11 @@ impl TorrentTransferCoordinator {
                 progress: storage.progress().await?,
                 elapsed: started.elapsed(),
             });
+        }
+
+        if candidates.is_empty() {
+            let _ = storage.pause().await;
+            return Err(TorrentTransferError::NoPeers);
         }
 
         let max_parallel = self.config.max_parallel_pieces.clamp(1, 64);
@@ -479,7 +481,7 @@ mod tests {
         )
         .download_selected(
             &resumed,
-            &[address],
+            &[],
             *b"-NV0001-123456789012",
             &CancellationToken::new(),
         )
