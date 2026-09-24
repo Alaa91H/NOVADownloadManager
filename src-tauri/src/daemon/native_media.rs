@@ -290,9 +290,6 @@ fn create_native_separate_task(
     }
     state.mark_dirty();
 
-    if body.start_immediately.unwrap_or(true) {
-        start_native_media_process(state, &id);
-    }
     Ok(task)
 }
 
