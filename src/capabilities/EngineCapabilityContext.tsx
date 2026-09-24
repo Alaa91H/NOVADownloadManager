@@ -295,8 +295,8 @@ function buildSnapshot(
     mediaEngineId:
       typeof routing?.webMediaAndPlaylists === 'string'
         ? routing.webMediaAndPlaylists
-        : mediaReady
-          ? 'media engine'
+        : mediaExtractionReady
+          ? 'nova-media-engine'
           : 'unavailable',
     postProcessorId:
       typeof routing?.mergeRemuxExtractSubtitles === 'string'
