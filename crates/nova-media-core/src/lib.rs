@@ -4,6 +4,10 @@
 //! external media executables. Extractors produce typed descriptors; NOVA's
 //! native download core owns transfer scheduling and persistence.
 
+mod hls_transfer;
+
+pub use hls_transfer::{stage_hls_media_plan, HlsStageError, HlsStageFile, HlsStageResult};
+
 use std::collections::BTreeMap;
 
 use nova_download_core::{fetch_http_bytes_with_context, HttpRequestContext};
