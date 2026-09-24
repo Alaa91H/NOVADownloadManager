@@ -137,7 +137,7 @@ fn network_interfaces() -> Vec<String> {
 }
 
 pub async fn handle_diagnostics(State(state): State<SharedState>) -> Json<serde_json::Value> {
-    let media_jobs_count = state.media_jobs.lock().map_or(0, |j| j.len());
+    let media_jobs_count = state.native_media_jobs.lock().map_or(0, |j| j.len());
     let curl_jobs_count = state.curl_jobs.lock().map_or(0, |j| j.len());
     let uptime_secs = DAEMON_START.get().map_or(0, |t| t.elapsed().as_secs());
     let engine_caps = state.engine_capabilities();
