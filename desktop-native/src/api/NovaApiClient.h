@@ -17,6 +17,7 @@ class NovaApiClient final : public QObject {
     Q_PROPERTY(bool connected READ connected NOTIFY connectionChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY connectionChanged)
     Q_PROPERTY(QVariantList queueEntries READ queueEntries NOTIFY queueChanged)
+    Q_PROPERTY(QVariantList queueCatalog READ queueCatalog NOTIFY queueCatalogChanged)
     Q_PROPERTY(QStringList knownQueueIds READ knownQueueIds NOTIFY queueCatalogChanged)
     Q_PROPERTY(int queueActiveCount READ queueActiveCount NOTIFY queueChanged)
     Q_PROPERTY(qint64 queueTotalBandwidthKbps READ queueTotalBandwidthKbps NOTIFY queueChanged)
@@ -53,6 +54,7 @@ public:
     bool connected() const noexcept { return m_connected; }
     QString statusText() const { return m_statusText; }
     QVariantList queueEntries() const { return m_queueEntries; }
+    QVariantList queueCatalog() const { return m_queueCatalog; }
     QStringList knownQueueIds() const { return m_knownQueueIds; }
     int queueActiveCount() const noexcept { return m_queueActiveCount; }
     qint64 queueTotalBandwidthKbps() const noexcept { return m_queueTotalBandwidthKbps; }
@@ -109,6 +111,7 @@ public:
     Q_INVOKABLE void deleteDownload(const QString &id);
 
     Q_INVOKABLE void refreshQueue();
+    Q_INVOKABLE void refreshQueueCatalog();
     Q_INVOKABLE void setQueuePriority(const QString &taskId, int priority);
     Q_INVOKABLE bool directOptionSupported(const QString &key) const;
 
@@ -236,6 +239,12 @@ private:
     bool m_liveUpdatesConnected{false};
 
     QVariantList m_queueEntries;
+    QVariantList m_queueCatalog{
+        QVariantMap{
+            {QStringLiteral("id"), QStringLiteral("main")},
+            {QStringLiteral("name"), QStringLiteral("Main Queue")}
+        }
+    };
     QStringList m_knownQueueIds{QStringLiteral("main")};
     int m_queueActiveCount{0};
     qint64 m_queueTotalBandwidthKbps{0};
