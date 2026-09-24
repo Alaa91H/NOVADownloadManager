@@ -147,7 +147,11 @@ request URL + authorized headers/cookies
 - the same origin-scoping policy is enforced for HLS variants/segments/AES keys, DASH units, YouTube player/control requests, thumbnails and subtitle sidecars;
 - Chromium-family App-Bound cookie encryption is not bypassed; unsupported Chrome/Edge sources fail closed while Firefox remains the currently supported browser-cookie adapter;
 - sensitive native request context, including browser-cookie profile selection, is kept in memory and omitted from restart snapshots, forcing reauthorization when needed;
-- `/api/media/native/resolve` GET and POST migration API.
+- native-only public media API: `/api/media/resolve`, `/api/media/probe`, `/api/media/download`, and `/api/media/postprocess/status`;
+- runtime readiness is split into `mediaExtractionReady`, `streamingReady`, and `postProcessingReady`; the legacy `mediaReady` field remains a temporary compatibility alias only;
+- `/api/media/bridge/*` compatibility routes return HTTP 410 and never execute the legacy resolver;
+- Media Bridge is no longer registered in the runtime extractor registry, discovered during daemon startup, exposed by `/api/engines/*`, or listed by `/api/external-tools`;
+- native media capability checks such as `media.resolve` and `media.media_probe` report `nova-media-engine` directly with no external tool requirement.
 
 ## Deliberate boundaries
 
@@ -162,7 +166,7 @@ Still isolated behind typed interfaces:
 - advanced live crash recovery beyond the persisted cursor/committed-part checkpoint implemented by the task path;
 - Chromium-family browser-cookie import (Chrome/Edge) pending native OS credential decryption; Firefox import is native;
 - additional site adapters;
-- removal of legacy compatibility routes, state and executable packaging after all callers have migrated; Desktop, browser extension and Android media callers are already native-only.
+- physical deletion of legacy compatibility route handlers, state fields, executable discovery/packaging and bridge source files; public runtime routing and all active clients are already native-only.
 
 Unknown transforms and unsupported protected-media modes fail closed. They are never silently delegated to an unrelated external executable.
 
