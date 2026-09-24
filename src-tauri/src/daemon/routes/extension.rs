@@ -478,12 +478,6 @@ pub(super) fn extension_candidate_to_download_body(
     let media_options = if is_stream_manifest {
         let media = crate::daemon::types::MediaDownloadOptions {
             mode: Some("video".to_owned()),
-            playlist: Some(false),
-            ffmpeg_enabled: Some(true),
-            embed_metadata: Some(true),
-            concurrent_fragments: Some(8),
-            retries: Some(5),
-            fragment_retries: Some(10),
             referer: referer.clone(),
             ..Default::default()
         };
@@ -1075,7 +1069,7 @@ pub async fn handle_v1_media_add(
     let selected = body
         .get("selectedFormat")
         .unwrap_or(&serde_json::Value::Null);
-    let (format_selector, has_video) = match media_bridge_selector_for_selected_format(selected) {
+    let (format_selector, has_video, has_audio) = match native_selector_for_selected_format(selected) {
         Ok(selection) => selection,
         Err(message) => {
             return Json(
@@ -1085,12 +1079,7 @@ pub async fn handle_v1_media_add(
     };
     let mut media_options = crate::daemon::types::MediaDownloadOptions {
         mode: Some(if has_video { "video" } else { "audio" }.to_owned()),
-        playlist: Some(false),
-        ffmpeg_enabled: Some(true),
-        embed_metadata: Some(true),
-        concurrent_fragments: Some(8),
-        retries: Some(5),
-        fragment_retries: Some(10),
+        ffmpeg_enabled: Some(has_video && !has_audio),
         format_selector: Some(format_selector),
         referer: body
             .get("referrer")
@@ -1134,19 +1123,19 @@ pub async fn handle_v1_media_add(
         direct_options: None,
         media_options: Some(media_options),
     };
-    match create_media_bridge_task(&state, &body).await {
+    match create_native_media_task(&state, &body).await {
         Ok(task) => Json(
             serde_json::json!({"ok": true, "accepted": true, "taskId": task.id, "taskIds": [task.id], "message": "Media added"}),
         ),
         Err(error) => Json(
-            serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": error}),
+            serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": error.to_string()}),
         ),
     }
 }
 
-fn media_bridge_selector_for_selected_format(
+fn native_selector_for_selected_format(
     selected: &serde_json::Value,
-) -> Result<(String, bool), &'static str> {
+) -> Result<(String, bool, bool), &'static str> {
     let format_id = selected
         .get("formatId")
         .and_then(serde_json::Value::as_str)
@@ -1166,15 +1155,7 @@ fn media_bridge_selector_for_selected_format(
         .get("hasAudio")
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(!has_video);
-    let selector = if has_video && !has_audio {
-        // YouTube commonly exposes video-only tracks. Let media-bridge merge the
-        // selected video with the best compatible audio rather than producing
-        // a silent file from the stream URL shown in the browser.
-        format!("{format_id}+bestaudio/best")
-    } else {
-        format_id.to_owned()
-    };
-    Ok((selector, has_video))
+    Ok((format_id.to_owned(), has_video, has_audio))
 }
 
 pub async fn handle_v1_stream_add(
@@ -1202,10 +1183,10 @@ pub async fn handle_v1_stream_add(
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .trim();
-    let url = if manifest_url.is_empty() {
-        selected_url
-    } else {
+    let url = if selected_url.is_empty() {
         manifest_url
+    } else {
+        selected_url
     };
     if url.is_empty() || url.starts_with('-') {
         return Json(
@@ -1220,12 +1201,6 @@ pub async fn handle_v1_stream_add(
     }
     let mut media_options = crate::daemon::types::MediaDownloadOptions {
         mode: Some("video".to_owned()),
-        playlist: Some(false),
-        ffmpeg_enabled: Some(true),
-        embed_metadata: Some(true),
-        concurrent_fragments: Some(8),
-        retries: Some(5),
-        fragment_retries: Some(10),
         referer: manifest
             .get("referrer")
             .or_else(|| manifest.get("pageUrl"))
@@ -1233,20 +1208,11 @@ pub async fn handle_v1_stream_add(
             .map(std::borrow::ToOwned::to_owned),
         ..Default::default()
     };
-    if let Some(format_id) = selected
-        .and_then(|q| q.get("formatId"))
-        .and_then(|v| v.as_str())
-        .filter(|v| !v.is_empty())
-    {
-        media_options.format_selector = Some(format_id.to_owned());
-    } else if let Some(height) = selected
+    if let Some(height) = selected
         .and_then(|q| q.get("height"))
         .and_then(serde_json::Value::as_u64)
     {
         media_options.quality = Some(format!("{height}p"));
-        media_options.format_selector = Some(format!(
-            "bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
-        ));
     }
     let body = CreateDownloadBody {
         url: Some(url.to_owned()),
@@ -1270,12 +1236,12 @@ pub async fn handle_v1_stream_add(
         direct_options: None,
         media_options: Some(media_options),
     };
-    match create_media_bridge_task(&state, &body).await {
+    match create_native_media_task(&state, &body).await {
         Ok(task) => Json(
             serde_json::json!({"ok": true, "accepted": true, "taskId": task.id, "taskIds": [task.id], "message": "Stream added"}),
         ),
         Err(error) => Json(
-            serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": error}),
+            serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": error.to_string()}),
         ),
     }
 }
@@ -1881,8 +1847,8 @@ mod tests {
         assert!(!managed_media_is_drm_protected(&serde_json::json!({})));
     }
     #[test]
-    fn media_bridge_selected_video_only_format_merges_best_audio() {
-        let (selector, has_video) = media_bridge_selector_for_selected_format(&serde_json::json!({
+    fn native_selected_video_only_format_preserves_exact_id() {
+        let (selector, has_video, has_audio) = native_selector_for_selected_format(&serde_json::json!({
             "formatId": "137",
             "height": 1080,
             "hasVideo": true,
@@ -1890,33 +1856,36 @@ mod tests {
         }))
         .expect("video-only format should be selectable");
         assert!(has_video);
-        assert_eq!(selector, "137+bestaudio/best");
+        assert!(!has_audio);
+        assert_eq!(selector, "137");
     }
 
     #[test]
-    fn media_bridge_selected_muxed_or_audio_format_preserves_format_id() {
-        let (muxed, muxed_is_video) = media_bridge_selector_for_selected_format(&serde_json::json!({
+    fn native_selected_muxed_or_audio_format_preserves_format_id() {
+        let (muxed, muxed_is_video, muxed_has_audio) = native_selector_for_selected_format(&serde_json::json!({
             "formatId": "22",
             "hasVideo": true,
             "hasAudio": true,
         }))
         .expect("muxed format should be selectable");
         assert!(muxed_is_video);
+        assert!(muxed_has_audio);
         assert_eq!(muxed, "22");
 
-        let (audio, audio_is_video) = media_bridge_selector_for_selected_format(&serde_json::json!({
+        let (audio, audio_is_video, audio_has_audio) = native_selector_for_selected_format(&serde_json::json!({
             "formatId": "251",
             "hasVideo": false,
             "hasAudio": true,
         }))
         .expect("audio format should be selectable");
         assert!(!audio_is_video);
+        assert!(audio_has_audio);
         assert_eq!(audio, "251");
     }
 
     #[test]
-    fn media_bridge_selected_format_requires_format_id() {
-        assert!(media_bridge_selector_for_selected_format(&serde_json::json!({
+    fn native_selected_format_requires_format_id() {
+        assert!(native_selector_for_selected_format(&serde_json::json!({
             "hasVideo": true,
             "hasAudio": false,
         }))
