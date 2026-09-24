@@ -1,2 +1,2 @@
 pub mod ffmpeg;
-pub mod yt_dlp;
+pub mod media_bridge;

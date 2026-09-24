@@ -7,21 +7,21 @@ use std::time::Duration;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ToolId {
     Ffmpeg,
-    YtDlp,
+    MediaBridge,
 }
 
 impl ToolId {
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Ffmpeg => "ffmpeg",
-            Self::YtDlp => "yt-dlp",
+            Self::MediaBridge => "media-bridge",
         }
     }
 
     pub const fn display_name(&self) -> &'static str {
         match self {
             Self::Ffmpeg => "FFmpeg",
-            Self::YtDlp => "yt-dlp",
+            Self::MediaBridge => "NOVA Media Bridge",
         }
     }
 
@@ -29,7 +29,7 @@ impl ToolId {
     pub const fn description(&self) -> &'static str {
         match self {
             Self::Ffmpeg => "Media Processing Engine",
-            Self::YtDlp => "Media URL Resolver",
+            Self::MediaBridge => "NOVA Media Compatibility Bridge",
         }
     }
 }
@@ -317,7 +317,7 @@ pub struct PlatformPattern {
 #[allow(dead_code)]
 pub const FFMPEG_MIN_VERSION: &str = "5.0";
 #[allow(dead_code)]
-pub const YTDLP_MIN_VERSION: &str = "2024.01.01";
+pub const MEDIA_BRIDGE_MIN_VERSION: &str = "2024.01.01";
 
 pub trait ExternalTool: Send + Sync {
     fn id(&self) -> ToolId;

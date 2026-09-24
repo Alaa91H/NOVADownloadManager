@@ -4,15 +4,15 @@ use crate::daemon::external_tools::types::{
 use std::path::PathBuf;
 use std::time::Duration;
 
-pub struct YtDlpTool;
+pub struct MediaBridgeTool;
 
-impl ExternalTool for YtDlpTool {
+impl ExternalTool for MediaBridgeTool {
     fn id(&self) -> ToolId {
-        ToolId::YtDlp
+        ToolId::MediaBridge
     }
 
     fn name(&self) -> &'static str {
-        "yt-dlp"
+        "NOVA Media Bridge"
     }
 
     fn description(&self) -> &'static str {
@@ -96,7 +96,7 @@ impl ExternalTool for YtDlpTool {
 
     fn source(&self) -> ToolSource {
         ToolSource {
-            name: "yt-dlp Nightly GitHub",
+            name: "Verified media resolver source",
             base_url: "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest",
             platform_patterns: &[
                 PlatformPattern {

@@ -57,7 +57,7 @@ impl CapabilityResolver {
                         | "media.platform_extraction"
                         | "media.direct_url_resolution"
                 ) {
-                    ToolId::YtDlp
+                    ToolId::MediaBridge
                 } else {
                     ToolId::Ffmpeg
                 }
@@ -132,9 +132,9 @@ pub fn get_feature_requirements(feature: &str) -> Vec<(&'static str, ToolId)> {
         | "media.format_discovery"
         | "media.platform_extraction"
         | "media.direct_url_resolution" => {
-            vec![("yt-dlp", ToolId::YtDlp)]
+            vec![("media-bridge", ToolId::MediaBridge)]
         }
-        "media.extract_and_process" => vec![("yt-dlp", ToolId::YtDlp), ("FFmpeg", ToolId::Ffmpeg)],
+        "media.extract_and_process" => vec![("media-bridge", ToolId::MediaBridge), ("FFmpeg", ToolId::Ffmpeg)],
         _ => vec![],
     }
 }

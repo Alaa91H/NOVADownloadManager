@@ -30,7 +30,7 @@ struct CachedUpdateInfo {
 
 pub struct ExternalToolManager {
     ffmpeg: tools::ffmpeg::FfmpegTool,
-    yt_dlp: tools::yt_dlp::YtDlpTool,
+    media_bridge: tools::media_bridge::MediaBridgeTool,
     pub registry: Mutex<ToolRegistry>,
     pub resolver: Mutex<CapabilityResolver>,
     update_cache: Mutex<HashMap<ToolId, CachedUpdateInfo>>,
@@ -43,7 +43,7 @@ impl ExternalToolManager {
         let registry = registry::load_registry(data_dir);
         Self {
             ffmpeg: tools::ffmpeg::FfmpegTool,
-            yt_dlp: tools::yt_dlp::YtDlpTool,
+            media_bridge: tools::media_bridge::MediaBridgeTool,
             registry: Mutex::new(registry),
             resolver: Mutex::new(CapabilityResolver::new()),
             update_cache: Mutex::new(HashMap::new()),
@@ -55,7 +55,7 @@ impl ExternalToolManager {
     fn tool_for_id(&self, tool_id: ToolId) -> &dyn ExternalTool {
         match tool_id {
             ToolId::Ffmpeg => &self.ffmpeg,
-            ToolId::YtDlp => &self.yt_dlp,
+            ToolId::MediaBridge => &self.media_bridge,
         }
     }
 
@@ -156,7 +156,7 @@ impl ExternalToolManager {
     }
 
     pub fn discover_all(&self) -> Vec<ToolInstallation> {
-        let all_tools: Vec<ToolId> = vec![ToolId::Ffmpeg, ToolId::YtDlp];
+        let all_tools: Vec<ToolId> = vec![ToolId::Ffmpeg, ToolId::MediaBridge];
         all_tools.into_iter().map(|id| self.discover(id)).collect()
     }
 
@@ -345,7 +345,7 @@ impl ExternalToolManager {
     pub fn get_install_dir(&self, tool_id: ToolId, scope: InstallScope) -> Result<PathBuf, String> {
         let tool_dir = match tool_id {
             ToolId::Ffmpeg => "FFmpeg",
-            ToolId::YtDlp => "YT-DLP",
+            ToolId::MediaBridge => "NOVA Media Bridge",
         };
         match scope {
             InstallScope::User => Ok(PathBuf::from(&self.data_dir)
@@ -419,7 +419,7 @@ impl ExternalToolManager {
     pub fn all_tool_states(&self) -> Vec<ToolState> {
         vec![
             self.tool_state(ToolId::Ffmpeg),
-            self.tool_state(ToolId::YtDlp),
+            self.tool_state(ToolId::MediaBridge),
         ]
     }
 
@@ -429,9 +429,9 @@ impl ExternalToolManager {
     }
 
     #[allow(dead_code)]
-    pub fn ytdlp_path(&self) -> Option<String> {
+    pub fn media_bridge_path(&self) -> Option<String> {
         let resolver = lock_or_err!(self.resolver);
-        resolver.tool_path(ToolId::YtDlp)
+        resolver.tool_path(ToolId::MediaBridge)
     }
 
     #[allow(dead_code)]
@@ -473,7 +473,7 @@ mod tests {
         );
         let mut cache = manager.update_cache.lock().expect("lock update cache");
         cache.insert(
-            ToolId::YtDlp,
+            ToolId::MediaBridge,
             CachedUpdateInfo {
                 checked_at: Instant::now() - FAILED_UPDATE_CHECK_TTL,
                 value: update_info(Some("provider unavailable")),
@@ -488,7 +488,7 @@ mod tests {
         );
         drop(cache);
 
-        assert!(manager.cached_update_info(ToolId::YtDlp).is_none());
+        assert!(manager.cached_update_info(ToolId::MediaBridge).is_none());
         assert!(manager.cached_update_info(ToolId::Ffmpeg).is_none());
     }
 }
