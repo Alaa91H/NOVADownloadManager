@@ -1126,6 +1126,17 @@ fn parse_quality_height(value: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!("{prefix}-{unique}"))
+    }
 
     fn body(url: &str) -> CreateDownloadBody {
         CreateDownloadBody {
@@ -1215,6 +1226,126 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn native_hls_wrapper_follows_master_and_stages_media() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind HLS wrapper server");
+        let address = listener.local_addr().expect("HLS address");
+        let server = std::thread::spawn(move || {
+            for _ in 0..4 {
+                let (mut stream, _) = listener.accept().expect("accept HLS wrapper request");
+                let mut request = [0_u8; 4096];
+                let read = stream.read(&mut request).expect("read HLS wrapper request");
+                let request = String::from_utf8_lossy(&request[..read]);
+                let body: Vec<u8> = if request.contains("GET /master.m3u8 ") {
+                    format!(
+                        "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000,RESOLUTION=640x360\nhttp://{address}/media.m3u8\n"
+                    )
+                    .into_bytes()
+                } else if request.contains("GET /media.m3u8 ") {
+                    format!(
+                        "#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXTINF:2,\nhttp://{address}/1.ts\n#EXTINF:2,\nhttp://{address}/2.ts\n#EXT-X-ENDLIST\n"
+                    )
+                    .into_bytes()
+                } else if request.contains("GET /1.ts ") {
+                    b"AAA".to_vec()
+                } else if request.contains("GET /2.ts ") {
+                    b"BBBB".to_vec()
+                } else {
+                    panic!("unexpected HLS wrapper request: {request}");
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .and_then(|_| stream.write_all(&body))
+                    .expect("write HLS wrapper response");
+            }
+        });
+
+        let dir = unique_temp_dir("nova-native-hls-wrapper");
+        let progress = std::sync::Mutex::new(Vec::new());
+        let (parts, bytes) = stage_hls_stream(
+            &format!("http://{address}/master.m3u8"),
+            &HttpRequestContext::default(),
+            &dir,
+            2,
+            &|| false,
+            &|value| progress.lock().expect("progress").push(value),
+        )
+        .expect("stage native HLS wrapper");
+        server.join().expect("HLS wrapper server");
+
+        assert_eq!(bytes, 7);
+        assert_eq!(parts.len(), 2);
+        assert_eq!(
+            progress.lock().expect("progress").last().copied(),
+            Some(7)
+        );
+        let output = dir.join("assembled.ts");
+        let assembled = assemble_ordered_parts(&parts, &output).expect("assemble HLS wrapper");
+        assert_eq!(assembled.bytes, 7);
+        assert_eq!(std::fs::read(&output).expect("HLS output"), b"AAABBBB");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn native_dash_wrapper_selects_and_stages_static_representation() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind DASH wrapper server");
+        let address = listener.local_addr().expect("DASH address");
+        let server = std::thread::spawn(move || {
+            for _ in 0..3 {
+                let (mut stream, _) = listener.accept().expect("accept DASH wrapper request");
+                let mut request = [0_u8; 4096];
+                let read = stream.read(&mut request).expect("read DASH wrapper request");
+                let request = String::from_utf8_lossy(&request[..read]);
+                let body: Vec<u8> = if request.contains("GET /stream.mpd ") {
+                    b"<MPD mediaPresentationDuration=\"PT2S\"><Period><AdaptationSet contentType=\"video\"><SegmentTemplate timescale=\"1\" duration=\"2\" startNumber=\"1\" initialization=\"init.mp4\" media=\"$Number$.m4s\"/><Representation id=\"v1\" bandwidth=\"1000\" width=\"640\" height=\"360\"/></AdaptationSet></Period></MPD>".to_vec()
+                } else if request.contains("GET /init.mp4 ") {
+                    b"INIT".to_vec()
+                } else if request.contains("GET /1.m4s ") {
+                    b"MEDIA".to_vec()
+                } else {
+                    panic!("unexpected DASH wrapper request: {request}");
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .and_then(|_| stream.write_all(&body))
+                    .expect("write DASH wrapper response");
+            }
+        });
+
+        let dir = unique_temp_dir("nova-native-dash-wrapper");
+        let progress = std::sync::Mutex::new(Vec::new());
+        let (parts, bytes) = stage_dash_stream(
+            &format!("http://{address}/stream.mpd"),
+            &HttpRequestContext::default(),
+            &dir,
+            2,
+            &|| false,
+            &|value| progress.lock().expect("progress").push(value),
+        )
+        .expect("stage native DASH wrapper");
+        server.join().expect("DASH wrapper server");
+
+        assert_eq!(bytes, 9);
+        assert_eq!(parts.len(), 2);
+        assert_eq!(
+            progress.lock().expect("progress").last().copied(),
+            Some(9)
+        );
+        let output = dir.join("assembled.mp4");
+        let assembled = assemble_ordered_parts(&parts, &output).expect("assemble DASH wrapper");
+        assert_eq!(assembled.bytes, 9);
+        assert_eq!(std::fs::read(&output).expect("DASH output"), b"INITMEDIA");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
