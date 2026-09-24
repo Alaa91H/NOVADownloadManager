@@ -61,6 +61,10 @@ pub struct TorrentCoreCapabilities {
     pub piece_scheduler: bool,
     pub http_tracker_protocol: bool,
     pub udp_tracker_protocol: bool,
+    pub extension_protocol: bool,
+    pub metadata_exchange_protocol: bool,
+    pub pex_protocol: bool,
+    pub dht_krpc_protocol: bool,
 }
 
 impl TorrentCoreCapabilities {
@@ -72,6 +76,10 @@ impl TorrentCoreCapabilities {
             piece_scheduler: true,
             http_tracker_protocol: true,
             udp_tracker_protocol: true,
+            extension_protocol: true,
+            metadata_exchange_protocol: true,
+            pex_protocol: true,
+            dht_krpc_protocol: true,
         }
     }
 }
@@ -92,6 +100,10 @@ mod tests {
                 piece_scheduler: true,
                 http_tracker_protocol: true,
                 udp_tracker_protocol: true,
+                extension_protocol: true,
+                metadata_exchange_protocol: true,
+                pex_protocol: true,
+                dht_krpc_protocol: true,
             }
         );
     }
