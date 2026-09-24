@@ -146,7 +146,7 @@ impl PieceScheduler {
             }
             let distance = (index + count - self.cursor) % count;
             let candidate = (self.availability[index], distance, index);
-            if best.is_none_or(|current| candidate < current) {
+            if best.map_or(true, |current| candidate < current) {
                 best = Some(candidate);
             }
         }
