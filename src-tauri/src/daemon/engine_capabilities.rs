@@ -1434,7 +1434,9 @@ pub fn native_media_status() -> Value {
             "manifestTaskExecutionCoverage": "single-representation-native",
             "manifestPauseResume": true,
             "manifestAtomicAssembly": true,
-            "separateTrackTaskExecution": false,
+            "separateTrackTaskExecution": true,
+            "separateTrackMuxBackend": "nova-media-postprocess",
+            "separateTrackMuxRequiresPostProcessingReady": true,
             "playlists": false,
             "formatSorting": false,
             "audioExtraction": false,
@@ -2133,7 +2135,15 @@ mod tests {
             status["capabilities"]["manifestTaskExecutionCoverage"],
             "single-representation-native"
         );
-        assert_eq!(status["capabilities"]["separateTrackTaskExecution"], false);
+        assert_eq!(status["capabilities"]["separateTrackTaskExecution"], true);
+        assert_eq!(
+            status["capabilities"]["separateTrackMuxBackend"],
+            "nova-media-postprocess"
+        );
+        assert_eq!(
+            status["capabilities"]["separateTrackMuxRequiresPostProcessingReady"],
+            true
+        );
         let supported = status["supportedMediaOptionKeys"]
             .as_array()
             .expect("supportedMediaOptionKeys");

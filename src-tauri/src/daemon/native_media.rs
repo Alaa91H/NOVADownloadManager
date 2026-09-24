@@ -4,13 +4,14 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
-use nova_download_core::{fetch_http_bytes_with_context, HttpRequestContext};
+use nova_download_core::{fetch_http_bytes_with_context, HttpRequestContext, TransferControl};
 use nova_media_core::{
-    assemble_ordered_parts, resolve_youtube_pending_formats, select_youtube_download_plan,
-    stage_dash_representation_plan_controlled_with_progress,
+    assemble_ordered_parts, download_youtube_plan_controlled, resolve_youtube_pending_formats,
+    select_youtube_download_plan, stage_dash_representation_plan_controlled_with_progress,
     stage_hls_media_plan_controlled_with_progress, youtube_video_id, ExtractRequest,
-    MediaDescriptor, MediaProtocol, MediaStream, YouTubeDownloadPlan, YouTubeExtractor,
-    YouTubePlayerScriptSolver, YouTubeSelectionPolicy, DEFAULT_MANIFEST_MAX_BYTES,
+    MediaDescriptor, MediaProtocol, MediaStream, YouTubeDownloadPlan, YouTubeExtraction,
+    YouTubeExtractor, YouTubePlayerScriptSolver, YouTubeSelectionPolicy, YouTubeTransferOutput,
+    YouTubeTransferProgress, DEFAULT_MANIFEST_MAX_BYTES,
 };
 use nova_stream_core::{
     build_dash_live_refresh, build_dash_representation_plan, build_hls_live_refresh,
@@ -23,10 +24,13 @@ use uuid::Uuid;
 
 use crate::daemon::engine::extractor::{EngineStatus, Extractor, ValidateError};
 use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
+use crate::daemon::postprocess::{
+    FfmpegPostProcessor, MediaMuxRequest, MediaPostProcessor, PostProcessError,
+};
 use crate::daemon::state::SharedState;
 use crate::daemon::types::{
-    transition_task_state, CreateDownloadBody, MediaDownloadOptions, NativeMediaJob, Task,
-    TaskState,
+    transition_task_state, CreateDownloadBody, MediaDownloadOptions, NativeMediaJob, Segment,
+    Task, TaskState,
 };
 
 pub struct NativeMediaExtractor;
@@ -37,6 +41,7 @@ pub struct NativeMediaExtractor;
 pub const NATIVE_MEDIA_OPTION_KEYS: &[&str] = &[
     "mode",
     "quality",
+    "ffmpegEnabled",
     "outputTemplate",
     "cookies",
     "userAgent",
@@ -96,6 +101,8 @@ impl Extractor for NativeMediaExtractor {
                 "dash-static-task".to_owned(),
                 "dash-dynamic-task".to_owned(),
                 "manifest-pause-resume".to_owned(),
+                "parallel-av-staging".to_owned(),
+                "postprocess-mux".to_owned(),
                 "request-context".to_owned(),
             ],
         }
@@ -142,10 +149,20 @@ struct ResolvedManifestMedia {
     stream: MediaStream,
 }
 
+#[derive(Clone, Debug)]
+struct ResolvedSeparateTracks {
+    extraction: YouTubeExtraction,
+    video_stream_id: String,
+    audio_stream_id: String,
+    output_container: String,
+    expected_bytes: Option<u64>,
+}
+
 #[derive(Debug)]
 enum ResolvedNativeMedia {
     Direct(ResolvedDirectMedia),
     Manifest(ResolvedManifestMedia),
+    SeparateTracks(ResolvedSeparateTracks),
 }
 
 #[derive(Debug)]
@@ -176,9 +193,28 @@ pub async fn create_native_media_task(
     body: &CreateDownloadBody,
 ) -> Result<Task, NativeMediaTaskError> {
     let owned = body.clone();
-    let resolved = tokio::task::spawn_blocking(move || resolve_native_media(&owned))
+    let mut resolved = tokio::task::spawn_blocking(move || resolve_native_media(&owned))
         .await
         .map_err(|error| NativeMediaTaskError::Worker(error.to_string()))??;
+
+    if matches!(resolved, ResolvedNativeMedia::SeparateTracks(_)) {
+        let postprocessor = FfmpegPostProcessor::new(state.ffmpeg_binary());
+        if !postprocessor.is_available() {
+            let mut fallback = body.clone();
+            if let Some(options) = fallback.media_options.as_mut() {
+                options.ffmpeg_enabled = Some(false);
+            }
+            let fallback_resolved = tokio::task::spawn_blocking(move || resolve_native_media(&fallback))
+                .await
+                .map_err(|error| NativeMediaTaskError::Worker(error.to_string()))?;
+            resolved = fallback_resolved.map_err(|_| {
+                NativeMediaTaskError::UnsupportedFeature(
+                    "high-quality separate tracks require the NOVA post-processing muxer, and no usable FFmpeg installation is currently available"
+                        .to_owned(),
+                )
+            })?;
+        }
+    }
 
     match resolved {
         ResolvedNativeMedia::Direct(resolved) => {
@@ -186,6 +222,9 @@ pub async fn create_native_media_task(
         }
         ResolvedNativeMedia::Manifest(resolved) => {
             create_native_manifest_task(state, body, resolved)
+        }
+        ResolvedNativeMedia::SeparateTracks(resolved) => {
+            create_native_separate_track_task(state, body, resolved)
         }
     }
 }
@@ -369,6 +408,182 @@ fn create_native_manifest_task(
     Ok(task)
 }
 
+fn create_native_separate_track_task(
+    state: &SharedState,
+    body: &CreateDownloadBody,
+    resolved: ResolvedSeparateTracks,
+) -> Result<Task, NativeMediaTaskError> {
+    let video = resolved
+        .extraction
+        .descriptor
+        .streams
+        .iter()
+        .find(|stream| stream.id == resolved.video_stream_id)
+        .ok_or_else(|| {
+            NativeMediaTaskError::Resolution(
+                "selected native video track disappeared before task creation".to_owned(),
+            )
+        })?;
+    let audio = resolved
+        .extraction
+        .descriptor
+        .streams
+        .iter()
+        .find(|stream| stream.id == resolved.audio_stream_id)
+        .ok_or_else(|| {
+            NativeMediaTaskError::Resolution(
+                "selected native audio track disappeared before task creation".to_owned(),
+            )
+        })?;
+
+    let mut task_body = body.clone();
+    if task_body
+        .name
+        .as_deref()
+        .map_or(true, |name| name.trim().is_empty())
+    {
+        let mut title = resolved.extraction.descriptor.metadata.title.trim().to_owned();
+        if title.is_empty() {
+            title = "nova-media".to_owned();
+        }
+        if Path::new(&title).extension().is_none() {
+            title.push('.');
+            title.push_str(&resolved.output_container);
+        }
+        task_body.name = Some(title);
+    }
+    if task_body
+        .file_type
+        .as_deref()
+        .map_or(true, |kind| kind.trim().is_empty())
+    {
+        task_body.file_type = Some(resolved.output_container.clone());
+    }
+
+    let source_url = body.url.as_deref().unwrap_or_default();
+    let (name, output_path) =
+        crate::daemon::curl::destination_from_body(&task_body, source_url);
+    if let Some(parent) = output_path
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    }
+
+    let id = Uuid::new_v4().to_string();
+    let connections = crate::daemon::curl::requested_connections(body.connections);
+    let video_total = video.content_length.unwrap_or(0);
+    let audio_total = audio.content_length.unwrap_or(0);
+    let expected_bytes = resolved
+        .expected_bytes
+        .or_else(|| {
+            (video_total > 0 && audio_total > 0)
+                .then_some(video_total.saturating_add(audio_total))
+        })
+        .unwrap_or_else(|| body.size_bytes.unwrap_or(0));
+
+    let segments = vec![
+        Segment {
+            id: 0,
+            progress: 0.0,
+            downloaded_bytes: 0,
+            total_bytes: video_total,
+            active: false,
+            speed: 0,
+            start_byte: 0,
+            end_byte: video_total.saturating_sub(1),
+        },
+        Segment {
+            id: 1,
+            progress: 0.0,
+            downloaded_bytes: 0,
+            total_bytes: audio_total,
+            active: false,
+            speed: 0,
+            start_byte: 0,
+            end_byte: audio_total.saturating_sub(1),
+        },
+    ];
+
+    let task = Task {
+        id: id.clone(),
+        name,
+        url: source_url.to_owned(),
+        file_type: task_body
+            .file_type
+            .clone()
+            .unwrap_or_else(|| resolved.output_container.clone()),
+        status: if body.start_immediately.unwrap_or(true) {
+            TaskState::Preparing.as_status()
+        } else {
+            TaskState::Queued.as_status()
+        }
+        .to_owned(),
+        size_bytes: expected_bytes,
+        downloaded_bytes: 0,
+        speed_bytes_per_sec: 0,
+        time_left_seconds: 0,
+        elapsed_seconds: 0,
+        date_added: crate::daemon::utils::now_str(),
+        category: body.category.clone().unwrap_or_else(|| "video".to_owned()),
+        queue_id: body.queue_id.clone().unwrap_or_else(|| "main".to_owned()),
+        connections,
+        resumable: body.resumable.unwrap_or(true),
+        save_path: output_path.to_string_lossy().to_string(),
+        description: body.description.clone().unwrap_or_else(|| {
+            "Native separate audio/video download with NOVA post-processing".to_owned()
+        }),
+        segments,
+        referer: body.referer.clone(),
+        engine: "nova-media-engine".to_owned(),
+        engine_id: id.clone(),
+        engine_status: Some(
+            if body.start_immediately.unwrap_or(true) {
+                "starting"
+            } else {
+                "queued"
+            }
+            .to_owned(),
+        ),
+        error_message: None,
+    };
+
+    let job = NativeMediaJob {
+        task: task.clone(),
+        request: body.clone(),
+        protocol: "separate-tracks".to_owned(),
+        cancel_token: Arc::new(AtomicBool::new(false)),
+        run_generation: Arc::new(AtomicU64::new(0)),
+        start_time: Instant::now(),
+    };
+
+    {
+        let mut jobs = state
+            .native_media_jobs
+            .lock()
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+        let mut snapshot = state
+            .task_snapshot
+            .lock()
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+        if snapshot.len() >= 10_000 {
+            return Err(NativeMediaTaskError::Transfer(
+                "Maximum number of tasks reached. Complete or delete some tasks before creating new ones."
+                    .to_owned(),
+            ));
+        }
+        jobs.insert(id.clone(), job);
+        snapshot.insert(id.clone(), task.clone());
+    }
+    state.mark_dirty();
+
+    if body.start_immediately.unwrap_or(true) {
+        start_native_media_process(state, &id);
+    }
+    Ok(task)
+}
+
 pub fn start_native_media_process(state: &SharedState, id: &str) {
     let prepared = {
         let mut jobs = match state.native_media_jobs.lock() {
@@ -433,7 +648,7 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
     let state = state.clone();
     let id = id.to_owned();
     std::thread::spawn(move || {
-        run_native_manifest_worker(
+        run_native_media_worker(
             state,
             id,
             generation,
@@ -444,7 +659,7 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
     });
 }
 
-fn run_native_manifest_worker(
+fn run_native_media_worker(
     state: SharedState,
     id: String,
     generation: u64,
@@ -453,37 +668,28 @@ fn run_native_manifest_worker(
     request: CreateDownloadBody,
 ) {
     let still_current = || run_generation.load(Ordering::Acquire) == generation;
-    let cancelled = || cancel_token.load(Ordering::Acquire) || !still_current();
+    let paused_or_stale = || cancel_token.load(Ordering::Acquire) || !still_current();
 
-    if cancelled() {
+    if paused_or_stale() {
         finish_native_cancelled(&state, &id, generation);
         return;
     }
     if let Err(error) =
-        transition_native_task(&state, &id, generation, TaskState::Probing, "resolving-manifest")
+        transition_native_task(&state, &id, generation, TaskState::Probing, "resolving-media")
     {
         fail_native_task(&state, &id, generation, error);
         return;
     }
 
     let resolved = match resolve_native_media(&request) {
-        Ok(ResolvedNativeMedia::Manifest(manifest)) => manifest,
-        Ok(ResolvedNativeMedia::Direct(_)) => {
-            fail_native_task(
-                &state,
-                &id,
-                generation,
-                "media source changed from manifest to direct transport".to_owned(),
-            );
-            return;
-        }
+        Ok(resolved) => resolved,
         Err(error) => {
             fail_native_task(&state, &id, generation, error.to_string());
             return;
         }
     };
 
-    if cancelled() {
+    if paused_or_stale() {
         finish_native_cancelled(&state, &id, generation);
         return;
     }
@@ -509,66 +715,265 @@ fn run_native_manifest_worker(
         .join(&id)
         .join("working");
 
-    let progress_state = state.clone();
-    let progress_id = id.clone();
-    let progress = |bytes: u64| {
-        update_native_progress(&progress_state, &progress_id, generation, bytes);
-    };
+    match resolved {
+        ResolvedNativeMedia::Manifest(resolved) => {
+            let progress_state = state.clone();
+            let progress_id = id.clone();
+            let progress = |bytes: u64| {
+                update_native_progress(&progress_state, &progress_id, generation, bytes);
+            };
 
-    let result = stage_manifest_transfer(
-        &resolved,
-        &staging_dir,
-        connections,
-        &cancelled,
-        &progress,
-    );
+            let result = stage_manifest_transfer(
+                &resolved,
+                &staging_dir,
+                connections,
+                &paused_or_stale,
+                &progress,
+            );
 
-    match result {
-        Ok(staged) => {
-            if cancelled() {
-                finish_native_cancelled(&state, &id, generation);
-                return;
-            }
-            update_native_progress(&state, &id, generation, staged.staged_bytes);
-            if let Err(error) = transition_native_task(
-                &state,
-                &id,
-                generation,
-                TaskState::Verifying,
-                "verifying-staged-media",
-            ) {
-                fail_native_task(&state, &id, generation, error);
-                return;
-            }
-            if let Err(error) = verify_staged_parts(&staged.parts, staged.staged_bytes) {
-                fail_native_task(&state, &id, generation, error);
-                return;
-            }
-            if cancelled() {
-                finish_native_cancelled(&state, &id, generation);
-                return;
-            }
-            if let Err(error) = transition_native_task(
-                &state,
-                &id,
-                generation,
-                TaskState::Finalizing,
-                "assembling-media",
-            ) {
-                fail_native_task(&state, &id, generation, error);
-                return;
-            }
-            match assemble_ordered_parts(&staged.parts, &output_path) {
-                Ok(assembly) => {
-                    complete_native_task(&state, &id, generation, assembly.bytes);
-                    let _ = std::fs::remove_dir_all(&staging_dir);
+            match result {
+                Ok(staged) => {
+                    if paused_or_stale() {
+                        finish_native_cancelled(&state, &id, generation);
+                        return;
+                    }
+                    update_native_progress(&state, &id, generation, staged.staged_bytes);
+                    if let Err(error) = transition_native_task(
+                        &state,
+                        &id,
+                        generation,
+                        TaskState::Verifying,
+                        "verifying-staged-media",
+                    ) {
+                        fail_native_task(&state, &id, generation, error);
+                        return;
+                    }
+                    if let Err(error) = verify_staged_parts(&staged.parts, staged.staged_bytes) {
+                        fail_native_task(&state, &id, generation, error);
+                        return;
+                    }
+                    if paused_or_stale() {
+                        finish_native_cancelled(&state, &id, generation);
+                        return;
+                    }
+                    if let Err(error) = transition_native_task(
+                        &state,
+                        &id,
+                        generation,
+                        TaskState::Finalizing,
+                        "assembling-media",
+                    ) {
+                        fail_native_task(&state, &id, generation, error);
+                        return;
+                    }
+                    match assemble_ordered_parts(&staged.parts, &output_path) {
+                        Ok(assembly) => {
+                            complete_native_task(&state, &id, generation, assembly.bytes);
+                            let _ = std::fs::remove_dir_all(&staging_dir);
+                        }
+                        Err(error) => {
+                            fail_native_task(&state, &id, generation, error.to_string())
+                        }
+                    }
+                }
+                Err(_error) if paused_or_stale() => {
+                    finish_native_cancelled(&state, &id, generation)
                 }
                 Err(error) => fail_native_task(&state, &id, generation, error.to_string()),
             }
         }
-        Err(_error) if cancelled() => finish_native_cancelled(&state, &id, generation),
-        Err(error) => fail_native_task(&state, &id, generation, error.to_string()),
+        ResolvedNativeMedia::SeparateTracks(resolved) => {
+            run_native_separate_track_execution(
+                &state,
+                &id,
+                generation,
+                &cancel_token,
+                &run_generation,
+                resolved,
+                &staging_dir,
+                &output_path,
+                connections,
+            );
+        }
+        ResolvedNativeMedia::Direct(_) => {
+            fail_native_task(
+                &state,
+                &id,
+                generation,
+                "media source changed to direct transport while resuming a native media task"
+                    .to_owned(),
+            );
+        }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_native_separate_track_execution(
+    state: &SharedState,
+    id: &str,
+    generation: u64,
+    cancel_token: &Arc<AtomicBool>,
+    run_generation: &Arc<AtomicU64>,
+    resolved: ResolvedSeparateTracks,
+    staging_dir: &Path,
+    output_path: &Path,
+    connections: u32,
+) {
+    let postprocessor = FfmpegPostProcessor::new(state.ffmpeg_binary());
+    if !postprocessor.is_available() {
+        fail_native_task(
+            state,
+            id,
+            generation,
+            "NOVA post-processing muxer is unavailable; the native video/audio tracks were not downloaded"
+                .to_owned(),
+        );
+        return;
+    }
+
+    let control = || {
+        if run_generation.load(Ordering::Acquire) != generation {
+            TransferControl::Cancel
+        } else if cancel_token.load(Ordering::Acquire) {
+            TransferControl::Pause
+        } else {
+            TransferControl::Continue
+        }
+    };
+    let should_cancel = || control() != TransferControl::Continue;
+
+    let plan = YouTubeDownloadPlan::SeparateTracks {
+        video_stream_id: resolved.video_stream_id.clone(),
+        audio_stream_id: resolved.audio_stream_id.clone(),
+    };
+    let track_base = staging_dir.join("youtube-tracks");
+    let progress_state = state.clone();
+    let progress_id = id.to_owned();
+    let transfer = download_youtube_plan_controlled(
+        &resolved.extraction,
+        &plan,
+        &track_base,
+        connections,
+        || control(),
+        |progress| {
+            update_native_multitrack_progress(
+                &progress_state,
+                &progress_id,
+                generation,
+                progress,
+            );
+        },
+    );
+
+    let output = match transfer {
+        Ok(YouTubeTransferOutput::SeparateTracks {
+            video_path,
+            audio_path,
+            video_bytes,
+            audio_bytes,
+            ..
+        }) => {
+            update_native_multitrack_progress(
+                state,
+                id,
+                generation,
+                YouTubeTransferProgress {
+                    video_downloaded: video_bytes,
+                    video_total: Some(video_bytes),
+                    audio_downloaded: audio_bytes,
+                    audio_total: Some(audio_bytes),
+                },
+            );
+            (video_path, audio_path, video_bytes, audio_bytes)
+        }
+        Ok(YouTubeTransferOutput::Single { .. }) => {
+            fail_native_task(
+                state,
+                id,
+                generation,
+                "separate-track task unexpectedly produced a single stream".to_owned(),
+            );
+            return;
+        }
+        Err(_error) if should_cancel() => {
+            finish_native_cancelled(state, id, generation);
+            return;
+        }
+        Err(error) => {
+            fail_native_task(state, id, generation, error.to_string());
+            return;
+        }
+    };
+
+    if let Err(error) = transition_native_task(
+        state,
+        id,
+        generation,
+        TaskState::Verifying,
+        "verifying-audio-video-tracks",
+    ) {
+        fail_native_task(state, id, generation, error);
+        return;
+    }
+    if let Err(error) = verify_native_track(&output.0, output.2, "video")
+        .and_then(|_| verify_native_track(&output.1, output.3, "audio"))
+    {
+        fail_native_task(state, id, generation, error);
+        return;
+    }
+    set_native_track_activity(state, id, generation, false);
+
+    if should_cancel() {
+        finish_native_cancelled(state, id, generation);
+        return;
+    }
+    if let Err(error) = transition_native_task(
+        state,
+        id,
+        generation,
+        TaskState::Finalizing,
+        "muxing-audio-video",
+    ) {
+        fail_native_task(state, id, generation, error);
+        return;
+    }
+
+    let request = MediaMuxRequest {
+        video_path: output.0,
+        audio_path: output.1,
+        destination: output_path.to_path_buf(),
+    };
+    match postprocessor.mux(&request, &should_cancel) {
+        Ok(bytes) => {
+            complete_native_task(state, id, generation, bytes);
+            let _ = std::fs::remove_dir_all(staging_dir);
+        }
+        Err(PostProcessError::Cancelled) if should_cancel() => {
+            finish_native_cancelled(state, id, generation)
+        }
+        Err(error) => fail_native_task(state, id, generation, error.to_string()),
+    }
+}
+
+fn verify_native_track(path: &Path, expected_bytes: u64, label: &str) -> Result<(), String> {
+    let metadata = std::fs::metadata(path)
+        .map_err(|error| format!("Native {label} track is missing: {error}"))?;
+    if !metadata.is_file() {
+        return Err(format!(
+            "Native {label} track is not a regular file: {}",
+            path.display()
+        ));
+    }
+    if metadata.len() == 0 {
+        return Err(format!("Native {label} track is empty"));
+    }
+    if expected_bytes > 0 && metadata.len() != expected_bytes {
+        return Err(format!(
+            "Native {label} track size mismatch: expected {expected_bytes} bytes, found {}",
+            metadata.len()
+        ));
+    }
+    Ok(())
 }
 
 fn stage_manifest_transfer<F, P>(
@@ -1175,6 +1580,144 @@ fn update_native_progress(state: &SharedState, id: &str, generation: u64, bytes:
     state.mark_dirty();
 }
 
+fn update_native_multitrack_progress(
+    state: &SharedState,
+    id: &str,
+    generation: u64,
+    progress: YouTubeTransferProgress,
+) {
+    let task = {
+        let mut jobs = match state.native_media_jobs.lock() {
+            Ok(jobs) => jobs,
+            Err(_) => return,
+        };
+        let Some(job) = jobs.get_mut(id) else {
+            return;
+        };
+        if job.run_generation.load(Ordering::Acquire) != generation {
+            return;
+        }
+
+        let elapsed = job.start_time.elapsed().as_secs_f64().max(0.001);
+        let downloaded = progress.downloaded_bytes();
+        let speed = (downloaded as f64 / elapsed) as u64;
+        if let Some(total) = progress.total_bytes() {
+            job.task.size_bytes = total;
+            job.task.time_left_seconds = if speed > 0 {
+                total
+                    .saturating_sub(downloaded)
+                    .saturating_div(speed.max(1))
+            } else {
+                0
+            };
+        }
+        job.task.downloaded_bytes = downloaded;
+        job.task.speed_bytes_per_sec = speed;
+        job.task.elapsed_seconds = elapsed as u64;
+
+        if job.task.segments.len() < 2 {
+            job.task.segments = vec![
+                Segment {
+                    id: 0,
+                    progress: 0.0,
+                    downloaded_bytes: 0,
+                    total_bytes: 0,
+                    active: true,
+                    speed: 0,
+                    start_byte: 0,
+                    end_byte: 0,
+                },
+                Segment {
+                    id: 1,
+                    progress: 0.0,
+                    downloaded_bytes: 0,
+                    total_bytes: 0,
+                    active: true,
+                    speed: 0,
+                    start_byte: 0,
+                    end_byte: 0,
+                },
+            ];
+        }
+
+        let (video_segments, audio_segments) = job.task.segments.split_at_mut(1);
+        update_track_segment(
+            &mut video_segments[0],
+            progress.video_downloaded,
+            progress.video_total,
+            elapsed,
+        );
+        update_track_segment(
+            &mut audio_segments[0],
+            progress.audio_downloaded,
+            progress.audio_total,
+            elapsed,
+        );
+
+        job.task.clone()
+    };
+    if let Ok(mut snapshot) = state.task_snapshot.lock() {
+        snapshot.insert(id.to_owned(), task);
+    }
+    state.mark_dirty();
+}
+
+fn update_track_segment(
+    segment: &mut Segment,
+    downloaded: u64,
+    total: Option<u64>,
+    elapsed: f64,
+) {
+    segment.downloaded_bytes = downloaded;
+    if let Some(total) = total {
+        segment.total_bytes = total;
+        segment.end_byte = total.saturating_sub(1);
+        segment.progress = if total == 0 {
+            0.0
+        } else {
+            downloaded.min(total) as f64 / total as f64
+        };
+        segment.active = downloaded < total;
+    } else {
+        segment.progress = 0.0;
+        segment.active = true;
+    }
+    segment.speed = (downloaded as f64 / elapsed.max(0.001)) as u64;
+}
+
+fn set_native_track_activity(
+    state: &SharedState,
+    id: &str,
+    generation: u64,
+    active: bool,
+) {
+    let task = {
+        let mut jobs = match state.native_media_jobs.lock() {
+            Ok(jobs) => jobs,
+            Err(_) => return,
+        };
+        let Some(job) = jobs.get_mut(id) else {
+            return;
+        };
+        if job.run_generation.load(Ordering::Acquire) != generation {
+            return;
+        }
+        for segment in &mut job.task.segments {
+            segment.active = active;
+            if !active && segment.total_bytes > 0 {
+                segment.progress =
+                    segment.downloaded_bytes.min(segment.total_bytes) as f64
+                        / segment.total_bytes as f64;
+            }
+        }
+        job.task.clone()
+    };
+    if let Ok(mut snapshot) = state.task_snapshot.lock() {
+        snapshot.insert(id.to_owned(), task);
+    }
+    state.mark_dirty();
+}
+
 fn assemble_live_preview(state: &SharedState, id: &str, generation: u64) {
     let (output, valid_generation) = match state.native_media_jobs.lock() {
         Ok(jobs) => jobs.get(id).map_or((PathBuf::new(), false), |job| {
@@ -1385,16 +1928,16 @@ fn resolve_native_media(
             }
         }
 
-        let prefer_separate_tracks = body
+        let postprocessing_enabled = body
             .media_options
             .as_ref()
             .and_then(|options| options.ffmpeg_enabled)
-            .unwrap_or(false);
+            .unwrap_or(true);
         let plan = select_youtube_download_plan(
             &extraction,
             YouTubeSelectionPolicy {
                 max_height,
-                prefer_separate_tracks,
+                prefer_separate_tracks: postprocessing_enabled,
             },
         )
         .ok_or_else(|| {
@@ -1417,11 +1960,49 @@ fn resolve_native_media(
                     })?;
                 resolved_from_descriptor(&extraction.descriptor, stream)
             }
-            YouTubeDownloadPlan::SeparateTracks { .. } => Err(
-                NativeMediaTaskError::UnsupportedFeature(
-                    "separate-track mux is not migrated to task execution yet".to_owned(),
-                ),
-            ),
+            YouTubeDownloadPlan::SeparateTracks {
+                video_stream_id,
+                audio_stream_id,
+            } => {
+                if !postprocessing_enabled {
+                    return Err(NativeMediaTaskError::UnsupportedFeature(
+                        "the selected quality requires separate audio/video tracks, but native post-processing was disabled"
+                            .to_owned(),
+                    ));
+                }
+                let video = extraction
+                    .descriptor
+                    .streams
+                    .iter()
+                    .find(|stream| stream.id == video_stream_id)
+                    .ok_or_else(|| {
+                        NativeMediaTaskError::Resolution(
+                            "selected native video track disappeared".to_owned(),
+                        )
+                    })?;
+                let audio = extraction
+                    .descriptor
+                    .streams
+                    .iter()
+                    .find(|stream| stream.id == audio_stream_id)
+                    .ok_or_else(|| {
+                        NativeMediaTaskError::Resolution(
+                            "selected native audio track disappeared".to_owned(),
+                        )
+                    })?;
+                let expected_bytes = match (video.content_length, audio.content_length) {
+                    (Some(video), Some(audio)) => Some(video.saturating_add(audio)),
+                    _ => None,
+                };
+                let output_container = separate_track_output_container(video, audio);
+                Ok(ResolvedNativeMedia::SeparateTracks(ResolvedSeparateTracks {
+                    extraction,
+                    video_stream_id,
+                    audio_stream_id,
+                    output_container,
+                    expected_bytes,
+                }))
+            }
         };
     }
 
@@ -1441,6 +2022,35 @@ fn resolve_native_media(
         .ok_or_else(|| NativeMediaTaskError::Resolution("native media result has no playable stream".to_owned()))?;
 
     resolved_from_descriptor(&descriptor, stream)
+}
+
+fn separate_track_output_container(video: &MediaStream, audio: &MediaStream) -> String {
+    let video_container = video
+        .container
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let audio_container = audio
+        .container
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+
+    let mp4_video = matches!(video_container.as_str(), "mp4" | "m4v" | "mov");
+    let mp4_audio = matches!(audio_container.as_str(), "mp4" | "m4a" | "aac");
+    if mp4_video && mp4_audio {
+        return "mp4".to_owned();
+    }
+
+    let webm_video = video_container == "webm";
+    let webm_audio = matches!(audio_container.as_str(), "webm" | "opus" | "ogg");
+    if webm_video && webm_audio {
+        return "webm".to_owned();
+    }
+
+    "mkv".to_owned()
 }
 
 fn resolved_from_descriptor(
@@ -1614,6 +2224,65 @@ mod tests {
             "https://cdn.test/file.zip",
             false
         ));
+    }
+
+    #[test]
+    fn ffmpeg_toggle_is_a_supported_native_execution_option() {
+        let mut request = body("https://cdn.test/video.mp4");
+        request.media_options.as_mut().expect("media").ffmpeg_enabled = Some(true);
+        NativeMediaExtractor
+            .validate(&request)
+            .expect("ffmpeg toggle should be accepted by native task path");
+        assert!(NATIVE_MEDIA_OPTION_KEYS.contains(&"ffmpegEnabled"));
+    }
+
+    #[test]
+    fn separate_track_container_prefers_compatible_copy_mux() {
+        use nova_media_core::MediaTrackKind;
+
+        let mut video = MediaStream {
+            id: "v".to_owned(),
+            kind: MediaTrackKind::Video,
+            protocol: MediaProtocol::Https,
+            url: "https://cdn.test/v".to_owned(),
+            container: Some("mp4".to_owned()),
+            video_codec: Some("avc1".to_owned()),
+            audio_codec: None,
+            width: Some(1920),
+            height: Some(1080),
+            fps: Some(30),
+            bitrate_bps: None,
+            audio_bitrate_bps: None,
+            content_length: Some(100),
+            language: None,
+            headers: BTreeMap::new(),
+        };
+        let mut audio = MediaStream {
+            id: "a".to_owned(),
+            kind: MediaTrackKind::Audio,
+            protocol: MediaProtocol::Https,
+            url: "https://cdn.test/a".to_owned(),
+            container: Some("m4a".to_owned()),
+            video_codec: None,
+            audio_codec: Some("mp4a".to_owned()),
+            width: None,
+            height: None,
+            fps: None,
+            bitrate_bps: None,
+            audio_bitrate_bps: Some(128_000),
+            content_length: Some(20),
+            language: None,
+            headers: BTreeMap::new(),
+        };
+        assert_eq!(separate_track_output_container(&video, &audio), "mp4");
+
+        video.container = Some("webm".to_owned());
+        audio.container = Some("webm".to_owned());
+        assert_eq!(separate_track_output_container(&video, &audio), "webm");
+
+        video.container = Some("mp4".to_owned());
+        audio.container = Some("webm".to_owned());
+        assert_eq!(separate_track_output_container(&video, &audio), "mkv");
     }
 
     #[test]

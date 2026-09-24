@@ -34,7 +34,10 @@ pub use youtube::{
     YouTubeSelectionPolicy,
 };
 pub use youtube_player::YouTubePlayerScriptSolver;
-pub use youtube_transfer::{download_youtube_plan, YouTubeTransferError, YouTubeTransferOutput};
+pub use youtube_transfer::{
+    download_youtube_plan, download_youtube_plan_controlled, YouTubeTransferError,
+    YouTubeTransferOutput, YouTubeTransferProgress,
+};
 
 use std::collections::BTreeMap;
 
