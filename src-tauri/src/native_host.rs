@@ -213,6 +213,20 @@ fn read_port_file() -> Option<u16> {
     None
 }
 
+fn parse_pairing_secret(content: &str, expected_port: u16) -> Option<String> {
+    let value = serde_json::from_str::<Value>(content).ok()?;
+    if value.get("port").and_then(Value::as_u64) != Some(u64::from(expected_port)) {
+        return None;
+    }
+
+    value
+        .get("secret")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|secret| secret.len() >= 24)
+        .map(str::to_owned)
+}
+
 fn pairing_secret_for_base_url(base_url: &str) -> Option<String> {
     let port = base_url
         .rsplit_once(':')
@@ -226,19 +240,8 @@ fn pairing_secret_for_base_url(base_url: &str) -> Option<String> {
         let Ok(content) = std::fs::read_to_string(&pairing_path) else {
             continue;
         };
-        let Ok(value) = serde_json::from_str::<Value>(&content) else {
-            continue;
-        };
-        if value.get("port").and_then(Value::as_u64) != Some(u64::from(port)) {
-            continue;
-        }
-        if let Some(secret) = value
-            .get("secret")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|secret| secret.len() >= 24)
-        {
-            return Some(secret.to_owned());
+        if let Some(secret) = parse_pairing_secret(&content, port) {
+            return Some(secret);
         }
     }
     None
@@ -350,7 +353,29 @@ fn obtain_api_token(client: &reqwest::blocking::Client, base_url: &str) -> Optio
 
 #[cfg(test)]
 mod desktop_launch_tests {
-    use super::resolve_desktop_executable;
+    use super::{parse_pairing_secret, resolve_desktop_executable};
+
+    #[test]
+    fn pairing_secret_parser_requires_matching_port_and_strong_secret() {
+        let content = serde_json::json!({
+            "port": 3199,
+            "pid": 1234,
+            "secret": "0123456789abcdef0123456789abcdef",
+            "protocolVersion": 1
+        })
+        .to_string();
+
+        assert_eq!(
+            parse_pairing_secret(&content, 3199).as_deref(),
+            Some("0123456789abcdef0123456789abcdef")
+        );
+        assert!(parse_pairing_secret(&content, 3200).is_none());
+        assert!(parse_pairing_secret(
+            r#"{"port":3199,"secret":"short"}"#,
+            3199
+        )
+        .is_none());
+    }
 
     #[test]
     fn explicit_desktop_executable_must_be_absolute_and_exist() {
@@ -538,10 +563,10 @@ fn native_pairing_response(
         "ok": true,
         "pairToken": pair_token,
         "autoApproved": true,
-        "method": "native-messaging-verified",
+        "method": "native-messaging-secret-proof",
         "protocolVersion": 4,
         "minimumSupportedProtocolVersion": 4,
-        "ttlSeconds": 60 * 60 * 24 * 30
+        "ttlSeconds": 60 * 60 * 24
     }))
 }
 
