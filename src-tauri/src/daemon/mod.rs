@@ -926,6 +926,8 @@ fn restore_persisted_tasks(
                                 request,
                                 cancel_token: Arc::new(AtomicBool::new(false)),
                                 run_generation: Arc::new(AtomicU64::new(0)),
+                                worker_active: Arc::new(AtomicBool::new(false)),
+                                run_start_downloaded_bytes: task.downloaded_bytes,
                                 start_time: Instant::now(),
                             },
                         );
