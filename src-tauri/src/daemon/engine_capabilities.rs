@@ -1425,8 +1425,15 @@ pub fn native_media_status() -> Value {
             "challengeTransformCoverage": "verified-native-subset",
             "challengeTransformFallback": "fail-closed",
             "separateTrackStaging": core.separate_track_staging,
-            "hlsTaskExecution": false,
-            "dashTaskExecution": false,
+            "hlsTaskExecution": true,
+            "hlsVodTaskExecution": true,
+            "hlsLiveTaskExecution": true,
+            "dashTaskExecution": true,
+            "dashStaticTaskExecution": true,
+            "dashDynamicTaskExecution": true,
+            "manifestTaskExecutionCoverage": "single-representation-native",
+            "manifestPauseResume": true,
+            "manifestAtomicAssembly": true,
             "separateTrackTaskExecution": false,
             "playlists": false,
             "formatSorting": false,
@@ -2096,8 +2103,15 @@ mod tests {
             status["capabilities"]["challengeTransformFallback"],
             "fail-closed"
         );
-        assert_eq!(status["capabilities"]["hlsTaskExecution"], false);
-        assert_eq!(status["capabilities"]["dashTaskExecution"], false);
+        assert_eq!(status["capabilities"]["hlsTaskExecution"], true);
+        assert_eq!(status["capabilities"]["hlsLiveTaskExecution"], true);
+        assert_eq!(status["capabilities"]["dashTaskExecution"], true);
+        assert_eq!(status["capabilities"]["dashDynamicTaskExecution"], true);
+        assert_eq!(
+            status["capabilities"]["manifestTaskExecutionCoverage"],
+            "single-representation-native"
+        );
+        assert_eq!(status["capabilities"]["separateTrackTaskExecution"], false);
         let supported = status["supportedMediaOptionKeys"]
             .as_array()
             .expect("supportedMediaOptionKeys");

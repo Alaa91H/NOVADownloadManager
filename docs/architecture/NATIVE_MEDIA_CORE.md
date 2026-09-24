@@ -115,6 +115,12 @@ request URL + authorized headers/cookies
 - native throttling-parameter transform discovery and execution for verified player transform families;
 - bounded player-transform plan cache with fail-closed invalidation;
 - native direct media transfer execution;
+- end-to-end HLS VOD task execution with master-variant selection, segment progress, verification and atomic assembly;
+- end-to-end live HLS recording with sequence cursors, pause/resume checkpoints and committed-part recovery;
+- end-to-end static DASH single-representation task execution with native staging and atomic assembly;
+- dynamic DASH recording with incremental timeline cursors, pause/resume checkpoints and committed-part recovery;
+- native manifest tasks integrated with the shared task lifecycle, cancellation generation, queue accounting and persisted snapshots;
+- sensitive native request context is kept in memory and omitted from restart snapshots, forcing reauthorization when needed;
 - `/api/media/native/resolve` GET and POST migration API.
 
 ## Deliberate boundaries
@@ -122,7 +128,8 @@ request URL + authorized headers/cookies
 Still isolated behind typed interfaces:
 
 - newly observed throttling/challenge transform families that fall outside the verified native parser subset;
-- multi-track container muxing;
+- multi-track container muxing and HLS/DASH manifests that require separate audio/video representation composition;
+- advanced live crash recovery beyond the persisted cursor/committed-part checkpoint implemented by the task path;
 - browser-cookie import and cookie-file loading;
 - codec transcoding;
 - additional site adapters;
@@ -135,8 +142,8 @@ Unknown transforms and unsupported protected-media modes fail closed. They are n
 The temporary bridge can be deleted after native acceptance tests pass for:
 
 - direct media;
-- HLS VOD and live;
-- DASH VOD and dynamic manifests;
+- HLS VOD and live — task path implemented, final cross-platform acceptance still required;
+- DASH VOD and dynamic manifests — task path implemented, final cross-platform acceptance still required;
 - separate audio/video tracks;
 - subtitles;
 - byte-range manifests;

@@ -880,7 +880,9 @@ fn restore_persisted_tasks(
 
         // P0 crash/restart consistency: a persisted completed state must still
         // agree with the filesystem before it is exposed as completed again.
-        if task.status == "completed" && is_direct_download {
+        if task.status == "completed"
+            && (is_direct_download || task.engine == "nova-media-engine")
+        {
             if let Err(error) = validate_restored_direct_completion(&task) {
                 log::warn!("Task {}: invalid persisted completion: {error}", task.id);
                 task.status = "error".to_owned();
