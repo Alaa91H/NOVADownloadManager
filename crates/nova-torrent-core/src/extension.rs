@@ -299,15 +299,13 @@ impl MetadataAssembler {
             });
         }
         validate_metadata_piece(piece, total_size, data.len())?;
-        let slot = self
-            .pieces
-            .get_mut(piece as usize)
-            .ok_or(ExtensionError::MetadataPieceOutOfRange {
-                piece,
-                count: self.pieces.len(),
-            })?;
+        let count = self.pieces.len();
+        let index = piece as usize;
+        if index >= count {
+            return Err(ExtensionError::MetadataPieceOutOfRange { piece, count });
+        }
 
-        if let Some(existing) = slot {
+        if let Some(existing) = self.pieces[index].as_ref() {
             if existing != &data {
                 return Err(ExtensionError::ConflictingMetadataPiece(piece));
             }
@@ -318,7 +316,7 @@ impl MetadataAssembler {
             .received_bytes
             .checked_add(data.len())
             .ok_or(ExtensionError::MetadataLengthOverflow)?;
-        *slot = Some(data);
+        self.pieces[index] = Some(data);
         Ok(self.is_complete())
     }
 
@@ -531,7 +529,9 @@ fn dict_get<'a, 'b>(
     dictionary: &'b BTreeMap<&'a [u8], BValue<'a>>,
     key: &[u8],
 ) -> Option<&'b BValue<'a>> {
-    dictionary.get(key)
+    dictionary
+        .iter()
+        .find_map(|(entry_key, value)| (**entry_key == *key).then_some(value))
 }
 
 struct Parser<'a> {
