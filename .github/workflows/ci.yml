@@ -166,7 +166,9 @@ jobs:
             src-tauri/src/daemon/torrent_storage.rs \
             src-tauri/src/daemon/torrent_bandwidth.rs \
             src-tauri/src/daemon/torrent_transfer.rs \
-            src-tauri/src/daemon/torrent_policy.rs; then
+            src-tauri/src/daemon/torrent_policy.rs \
+            src-tauri/src/daemon/torrent_task.rs \
+            src-tauri/src/daemon/routes/torrent.rs; then
             echo "::error::Native torrent code must not delegate torrent execution to an external client."
             exit 1
           fi
@@ -184,6 +186,9 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml daemon::torrent_bandwidth::tests -- --nocapture
           cargo test --manifest-path src-tauri/Cargo.toml daemon::torrent_transfer::tests -- --nocapture
           cargo test --manifest-path src-tauri/Cargo.toml daemon::torrent_policy::tests -- --nocapture
+          cargo test --manifest-path src-tauri/Cargo.toml daemon::torrent_task::tests -- --nocapture
+          cargo test --manifest-path src-tauri/Cargo.toml daemon::routes::torrent::tests -- --nocapture
+          cargo test --manifest-path src-tauri/Cargo.toml daemon::persist::tests::torrent_snapshot_never_persists_private_tracker_passkey -- --nocapture
           cargo clippy --manifest-path crates/nova-torrent-core/Cargo.toml --all-targets -- -D warnings
           cargo fmt --check --manifest-path crates/nova-torrent-core/Cargo.toml
 
