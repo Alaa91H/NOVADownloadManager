@@ -209,15 +209,17 @@ pub async fn pause_task(state: &SharedState, id: &str) -> Result<Task, String> {
             } else {
                 TaskState::Paused
             };
-            transition_task_state(
-                &mut job.task,
-                next,
-                if next == TaskState::Pausing {
-                    "pausing"
-                } else {
-                    "paused"
-                },
-            )?;
+            if current != next {
+                transition_task_state(
+                    &mut job.task,
+                    next,
+                    if next == TaskState::Pausing {
+                        "pausing"
+                    } else {
+                        "paused"
+                    },
+                )?;
+            }
             job.cancel_token.store(true, Ordering::Release);
             job.task.speed_bytes_per_sec = 0;
             let task = job.task.clone();
@@ -707,7 +709,13 @@ pub async fn redownload_task(state: &SharedState, id: &str) -> Result<Task, Stri
                     .ok_or_else(|| format!("Task {id} has unknown state '{}'", job.task.status))?;
                 let was_active = current.is_active();
                 if was_active {
-                    transition_task_state(&mut job.task, TaskState::Pausing, "redownload-stopping")?;
+                    if current != TaskState::Pausing {
+                        transition_task_state(
+                            &mut job.task,
+                            TaskState::Pausing,
+                            "redownload-stopping",
+                        )?;
+                    }
                     job.cancel_token.store(true, Ordering::Release);
                 }
                 Some((
