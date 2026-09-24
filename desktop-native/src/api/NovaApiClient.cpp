@@ -1087,7 +1087,36 @@ void NovaApiClient::refreshScheduler() {
         const QJsonObject root = document.object();
         m_schedulerRules = root.value(QStringLiteral("rules")).toArray().toVariantList();
         m_activeSchedulerRuleIds = root.value(QStringLiteral("active_rule_ids")).toArray().toVariantList();
+        m_schedulerPowerCommandsEnabled =
+            root.value(QStringLiteral("powerCommandsEnabled")).toBool(false);
+
+        const bool exitRequested =
+            root.value(QStringLiteral("exitRequested")).toBool(false);
+        if (exitRequested && !m_schedulerExitRequested) {
+            m_schedulerExitRequested = true;
+            emit schedulerExitRequested();
+        } else if (!exitRequested) {
+            m_schedulerExitRequested = false;
+        }
+
         emit schedulerChanged();
+    });
+}
+
+void NovaApiClient::setSchedulerPowerCommandsEnabled(bool enabled) {
+    QJsonObject body{{QStringLiteral("enabled"), enabled}};
+    auto *reply = m_network.post(
+        makeRequest(QStringLiteral("/api/engine/scheduler/power-commands")),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+        refreshScheduler();
     });
 }
 
