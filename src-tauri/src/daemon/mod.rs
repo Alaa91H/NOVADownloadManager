@@ -396,12 +396,6 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 extractor_registry.register(std::sync::Arc::new(
                     crate::daemon::native_media::NativeMediaExtractor,
                 ));
-                extractor_registry.register(std::sync::Arc::new(
-                    crate::daemon::media_bridge::MediaBridgeExtractor::new(
-                        media_bridge_bin.clone(),
-                        ffmpeg_bin.clone(),
-                    ),
-                ));
                 let extractor_registry = SharedExtractorRegistry::new(extractor_registry);
 
                 let state = AppState {
@@ -507,23 +501,20 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
 
                 log::debug!("Daemon started with API auth enabled");
 
-                // Discover persisted NOVA-managed tools before probing engine
-                // capabilities. This makes a verified user-installed binary the
-                // active runtime immediately after a restart rather than merely
-                // displaying it in Settings.
+                // Discover the public post-processing backend before probing
+                // engine capabilities. Media extraction itself is in-process
+                // and must not depend on compatibility executables.
                 let discovered_tools = {
                     let et = state.external_tools.clone();
                     tokio::task::spawn_blocking(move || {
                         let et = lock_or_err!(et);
-                        let media_bridge =
-                            et.discover(crate::daemon::external_tools::types::ToolId::MediaBridge);
-                        let ffmpeg =
-                            et.discover(crate::daemon::external_tools::types::ToolId::Ffmpeg);
-                        vec![media_bridge, ffmpeg]
+                        vec![et.discover(
+                            crate::daemon::external_tools::types::ToolId::Ffmpeg,
+                        )]
                     })
                     .await
-                    .unwrap_or_else(|e| {
-                        log::error!("External tool discovery panicked: {e}");
+                    .unwrap_or_else(|error| {
+                        log::error!("External tool discovery panicked: {error}");
                         Vec::new()
                     })
                 };
@@ -543,9 +534,8 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     }
                 }
 
-                // Warm the engine-capability cache in the background only after
-                // managed tool activation, so the first extension connection
-                // observes the same binaries that the media engine will execute.
+                // Warm the engine-capability cache after post-processing tool
+                // activation. Media extraction readiness comes from the compiled core.
                 {
                     let warm_state = state.clone();
                     std::thread::spawn(move || {
