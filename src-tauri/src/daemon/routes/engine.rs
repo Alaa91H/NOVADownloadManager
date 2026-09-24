@@ -1803,7 +1803,10 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
 
 #[cfg(test)]
 mod tests {
-    use super::extract_ffmpeg_from_zip;
+    use super::{
+        extract_ffmpeg_from_zip, normalize_queue_catalog, read_queue_catalog,
+        write_queue_catalog,
+    };
     use std::io::Write;
     use std::path::{Path, PathBuf};
 
@@ -1834,6 +1837,77 @@ mod tests {
         } else {
             "ffmpeg"
         }
+    }
+
+    #[test]
+    fn queue_catalog_preserves_empty_custom_queues() {
+        let queues = vec![
+            serde_json::json!({
+                "id": "main",
+                "name": "Main Queue",
+                "active": true,
+                "downloadOrder": []
+            }),
+            serde_json::json!({
+                "id": "night",
+                "name": "Night Queue",
+                "scheduled": true,
+                "scheduleType": "custom",
+                "days": [1, 3, 5],
+                "downloadOrder": []
+            }),
+        ];
+
+        let normalized = normalize_queue_catalog(queues).expect("normalize queue catalog");
+        assert_eq!(normalized.len(), 2);
+        assert_eq!(normalized[0]["id"], "main");
+        assert_eq!(normalized[1]["id"], "night");
+        assert_eq!(normalized[1]["name"], "Night Queue");
+        assert_eq!(normalized[1]["downloadOrder"].as_array().map(Vec::len), Some(0));
+    }
+
+    #[test]
+    fn queue_catalog_rejects_invalid_or_duplicate_ids() {
+        assert!(normalize_queue_catalog(vec![serde_json::json!({
+            "id": "../bad",
+            "name": "Bad"
+        })])
+        .is_err());
+
+        assert!(normalize_queue_catalog(vec![
+            serde_json::json!({"id": "main", "name": "Main"}),
+            serde_json::json!({"id": "main", "name": "Duplicate"}),
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn queue_catalog_round_trips_on_disk() {
+        let dir = test_dir("queue_catalog");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let queues = normalize_queue_catalog(vec![
+            serde_json::json!({"id": "main", "name": "Main Queue"}),
+            serde_json::json!({
+                "id": "night",
+                "name": "Night Queue",
+                "scheduled": true,
+                "downloadOrder": []
+            }),
+        ])
+        .expect("normalize queue catalog");
+
+        write_queue_catalog(&dir.display().to_string(), &queues)
+            .expect("write queue catalog");
+        let loaded = read_queue_catalog(&dir.display().to_string());
+
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[1]["id"], "night");
+        assert_eq!(loaded[1]["name"], "Night Queue");
+        assert!(dir.join("nova-queue-catalog.json").exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
