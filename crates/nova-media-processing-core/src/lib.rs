@@ -20,7 +20,8 @@ mod types;
 pub use demux::MediaDemuxer;
 pub use mux::{MediaMuxResult, MediaMuxer};
 pub use mp4::{
-    mux_demuxers_to_mp4, probe_mp4_file, Mp4Demuxer, Mp4Muxer, Mp4Sample,
+    mux_demuxers_to_mp4, mux_demuxers_to_mp4_controlled, probe_mp4_file,
+    Mp4Demuxer, Mp4Muxer, Mp4Sample,
     Mp4TrackIndex, ParsedMp4,
 };
 pub use capabilities::{
@@ -36,7 +37,8 @@ pub use pipeline::{
 };
 pub use probe::{probe_file_container, sniff_media_container};
 pub use progress::{
-    MediaProcessingPhase, MediaProcessingProgress, MediaProgressSink,
+    MediaProcessingControl, MediaProcessingPhase, MediaProcessingProgress,
+    MediaProgressSink,
 };
 pub use types::{
     AudioParameters, MediaCodec, MediaContainer, MediaPacket, MediaPacketFlags,
