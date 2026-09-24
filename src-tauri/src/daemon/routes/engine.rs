@@ -532,19 +532,46 @@ pub async fn handle_queue_catalog_put(
     State(state): State<SharedState>,
     Json(body): Json<QueueCatalogBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let queues = normalize_queue_catalog(body.queues).map_err(|error| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"ok": false, "error": error})),
-        )
-    })?;
+    let queues = normalize_queue_catalog(body.queues)
+        .map_err(|error| queue_error(StatusCode::BAD_REQUEST, error))?;
 
-    write_queue_catalog(&state.data_dir, &queues).map_err(|error| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"ok": false, "error": error})),
-        )
-    })?;
+    let known_tasks: std::collections::HashSet<String> = lock_or_err!(state.task_snapshot)
+        .keys()
+        .cloned()
+        .collect();
+    let mut claimed_tasks = std::collections::HashSet::new();
+
+    for queue in &queues {
+        let Some(queue_id) = queue_value_id(queue) else {
+            continue;
+        };
+        let Some(order) = queue
+            .get("downloadOrder")
+            .and_then(serde_json::Value::as_array)
+        else {
+            continue;
+        };
+
+        for value in order {
+            let Some(task_id) = value.as_str() else {
+                continue;
+            };
+            if !claimed_tasks.insert(task_id.to_owned()) {
+                return Err(queue_error(
+                    StatusCode::BAD_REQUEST,
+                    format!("Task {task_id} appears in more than one queue"),
+                ));
+            }
+            if known_tasks.contains(task_id) {
+                move_task_to_queue(&state, task_id, queue_id)
+                    .map_err(|error| queue_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+            }
+        }
+    }
+
+    let queues = reconcile_queue_catalog(&state, queues);
+    write_queue_catalog(&state.data_dir, &queues)
+        .map_err(|error| queue_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
 
     Ok(Json(serde_json::json!({
         "ok": true,
