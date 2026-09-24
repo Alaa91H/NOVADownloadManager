@@ -11,6 +11,7 @@ class NativeSettings final : public QObject {
     Q_PROPERTY(QString defaultSaveDirectory READ defaultSaveDirectory WRITE setDefaultSaveDirectory NOTIFY settingsChanged)
     Q_PROPERTY(int defaultConnections READ defaultConnections WRITE setDefaultConnections NOTIFY settingsChanged)
     Q_PROPERTY(bool startImmediately READ startImmediately WRITE setStartImmediately NOTIFY settingsChanged)
+    Q_PROPERTY(bool monitorClipboard READ monitorClipboard WRITE setMonitorClipboard NOTIFY settingsChanged)
     Q_PROPERTY(bool closeToTray READ closeToTray WRITE setCloseToTray NOTIFY settingsChanged)
     Q_PROPERTY(bool startMinimized READ startMinimized WRITE setStartMinimized NOTIFY settingsChanged)
     Q_PROPERTY(bool notificationsEnabled READ notificationsEnabled WRITE setNotificationsEnabled NOTIFY settingsChanged)
@@ -32,6 +33,7 @@ public:
     QString defaultSaveDirectory() const;
     int defaultConnections() const;
     bool startImmediately() const;
+    bool monitorClipboard() const;
     bool closeToTray() const;
     bool startMinimized() const;
     bool notificationsEnabled() const;
@@ -50,6 +52,7 @@ public:
     void setDefaultSaveDirectory(const QString &value);
     void setDefaultConnections(int value);
     void setStartImmediately(bool value);
+    void setMonitorClipboard(bool value);
     void setCloseToTray(bool value);
     void setStartMinimized(bool value);
     void setNotificationsEnabled(bool value);

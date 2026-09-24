@@ -336,11 +336,48 @@
     {
       "id": "clipboard-monitoring",
       "label": "Clipboard monitoring",
-      "status": "gap",
-      "legacyEvidence": [
-        "src/utils/clipboard.ts"
+      "status": "covered",
+      "evidence": [
+        "desktop-native/src/platform/ClipboardMonitor.cpp",
+        "desktop-native/src/settings/NativeSettings.cpp",
+        "desktop-native/qml/Main.qml",
+        "desktop-native/qml/components/AddDownloadDialog.qml",
+        "src/utils/clipboard.ts",
+        "src/components/AppShell.tsx"
       ],
-      "blocker": "Native UI does not yet monitor clipboard download URLs."
+      "contains": [
+        {
+          "file": "desktop-native/src/platform/ClipboardMonitor.cpp",
+          "allOf": [
+            "1500",
+            "extractFirstHttpUrl",
+            "urlDetected",
+            "m_primed"
+          ]
+        },
+        {
+          "file": "desktop-native/src/settings/NativeSettings.cpp",
+          "allOf": [
+            "monitorClipboard",
+            "downloads/monitorClipboard"
+          ]
+        },
+        {
+          "file": "desktop-native/qml/Main.qml",
+          "allOf": [
+            "clipboardMonitor",
+            "onUrlDetected",
+            "acknowledge"
+          ]
+        },
+        {
+          "file": "desktop-native/qml/components/AddDownloadDialog.qml",
+          "allOf": [
+            "openForUrl",
+            "urlField.text = url"
+          ]
+        }
+      ]
     },
     {
       "id": "signed-updater",

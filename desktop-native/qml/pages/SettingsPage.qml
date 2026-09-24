@@ -362,8 +362,26 @@ Item {
 
                             Switch {
                                 text: root.t("settings.startWorkflowImmediately")
+                                Accessible.name: text
                                 checked: settings.startImmediately
                                 onToggled: settings.startImmediately = checked
+                            }
+
+                            Switch {
+                                text: root.t("settings.monitorClipboard")
+                                Accessible.name: text
+                                Accessible.description: root.t("settings.monitorClipboardHint")
+                                checked: settings.monitorClipboard
+                                enabled: api.connected
+                                onToggled: settings.monitorClipboard = checked
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: root.t("settings.monitorClipboardHint")
+                                color: Theme.textMuted
+                                font.pixelSize: Theme.fontTiny
+                                wrapMode: Text.WordWrap
                             }
                         }
                     }

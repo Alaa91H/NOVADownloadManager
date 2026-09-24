@@ -38,6 +38,12 @@ Dialog {
         open()
     }
 
+    function openForUrl(url) {
+        resetFields()
+        urlField.text = url
+        open()
+    }
+
     function submit(startNow) {
         if (submitting)
             return

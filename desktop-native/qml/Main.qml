@@ -52,6 +52,24 @@ ApplicationWindow {
         }
     }
 
+    Connections {
+        target: clipboardMonitor
+
+        function onUrlDetected(url, sourceText) {
+            if (!novaApi.connected)
+                return
+
+            window.currentPage = "downloads"
+            Qt.callLater(function() {
+                if (contentLoader.item
+                    && contentLoader.item.openClipboardUrl
+                    && contentLoader.item.openClipboardUrl(url)) {
+                    clipboardMonitor.acknowledge(sourceText)
+                }
+            })
+        }
+    }
+
     function openNewDownload() {
         window.currentPage = "downloads"
         Qt.callLater(function() {

@@ -152,6 +152,7 @@ Implemented:
 - Native UI workflow also runs when legacy `src/**`, daemon `src-tauri/**` or migration-plan changes can affect parity.
 - Every successful Windows/Linux CI build installs a versioned native preview bundle.
 - Core Downloads columns now support persistent show/hide configuration and persistent ascending/descending sorting through the native model/QSettings path.
+- Clipboard URL monitoring now matches the legacy 1.5-second detection behavior: it ignores pre-existing clipboard content, extracts new HTTP/HTTPS links and opens the native Add Download dialog only after the engine is connected.
 - Windows preview bundles deploy the required Qt runtime through `windeployqt`.
 - Linux preview bundles include the installed native binary, desktop entry and an `ldd` runtime dependency report.
 - Every preview bundle carries `PARITY_REPORT.md` and `BUILD_INFO.txt` for QA traceability.
@@ -160,7 +161,6 @@ Implemented:
 Current parity blockers tracked by the executable manifest:
 
 - Native browser integration pairing/status.
-- Clipboard URL monitoring.
 - Legacy-only advanced download columns beyond the native core set (for example retries, CRC32, priority, completed date and smart category metadata).
 - Full legacy language catalog beyond the current English/Arabic/German native baseline.
 - Production signed automatic updater installation.

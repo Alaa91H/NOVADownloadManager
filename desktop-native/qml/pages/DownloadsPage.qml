@@ -90,6 +90,18 @@ Item {
         addDownloadDialog.openNew()
     }
 
+    function openClipboardUrl(url) {
+        if (addDownloadDialog.visible
+            || deleteDialog.visible
+            || redownloadDialog.visible
+            || propertiesDialog.visible) {
+            return false
+        }
+
+        addDownloadDialog.openForUrl(url)
+        return true
+    }
+
     function pageTitle() {
         if (page === "active") return root.t("downloads.activeTitle")
         if (page === "queued") return root.t("downloads.queuedTitle")

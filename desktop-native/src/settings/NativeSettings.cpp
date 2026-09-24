@@ -26,6 +26,10 @@ bool NativeSettings::startImmediately() const {
     return value<bool>(QStringLiteral("downloads/startImmediately"), true);
 }
 
+bool NativeSettings::monitorClipboard() const {
+    return value<bool>(QStringLiteral("downloads/monitorClipboard"), false);
+}
+
 bool NativeSettings::closeToTray() const {
     return value<bool>(QStringLiteral("desktop/closeToTray"), true);
 }
@@ -152,6 +156,10 @@ void NativeSettings::setDefaultConnections(int value) {
 
 void NativeSettings::setStartImmediately(bool value) {
     store(QStringLiteral("downloads/startImmediately"), value);
+}
+
+void NativeSettings::setMonitorClipboard(bool value) {
+    store(QStringLiteral("downloads/monitorClipboard"), value);
 }
 
 void NativeSettings::setCloseToTray(bool value) {

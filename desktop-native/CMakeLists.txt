@@ -23,6 +23,8 @@ qt_add_executable(nova-native
     src/localization/I18nManager.h
     src/platform/AppearanceManager.cpp
     src/platform/AppearanceManager.h
+    src/platform/ClipboardMonitor.cpp
+    src/platform/ClipboardMonitor.h
     src/platform/DesktopIntegration.cpp
     src/platform/DesktopIntegration.h
     src/platform/TrayManager.cpp
