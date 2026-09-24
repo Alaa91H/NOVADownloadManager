@@ -872,6 +872,7 @@ fn restore_persisted_tasks(
 
     let resume_requires_reauth = restored.resume_requires_reauth.clone();
     let recovery_checkpoints = restored.recovery_checkpoints.clone();
+    let torrent_sources = restored.torrent_sources.clone();
     for mut task in restored.tasks {
         if let Some(checkpoint) = recovery_checkpoints.get(&task.id) {
             if !checkpoint.apply_to_task(&mut task) {
@@ -916,7 +917,7 @@ fn restore_persisted_tasks(
         }
 
         let requires_reauth = resume_requires_reauth.contains(&task.id);
-        if requires_reauth && task.status != "completed" {
+        if requires_reauth && task.engine != nova_torrent_core::ENGINE_ID && task.status != "completed" {
             task.status = "error".to_owned();
             task.engine_status = Some("reauth-required".to_owned());
             task.error_message = Some(
@@ -924,6 +925,53 @@ fn restore_persisted_tasks(
                     .to_owned(),
             );
             task.speed_bytes_per_sec = 0;
+        } else if task.engine == nova_torrent_core::ENGINE_ID {
+            let source = torrent_sources
+                .get(&task.id)
+                .cloned()
+                .or_else(|| (!task.url.trim().is_empty()).then(|| task.url.clone()));
+
+            if requires_reauth && task.status != "completed" {
+                task.status = TaskState::Failed.as_status().to_owned();
+                task.engine_status = Some("reauth-required".to_owned());
+                task.error_message = Some(
+                    "This torrent used tracker authorization that was not saved to disk. Re-authorize the magnet link to continue."
+                        .to_owned(),
+                );
+                task.speed_bytes_per_sec = 0;
+                task.time_left_seconds = 0;
+            }
+
+            match crate::daemon::torrent_task::restore_torrent_job(
+                task.clone(),
+                source,
+                requires_reauth,
+            ) {
+                Ok(job) => {
+                    let allocation = job.allocated_kbps.clone();
+                    if task.status != "completed" && task.status != "error" {
+                        state.priority_queue.enqueue(QueueEntry {
+                            task_id: task.id.clone(),
+                            priority: DownloadPriority::Normal,
+                            added_at: Instant::now(),
+                            size_bytes: task.size_bytes,
+                            bandwidth_kbps: allocation,
+                        });
+                    }
+                    if let Ok(mut jobs) = state.torrent_jobs.lock() {
+                        jobs.insert(task.id.clone(), job);
+                    }
+                }
+                Err(error) => {
+                    task.status = TaskState::Failed.as_status().to_owned();
+                    task.engine_status = Some("torrent-resume-invalid".to_owned());
+                    task.error_message = Some(format!(
+                        "The persisted torrent job could not be restored: {error}"
+                    ));
+                    task.speed_bytes_per_sec = 0;
+                    task.time_left_seconds = 0;
+                }
+            }
         } else if task.engine == "media-bridge" {
             let args = restored
                 .media_args
@@ -1081,7 +1129,10 @@ fn restore_persisted_tasks(
             task.speed_bytes_per_sec = 0;
         }
 
-        if task.status != "completed" && task.status != "error" {
+        if task.engine != nova_torrent_core::ENGINE_ID
+            && task.status != "completed"
+            && task.status != "error"
+        {
             state.priority_queue.enqueue(QueueEntry {
                 task_id: task.id.clone(),
                 priority: DownloadPriority::Normal,
