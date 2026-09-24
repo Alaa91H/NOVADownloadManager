@@ -1439,7 +1439,8 @@ pub fn native_media_status() -> Value {
             "separateTrackMuxRequiresPostProcessingReady": true,
             "playlistProbe": true,
             "playlistPagination": true,
-            "playlists": false,
+            "playlists": true,
+            "playlistTaskCreation": "client-batched-native",
             "formatSorting": true,
             "formatSelector": "stream-id-or-itag",
             "audioExtraction": true,
@@ -1463,7 +1464,10 @@ pub fn native_media_status() -> Value {
             "concurrentFragments": false,
             "externalDownloader": false,
             "cookies": true,
-            "cookiesFromBrowser": false,
+            "cookieFile": true,
+            "cookiesFromBrowser": true,
+            "browserCookieSources": crate::daemon::browser_cookies::NATIVE_BROWSER_COOKIE_SOURCES,
+            "browserCookieImportRequiresExplicitSource": true,
             "proxy": false,
             "sourceAddress": false,
             "retry": false,
@@ -2065,7 +2069,17 @@ mod tests {
         assert_eq!(status["capabilities"]["formatSorting"], true);
         assert_eq!(status["capabilities"]["playlistProbe"], true);
         assert_eq!(status["capabilities"]["playlistPagination"], true);
+        assert_eq!(status["capabilities"]["playlists"], true);
+        assert_eq!(
+            status["capabilities"]["playlistTaskCreation"],
+            "client-batched-native"
+        );
         assert_eq!(status["capabilities"]["audioExtraction"], true);
+        assert_eq!(status["capabilities"]["cookiesFromBrowser"], true);
+        assert_eq!(
+            status["capabilities"]["browserCookieImportRequiresExplicitSource"],
+            true
+        );
         assert_eq!(status["capabilities"]["subtitles"], true);
         assert_eq!(status["capabilities"]["autoSubtitles"], true);
         assert_eq!(status["capabilities"]["thumbnailWrite"], true);
