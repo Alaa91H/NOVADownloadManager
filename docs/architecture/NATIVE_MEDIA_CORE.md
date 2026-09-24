@@ -124,6 +124,13 @@ request URL + authorized headers/cookies
 - 1080p/1440p/2160p quality selection can choose separate native video/audio tracks when post-processing is explicitly enabled;
 - lossless copy-mux is isolated behind the `NOVA Post-Processing` host interface; the temporary FFmpeg adapter receives local files only and never participates in URL resolution, extraction or authentication;
 - pause/resume during separate-track transfer preserves native partial artifacts, while completed tracks are reused after restart without unnecessary re-download;
+- native audio-only representation selection without transcoding, including source-container preference and bounded format sorting;
+- explicit native stream/itag selection for one stream or a video+audio pair;
+- native subtitle and automatic-subtitle sidecar download with language filtering;
+- native thumbnail, description and redacted info-JSON sidecars; transport headers, cookies and signed stream URLs are excluded from info JSON;
+- native YouTube chapter normalization with start/end timestamps included in metadata sidecars;
+- native remux policy that permits same-container/direct output and compatible copy-mux containers while failing closed when additional post-processing is required;
+- native YouTube playlist probing with continuation pagination, bounded page/entry limits and a first-party `/api/media/probe-playlist` endpoint;
 - sensitive native request context is kept in memory and omitted from restart snapshots, forcing reauthorization when needed;
 - `/api/media/native/resolve` GET and POST migration API.
 
@@ -134,9 +141,12 @@ Still isolated behind typed interfaces:
 - newly observed throttling/challenge transform families that fall outside the verified native parser subset;
 - a fully in-process Rust container muxer that can replace the temporary host post-processing adapter;
 - HLS/DASH manifests that require composing separate audio/video representations into one output;
+- playlist batch-task creation; playlist discovery/probing and pagination are already native;
+- subtitle/thumbnail/metadata embedding into the final container;
+- chapter splitting and time-based partial-section extraction;
+- audio transcoding targets such as MP3/FLAC/WAV when no matching source representation exists;
 - advanced live crash recovery beyond the persisted cursor/committed-part checkpoint implemented by the task path;
 - browser-cookie import and cookie-file loading;
-- codec transcoding;
 - additional site adapters;
 - final migration of all legacy media jobs onto the native execution path.
 
@@ -154,7 +164,8 @@ The temporary bridge can be deleted after native acceptance tests pass for:
 - HLS VOD and live — task path implemented, final cross-platform acceptance still required;
 - DASH VOD and dynamic manifests — task path implemented, final cross-platform acceptance still required;
 - separate audio/video tracks — native staging/resume/task execution and copy-mux path implemented, final cross-platform acceptance still required;
-- subtitles;
+- subtitles — native manual/automatic sidecars implemented; embed acceptance remains;
+- playlists — native probe/pagination implemented; batch task creation remains;
 - byte-range manifests;
 - interrupted-transfer recovery;
 - explicit user-authorized request context;
