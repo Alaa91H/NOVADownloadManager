@@ -27,7 +27,8 @@ pub use hls_transfer::{
     HlsStageResult,
 };
 pub use youtube::{
-    resolve_youtube_pending_formats, select_youtube_download_plan, youtube_video_id,
+    resolve_youtube_pending_formats, select_youtube_download_plan,
+    select_youtube_mp4_download_plan, youtube_video_id,
     YouTubeChallengeKind, YouTubeChallengeResolution, YouTubeChallengeSolver,
     YouTubeDownloadPlan, YouTubeExtraction, YouTubeExtractor, YouTubePendingFormat,
     YouTubeSelectionPolicy,
