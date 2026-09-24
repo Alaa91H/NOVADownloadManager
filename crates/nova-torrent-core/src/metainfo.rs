@@ -201,6 +201,47 @@ impl TorrentMetainfo {
         })
     }
 
+    /// Parse an exact raw v1 `info` dictionary obtained through BEP 9.
+    ///
+    /// The raw bytes are embedded without re-encoding so the info hash remains
+    /// identical to the magnet BTIH. Tracker URLs are added only to the outer
+    /// metainfo dictionary and therefore cannot affect the info hash.
+    pub fn from_info_bytes(
+        info_bytes: &[u8],
+        trackers: &[String],
+    ) -> Result<Self, TorrentMetainfoError> {
+        if info_bytes.is_empty() {
+            return Err(TorrentMetainfoError::InvalidBencode(
+                "metadata info dictionary is empty".to_owned(),
+            ));
+        }
+
+        let mut bytes = Vec::with_capacity(
+            info_bytes
+                .len()
+                .saturating_add(trackers.iter().map(String::len).sum::<usize>())
+                .saturating_add(128),
+        );
+        bytes.push(b'd');
+
+        if let Some(first) = trackers.first() {
+            bytes.extend_from_slice(b"8:announce");
+            append_bencoded_bytes(&mut bytes, first.as_bytes());
+
+            bytes.extend_from_slice(b"13:announce-listll");
+            for tracker in trackers {
+                append_bencoded_bytes(&mut bytes, tracker.as_bytes());
+            }
+            bytes.extend_from_slice(b"ee");
+        }
+
+        bytes.extend_from_slice(b"4:info");
+        bytes.extend_from_slice(info_bytes);
+        bytes.push(b'e');
+
+        Self::parse(&bytes)
+    }
+
     pub fn piece_count(&self) -> usize {
         self.piece_hashes.len()
     }
@@ -312,6 +353,12 @@ impl TorrentMetainfo {
         }
         Ok(slices)
     }
+}
+
+fn append_bencoded_bytes(output: &mut Vec<u8>, bytes: &[u8]) {
+    output.extend_from_slice(bytes.len().to_string().as_bytes());
+    output.push(b':');
+    output.extend_from_slice(bytes);
 }
 
 fn parse_files(
@@ -825,6 +872,30 @@ mod tests {
         bytes.extend_from_slice(&[2u8; 20]);
         bytes.extend_from_slice(b"ee");
         bytes
+    }
+
+    #[test]
+    fn parses_exact_bep9_info_dictionary_with_magnet_trackers() {
+        let mut info = b"d6:lengthi5e4:name8:file.bin12:piece lengthi4e6:pieces40:".to_vec();
+        info.extend_from_slice(&[1u8; 20]);
+        info.extend_from_slice(&[2u8; 20]);
+        info.push(b'e');
+
+        let torrent = TorrentMetainfo::from_info_bytes(
+            &info,
+            &[
+                "https://tracker-a.test/announce".to_owned(),
+                "udp://tracker-b.test:6969/announce".to_owned(),
+            ],
+        )
+        .expect("parse BEP9 info");
+
+        let digest = Sha1::digest(&info);
+        let mut expected = [0u8; 20];
+        expected.copy_from_slice(&digest);
+        assert_eq!(torrent.info_hash.as_bytes(), &expected);
+        assert_eq!(torrent.trackers.len(), 2);
+        assert_eq!(torrent.total_length, 5);
     }
 
     #[test]
