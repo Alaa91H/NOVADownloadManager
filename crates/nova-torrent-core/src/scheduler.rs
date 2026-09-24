@@ -1,3 +1,5 @@
+use crate::FilePriority;
+
 pub const DEFAULT_BLOCK_SIZE: u32 = 16 * 1024;
 pub const MAX_BLOCK_SIZE: u32 = 1024 * 1024;
 
@@ -92,6 +94,7 @@ pub struct PieceScheduler {
     availability: Vec<u32>,
     completed: Vec<bool>,
     inflight: Vec<bool>,
+    priorities: Vec<FilePriority>,
     cursor: usize,
 }
 
@@ -103,6 +106,7 @@ impl PieceScheduler {
             availability: vec![0; count],
             completed: vec![false; count],
             inflight: vec![false; count],
+            priorities: vec![FilePriority::Normal; count],
             cursor: 0,
         }
     }
@@ -117,6 +121,46 @@ impl PieceScheduler {
 
     pub fn peer_disconnected(&mut self, bitfield: &[u8]) -> Result<(), SchedulerError> {
         self.adjust_availability(bitfield, false)
+    }
+
+    pub fn set_piece_priorities(
+        &mut self,
+        priorities: &[FilePriority],
+    ) -> Result<(), SchedulerError> {
+        if priorities.len() != self.priorities.len() {
+            return Err(SchedulerError::PriorityCountMismatch {
+                expected: self.priorities.len(),
+                actual: priorities.len(),
+            });
+        }
+        self.priorities.copy_from_slice(priorities);
+        for (index, priority) in self.priorities.iter().enumerate() {
+            if !priority.is_selected() {
+                self.inflight[index] = false;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn piece_priority(&self, piece_index: u32) -> Result<FilePriority, SchedulerError> {
+        self.validate_piece(piece_index)?;
+        Ok(self.priorities[piece_index as usize])
+    }
+
+    pub fn restore_completed(&mut self, completed: &[bool]) -> Result<(), SchedulerError> {
+        if completed.len() != self.completed.len() {
+            return Err(SchedulerError::CompletionCountMismatch {
+                expected: self.completed.len(),
+                actual: completed.len(),
+            });
+        }
+        self.completed.copy_from_slice(completed);
+        for (index, complete) in self.completed.iter().enumerate() {
+            if *complete {
+                self.inflight[index] = false;
+            }
+        }
+        Ok(())
     }
 
     pub fn availability(&self, piece_index: u32) -> Result<u32, SchedulerError> {
@@ -135,23 +179,34 @@ impl PieceScheduler {
             return None;
         }
 
-        let mut best: Option<(u32, usize, usize)> = None;
+        let mut best: Option<(u8, u32, usize, usize)> = None;
         for index in 0..count {
             if self.completed[index]
                 || self.inflight[index]
+                || !self.priorities[index].is_selected()
                 || !bit_is_set(peer_bitfield, index)
                 || self.availability[index] == 0
             {
                 continue;
             }
             let distance = (index + count - self.cursor) % count;
-            let candidate = (self.availability[index], distance, index);
+            let priority_rank = match self.priorities[index] {
+                FilePriority::High => 0,
+                FilePriority::Normal => 1,
+                FilePriority::Skip => 2,
+            };
+            let candidate = (
+                priority_rank,
+                self.availability[index],
+                distance,
+                index,
+            );
             if best.map_or(true, |current| candidate < current) {
                 best = Some(candidate);
             }
         }
 
-        let (_, _, index) = best?;
+        let (_, _, _, index) = best?;
         self.inflight[index] = true;
         self.cursor = (index + 1) % count;
         Some(index as u32)
@@ -277,6 +332,10 @@ pub enum SchedulerError {
     AvailabilityOverflow(u32),
     #[error("piece availability underflow for piece {0}")]
     AvailabilityUnderflow(u32),
+    #[error("piece-priority count mismatch: expected {expected}, got {actual}")]
+    PriorityCountMismatch { expected: usize, actual: usize },
+    #[error("completed-piece count mismatch: expected {expected}, got {actual}")]
+    CompletionCountMismatch { expected: usize, actual: usize },
 }
 
 #[cfg(test)]
@@ -324,6 +383,26 @@ mod tests {
         // Piece 0 is now inflight, so the same peer receives one of its
         // availability=2 pieces rather than duplicating work.
         assert_eq!(scheduler.select_rarest(&[0b1110_0000]), Some(1));
+    }
+
+    #[test]
+    fn scheduler_respects_file_priority_before_rarity_and_skips_unselected() {
+        let layout = PieceLayout::new(3, 1).expect("layout");
+        let mut scheduler = PieceScheduler::new(layout);
+        scheduler.peer_connected(&[0b1110_0000]).unwrap();
+        scheduler
+            .set_piece_priorities(&[
+                FilePriority::Normal,
+                FilePriority::High,
+                FilePriority::Skip,
+            ])
+            .unwrap();
+
+        assert_eq!(scheduler.select_rarest(&[0b1110_0000]), Some(1));
+        scheduler.mark_complete(1).unwrap();
+        assert_eq!(scheduler.select_rarest(&[0b1110_0000]), Some(0));
+        scheduler.mark_complete(0).unwrap();
+        assert_eq!(scheduler.select_rarest(&[0b1110_0000]), None);
     }
 
     #[test]
