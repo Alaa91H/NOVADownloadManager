@@ -34,8 +34,10 @@ Item {
     Component.onCompleted: {
         saveDirectory.text = settings.defaultSaveDirectory
         startImmediately.checked = settings.startImmediately
-        if (api.connected)
+        if (api.connected) {
             api.refreshEngineCapabilities()
+            api.refreshQueueCatalog()
+        }
         for (let i = 0; i < connections.model.length; ++i) {
             if (connections.model[i].value === settings.defaultConnections) {
                 connections.currentIndex = i
@@ -55,6 +57,13 @@ Item {
 
     Connections {
         target: api
+
+        function onConnectionChanged() {
+            if (api.connected) {
+                api.refreshEngineCapabilities()
+                api.refreshQueueCatalog()
+            }
+        }
 
         function onBatchImportStarted(total, duplicates) {
             root.totalCount = total
@@ -262,7 +271,9 @@ Item {
                 ComboBox {
                     id: queueSelector
                     Layout.fillWidth: true
-                    model: api.knownQueueIds
+                    model: api.queueCatalog
+                    textRole: "name"
+                    valueRole: "id"
                     editable: true
                     enabled: !api.batchRunning
                     Accessible.name: root.t("batch.queueId")
@@ -482,14 +493,18 @@ Item {
                     if (cookiesField.text.trim().length > 0)
                         advanced.cookies = cookiesField.text.trim()
 
+                    const selectedQueueId = queueSelector.currentIndex >= 0
+                        ? String(queueSelector.currentValue)
+                        : queueSelector.editText.trim()
+
                     api.importBatch(
                         linksInput.text,
                         saveDirectory.text,
                         connections.currentValue,
                         startImmediately.checked,
                         {
-                            queueId: queueSelector.currentText.length > 0
-                                ? queueSelector.currentText
+                            queueId: selectedQueueId.length > 0
+                                ? selectedQueueId
                                 : root.defaultQueueId,
                             advanced: advanced
                         }
