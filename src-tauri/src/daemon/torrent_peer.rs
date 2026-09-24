@@ -16,6 +16,7 @@ use tokio::task::JoinSet;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
+use crate::daemon::torrent_bandwidth::TorrentBandwidthLimiter;
 use crate::daemon::utils::{is_internal_ip, private_network_allowed};
 
 const MAX_PEER_CANDIDATES: usize = 4_096;
@@ -165,6 +166,8 @@ impl PeerReputationBook {
 pub struct PeerEngineConfig {
     pub session: PeerSessionConfig,
     pub max_outbound_connections: usize,
+    /// Shared download ceiling across all peer sessions. None or zero means unlimited.
+    pub download_rate_limit_bytes_per_sec: Option<u64>,
 }
 
 impl Default for PeerEngineConfig {
@@ -172,6 +175,7 @@ impl Default for PeerEngineConfig {
         Self {
             session: PeerSessionConfig::default(),
             max_outbound_connections: 32,
+            download_rate_limit_bytes_per_sec: None,
         }
     }
 }
@@ -181,16 +185,23 @@ pub struct PeerEngine {
     config: PeerEngineConfig,
     reputation: Arc<Mutex<PeerReputationBook>>,
     connection_slots: Arc<Semaphore>,
+    download_limiter: Option<Arc<TorrentBandwidthLimiter>>,
     allow_private_network: bool,
 }
 
 impl PeerEngine {
     pub fn new(config: PeerEngineConfig) -> Self {
         let limit = config.max_outbound_connections.max(1);
+        let download_limiter = config
+            .download_rate_limit_bytes_per_sec
+            .filter(|rate| *rate > 0)
+            .and_then(|rate| TorrentBandwidthLimiter::new(rate).ok())
+            .map(Arc::new);
         Self {
             config,
             reputation: Arc::new(Mutex::new(PeerReputationBook::default())),
             connection_slots: Arc::new(Semaphore::new(limit)),
+            download_limiter,
             allow_private_network: private_network_allowed(),
         }
     }
@@ -226,6 +237,7 @@ impl PeerEngine {
             let permit = self.connection_slots.clone();
             let config = self.config.session.clone();
             let allow_private_network = self.allow_private_network;
+            let download_limiter = self.download_limiter.clone();
             let child_cancel = cancel.child_token();
             tasks.spawn(async move {
                 let connection_permit = permit.acquire_owned().await.ok()?;
@@ -241,6 +253,9 @@ impl PeerEngine {
                 .await
                 .map(|mut session| {
                     session.attach_connection_permit(connection_permit);
+                    if let Some(limiter) = download_limiter {
+                        session.attach_download_limiter(limiter);
+                    }
                     session
                 });
                 Some((address, result))
@@ -321,6 +336,9 @@ impl PeerEngine {
             {
                 Ok(mut session) => {
                     session.attach_connection_permit(connection_permit);
+                    if let Some(limiter) = self.download_limiter.clone() {
+                        session.attach_download_limiter(limiter);
+                    }
                     session
                 },
                 Err(error) => {
@@ -508,6 +526,7 @@ fn limit_peer_error(error: &str) -> String {
 pub struct PeerSession {
     address: SocketAddr,
     _connection_permit: Option<OwnedSemaphorePermit>,
+    download_limiter: Option<Arc<TorrentBandwidthLimiter>>,
     remote_peer_id: [u8; 20],
     remote_supports_extensions: bool,
     remote_supports_dht: bool,
@@ -605,6 +624,7 @@ impl PeerSession {
         let mut session = Self {
             address,
             _connection_permit: None,
+            download_limiter: None,
             remote_peer_id: remote.peer_id,
             remote_supports_extensions,
             remote_supports_dht: remote.supports_dht_port(),
@@ -641,6 +661,11 @@ impl PeerSession {
     fn attach_connection_permit(&mut self, permit: OwnedSemaphorePermit) {
         self._connection_permit = Some(permit);
     }
+
+    fn attach_download_limiter(&mut self, limiter: Arc<TorrentBandwidthLimiter>) {
+        self.download_limiter = Some(limiter);
+    }
+
 
     pub const fn address(&self) -> SocketAddr {
         self.address
@@ -1198,6 +1223,9 @@ impl PeerSession {
             let Some(request) = pending.pop_front() else {
                 break;
             };
+            if let Some(limiter) = &self.download_limiter {
+                limiter.acquire(u64::from(request.length), cancel).await?;
+            }
             self.send(
                 &PeerMessage::Request {
                     piece_index: request.piece_index,
@@ -1242,6 +1270,9 @@ impl PeerSession {
         }
 
         let request = oldest.request;
+        if let Some(limiter) = &self.download_limiter {
+            limiter.acquire(u64::from(request.length), cancel).await?;
+        }
         self.send(
             &PeerMessage::Request {
                 piece_index: request.piece_index,
@@ -1976,6 +2007,7 @@ mod tests {
         let engine = PeerEngine::for_tests(PeerEngineConfig {
             session: test_config(),
             max_outbound_connections: 2,
+            download_rate_limit_bytes_per_sec: None,
         });
         let cancel = CancellationToken::new();
         let result = engine
