@@ -3288,6 +3288,74 @@ mod tests {
     }
 
     #[test]
+    fn request_context_precedence_prefers_explicit_media_fields() {
+        let mut request = body("https://media.example.test/video.mp4");
+        request.referer = Some("https://body.example/ref".to_owned());
+        let media = request.media_options.as_mut().expect("media");
+        media.user_agent = Some("NOVA-Explicit-UA".to_owned());
+        media.referer = Some("https://media.example/ref".to_owned());
+        media.cookies = Some("explicit=1".to_owned());
+        media.headers = Some(
+            "User-Agent: Raw-UA\nReferer: https://raw.example/ref\nCookie: raw=1\nAuthorization: Bearer token"
+                .to_owned(),
+        );
+
+        let extract = build_extract_request(&request).expect("request context");
+        let context = extract.request_context().expect("typed context");
+        assert_eq!(context.user_agent.as_deref(), Some("NOVA-Explicit-UA"));
+        assert_eq!(
+            context.referer.as_deref(),
+            Some("https://media.example/ref")
+        );
+        assert_eq!(context.cookie_header.as_deref(), Some("explicit=1; raw=1"));
+        assert_eq!(
+            context.headers.get("authorization").map(String::as_str),
+            Some("Bearer token")
+        );
+    }
+
+    #[test]
+    fn raw_headers_supply_typed_context_when_explicit_fields_are_absent() {
+        let mut request = body("https://media.example.test/video.mp4");
+        let media = request.media_options.as_mut().expect("media");
+        media.headers = Some(
+            "User-Agent: Raw-UA\nReferer: https://raw.example/ref\nCookie: raw=1"
+                .to_owned(),
+        );
+
+        let context = build_extract_request(&request)
+            .expect("request")
+            .request_context()
+            .expect("typed context");
+        assert_eq!(context.user_agent.as_deref(), Some("Raw-UA"));
+        assert_eq!(
+            context.referer.as_deref(),
+            Some("https://raw.example/ref")
+        );
+        assert_eq!(context.cookie_header.as_deref(), Some("raw=1"));
+    }
+
+    #[test]
+    fn transport_owned_headers_are_rejected_before_extraction() {
+        let mut request = body("https://media.example.test/video.mp4");
+        request.media_options.as_mut().expect("media").headers =
+            Some("Range: bytes=0-99".to_owned());
+        let error = build_extract_request(&request)
+            .expect_err("Range must remain transport-owned");
+        assert!(error.to_string().contains("owned by the native transport"));
+    }
+
+    #[test]
+    fn duplicate_typed_headers_are_rejected_case_insensitively() {
+        let mut request = body("https://media.example.test/video.mp4");
+        request.media_options.as_mut().expect("media").headers =
+            Some("Cookie: a=1\ncookie: b=2".to_owned());
+        let error = build_extract_request(&request)
+            .expect_err("duplicate Cookie headers must fail");
+        assert!(error.to_string().contains("supplied more than once"));
+    }
+
+    #[test]
     fn manifest_urls_are_native_even_without_media_options() {
         let mut request = body("https://cdn.test/live.m3u8?token=abc");
         request.media_options = None;
