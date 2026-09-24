@@ -855,47 +855,93 @@ fn normalized_native_catalog_formats(
         .flatten()
         .filter_map(|format| {
             let url = format.get("url").and_then(serde_json::Value::as_str)?;
-            let height = format.get("height").and_then(serde_json::Value::as_u64);
-            let width = format.get("width").and_then(serde_json::Value::as_u64);
-            let bandwidth = format
-                .get("bandwidth")
-                .and_then(serde_json::Value::as_u64)
-                .or_else(|| {
+            let mut item = serde_json::Map::new();
+            item.insert("url".to_owned(), serde_json::json!(url));
+            item.insert(
+                "formatId".to_owned(),
+                serde_json::json!(
                     format
-                        .get("tbr")
-                        .and_then(serde_json::Value::as_f64)
-                        .map(|value| (value * 1000.0).max(0.0) as u64)
-                })
-                .or_else(|| {
+                        .get("formatId")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("native")
+                ),
+            );
+            item.insert(
+                "label".to_owned(),
+                serde_json::json!(
                     format
-                        .get("abr")
-                        .and_then(serde_json::Value::as_f64)
-                        .map(|value| (value * 1000.0).max(0.0) as u64)
-                });
-            Some(serde_json::json!({
-                "url": url,
-                "formatId": format.get("formatId").and_then(serde_json::Value::as_str).unwrap_or("native"),
-                "label": format.get("label").and_then(serde_json::Value::as_str).unwrap_or("Native"),
-                "width": width,
-                "height": height,
-                "bandwidth": bandwidth,
-                "codecs": format.get("codecs").and_then(serde_json::Value::as_str).unwrap_or(""),
-                "container": format
-                    .get("container")
-                    .or_else(|| format.get("ext"))
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or(""),
-                "fps": format.get("fps").and_then(serde_json::Value::as_f64),
-                "hasVideo": format.get("hasVideo").and_then(serde_json::Value::as_bool).unwrap_or(false),
-                "hasAudio": format.get("hasAudio").and_then(serde_json::Value::as_bool).unwrap_or(false),
-                "estimatedSizeBytes": format
-                    .get("estimatedSizeBytes")
-                    .or_else(|| format.get("filesize"))
-                    .and_then(serde_json::Value::as_u64),
-                "tbr": format.get("tbr").and_then(serde_json::Value::as_f64),
-                "vbr": format.get("vbr").and_then(serde_json::Value::as_f64),
-                "abr": format.get("abr").and_then(serde_json::Value::as_f64),
-            }))
+                        .get("label")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("Native")
+                ),
+            );
+            item.insert(
+                "codecs".to_owned(),
+                serde_json::json!(
+                    format
+                        .get("codecs")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("")
+                ),
+            );
+            item.insert(
+                "container".to_owned(),
+                serde_json::json!(
+                    format
+                        .get("container")
+                        .or_else(|| format.get("ext"))
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("")
+                ),
+            );
+            item.insert(
+                "hasVideo".to_owned(),
+                serde_json::json!(
+                    format
+                        .get("hasVideo")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false)
+                ),
+            );
+            item.insert(
+                "hasAudio".to_owned(),
+                serde_json::json!(
+                    format
+                        .get("hasAudio")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false)
+                ),
+            );
+
+            for key in ["width", "height", "bandwidth", "estimatedSizeBytes"] {
+                if let Some(value) = format.get(key).and_then(serde_json::Value::as_u64) {
+                    item.insert(key.to_owned(), serde_json::json!(value));
+                } else if key == "estimatedSizeBytes" {
+                    if let Some(value) =
+                        format.get("filesize").and_then(serde_json::Value::as_u64)
+                    {
+                        item.insert(key.to_owned(), serde_json::json!(value));
+                    }
+                }
+            }
+            for key in ["fps", "tbr", "vbr", "abr"] {
+                if let Some(value) = format.get(key).and_then(serde_json::Value::as_f64) {
+                    item.insert(key.to_owned(), serde_json::json!(value));
+                }
+            }
+            if !item.contains_key("bandwidth") {
+                if let Some(value) = format
+                    .get("tbr")
+                    .and_then(serde_json::Value::as_f64)
+                    .or_else(|| format.get("abr").and_then(serde_json::Value::as_f64))
+                {
+                    item.insert(
+                        "bandwidth".to_owned(),
+                        serde_json::json!((value * 1000.0).max(0.0) as u64),
+                    );
+                }
+            }
+            Some(serde_json::Value::Object(item))
         })
         .collect::<Vec<_>>();
 
@@ -1657,6 +1703,28 @@ mod tests {
         })));
         assert!(!managed_media_is_drm_protected(&serde_json::json!({})));
     }
+    #[test]
+    fn native_catalog_omits_absent_optional_fields() {
+        let formats = normalized_native_catalog_formats(&serde_json::json!({
+            "formats": [{
+                "url": "https://site.test/watch",
+                "formatId": "audio",
+                "label": "Audio",
+                "hasVideo": false,
+                "hasAudio": true,
+                "container": "webm",
+                "codecs": "opus"
+            }]
+        }));
+        assert_eq!(formats.len(), 1);
+        let format = formats[0].as_object().expect("format object");
+        assert!(!format.contains_key("width"));
+        assert!(!format.contains_key("height"));
+        assert!(!format.contains_key("fps"));
+        assert!(!format.contains_key("bandwidth"));
+        assert!(!format.contains_key("estimatedSizeBytes"));
+    }
+
     #[test]
     fn native_selected_video_only_format_preserves_exact_id() {
         let (selector, has_video, has_audio) = native_selector_for_selected_format(&serde_json::json!({
