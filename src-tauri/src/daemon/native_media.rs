@@ -2886,6 +2886,14 @@ fn resolved_from_descriptor(
     }
 }
 
+#[derive(Default)]
+struct ParsedNativeHeaders {
+    generic: BTreeMap<String, String>,
+    user_agent: Option<String>,
+    referer: Option<String>,
+    cookie: Option<String>,
+}
+
 fn build_extract_request(
     body: &CreateDownloadBody,
 ) -> Result<ExtractRequest, NativeMediaTaskError> {
@@ -2896,67 +2904,76 @@ fn build_extract_request(
         ));
     }
 
+    let options = body.media_options.as_ref();
+    let parsed_headers = options
+        .and_then(|options| options.headers.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(parse_native_header_lines)
+        .transpose()
+        .map_err(NativeMediaTaskError::InvalidRequest)?
+        .unwrap_or_default();
+
     let mut request = ExtractRequest::new(url);
-    if let Some(referer) = body.referer.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-        request.headers.insert("Referer".to_owned(), referer.to_owned());
+    request.headers.extend(parsed_headers.generic);
+
+    let user_agent = options
+        .and_then(|options| options.user_agent.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .or(parsed_headers.user_agent);
+    if let Some(user_agent) = user_agent {
+        request
+            .headers
+            .insert("User-Agent".to_owned(), user_agent);
     }
 
-    if let Some(options) = body.media_options.as_ref() {
-        if let Some(user_agent) = options
-            .user_agent
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            request
-                .headers
-                .insert("User-Agent".to_owned(), user_agent.to_owned());
-        }
-        if let Some(referer) = options
-            .referer
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            request.headers.insert("Referer".to_owned(), referer.to_owned());
-        }
-        let mut cookie_headers = Vec::new();
-        if let Some(cookies) = options
-            .cookies
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            cookie_headers.push(
-                resolve_native_cookie_option(cookies, url)
-                    .map_err(NativeMediaTaskError::InvalidRequest)?,
-            );
-        }
-        if let Some(source) = options
-            .cookies_from_browser
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            cookie_headers.push(
-                load_browser_cookie_header(source, url)
-                    .map_err(NativeMediaTaskError::InvalidRequest)?,
-            );
-        }
-        if !cookie_headers.is_empty() {
-            request
-                .headers
-                .insert("Cookie".to_owned(), cookie_headers.join("; "));
-        }
-        if let Some(headers) = options
+    let referer = options
+        .and_then(|options| options.referer.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            body.referer
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+        })
+        .or(parsed_headers.referer);
+    if let Some(referer) = referer {
+        request.headers.insert("Referer".to_owned(), referer);
+    }
+
+    let mut cookie_headers = Vec::new();
+    if let Some(cookies) = options
+        .and_then(|options| options.cookies.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        cookie_headers.push(
+            resolve_native_cookie_option(cookies, url)
+                .map_err(NativeMediaTaskError::InvalidRequest)?,
+        );
+    }
+    if let Some(source) = options
+        .and_then(|options| options.cookies_from_browser.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        cookie_headers.push(
+            load_browser_cookie_header(source, url)
+                .map_err(NativeMediaTaskError::InvalidRequest)?,
+        );
+    }
+    if let Some(cookie) = parsed_headers.cookie {
+        cookie_headers.push(cookie);
+    }
+    if !cookie_headers.is_empty() {
+        request
             .headers
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            parse_header_lines(&mut request.headers, headers)
-                .map_err(NativeMediaTaskError::InvalidRequest)?;
-        }
+            .insert("Cookie".to_owned(), cookie_headers.join("; "));
     }
 
     request
@@ -2965,19 +2982,73 @@ fn build_extract_request(
     Ok(request)
 }
 
-fn parse_header_lines(
-    target: &mut BTreeMap<String, String>,
-    headers: &str,
-) -> Result<(), String> {
+fn parse_native_header_lines(headers: &str) -> Result<ParsedNativeHeaders, String> {
+    let mut parsed = ParsedNativeHeaders::default();
     for line in headers.lines().map(str::trim).filter(|line| !line.is_empty()) {
         let (name, value) = line
             .split_once(':')
             .ok_or_else(|| format!("Invalid media header line: {line}"))?;
-        if name.trim().is_empty() || value.trim().is_empty() {
+        let name = name.trim();
+        let value = value.trim();
+        if name.is_empty()
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            || value.is_empty()
+            || value
+                .chars()
+                .any(|character| matches!(character, '\r' | '\n' | '\0'))
+        {
             return Err(format!("Invalid media header line: {line}"));
         }
-        target.insert(name.trim().to_owned(), value.trim().to_owned());
+
+        let normalized = name.to_ascii_lowercase();
+        match normalized.as_str() {
+            "host"
+            | "content-length"
+            | "transfer-encoding"
+            | "range"
+            | "if-range"
+            | "accept-encoding"
+            | "connection" => {
+                return Err(format!(
+                    "Media header '{name}' is owned by the native transport"
+                ));
+            }
+            "user-agent" => set_unique_typed_header(
+                &mut parsed.user_agent,
+                value,
+                "User-Agent",
+            )?,
+            "referer" => set_unique_typed_header(
+                &mut parsed.referer,
+                value,
+                "Referer",
+            )?,
+            "cookie" => set_unique_typed_header(
+                &mut parsed.cookie,
+                value,
+                "Cookie",
+            )?,
+            _ => {
+                parsed.generic.insert(normalized, value.to_owned());
+            }
+        }
     }
+    Ok(parsed)
+}
+
+fn set_unique_typed_header(
+    slot: &mut Option<String>,
+    value: &str,
+    name: &str,
+) -> Result<(), String> {
+    if slot.is_some() {
+        return Err(format!(
+            "Media header '{name}' was supplied more than once"
+        ));
+    }
+    *slot = Some(value.to_owned());
     Ok(())
 }
 
