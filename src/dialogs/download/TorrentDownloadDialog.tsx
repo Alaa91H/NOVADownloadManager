@@ -23,10 +23,18 @@ export const TorrentDownloadDialog: React.FC = () => {
   const capabilities = useEngineCapabilities();
 
   const magnetUri = typeof dialog.payload === 'string' ? dialog.payload.trim() : '';
+  const systemTorrentPath =
+    typeof dialog.payload === 'object' &&
+    dialog.payload !== null &&
+    (dialog.payload as { kind?: unknown }).kind === 'file' &&
+    typeof (dialog.payload as { path?: unknown }).path === 'string'
+      ? (dialog.payload as { path: string }).path
+      : '';
   const latestMagnetRef = useRef(magnetUri);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const analysisRequestRef = useRef(0);
-  const [sourceLabel, setSourceLabel] = useState(magnetUri);
+  const handledSystemPathRef = useRef('');
+  const [sourceLabel, setSourceLabel] = useState(magnetUri || systemTorrentPath);
   const [analysis, setAnalysis] = useState<TorrentAnalysis | null>(null);
   const [priorities, setPriorities] = useState<TorrentFilePriority[]>([]);
   const [savePath, setSavePath] = useState(
@@ -93,6 +101,34 @@ export const TorrentDownloadDialog: React.FC = () => {
       cancelled = true;
     };
   }, [magnetUri, capabilities.torrentReady]);
+
+  useEffect(() => {
+    if (!systemTorrentPath || !capabilities.torrentReady) return;
+    if (handledSystemPathRef.current === systemTorrentPath) return;
+    handledSystemPathRef.current = systemTorrentPath;
+
+    const requestId = ++analysisRequestRef.current;
+    setLoading(true);
+    setError('');
+    setAnalysis(null);
+    setSourceLabel(systemTorrentPath);
+
+    void tauriClient
+      .readOpenedTorrentFile(systemTorrentPath)
+      .then((bytes) => novaClient.analyzeTorrentFile(bytes))
+      .then((result) => {
+        if (analysisRequestRef.current !== requestId) return;
+        setAnalysis(result);
+        setPriorities(result.files.map((file) => file.priority || 'normal'));
+      })
+      .catch((reason: unknown) => {
+        if (analysisRequestRef.current !== requestId) return;
+        setError(reason instanceof Error ? reason.message : 'Torrent metadata file analysis failed.');
+      })
+      .finally(() => {
+        if (analysisRequestRef.current === requestId) setLoading(false);
+      });
+  }, [systemTorrentPath, capabilities.torrentReady]);
 
   const selectedFileCount = useMemo(
     () => priorities.reduce((total, priority) => total + (priority === 'skip' ? 0 : 1), 0),

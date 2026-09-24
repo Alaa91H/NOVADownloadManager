@@ -50,6 +50,32 @@ describe('tauriClient updater configuration', () => {
     expect(invoke).toHaveBeenCalledWith('load_config', undefined);
   });
 
+  it('drains pending torrent system-open requests from the desktop core', async () => {
+    invoke.mockResolvedValue([
+      { kind: 'magnet', value: 'magnet:?xt=urn:btih:1111111111111111111111111111111111111111' },
+      { kind: 'file', value: 'C:\\Downloads\\sample.torrent' },
+    ]);
+
+    const pending = await tauriClient.takePendingTorrentOpens();
+
+    expect(pending).toHaveLength(2);
+    expect(pending[0]?.kind).toBe('magnet');
+    expect(pending[1]).toEqual({ kind: 'file', value: 'C:\\Downloads\\sample.torrent' });
+    expect(invoke).toHaveBeenCalledWith('take_pending_torrent_opens', undefined);
+  });
+
+  it('receives an opened torrent file as a raw array buffer', async () => {
+    const payload = new Uint8Array([100, 52, 58, 105, 110, 102, 111, 100, 101]).buffer;
+    invoke.mockResolvedValue(payload);
+
+    const result = await tauriClient.readOpenedTorrentFile('C:\\Downloads\\sample.torrent');
+
+    expect(result).toBe(payload);
+    expect(invoke).toHaveBeenCalledWith('read_opened_torrent_file', {
+      path: 'C:\\Downloads\\sample.torrent',
+    });
+  });
+
   it('does not bypass a rejected desktop URL policy with window.open', async () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
     invoke.mockRejectedValue(new Error('Internal URLs cannot be opened in the browser.'));

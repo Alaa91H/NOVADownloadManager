@@ -36,6 +36,11 @@ export interface BrowserExtensionPaths {
   resourcePath: string;
 }
 
+export interface TorrentOpenRequest {
+  kind: 'magnet' | 'file';
+  value: string;
+}
+
 export interface FileOperationResult {
   success: boolean;
   message: string;
@@ -133,6 +138,28 @@ export const tauriClient = {
       pid: health.pid,
       buildVersion: await getBuildVersion(),
     };
+  },
+
+  async takePendingTorrentOpens(): Promise<TorrentOpenRequest[]> {
+    if (!window.__TAURI_INTERNALS__) return [];
+    const value = await invoke('take_pending_torrent_opens');
+    if (!Array.isArray(value)) return [];
+    return value.filter(
+      (item): item is TorrentOpenRequest =>
+        typeof item === 'object' &&
+        item !== null &&
+        ((item as { kind?: unknown }).kind === 'magnet' || (item as { kind?: unknown }).kind === 'file') &&
+        typeof (item as { value?: unknown }).value === 'string',
+    );
+  },
+
+  async readOpenedTorrentFile(path: string): Promise<ArrayBuffer> {
+    const value = await invoke('read_opened_torrent_file', { path });
+    if (value instanceof ArrayBuffer) return value;
+    if (value instanceof Uint8Array) {
+      return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+    }
+    throw new Error('NOVA returned an invalid torrent file payload.');
   },
 
   async restartDaemon(): Promise<boolean> {
