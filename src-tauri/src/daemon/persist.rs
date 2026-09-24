@@ -485,6 +485,7 @@ pub(crate) mod tests {
             ),
             api_token: String::new(),
             native_client_token: String::from("test-native-client-token"),
+            browser_client_token: String::from("test-browser-client-token"),
             native_pairing_secret: String::from("test-native-pairing-secret"),
             download_stats: Mutex::new(DownloadStats::default()),
             rie: crate::daemon::resource_intelligence::ResourceIntelligenceEngine::new(),
