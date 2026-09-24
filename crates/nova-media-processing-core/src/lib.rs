@@ -11,6 +11,7 @@ mod demux;
 mod error;
 mod job;
 mod mux;
+mod mp4;
 mod pipeline;
 mod probe;
 mod progress;
@@ -18,6 +19,7 @@ mod types;
 
 pub use demux::MediaDemuxer;
 pub use mux::{MediaMuxResult, MediaMuxer};
+pub use mp4::{probe_mp4_file, Mp4Demuxer, Mp4Sample, Mp4TrackIndex, ParsedMp4};
 pub use capabilities::{
     native_media_processing_capabilities, NativeMediaProcessingCapabilities,
 };
