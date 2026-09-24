@@ -3009,6 +3009,8 @@ dependencies = [
  "md-5",
  "nova-core-model",
  "nova-download-core",
+ "nova-media-core",
+ "nova-stream-core",
  "regex",
  "reqwest",
  "serde",
@@ -3048,6 +3050,25 @@ dependencies = [
  "curl",
  "nova-core-model",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "nova-media-core"
+version = "0.1.0"
+dependencies = [
+ "nova-stream-core",
+ "serde",
+ "thiserror 2.0.20",
+ "url",
+]
+
+[[package]]
+name = "nova-stream-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.20",
+ "url",
 ]
 
 [[package]]
