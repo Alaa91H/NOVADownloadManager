@@ -80,6 +80,8 @@ public:
     Q_INVOKABLE void setShortcutsEnabled(bool enabled);
     Q_INVOKABLE bool exportBackup(const QString &path) const;
     Q_INVOKABLE bool importBackup(const QString &path);
+    bool daemonMigrationPending(const QString &area) const;
+    void completeDaemonMigration(const QString &area);
     Q_INVOKABLE void resetToDefaults();
 
 signals:
