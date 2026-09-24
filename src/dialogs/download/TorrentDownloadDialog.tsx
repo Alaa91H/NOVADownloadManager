@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, FolderOpen, Loader2, Magnet, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, FileUp, FolderOpen, Loader2, Magnet, ShieldCheck } from 'lucide-react';
 
 import { novaClient, type TorrentAnalysis, type TorrentFilePriority } from '../../api/novaClient';
 import { tauriClient } from '../../api/tauriClient';
@@ -24,6 +24,9 @@ export const TorrentDownloadDialog: React.FC = () => {
 
   const magnetUri = typeof dialog.payload === 'string' ? dialog.payload.trim() : '';
   const latestMagnetRef = useRef(magnetUri);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const analysisRequestRef = useRef(0);
+  const [sourceLabel, setSourceLabel] = useState(magnetUri);
   const [analysis, setAnalysis] = useState<TorrentAnalysis | null>(null);
   const [priorities, setPriorities] = useState<TorrentFilePriority[]>([]);
   const [savePath, setSavePath] = useState(
@@ -40,6 +43,7 @@ export const TorrentDownloadDialog: React.FC = () => {
 
   useEffect(() => {
     latestMagnetRef.current = magnetUri;
+    if (magnetUri) setSourceLabel(magnetUri);
   }, [magnetUri]);
 
   useEffect(() => {
@@ -64,22 +68,25 @@ export const TorrentDownloadDialog: React.FC = () => {
   useEffect(() => {
     if (!magnetUri || !capabilities.torrentReady) return;
     let cancelled = false;
+    const requestId = ++analysisRequestRef.current;
     setLoading(true);
     setError('');
     setAnalysis(null);
+    setSourceLabel(magnetUri);
 
     void novaClient
       .analyzeTorrent(magnetUri)
       .then((result) => {
-        if (cancelled) return;
+        if (cancelled || analysisRequestRef.current !== requestId) return;
         setAnalysis(result);
         setPriorities(result.files.map((file) => file.priority || 'normal'));
       })
       .catch((reason: unknown) => {
-        if (!cancelled) setError(reason instanceof Error ? reason.message : 'Torrent analysis failed.');
+        if (cancelled || analysisRequestRef.current !== requestId) return;
+        setError(reason instanceof Error ? reason.message : 'Torrent analysis failed.');
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && analysisRequestRef.current === requestId) setLoading(false);
       });
 
     return () => {
@@ -102,6 +109,33 @@ export const TorrentDownloadDialog: React.FC = () => {
   const setAll = (priority: TorrentFilePriority) => {
     if (!analysis) return;
     setPriorities(analysis.files.map(() => priority));
+  };
+
+  const analyzeTorrentFile = async (file: File) => {
+    const maxBytes = 32 * 1024 * 1024;
+    if (file.size <= 0 || file.size > maxBytes) {
+      setError('The .torrent file must be between 1 byte and 32 MiB.');
+      setAnalysis(null);
+      return;
+    }
+
+    const requestId = ++analysisRequestRef.current;
+    setLoading(true);
+    setError('');
+    setAnalysis(null);
+    setSourceLabel(file.name);
+
+    try {
+      const result = await novaClient.analyzeTorrentFile(new Uint8Array(await file.arrayBuffer()));
+      if (analysisRequestRef.current !== requestId) return;
+      setAnalysis(result);
+      setPriorities(result.files.map((item) => item.priority || 'normal'));
+    } catch (reason) {
+      if (analysisRequestRef.current !== requestId) return;
+      setError(reason instanceof Error ? reason.message : 'Torrent metadata file analysis failed.');
+    } finally {
+      if (analysisRequestRef.current === requestId) setLoading(false);
+    }
   };
 
   const handlePickDirectory = async () => {
@@ -173,16 +207,42 @@ export const TorrentDownloadDialog: React.FC = () => {
     <div className="space-y-4">
       <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-hover)]/25 p-3">
         <div className="flex items-start gap-3">
-          <Magnet className="mt-0.5 h-5 w-5 shrink-0 text-[var(--accent-primary)]" />
+          {sourceLabel.startsWith('magnet:') ? (
+            <Magnet className="mt-0.5 h-5 w-5 shrink-0 text-[var(--accent-primary)]" />
+          ) : (
+            <FileUp className="mt-0.5 h-5 w-5 shrink-0 text-[var(--accent-primary)]" />
+          )}
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold text-[var(--text-primary)]">Native BitTorrent download</div>
-            <div className="mt-1 truncate font-mono text-[10px] text-[var(--text-muted)]" title={magnetUri}>
-              {magnetUri}
+            <div className="mt-1 truncate font-mono text-[10px] text-[var(--text-muted)]" title={sourceLabel}>
+              {sourceLabel || 'Choose a .torrent file or open a magnet link.'}
             </div>
           </div>
-          <div className="flex items-center gap-1 text-[10px] text-[var(--success)]">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            NOVA native
+          <div className="flex shrink-0 items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".torrent,application/x-bittorrent"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                if (file) void analyzeTorrentFile(file);
+              }}
+            />
+            <button
+              type="button"
+              disabled={loading || creating}
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-1.5 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1 text-[10px] font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-50"
+            >
+              <FileUp className="h-3.5 w-3.5" />
+              Open .torrent
+            </button>
+            <div className="flex items-center gap-1 text-[10px] text-[var(--success)]">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              NOVA native
+            </div>
           </div>
         </div>
       </div>
@@ -190,7 +250,7 @@ export const TorrentDownloadDialog: React.FC = () => {
       {loading && (
         <div className="flex min-h-36 items-center justify-center gap-2 rounded-lg border border-[var(--border-color)] text-xs text-[var(--text-secondary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Discovering peers and retrieving signed torrent metadata…
+          Analyzing torrent metadata and discovering peers…
         </div>
       )}
 

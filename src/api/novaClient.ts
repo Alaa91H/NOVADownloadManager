@@ -493,6 +493,18 @@ export const novaClient = {
     );
   },
 
+  async analyzeTorrentFile(bytes: Uint8Array): Promise<TorrentAnalysis> {
+    return request<TorrentAnalysis>(
+      '/api/torrents/analyze-file',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-bittorrent' },
+        body: bytes,
+      },
+      50000,
+    );
+  },
+
   async createTorrent(payload: {
     analysisId: string;
     savePath: string;

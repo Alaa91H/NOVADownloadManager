@@ -1,6 +1,6 @@
 /* src/dialogs/download/AddDownloadDialog.tsx */
 import React, { useCallback, useState, useEffect, useRef } from 'react';
-import { Video, ArrowRight, RefreshCw, Link } from 'lucide-react';
+import { Video, ArrowRight, FileUp, RefreshCw, Link } from 'lucide-react';
 import {
   useDialogData,
   useDialogActions,
@@ -457,7 +457,7 @@ export const AddDownloadDialog: React.FC = () => {
         addToast(
           'error',
           t('toast_error_title'),
-          'Torrent metadata files are not routed yet. Use a magnet link for the native torrent engine.',
+          'Remote .torrent URLs are not imported directly. Use Open .torrent file for a local metadata file.',
         );
         return;
       }
@@ -642,6 +642,19 @@ export const AddDownloadDialog: React.FC = () => {
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          disabled={!engineCapabilities.torrentReady}
+          onClick={() => openDialog('torrentDownload', '')}
+          className="flex items-center gap-1.5 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-1.5 text-[10px] font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+          title="Open a local BitTorrent metadata file"
+        >
+          <FileUp className="h-3.5 w-3.5" />
+          Open .torrent file
+        </button>
       </div>
 
       {/* Magnet Link Detection Banner */}
