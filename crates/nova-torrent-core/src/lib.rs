@@ -26,7 +26,10 @@ pub use extension::{
     EXTENSION_HANDSHAKE_ID, LOCAL_UT_METADATA_ID, LOCAL_UT_PEX_ID, MAX_EXTENDED_HANDSHAKE_BYTES,
     MAX_METADATA_SIZE, MAX_PEX_PEERS, METADATA_PIECE_SIZE,
 };
-pub use magnet::{MagnetLink, MagnetParseError};
+pub use magnet::{
+    MagnetLink, MagnetParseError, MAX_MAGNET_TRACKERS, MAX_MAGNET_URI_BYTES,
+    MAX_MAGNET_WEB_SEEDS,
+};
 pub use metainfo::{
     FileSlice, InfoHash, TorrentFile, TorrentMetainfo, TorrentMetainfoError,
     MAX_METAINFO_BYTES, MAX_PIECE_LENGTH_BYTES,
