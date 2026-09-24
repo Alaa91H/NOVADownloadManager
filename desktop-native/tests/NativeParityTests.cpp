@@ -13,6 +13,7 @@
 #include <QTemporaryDir>
 
 #include "api/NovaApiClient.h"
+#include "batch/BatchPatternExpander.h"
 #include "models/DownloadListModel.h"
 #include "settings/NativeSettings.h"
 
@@ -24,7 +25,9 @@ private slots:
     void streamReconnectsAfterDaemonReturns();
     void reconnectBackoffIsBounded();
     void legacyUiPreferencesMigrateOnce();
+    void batchPatternsMatchLegacySyntax();
     void batchImportCarriesAdvancedOptions();
+    void batchImportHonorsRuntimeCapabilities();
 };
 
 void NativeParityTests::largeListRemainsResponsive() {
@@ -294,6 +297,48 @@ void NativeParityTests::legacyUiPreferencesMigrateOnce() {
 }
 
 
+void NativeParityTests::batchPatternsMatchLegacySyntax() {
+    {
+        const auto expanded = Nova::BatchPattern::expandInput(
+            QStringLiteral("https://example.test/file[01-05:2]_[a-c].zip")
+        );
+        QVERIFY(expanded.ok());
+        QCOMPARE(expanded.urls.size(), 9);
+        QCOMPARE(expanded.urls.first(), QStringLiteral("https://example.test/file01_a.zip"));
+        QCOMPARE(expanded.urls.at(1), QStringLiteral("https://example.test/file01_b.zip"));
+        QCOMPARE(expanded.urls.at(3), QStringLiteral("https://example.test/file03_a.zip"));
+        QCOMPARE(expanded.urls.last(), QStringLiteral("https://example.test/file05_c.zip"));
+    }
+
+    {
+        const auto expanded = Nova::BatchPattern::expandInput(
+            QStringLiteral(
+                "https://example.test/a[1-2].bin\n"
+                "https://example.test/b[x-z:2].bin"
+            )
+        );
+        QVERIFY(expanded.ok());
+        QCOMPARE(
+            expanded.urls,
+            QStringList({
+                QStringLiteral("https://example.test/a1.bin"),
+                QStringLiteral("https://example.test/a2.bin"),
+                QStringLiteral("https://example.test/bx.bin"),
+                QStringLiteral("https://example.test/bz.bin")
+            })
+        );
+    }
+
+    {
+        const auto expanded = Nova::BatchPattern::expandInput(
+            QStringLiteral("https://example.test/file[1-10001].bin")
+        );
+        QVERIFY(!expanded.ok());
+        QVERIFY(expanded.urls.isEmpty());
+        QVERIFY(expanded.error.contains(QStringLiteral("10,000")));
+    }
+}
+
 void NativeParityTests::batchImportCarriesAdvancedOptions() {
     QTcpServer server;
     QVERIFY(server.listen(QHostAddress::LocalHost, 0));
@@ -315,6 +360,23 @@ void NativeParityTests::batchImportCarriesAdvancedOptions() {
                 }
 
                 const QByteArray headers = buffer->left(headerEnd);
+                const QByteArray requestLine = headers.left(headers.indexOf("\r\n"));
+
+                if (requestLine.startsWith("GET /api/downloads ")) {
+                    const QByteArray responseBody =
+                        "[{\"id\":\"existing\",\"queueId\":\"night\"}]";
+                    socket->write(
+                        "HTTP/1.1 200 OK\r\n"
+                        "Content-Type: application/json\r\n"
+                        "Connection: close\r\n"
+                        "Content-Length: " + QByteArray::number(responseBody.size()) + "\r\n"
+                        "\r\n" + responseBody
+                    );
+                    socket->flush();
+                    socket->disconnectFromHost();
+                    return;
+                }
+
                 const QRegularExpression lengthPattern(
                     QStringLiteral("Content-Length:\\s*(\\d+)"),
                     QRegularExpression::CaseInsensitiveOption
@@ -332,13 +394,13 @@ void NativeParityTests::batchImportCarriesAdvancedOptions() {
                 }
 
                 capturedBody = buffer->mid(bodyStart, contentLength);
+                const QByteArray responseBody = "{\"id\":\"task-1\"}";
                 socket->write(
                     "HTTP/1.1 200 OK\r\n"
                     "Content-Type: application/json\r\n"
-                    "Content-Length: 15\r\n"
                     "Connection: close\r\n"
-                    "\r\n"
-                    "{\"id\":\"task-1\"}"
+                    "Content-Length: " + QByteArray::number(responseBody.size()) + "\r\n"
+                    "\r\n" + responseBody
                 );
                 socket->flush();
                 socket->disconnectFromHost();
@@ -351,9 +413,15 @@ void NativeParityTests::batchImportCarriesAdvancedOptions() {
         QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort()))
     );
 
+    client.refreshDownloads();
+    QTRY_VERIFY_WITH_TIMEOUT(client.knownQueueIds().contains(QStringLiteral("night")), 3000);
+
     const QVariantMap advanced{
         {QStringLiteral("referer"), QStringLiteral("https://origin.test/page")},
         {QStringLiteral("userAgent"), QStringLiteral("NOVA-Test-Agent")},
+        {QStringLiteral("proxy"), QStringLiteral("https://8.8.8.8:8080")},
+        {QStringLiteral("headers"), QStringLiteral("X-Test: one\nX-Trace: two")},
+        {QStringLiteral("cookies"), QStringLiteral("sid=abc")},
         {QStringLiteral("retryCount"), 7},
         {QStringLiteral("timeoutSec"), 45}
     };
@@ -388,10 +456,144 @@ void NativeParityTests::batchImportCarriesAdvancedOptions() {
         direct.value(QStringLiteral("userAgent")).toString(),
         QStringLiteral("NOVA-Test-Agent")
     );
+    QCOMPARE(
+        direct.value(QStringLiteral("proxy")).toString(),
+        QStringLiteral("https://8.8.8.8:8080")
+    );
+    QCOMPARE(
+        direct.value(QStringLiteral("headers")).toString(),
+        QStringLiteral("X-Test: one\nX-Trace: two")
+    );
+    QCOMPARE(
+        direct.value(QStringLiteral("cookies")).toString(),
+        QStringLiteral("sid=abc")
+    );
     QCOMPARE(direct.value(QStringLiteral("retryCount")).toInt(), 7);
     QCOMPARE(direct.value(QStringLiteral("timeoutSec")).toInt(), 45);
     QVERIFY(direct.value(QStringLiteral("segmented")).toBool());
 }
+
+void NativeParityTests::batchImportHonorsRuntimeCapabilities() {
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+    QByteArray capturedBody;
+    connect(&server, &QTcpServer::newConnection, &server, [&]() {
+        while (server.hasPendingConnections()) {
+            QTcpSocket *socket = server.nextPendingConnection();
+            auto *buffer = new QByteArray();
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, [buffer]() {
+                delete buffer;
+            });
+            QObject::connect(socket, &QTcpSocket::readyRead, socket, [socket, buffer, &capturedBody]() {
+                buffer->append(socket->readAll());
+                const int headerEnd = buffer->indexOf("\r\n\r\n");
+                if (headerEnd < 0) {
+                    return;
+                }
+
+                const QByteArray headers = buffer->left(headerEnd);
+                const QByteArray requestLine = headers.left(headers.indexOf("\r\n"));
+
+                if (requestLine.startsWith("GET /api/engines/capabilities ")) {
+                    const QByteArray responseBody =
+                        "{"
+                        "\"directProtocols\":[\"https\"],"
+                        "\"engines\":{\"curl\":{\"supportedDirectOptionKeys\":["
+                        "\"referer\",\"retryCount\""
+                        "]}}"
+                        "}";
+                    socket->write(
+                        "HTTP/1.1 200 OK\r\n"
+                        "Content-Type: application/json\r\n"
+                        "Connection: close\r\n"
+                        "Content-Length: " + QByteArray::number(responseBody.size()) + "\r\n"
+                        "\r\n" + responseBody
+                    );
+                    socket->flush();
+                    socket->disconnectFromHost();
+                    return;
+                }
+
+                const QRegularExpression lengthPattern(
+                    QStringLiteral("Content-Length:\\s*(\\d+)"),
+                    QRegularExpression::CaseInsensitiveOption
+                );
+                const QRegularExpressionMatch match =
+                    lengthPattern.match(QString::fromLatin1(headers));
+                if (!match.hasMatch()) {
+                    return;
+                }
+
+                const int contentLength = match.captured(1).toInt();
+                const int bodyStart = headerEnd + 4;
+                if (buffer->size() < bodyStart + contentLength) {
+                    return;
+                }
+
+                capturedBody = buffer->mid(bodyStart, contentLength);
+                const QByteArray responseBody = "{\"id\":\"task-2\"}";
+                socket->write(
+                    "HTTP/1.1 200 OK\r\n"
+                    "Content-Type: application/json\r\n"
+                    "Connection: close\r\n"
+                    "Content-Length: " + QByteArray::number(responseBody.size()) + "\r\n"
+                    "\r\n" + responseBody
+                );
+                socket->flush();
+                socket->disconnectFromHost();
+            });
+        }
+    });
+
+    NovaApiClient client;
+    client.setBaseUrl(
+        QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort()))
+    );
+
+    QSignalSpy capabilitySpy(&client, &NovaApiClient::engineManagementChanged);
+    client.refreshEngineCapabilities();
+    QTRY_VERIFY_WITH_TIMEOUT(capabilitySpy.count() >= 1, 3000);
+    QVERIFY(client.directOptionSupported(QStringLiteral("referer")));
+    QVERIFY(client.directOptionSupported(QStringLiteral("retryCount")));
+    QVERIFY(!client.directOptionSupported(QStringLiteral("proxy")));
+    QVERIFY(!client.directOptionSupported(QStringLiteral("headers")));
+    QVERIFY(!client.directOptionSupported(QStringLiteral("segmented")));
+
+    const QVariantMap advanced{
+        {QStringLiteral("referer"), QStringLiteral("https://origin.test/page")},
+        {QStringLiteral("proxy"), QStringLiteral("https://8.8.8.8:8080")},
+        {QStringLiteral("headers"), QStringLiteral("X-Test: blocked")},
+        {QStringLiteral("retryCount"), 4}
+    };
+
+    client.importBatch(
+        QStringLiteral(
+            "https://example.test/file[01-03:2]_[a-b].zip"
+        ),
+        QString(),
+        8,
+        false,
+        QVariantMap{
+            {QStringLiteral("queueId"), QStringLiteral("main")},
+            {QStringLiteral("advanced"), advanced}
+        }
+    );
+
+    QTRY_VERIFY_WITH_TIMEOUT(!capturedBody.isEmpty(), 3000);
+    const QJsonObject body = QJsonDocument::fromJson(capturedBody).object();
+    const QJsonObject direct = body.value(QStringLiteral("directOptions")).toObject();
+    QCOMPARE(
+        direct.value(QStringLiteral("referer")).toString(),
+        QStringLiteral("https://origin.test/page")
+    );
+    QCOMPARE(direct.value(QStringLiteral("retryCount")).toInt(), 4);
+    QVERIFY(!direct.contains(QStringLiteral("proxy")));
+    QVERIFY(!direct.contains(QStringLiteral("headers")));
+    QVERIFY(!direct.contains(QStringLiteral("segmented")));
+}
+
 
 QTEST_GUILESS_MAIN(NativeParityTests)
 #include "NativeParityTests.moc"
