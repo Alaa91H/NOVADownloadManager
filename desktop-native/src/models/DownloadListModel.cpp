@@ -1,6 +1,7 @@
 #include "models/DownloadListModel.h"
 
 #include <QJsonObject>
+#include <QtGlobal>
 
 DownloadListModel::DownloadListModel(QObject *parent)
     : QAbstractListModel(parent) {}
@@ -45,7 +46,14 @@ QHash<int, QByteArray> DownloadListModel::roleNames() const {
     };
 }
 
-QString DownloadListModel::taskIdAt(int row) const {\n    if (row < 0 || row >= m_items.size()) {\n        return {};\n    }\n    return m_items.at(row).id;\n}\n\nint DownloadListModel::activeCount() const noexcept {
+QString DownloadListModel::taskIdAt(int row) const {
+    if (row < 0 || row >= m_items.size()) {
+        return {};
+    }
+    return m_items.at(row).id;
+}
+
+int DownloadListModel::activeCount() const noexcept {
     int count = 0;
     for (const auto &item : m_items) {
         if (item.status == QStringLiteral("downloading") ||
@@ -87,9 +95,11 @@ void DownloadListModel::replaceFromJson(const QJsonArray &downloads) {
         item.engine = object.value(QStringLiteral("engine")).toString();
 
         if (item.sizeBytes > 0) {
-            item.progress = qBound<qreal>(0.0,
+            item.progress = qBound<qreal>(
+                0.0,
                 static_cast<qreal>(item.downloadedBytes) / static_cast<qreal>(item.sizeBytes),
-                1.0);
+                1.0
+            );
         }
 
         next.push_back(std::move(item));
