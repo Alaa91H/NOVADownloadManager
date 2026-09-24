@@ -101,6 +101,7 @@ pub struct TorrentResumeCheckpoint {
     pub file_count: usize,
     pub generation: u64,
     pub priorities: Vec<FilePriority>,
+    pub owned_files: PieceBitmap,
     pub verified: PieceBitmap,
     pub boundary_cache: PieceBitmap,
 }
@@ -125,6 +126,7 @@ impl TorrentResumeCheckpoint {
             file_count: meta.files.len(),
             generation: 0,
             priorities: selection.priorities().to_vec(),
+            owned_files: PieceBitmap::new(meta.files.len()),
             verified: PieceBitmap::new(meta.piece_count()),
             boundary_cache: PieceBitmap::new(meta.piece_count()),
         })
@@ -149,7 +151,8 @@ impl TorrentResumeCheckpoint {
                 actual: self.priorities.len(),
             });
         }
-        if self.verified.piece_count() != meta.piece_count()
+        if self.owned_files.piece_count() != meta.files.len()
+            || self.verified.piece_count() != meta.piece_count()
             || self.boundary_cache.piece_count() != meta.piece_count()
         {
             return Err(ResumeError::GeometryMismatch);
@@ -183,7 +186,7 @@ impl TorrentResumeCheckpoint {
             .collect::<String>();
 
         format!(
-            "{RESUME_MAGIC}\nversion={}\ninfo_hash={}\ntotal_length={}\npiece_length={}\npiece_count={}\nfile_count={}\ngeneration={}\npriorities={}\nverified={}\nboundary_cache={}\n",
+            "{RESUME_MAGIC}\nversion={}\ninfo_hash={}\ntotal_length={}\npiece_length={}\npiece_count={}\nfile_count={}\ngeneration={}\npriorities={}\nowned_files={}\nverified={}\nboundary_cache={}\n",
             self.version,
             self.info_hash.to_hex(),
             self.total_length,
@@ -192,6 +195,7 @@ impl TorrentResumeCheckpoint {
             self.file_count,
             self.generation,
             priorities,
+            encode_hex(self.owned_files.as_bytes()),
             encode_hex(self.verified.as_bytes()),
             encode_hex(self.boundary_cache.as_bytes()),
         )
@@ -244,6 +248,10 @@ impl TorrentResumeCheckpoint {
             });
         }
 
+        let owned_files = PieceBitmap::from_bytes(
+            file_count,
+            decode_hex(required(&fields, "owned_files")?)?,
+        )?;
         let verified = PieceBitmap::from_bytes(
             piece_count,
             decode_hex(required(&fields, "verified")?)?,
@@ -262,6 +270,7 @@ impl TorrentResumeCheckpoint {
             file_count,
             generation,
             priorities,
+            owned_files,
             verified,
             boundary_cache,
         };
@@ -532,6 +541,7 @@ mod tests {
         .unwrap();
         let mut checkpoint = TorrentResumeCheckpoint::new(&meta, &selection).unwrap();
         checkpoint.next_generation().unwrap();
+        checkpoint.owned_files.set(0, true).unwrap();
         checkpoint.verified.set(1, true).unwrap();
         checkpoint.boundary_cache.set(1, true).unwrap();
 
