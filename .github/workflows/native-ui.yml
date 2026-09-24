@@ -1,0 +1,46 @@
+name: Native UI
+
+on:
+  push:
+    branches:
+      - "الواجهة-الجديدة"
+    paths:
+      - "desktop-native/**"
+      - ".github/workflows/native-ui.yml"
+  pull_request:
+    paths:
+      - "desktop-native/**"
+      - ".github/workflows/native-ui.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build native UI (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - ubuntu-latest
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          modules: "qtdeclarative"
+          cache: true
+
+      - name: Configure
+        run: cmake -S desktop-native -B build/native -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build/native --config Release --parallel
