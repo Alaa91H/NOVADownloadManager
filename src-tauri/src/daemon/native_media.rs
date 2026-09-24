@@ -338,6 +338,7 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
         let Some(job) = jobs.get_mut(id) else { return; };
         let Some(current) = TaskState::from_status(&job.task.status) else { return; };
         if current == TaskState::Completed
+            || job.worker_active.load(Ordering::Acquire)
             || (job.run_generation.load(Ordering::Acquire) > 0 && current.is_active())
         {
             return;
