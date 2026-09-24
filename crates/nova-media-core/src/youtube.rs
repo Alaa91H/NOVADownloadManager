@@ -227,6 +227,93 @@ pub enum YouTubeDownloadPlan {
     },
 }
 
+/// Select the best direct ISO-BMFF/MP4-compatible YouTube plan for NOVA's
+/// native MP4 muxer. WebM formats are intentionally ignored here rather than
+/// forcing the caller to fall back to an external post-processor.
+pub fn select_youtube_mp4_download_plan(
+    extraction: &YouTubeExtraction,
+    max_height: Option<u32>,
+) -> Option<YouTubeDownloadPlan> {
+    let pending_itags: std::collections::BTreeSet<u64> = extraction
+        .pending_formats
+        .iter()
+        .filter_map(|format| format.itag)
+        .collect();
+
+    let usable = extraction
+        .descriptor
+        .streams
+        .iter()
+        .filter(|stream| {
+            stream_itag(stream)
+                .map(|itag| !pending_itags.contains(&itag))
+                .unwrap_or(true)
+        })
+        .filter(|stream| {
+            max_height.map_or(true, |limit| {
+                stream.height.map_or(true, |height| height <= limit)
+            })
+        })
+        .filter(|stream| matches!(stream.protocol, MediaProtocol::Http | MediaProtocol::Https))
+        .filter(|stream| {
+            stream.container.as_deref().is_some_and(|container| {
+                matches!(
+                    container.trim().to_ascii_lowercase().as_str(),
+                    "mp4" | "m4a" | "m4v" | "mov"
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let best_muxed = usable
+        .iter()
+        .copied()
+        .filter(|stream| stream.kind == MediaTrackKind::AudioVideo)
+        .max_by_key(|stream| stream_quality_score(stream));
+
+    let best_video = usable
+        .iter()
+        .copied()
+        .filter(|stream| stream.kind == MediaTrackKind::Video)
+        .max_by_key(|stream| stream_quality_score(stream));
+
+    let best_audio = usable
+        .iter()
+        .copied()
+        .filter(|stream| stream.kind == MediaTrackKind::Audio)
+        .max_by_key(|stream| {
+            (
+                stream.audio_bitrate_bps.or(stream.bitrate_bps).unwrap_or(0),
+                stream.content_length.unwrap_or(0),
+            )
+        });
+
+    if let (Some(video), Some(audio)) = (best_video, best_audio) {
+        let separate_is_better = best_muxed.map_or(true, |muxed| {
+            stream_quality_score(video) > stream_quality_score(muxed)
+        });
+        if separate_is_better {
+            return Some(YouTubeDownloadPlan::SeparateTracks {
+                video_stream_id: video.id.clone(),
+                audio_stream_id: audio.id.clone(),
+            });
+        }
+    }
+
+    if let Some(stream) = best_muxed {
+        return Some(YouTubeDownloadPlan::SingleStream {
+            stream_id: stream.id.clone(),
+        });
+    }
+
+    best_video.zip(best_audio).map(|(video, audio)| {
+        YouTubeDownloadPlan::SeparateTracks {
+            video_stream_id: video.id.clone(),
+            audio_stream_id: audio.id.clone(),
+        }
+    })
+}
+
 pub fn select_youtube_download_plan(
     extraction: &YouTubeExtraction,
     policy: YouTubeSelectionPolicy,
