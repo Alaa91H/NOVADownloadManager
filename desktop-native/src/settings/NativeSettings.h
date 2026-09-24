@@ -29,6 +29,7 @@ class NativeSettings final : public QObject {
 
 public:
     explicit NativeSettings(QObject *parent = nullptr);
+    NativeSettings(const QString &settingsFile, QObject *parent);
 
     QString defaultSaveDirectory() const;
     int defaultConnections() const;
