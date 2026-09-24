@@ -73,6 +73,31 @@ impl Extractor for NativeMediaExtractor {
 }
 
 #[derive(Debug)]
+pub enum NativeMediaTaskError {
+    Worker(String),
+    InvalidRequest(String),
+    Resolution(String),
+    UnsupportedFeature(String),
+    Transfer(String),
+}
+
+impl std::fmt::Display for NativeMediaTaskError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Worker(message) => write!(f, "native media worker failed: {message}"),
+            Self::InvalidRequest(message) => write!(f, "invalid native media request: {message}"),
+            Self::Resolution(message) => write!(f, "native media resolution failed: {message}"),
+            Self::UnsupportedFeature(message) => {
+                write!(f, "native media feature is not supported yet: {message}")
+            }
+            Self::Transfer(message) => write!(f, "native media transfer failed: {message}"),
+        }
+    }
+}
+
+impl std::error::Error for NativeMediaTaskError {}
+
+#[derive(Debug)]
 struct ResolvedDirectMedia {
     url: String,
     title: String,
@@ -84,15 +109,11 @@ struct ResolvedDirectMedia {
 pub async fn create_native_media_task(
     state: &SharedState,
     body: &CreateDownloadBody,
-) -> Result<Task, String> {
+) -> Result<Task, NativeMediaTaskError> {
     let owned = body.clone();
-    let resolution = tokio::task::spawn_blocking(move || resolve_native_direct(&owned))
+    let resolved = tokio::task::spawn_blocking(move || resolve_native_direct(&owned))
         .await
-        .map_err(|error| format!("Native media resolver worker failed: {error}"))?;
-
-    let resolved = resolution.map_err(|reason| {
-        format!("NOVA Media Engine could not execute this request natively: {reason}")
-    })?;
+        .map_err(|error| NativeMediaTaskError::Worker(error.to_string()))??;
 
     let mut direct = body.clone();
     direct.url = Some(resolved.url);
@@ -134,7 +155,9 @@ pub async fn create_native_media_task(
         "NOVA Media Engine resolved media to native direct transport: {}",
         direct.url.as_deref().unwrap_or_default()
     );
-    crate::daemon::curl::create_curl_task(state, &direct).await
+    crate::daemon::curl::create_curl_task(state, &direct)
+        .await
+        .map_err(NativeMediaTaskError::Transfer)
 }
 
 fn validate_native_options(options: &MediaDownloadOptions) -> Result<(), String> {
@@ -184,9 +207,13 @@ fn option_is_configured(value: &Value) -> bool {
     }
 }
 
-fn resolve_native_direct(body: &CreateDownloadBody) -> Result<ResolvedDirectMedia, String> {
+fn resolve_native_direct(
+    body: &CreateDownloadBody,
+) -> Result<ResolvedDirectMedia, NativeMediaTaskError> {
     let request = build_extract_request(body)?;
-    let parsed = request.parsed_url().map_err(|error| error.to_string())?;
+    let parsed = request
+        .parsed_url()
+        .map_err(|error| NativeMediaTaskError::InvalidRequest(error.to_string()))?;
     let max_height = body
         .media_options
         .as_ref()
@@ -197,7 +224,7 @@ fn resolve_native_direct(body: &CreateDownloadBody) -> Result<ResolvedDirectMedi
         let extractor = YouTubeExtractor;
         let mut extraction = extractor
             .extract_native(&request)
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
 
         if !extraction.pending_formats.is_empty() {
             if let Ok(context) = request.request_context() {
@@ -218,7 +245,11 @@ fn resolve_native_direct(body: &CreateDownloadBody) -> Result<ResolvedDirectMedi
                 prefer_separate_tracks,
             },
         )
-        .ok_or_else(|| "No native-ready media stream was found".to_owned())?;
+        .ok_or_else(|| {
+            NativeMediaTaskError::UnsupportedFeature(
+                "no native-ready media stream was found after challenge resolution".to_owned(),
+            )
+        })?;
 
         return match plan {
             YouTubeDownloadPlan::SingleStream { stream_id } => {
@@ -227,19 +258,25 @@ fn resolve_native_direct(body: &CreateDownloadBody) -> Result<ResolvedDirectMedi
                     .streams
                     .iter()
                     .find(|stream| stream.id == stream_id)
-                    .ok_or_else(|| "Selected native media stream disappeared".to_owned())?;
+                    .ok_or_else(|| {
+                        NativeMediaTaskError::Resolution(
+                            "selected native media stream disappeared".to_owned(),
+                        )
+                    })?;
                 resolved_direct_from_descriptor(&extraction.descriptor, stream)
             }
-            YouTubeDownloadPlan::SeparateTracks { .. } => {
-                Err("Separate-track mux is not migrated to task execution yet".to_owned())
-            }
+            YouTubeDownloadPlan::SeparateTracks { .. } => Err(
+                NativeMediaTaskError::UnsupportedFeature(
+                    "separate-track mux is not migrated to task execution yet".to_owned(),
+                ),
+            ),
         };
     }
 
     let registry = nova_media_core::ExtractorRegistry::with_native_defaults();
     let descriptor = registry
         .resolve(&request)
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
     let stream = descriptor
         .playable_streams()
         .filter(|stream| matches!(stream.protocol, MediaProtocol::Http | MediaProtocol::Https))
@@ -250,7 +287,11 @@ fn resolve_native_direct(body: &CreateDownloadBody) -> Result<ResolvedDirectMedi
                 stream.content_length.unwrap_or(0),
             )
         })
-        .ok_or_else(|| "Native media result requires the stream pipeline".to_owned())?;
+        .ok_or_else(|| {
+            NativeMediaTaskError::UnsupportedFeature(
+                "the selected result requires HLS/DASH task execution".to_owned(),
+            )
+        })?;
 
     resolved_direct_from_descriptor(&descriptor, stream)
 }
@@ -258,14 +299,16 @@ fn resolve_native_direct(body: &CreateDownloadBody) -> Result<ResolvedDirectMedi
 fn resolved_direct_from_descriptor(
     descriptor: &MediaDescriptor,
     stream: &MediaStream,
-) -> Result<ResolvedDirectMedia, String> {
+) -> Result<ResolvedDirectMedia, NativeMediaTaskError> {
     if !matches!(stream.protocol, MediaProtocol::Http | MediaProtocol::Https) {
-        return Err("Selected stream requires manifest execution".to_owned());
+        return Err(NativeMediaTaskError::UnsupportedFeature(
+            "selected stream requires manifest task execution".to_owned(),
+        ));
     }
 
     let context = descriptor
         .request_context_for_stream(stream)
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| NativeMediaTaskError::InvalidRequest(error.to_string()))?;
     Ok(ResolvedDirectMedia {
         url: stream.url.clone(),
         title: descriptor.metadata.title.clone(),
@@ -275,10 +318,14 @@ fn resolved_direct_from_descriptor(
     })
 }
 
-fn build_extract_request(body: &CreateDownloadBody) -> Result<ExtractRequest, String> {
+fn build_extract_request(
+    body: &CreateDownloadBody,
+) -> Result<ExtractRequest, NativeMediaTaskError> {
     let url = body.url.as_deref().unwrap_or_default().trim();
     if url.is_empty() {
-        return Err("Missing media URL".to_owned());
+        return Err(NativeMediaTaskError::InvalidRequest(
+            "missing media URL".to_owned(),
+        ));
     }
 
     let mut request = ExtractRequest::new(url);
@@ -319,13 +366,14 @@ fn build_extract_request(body: &CreateDownloadBody) -> Result<ExtractRequest, St
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            parse_header_lines(&mut request.headers, headers)?;
+            parse_header_lines(&mut request.headers, headers)
+                .map_err(NativeMediaTaskError::InvalidRequest)?;
         }
     }
 
     request
         .request_context()
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| NativeMediaTaskError::InvalidRequest(error.to_string()))?;
     Ok(request)
 }
 
