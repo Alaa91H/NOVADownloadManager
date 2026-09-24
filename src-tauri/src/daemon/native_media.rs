@@ -20,6 +20,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::daemon::engine::extractor::{EngineStatus, Extractor, ValidateError};
+use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
 use crate::daemon::state::SharedState;
 use crate::daemon::types::{
     transition_task_state, CreateDownloadBody, MediaDownloadOptions, NativeMediaJob, Task,
@@ -364,15 +365,24 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
             job.run_generation.clone(),
             job.request.clone(),
             job.task.clone(),
+            job.task.size_bytes,
         ))
     };
 
-    let Some((generation, cancel_token, run_generation, request, task)) = prepared else {
+    let Some((generation, cancel_token, run_generation, request, task, size_bytes)) = prepared else {
         return;
     };
     if let Ok(mut snapshot) = state.task_snapshot.lock() {
         snapshot.insert(id.to_owned(), task);
     }
+    state.priority_queue.enqueue(QueueEntry {
+        task_id: id.to_owned(),
+        priority: DownloadPriority::Normal,
+        added_at: Instant::now(),
+        size_bytes,
+        bandwidth_kbps: Arc::new(AtomicU64::new(0)),
+    });
+    state.priority_queue.start_download();
     state.mark_dirty();
 
     let state = state.clone();
@@ -812,7 +822,9 @@ fn finish_native_cancelled(state: &SharedState, id: &str, generation: u64) {
     if let Ok(mut snapshot) = state.task_snapshot.lock() {
         snapshot.insert(id.to_owned(), task);
     }
+    state.priority_queue.release_active_slot();
     state.mark_dirty();
+    crate::daemon::persist::save_now(state.as_ref());
 }
 
 fn fail_native_task(state: &SharedState, id: &str, generation: u64, error: String) {
@@ -834,6 +846,10 @@ fn fail_native_task(state: &SharedState, id: &str, generation: u64, error: Strin
     };
     if let Ok(mut snapshot) = state.task_snapshot.lock() {
         snapshot.insert(id.to_owned(), task);
+    }
+    state.priority_queue.stop_download(id);
+    if let Ok(mut stats) = state.download_stats.lock() {
+        stats.total_failed = stats.total_failed.saturating_add(1);
     }
     state.mark_dirty();
 }
@@ -862,6 +878,11 @@ fn complete_native_task(state: &SharedState, id: &str, generation: u64, bytes: u
     };
     if let Ok(mut snapshot) = state.task_snapshot.lock() {
         snapshot.insert(id.to_owned(), task);
+    }
+    state.priority_queue.stop_download(id);
+    if let Ok(mut stats) = state.download_stats.lock() {
+        stats.total_completed = stats.total_completed.saturating_add(1);
+        stats.total_downloaded_bytes = stats.total_downloaded_bytes.saturating_add(bytes);
     }
     state.mark_dirty();
 }
