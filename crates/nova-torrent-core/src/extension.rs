@@ -181,7 +181,7 @@ impl MetadataMessage {
     }
 
     pub fn parse(payload: &[u8]) -> Result<Self, ExtensionError> {
-        if payload.len() > MAX_METADATA_SIZE + 1024 {
+        if payload.len() > METADATA_PIECE_SIZE + 1024 {
             return Err(ExtensionError::MetadataMessageTooLarge(payload.len()));
         }
 
@@ -499,6 +499,7 @@ fn bint(out: &mut Vec<u8>, value: i64) {
 enum BValue<'a> {
     Int(i64),
     Bytes(&'a [u8]),
+    List(Vec<BValue<'a>>),
     Dict(BTreeMap<&'a [u8], BValue<'a>>),
 }
 
@@ -552,6 +553,7 @@ impl<'a> Parser<'a> {
         }
         match self.input.get(self.position).copied() {
             Some(b'i') => self.parse_int().map(BValue::Int),
+            Some(b'l') => self.parse_list(depth).map(BValue::List),
             Some(b'd') => self.parse_dict(depth).map(BValue::Dict),
             Some(byte) if byte.is_ascii_digit() => self.parse_bytes().map(BValue::Bytes),
             Some(byte) => Err(ExtensionError::InvalidBencode(format!(
@@ -625,6 +627,21 @@ impl<'a> Parser<'a> {
             .ok_or_else(|| ExtensionError::InvalidBencode("truncated byte string".to_owned()))?;
         self.position = end;
         Ok(value)
+    }
+
+    fn parse_list(&mut self, depth: usize) -> Result<Vec<BValue<'a>>, ExtensionError> {
+        self.expect(b'l')?;
+        let mut values = Vec::new();
+        while self.input.get(self.position).copied() != Some(b'e') {
+            if values.len() >= 256 {
+                return Err(ExtensionError::InvalidBencode(
+                    "extension list too large".to_owned(),
+                ));
+            }
+            values.push(self.parse_value(depth + 1)?);
+        }
+        self.expect(b'e')?;
+        Ok(values)
     }
 
     fn parse_dict(
