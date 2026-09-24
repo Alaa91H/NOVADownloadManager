@@ -1317,8 +1317,7 @@ async fn handle_deprecated_media_bridge_probe() -> (StatusCode, Json<serde_json:
     retired_media_bridge_response("/api/media/probe")
 }
 
-async fn handle_deprecated_media_bridge_playlist_probe(
-) -> (StatusCode, Json<serde_json::Value>) {
+async fn handle_deprecated_media_bridge_playlist_probe() -> (StatusCode, Json<serde_json::Value>) {
     retired_media_bridge_response("/api/media/probe-playlist")
 }
 
