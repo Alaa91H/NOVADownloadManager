@@ -1322,7 +1322,15 @@ void NativeParityTests::advancedSettingsMigrateAndBackupSafely() {
                         {QStringLiteral("connectTimeoutSec"), 15},
                         {QStringLiteral("retryCount"), 7},
                         {QStringLiteral("retryDelaySec"), 9},
-                        {QStringLiteral("dnsServers"), QStringLiteral("1.1.1.1,1.0.0.1")}
+                        {QStringLiteral("dnsServers"), QStringLiteral("1.1.1.1,1.0.0.1")},
+                        {QStringLiteral("keepaliveTimeSec"), 30},
+                        {QStringLiteral("httpVersion"), QStringLiteral("2")},
+                        {QStringLiteral("insecure"), true},
+                        {QStringLiteral("caCert"), QStringLiteral("/tmp/ca.pem")},
+                        {QStringLiteral("clientCert"), QStringLiteral("/tmp/client.pem")},
+                        {QStringLiteral("clientKey"), QStringLiteral("/tmp/client.key")},
+                        {QStringLiteral("tlsMin"), QStringLiteral("1.2")},
+                        {QStringLiteral("ciphers"), QStringLiteral("HIGH:!aNULL")}
                     }
                 }
             }
@@ -1370,6 +1378,14 @@ void NativeParityTests::advancedSettingsMigrateAndBackupSafely() {
     QCOMPARE(advanced.value(QStringLiteral("proxyPassword")).toString(), QStringLiteral("secret"));
     QCOMPARE(advanced.value(QStringLiteral("timeoutSec")).toInt(), 90);
     QCOMPARE(advanced.value(QStringLiteral("retryCount")).toInt(), 7);
+    QCOMPARE(advanced.value(QStringLiteral("keepaliveTimeSec")).toInt(), 30);
+    QCOMPARE(advanced.value(QStringLiteral("httpVersion")).toString(), QStringLiteral("2"));
+    QCOMPARE(advanced.value(QStringLiteral("insecure")).toBool(), true);
+    QCOMPARE(advanced.value(QStringLiteral("caCert")).toString(), QStringLiteral("/tmp/ca.pem"));
+    QCOMPARE(advanced.value(QStringLiteral("clientCert")).toString(), QStringLiteral("/tmp/client.pem"));
+    QCOMPARE(advanced.value(QStringLiteral("clientKey")).toString(), QStringLiteral("/tmp/client.key"));
+    QCOMPARE(advanced.value(QStringLiteral("tlsMin")).toString(), QStringLiteral("1.2"));
+    QCOMPARE(advanced.value(QStringLiteral("ciphers")).toString(), QStringLiteral("HIGH:!aNULL"));
     QCOMPARE(advanced.value(QStringLiteral("videoQuality")).toString(), QStringLiteral("good"));
     QCOMPARE(advanced.value(QStringLiteral("vpnBindAddress")).toString(), QStringLiteral("tun0"));
     QCOMPARE(advanced.value(QStringLiteral("bufferSizeKb")).toInt(), 512);
@@ -1486,7 +1502,15 @@ void NativeParityTests::advancedDownloadCarriesNetworkDefaults() {
             {QStringLiteral("retryDelaySec"), 9},
             {QStringLiteral("dnsServers"), QStringLiteral("1.1.1.1,1.0.0.1")},
             {QStringLiteral("userAgent"), QStringLiteral("NOVA-Test")},
-            {QStringLiteral("bufferSize"), 524288}
+            {QStringLiteral("bufferSize"), 524288},
+            {QStringLiteral("keepaliveTimeSec"), 30},
+            {QStringLiteral("httpVersion"), QStringLiteral("2")},
+            {QStringLiteral("insecure"), true},
+            {QStringLiteral("caCert"), QStringLiteral("/tmp/ca.pem")},
+            {QStringLiteral("cert"), QStringLiteral("/tmp/client.pem")},
+            {QStringLiteral("key"), QStringLiteral("/tmp/client.key")},
+            {QStringLiteral("tlsMin"), QStringLiteral("1.2")},
+            {QStringLiteral("ciphers"), QStringLiteral("HIGH:!aNULL")}
         }
     );
 
@@ -1502,6 +1526,14 @@ void NativeParityTests::advancedDownloadCarriesNetworkDefaults() {
     QCOMPARE(options.value(QStringLiteral("retryCount")).toInt(), 7);
     QCOMPARE(options.value(QStringLiteral("dnsServers")).toString(), QStringLiteral("1.1.1.1,1.0.0.1"));
     QCOMPARE(options.value(QStringLiteral("bufferSize")).toInt(), 524288);
+    QCOMPARE(options.value(QStringLiteral("keepaliveTimeSec")).toInt(), 30);
+    QCOMPARE(options.value(QStringLiteral("httpVersion")).toString(), QStringLiteral("2"));
+    QCOMPARE(options.value(QStringLiteral("insecure")).toBool(), true);
+    QCOMPARE(options.value(QStringLiteral("caCert")).toString(), QStringLiteral("/tmp/ca.pem"));
+    QCOMPARE(options.value(QStringLiteral("cert")).toString(), QStringLiteral("/tmp/client.pem"));
+    QCOMPARE(options.value(QStringLiteral("key")).toString(), QStringLiteral("/tmp/client.key"));
+    QCOMPARE(options.value(QStringLiteral("tlsMin")).toString(), QStringLiteral("1.2"));
+    QCOMPARE(options.value(QStringLiteral("ciphers")).toString(), QStringLiteral("HIGH:!aNULL"));
 }
 
 void NativeParityTests::settingsServicesReachDaemon() {
