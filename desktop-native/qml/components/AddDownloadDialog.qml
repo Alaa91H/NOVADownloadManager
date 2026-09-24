@@ -52,6 +52,7 @@ Dialog {
         options.retryDelaySec = Number(a.retryDelaySec || 5)
         options.maxRedirs = Number(a.maxRedirs || 20)
         options.dnsCacheTimeoutSec = Number(a.dnsCacheTimeoutSec || 300)
+        options.bufferSize = Math.max(16384, Number(a.bufferSizeKb || 256) * 1024)
 
         if (String(a.dnsServers || "").trim().length > 0)
             options.dnsServers = String(a.dnsServers).trim()
@@ -118,7 +119,7 @@ Dialog {
             nameField.text,
             pathField.text,
             startNow,
-            settings.defaultConnections,
+            Boolean(a.dynamicAllocation) ? 0 : settings.defaultConnections,
             root.buildNetworkOptions()
         )
     }
