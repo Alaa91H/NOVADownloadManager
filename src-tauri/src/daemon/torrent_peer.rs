@@ -18,6 +18,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::daemon::utils::{is_internal_ip, private_network_allowed};
 
+const MAX_PEER_CANDIDATES: usize = 4_096;
+const MAX_METADATA_CANDIDATES: usize = 4_096;
+
 #[derive(Clone, Debug)]
 pub struct PeerSessionConfig {
     pub connect_timeout: Duration,
@@ -217,7 +220,7 @@ impl PeerEngine {
         let limit = self.config.max_outbound_connections.max(1);
         let mut tasks = JoinSet::new();
 
-        for address in ranked {
+        for address in ranked.into_iter().take(MAX_PEER_CANDIDATES) {
             let permit = self.connection_slots.clone();
             let config = self.config.session.clone();
             let allow_private_network = self.allow_private_network;
@@ -356,7 +359,10 @@ impl PeerEngine {
             return Err("No eligible torrent peers are available for metadata exchange".to_owned());
         }
 
-        let mut queue = VecDeque::from(ranked);
+        let mut queue = ranked
+            .into_iter()
+            .take(MAX_METADATA_CANDIDATES)
+            .collect::<VecDeque<_>>();
         let mut seen = queue.iter().copied().collect::<HashSet<_>>();
         let mut failures = Vec::new();
 
@@ -415,6 +421,9 @@ impl PeerEngine {
                 }
                 Err(error) => {
                     for peer in session.take_discovered_pex_peers() {
+                        if seen.len() >= MAX_METADATA_CANDIDATES {
+                            break;
+                        }
                         if seen.insert(peer) {
                             queue.push_back(peer);
                         }
