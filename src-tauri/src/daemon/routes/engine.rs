@@ -7,6 +7,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::time::Duration;
 
+use crate::daemon::curl::move_task_to_queue;
 use crate::daemon::engine::bandwidth::ScheduleLimit;
 use crate::daemon::engine::checksum::{self, ChecksumAlgorithm};
 use crate::daemon::engine::mirror::{MirrorManager, MirrorSource};
@@ -343,17 +344,114 @@ fn normalize_queue_catalog(
             .next()
             .expect("default queue catalog always contains main");
         normalized.insert(0, main);
-    } else if let Some(main_index) = normalized
-        .iter()
-        .position(|queue| queue.get("id").and_then(serde_json::Value::as_str) == Some("main"))
-    {
-        if main_index != 0 {
-            let main = normalized.remove(main_index);
-            normalized.insert(0, main);
-        }
     }
 
     Ok(normalized)
+}
+
+fn default_queue_entry(id: &str, name: &str) -> serde_json::Value {
+    serde_json::json!({
+        "id": id,
+        "name": name,
+        "active": false,
+        "scheduled": false,
+        "scheduleType": "daily",
+        "maxActive": 1,
+        "scheduleCompleted": false,
+        "startTime": "02:00",
+        "endTime": "08:00",
+        "days": [0, 1, 2, 3, 4, 5, 6],
+        "limitSpeed": false,
+        "speedLimitKbs": 1024,
+        "oneTimeLimit": false,
+        "shutdownOnComplete": false,
+        "hangupOnComplete": false,
+        "exitOnComplete": false,
+        "retryCount": 3,
+        "retryDelay": 10,
+        "downloadOrder": []
+    })
+}
+
+fn queue_value_id(value: &serde_json::Value) -> Option<&str> {
+    value.get("id").and_then(serde_json::Value::as_str)
+}
+
+fn reconcile_queue_catalog(
+    state: &SharedState,
+    mut queues: Vec<serde_json::Value>,
+) -> Vec<serde_json::Value> {
+    let mut tasks: Vec<(String, String, String)> = lock_or_err!(state.task_snapshot)
+        .values()
+        .map(|task| (
+            task.queue_id.trim().to_owned(),
+            task.date_added.clone(),
+            task.id.clone(),
+        ))
+        .collect();
+    tasks.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.2.cmp(&b.2)));
+
+    let mut known_ids: std::collections::HashSet<String> = queues
+        .iter()
+        .filter_map(queue_value_id)
+        .map(str::to_owned)
+        .collect();
+
+    for (queue_id, _, _) in &tasks {
+        if queue_id.is_empty() || known_ids.contains(queue_id) {
+            continue;
+        }
+        queues.push(default_queue_entry(queue_id, queue_id));
+        known_ids.insert(queue_id.clone());
+    }
+
+    for queue in &mut queues {
+        let Some(queue_id) = queue_value_id(queue).map(str::to_owned) else {
+            continue;
+        };
+        let actual: Vec<String> = tasks
+            .iter()
+            .filter(|(id, _, _)| id == &queue_id)
+            .map(|(_, _, task_id)| task_id.clone())
+            .collect();
+        let actual_set: std::collections::HashSet<&str> =
+            actual.iter().map(String::as_str).collect();
+
+        let mut next_order = Vec::with_capacity(actual.len());
+        let mut seen = std::collections::HashSet::new();
+        if let Some(existing) = queue
+            .get("downloadOrder")
+            .and_then(serde_json::Value::as_array)
+        {
+            for value in existing {
+                let Some(task_id) = value.as_str() else {
+                    continue;
+                };
+                if actual_set.contains(task_id) && seen.insert(task_id.to_owned()) {
+                    next_order.push(task_id.to_owned());
+                }
+            }
+        }
+        for task_id in actual {
+            if seen.insert(task_id.clone()) {
+                next_order.push(task_id);
+            }
+        }
+
+        if let Some(object) = queue.as_object_mut() {
+            object.insert(
+                "downloadOrder".to_owned(),
+                serde_json::Value::Array(
+                    next_order
+                        .into_iter()
+                        .map(serde_json::Value::String)
+                        .collect(),
+                ),
+            );
+        }
+    }
+
+    normalize_queue_catalog(queues).unwrap_or_else(|_| default_queue_catalog())
 }
 
 fn read_queue_catalog(data_dir: &str) -> Vec<serde_json::Value> {
@@ -416,10 +514,17 @@ fn write_queue_catalog(data_dir: &str, queues: &[serde_json::Value]) -> Result<(
 pub async fn handle_queue_catalog_get(
     State(state): State<SharedState>,
 ) -> Json<serde_json::Value> {
+    let stored = read_queue_catalog(&state.data_dir);
+    let queues = reconcile_queue_catalog(&state, stored.clone());
+    if queues != stored {
+        if let Err(error) = write_queue_catalog(&state.data_dir, &queues) {
+            log::warn!("Could not persist reconciled queue catalog: {error}");
+        }
+    }
     Json(serde_json::json!({
         "ok": true,
         "version": 1,
-        "queues": read_queue_catalog(&state.data_dir)
+        "queues": queues
     }))
 }
 
@@ -446,6 +551,309 @@ pub async fn handle_queue_catalog_put(
         "version": 1,
         "queues": queues
     })))
+}
+
+#[derive(Deserialize)]
+pub struct QueueCreateBody {
+    name: String,
+    task_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct QueueUpdateBody {
+    queue: serde_json::Value,
+}
+
+#[derive(Deserialize)]
+pub struct QueueReorderBody {
+    queue_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub struct QueueTaskOrderBody {
+    task_ids: Vec<String>,
+}
+
+fn queue_error(
+    status: StatusCode,
+    error: impl Into<String>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    (
+        status,
+        Json(serde_json::json!({"ok": false, "error": error.into()})),
+    )
+}
+
+fn load_reconciled_queue_catalog(state: &SharedState) -> Vec<serde_json::Value> {
+    reconcile_queue_catalog(state, read_queue_catalog(&state.data_dir))
+}
+
+pub async fn handle_queue_create(
+    State(state): State<SharedState>,
+    Json(body): Json<QueueCreateBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let name = body.name.trim();
+    if name.is_empty() || name.len() > 256 {
+        return Err(queue_error(StatusCode::BAD_REQUEST, "Queue name is invalid"));
+    }
+
+    let mut queues = load_reconciled_queue_catalog(&state);
+    let id = format!("q-{}", uuid::Uuid::new_v4().simple());
+    let mut queue = default_queue_entry(&id, name);
+
+    if let Some(task_id) = body.task_id.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        move_task_to_queue(&state, task_id, &id)
+            .map_err(|error| queue_error(StatusCode::BAD_REQUEST, error))?;
+        if let Some(object) = queue.as_object_mut() {
+            object.insert(
+                "downloadOrder".to_owned(),
+                serde_json::json!([task_id]),
+            );
+        }
+        for existing in &mut queues {
+            if let Some(order) = existing
+                .get_mut("downloadOrder")
+                .and_then(serde_json::Value::as_array_mut)
+            {
+                order.retain(|value| value.as_str() != Some(task_id));
+            }
+        }
+    }
+
+    queues.push(queue.clone());
+    let queues = normalize_queue_catalog(queues)
+        .map_err(|error| queue_error(StatusCode::BAD_REQUEST, error))?;
+    write_queue_catalog(&state.data_dir, &queues)
+        .map_err(|error| queue_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "queue": queue,
+        "queues": queues
+    })))
+}
+
+pub async fn handle_queue_update(
+    State(state): State<SharedState>,
+    Path(queue_id): Path<String>,
+    Json(body): Json<QueueUpdateBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let mut queues = load_reconciled_queue_catalog(&state);
+    let Some(index) = queues
+        .iter()
+        .position(|queue| queue_value_id(queue) == Some(queue_id.as_str()))
+    else {
+        return Err(queue_error(StatusCode::NOT_FOUND, "Queue was not found"));
+    };
+
+    let mut merged = queues[index]
+        .as_object()
+        .cloned()
+        .ok_or_else(|| queue_error(StatusCode::INTERNAL_SERVER_ERROR, "Stored queue is invalid"))?;
+    let updates = body
+        .queue
+        .as_object()
+        .ok_or_else(|| queue_error(StatusCode::BAD_REQUEST, "Queue update must be an object"))?;
+
+    for (key, value) in updates {
+        if key == "id" || key == "downloadOrder" {
+            continue;
+        }
+        merged.insert(key.clone(), value.clone());
+    }
+    merged.insert("id".to_owned(), serde_json::Value::String(queue_id.clone()));
+    queues[index] = serde_json::Value::Object(merged);
+
+    let queues = normalize_queue_catalog(queues)
+        .map_err(|error| queue_error(StatusCode::BAD_REQUEST, error))?;
+    let queue = queues
+        .iter()
+        .find(|queue| queue_value_id(queue) == Some(queue_id.as_str()))
+        .cloned()
+        .ok_or_else(|| queue_error(StatusCode::INTERNAL_SERVER_ERROR, "Updated queue disappeared"))?;
+    write_queue_catalog(&state.data_dir, &queues)
+        .map_err(|error| queue_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+
+    Ok(Json(serde_json::json!({"ok": true, "queue": queue, "queues": queues})))
+}
+
+pub async fn handle_queue_delete(
+    State(state): State<SharedState>,
+    Path(queue_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if queue_id == "main" {
+        return Err(queue_error(
+            StatusCode::BAD_REQUEST,
+            "The default main queue cannot be deleted",
+        ));
+    }
+
+    let mut queues = load_reconciled_queue_catalog(&state);
+    if !queues
+        .iter()
+        .any(|queue| queue_value_id(queue) == Some(queue_id.as_str()))
+    {
+        return Err(queue_error(StatusCode::NOT_FOUND, "Queue was not found"));
+    }
+
+    let affected: Vec<String> = lock_or_err!(state.task_snapshot)
+        .values()
+        .filter(|task| task.queue_id == queue_id)
+        .map(|task| task.id.clone())
+        .collect();
+
+    for task_id in &affected {
+        move_task_to_queue(&state, task_id, "main")
+            .map_err(|error| queue_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    }
+
+    queues.retain(|queue| queue_value_id(queue) != Some(queue_id.as_str()));
+    let mut queues = reconcile_queue_catalog(&state, queues);
+
+    if let Some(main) = queues
+        .iter_mut()
+        .find(|queue| queue_value_id(queue) == Some("main"))
+    {
+        if let Some(order) = main
+            .get_mut("downloadOrder")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            for task_id in &affected {
+                if !order.iter().any(|value| value.as_str() == Some(task_id)) {
+                    order.push(serde_json::Value::String(task_id.clone()));
+                }
+            }
+        }
+    }
+
+    write_queue_catalog(&state.data_dir, &queues)
+        .map_err(|error| queue_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "movedToMain": affected,
+        "queues": queues
+    })))
+}
+
+pub async fn handle_queue_reorder(
+    State(state): State<SharedState>,
+    Json(body): Json<QueueReorderBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let queues = load_reconciled_queue_catalog(&state);
+    if body.queue_ids.len() != queues.len() {
+        return Err(queue_error(StatusCode::BAD_REQUEST, "Queue order is incomplete"));
+    }
+
+    let current: std::collections::HashSet<String> = queues
+        .iter()
+        .filter_map(queue_value_id)
+        .map(str::to_owned)
+        .collect();
+    let requested: std::collections::HashSet<String> =
+        body.queue_ids.iter().cloned().collect();
+    if current != requested || requested.len() != body.queue_ids.len() {
+        return Err(queue_error(StatusCode::BAD_REQUEST, "Queue order does not match catalog"));
+    }
+
+    let by_id: HashMap<String, serde_json::Value> = queues
+        .into_iter()
+        .filter_map(|queue| queue_value_id(&queue).map(|id| (id.to_owned(), queue)))
+        .collect();
+    let reordered: Vec<serde_json::Value> = body
+        .queue_ids
+        .iter()
+        .filter_map(|id| by_id.get(id).cloned())
+        .collect();
+
+    write_queue_catalog(&state.data_dir, &reordered)
+        .map_err(|error| queue_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    Ok(Json(serde_json::json!({"ok": true, "queues": reordered})))
+}
+
+pub async fn handle_queue_move_task(
+    State(state): State<SharedState>,
+    Path((queue_id, task_id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let mut queues = load_reconciled_queue_catalog(&state);
+    if !queues
+        .iter()
+        .any(|queue| queue_value_id(queue) == Some(queue_id.as_str()))
+    {
+        return Err(queue_error(StatusCode::NOT_FOUND, "Target queue was not found"));
+    }
+
+    move_task_to_queue(&state, &task_id, &queue_id)
+        .map_err(|error| queue_error(StatusCode::NOT_FOUND, error))?;
+
+    for queue in &mut queues {
+        if let Some(order) = queue
+            .get_mut("downloadOrder")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            order.retain(|value| value.as_str() != Some(task_id.as_str()));
+            if queue_value_id(queue) == Some(queue_id.as_str()) {
+                order.push(serde_json::Value::String(task_id.clone()));
+            }
+        }
+    }
+
+    let queues = reconcile_queue_catalog(&state, queues);
+    write_queue_catalog(&state.data_dir, &queues)
+        .map_err(|error| queue_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "taskId": task_id,
+        "queueId": queue_id,
+        "queues": queues
+    })))
+}
+
+pub async fn handle_queue_reorder_tasks(
+    State(state): State<SharedState>,
+    Path(queue_id): Path<String>,
+    Json(body): Json<QueueTaskOrderBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let mut queues = load_reconciled_queue_catalog(&state);
+    let Some(queue) = queues
+        .iter_mut()
+        .find(|queue| queue_value_id(queue) == Some(queue_id.as_str()))
+    else {
+        return Err(queue_error(StatusCode::NOT_FOUND, "Queue was not found"));
+    };
+
+    let actual: std::collections::HashSet<String> = lock_or_err!(state.task_snapshot)
+        .values()
+        .filter(|task| task.queue_id == queue_id)
+        .map(|task| task.id.clone())
+        .collect();
+    let requested: std::collections::HashSet<String> =
+        body.task_ids.iter().cloned().collect();
+
+    if actual != requested || requested.len() != body.task_ids.len() {
+        return Err(queue_error(
+            StatusCode::BAD_REQUEST,
+            "Task order must contain every task in the queue exactly once",
+        ));
+    }
+
+    if let Some(object) = queue.as_object_mut() {
+        object.insert(
+            "downloadOrder".to_owned(),
+            serde_json::Value::Array(
+                body.task_ids
+                    .iter()
+                    .cloned()
+                    .map(serde_json::Value::String)
+                    .collect(),
+            ),
+        );
+    }
+
+    write_queue_catalog(&state.data_dir, &queues)
+        .map_err(|error| queue_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    Ok(Json(serde_json::json!({"ok": true, "queues": queues})))
 }
 
 // â”€â”€â”€ Engine: Priority Queue â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
