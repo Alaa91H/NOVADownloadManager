@@ -44,8 +44,24 @@ function asset(suffix) {
   return { name, sha256: sums.get(name), url: `${base}/${encodeURIComponent(name)}` };
 }
 
-const winX64 = asset('_x64-setup.exe');
-const winArm64 = asset('_arm64-setup.exe');
+function firstAsset(...suffixes) {
+  for (const suffix of suffixes) {
+    const found = asset(suffix);
+    if (found) return found;
+  }
+  return null;
+}
+
+const legacyWinX64 = firstAsset('_windows_x64-setup.exe', '_x64-setup.exe');
+const legacyWinArm64 = firstAsset('_windows_arm64-setup.exe', '_arm64-setup.exe');
+const winX64User = firstAsset('_windows_x64-user-setup.exe', '_x64-user-setup.exe');
+const winArm64User = firstAsset('_windows_arm64-user-setup.exe', '_arm64-user-setup.exe');
+const winX64Machine =
+  firstAsset('_windows_x64-machine-setup.exe', '_x64-machine-setup.exe') || legacyWinX64;
+const winArm64Machine =
+  firstAsset('_windows_arm64-machine-setup.exe', '_arm64-machine-setup.exe') || legacyWinArm64;
+const scoopX64 = winX64User || winX64Machine;
+const scoopArm64 = winArm64User || winArm64Machine;
 const macX64 = asset('_x64.dmg');
 const macArm64 = asset('_aarch64.dmg');
 
@@ -57,8 +73,10 @@ function emit(name, content) {
   written.push(name);
 }
 
-// ── Scoop (x64 installer) ──
-if (winX64) {
+// ── Scoop (prefer non-elevated per-user installers) ──
+if (scoopX64) {
+  const autoX64 = scoopX64.name.replace(version, '$version');
+  const autoArm64 = scoopArm64?.name.replace(version, '$version');
   emit(
     'nova-download-manager.json',
     `
@@ -69,11 +87,11 @@ if (winX64) {
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "${winX64.url}#/dl.exe",
-      "hash": "${winX64.sha256}"${winArm64 ? '' : ''}
+      "url": "${scoopX64.url}#/dl.exe",
+      "hash": "${scoopX64.sha256}"
     }${
-      winArm64
-        ? `,\n    "arm64": {\n      "url": "${winArm64.url}#/dl.exe",\n      "hash": "${winArm64.sha256}"\n    }`
+      scoopArm64
+        ? `,\n    "arm64": {\n      "url": "${scoopArm64.url}#/dl.exe",\n      "hash": "${scoopArm64.sha256}"\n    }`
         : ''
     }
   },
@@ -83,7 +101,11 @@ if (winX64) {
   "checkver": { "github": "${HOMEPAGE}" },
   "autoupdate": {
     "architecture": {
-      "64bit": { "url": "${HOMEPAGE}/releases/download/v$version/Nova.Download.Manager_$version\u005fwindows_x64-setup.exe#/dl.exe" }
+      "64bit": { "url": "${HOMEPAGE}/releases/download/v$version/${autoX64}#/dl.exe" }${
+        autoArm64
+          ? `,\n      "arm64": { "url": "${HOMEPAGE}/releases/download/v$version/${autoArm64}#/dl.exe" }`
+          : ''
+      }
     }
   }
 }
@@ -125,17 +147,25 @@ end
   );
 }
 
-// ── winget (three manifests) ──
-if (winX64) {
-  const installers = [winX64, winArm64].filter(Boolean);
-  const installerBlocks = installers
+// ── winget (user + machine scopes) ──
+const wingetInstallers = [
+  { asset: winX64User, architecture: 'x64', scope: 'user' },
+  { asset: winX64Machine, architecture: 'x64', scope: 'machine' },
+  { asset: winArm64User, architecture: 'arm64', scope: 'user' },
+  { asset: winArm64Machine, architecture: 'arm64', scope: 'machine' },
+].filter((entry) => entry.asset);
+
+if (wingetInstallers.length > 0) {
+  const installerBlocks = wingetInstallers
     .map(
-      (a) =>
-        `- Architecture: ${a === winX64 ? 'x64' : 'arm64'}\n` +
-        `  InstallerUrl: ${a.url}\n` +
-        `  InstallerSha256: ${a.sha256.toUpperCase()}`,
+      ({ asset: installer, architecture, scope }) =>
+        `- Architecture: ${architecture}\n` +
+        `  Scope: ${scope}\n` +
+        `  InstallerUrl: ${installer.url}\n` +
+        `  InstallerSha256: ${installer.sha256.toUpperCase()}`,
     )
     .join('\n');
+
   emit(
     `${PACKAGE_ID}.installer.yaml`,
     `
@@ -143,7 +173,6 @@ if (winX64) {
 PackageIdentifier: ${PACKAGE_ID}
 PackageVersion: ${version}
 InstallerType: nullsoft
-Scope: machine
 InstallModes:
   - silent
   - silentWithProgress
