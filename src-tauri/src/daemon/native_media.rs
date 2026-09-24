@@ -227,9 +227,18 @@ fn resolve_native_direct(
             .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
 
         if !extraction.pending_formats.is_empty() {
-            if let Ok(context) = request.request_context() {
-                let solver = YouTubePlayerScriptSolver;
-                let _ = resolve_youtube_pending_formats(&mut extraction, &context, &solver);
+            let context = request
+                .request_context()
+                .map_err(|error| NativeMediaTaskError::InvalidRequest(error.to_string()))?;
+            let solver = YouTubePlayerScriptSolver;
+            let challenge_resolution =
+                resolve_youtube_pending_formats(&mut extraction, &context, &solver)
+                    .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
+            if !challenge_resolution.unresolved_itags.is_empty() {
+                log::debug!(
+                    "NOVA Media Engine left unsupported challenged formats unresolved: {:?}",
+                    challenge_resolution.unresolved_itags
+                );
             }
         }
 
