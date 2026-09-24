@@ -774,17 +774,159 @@ pub async fn handle_probe_post(
     probe_url_with_options(&state, url, Some(&body)).await
 }
 
-pub async fn handle_native_media_resolve(
-    Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let url = params.get("url").map_or("", String::as_str).trim();
-    if url.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "Missing url"})),
-        ));
+fn parse_native_media_header_lines(
+    request: &mut nova_media_core::ExtractRequest,
+    headers: &str,
+) -> Result<(), String> {
+    for line in headers.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        let (name, value) = line
+            .split_once(':')
+            .ok_or_else(|| format!("Invalid media header line: {line}"))?;
+        let name = name.trim();
+        let value = value.trim();
+        if name.is_empty() || value.is_empty() {
+            return Err(format!("Invalid media header line: {line}"));
+        }
+        request.headers.insert(name.to_owned(), value.to_owned());
     }
-    if let Err(error) = crate::daemon::utils::is_safe_target_url(url) {
+    Ok(())
+}
+
+fn native_extract_request_from_body(
+    body: &CreateDownloadBody,
+) -> Result<nova_media_core::ExtractRequest, String> {
+    let url = body.url.as_deref().unwrap_or_default().trim();
+    if url.is_empty() {
+        return Err("Missing url".to_owned());
+    }
+
+    let mut request = nova_media_core::ExtractRequest::new(url);
+    if let Some(referer) = body.referer.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        request.headers.insert("Referer".to_owned(), referer.to_owned());
+    }
+
+    if let Some(media) = body.media_options.as_ref() {
+        if media.cookies_from_browser.as_deref().is_some_and(|value| !value.trim().is_empty()) {
+            return Err(
+                "Native media resolver does not import browser cookies yet; provide an explicit Cookie header instead"
+                    .to_owned(),
+            );
+        }
+
+        if let Some(cookies) = media.cookies.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+            let looks_like_cookie_header =
+                cookies.contains('=') && !cookies.ends_with(".txt") && !cookies.contains('\\');
+            if !looks_like_cookie_header {
+                return Err(
+                    "Native media resolver does not read cookie files yet; provide cookies as a Cookie header"
+                        .to_owned(),
+                );
+            }
+            request.headers.insert("Cookie".to_owned(), cookies.to_owned());
+        }
+
+        if let Some(user_agent) = media
+            .user_agent
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            request
+                .headers
+                .insert("User-Agent".to_owned(), user_agent.to_owned());
+        }
+        if let Some(referer) = media
+            .referer
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            request
+                .headers
+                .insert("Referer".to_owned(), referer.to_owned());
+        }
+        if let Some(headers) = media
+            .headers
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            parse_native_media_header_lines(&mut request, headers)?;
+        }
+    }
+
+    request
+        .request_context()
+        .map_err(|error| error.to_string())?;
+    Ok(request)
+}
+
+fn resolve_native_media_request(
+    request: nova_media_core::ExtractRequest,
+) -> Result<serde_json::Value, String> {
+    use nova_media_core::{
+        resolve_youtube_pending_formats, select_youtube_download_plan, youtube_video_id,
+        ExtractorRegistry, YouTubeExtractor, YouTubePlayerScriptSolver, YouTubeSelectionPolicy,
+    };
+
+    let parsed = request.parsed_url().map_err(|error| error.to_string())?;
+
+    if youtube_video_id(&parsed).is_some() {
+        let extractor = YouTubeExtractor;
+        let mut extraction = extractor
+            .extract_native(&request)
+            .map_err(|error| error.to_string())?;
+
+        let challenge_resolution = if extraction.pending_formats.is_empty() {
+            serde_json::Value::Null
+        } else {
+            let context = request.request_context().map_err(|error| error.to_string())?;
+            let solver = YouTubePlayerScriptSolver;
+            match resolve_youtube_pending_formats(&mut extraction, &context, &solver) {
+                Ok(resolution) => serde_json::json!({
+                    "resolved": resolution,
+                }),
+                Err(error) => serde_json::json!({
+                    "error": error.to_string(),
+                }),
+            }
+        };
+
+        let selection = select_youtube_download_plan(
+            &extraction,
+            YouTubeSelectionPolicy::default(),
+        );
+
+        return Ok(serde_json::json!({
+            "engine": "nova-native",
+            "extractor": "youtube-native",
+            "descriptor": extraction.descriptor,
+            "selection": selection,
+            "challengeResolution": challenge_resolution,
+            "youtube": {
+                "videoId": extraction.video_id,
+                "pendingFormats": extraction.pending_formats,
+                "playerJsUrl": extraction.player_js_url,
+                "visitorData": extraction.visitor_data,
+            }
+        }));
+    }
+
+    let registry = ExtractorRegistry::with_native_defaults();
+    let descriptor = registry.resolve(&request).map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({
+        "engine": "nova-native",
+        "extractor": "registry",
+        "descriptor": descriptor,
+        "selection": serde_json::Value::Null,
+    }))
+}
+
+async fn run_native_media_resolve(
+    request: nova_media_core::ExtractRequest,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let url = request.url.clone();
+    if let Err(error) = crate::daemon::utils::is_safe_target_url(&url) {
         log::warn!("Blocked native media resolve of unsafe URL {url}: {error}");
         return Err((
             StatusCode::BAD_REQUEST,
@@ -792,68 +934,7 @@ pub async fn handle_native_media_resolve(
         ));
     }
 
-    let url = url.to_owned();
-    let resolve = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, String> {
-        use nova_media_core::{
-            resolve_youtube_pending_formats, select_youtube_download_plan, youtube_video_id,
-            ExtractRequest, ExtractorRegistry, YouTubeExtractor, YouTubePlayerScriptSolver,
-            YouTubeSelectionPolicy,
-        };
-
-        let request = ExtractRequest::new(url.clone());
-        let parsed = request.parsed_url().map_err(|error| error.to_string())?;
-
-        if youtube_video_id(&parsed).is_some() {
-            let extractor = YouTubeExtractor;
-            let mut extraction = extractor
-                .extract_native(&request)
-                .map_err(|error| error.to_string())?;
-
-            let challenge_resolution = if extraction.pending_formats.is_empty() {
-                serde_json::Value::Null
-            } else {
-                let context = request.request_context().map_err(|error| error.to_string())?;
-                let solver = YouTubePlayerScriptSolver;
-                match resolve_youtube_pending_formats(&mut extraction, &context, &solver) {
-                    Ok(resolution) => serde_json::json!({
-                        "resolved": resolution,
-                    }),
-                    Err(error) => serde_json::json!({
-                        "error": error.to_string(),
-                    }),
-                }
-            };
-
-            let selection = select_youtube_download_plan(
-                &extraction,
-                YouTubeSelectionPolicy::default(),
-            );
-
-            return Ok(serde_json::json!({
-                "engine": "nova-native",
-                "extractor": "youtube-native",
-                "descriptor": extraction.descriptor,
-                "selection": selection,
-                "challengeResolution": challenge_resolution,
-                "youtube": {
-                    "videoId": extraction.video_id,
-                    "pendingFormats": extraction.pending_formats,
-                    "playerJsUrl": extraction.player_js_url,
-                    "visitorData": extraction.visitor_data,
-                }
-            }));
-        }
-
-        let registry = ExtractorRegistry::with_native_defaults();
-        let descriptor = registry.resolve(&request).map_err(|error| error.to_string())?;
-        Ok(serde_json::json!({
-            "engine": "nova-native",
-            "extractor": "registry",
-            "descriptor": descriptor,
-            "selection": serde_json::Value::Null,
-        }))
-    });
-
+    let resolve = tokio::task::spawn_blocking(move || resolve_native_media_request(request));
     let result = tokio::time::timeout(Duration::from_secs(35), resolve)
         .await
         .map_err(|_| {
@@ -878,6 +959,31 @@ pub async fn handle_native_media_resolve(
         })?;
 
     Ok(Json(result))
+}
+
+pub async fn handle_native_media_resolve(
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let url = params.get("url").map_or("", String::as_str).trim();
+    if url.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Missing url"})),
+        ));
+    }
+    run_native_media_resolve(nova_media_core::ExtractRequest::new(url)).await
+}
+
+pub async fn handle_native_media_resolve_post(
+    Json(body): Json<CreateDownloadBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let request = native_extract_request_from_body(&body).map_err(|error| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": error})),
+        )
+    })?;
+    run_native_media_resolve(request).await
 }
 
 
@@ -1130,7 +1236,7 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
         .route("/api/probe", get(handle_probe).post(handle_probe_post))
         .route(
             "/api/media/native/resolve",
-            get(handle_native_media_resolve),
+            get(handle_native_media_resolve).post(handle_native_media_resolve_post),
         )
         .route("/api/ytdlp/probe", get(handle_ytdlp_probe))
         .route(
