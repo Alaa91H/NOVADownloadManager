@@ -1493,9 +1493,53 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
 
 #[cfg(test)]
 mod tests {
-    use super::extract_ffmpeg_from_zip;
+    use super::{extension_capabilities_from_status, extract_ffmpeg_from_zip};
     use std::io::Write;
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn extension_media_capabilities_do_not_require_postprocessing() {
+        let status = serde_json::json!({
+            "directReady": true,
+            "mediaReady": true,
+            "postProcessingReady": false,
+            "engines": {
+                "media": {
+                    "capabilities": {
+                        "hlsTaskExecution": true,
+                        "dashTaskExecution": true,
+                        "subtitles": true,
+                        "audioExtraction": true
+                    }
+                },
+                "libcurlMulti": {
+                    "protocols": ["http", "https"],
+                    "supportedDirectOptionKeys": []
+                }
+            }
+        });
+        let capabilities = extension_capabilities_from_status(&status);
+        let items = capabilities
+            .get("items")
+            .and_then(serde_json::Value::as_array)
+            .expect("extension capability list");
+        let contains = |value: &str| {
+            items
+                .iter()
+                .any(|item| item.as_str() == Some(value))
+        };
+        assert!(contains("stream.hls.resolve"));
+        assert!(contains("stream.dash.resolve"));
+        assert!(contains("stream.subtitles"));
+        assert!(contains("stream.audioTracks"));
+        assert!(contains("media.analyze"));
+        assert_eq!(
+            capabilities
+                .get("postProcessingReady")
+                .and_then(serde_json::Value::as_bool),
+            Some(false)
+        );
+    }
 
     /// Builds an in-memory zip archive with the given (name, content) entries.
     /// Uses the zip crate's writer so the test exercises the same zip 4.x code
