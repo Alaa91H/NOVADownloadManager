@@ -14,6 +14,19 @@ use crate::daemon::types::{CreateDownloadBody, MediaDownloadOptions, Task};
 
 pub struct NativeMediaExtractor;
 
+/// Media options that are executed by the first-party native task path today.
+/// Keep this list intentionally narrow: capability advertisement and request
+/// validation both consume it so unsupported options cannot be silently ignored.
+pub const NATIVE_MEDIA_OPTION_KEYS: &[&str] = &[
+    "mode",
+    "quality",
+    "outputTemplate",
+    "cookies",
+    "userAgent",
+    "referer",
+    "headers",
+];
+
 impl Extractor for NativeMediaExtractor {
     fn id(&self) -> &'static str {
         "nova-media-engine"
@@ -149,22 +162,8 @@ fn validate_native_options(options: &MediaDownloadOptions) -> Result<(), String>
     let object = serialized
         .as_object()
         .ok_or_else(|| "Invalid media options".to_owned())?;
-    const ALLOWED: &[&str] = &[
-        "mode",
-        "quality",
-        "audioFormat",
-        "ffmpegEnabled",
-        "ffmpegLocation",
-        "bitrate",
-        "outputTemplate",
-        "cookies",
-        "userAgent",
-        "referer",
-        "headers",
-    ];
-
     for (key, value) in object {
-        if option_is_configured(value) && !ALLOWED.contains(&key.as_str()) {
+        if option_is_configured(value) && !NATIVE_MEDIA_OPTION_KEYS.contains(&key.as_str()) {
             return Err(format!(
                 "Media option '{key}' is not migrated to the native engine yet"
             ));
@@ -384,8 +383,6 @@ mod tests {
             media_options: Some(MediaDownloadOptions {
                 mode: Some("video".to_owned()),
                 quality: Some("1080p".to_owned()),
-                audio_format: Some("m4a".to_owned()),
-                bitrate: Some("320k".to_owned()),
                 output_template: Some("%(title)s.%(ext)s".to_owned()),
                 ..Default::default()
             }),
@@ -404,6 +401,14 @@ mod tests {
     fn advanced_media_option_is_rejected_by_native_engine() {
         let mut body = body("https://cdn.test/video.mp4");
         body.media_options.as_mut().expect("media").subtitles = Some(true);
+        assert!(NativeMediaExtractor.validate(&body).is_err());
+    }
+
+    #[test]
+    fn unimplemented_execution_option_is_not_advertised_or_accepted() {
+        assert!(!NATIVE_MEDIA_OPTION_KEYS.contains(&"audioFormat"));
+        let mut body = body("https://cdn.test/video.mp4");
+        body.media_options.as_mut().expect("media").audio_format = Some("m4a".to_owned());
         assert!(NativeMediaExtractor.validate(&body).is_err());
     }
 
