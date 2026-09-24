@@ -370,7 +370,7 @@ impl DhtEngine {
     }
 
     #[cfg(test)]
-    fn for_tests(node_id: DhtNodeId, config: DhtConfig) -> Self {
+    pub(crate) fn for_tests(node_id: DhtNodeId, config: DhtConfig) -> Self {
         Self {
             node_id,
             config,
