@@ -160,7 +160,9 @@ jobs:
           if grep -RInE 'aria2c|qbittorrent|transmission-cli|libtorrent' \
             crates/nova-torrent-core \
             src-tauri/src/daemon/native_torrent.rs \
-            src-tauri/src/daemon/torrent_peer.rs; then
+            src-tauri/src/daemon/torrent_peer.rs \
+            src-tauri/src/daemon/torrent_dht.rs \
+            src-tauri/src/daemon/torrent_magnet.rs; then
             echo "::error::Native torrent code must not delegate torrent execution to an external client."
             exit 1
           fi
@@ -172,6 +174,8 @@ jobs:
           cargo test --manifest-path crates/nova-torrent-core/Cargo.toml
           cargo test --manifest-path src-tauri/Cargo.toml daemon::native_torrent::tests -- --nocapture
           cargo test --manifest-path src-tauri/Cargo.toml daemon::torrent_peer::tests -- --nocapture
+          cargo test --manifest-path src-tauri/Cargo.toml daemon::torrent_dht::tests -- --nocapture
+          cargo test --manifest-path src-tauri/Cargo.toml daemon::torrent_magnet::tests -- --nocapture
           cargo clippy --manifest-path crates/nova-torrent-core/Cargo.toml --all-targets -- -D warnings
           cargo fmt --check --manifest-path crates/nova-torrent-core/Cargo.toml
 
