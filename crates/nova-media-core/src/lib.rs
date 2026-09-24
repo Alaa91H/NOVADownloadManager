@@ -183,6 +183,15 @@ pub struct MediaDescriptor {
 }
 
 impl MediaDescriptor {
+    pub fn request_context(&self) -> Result<HttpRequestContext, MediaError> {
+        let mut context = HttpRequestContext::default();
+        merge_request_headers(&mut context, &self.request_headers);
+        context
+            .validate()
+            .map_err(|error| MediaError::Transport(error.to_string()))?;
+        Ok(context)
+    }
+
     pub fn playable_streams(&self) -> impl Iterator<Item = &MediaStream> {
         self.streams.iter().filter(|stream| {
             matches!(
