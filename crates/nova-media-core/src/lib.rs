@@ -6,11 +6,17 @@
 
 use std::collections::BTreeMap;
 
+use nova_download_core::{fetch_http_bytes_with_context, HttpRequestContext};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
-pub use nova_stream_core::{detect_manifest_kind, StreamManifestKind};
+pub use nova_stream_core::{
+    detect_manifest_kind, parse_dash, parse_hls, DashManifest, HlsManifest, StreamManifestKind,
+};
+
+/// Default hard ceiling for in-memory HLS/DASH manifest acquisition.
+pub const DEFAULT_MANIFEST_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -70,6 +76,13 @@ pub struct MediaStream {
     pub headers: BTreeMap<String, String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "manifest", rename_all = "kebab-case")]
+pub enum NativeManifest {
+    Hls(HlsManifest),
+    Dash(DashManifest),
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SubtitleTrack {
     pub language: String,
@@ -100,6 +113,89 @@ impl MediaDescriptor {
             )
         })
     }
+
+    /// Build the native HTTP context for a concrete stream.
+    ///
+    /// Descriptor headers provide site-wide defaults while stream headers win
+    /// for representation-specific requests. Browser identity headers are
+    /// normalized into typed transport fields rather than raw header strings.
+    pub fn request_context_for_stream(
+        &self,
+        stream: &MediaStream,
+    ) -> Result<HttpRequestContext, MediaError> {
+        let mut context = HttpRequestContext::default();
+        merge_request_headers(&mut context, &self.request_headers);
+        merge_request_headers(&mut context, &stream.headers);
+        context
+            .validate()
+            .map_err(|error| MediaError::Transport(error.to_string()))?;
+        Ok(context)
+    }
+}
+
+fn merge_request_headers(
+    context: &mut HttpRequestContext,
+    headers: &BTreeMap<String, String>,
+) {
+    for (name, value) in headers {
+        match name.to_ascii_lowercase().as_str() {
+            "referer" => context.referer = Some(value.clone()),
+            "cookie" => context.cookie_header = Some(value.clone()),
+            "user-agent" => context.user_agent = Some(value.clone()),
+            _ => {
+                if let Some(existing) = context
+                    .headers
+                    .keys()
+                    .find(|existing| existing.eq_ignore_ascii_case(name))
+                    .cloned()
+                {
+                    context.headers.remove(&existing);
+                }
+                context.headers.insert(name.clone(), value.clone());
+            }
+        }
+    }
+}
+
+/// Fetch and parse an HLS/DASH manifest entirely through NOVA's native core.
+pub fn fetch_native_manifest(
+    descriptor: &MediaDescriptor,
+    stream: &MediaStream,
+    max_bytes: usize,
+) -> Result<NativeManifest, MediaError> {
+    let context = descriptor.request_context_for_stream(stream)?;
+    let response = fetch_http_bytes_with_context(&stream.url, &context, max_bytes)
+        .map_err(|error| MediaError::Transport(error.to_string()))?;
+    let body = String::from_utf8(response.body).map_err(|_| MediaError::ManifestEncoding)?;
+
+    let kind = match stream.protocol {
+        MediaProtocol::Hls => StreamManifestKind::Hls,
+        MediaProtocol::Dash => StreamManifestKind::Dash,
+        MediaProtocol::Http | MediaProtocol::Https => detect_manifest_kind(&response.effective_url, &body)
+            .ok_or(MediaError::UnsupportedManifest)?,
+    };
+
+    match kind {
+        StreamManifestKind::Hls => parse_hls(&response.effective_url, &body)
+            .map(NativeManifest::Hls)
+            .map_err(|error| MediaError::ManifestParse {
+                kind: StreamManifestKind::Hls,
+                message: error.to_string(),
+            }),
+        StreamManifestKind::Dash => parse_dash(&body)
+            .map(NativeManifest::Dash)
+            .map_err(|error| MediaError::ManifestParse {
+                kind: StreamManifestKind::Dash,
+                message: error.to_string(),
+            }),
+    }
+}
+
+pub fn fetch_native_manifest_default(
+    descriptor: &MediaDescriptor,
+    stream: &MediaStream,
+) -> Result<NativeManifest, MediaError> {
+    fetch_native_manifest(descriptor, stream, DEFAULT_MANIFEST_MAX_BYTES)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -136,6 +232,17 @@ pub enum MediaError {
     #[error("extractor {extractor} failed: {message}")]
     ExtractorFailed {
         extractor: &'static str,
+        message: String,
+    },
+    #[error("native media transport failed: {0}")]
+    Transport(String),
+    #[error("native manifest is not valid UTF-8")]
+    ManifestEncoding,
+    #[error("native manifest type could not be determined")]
+    UnsupportedManifest,
+    #[error("native {kind:?} manifest parse failed: {message}")]
+    ManifestParse {
+        kind: StreamManifestKind,
         message: String,
     },
 }
@@ -240,6 +347,74 @@ mod tests {
                 is_live: false,
             })
         }
+    }
+
+    fn media_descriptor_with_stream() -> (MediaDescriptor, MediaStream) {
+        let mut descriptor_headers = BTreeMap::new();
+        descriptor_headers.insert("User-Agent".to_owned(), "NOVA-Site/1".to_owned());
+        descriptor_headers.insert("Referer".to_owned(), "https://site.test/watch".to_owned());
+        descriptor_headers.insert("X-Site".to_owned(), "descriptor".to_owned());
+
+        let mut stream_headers = BTreeMap::new();
+        stream_headers.insert("user-agent".to_owned(), "NOVA-Stream/2".to_owned());
+        stream_headers.insert("Cookie".to_owned(), "session=ok".to_owned());
+        stream_headers.insert("x-site".to_owned(), "stream".to_owned());
+
+        let stream = MediaStream {
+            id: "video".to_owned(),
+            kind: MediaTrackKind::Video,
+            protocol: MediaProtocol::Hls,
+            url: "https://cdn.test/master.m3u8".to_owned(),
+            container: Some("mp4".to_owned()),
+            video_codec: Some("avc1".to_owned()),
+            audio_codec: None,
+            width: Some(1920),
+            height: Some(1080),
+            fps: Some(60.0),
+            bitrate_bps: Some(4_500_000),
+            audio_bitrate_bps: None,
+            content_length: None,
+            language: None,
+            headers: stream_headers,
+        };
+
+        let descriptor = MediaDescriptor {
+            source_kind: MediaSourceKind::Site,
+            metadata: MediaMetadata {
+                title: "Native".to_owned(),
+                description: None,
+                duration_millis: None,
+                uploader: None,
+                webpage_url: "https://site.test/watch".to_owned(),
+                thumbnail_url: None,
+            },
+            streams: vec![stream.clone()],
+            subtitles: Vec::new(),
+            request_headers: descriptor_headers,
+            is_live: false,
+        };
+
+        (descriptor, stream)
+    }
+
+    #[test]
+    fn stream_request_context_normalizes_browser_headers_and_stream_overrides() {
+        let (descriptor, stream) = media_descriptor_with_stream();
+        let context = descriptor
+            .request_context_for_stream(&stream)
+            .expect("native request context");
+
+        assert_eq!(context.user_agent.as_deref(), Some("NOVA-Stream/2"));
+        assert_eq!(
+            context.referer.as_deref(),
+            Some("https://site.test/watch")
+        );
+        assert_eq!(context.cookie_header.as_deref(), Some("session=ok"));
+        assert_eq!(context.headers.len(), 1);
+        assert_eq!(
+            context.headers.values().next().map(String::as_str),
+            Some("stream")
+        );
     }
 
     #[test]
