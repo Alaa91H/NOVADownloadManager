@@ -6,7 +6,7 @@
 use curl::easy::{Easy, List};
 use std::cell::{Cell, RefCell};
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
