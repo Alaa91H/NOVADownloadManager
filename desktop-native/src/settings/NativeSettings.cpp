@@ -1,6 +1,12 @@
 #include "settings/NativeSettings.h"
 
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QHash>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QRegularExpression>
 #include <QSet>
 #include <QStandardPaths>
 
@@ -8,6 +14,60 @@ namespace {
 QString defaultDownloadDirectory() {
     const QString location = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
     return location;
+}
+
+QString legacyConfigPath() {
+    const QString overrideDirectory = qEnvironmentVariable("NOVA_NATIVE_DATA_DIR").trimmed();
+    if (!overrideDirectory.isEmpty()) {
+        return QDir(overrideDirectory).filePath(QStringLiteral("config.json"));
+    }
+
+#if defined(Q_OS_WIN)
+    const QString appData = qEnvironmentVariable("APPDATA").trimmed();
+    if (!appData.isEmpty()) {
+        return QDir(appData).filePath(
+            QStringLiteral("com.nova.downloadmanager/config.json")
+        );
+    }
+#elif defined(Q_OS_MACOS)
+    const QString home = QDir::homePath();
+    if (!home.isEmpty()) {
+        return QDir(home).filePath(
+            QStringLiteral("Library/Application Support/com.nova.downloadmanager/config.json")
+        );
+    }
+#else
+    const QString xdgDataHome = qEnvironmentVariable("XDG_DATA_HOME").trimmed();
+    if (!xdgDataHome.isEmpty()) {
+        return QDir(xdgDataHome).filePath(
+            QStringLiteral("com.nova.downloadmanager/config.json")
+        );
+    }
+
+    const QString home = QDir::homePath();
+    if (!home.isEmpty()) {
+        return QDir(home).filePath(
+            QStringLiteral(".local/share/com.nova.downloadmanager/config.json")
+        );
+    }
+#endif
+
+    return {};
+}
+
+QString nativeLanguageFromLegacy(const QString &language) {
+    const QString normalized = language.trimmed().toLower();
+    const QString primary = normalized.section(
+        QRegularExpression(QStringLiteral("[-_]")),
+        0,
+        0
+    );
+    if (primary == QStringLiteral("en")
+        || primary == QStringLiteral("ar")
+        || primary == QStringLiteral("de")) {
+        return primary;
+    }
+    return {};
 }
 
 QString canonicalDownloadColumn(const QString &value) {
@@ -45,7 +105,88 @@ QString canonicalDownloadSortKey(const QString &value) {
 
 NativeSettings::NativeSettings(QObject *parent)
     : QObject(parent),
-      m_settings(QStringLiteral("NOVA"), QStringLiteral("DownloadManagerNative")) {}
+      m_settings(QStringLiteral("NOVA"), QStringLiteral("DownloadManagerNative")) {
+    migrateLegacySettingsIfNeeded();
+}
+
+void NativeSettings::migrateLegacySettingsIfNeeded() {
+    static const QString markerKey = QStringLiteral("migration/legacyUiImported");
+    if (m_settings.value(markerKey, false).toBool()) {
+        return;
+    }
+
+    const QString configPath = legacyConfigPath();
+    if (configPath.isEmpty()) {
+        return;
+    }
+
+    QFile file(configPath);
+    if (!file.exists() || !file.open(QIODevice::ReadOnly)) {
+        return;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        return;
+    }
+
+    const QJsonObject root = document.object();
+    const QJsonObject general = root.value(QStringLiteral("general")).toObject();
+    const QJsonObject connection = root.value(QStringLiteral("connection")).toObject();
+    const QJsonObject saveAndCategories =
+        root.value(QStringLiteral("saveAndCategories")).toObject();
+    const QJsonObject extra = root.value(QStringLiteral("extra")).toObject();
+
+    const auto importIfMissing = [this](const QString &key, const QVariant &value) {
+        if (!value.isValid() || m_settings.contains(key)) {
+            return;
+        }
+        m_settings.setValue(key, value);
+    };
+
+    const QString defaultFolder =
+        saveAndCategories.value(QStringLiteral("defaultFolder")).toString().trimmed();
+    if (!defaultFolder.isEmpty()) {
+        importIfMissing(
+            QStringLiteral("downloads/defaultDirectory"),
+            defaultFolder
+        );
+    }
+
+    if (general.value(QStringLiteral("monitorClipboard")).isBool()) {
+        importIfMissing(
+            QStringLiteral("downloads/monitorClipboard"),
+            general.value(QStringLiteral("monitorClipboard")).toBool()
+        );
+    }
+
+    const int maxConnections =
+        connection.value(QStringLiteral("maxConnections")).toInt(0);
+    if (maxConnections > 0) {
+        importIfMissing(
+            QStringLiteral("downloads/defaultConnections"),
+            qBound(1, maxConnections, 64)
+        );
+    }
+
+    const QString language = nativeLanguageFromLegacy(
+        extra.value(QStringLiteral("language")).toString()
+    );
+    if (!language.isEmpty()) {
+        importIfMissing(
+            QStringLiteral("appearance/language"),
+            language
+        );
+    }
+
+    m_settings.setValue(markerKey, true);
+    m_settings.setValue(
+        QStringLiteral("migration/legacyUiSource"),
+        QFileInfo(configPath).absoluteFilePath()
+    );
+    m_settings.sync();
+}
 
 QString NativeSettings::defaultSaveDirectory() const {
     return value<QString>(QStringLiteral("downloads/defaultDirectory"), defaultDownloadDirectory());
