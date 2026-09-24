@@ -249,14 +249,27 @@ async fn create_native_direct_task(
 ) -> Result<Task, NativeMediaTaskError> {
     let descriptor = resolved.descriptor.clone();
     let chapters = resolved.chapters.clone();
+    let container = resolved.container.clone();
     let mut direct = body.clone();
     direct.url = Some(resolved.url);
     direct.media_options = None;
-    if direct.name.as_deref().map_or(true, |name| name.trim().is_empty()) {
-        direct.name = Some(resolved.title);
-    }
+    let base_name = direct
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| {
+            let title = resolved.title.trim();
+            if title.is_empty() {
+                "nova-media".to_owned()
+            } else {
+                title.to_owned()
+            }
+        });
+    direct.name = Some(ensure_native_output_name(&base_name, container.as_deref()));
     if direct.file_type.as_deref().map_or(true, |kind| kind.trim().is_empty()) {
-        direct.file_type = resolved.container;
+        direct.file_type = container;
     }
     if direct.size_bytes.unwrap_or(0) == 0 {
         direct.size_bytes = resolved.content_length;
@@ -320,25 +333,21 @@ fn create_native_manifest_task(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(if protocol == "dash" { "mp4" } else { "ts" });
     let mut task_body = body.clone();
-    if task_body.name.as_deref().map_or(true, |name| name.trim().is_empty()) {
-        let mut title = resolved.descriptor.metadata.title.trim().to_owned();
-        if title.is_empty() {
-            title = format!("nova-{protocol}-media");
-        }
-        let manifest_suffix = Path::new(&title)
-            .extension()
-            .and_then(|value| value.to_str())
-            .is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "m3u8" | "mpd"));
-        if manifest_suffix {
-            let mut path = PathBuf::from(&title);
-            path.set_extension(extension);
-            title = path.to_string_lossy().to_string();
-        } else if Path::new(&title).extension().is_none() {
-            title.push('.');
-            title.push_str(extension);
-        }
-        task_body.name = Some(title);
-    }
+    let base_name = task_body
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| {
+            let title = resolved.descriptor.metadata.title.trim();
+            if title.is_empty() {
+                format!("nova-{protocol}-media")
+            } else {
+                title.to_owned()
+            }
+        });
+    task_body.name = Some(ensure_native_output_name(&base_name, Some(extension)));
     if task_body.file_type.as_deref().map_or(true, |kind| kind.trim().is_empty()) {
         task_body.file_type = Some(extension.to_owned());
     }
@@ -462,21 +471,24 @@ fn create_native_separate_track_task(
         })?;
 
     let mut task_body = body.clone();
-    if task_body
+    let base_name = task_body
         .name
         .as_deref()
-        .map_or(true, |name| name.trim().is_empty())
-    {
-        let mut title = resolved.extraction.descriptor.metadata.title.trim().to_owned();
-        if title.is_empty() {
-            title = "nova-media".to_owned();
-        }
-        if Path::new(&title).extension().is_none() {
-            title.push('.');
-            title.push_str(&resolved.output_container);
-        }
-        task_body.name = Some(title);
-    }
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| {
+            let title = resolved.extraction.descriptor.metadata.title.trim();
+            if title.is_empty() {
+                "nova-media".to_owned()
+            } else {
+                title.to_owned()
+            }
+        });
+    task_body.name = Some(ensure_native_output_name(
+        &base_name,
+        Some(&resolved.output_container),
+    ));
     if task_body
         .file_type
         .as_deref()
@@ -3116,6 +3128,39 @@ fn cookie_path_matches(target_path: &str, cookie_path: &str) -> bool {
             .is_some_and(|next| *next == b'/')
 }
 
+fn ensure_native_output_name(name: &str, extension: Option<&str>) -> String {
+    let name = name.trim();
+    let mut output = if name.is_empty() {
+        "nova-media".to_owned()
+    } else {
+        name.to_owned()
+    };
+    let Some(extension) = extension
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return output;
+    };
+
+    let current_extension = Path::new(&output)
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase);
+    if current_extension
+        .as_deref()
+        .is_some_and(|value| matches!(value, "m3u8" | "mpd"))
+    {
+        let mut path = PathBuf::from(&output);
+        path.set_extension(extension);
+        return path.to_string_lossy().to_string();
+    }
+    if current_extension.is_none() {
+        output.push('.');
+        output.push_str(extension.trim_start_matches('.'));
+    }
+    output
+}
+
 fn parse_quality_height(value: &str) -> Option<u32> {
     let normalized = value.trim().to_ascii_lowercase();
     if matches!(normalized.as_str(), "" | "best" | "auto") {
@@ -3327,6 +3372,26 @@ mod tests {
         assert_eq!(
             requested_separate_track_container("mp4", Some(&options)).expect("mkv copy mux"),
             "mkv"
+        );
+    }
+
+    #[test]
+    fn native_output_names_append_container_and_replace_manifest_suffixes() {
+        assert_eq!(
+            ensure_native_output_name("Example title", Some("mp4")),
+            "Example title.mp4"
+        );
+        assert_eq!(
+            ensure_native_output_name("master.m3u8", Some("ts")),
+            "master.ts"
+        );
+        assert_eq!(
+            ensure_native_output_name("stream.mpd", Some("mp4")),
+            "stream.mp4"
+        );
+        assert_eq!(
+            ensure_native_output_name("custom.webm", Some("mp4")),
+            "custom.webm"
         );
     }
 
