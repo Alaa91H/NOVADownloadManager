@@ -861,7 +861,7 @@ fn native_extract_request_from_body(
     Ok(request)
 }
 
-fn resolve_native_media_request(
+pub(super) fn resolve_native_media_request(
     request: nova_media_core::ExtractRequest,
 ) -> Result<serde_json::Value, String> {
     use nova_media_core::{
@@ -987,45 +987,13 @@ pub async fn handle_native_media_resolve_post(
 }
 
 
-pub async fn handle_native_media_probe(
-    Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let url = params.get("url").map_or("", String::as_str).trim();
-    if url.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "Missing url"})),
-        ));
-    }
-    if let Err(error) = crate::daemon::utils::is_safe_target_url(url) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": error})),
-        ));
-    }
-
-    let request = nova_media_core::ExtractRequest::new(url);
-    let resolved = tokio::task::spawn_blocking(move || resolve_native_media_request(request))
-        .await
-        .map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("Native media probe worker failed: {error}")})),
-            )
-        })?
-        .map_err(|error| {
-            (
-                StatusCode::UNPROCESSABLE_ENTITY,
-                Json(serde_json::json!({"error": error})),
-            )
-        })?;
-
+pub(super) fn native_media_probe_payload(
+    resolved: &serde_json::Value,
+    url: &str,
+) -> Result<serde_json::Value, String> {
     let descriptor = resolved
         .get("descriptor")
-        .ok_or_else(|| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "Native media descriptor missing"})),
-        ))?;
+        .ok_or_else(|| "Native media descriptor missing".to_owned())?;
     let metadata = descriptor.get("metadata").unwrap_or(&serde_json::Value::Null);
     let duration_millis = metadata
         .get("duration_millis")
@@ -1126,7 +1094,7 @@ pub async fn handle_native_media_probe(
         .and_then(serde_json::Value::as_str)
         .unwrap_or("native");
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "id": id,
         "title": metadata.get("title").and_then(serde_json::Value::as_str).unwrap_or("Media"),
         "duration": duration,
@@ -1137,7 +1105,49 @@ pub async fn handle_native_media_probe(
         "description": metadata.get("description").and_then(serde_json::Value::as_str).unwrap_or(""),
         "formats": formats,
         "engine": "nova-media-engine"
-    })))
+    }))
+}
+
+pub async fn handle_native_media_probe(
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let url = params.get("url").map_or("", String::as_str).trim();
+    if url.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Missing url"})),
+        ));
+    }
+    if let Err(error) = crate::daemon::utils::is_safe_target_url(url) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": error})),
+        ));
+    }
+
+    let request = nova_media_core::ExtractRequest::new(url);
+    let resolved = tokio::task::spawn_blocking(move || resolve_native_media_request(request))
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Native media probe worker failed: {error}")})),
+            )
+        })?
+        .map_err(|error| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({"error": error})),
+            )
+        })?;
+
+    let payload = native_media_probe_payload(&resolved, url).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": error})),
+        )
+    })?;
+    Ok(Json(payload))
 }
 
 pub async fn handle_media_bridge_probe(
