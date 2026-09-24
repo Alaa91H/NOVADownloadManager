@@ -12,10 +12,16 @@ Item {
 
     property string errorText: ""
     property string statusText: ""
+    property string languageToken: i18n.language
+
+    function t(key) {
+        const token = root.languageToken
+        return i18n.translate(key)
+    }
 
     function formatBytes(value) {
         const bytes = Number(value || 0)
-        if (bytes <= 0) return "Unknown"
+        if (bytes <= 0) return root.t("common.unknown")
         if (bytes >= 1024 * 1024 * 1024)
             return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB"
         if (bytes >= 1024 * 1024)
@@ -72,16 +78,16 @@ Item {
             spacing: 2
 
             Text {
-                text: "Link Grabber"
+                text: root.t("grabber.title")
                 color: Theme.textPrimary
-                font.pixelSize: 21
+                font.pixelSize: Theme.fontTitle
                 font.weight: Font.DemiBold
             }
 
             Text {
-                text: "Resolve redirects, interstitials and download metadata through the NOVA probe pipeline"
+                text: root.t("grabber.subtitle")
                 color: Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontSmall
             }
         }
 
@@ -102,11 +108,14 @@ Item {
                     Layout.fillWidth: true
                     placeholderText: "https://example.com/download"
                     selectByMouse: true
+                    LayoutMirroring.enabled: false
+                    horizontalAlignment: Text.AlignLeft
+                    Accessible.name: root.t("add.url")
                     onAccepted: root.analyze()
                 }
 
                 Button {
-                    text: api.directProbeBusy ? "Analyzing…" : "Analyze link"
+                    text: api.directProbeBusy ? root.t("grabber.analyzing") : root.t("grabber.analyze")
                     enabled: api.connected
                         && !api.directProbeBusy
                         && urlField.text.trim().length > 0
@@ -136,9 +145,9 @@ Item {
 
                         Text {
                             Layout.fillWidth: true
-                            text: api.directProbe.fileName || "No analyzed link"
+                            text: api.directProbe.fileName || root.t("grabber.noLink")
                             color: Theme.textPrimary
-                            font.pixelSize: 15
+                            font.pixelSize: Theme.fontMedium
                             font.weight: Font.DemiBold
                             elide: Text.ElideMiddle
                         }
@@ -147,8 +156,10 @@ Item {
                             Layout.fillWidth: true
                             text: api.directProbe.finalUrl || api.directProbe.url
                                 || "Analyze a link to inspect the resolved target."
+                            LayoutMirroring.enabled: false
+                            horizontalAlignment: Text.AlignLeft
                             color: Theme.textMuted
-                            font.pixelSize: 9
+                            font.pixelSize: Theme.fontTiny
                             elide: Text.ElideMiddle
                         }
                     }
@@ -169,7 +180,7 @@ Item {
                             color: Number(api.directProbe.httpStatus) < 400
                                 ? Theme.success
                                 : Theme.warning
-                            font.pixelSize: 9
+                            font.pixelSize: Theme.fontTiny
                             font.weight: Font.DemiBold
                         }
                     }
@@ -190,8 +201,8 @@ Item {
                     Repeater {
                         model: [
                             { label: "Type", value: api.directProbe.fileType || "Unknown" },
-                            { label: "Size", value: root.formatBytes(api.directProbe.sizeBytes) },
-                            { label: "Resumable", value: api.directProbe.resumable ? "Yes" : "No" },
+                            { label: root.t("common.size"), value: root.formatBytes(api.directProbe.sizeBytes) },
+                            { label: root.t("common.resumable"), value: api.directProbe.resumable ? root.t("common.yes") : root.t("common.no") },
                             { label: "Segments", value: api.directProbe.supportsSegments ? "Supported" : "Unknown / no" },
                             { label: "Content type", value: api.directProbe.contentType || "Unknown" },
                             { label: "Probe method", value: api.directProbe.probeMethod || "—" },
@@ -215,7 +226,7 @@ Item {
                                 Text {
                                     text: modelData.label
                                     color: Theme.textMuted
-                                    font.pixelSize: 8
+                                    font.pixelSize: Math.max(8, Theme.fontTiny - 1)
                                     font.weight: Font.DemiBold
                                 }
 
@@ -223,7 +234,7 @@ Item {
                                     Layout.fillWidth: true
                                     text: modelData.value
                                     color: Theme.textPrimary
-                                    font.pixelSize: 10
+                                    font.pixelSize: Theme.fontSmall
                                     font.weight: Font.Medium
                                     elide: Text.ElideMiddle
                                 }
@@ -254,12 +265,15 @@ Item {
                             TextField {
                                 id: saveDirectory
                                 Layout.fillWidth: true
-                                placeholderText: "Optional destination directory"
+                                placeholderText: root.t("batch.destination")
                                 selectByMouse: true
+                                LayoutMirroring.enabled: false
+                                horizontalAlignment: Text.AlignLeft
+                                Accessible.name: root.t("common.destination")
                             }
 
                             Button {
-                                text: "Browse…"
+                                text: root.t("common.browse")
                                 onClicked: {
                                     const chosen = desktop.chooseDirectory(saveDirectory.text)
                                     if (chosen.length > 0)
@@ -270,12 +284,12 @@ Item {
 
                         CheckBox {
                             id: startImmediately
-                            text: "Start immediately"
+                            text: root.t("common.startImmediately")
                             checked: true
                         }
 
                         Button {
-                            text: "Add download"
+                            text: root.t("common.addDownload")
                             enabled: api.connected
                                 && !api.directProbeBusy
                                 && api.directProbe
@@ -297,7 +311,7 @@ Item {
                             contentItem: Text {
                                 text: parent.text
                                 color: parent.enabled ? "white" : Theme.textMuted
-                                font.pixelSize: 11
+                                font.pixelSize: Math.round(11 * Theme.fontScale)
                                 font.weight: Font.DemiBold
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
@@ -311,7 +325,7 @@ Item {
                     visible: root.errorText.length > 0
                     text: root.errorText
                     color: Theme.danger
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontSmall
                     wrapMode: Text.WordWrap
                 }
 
@@ -320,7 +334,7 @@ Item {
                     visible: root.statusText.length > 0
                     text: root.statusText
                     color: Theme.success
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontSmall
                     wrapMode: Text.WordWrap
                 }
             }
@@ -333,16 +347,16 @@ Item {
 
                 Text {
                     Layout.alignment: Qt.AlignHCenter
-                    text: "No link analyzed yet"
+                    text: root.t("grabber.noLink")
                     color: Theme.textPrimary
-                    font.pixelSize: 15
+                    font.pixelSize: Theme.fontMedium
                     font.weight: Font.DemiBold
                 }
 
                 Text {
-                    text: "The daemon will resolve redirects and inspect file metadata."
+                    text: root.t("grabber.noLinkSubtitle")
                     color: Theme.textMuted
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontTiny
                 }
             }
 

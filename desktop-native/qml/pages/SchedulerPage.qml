@@ -7,6 +7,12 @@ Item {
     id: root
 
     required property var api
+    property string languageToken: i18n.language
+
+    function t(key) {
+        const token = root.languageToken
+        return i18n.translate(key)
+    }
 
     function twoDigit(value) {
         return value < 10 ? "0" + value : String(value)
@@ -120,29 +126,29 @@ Item {
                 spacing: 2
 
                 Text {
-                    text: "Scheduler"
+                    text: root.t("scheduler.title")
                     color: Theme.textPrimary
-                    font.pixelSize: 21
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                 }
 
                 Text {
-                    text: "Rules execute inside the NOVA Rust daemon, not in the UI"
+                    text: root.t("scheduler.subtitle")
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontSmall
                 }
             }
 
             Item { Layout.fillWidth: true }
 
             Button {
-                text: "+ New rule"
+                text: "+ " + root.t("scheduler.newRule")
                 enabled: api.connected
                 onClicked: newRuleDialog.open()
             }
 
             Button {
-                text: "Refresh"
+                text: root.t("action.refresh")
                 onClicked: api.refreshScheduler()
             }
         }
@@ -164,13 +170,13 @@ Item {
                     text: api.schedulerRules.length + " rule(s) configured · "
                         + api.activeSchedulerRuleIds.length + " currently active"
                     color: Theme.textSecondary
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontSmall
                 }
 
                 Text {
                     text: api.connected ? "Daemon scheduler online" : "Engine unavailable"
                     color: api.connected ? Theme.success : Theme.warning
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontSmall
                     font.weight: Font.DemiBold
                 }
             }
@@ -211,7 +217,7 @@ Item {
                                 Layout.fillWidth: true
                                 text: modelData.name || "Unnamed rule"
                                 color: Theme.textPrimary
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 font.weight: Font.DemiBold
                                 elide: Text.ElideRight
                             }
@@ -219,7 +225,7 @@ Item {
                             Text {
                                 text: api.activeSchedulerRuleIds.indexOf(modelData.id) >= 0 ? "ACTIVE" : ""
                                 color: Theme.accent
-                                font.pixelSize: 9
+                                font.pixelSize: Theme.fontTiny
                                 font.weight: Font.Bold
                             }
                         }
@@ -228,7 +234,7 @@ Item {
                             Layout.fillWidth: true
                             text: root.triggerSummary(modelData.trigger)
                             color: Theme.textSecondary
-                            font.pixelSize: 10
+                            font.pixelSize: Theme.fontSmall
                             elide: Text.ElideRight
                         }
 
@@ -236,7 +242,7 @@ Item {
                             Layout.fillWidth: true
                             text: root.actionSummary(modelData.action)
                             color: Theme.textMuted
-                            font.pixelSize: 10
+                            font.pixelSize: Theme.fontSmall
                             elide: Text.ElideRight
                         }
                     }
@@ -249,7 +255,7 @@ Item {
                     }
 
                     Button {
-                        text: "Delete"
+                        text: root.t("action.delete")
                         flat: true
                         enabled: api.connected
                         onClicked: api.deleteSchedulerRule(modelData.id)
@@ -265,16 +271,16 @@ Item {
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                text: "No scheduler rules"
+                text: root.t("scheduler.noRules")
                 color: Theme.textPrimary
-                font.pixelSize: 16
+                font.pixelSize: Math.round(16 * Theme.fontScale)
                 font.weight: Font.DemiBold
             }
 
             Text {
-                text: "Create a time-window rule to automate download actions."
+                text: root.t("scheduler.noRulesSubtitle")
                 color: Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontSmall
             }
         }
     }
@@ -307,21 +313,21 @@ Item {
             Text {
                 text: "Time window"
                 color: Theme.textSecondary
-                font.pixelSize: 11
+                font.pixelSize: Math.round(11 * Theme.fontScale)
                 font.weight: Font.DemiBold
             }
 
             RowLayout {
                 Layout.fillWidth: true
 
-                Text { text: "Start"; color: Theme.textMuted; font.pixelSize: 10 }
+                Text { text: "Start"; color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
                 SpinBox { id: startHour; from: 0; to: 23; value: 1 }
                 Text { text: ":"; color: Theme.textMuted }
                 SpinBox { id: startMinute; from: 0; to: 59; value: 0 }
 
                 Item { Layout.fillWidth: true }
 
-                Text { text: "End"; color: Theme.textMuted; font.pixelSize: 10 }
+                Text { text: "End"; color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
                 SpinBox { id: endHour; from: 0; to: 23; value: 7 }
                 Text { text: ":"; color: Theme.textMuted }
                 SpinBox { id: endMinute; from: 0; to: 59; value: 0 }
@@ -338,6 +344,9 @@ Item {
                 Layout.fillWidth: true
                 visible: actionType.currentIndex === 0 || actionType.currentIndex === 1
                 placeholderText: "Task IDs separated by commas"
+                LayoutMirroring.enabled: false
+                horizontalAlignment: Text.AlignLeft
+                Accessible.name: "Task IDs"
             }
 
             RowLayout {
@@ -347,7 +356,7 @@ Item {
                 Text {
                     text: "Bandwidth limit"
                     color: Theme.textSecondary
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontSmall
                 }
 
                 SpinBox {
@@ -361,7 +370,7 @@ Item {
                 Text {
                     text: "KB/s (0 = unlimited)"
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontSmall
                 }
             }
 
@@ -377,7 +386,7 @@ Item {
                 Layout.fillWidth: true
                 visible: text.length > 0
                 color: Theme.danger
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontSmall
                 wrapMode: Text.WordWrap
             }
 
@@ -385,7 +394,7 @@ Item {
                 Layout.fillWidth: true
 
                 Button {
-                    text: "Cancel"
+                    text: root.t("common.cancel")
                     onClicked: newRuleDialog.close()
                 }
 

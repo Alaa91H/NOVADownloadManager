@@ -8,13 +8,19 @@ Dialog {
 
     property string downloadName: ""
     property bool retryMode: false
+    property string languageToken: i18n.language
     signal confirmed()
+
+    function t(key) {
+        const token = root.languageToken
+        return i18n.translate(key)
+    }
 
     modal: true
     focus: true
     closePolicy: Popup.CloseOnEscape
     width: Math.min(460, parent ? parent.width - 48 : 460)
-    title: retryMode ? "Retry download" : "Redownload from beginning"
+    title: retryMode ? root.t("redownload.retryTitle") : root.t("redownload.title")
 
     background: Rectangle {
         color: Theme.surfaceRaised
@@ -29,27 +35,27 @@ Dialog {
         Text {
             Layout.fillWidth: true
             text: root.retryMode
-                ? "Retry this download from the beginning?"
-                : "Download this file again from the beginning?"
+                ? root.t("redownload.retryQuestion")
+                : root.t("redownload.question")
             color: Theme.textPrimary
-            font.pixelSize: 16
+            font.pixelSize: Math.round(16 * Theme.fontScale)
             font.weight: Font.DemiBold
             wrapMode: Text.WordWrap
         }
 
         Text {
             Layout.fillWidth: true
-            text: root.downloadName.length > 0 ? root.downloadName : "Selected download"
+            text: root.downloadName.length > 0 ? root.downloadName : root.t("common.selectedDownload")
             color: Theme.textSecondary
-            font.pixelSize: 11
+            font.pixelSize: Theme.fontSmall
             wrapMode: Text.WrapAnywhere
         }
 
         Text {
             Layout.fillWidth: true
-            text: "NOVA will reset progress, clear stale resume data and replace the existing output for this task."
+            text: root.t("redownload.warning")
             color: Theme.warning
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontSmall
             wrapMode: Text.WordWrap
         }
 
@@ -60,12 +66,12 @@ Dialog {
             Item { Layout.fillWidth: true }
 
             Button {
-                text: "Cancel"
+                text: root.t("common.cancel")
                 onClicked: root.close()
             }
 
             Button {
-                text: root.retryMode ? "Retry" : "Redownload"
+                text: root.retryMode ? root.t("action.retry") : root.t("action.redownload")
 
                 background: Rectangle {
                     radius: Theme.radiusMedium
@@ -75,7 +81,7 @@ Dialog {
                 contentItem: Text {
                     text: parent.text
                     color: "#101318"
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.fontBody
                     font.weight: Font.DemiBold
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter

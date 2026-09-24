@@ -16,6 +16,12 @@ Item {
     property int failedCount: 0
     property int duplicateCount: 0
     property string resultText: ""
+    property string languageToken: i18n.language
+
+    function t(key) {
+        const token = root.languageToken
+        return i18n.translate(key)
+    }
 
     Component.onCompleted: {
         saveDirectory.text = settings.defaultSaveDirectory
@@ -77,16 +83,16 @@ Item {
             spacing: 2
 
             Text {
-                text: "Batch Import"
+                text: root.t("batch.title")
                 color: Theme.textPrimary
-                font.pixelSize: 21
+                font.pixelSize: Theme.fontTitle
                 font.weight: Font.DemiBold
             }
 
             Text {
-                text: "Queue multiple direct links without duplicating download-engine logic"
+                text: root.t("batch.subtitle")
                 color: Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontSmall
             }
         }
 
@@ -100,9 +106,9 @@ Item {
             Text {
                 anchors.fill: parent
                 anchors.margins: 10
-                text: "One URL per line. Numeric patterns are supported, for example: https://host/file[01-10].zip. A single batch is capped at 500 unique URLs and uses up to four concurrent API submissions."
+                text: root.t("batch.hint")
                 color: Theme.textSecondary
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontSmall
                 wrapMode: Text.WordWrap
                 verticalAlignment: Text.AlignVCenter
             }
@@ -118,6 +124,9 @@ Item {
             wrapMode: TextEdit.NoWrap
             font.family: "monospace"
             enabled: !api.batchRunning
+            LayoutMirroring.enabled: false
+            horizontalAlignment: Text.AlignLeft
+            Accessible.name: root.t("batch.title")
         }
 
         RowLayout {
@@ -131,13 +140,16 @@ Item {
                 TextField {
                     id: saveDirectory
                     Layout.fillWidth: true
-                    placeholderText: "Optional destination directory"
+                    placeholderText: root.t("batch.destination")
                     selectByMouse: true
+                    LayoutMirroring.enabled: false
+                    horizontalAlignment: Text.AlignLeft
+                    Accessible.name: root.t("common.destination")
                     enabled: !api.batchRunning
                 }
 
                 Button {
-                    text: "Browse…"
+                    text: root.t("common.browse")
                     enabled: !api.batchRunning
                     onClicked: {
                         const chosen = desktop.chooseDirectory(saveDirectory.text)
@@ -165,7 +177,7 @@ Item {
 
             CheckBox {
                 id: startImmediately
-                text: "Start immediately"
+                text: root.t("common.startImmediately")
                 checked: false
                 enabled: !api.batchRunning
             }
@@ -198,7 +210,7 @@ Item {
                     Text {
                         text: root.completedCount + " / " + root.totalCount
                         color: Theme.textSecondary
-                        font.pixelSize: 10
+                        font.pixelSize: Theme.fontSmall
                     }
 
                     Item { Layout.fillWidth: true }
@@ -208,7 +220,7 @@ Item {
                             ? root.resultText
                             : root.acceptedCount + " accepted · " + root.failedCount + " failed"
                         color: root.failedCount > 0 ? Theme.warning : Theme.textSecondary
-                        font.pixelSize: 10
+                        font.pixelSize: Theme.fontSmall
                     }
                 }
             }
@@ -218,7 +230,7 @@ Item {
             Layout.fillWidth: true
 
             Button {
-                text: "Clear"
+                text: root.t("batch.clear")
                 enabled: !api.batchRunning
                 onClicked: {
                     linksInput.clear()
@@ -229,7 +241,7 @@ Item {
             Item { Layout.fillWidth: true }
 
             Button {
-                text: api.batchRunning ? "Importing…" : "Import batch"
+                text: api.batchRunning ? root.t("batch.importing") : root.t("batch.import")
                 enabled: api.connected && !api.batchRunning && linksInput.text.trim().length > 0
 
                 background: Rectangle {
@@ -240,7 +252,7 @@ Item {
                 contentItem: Text {
                     text: parent.text
                     color: parent.enabled ? "white" : Theme.textMuted
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.fontBody
                     font.weight: Font.DemiBold
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter

@@ -9,12 +9,18 @@ Dialog {
     required property var api
     required property var desktop
     required property var settings
+    property string languageToken: i18n.language
+
+    function t(key) {
+        const token = root.languageToken
+        return i18n.translate(key)
+    }
 
     modal: true
     focus: true
     closePolicy: Popup.CloseOnEscape
     width: Math.min(580, parent ? parent.width - 48 : 580)
-    title: "New download"
+    title: root.t("add.title")
 
     property bool submitting: false
     property string errorText: ""
@@ -37,7 +43,7 @@ Dialog {
             return
 
         if (urlField.text.trim().length === 0) {
-            errorText = "Enter a download URL."
+            errorText = root.t("add.enterUrl")
             urlField.forceActiveFocus()
             return
         }
@@ -65,16 +71,16 @@ Dialog {
         spacing: 14
 
         Text {
-            text: "Add a direct download"
+            text: root.t("add.heading")
             color: Theme.textPrimary
-            font.pixelSize: 18
+            font.pixelSize: Math.round(18 * Theme.fontScale)
             font.weight: Font.DemiBold
         }
 
         Text {
-            text: "NOVA will resolve redirects and download metadata through the existing engine."
+            text: root.t("add.subtitle")
             color: Theme.textMuted
-            font.pixelSize: 11
+            font.pixelSize: Theme.fontSmall
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
@@ -84,9 +90,9 @@ Dialog {
             spacing: 6
 
             Text {
-                text: "URL"
+                text: root.t("add.url")
                 color: Theme.textSecondary
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSmall
                 font.weight: Font.DemiBold
             }
 
@@ -96,6 +102,9 @@ Dialog {
                 placeholderText: "https://example.com/file.zip"
                 selectByMouse: true
                 inputMethodHints: Qt.ImhUrlCharactersOnly
+                LayoutMirroring.enabled: false
+                horizontalAlignment: Text.AlignLeft
+                Accessible.name: root.t("add.url")
             }
         }
 
@@ -104,17 +113,18 @@ Dialog {
             spacing: 6
 
             Text {
-                text: "File name"
+                text: root.t("add.fileName")
                 color: Theme.textSecondary
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSmall
                 font.weight: Font.DemiBold
             }
 
             TextField {
                 id: nameField
                 Layout.fillWidth: true
-                placeholderText: "Optional — detect automatically"
+                placeholderText: root.t("add.optionalDetect")
                 selectByMouse: true
+                Accessible.name: root.t("add.fileName")
             }
         }
 
@@ -123,9 +133,9 @@ Dialog {
             spacing: 6
 
             Text {
-                text: "Save path"
+                text: root.t("common.savePath")
                 color: Theme.textSecondary
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSmall
                 font.weight: Font.DemiBold
             }
 
@@ -136,12 +146,15 @@ Dialog {
                 TextField {
                     id: pathField
                     Layout.fillWidth: true
-                    placeholderText: "Optional — choose an exact file destination"
+                    placeholderText: root.t("add.optionalDestination")
                     selectByMouse: true
+                    LayoutMirroring.enabled: false
+                    horizontalAlignment: Text.AlignLeft
+                    Accessible.name: root.t("common.savePath")
                 }
 
                 Button {
-                    text: "Browse…"
+                    text: root.t("common.browse")
                     enabled: !root.submitting
                     onClicked: {
                         let suggested = pathField.text.trim()
@@ -172,7 +185,7 @@ Dialog {
                 anchors.margins: 8
                 text: root.errorText
                 color: Theme.danger
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSmall
                 wrapMode: Text.WordWrap
             }
         }
@@ -182,7 +195,7 @@ Dialog {
             Layout.topMargin: 6
 
             Button {
-                text: "Cancel"
+                text: root.t("common.cancel")
                 flat: true
                 enabled: !root.submitting
                 onClicked: root.close()
@@ -191,13 +204,13 @@ Dialog {
             Item { Layout.fillWidth: true }
 
             Button {
-                text: "Add to queue"
+                text: root.t("add.queue")
                 enabled: !root.submitting && urlField.text.trim().length > 0
                 onClicked: root.submit(false)
             }
 
             Button {
-                text: root.submitting ? "Adding…" : "Download now"
+                text: root.submitting ? root.t("add.adding") : root.t("add.downloadNow")
                 enabled: !root.submitting && urlField.text.trim().length > 0
 
                 background: Rectangle {
@@ -208,7 +221,7 @@ Dialog {
                 contentItem: Text {
                     text: parent.text
                     color: parent.enabled ? "white" : Theme.textMuted
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.fontBody
                     font.weight: Font.DemiBold
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter

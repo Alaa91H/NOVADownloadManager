@@ -20,25 +20,31 @@ Item {
     property bool pendingRedownloadRetryMode: false
     property string noticeText: ""
     property bool noticeIsError: false
+    property string languageToken: i18n.language
+
+    function t(key) {
+        const token = root.languageToken
+        return i18n.translate(key)
+    }
 
     function openNewDownload() {
         addDownloadDialog.openNew()
     }
 
     function pageTitle() {
-        if (page === "active") return "Active downloads"
-        if (page === "queued") return "Queued downloads"
-        if (page === "completed") return "Completed downloads"
-        if (page === "failed") return "Failed downloads"
-        return "Downloads"
+        if (page === "active") return root.t("downloads.activeTitle")
+        if (page === "queued") return root.t("downloads.queuedTitle")
+        if (page === "completed") return root.t("downloads.completedTitle")
+        if (page === "failed") return root.t("downloads.failedTitle")
+        return root.t("downloads.title")
     }
 
     function pageSubtitle() {
-        if (page === "active") return "Transfers currently using the NOVA engine"
-        if (page === "queued") return "Downloads waiting to start or currently paused"
-        if (page === "completed") return "Successfully completed transfers"
-        if (page === "failed") return "Transfers that need attention"
-        return "Manage active, queued and completed transfers"
+        if (page === "active") return root.t("downloads.activeSubtitle")
+        if (page === "queued") return root.t("downloads.queuedSubtitle")
+        if (page === "completed") return root.t("downloads.completedSubtitle")
+        if (page === "failed") return root.t("downloads.failedSubtitle")
+        return root.t("downloads.subtitle")
     }
 
     function formatBytes(value) {
@@ -136,7 +142,7 @@ Item {
 
         updateSelection()
         pendingDeleteId = selectedTaskId()
-        pendingDeleteName = selectedItem.name || "Selected download"
+        pendingDeleteName = selectedItem.name || root.t("common.selectedDownload")
         if (pendingDeleteId.length > 0)
             deleteDialog.open()
     }
@@ -147,7 +153,7 @@ Item {
 
         updateSelection()
         pendingRedownloadId = selectedTaskId()
-        pendingRedownloadName = selectedItem.name || "Selected download"
+        pendingRedownloadName = selectedItem.name || root.t("common.selectedDownload")
         pendingRedownloadRetryMode = isRetryStatus(selectedItem.status)
         if (pendingRedownloadId.length > 0)
             redownloadDialog.open()
@@ -199,17 +205,17 @@ Item {
 
         function onTaskActionCompleted(action, taskId) {
             if (action === "redownload")
-                root.showNotice("Download restarted from the beginning.", false)
+                root.showNotice(root.t("downloads.restarted"), false)
             else if (action === "pause")
-                root.showNotice("Download paused.", false)
+                root.showNotice(root.t("downloads.paused"), false)
             else if (action === "resume")
-                root.showNotice("Download resumed.", false)
+                root.showNotice(root.t("downloads.resumed"), false)
             else if (action === "delete")
-                root.showNotice("Download removed.", false)
+                root.showNotice(root.t("downloads.removed"), false)
         }
 
         function onDownloadUpdated(taskId) {
-            root.showNotice("Download properties updated.", false)
+            root.showNotice(root.t("downloads.updated"), false)
         }
     }
 
@@ -269,30 +275,31 @@ Item {
                 Text {
                     text: root.pageTitle()
                     color: Theme.textPrimary
-                    font.pixelSize: 21
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                 }
 
                 Text {
                     text: root.pageSubtitle()
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontSmall
                 }
             }
 
             Item { Layout.fillWidth: true }
 
             Text {
-                text: root.downloads.count + (root.downloads.count === 1 ? " item" : " items")
+                text: root.downloads.count + " " + (root.downloads.count === 1 ? root.t("downloads.item") : root.t("downloads.items"))
                 color: Theme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontSmall
             }
 
             TextField {
                 id: searchField
                 Layout.preferredWidth: 280
-                placeholderText: "Search name, URL, path, engine…"
+                placeholderText: root.t("downloads.search")
                 selectByMouse: true
+                Accessible.name: root.t("downloads.search")
                 onTextChanged: {
                     root.query = text
                     root.downloads.searchQuery = text
@@ -325,14 +332,14 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "NOVA engine is unavailable. Existing data remains visible, but download actions are disabled until the engine reconnects."
+                    text: root.t("downloads.engineUnavailable")
                     color: Theme.textSecondary
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontSmall
                     elide: Text.ElideRight
                 }
 
                 Button {
-                    text: "Retry connection"
+                    text: root.t("downloads.retryConnection")
                     flat: true
                     onClicked: {
                         root.api.checkHealth()
@@ -363,7 +370,7 @@ Item {
                     Layout.fillWidth: true
                     text: root.noticeText
                     color: root.noticeIsError ? Theme.danger : Theme.success
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontSmall
                     elide: Text.ElideRight
                 }
 
@@ -433,12 +440,12 @@ Item {
                             anchors.rightMargin: 12
                             spacing: 10
 
-                            Text { Layout.fillWidth: true; text: "Name"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
-                            Text { Layout.preferredWidth: 88; text: "Size"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
-                            Text { Layout.preferredWidth: 190; text: "Progress"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
-                            Text { Layout.preferredWidth: 90; text: "Speed"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
-                            Text { Layout.preferredWidth: 70; text: "ETA"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
-                            Text { Layout.preferredWidth: 100; text: "Status"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
+                            Text { Layout.fillWidth: true; text: root.t("common.name"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
+                            Text { Layout.preferredWidth: 88; text: root.t("common.size"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
+                            Text { Layout.preferredWidth: 190; text: root.t("common.progress"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
+                            Text { Layout.preferredWidth: 90; text: root.t("common.speed"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
+                            Text { Layout.preferredWidth: 70; text: root.t("common.eta"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
+                            Text { Layout.preferredWidth: 100; text: root.t("common.status"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
                         }
                     }
 
@@ -464,6 +471,8 @@ Item {
 
                             width: list.width
                             height: Theme.rowHeight
+                            Accessible.name: name || root.t("common.unnamedDownload")
+                            Accessible.description: (status || "") + " · " + Math.round(progress * 100) + "%"
                             color: root.selectedIndex === index
                                 ? Theme.surfaceSelected
                                 : mouse.containsMouse ? Theme.surfaceHover : "transparent"
@@ -488,9 +497,9 @@ Item {
 
                                     Text {
                                         Layout.fillWidth: true
-                                        text: name || "Unnamed download"
+                                        text: name || root.t("common.unnamedDownload")
                                         color: Theme.textPrimary
-                                        font.pixelSize: 11
+                                        font.pixelSize: Math.round(11 * Theme.fontScale)
                                         font.weight: Font.Medium
                                         elide: Text.ElideMiddle
                                     }
@@ -499,7 +508,7 @@ Item {
                                         Layout.fillWidth: true
                                         text: taskId
                                         color: Theme.textMuted
-                                        font.pixelSize: 8
+                                        font.pixelSize: Math.max(8, Theme.fontTiny - 1)
                                         elide: Text.ElideRight
                                         visible: taskId.length > 0
                                     }
@@ -509,7 +518,7 @@ Item {
                                     Layout.preferredWidth: 88
                                     text: root.formatBytes(sizeBytes)
                                     color: Theme.textSecondary
-                                    font.pixelSize: 10
+                                    font.pixelSize: Theme.fontSmall
                                     font.family: "monospace"
                                 }
 
@@ -528,7 +537,7 @@ Item {
                                         Layout.preferredWidth: 38
                                         text: Math.round(progress * 100) + "%"
                                         color: Theme.textSecondary
-                                        font.pixelSize: 10
+                                        font.pixelSize: Theme.fontSmall
                                         font.family: "monospace"
                                         horizontalAlignment: Text.AlignRight
                                     }
@@ -538,7 +547,7 @@ Item {
                                     Layout.preferredWidth: 90
                                     text: root.formatSpeed(speedBytesPerSec)
                                     color: speedBytesPerSec > 0 ? Theme.textPrimary : Theme.textMuted
-                                    font.pixelSize: 10
+                                    font.pixelSize: Theme.fontSmall
                                     font.family: "monospace"
                                 }
 
@@ -546,7 +555,7 @@ Item {
                                     Layout.preferredWidth: 70
                                     text: root.formatEta(etaSeconds)
                                     color: Theme.textSecondary
-                                    font.pixelSize: 10
+                                    font.pixelSize: Theme.fontSmall
                                     font.family: "monospace"
                                 }
 
@@ -558,7 +567,7 @@ Item {
                                         : status === "error" || status === "failed" ? Theme.danger
                                         : status === "paused" ? Theme.warning
                                         : Theme.textSecondary
-                                    font.pixelSize: 10
+                                    font.pixelSize: Theme.fontSmall
                                     font.weight: Font.DemiBold
                                 }
                             }
@@ -680,7 +689,7 @@ Item {
                                 ? "Start a new download or switch to another category."
                                 : "Start the NOVA engine to load your downloads."
                         color: Theme.textMuted
-                        font.pixelSize: 11
+                        font.pixelSize: Math.round(11 * Theme.fontScale)
                     }
 
                     Button {

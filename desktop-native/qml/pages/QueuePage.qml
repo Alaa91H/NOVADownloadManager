@@ -8,6 +8,12 @@ Item {
 
     required property var api
     required property var downloads
+    property string languageToken: i18n.language
+
+    function t(key) {
+        const token = root.languageToken
+        return i18n.translate(key)
+    }
 
     function formatBytes(value) {
         if (!value || value <= 0) return "—"
@@ -60,22 +66,22 @@ Item {
             ColumnLayout {
                 spacing: 2
                 Text {
-                    text: "Queue Manager"
+                    text: root.t("queue.title")
                     color: Theme.textPrimary
-                    font.pixelSize: 21
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                 }
                 Text {
-                    text: "Priority and bandwidth allocation from the NOVA engine queue"
+                    text: root.t("queue.subtitle")
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontSmall
                 }
             }
 
             Item { Layout.fillWidth: true }
 
             Button {
-                text: "Refresh"
+                text: root.t("action.refresh")
                 onClicked: api.refreshQueue()
             }
         }
@@ -86,10 +92,10 @@ Item {
 
             Repeater {
                 model: [
-                    { label: "Queued entries", value: String(api.queueEntries.length) },
-                    { label: "Active", value: String(api.queueActiveCount) },
-                    { label: "Global bandwidth", value: root.formatKbps(api.queueTotalBandwidthKbps) },
-                    { label: "Next to start", value: api.nextQueuedTask.length > 0 ? api.nextQueuedTask : "—" }
+                    { label: root.t("queue.entries"), value: String(api.queueEntries.length) },
+                    { label: root.t("queue.active"), value: String(api.queueActiveCount) },
+                    { label: root.t("queue.bandwidth"), value: root.formatKbps(api.queueTotalBandwidthKbps) },
+                    { label: root.t("queue.next"), value: api.nextQueuedTask.length > 0 ? api.nextQueuedTask : "—" }
                 ]
 
                 delegate: Rectangle {
@@ -108,7 +114,7 @@ Item {
                         Text {
                             text: modelData.label
                             color: Theme.textMuted
-                            font.pixelSize: 9
+                            font.pixelSize: Theme.fontTiny
                             font.weight: Font.DemiBold
                         }
 
@@ -116,7 +122,7 @@ Item {
                             Layout.fillWidth: true
                             text: modelData.value
                             color: Theme.textPrimary
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.fontMedium
                             font.weight: Font.DemiBold
                             elide: Text.ElideMiddle
                         }
@@ -148,11 +154,11 @@ Item {
                         anchors.rightMargin: 12
                         spacing: 10
 
-                        Text { Layout.fillWidth: true; text: "Download"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
-                        Text { Layout.preferredWidth: 80; text: "Position"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
-                        Text { Layout.preferredWidth: 100; text: "Size"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
-                        Text { Layout.preferredWidth: 120; text: "Allocated"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
-                        Text { Layout.preferredWidth: 150; text: "Priority"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
+                        Text { Layout.fillWidth: true; text: root.t("queue.download"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
+                        Text { Layout.preferredWidth: 80; text: root.t("queue.position"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
+                        Text { Layout.preferredWidth: 100; text: root.t("common.size"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
+                        Text { Layout.preferredWidth: 120; text: root.t("queue.allocated"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
+                        Text { Layout.preferredWidth: 150; text: root.t("queue.priority"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
                     }
                 }
 
@@ -172,6 +178,8 @@ Item {
                         color: mouse.containsMouse ? Theme.surfaceHover : "transparent"
 
                         readonly property var info: root.taskInfo(modelData.task_id)
+                        Accessible.name: queueRow.info.name || modelData.task_id
+                        Accessible.description: queueRow.info.status || ""
 
                         Rectangle {
                             anchors.bottom: parent.bottom
@@ -194,7 +202,7 @@ Item {
                                     Layout.fillWidth: true
                                     text: queueRow.info.name || modelData.task_id
                                     color: Theme.textPrimary
-                                    font.pixelSize: 11
+                                    font.pixelSize: Math.round(11 * Theme.fontScale)
                                     font.weight: Font.Medium
                                     elide: Text.ElideMiddle
                                 }
@@ -203,7 +211,7 @@ Item {
                                     Layout.fillWidth: true
                                     text: queueRow.info.status || modelData.task_id
                                     color: Theme.textMuted
-                                    font.pixelSize: 9
+                                    font.pixelSize: Theme.fontTiny
                                     elide: Text.ElideRight
                                 }
                             }
@@ -212,7 +220,7 @@ Item {
                                 Layout.preferredWidth: 80
                                 text: "#" + (Number(modelData.position) + 1)
                                 color: Theme.textSecondary
-                                font.pixelSize: 10
+                                font.pixelSize: Theme.fontSmall
                                 font.family: "monospace"
                             }
 
@@ -220,7 +228,7 @@ Item {
                                 Layout.preferredWidth: 100
                                 text: root.formatBytes(Number(modelData.size_bytes))
                                 color: Theme.textSecondary
-                                font.pixelSize: 10
+                                font.pixelSize: Theme.fontSmall
                                 font.family: "monospace"
                             }
 
@@ -228,7 +236,7 @@ Item {
                                 Layout.preferredWidth: 120
                                 text: root.formatKbps(Number(modelData.allocated_kbps))
                                 color: Number(modelData.allocated_kbps) > 0 ? Theme.textPrimary : Theme.textMuted
-                                font.pixelSize: 10
+                                font.pixelSize: Theme.fontSmall
                                 font.family: "monospace"
                             }
 
@@ -258,16 +266,16 @@ Item {
 
                 Text {
                     Layout.alignment: Qt.AlignHCenter
-                    text: "Queue is empty"
+                    text: root.t("queue.empty")
                     color: Theme.textPrimary
-                    font.pixelSize: 16
+                    font.pixelSize: Math.round(16 * Theme.fontScale)
                     font.weight: Font.DemiBold
                 }
 
                 Text {
-                    text: "Queued and active engine tasks will appear here."
+                    text: root.t("queue.emptySubtitle")
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontSmall
                 }
             }
         }

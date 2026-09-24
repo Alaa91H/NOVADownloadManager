@@ -7,13 +7,19 @@ Dialog {
     id: root
 
     property string downloadName: ""
+    property string languageToken: i18n.language
     signal confirmed()
+
+    function t(key) {
+        const token = root.languageToken
+        return i18n.translate(key)
+    }
 
     modal: true
     focus: true
     closePolicy: Popup.CloseOnEscape
     width: Math.min(430, parent ? parent.width - 48 : 430)
-    title: "Delete download"
+    title: root.t("delete.title")
 
     background: Rectangle {
         color: Theme.surfaceRaised
@@ -27,26 +33,26 @@ Dialog {
 
         Text {
             Layout.fillWidth: true
-            text: "Remove this download from NOVA?"
+            text: root.t("delete.question")
             color: Theme.textPrimary
-            font.pixelSize: 16
+            font.pixelSize: Math.round(16 * Theme.fontScale)
             font.weight: Font.DemiBold
             wrapMode: Text.WordWrap
         }
 
         Text {
             Layout.fillWidth: true
-            text: root.downloadName.length > 0 ? root.downloadName : "Selected download"
+            text: root.downloadName.length > 0 ? root.downloadName : root.t("common.selectedDownload")
             color: Theme.textSecondary
-            font.pixelSize: 11
+            font.pixelSize: Theme.fontSmall
             wrapMode: Text.WrapAnywhere
         }
 
         Text {
             Layout.fillWidth: true
-            text: "This removes the selected task from the download manager."
+            text: root.t("delete.detail")
             color: Theme.textMuted
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontSmall
             wrapMode: Text.WordWrap
         }
 
@@ -57,12 +63,12 @@ Dialog {
             Item { Layout.fillWidth: true }
 
             Button {
-                text: "Cancel"
+                text: root.t("common.cancel")
                 onClicked: root.close()
             }
 
             Button {
-                text: "Delete"
+                text: root.t("action.delete")
 
                 background: Rectangle {
                     radius: Theme.radiusMedium
@@ -72,7 +78,7 @@ Dialog {
                 contentItem: Text {
                     text: parent.text
                     color: "white"
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.fontBody
                     font.weight: Font.DemiBold
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter

@@ -11,6 +11,12 @@ Dialog {
     property var downloadItem: ({})
     property bool submitting: false
     property string errorText: ""
+    property string languageToken: i18n.language
+
+    function t(key) {
+        const token = root.languageToken
+        return i18n.translate(key)
+    }
 
     readonly property string taskId: downloadItem && downloadItem.taskId ? downloadItem.taskId : ""
 
@@ -18,7 +24,7 @@ Dialog {
     focus: true
     closePolicy: Popup.CloseOnEscape
     width: Math.min(620, parent ? parent.width - 48 : 620)
-    title: "Download properties"
+    title: root.t("properties.title")
 
     function openFor(item) {
         downloadItem = item || ({})
@@ -34,16 +40,16 @@ Dialog {
         if (submitting)
             return
         if (taskId.length === 0) {
-            errorText = "No download is selected."
+            errorText = root.t("properties.noSelection")
             return
         }
         if (nameField.text.trim().length === 0) {
-            errorText = "The file name cannot be empty."
+            errorText = root.t("properties.emptyName")
             nameField.forceActiveFocus()
             return
         }
         if (urlField.text.trim().length === 0) {
-            errorText = "The source URL cannot be empty."
+            errorText = root.t("properties.emptyUrl")
             urlField.forceActiveFocus()
             return
         }
@@ -64,17 +70,17 @@ Dialog {
         spacing: 14
 
         Text {
-            text: "Task metadata"
+            text: root.t("properties.heading")
             color: Theme.textPrimary
-            font.pixelSize: 18
+            font.pixelSize: Math.round(18 * Theme.fontScale)
             font.weight: Font.DemiBold
         }
 
         Text {
             Layout.fillWidth: true
-            text: "Name and source URL are editable. Download state, engine data and destination are owned by the NOVA engine."
+            text: root.t("properties.subtitle")
             color: Theme.textMuted
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontSmall
             wrapMode: Text.WordWrap
         }
 
@@ -83,9 +89,9 @@ Dialog {
             spacing: 6
 
             Text {
-                text: "File name"
+                text: root.t("add.fileName")
                 color: Theme.textSecondary
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSmall
                 font.weight: Font.DemiBold
             }
 
@@ -101,9 +107,9 @@ Dialog {
             spacing: 6
 
             Text {
-                text: "Source URL"
+                text: root.t("common.sourceUrl")
                 color: Theme.textSecondary
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSmall
                 font.weight: Font.DemiBold
             }
 
@@ -113,6 +119,9 @@ Dialog {
                 Layout.preferredHeight: 74
                 selectByMouse: true
                 wrapMode: TextEdit.WrapAnywhere
+                LayoutMirroring.enabled: false
+                horizontalAlignment: Text.AlignLeft
+                Accessible.name: root.t("common.sourceUrl")
             }
         }
 
@@ -131,14 +140,14 @@ Dialog {
                 columnSpacing: 12
                 rowSpacing: 7
 
-                Text { text: "Task ID"; color: Theme.textMuted; font.pixelSize: 10 }
-                Text { text: root.taskId || "—"; color: Theme.textSecondary; font.pixelSize: 10; elide: Text.ElideMiddle; Layout.fillWidth: true }
-                Text { text: "Engine"; color: Theme.textMuted; font.pixelSize: 10 }
-                Text { text: root.downloadItem.engine || "—"; color: Theme.textSecondary; font.pixelSize: 10 }
-                Text { text: "Status"; color: Theme.textMuted; font.pixelSize: 10 }
-                Text { text: root.downloadItem.status || "—"; color: Theme.textSecondary; font.pixelSize: 10 }
-                Text { text: "Destination"; color: Theme.textMuted; font.pixelSize: 10 }
-                Text { text: root.downloadItem.savePath || "—"; color: Theme.textSecondary; font.pixelSize: 10; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                Text { text: root.t("common.taskId"); color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
+                Text { text: root.taskId || "—"; color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                Text { text: root.t("common.engine"); color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
+                Text { text: root.downloadItem.engine || "—"; color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                Text { text: root.t("common.status"); color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
+                Text { text: root.downloadItem.status || "—"; color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                Text { text: root.t("common.destination"); color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
+                Text { text: root.downloadItem.savePath || "—"; color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; elide: Text.ElideMiddle; Layout.fillWidth: true }
             }
         }
 
@@ -156,7 +165,7 @@ Dialog {
                 anchors.margins: 8
                 text: root.errorText
                 color: Theme.danger
-                font.pixelSize: 11
+                font.pixelSize: Theme.fontSmall
                 wrapMode: Text.WordWrap
             }
         }
@@ -166,7 +175,7 @@ Dialog {
             Layout.topMargin: 4
 
             Button {
-                text: "Cancel"
+                text: root.t("common.cancel")
                 flat: true
                 enabled: !root.submitting
                 onClicked: root.close()
@@ -175,7 +184,7 @@ Dialog {
             Item { Layout.fillWidth: true }
 
             Button {
-                text: root.submitting ? "Saving…" : "Save changes"
+                text: root.submitting ? root.t("properties.saving") : root.t("properties.save")
                 enabled: !root.submitting
 
                 background: Rectangle {
@@ -186,7 +195,7 @@ Dialog {
                 contentItem: Text {
                     text: parent.text
                     color: parent.enabled ? "white" : Theme.textMuted
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.fontBody
                     font.weight: Font.DemiBold
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter

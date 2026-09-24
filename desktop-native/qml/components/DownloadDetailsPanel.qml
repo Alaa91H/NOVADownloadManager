@@ -15,6 +15,12 @@ Rectangle {
     readonly property bool hasItem: item && item.taskId !== undefined && item.taskId !== ""
     readonly property bool completed: (item.status || "").toLowerCase() === "completed"
     readonly property bool hasSavePath: (item.savePath || "").length > 0
+    property string languageToken: i18n.language
+
+    function t(key) {
+        const token = root.languageToken
+        return i18n.translate(key)
+    }
 
     color: Theme.surface
     border.color: Theme.border
@@ -60,9 +66,9 @@ Rectangle {
 
             Text {
                 Layout.fillWidth: true
-                text: "Task inspector"
+                text: root.t("details.title")
                 color: Theme.textPrimary
-                font.pixelSize: 13
+                font.pixelSize: Theme.fontBody
                 font.weight: Font.DemiBold
             }
 
@@ -93,9 +99,9 @@ Rectangle {
                     Layout.fillWidth: true
                     Layout.leftMargin: 14
                     Layout.rightMargin: 14
-                    text: root.item.name || "Unnamed download"
+                    text: root.item.name || root.t("common.unnamedDownload")
                     color: Theme.textPrimary
-                    font.pixelSize: 15
+                    font.pixelSize: Theme.fontMedium
                     font.weight: Font.DemiBold
                     wrapMode: Text.WrapAnywhere
                 }
@@ -128,7 +134,7 @@ Rectangle {
                                     : root.item.status === "paused"
                                         ? Theme.warning
                                         : Theme.textPrimary
-                            font.pixelSize: 10
+                            font.pixelSize: Theme.fontSmall
                             font.weight: Font.DemiBold
                         }
                     }
@@ -155,7 +161,7 @@ Rectangle {
                         Text {
                             text: root.formatBytes(root.item.downloadedBytes) + " / " + root.formatBytes(root.item.sizeBytes)
                             color: Theme.textSecondary
-                            font.pixelSize: 10
+                            font.pixelSize: Theme.fontSmall
                             font.family: "monospace"
                         }
 
@@ -164,7 +170,7 @@ Rectangle {
                         Text {
                             text: Math.round((root.item.progress || 0) * 100) + "%"
                             color: Theme.textPrimary
-                            font.pixelSize: 10
+                            font.pixelSize: Theme.fontSmall
                             font.family: "monospace"
                         }
                     }
@@ -187,16 +193,16 @@ Rectangle {
                         columnSpacing: 12
                         rowSpacing: 8
 
-                        Text { text: "Speed"; color: Theme.textMuted; font.pixelSize: 10 }
-                        Text { text: root.formatSpeed(root.item.speedBytesPerSec); color: Theme.textPrimary; font.pixelSize: 10; font.family: "monospace" }
-                        Text { text: "ETA"; color: Theme.textMuted; font.pixelSize: 10 }
-                        Text { text: root.formatEta(root.item.etaSeconds); color: Theme.textPrimary; font.pixelSize: 10; font.family: "monospace" }
-                        Text { text: "Engine"; color: Theme.textMuted; font.pixelSize: 10 }
-                        Text { text: root.item.engine || "—"; color: Theme.textPrimary; font.pixelSize: 10 }
-                        Text { text: "Connections"; color: Theme.textMuted; font.pixelSize: 10 }
-                        Text { text: root.item.connections || "—"; color: Theme.textPrimary; font.pixelSize: 10 }
-                        Text { text: "Resumable"; color: Theme.textMuted; font.pixelSize: 10 }
-                        Text { text: root.item.resumable ? "Yes" : "No"; color: Theme.textPrimary; font.pixelSize: 10 }
+                        Text { text: root.t("common.speed"); color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
+                        Text { text: root.formatSpeed(root.item.speedBytesPerSec); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; font.family: "monospace" }
+                        Text { text: root.t("common.eta"); color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
+                        Text { text: root.formatEta(root.item.etaSeconds); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; font.family: "monospace" }
+                        Text { text: root.t("common.engine"); color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
+                        Text { text: root.item.engine || "—"; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall }
+                        Text { text: root.t("common.connections"); color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
+                        Text { text: root.item.connections || "—"; color: Theme.textPrimary; font.pixelSize: Theme.fontSmall }
+                        Text { text: root.t("common.resumable"); color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
+                        Text { text: root.item.resumable ? root.t("common.yes") : root.t("common.no"); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall }
                     }
                 }
 
@@ -207,33 +213,37 @@ Rectangle {
                     spacing: 5
 
                     Text {
-                        text: "Source URL"
+                        text: root.t("common.sourceUrl")
                         color: Theme.textMuted
-                        font.pixelSize: 9
+                        font.pixelSize: Theme.fontTiny
                         font.weight: Font.DemiBold
                     }
 
                     Text {
                         Layout.fillWidth: true
                         text: root.item.url || "—"
+                        LayoutMirroring.enabled: false
+                        horizontalAlignment: Text.AlignLeft
                         color: Theme.textSecondary
-                        font.pixelSize: 10
+                        font.pixelSize: Theme.fontSmall
                         wrapMode: Text.WrapAnywhere
                     }
 
                     Text {
                         Layout.topMargin: 8
-                        text: "Save path"
+                        text: root.t("common.savePath")
                         color: Theme.textMuted
-                        font.pixelSize: 9
+                        font.pixelSize: Theme.fontTiny
                         font.weight: Font.DemiBold
                     }
 
                     Text {
                         Layout.fillWidth: true
                         text: root.item.savePath || "—"
+                        LayoutMirroring.enabled: false
+                        horizontalAlignment: Text.AlignLeft
                         color: Theme.textSecondary
-                        font.pixelSize: 10
+                        font.pixelSize: Theme.fontSmall
                         wrapMode: Text.WrapAnywhere
                     }
                 }
@@ -254,7 +264,7 @@ Rectangle {
                         anchors.margins: 9
                         text: root.item.errorMessage || ""
                         color: Theme.danger
-                        font.pixelSize: 10
+                        font.pixelSize: Theme.fontSmall
                         wrapMode: Text.WordWrap
                     }
                 }
@@ -266,13 +276,13 @@ Rectangle {
                     spacing: 6
 
                     Button {
-                        text: "Open file"
+                        text: root.t("details.openFile")
                         enabled: root.completed && root.hasSavePath
                         onClicked: root.openFileRequested()
                     }
 
                     Button {
-                        text: "Show in folder"
+                        text: root.t("details.showFolder")
                         enabled: root.hasSavePath
                         onClicked: root.openFolderRequested()
                     }
@@ -281,7 +291,7 @@ Rectangle {
                 Button {
                     Layout.leftMargin: 14
                     Layout.rightMargin: 14
-                    text: "Properties"
+                    text: root.t("action.properties")
                     enabled: root.hasItem
                     onClicked: root.propertiesRequested()
                 }

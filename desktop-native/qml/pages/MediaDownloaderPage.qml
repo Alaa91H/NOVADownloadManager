@@ -13,10 +13,16 @@ Item {
     property string errorText: ""
     property string statusText: ""
     property bool playlistMode: false
+    property string languageToken: i18n.language
+
+    function t(key) {
+        const token = root.languageToken
+        return i18n.translate(key)
+    }
 
     function formatBytes(value) {
         const bytes = Number(value || 0)
-        if (bytes <= 0) return "Unknown"
+        if (bytes <= 0) return root.t("common.unknown")
         if (bytes >= 1024 * 1024 * 1024)
             return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB"
         if (bytes >= 1024 * 1024)
@@ -166,16 +172,16 @@ Item {
                 spacing: 2
 
                 Text {
-                    text: "Media Downloader"
+                    text: root.t("media.title")
                     color: Theme.textPrimary
-                    font.pixelSize: 21
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                 }
 
                 Text {
-                    text: "Native yt-dlp workflow powered by the existing NOVA daemon"
+                    text: root.t("media.subtitle")
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontSmall
                 }
             }
 
@@ -193,7 +199,7 @@ Item {
                     anchors.centerIn: parent
                     text: api.ffmpegAvailable ? "FFmpeg ready" : "FFmpeg unavailable"
                     color: api.ffmpegAvailable ? Theme.success : Theme.textMuted
-                    font.pixelSize: 9
+                    font.pixelSize: Theme.fontTiny
                     font.weight: Font.DemiBold
                 }
             }
@@ -216,12 +222,15 @@ Item {
                     Layout.fillWidth: true
                     placeholderText: "https://…"
                     selectByMouse: true
+                    LayoutMirroring.enabled: false
+                    horizontalAlignment: Text.AlignLeft
+                    Accessible.name: root.t("add.url")
                     onAccepted: root.analyze()
                 }
 
                 CheckBox {
                     id: playlistCheck
-                    text: "Playlist"
+                    text: root.t("media.playlist")
                     checked: root.playlistMode
                     onToggled: {
                         root.playlistMode = checked
@@ -231,7 +240,7 @@ Item {
                 }
 
                 Button {
-                    text: api.mediaProbeBusy || api.mediaPlaylistBusy ? "Analyzing…" : "Analyze"
+                    text: api.mediaProbeBusy || api.mediaPlaylistBusy ? root.t("media.analyzing") : root.t("media.analyze")
                     enabled: api.connected
                         && !api.mediaProbeBusy
                         && !api.mediaPlaylistBusy
@@ -265,7 +274,7 @@ Item {
                         Text {
                             text: "Download options"
                             color: Theme.textPrimary
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             font.weight: Font.DemiBold
                         }
 
@@ -279,7 +288,7 @@ Item {
                                 Layout.fillWidth: true
                                 spacing: 4
 
-                                Text { text: "Mode"; color: Theme.textMuted; font.pixelSize: 9 }
+                                Text { text: "Mode"; color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
                                 ComboBox {
                                     id: modeBox
                                     Layout.fillWidth: true
@@ -291,7 +300,7 @@ Item {
                                 Layout.fillWidth: true
                                 spacing: 4
 
-                                Text { text: "Quality"; color: Theme.textMuted; font.pixelSize: 9 }
+                                Text { text: "Quality"; color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
                                 ComboBox {
                                     id: qualityBox
                                     Layout.fillWidth: true
@@ -307,7 +316,7 @@ Item {
                                 spacing: 4
                                 visible: modeBox.currentIndex === 1
 
-                                Text { text: "Audio format"; color: Theme.textMuted; font.pixelSize: 9 }
+                                Text { text: "Audio format"; color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
                                 ComboBox {
                                     id: audioFormatBox
                                     Layout.fillWidth: true
@@ -328,7 +337,7 @@ Item {
                                 spacing: 4
                                 visible: modeBox.currentIndex === 1
 
-                                Text { text: "Audio quality"; color: Theme.textMuted; font.pixelSize: 9 }
+                                Text { text: "Audio quality"; color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
                                 ComboBox {
                                     id: bitrateBox
                                     Layout.fillWidth: true
@@ -349,7 +358,7 @@ Item {
                             Layout.fillWidth: true
                             spacing: 4
 
-                            Text { text: "Destination folder"; color: Theme.textMuted; font.pixelSize: 9 }
+                            Text { text: "Destination folder"; color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 6
@@ -357,12 +366,15 @@ Item {
                                 TextField {
                                     id: saveDirectory
                                     Layout.fillWidth: true
-                                    placeholderText: "Optional destination directory"
+                                    placeholderText: root.t("media.destination")
                                     selectByMouse: true
+                                    LayoutMirroring.enabled: false
+                                    horizontalAlignment: Text.AlignLeft
+                                    Accessible.name: root.t("common.destination")
                                 }
 
                                 Button {
-                                    text: "Browse…"
+                                    text: root.t("common.browse")
                                     onClicked: {
                                         const chosen = desktop.chooseDirectory(saveDirectory.text)
                                         if (chosen.length > 0)
@@ -376,13 +388,15 @@ Item {
                             Layout.fillWidth: true
                             spacing: 4
 
-                            Text { text: "Output template"; color: Theme.textMuted; font.pixelSize: 9 }
+                            Text { text: "Output template"; color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
                             TextField {
                                 id: outputTemplate
                                 Layout.fillWidth: true
                                 text: "%(title)s.%(ext)s"
                                 selectByMouse: true
                                 font.family: "monospace"
+                                LayoutMirroring.enabled: false
+                                horizontalAlignment: Text.AlignLeft
                             }
                         }
 
@@ -391,12 +405,14 @@ Item {
                             spacing: 4
                             visible: root.playlistMode
 
-                            Text { text: "Playlist items"; color: Theme.textMuted; font.pixelSize: 9 }
+                            Text { text: "Playlist items"; color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
                             TextField {
                                 id: playlistItems
                                 Layout.fillWidth: true
                                 placeholderText: "Optional: 1-10,15,20"
                                 selectByMouse: true
+                                LayoutMirroring.enabled: false
+                                horizontalAlignment: Text.AlignLeft
                             }
                         }
 
@@ -449,6 +465,8 @@ Item {
                             visible: subtitlesCheck.checked
                             placeholderText: "Subtitle languages, e.g. en,ar"
                             selectByMouse: true
+                            LayoutMirroring.enabled: false
+                            horizontalAlignment: Text.AlignLeft
                         }
 
                         Rectangle {
@@ -459,7 +477,7 @@ Item {
 
                         CheckBox {
                             id: startImmediately
-                            text: "Start immediately"
+                            text: root.t("common.startImmediately")
                             checked: true
                         }
                     }
@@ -484,7 +502,7 @@ Item {
                         Text {
                             text: root.playlistMode ? "Playlist preview" : "Media preview"
                             color: Theme.textPrimary
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             font.weight: Font.DemiBold
                         }
 
@@ -522,7 +540,7 @@ Item {
                                             ? (api.mediaPlaylistTitle || "Analyze a playlist to inspect entries")
                                             : (api.mediaProbe.title || "Analyze a media URL to inspect formats")
                                         color: Theme.textPrimary
-                                        font.pixelSize: 12
+                                        font.pixelSize: Theme.fontBody
                                         font.weight: Font.DemiBold
                                         wrapMode: Text.WordWrap
                                         maximumLineCount: 2
@@ -536,14 +554,14 @@ Item {
                                                 + api.mediaFormats.length + " video qualities"
                                             : api.mediaFormats.length + " video qualities"
                                         color: Theme.textMuted
-                                        font.pixelSize: 9
+                                        font.pixelSize: Theme.fontTiny
                                     }
 
                                     Text {
                                         visible: root.playlistMode
                                         text: api.mediaPlaylistEntries.length + " item(s)"
                                         color: Theme.textMuted
-                                        font.pixelSize: 9
+                                        font.pixelSize: Theme.fontTiny
                                     }
                                 }
                             }
@@ -583,7 +601,7 @@ Item {
                                                 : (modelData.height + "p · "
                                                     + String(modelData.ext || "").toUpperCase())
                                             color: Theme.textPrimary
-                                            font.pixelSize: 10
+                                            font.pixelSize: Theme.fontSmall
                                             font.weight: Font.Medium
                                             elide: Text.ElideRight
                                         }
@@ -595,7 +613,7 @@ Item {
                                                 : ((modelData.vcodec || "") + " · "
                                                     + root.formatBytes(modelData.filesize))
                                             color: Theme.textMuted
-                                            font.pixelSize: 9
+                                            font.pixelSize: Theme.fontTiny
                                             elide: Text.ElideRight
                                         }
                                     }
@@ -604,7 +622,7 @@ Item {
                                         visible: root.playlistMode && modelData.index
                                         text: "#" + modelData.index
                                         color: Theme.textSecondary
-                                        font.pixelSize: 9
+                                        font.pixelSize: Theme.fontTiny
                                         font.family: "monospace"
                                     }
                                 }
@@ -620,7 +638,7 @@ Item {
             visible: root.errorText.length > 0
             text: root.errorText
             color: Theme.danger
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontSmall
             wrapMode: Text.WordWrap
         }
 
@@ -629,7 +647,7 @@ Item {
             visible: root.statusText.length > 0
             text: root.statusText
             color: Theme.success
-            font.pixelSize: 10
+            font.pixelSize: Theme.fontSmall
             wrapMode: Text.WordWrap
         }
 
@@ -641,13 +659,13 @@ Item {
                     ? "The daemon is analyzing the source…"
                     : "Analysis and download execution remain inside the Rust daemon."
                 color: Theme.textMuted
-                font.pixelSize: 9
+                font.pixelSize: Theme.fontTiny
             }
 
             Item { Layout.fillWidth: true }
 
             Button {
-                text: "Start media download"
+                text: root.t("media.start")
                 enabled: api.connected
                     && !api.mediaProbeBusy
                     && !api.mediaPlaylistBusy
@@ -662,7 +680,7 @@ Item {
                 contentItem: Text {
                     text: parent.text
                     color: parent.enabled ? "white" : Theme.textMuted
-                    font.pixelSize: 11
+                    font.pixelSize: Math.round(11 * Theme.fontScale)
                     font.weight: Font.DemiBold
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
