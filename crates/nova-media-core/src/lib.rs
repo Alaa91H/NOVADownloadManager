@@ -33,7 +33,11 @@ pub use youtube::{
     YouTubeSelectionPolicy,
 };
 pub use youtube_player::YouTubePlayerScriptSolver;
-pub use youtube_transfer::{download_youtube_plan, YouTubeTransferError, YouTubeTransferOutput};
+pub use youtube_transfer::{
+    download_and_finalize_youtube_plan, download_youtube_plan,
+    mux_youtube_separate_tracks_to_mp4, YouTubeFinalizedOutput,
+    YouTubeTransferError, YouTubeTransferOutput,
+};
 
 /// Native in-process container and codec processing surface.
 /// Higher layers can migrate post-processing here without spawning external tools.
