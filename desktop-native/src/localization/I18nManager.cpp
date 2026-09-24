@@ -1,4 +1,5 @@
 #include "localization/I18nManager.h"
+#include "localization/LegacyI18nCatalog.h"
 
 #include <QHash>
 #include <QLocale>
@@ -1727,19 +1728,12 @@ const Dictionary &german() {
 I18nManager::I18nManager(QObject *parent)
     : QObject(parent) {}
 
-QString I18nManager::normalizeLanguage(const QString &language) {
-    QString normalized = language.trimmed().toLower();
-    if (normalized == QStringLiteral("system") || normalized.isEmpty()) {
-        normalized = QLocale::system().name().section(QLatin1Char('_'), 0, 0).toLower();
-    }
+bool I18nManager::rtl() const {
+    return LegacyI18nCatalog::instance().rtl(m_language);
+}
 
-    if (normalized.startsWith(QStringLiteral("ar"))) {
-        return QStringLiteral("ar");
-    }
-    if (normalized.startsWith(QStringLiteral("de"))) {
-        return QStringLiteral("de");
-    }
-    return QStringLiteral("en");
+QString I18nManager::normalizeLanguage(const QString &language) {
+    return LegacyI18nCatalog::instance().normalizeLanguage(language);
 }
 
 void I18nManager::setLanguage(const QString &language) {
@@ -1752,31 +1746,39 @@ void I18nManager::setLanguage(const QString &language) {
 }
 
 QVariantList I18nManager::supportedLanguages() const {
-    return {
-        QVariantMap{{QStringLiteral("code"), QStringLiteral("system")},
-                    {QStringLiteral("label"), QStringLiteral("System")}},
-        QVariantMap{{QStringLiteral("code"), QStringLiteral("en")},
-                    {QStringLiteral("label"), QStringLiteral("English")}},
-        QVariantMap{{QStringLiteral("code"), QStringLiteral("ar")},
-                    {QStringLiteral("label"), QStringLiteral("العربية")}},
-        QVariantMap{{QStringLiteral("code"), QStringLiteral("de")},
-                    {QStringLiteral("label"), QStringLiteral("Deutsch")}}
-    };
+    return LegacyI18nCatalog::instance().supportedLanguages();
 }
 
 QString I18nManager::translate(const QString &key) const {
-    const Dictionary *dictionary = &english();
+    const Dictionary *localized = nullptr;
     if (m_language == QStringLiteral("ar")) {
-        dictionary = &arabic();
+        localized = &arabic();
     } else if (m_language == QStringLiteral("de")) {
-        dictionary = &german();
+        localized = &german();
     }
 
-    const auto it = dictionary->constFind(key);
-    if (it != dictionary->constEnd()) {
-        return it.value();
+    if (localized != nullptr) {
+        const auto translated = localized->constFind(key);
+        if (translated != localized->constEnd()) {
+            return translated.value();
+        }
     }
 
     const auto fallback = english().constFind(key);
-    return fallback != english().constEnd() ? fallback.value() : key;
+    if (fallback == english().constEnd()) {
+        return key;
+    }
+
+    if (m_language != QStringLiteral("en")) {
+        const QString migrated = LegacyI18nCatalog::instance().translate(
+            m_language,
+            key,
+            fallback.value()
+        );
+        if (!migrated.isEmpty()) {
+            return migrated;
+        }
+    }
+
+    return fallback.value();
 }
