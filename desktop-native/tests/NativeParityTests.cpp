@@ -383,9 +383,12 @@ void NativeParityTests::batchImportCarriesAdvancedOptions() {
                 const QByteArray headers = buffer->left(headerEnd);
                 const QByteArray requestLine = headers.left(headers.indexOf("\r\n"));
 
-                if (requestLine.startsWith("GET /api/downloads ")) {
+                if (requestLine.startsWith("GET /api/queues ")) {
                     const QByteArray responseBody =
-                        "[{\"id\":\"existing\",\"queueId\":\"night\"}]";
+                        "{\"ok\":true,\"version\":1,\"queues\":["
+                        "{\"id\":\"main\",\"name\":\"Main Queue\"},"
+                        "{\"id\":\"night\",\"name\":\"Night Queue\",\"downloadOrder\":[]}"
+                        "]}";
                     socket->write(
                         "HTTP/1.1 200 OK\r\n"
                         "Content-Type: application/json\r\n"
@@ -434,8 +437,13 @@ void NativeParityTests::batchImportCarriesAdvancedOptions() {
         QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort()))
     );
 
-    client.refreshDownloads();
+    client.refreshQueueCatalog();
     QTRY_VERIFY_WITH_TIMEOUT(client.knownQueueIds().contains(QStringLiteral("night")), 3000);
+    QCOMPARE(client.queueCatalog().size(), 2);
+    QCOMPARE(
+        client.queueCatalog().at(1).toMap().value(QStringLiteral("name")).toString(),
+        QStringLiteral("Night Queue")
+    );
 
     const QVariantMap advanced{
         {QStringLiteral("referer"), QStringLiteral("https://origin.test/page")},
