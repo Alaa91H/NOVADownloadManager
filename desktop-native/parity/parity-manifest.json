@@ -136,14 +136,18 @@
     {
       "id": "batch-import",
       "label": "Batch import",
-      "status": "partial",
+      "status": "covered",
       "evidence": [
         "desktop-native/qml/pages/BatchImportPage.qml",
         "desktop-native/src/batch/BatchPatternExpander.h",
         "desktop-native/src/batch/BatchPatternExpander.cpp",
         "desktop-native/src/api/NovaApiClient.cpp",
         "desktop-native/src/platform/DesktopIntegration.cpp",
-        "desktop-native/tests/NativeParityTests.cpp"
+        "desktop-native/tests/NativeParityTests.cpp",
+        "src-tauri/src/daemon/routes/engine.rs",
+        "src/api/novaClient.ts",
+        "src/api/__tests__/novaClient.request.test.ts",
+        "src/components/AppShell.tsx"
       ],
       "contains": [
         {
@@ -160,14 +164,15 @@
           "file": "desktop-native/src/api/NovaApiClient.cpp",
           "allOf": [
             "batchExpansionPreview",
-            "knownQueueIds",
+            "refreshQueueCatalog",
             "directOptionSupported",
             "proxy",
             "headers",
             "cookies",
             "retryCount",
             "timeoutSec",
-            "supportedProtocols"
+            "supportedProtocols",
+            "segmentedSupported"
           ]
         },
         {
@@ -182,7 +187,25 @@
             "headersField",
             "cookiesField",
             "retryCountField",
-            "timeoutField"
+            "timeoutField",
+            "directReady"
+          ]
+        },
+        {
+          "file": "src-tauri/src/daemon/routes/engine.rs",
+          "allOf": [
+            "handle_queue_catalog_get",
+            "handle_queue_catalog_put",
+            "normalize_queue_catalog",
+            "nova-queue-catalog.json"
+          ]
+        },
+        {
+          "file": "src/components/AppShell.tsx",
+          "allOf": [
+            "syncQueueCatalog",
+            "useQueueData",
+            "QueueCatalog"
           ]
         },
         {
@@ -192,11 +215,10 @@
             "batchImportCarriesAdvancedOptions",
             "batchImportHonorsRuntimeCapabilities",
             "MaxExpandedUrls",
-            "knownQueueIds"
+            "refreshQueueCatalog"
           ]
         }
-      ],
-      "blocker": "Batch behavior is now implemented for clipboard paste, bounded 10k numeric/alphabetic/stepped/combined URL expansion, exact deduplication, runtime protocol filtering, discovered/editable queue IDs, destination/connections/start behavior, Referer/User-Agent/proxy/custom headers/cookies/retry/timeout controls, and runtime capability-aware sanitization. The remaining replacement blocker is migration/discovery of legacy custom queue definitions that have no current tasks because the legacy queue catalog lives only in frontend localStorage; that dependency belongs to the Queue migration stage."
+      ]
     },
     {
       "id": "media",
