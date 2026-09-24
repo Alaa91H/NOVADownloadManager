@@ -18,4 +18,25 @@ describe('novaClient', () => {
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
+
+  it('createMediaDownload() uses the native media endpoint', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ id: 'media-task' }),
+    });
+
+    await novaClient.createMediaDownload({
+      name: 'video',
+      url: 'https://example.test/watch',
+      mediaOptions: { mode: 'video' },
+    } as never);
+
+    expect(fetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:3199/api/media/download',
+      expect.objectContaining({
+        method: 'POST',
+        signal: expect.any(AbortSignal),
+      }),
+    );
+  });
 });
