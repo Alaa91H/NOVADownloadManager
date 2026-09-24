@@ -1,4 +1,4 @@
-import type { DownloadItem } from '../types/desktop-ui.types';
+import type { DownloadItem, Queue } from '../types/desktop-ui.types';
 import { logger } from '../utils/logger';
 import type { EngineCapabilitiesResponse } from './engineCapabilities';
 import { parseEngineCapabilitiesResponse } from './engineCapabilities';
@@ -297,6 +297,26 @@ export const novaClient = {
 
   async listDownloads(): Promise<DownloadItem[]> {
     return request<DownloadItem[]>('/api/downloads', undefined, 2000);
+  },
+
+  async getQueueCatalog(): Promise<{ ok: boolean; version: number; queues: Queue[] }> {
+    return request<{ ok: boolean; version: number; queues: Queue[] }>(
+      '/api/queues',
+      undefined,
+      5000,
+    );
+  },
+
+  async syncQueueCatalog(queues: Queue[]): Promise<{ ok: boolean; version: number; queues: Queue[] }> {
+    return request<{ ok: boolean; version: number; queues: Queue[] }>(
+      '/api/queues',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queues }),
+      },
+      5000,
+    );
   },
 
   streamDownloads(
