@@ -1993,7 +1993,7 @@ pub fn validate_media_bridge_media_options(
     Ok(())
 }
 
-pub fn all_engine_status(_media_bridge_bin: &str, ffmpeg_bin: &str) -> Value {
+pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
     let curl = curl_status();
     let media = native_media_status();
     let ffmpeg = ffmpeg_status(ffmpeg_bin);
@@ -2135,10 +2135,7 @@ mod tests {
 
     #[test]
     fn media_readiness_does_not_depend_on_compatibility_binary() {
-        let status = all_engine_status(
-            "__nova_missing_compatibility_bridge__",
-            "__nova_missing_post_processor__",
-        );
+        let status = all_engine_status("__nova_missing_post_processor__");
         assert_eq!(status["mediaExtractionReady"], true);
         assert_eq!(status["streamingReady"], true);
         assert_eq!(status["mediaReady"], true);
