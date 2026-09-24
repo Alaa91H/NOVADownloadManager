@@ -224,9 +224,22 @@ fn named_transform_function<'a>(
     ))
     .map_err(|error| error.to_string())?;
 
+    let arrow_parenthesized = Regex::new(&format!(
+        r#"{}\s*=\s*\(\s*(?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)\s*\)\s*=>\s*\{{"#,
+        regex::escape(expected_name)
+    ))
+    .map_err(|error| error.to_string())?;
+    let arrow_single = Regex::new(&format!(
+        r#"{}\s*=\s*(?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)\s*=>\s*\{{"#,
+        regex::escape(expected_name)
+    ))
+    .map_err(|error| error.to_string())?;
+
     for captures in assignment
         .captures_iter(script)
         .chain(declaration.captures_iter(script))
+        .chain(arrow_parenthesized.captures_iter(script))
+        .chain(arrow_single.captures_iter(script))
     {
         let Some(whole) = captures.get(0) else {
             continue;
@@ -267,11 +280,23 @@ fn array_transform_function<'a>(
         .map(|value| value.trim())
         .ok_or_else(|| format!("YouTube n-transform array index {array}[{index}] is missing"))?;
 
-    let inline = Regex::new(
+    let inline_function = Regex::new(
         r#"^function\((?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)\)\s*\{"#,
     )
     .map_err(|error| error.to_string())?;
-    if let Some(captures) = inline.captures(entry) {
+    let inline_arrow_parenthesized = Regex::new(
+        r#"^\(\s*(?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)\s*\)\s*=>\s*\{"#,
+    )
+    .map_err(|error| error.to_string())?;
+    let inline_arrow_single = Regex::new(
+        r#"^(?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)\s*=>\s*\{"#,
+    )
+    .map_err(|error| error.to_string())?;
+    if let Some(captures) = inline_function
+        .captures(entry)
+        .or_else(|| inline_arrow_parenthesized.captures(entry))
+        .or_else(|| inline_arrow_single.captures(entry))
+    {
         let whole = captures
             .get(0)
             .ok_or_else(|| "inline n-transform function match is incomplete".to_owned())?;
