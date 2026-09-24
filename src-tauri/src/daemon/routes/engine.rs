@@ -55,12 +55,14 @@ pub(super) fn bool_from_status(status: &serde_json::Value, pointer: &str) -> boo
 
 pub(super) fn extension_capabilities_from_status(status: &serde_json::Value) -> serde_json::Value {
     let direct_ready = bool_from_status(status, "/directReady");
-    let media_ready = bool_from_status(status, "/mediaReady");
+    let media_ready = bool_from_status(status, "/mediaExtractionReady")
+        || bool_from_status(status, "/mediaReady");
+    let streaming_ready = bool_from_status(status, "/streamingReady");
     let post_ready = bool_from_status(status, "/postProcessingReady");
-    let hls_ready =
-        media_ready && bool_from_status(status, "/engines/media/capabilities/hlsTaskExecution");
-    let dash_ready =
-        media_ready && bool_from_status(status, "/engines/media/capabilities/dashTaskExecution");
+    let hls_ready = streaming_ready
+        && bool_from_status(status, "/engines/media/capabilities/hlsTaskExecution");
+    let dash_ready = streaming_ready
+        && bool_from_status(status, "/engines/media/capabilities/dashTaskExecution");
     let subtitle_ready =
         media_ready && bool_from_status(status, "/engines/media/capabilities/subtitles");
     let audio_ready =
@@ -1201,12 +1203,6 @@ async fn handle_engine_download(
     }
 
     let (url, dest): (String, std::path::PathBuf) = match engine {
-        "media-bridge" | "media_bridge" => {
-            return Json(serde_json::json!({
-                "ok": false,
-                "error": "NOVA Media Bridge is bundled with verified NOVA releases and cannot be downloaded independently."
-            }));
-        }
         "ffmpeg" => {
             let url = if cfg!(windows) {
                 "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
@@ -1323,7 +1319,6 @@ async fn handle_engine_verify(
     let engine = body.get("engine").and_then(|v| v.as_str()).unwrap_or("");
 
     let bin_path = match engine {
-        "media-bridge" | "media_bridge" => state.media_bridge_binary(),
         "ffmpeg" => state.ffmpeg_binary(),
         _ => {
             return Json(serde_json::json!({
@@ -1371,12 +1366,6 @@ async fn handle_engine_latest_version(
         .unwrap_or("");
 
     match engine {
-        "media-bridge" | "media_bridge" => Json(serde_json::json!({
-            "ok": true,
-            "engine": "media-bridge",
-            "latestVersion": "bundled",
-            "note": "NOVA Media Bridge follows the NOVA application release."
-        })),
         "ffmpeg" => Json(serde_json::json!({
             "ok": true,
             "engine": "ffmpeg",
