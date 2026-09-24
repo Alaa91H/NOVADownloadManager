@@ -37,9 +37,11 @@ Torrent metadata and peer traffic are untrusted input. The core therefore applie
 3. File paths cannot escape the selected download root.
 4. Piece counts must exactly match the declared payload size and piece length.
 5. Peer-wire frames are bounded before allocation.
-6. A piece is not complete until its length and SHA-1 digest match metainfo.
-7. Scheduler state prevents ordinary duplicate in-flight piece assignment.
-8. Engine capabilities fail closed: unfinished network features are advertised as false and `torrentMagnet` routing remains disabled.
+6. Torrent piece length is capped at 64 MiB before peer execution can allocate piece buffers.
+7. A piece is not complete until its length and SHA-1 digest match metainfo.
+8. Scheduler state prevents ordinary duplicate in-flight piece assignment.
+9. BEP 10 extension support is not advertised until extended-message parsing is implemented.
+10. Engine capabilities fail closed: unfinished network features are advertised as false and `torrentMagnet` routing remains disabled.
 
 ## Planned execution stages
 
@@ -89,7 +91,7 @@ The peer-session execution layer now includes:
 
 `peerTransferExecution` remains false at the daemon capability level because this peer engine is not yet wired to durable torrent task storage/resume. This is intentionally fail-closed.
 
-### Stage 4 — Magnet metadata and peer discovery
+### Stage 4 — Magnet metadata and peer discovery — next
 
 Add BEP 9/BEP 10 metadata exchange followed by:
 
