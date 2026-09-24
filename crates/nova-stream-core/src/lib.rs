@@ -7,10 +7,11 @@ mod dash;
 mod hls;
 
 pub use dash::{
-    build_dash_representation_plan, parse_dash, select_best_dash_representation,
-    DashAdaptationSet, DashError, DashManifest, DashPeriod, DashPlanError,
-    DashRepresentation, DashRepresentationPlan, DashSegmentTemplate, DashTimelineEntry,
-    DashTrackKind, DashTransferUnit,
+    build_dash_live_refresh, build_dash_representation_plan, parse_dash,
+    select_best_dash_representation, DashAdaptationSet, DashError, DashLiveCursor,
+    DashLiveRefresh, DashManifest, DashPeriod, DashPlanError, DashRepresentation,
+    DashRepresentationPlan, DashSegmentTemplate, DashTimelineEntry, DashTrackKind,
+    DashTransferUnit,
 };
 pub use hls::{
     build_hls_live_refresh, build_hls_media_plan, parse_hls, select_best_hls_variant,
