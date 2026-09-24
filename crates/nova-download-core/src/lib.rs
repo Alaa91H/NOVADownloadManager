@@ -527,7 +527,7 @@ pub fn fetch_http_bytes_with_context(
                     header_status.set(Some(status));
                     headers_validated.set(false);
                     content_type.replace(None);
-                } else if header == b"\\r\\n" || header == b"\\n" {
+                } else if header == b"\r\n" || header == b"\n" {
                     headers_validated.set(
                         header_status
                             .get()
