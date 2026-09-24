@@ -1316,6 +1316,13 @@ void NativeParityTests::advancedSettingsMigrateAndBackupSafely() {
                 {QStringLiteral("proxyPass"), QStringLiteral("secret")},
                 {QStringLiteral("proxyType"), QStringLiteral("http")},
                 {
+                    QStringLiteral("speedLimiter"),
+                    QJsonObject{
+                        {QStringLiteral("enabled"), true},
+                        {QStringLiteral("maxSpeedKbs"), 4096}
+                    }
+                },
+                {
                     QStringLiteral("defaults"),
                     QJsonObject{
                         {QStringLiteral("timeoutSec"), 90},
@@ -1343,14 +1350,22 @@ void NativeParityTests::advancedSettingsMigrateAndBackupSafely() {
                 {QStringLiteral("subtitleLanguage"), QStringLiteral("ar,en")},
                 {QStringLiteral("vpnEnabled"), true},
                 {QStringLiteral("vpnMode"), QStringLiteral("bind")},
-                {QStringLiteral("vpnBindAddress"), QStringLiteral("tun0")}
+                {QStringLiteral("vpnBindAddress"), QStringLiteral("tun0")},
+                {QStringLiteral("tgEnabled"), true},
+                {QStringLiteral("tgBotToken"), QStringLiteral("12345:secret-token")},
+                {QStringLiteral("tgChatId"), QStringLiteral("987654")},
+                {QStringLiteral("tgApiBase"), QStringLiteral("https://api.telegram.org")},
+                {QStringLiteral("tgFileUploadLimitMb"), 75}
             }
         },
         {
             QStringLiteral("advanced"),
             QJsonObject{
                 {QStringLiteral("dynamicAllocation"), false},
-                {QStringLiteral("bufferSizeKb"), 512}
+                {QStringLiteral("bufferSizeKb"), 512},
+                {QStringLiteral("loggingEnabled"), true},
+                {QStringLiteral("logLevel"), QStringLiteral("debug")},
+                {QStringLiteral("browserInterceptKeys"), QStringLiteral("Alt+Ctrl")}
             }
         },
         {
@@ -1376,6 +1391,8 @@ void NativeParityTests::advancedSettingsMigrateAndBackupSafely() {
     QCOMPARE(advanced.value(QStringLiteral("proxyEnabled")).toBool(), true);
     QCOMPARE(advanced.value(QStringLiteral("proxyHost")).toString(), QStringLiteral("proxy.test"));
     QCOMPARE(advanced.value(QStringLiteral("proxyPassword")).toString(), QStringLiteral("secret"));
+    QCOMPARE(advanced.value(QStringLiteral("speedLimiterEnabled")).toBool(), true);
+    QCOMPARE(advanced.value(QStringLiteral("speedLimitKbs")).toInt(), 4096);
     QCOMPARE(advanced.value(QStringLiteral("timeoutSec")).toInt(), 90);
     QCOMPARE(advanced.value(QStringLiteral("retryCount")).toInt(), 7);
     QCOMPARE(advanced.value(QStringLiteral("keepaliveTimeSec")).toInt(), 30);
@@ -1389,6 +1406,12 @@ void NativeParityTests::advancedSettingsMigrateAndBackupSafely() {
     QCOMPARE(advanced.value(QStringLiteral("videoQuality")).toString(), QStringLiteral("good"));
     QCOMPARE(advanced.value(QStringLiteral("vpnBindAddress")).toString(), QStringLiteral("tun0"));
     QCOMPARE(advanced.value(QStringLiteral("bufferSizeKb")).toInt(), 512);
+    QCOMPARE(advanced.value(QStringLiteral("loggingEnabled")).toBool(), true);
+    QCOMPARE(advanced.value(QStringLiteral("logLevel")).toString(), QStringLiteral("debug"));
+    QCOMPARE(advanced.value(QStringLiteral("browserInterceptKeys")).toString(), QStringLiteral("Alt+Ctrl"));
+    QCOMPARE(advanced.value(QStringLiteral("telegramEnabled")).toBool(), true);
+    QCOMPARE(advanced.value(QStringLiteral("telegramToken")).toString(), QStringLiteral("12345:secret-token"));
+    QCOMPARE(advanced.value(QStringLiteral("telegramChatId")).toString(), QStringLiteral("987654"));
     QCOMPARE(
         settings.shortcutBindings().value(QStringLiteral("addDownload")).toString(),
         QStringLiteral("Ctrl+Alt+N")
@@ -1410,6 +1433,7 @@ void NativeParityTests::advancedSettingsMigrateAndBackupSafely() {
         .value(QStringLiteral("advanced"))
         .toObject();
     QVERIFY(!backedAdvanced.contains(QStringLiteral("proxyPassword")));
+    QVERIFY(!backedAdvanced.contains(QStringLiteral("telegramToken")));
     QCOMPARE(
         backedAdvanced.value(QStringLiteral("proxyHost")).toString(),
         QStringLiteral("proxy.test")
@@ -1430,6 +1454,14 @@ void NativeParityTests::advancedSettingsMigrateAndBackupSafely() {
     QCOMPARE(
         settings.advancedSettings().value(QStringLiteral("proxyPassword")).toString(),
         QStringLiteral("secret")
+    );
+
+    QVERIFY(settings.daemonMigrationPending(QStringLiteral("telegram")));
+    settings.completeDaemonMigration(QStringLiteral("telegram"));
+    QVERIFY(!settings.daemonMigrationPending(QStringLiteral("telegram")));
+    QCOMPARE(
+        settings.advancedSettings().value(QStringLiteral("telegramToken")).toString(),
+        QString()
     );
 
     if (previousDataDir.isEmpty()) {
