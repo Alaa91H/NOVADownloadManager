@@ -116,6 +116,14 @@ impl MediaPostProcessor for FfmpegPostProcessor {
         for (label, path) in [
             ("video", request.video_path.as_path()),
             ("audio", request.audio_path.as_path()),
+            ("destination", request.destination.as_path()),
+        ] {
+            ensure_local_path(path, label)?;
+        }
+
+        for (label, path) in [
+            ("video", request.video_path.as_path()),
+            ("audio", request.audio_path.as_path()),
         ] {
             let metadata = std::fs::metadata(path).map_err(|error| {
                 PostProcessError::InvalidInput(format!(
@@ -201,6 +209,23 @@ impl MediaPostProcessor for FfmpegPostProcessor {
             .map_err(|error| PostProcessError::Io(error.to_string()))?;
         Ok(bytes)
     }
+}
+
+fn ensure_local_path(path: &Path, label: &str) -> Result<(), PostProcessError> {
+    let value = path.to_string_lossy();
+    let lower = value.trim().to_ascii_lowercase();
+    let protocol_like = lower.contains("://")
+        || lower.starts_with("data:")
+        || lower.starts_with("pipe:")
+        || lower.starts_with("tcp:")
+        || lower.starts_with("udp:")
+        || lower.starts_with("rtmp:");
+    if protocol_like {
+        return Err(PostProcessError::InvalidInput(format!(
+            "{label} must be a local filesystem path"
+        )));
+    }
+    Ok(())
 }
 
 fn mux_temp_path(destination: &Path) -> PathBuf {
@@ -300,6 +325,22 @@ mod tests {
         assert!(matches!(error, PostProcessError::Cancelled));
 
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn mux_rejects_protocol_like_paths() {
+        let processor = FfmpegPostProcessor::new("unused");
+        let error = processor
+            .mux(
+                &MediaMuxRequest {
+                    video_path: PathBuf::from("https://example.test/video"),
+                    audio_path: PathBuf::from("audio.part"),
+                    destination: PathBuf::from("out.mp4"),
+                },
+                &|| false,
+            )
+            .expect_err("network-like input must be rejected");
+        assert!(matches!(error, PostProcessError::InvalidInput(_)));
     }
 
     #[test]
