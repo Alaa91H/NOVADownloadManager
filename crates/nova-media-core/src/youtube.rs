@@ -1252,7 +1252,7 @@ fn media_stream_from_format(
             .get("language")
             .and_then(Value::as_str)
             .map(str::to_owned),
-        headers: request_headers.clone(),
+        headers: BTreeMap::new(),
     }
 }
 
@@ -1277,7 +1277,7 @@ fn manifest_stream(
         audio_bitrate_bps: None,
         content_length: None,
         language: None,
-        headers: request_headers.clone(),
+        headers: BTreeMap::new(),
     }
 }
 
