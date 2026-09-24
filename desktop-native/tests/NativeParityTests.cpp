@@ -38,6 +38,7 @@ private slots:
     void advancedSettingsMigrateAndBackupSafely();
     void advancedDownloadCarriesNetworkDefaults();
     void settingsServicesReachDaemon();
+    void bulkShortcutActionsRespectTaskLifecycle();
 };
 
 void NativeParityTests::largeListRemainsResponsive() {
@@ -1611,6 +1612,139 @@ void NativeParityTests::settingsServicesReachDaemon() {
     QVERIFY(sawTelegramSave);
     QVERIFY(sawTelegramTest);
     QVERIFY(sawToolHealth);
+}
+
+
+void NativeParityTests::bulkShortcutActionsRespectTaskLifecycle() {
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+    QList<QByteArray> requestLines;
+    connect(&server, &QTcpServer::newConnection, &server, [&]() {
+        while (server.hasPendingConnections()) {
+            QTcpSocket *socket = server.nextPendingConnection();
+            auto *buffer = new QByteArray();
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, [buffer]() { delete buffer; });
+            QObject::connect(socket, &QTcpSocket::readyRead, socket, [&, socket, buffer]() {
+                buffer->append(socket->readAll());
+                const int headerEnd = buffer->indexOf("\r\n\r\n");
+                if (headerEnd < 0) return;
+
+                const QByteArray headers = buffer->left(headerEnd);
+                const QByteArray requestLine = headers.left(headers.indexOf("\r\n"));
+                const QRegularExpression lengthPattern(
+                    QStringLiteral("Content-Length:\\s*(\\d+)"),
+                    QRegularExpression::CaseInsensitiveOption
+                );
+                const auto match = lengthPattern.match(QString::fromLatin1(headers));
+                const int contentLength = match.hasMatch() ? match.captured(1).toInt() : 0;
+                const int bodyStart = headerEnd + 4;
+                if (buffer->size() < bodyStart + contentLength) return;
+
+                requestLines.append(requestLine);
+                QByteArray responseBody;
+                if (requestLine.startsWith("GET /api/downloads ")) {
+                    responseBody =
+                        "["
+                        "{\"id\":\"active\",\"name\":\"active.bin\",\"status\":\"downloading\"},"
+                        "{\"id\":\"paused\",\"name\":\"paused.bin\",\"status\":\"paused\"},"
+                        "{\"id\":\"failed\",\"name\":\"failed.bin\",\"status\":\"error\"},"
+                        "{\"id\":\"done\",\"name\":\"done.bin\",\"status\":\"completed\"}"
+                        "]";
+                } else if (requestLine.startsWith("POST /api/downloads/")) {
+                    responseBody = "{\"ok\":true}";
+                } else if (requestLine.startsWith("DELETE /api/downloads/")) {
+                    responseBody = "{\"ok\":true}";
+                } else {
+                    responseBody = "[]";
+                }
+
+                socket->write(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
+                    + QByteArray::number(responseBody.size()) + "\r\n\r\n" + responseBody
+                );
+                socket->disconnectFromHost();
+            });
+        }
+    });
+
+    NovaApiClient client;
+    client.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())));
+    QSignalSpy downloadsSpy(&client, &NovaApiClient::downloadsLoaded);
+    client.refreshDownloads();
+    QTRY_VERIFY_WITH_TIMEOUT(downloadsSpy.count() >= 1, 3000);
+
+    requestLines.clear();
+    client.resumeAllDownloads();
+    QTRY_VERIFY_WITH_TIMEOUT(
+        std::any_of(
+            requestLines.cbegin(),
+            requestLines.cend(),
+            [](const QByteArray &line) {
+                return line.startsWith("POST /api/downloads/paused/resume ");
+            }
+        ),
+        3000
+    );
+    QVERIFY(std::any_of(
+        requestLines.cbegin(),
+        requestLines.cend(),
+        [](const QByteArray &line) {
+            return line.startsWith("POST /api/downloads/failed/resume ");
+        }
+    ));
+    QVERIFY(std::none_of(
+        requestLines.cbegin(),
+        requestLines.cend(),
+        [](const QByteArray &line) {
+            return line.startsWith("POST /api/downloads/active/resume ")
+                || line.startsWith("POST /api/downloads/done/resume ");
+        }
+    ));
+
+    requestLines.clear();
+    client.pauseAllDownloads();
+    QTRY_VERIFY_WITH_TIMEOUT(
+        std::any_of(
+            requestLines.cbegin(),
+            requestLines.cend(),
+            [](const QByteArray &line) {
+                return line.startsWith("POST /api/downloads/active/pause ");
+            }
+        ),
+        3000
+    );
+    QVERIFY(std::none_of(
+        requestLines.cbegin(),
+        requestLines.cend(),
+        [](const QByteArray &line) {
+            return line.startsWith("POST /api/downloads/paused/pause ")
+                || line.startsWith("POST /api/downloads/done/pause ");
+        }
+    ));
+
+    requestLines.clear();
+    client.deleteCompletedDownloads();
+    QTRY_VERIFY_WITH_TIMEOUT(
+        std::any_of(
+            requestLines.cbegin(),
+            requestLines.cend(),
+            [](const QByteArray &line) {
+                return line.startsWith("DELETE /api/downloads/done ");
+            }
+        ),
+        3000
+    );
+    QVERIFY(std::none_of(
+        requestLines.cbegin(),
+        requestLines.cend(),
+        [](const QByteArray &line) {
+            return line.startsWith("DELETE /api/downloads/active ")
+                || line.startsWith("DELETE /api/downloads/paused ")
+                || line.startsWith("DELETE /api/downloads/failed ");
+        }
+    ));
 }
 
 QTEST_GUILESS_MAIN(NativeParityTests)
