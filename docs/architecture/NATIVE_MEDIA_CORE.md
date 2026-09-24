@@ -134,7 +134,11 @@ request URL + authorized headers/cookies
 - native playlist batch task creation with bounded frontend scheduling and one first-party media task per selected entry;
 - native Netscape cookie-file loading with bounded file size and URL-scoped domain, path, secure and expiry filtering;
 - native Firefox `cookies.sqlite` import with profile discovery, read-only SQLite access and URL-scoped domain/path/secure/expiry filtering;
-- sensitive native request context is kept in memory and omitted from restart snapshots, forcing reauthorization when needed;
+- browser-cookie storage is read only when the request explicitly includes `cookiesFromBrowser`; validation alone never opens a browser profile;
+- native auth/request-context precedence is deterministic: explicit media fields override body-level referer and raw header fallbacks;
+- transport-owned headers such as Host, Range and Content-Length are rejected before extraction;
+- descriptor-wide Cookie/Authorization context is same-origin scoped; cross-origin derived media and sidecar URLs receive only safe browser identity headers unless an extractor explicitly supplies stream-scoped authorization;
+- sensitive native request context, including browser-cookie profile selection, is kept in memory and omitted from restart snapshots, forcing reauthorization when needed;
 - `/api/media/native/resolve` GET and POST migration API.
 
 ## Deliberate boundaries
