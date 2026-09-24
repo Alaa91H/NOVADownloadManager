@@ -1,6 +1,8 @@
 # NOVA Native UI Migration Plan
 
-Branch: `الواجهة-الجديدة`
+Branch: `feature/qt6-native-desktop-ui`
+
+Technology baseline: **Qt 6.8 LTS + C++20 + QML / Qt Quick Controls 2**.
 
 The native desktop UI is developed independently and must not replace the existing frontend until it satisfies the gates below.
 
