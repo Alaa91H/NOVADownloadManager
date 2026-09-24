@@ -129,7 +129,11 @@ pub fn resolve_youtube_pending_formats(
                 .to_owned(),
         })?;
 
-    let mut player_context = context.clone();
+    let mut player_context = crate::scope_http_request_context(
+        context,
+        &extraction.descriptor.metadata.webpage_url,
+        player_js_url,
+    );
     if player_context.user_agent.is_none() {
         player_context.user_agent = Some(YOUTUBE_BROWSER_UA.to_owned());
     }
@@ -492,7 +496,15 @@ impl YouTubeExtractor {
             .or_else(|| {
                 bootstrap
                     .as_ref()
-                    .and_then(|bootstrap| fetch_innertube_player(&video_id, bootstrap, &context).ok())
+                    .and_then(|bootstrap| {
+                        fetch_innertube_player(
+                            &video_id,
+                            bootstrap,
+                            &watch_url,
+                            &context,
+                        )
+                        .ok()
+                    })
             })
             .ok_or_else(|| MediaError::ExtractorFailed {
                 extractor: self.id(),
@@ -629,7 +641,12 @@ pub fn resolve_youtube_playlist(
             playlist.truncated = true;
             break;
         };
-        let page = fetch_innertube_browse(&token, bootstrap, &context)?;
+        let page = fetch_innertube_browse(
+            &token,
+            bootstrap,
+            &playlist_url,
+            &context,
+        )?;
         page_count = page_count.saturating_add(1);
 
         let page_playlist = normalize_playlist_payload(&playlist_id, &playlist_url, &page);
@@ -657,6 +674,7 @@ pub fn resolve_youtube_playlist(
 fn fetch_innertube_browse(
     continuation: &str,
     bootstrap: &YouTubeBootstrap,
+    source_url: &str,
     base_context: &HttpRequestContext,
 ) -> Result<Value, MediaError> {
     let endpoint = format!(
@@ -672,7 +690,11 @@ fn fetch_innertube_browse(
         message: format!("failed to encode playlist continuation request: {error}"),
     })?;
 
-    let mut context = base_context.clone();
+    let mut context = crate::scope_http_request_context(
+        base_context,
+        source_url,
+        &endpoint,
+    );
     context
         .headers
         .insert("Origin".to_owned(), YOUTUBE_ORIGIN.to_owned());
@@ -943,6 +965,7 @@ fn extract_bootstrap(html: &str) -> Option<YouTubeBootstrap> {
 fn fetch_innertube_player(
     video_id: &str,
     bootstrap: &YouTubeBootstrap,
+    source_url: &str,
     base_context: &HttpRequestContext,
 ) -> Result<Value, MediaError> {
     let endpoint = format!(
@@ -963,7 +986,11 @@ fn fetch_innertube_player(
         message: format!("failed to encode Innertube request: {error}"),
     })?;
 
-    let mut context = base_context.clone();
+    let mut context = crate::scope_http_request_context(
+        base_context,
+        source_url,
+        &endpoint,
+    );
     context
         .headers
         .insert("Origin".to_owned(), YOUTUBE_ORIGIN.to_owned());
