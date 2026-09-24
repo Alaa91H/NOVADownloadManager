@@ -591,7 +591,7 @@ async fn run_torrent_worker(
         jobs.get(&id).cloned()
     };
     let Some(job_snapshot) = job_snapshot else {
-        state.priority_queue.release_active_slot();
+        release_queue_slot(&state, &id, &active_slot, false);
         return;
     };
 
