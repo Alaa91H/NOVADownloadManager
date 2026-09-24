@@ -12,6 +12,7 @@ on:
       - "src/components/AppShell.tsx"
       - "src/store/queueStore.ts"
       - "src/store/__tests__/queueStore.test.ts"
+      - "src/types/desktop-ui.types.ts"
       - ".github/workflows/native-ui-rust.yml"
   pull_request:
     branches:
@@ -26,6 +27,7 @@ on:
       - "src/components/AppShell.tsx"
       - "src/store/queueStore.ts"
       - "src/store/__tests__/queueStore.test.ts"
+      - "src/types/desktop-ui.types.ts"
       - ".github/workflows/native-ui-rust.yml"
   workflow_dispatch:
 
