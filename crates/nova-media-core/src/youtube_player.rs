@@ -779,35 +779,74 @@ fn operation_amount(body: &str, fallback: usize) -> usize {
 
 fn classify_operation_body(body: &str, amount: usize) -> Option<TransformOperation> {
     let amount = operation_amount(body, amount);
+    let has_reverse = body.contains(".reverse(");
+    let has_splice = body.contains(".splice(");
+    let has_slice = body.contains(".slice(");
+    let has_push = body.contains(".push(") || body.contains(".push.apply(");
+    let has_unshift = body.contains(".unshift(") || body.contains(".unshift.apply(");
+    let has_shift = body.contains(".shift()");
+    let has_pop = body.contains(".pop()");
 
-    if body.contains(".reverse(") {
+    if has_reverse {
+        if has_splice || has_slice || has_push || has_unshift || has_shift || has_pop {
+            return None;
+        }
         return Some(TransformOperation::Reverse);
     }
+
     if body.contains(".push.apply(") && body.contains(".splice(0,") {
+        if has_unshift || has_reverse || has_slice || has_pop {
+            return None;
+        }
         return Some(TransformOperation::RotateLeft(amount));
     }
     if body.contains(".push(...") && body.contains(".splice(0,") {
+        if has_unshift || has_reverse || has_slice || has_pop {
+            return None;
+        }
         return Some(TransformOperation::RotateLeft(amount));
     }
     if body.contains(".unshift.apply(") && body.contains(".splice(-") {
+        if has_push || has_reverse || has_slice || has_shift {
+            return None;
+        }
         return Some(TransformOperation::RotateRight(amount));
     }
     if body.contains(".unshift(...") && body.contains(".splice(-") {
+        if has_push || has_reverse || has_slice || has_shift {
+            return None;
+        }
         return Some(TransformOperation::RotateRight(amount));
     }
-    if body.contains(".push(") && body.contains(".shift()") {
+    if has_push && has_shift {
+        if has_splice || has_unshift || has_reverse || has_slice || has_pop {
+            return None;
+        }
         return Some(TransformOperation::RotateLeft(1));
     }
-    if body.contains(".push(") && body.contains(".splice(0,1)") {
+    if has_push && body.contains(".splice(0,1)") {
+        if has_unshift || has_reverse || has_slice || has_pop {
+            return None;
+        }
         return Some(TransformOperation::RotateLeft(1));
     }
-    if body.contains(".unshift(") && body.contains(".pop()") {
+    if has_unshift && has_pop {
+        if has_splice || has_push || has_reverse || has_slice || has_shift {
+            return None;
+        }
         return Some(TransformOperation::RotateRight(1));
     }
-    if body.contains(".unshift(") && body.contains(".splice(-1,1)") {
+    if has_unshift && body.contains(".splice(-1,1)") {
+        if has_push || has_reverse || has_slice || has_shift {
+            return None;
+        }
         return Some(TransformOperation::RotateRight(1));
     }
+
     if body.contains("[0]") && body.contains(".length") && body.contains('%') {
+        if has_reverse || has_splice || has_slice || has_push || has_unshift || has_shift || has_pop {
+            return None;
+        }
         return Some(TransformOperation::Swap(amount));
     }
 
@@ -817,6 +856,9 @@ fn classify_operation_body(body: &str, amount: usize) -> Option<TransformOperati
     .ok()
     .is_some_and(|pattern| pattern.is_match(body));
     if splice_drop {
+        if has_reverse || has_slice || has_push || has_unshift || has_shift || has_pop {
+            return None;
+        }
         return Some(TransformOperation::Drop(amount));
     }
 
@@ -826,6 +868,9 @@ fn classify_operation_body(body: &str, amount: usize) -> Option<TransformOperati
     .ok()
     .is_some_and(|pattern| pattern.is_match(body));
     if returned_slice {
+        if has_reverse || has_splice || has_push || has_unshift || has_shift || has_pop {
+            return None;
+        }
         return Some(TransformOperation::Drop(amount));
     }
 
@@ -1198,6 +1243,19 @@ function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
         let solver = YouTubePlayerScriptSolver;
         assert!(solver
             .transform_throttling_parameter(player, "abc")
+            .is_err());
+    }
+
+    #[test]
+    fn n_transform_rejects_compound_helper_instead_of_partial_execution() {
+        let player = r#"
+var HH={XX:function(a,b){a.reverse();a.splice(0,b)}};
+NT=function(a){a=a.split("");HH.XX(a,2);return a.join("")};
+function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert!(solver
+            .transform_throttling_parameter(player, "abcdef")
             .is_err());
     }
 
