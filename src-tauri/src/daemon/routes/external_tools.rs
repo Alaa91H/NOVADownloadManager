@@ -66,7 +66,11 @@ async fn handle_list_tools(
     let manager = state.external_tools.clone();
     let tool_states = tokio::task::spawn_blocking(move || {
         let manager = lock_or_err!(manager);
-        manager.all_tool_states()
+        manager
+            .all_tool_states()
+            .into_iter()
+            .filter(|tool| tool.id == ToolId::Ffmpeg.as_str())
+            .collect::<Vec<_>>()
     })
     .await
     .map_err(|error| external_tool_worker_error("list", error))?;
@@ -369,6 +373,7 @@ async fn handle_health_all(
 
     let results: Vec<serde_json::Value> = installations
         .iter()
+        .filter(|inst| inst.tool_id == ToolId::Ffmpeg)
         .map(|inst| {
             serde_json::json!({
                 "toolId": inst.tool_id.as_str(),
@@ -387,7 +392,6 @@ async fn handle_health_all(
 fn parse_tool_id(id: &str) -> Result<ToolId, (StatusCode, Json<serde_json::Value>)> {
     match id {
         "ffmpeg" | "FFmpeg" => Ok(ToolId::Ffmpeg),
-        "media-bridge" | "media_bridge" => Ok(ToolId::MediaBridge),
         _ => Err((
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": format!("Unknown tool: {}", id)})),
