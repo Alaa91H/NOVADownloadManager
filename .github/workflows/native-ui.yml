@@ -80,8 +80,12 @@ jobs:
       - name: Check localization gate
         run: node desktop-native/scripts/check-localization.mjs
 
-      - name: Check Stage 6 parity
+      - name: Check Stage 6.1 parity manifest
         run: node desktop-native/scripts/check-parity.mjs
+
+      - name: Enforce native replacement readiness
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        run: node desktop-native/scripts/check-parity.mjs --require-complete
 
       - name: Install Qt
         if: matrix.arch == 'x64' || runner.os == 'macOS'
@@ -233,7 +237,7 @@ jobs:
           Platform: Windows
           Architecture: ${{ matrix.arch }}
           Qt: 6.8.3
-          Stage: 6 parity freeze
+          Stage: 6.1 true parity hardening
           Runtime: Qt UI + Rust backend + Native Messaging host
           "@ | Set-Content (Join-Path $bundle "BUILD_INFO.txt")
 
@@ -250,7 +254,7 @@ jobs:
             echo "Platform: macOS"
             echo "Architecture: ${{ matrix.arch }}"
             echo "Qt: 6.8.3"
-            echo "Stage: 6 parity freeze"
+            echo "Stage: 6.1 true parity hardening"
             echo "Runtime: Qt UI + Rust backend + Native Messaging host"
           } > "$bundle/BUILD_INFO.txt"
 
@@ -293,7 +297,7 @@ jobs:
             echo "Platform: Linux"
             echo "Architecture: ${{ matrix.arch }}"
             echo "Qt: 6.8.3"
-            echo "Stage: 6 parity freeze"
+            echo "Stage: 6.1 true parity hardening"
             echo "Runtime: Qt UI + Rust backend + Native Messaging host"
           } > "$bundle/BUILD_INFO.txt"
           ldd "$bundle/bin/nova-native" > "$bundle/LINUX_RUNTIME_DEPENDENCIES.txt" || true
