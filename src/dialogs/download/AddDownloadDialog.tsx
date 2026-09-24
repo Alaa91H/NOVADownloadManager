@@ -437,6 +437,31 @@ export const AddDownloadDialog: React.FC = () => {
       const submittedUrl = url.trim();
       const effectiveReferer = referer.trim();
 
+      if (!submittedUrl) {
+        addToast('error', t('toast_error_title'), t('add_dl_enter_valid_link'));
+        return;
+      }
+
+      if (isMagnetLink(submittedUrl)) {
+        const torrentBlock = engineCapabilities.torrentBlockedReason();
+        if (torrentBlock) {
+          addToast('error', t('toast_error_title'), torrentBlock);
+          return;
+        }
+        clearSensitiveDialogState();
+        openDialog('torrentDownload', submittedUrl);
+        return;
+      }
+
+      if (submittedUrl.toLowerCase().endsWith('.torrent')) {
+        addToast(
+          'error',
+          t('toast_error_title'),
+          'Torrent metadata files are not routed yet. Use a magnet link for the native torrent engine.',
+        );
+        return;
+      }
+
       const directBlock = engineCapabilities.directBlockedReason(submittedUrl);
       if (directBlock) {
         addToast('error', t('add_dl_direct_engine_unavailable'), directBlock);
@@ -456,16 +481,6 @@ export const AddDownloadDialog: React.FC = () => {
       const vpnRoute = await tauriClient.validateVpnRoute(settings);
       if (!vpnRoute.ok) {
         addToast('error', t('add_dl_vpn_routing_error'), vpnRoute.message);
-        return;
-      }
-
-      if (!submittedUrl) {
-        addToast('error', t('toast_error_title'), t('add_dl_enter_valid_link'));
-        return;
-      }
-
-      if (submittedUrl.startsWith('magnet:') || submittedUrl.toLowerCase().endsWith('.torrent')) {
-        addToast('error', t('toast_error_title'), t('add_dl_unsupported_torrent'));
         return;
       }
 
@@ -555,7 +570,9 @@ export const AddDownloadDialog: React.FC = () => {
   const submittedUrlForDuplicateCheck = url.trim();
   const hasExactDuplicateUrl =
     settings.extra.warnBeforeDuplicateDownload && hasExactDownloadUrlDuplicate(submittedUrlForDuplicateCheck, tasks);
-  const canSubmitDownload = Boolean(submittedUrlForDuplicateCheck) && directEngineReady;
+  const canSubmitDownload =
+    Boolean(submittedUrlForDuplicateCheck) &&
+    (isMagnetLink(submittedUrlForDuplicateCheck) ? engineCapabilities.torrentReady : directEngineReady);
 
   return (
     <div className="space-y-4 max-w-full overflow-auto">
@@ -565,7 +582,7 @@ export const AddDownloadDialog: React.FC = () => {
           create a download until you confirm.
         </div>
       )}
-      {!directEngineReady && (
+      {!directEngineReady && !isMagnetLink(url) && (
         <div className="rounded-lg border border-[var(--danger-border)] bg-[var(--danger-bg)] p-2 text-[11px] text-[var(--text-primary)]">
           {t('add_dl_direct_engine_error')}
         </div>
@@ -629,9 +646,14 @@ export const AddDownloadDialog: React.FC = () => {
 
       {/* Magnet Link Detection Banner */}
       {isMagnetLink(url) && (
-        <div className="bg-[var(--warning-bg)] border border-[var(--warning-border)] rounded-lg p-2.5 flex items-center gap-2">
-          <Link className="w-4 h-4 text-[var(--warning)] shrink-0" />
-          <span className="text-[11px] text-[var(--warning)] font-medium">{t('add_dl_magnet_detected')}</span>
+        <div className="bg-[var(--warning-bg)] border border-[var(--warning-border)] rounded-lg p-2.5 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Link className="w-4 h-4 text-[var(--warning)] shrink-0" />
+            <span className="text-[11px] text-[var(--warning)] font-medium">{t('add_dl_magnet_detected')}</span>
+          </div>
+          <span className={`text-[10px] font-semibold ${engineCapabilities.torrentReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>
+            {engineCapabilities.torrentReady ? 'Native torrent ready' : 'Torrent engine unavailable'}
+          </span>
         </div>
       )}
 
