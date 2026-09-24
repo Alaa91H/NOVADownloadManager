@@ -161,6 +161,20 @@ jobs:
             exit 1
           fi
 
+      - name: Enforce native media client routing
+        run: |
+          set -euo pipefail
+          if grep -RInE 'create_media_bridge_task|media_bridge::|/api/media[/_-]bridge|yt-dlp|youtube-dl' \
+            src/api/novaClient.ts \
+            browser-extension/src \
+            src-tauri/src/daemon/routes/extension.rs \
+            src-tauri/src/native_host.rs \
+            crates/nova-mobile-ffi \
+            android/app/src/main/java/com/nova/downloadmanager/core/NovaNativeCore.kt; then
+            echo "::error::Desktop, browser extension and Android media paths must remain native-only."
+            exit 1
+          fi
+
       - name: Test native media cores
         run: |
           cargo test --manifest-path crates/nova-stream-core/Cargo.toml
