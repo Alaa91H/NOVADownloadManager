@@ -236,6 +236,7 @@ async fn create_native_direct_task(
     body: &CreateDownloadBody,
     resolved: ResolvedDirectMedia,
 ) -> Result<Task, NativeMediaTaskError> {
+    let descriptor = resolved.descriptor.clone();
     let mut direct = body.clone();
     direct.url = Some(resolved.url);
     direct.media_options = None;
@@ -271,6 +272,10 @@ async fn create_native_direct_task(
         options.insert("headers".to_owned(), Value::String(headers));
     }
     direct.direct_options = Some(options);
+
+    let source_url = direct.url.as_deref().unwrap_or_default();
+    let (_, output_path) = crate::daemon::curl::destination_from_body(&direct, source_url);
+    prepare_native_sidecars(body, &descriptor, &output_path)?;
 
     log::info!(
         "NOVA Media Engine resolved media to native direct transport: {}",
@@ -332,6 +337,7 @@ fn create_native_manifest_task(
         std::fs::create_dir_all(parent)
             .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
     }
+    prepare_native_sidecars(body, &resolved.descriptor, &output_path)?;
 
     let id = Uuid::new_v4().to_string();
     let connections = crate::daemon::curl::requested_connections(body.connections);
@@ -472,6 +478,11 @@ fn create_native_separate_track_task(
         std::fs::create_dir_all(parent)
             .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
     }
+    prepare_native_sidecars(
+        body,
+        &resolved.extraction.descriptor,
+        &output_path,
+    )?;
 
     let id = Uuid::new_v4().to_string();
     let connections = crate::daemon::curl::requested_connections(body.connections);
