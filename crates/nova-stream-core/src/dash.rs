@@ -4,6 +4,13 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct DashTimelineEntry {
+    pub start_time: Option<u64>,
+    pub duration: u64,
+    pub repeat: i64,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DashSegmentTemplate {
     pub timescale: Option<u64>,
@@ -11,6 +18,8 @@ pub struct DashSegmentTemplate {
     pub start_number: Option<u64>,
     pub media: Option<String>,
     pub initialization: Option<String>,
+    #[serde(default)]
+    pub timeline: Vec<DashTimelineEntry>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -82,6 +91,7 @@ pub fn parse_dash(body: &str) -> Result<DashManifest, DashError> {
     let mut current_adaptation: Option<DashAdaptationSet> = None;
     let mut current_representation: Option<DashRepresentation> = None;
     let mut base_url_target: Option<BaseUrlTarget> = None;
+    let mut inside_segment_timeline = false;
 
     loop {
         match reader.read_event() {
@@ -110,6 +120,17 @@ pub fn parse_dash(body: &str) -> Result<DashManifest, DashError> {
                         adaptation.segment_template = Some(template);
                     }
                 }
+                b"SegmentTimeline" => inside_segment_timeline = true,
+                b"S" if inside_segment_timeline => {
+                    if let Some(entry) = parse_timeline_entry(&event) {
+                        if let Some(template) = active_segment_template_mut(
+                            &mut current_representation,
+                            &mut current_adaptation,
+                        ) {
+                            template.timeline.push(entry);
+                        }
+                    }
+                }
                 b"BaseURL" => {
                     base_url_target = if current_representation.is_some() {
                         Some(BaseUrlTarget::Representation)
@@ -135,6 +156,16 @@ pub fn parse_dash(body: &str) -> Result<DashManifest, DashError> {
                         adaptation.representations.push(parse_representation(&event));
                     }
                 }
+                b"S" if inside_segment_timeline => {
+                    if let Some(entry) = parse_timeline_entry(&event) {
+                        if let Some(template) = active_segment_template_mut(
+                            &mut current_representation,
+                            &mut current_adaptation,
+                        ) {
+                            template.timeline.push(entry);
+                        }
+                    }
+                }
                 _ => {}
             },
             Ok(Event::Text(text)) => {
@@ -158,6 +189,7 @@ pub fn parse_dash(body: &str) -> Result<DashManifest, DashError> {
             }
             Ok(Event::End(event)) => match local_name(event.name().as_ref()) {
                 b"BaseURL" => base_url_target = None,
+                b"SegmentTimeline" => inside_segment_timeline = false,
                 b"Representation" => {
                     if let (Some(representation), Some(adaptation)) = (
                         current_representation.take(),
@@ -234,6 +266,30 @@ fn parse_segment_template(event: &BytesStart<'_>) -> DashSegmentTemplate {
         start_number: attribute(event, b"startNumber").and_then(|value| value.parse().ok()),
         media: attribute(event, b"media"),
         initialization: attribute(event, b"initialization"),
+        timeline: Vec::new(),
+    }
+}
+
+fn parse_timeline_entry(event: &BytesStart<'_>) -> Option<DashTimelineEntry> {
+    Some(DashTimelineEntry {
+        start_time: attribute(event, b"t").and_then(|value| value.parse().ok()),
+        duration: attribute(event, b"d")?.parse().ok()?,
+        repeat: attribute(event, b"r")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0),
+    })
+}
+
+fn active_segment_template_mut<'a>(
+    representation: &'a mut Option<DashRepresentation>,
+    adaptation: &'a mut Option<DashAdaptationSet>,
+) -> Option<&'a mut DashSegmentTemplate> {
+    if let Some(representation) = representation.as_mut() {
+        representation.segment_template.as_mut()
+    } else {
+        adaptation
+            .as_mut()
+            .and_then(|adaptation| adaptation.segment_template.as_mut())
     }
 }
 
