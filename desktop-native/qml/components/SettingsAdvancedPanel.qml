@@ -718,9 +718,17 @@ ScrollView {
                             {id: "addDownload", label: root.t("settings.shortcutAdd")},
                             {id: "batchDownload", label: root.t("settings.shortcutBatch")},
                             {id: "focusSearch", label: root.t("settings.shortcutSearch")},
+                            {id: "selectAllDownloads", label: root.t("settings.shortcutSelectAll")},
+                            {id: "resumeSelected", label: root.t("settings.shortcutResumeSelected")},
+                            {id: "resumeAll", label: root.t("settings.shortcutResumeAll")},
+                            {id: "stopSelected", label: root.t("settings.shortcutStopSelected")},
+                            {id: "stopAll", label: root.t("settings.shortcutStopAll")},
                             {id: "deleteSelected", label: root.t("settings.shortcutDelete")},
+                            {id: "deleteCompleted", label: root.t("settings.shortcutDeleteCompleted")},
                             {id: "openSettings", label: root.t("settings.shortcutSettings")},
-                            {id: "openScheduler", label: root.t("settings.shortcutScheduler")}
+                            {id: "openScheduler", label: root.t("settings.shortcutScheduler")},
+                            {id: "toggleNotifications", label: root.t("settings.shortcutNotifications")},
+                            {id: "toggleSpeedLimiter", label: root.t("settings.shortcutSpeedLimiter")}
                         ]
 
                         delegate: RowLayout {
