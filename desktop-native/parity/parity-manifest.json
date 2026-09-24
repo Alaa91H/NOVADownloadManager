@@ -139,28 +139,48 @@
       "status": "partial",
       "evidence": [
         "desktop-native/qml/pages/BatchImportPage.qml",
+        "desktop-native/src/batch/BatchPatternExpander.h",
+        "desktop-native/src/batch/BatchPatternExpander.cpp",
         "desktop-native/src/api/NovaApiClient.cpp",
+        "desktop-native/src/platform/DesktopIntegration.cpp",
         "desktop-native/tests/NativeParityTests.cpp"
       ],
       "contains": [
         {
+          "file": "desktop-native/src/batch/BatchPatternExpander.cpp",
+          "allOf": [
+            "MaxExpandedUrls",
+            "countInput",
+            "expandInput",
+            "BracketKind::Numeric",
+            "BracketKind::Alpha"
+          ]
+        },
+        {
           "file": "desktop-native/src/api/NovaApiClient.cpp",
           "allOf": [
-            "importBatch",
-            "pumpBatchRequests",
-            "m_batchQueueId",
-            "directOptions",
+            "batchExpansionPreview",
+            "knownQueueIds",
+            "directOptionSupported",
+            "proxy",
+            "headers",
+            "cookies",
             "retryCount",
-            "timeoutSec"
+            "timeoutSec",
+            "supportedProtocols"
           ]
         },
         {
           "file": "desktop-native/qml/pages/BatchImportPage.qml",
           "allOf": [
-            "batch.advanced",
-            "queueIdField",
+            "batch.paste",
+            "batch.expanded",
+            "queueSelector",
             "refererField",
             "userAgentField",
+            "proxyField",
+            "headersField",
+            "cookiesField",
             "retryCountField",
             "timeoutField"
           ]
@@ -168,13 +188,15 @@
         {
           "file": "desktop-native/tests/NativeParityTests.cpp",
           "allOf": [
+            "batchPatternsMatchLegacySyntax",
             "batchImportCarriesAdvancedOptions",
-            "NOVA-Test-Agent",
-            "segmented"
+            "batchImportHonorsRuntimeCapabilities",
+            "MaxExpandedUrls",
+            "knownQueueIds"
           ]
         }
       ],
-      "blocker": "Native batch import now carries queue ID, Referer, User-Agent, retry count and timeout into daemon task options, but parity remains incomplete for queue discovery/selection, proxy/custom-header/cookie controls, capability-aware option sanitization, and the legacy 10k/multi-range/alphabetic/step URL expansion syntax."
+      "blocker": "Batch behavior is now implemented for clipboard paste, bounded 10k numeric/alphabetic/stepped/combined URL expansion, exact deduplication, runtime protocol filtering, discovered/editable queue IDs, destination/connections/start behavior, Referer/User-Agent/proxy/custom headers/cookies/retry/timeout controls, and runtime capability-aware sanitization. The remaining replacement blocker is migration/discovery of legacy custom queue definitions that have no current tasks because the legacy queue catalog lives only in frontend localStorage; that dependency belongs to the Queue migration stage."
     },
     {
       "id": "media",
