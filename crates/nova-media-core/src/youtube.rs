@@ -1629,6 +1629,72 @@ mod tests {
     }
 
     #[test]
+    fn parses_native_playlist_entries_and_continuation_tokens() {
+        let payload = json!({
+            "metadata": {
+                "playlistMetadataRenderer": {
+                    "title": "NOVA Playlist"
+                }
+            },
+            "contents": [
+                {
+                    "playlistVideoRenderer": {
+                        "videoId": "dQw4w9WgXcQ",
+                        "title": {"runs": [{"text": "Track One"}]},
+                        "lengthSeconds": "62",
+                        "thumbnail": {
+                            "thumbnails": [
+                                {"url": "https://img.test/small.jpg"},
+                                {"url": "https://img.test/large.jpg"}
+                            ]
+                        }
+                    }
+                },
+                {
+                    "continuationItemRenderer": {
+                        "continuationEndpoint": {
+                            "continuationCommand": {
+                                "token": "CONT-1"
+                            }
+                        }
+                    }
+                }
+            ]
+        });
+
+        let playlist = normalize_playlist_payload(
+            "PL123",
+            "https://www.youtube.com/playlist?list=PL123",
+            &payload,
+        );
+        assert_eq!(playlist.title, "NOVA Playlist");
+        assert_eq!(playlist.entries.len(), 1);
+        assert_eq!(playlist.entries[0].id, "dQw4w9WgXcQ");
+        assert_eq!(playlist.entries[0].duration_millis, Some(62_000));
+        assert_eq!(
+            playlist.entries[0].thumbnail_url.as_deref(),
+            Some("https://img.test/large.jpg")
+        );
+        assert_eq!(
+            collect_playlist_continuations(&payload),
+            vec!["CONT-1".to_owned()]
+        );
+    }
+
+    #[test]
+    fn parses_playlist_id_from_playlist_and_watch_urls() {
+        for raw in [
+            "https://www.youtube.com/playlist?list=PL_abc-123",
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL_abc-123",
+        ] {
+            assert_eq!(
+                youtube_playlist_id(&Url::parse(raw).expect("playlist URL")).as_deref(),
+                Some("PL_abc-123")
+            );
+        }
+    }
+
+    #[test]
     fn bootstrap_skips_partial_ytcfg_calls_and_falls_back_to_js_url() {
         let html = r#"
 <script>
