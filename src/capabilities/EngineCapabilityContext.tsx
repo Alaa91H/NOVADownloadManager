@@ -9,6 +9,9 @@ export interface EngineCapabilitySnapshot {
   error: string | null;
   raw: unknown;
   directReady: boolean;
+  mediaExtractionReady: boolean;
+  streamingReady: boolean;
+  /** @deprecated compatibility alias for mediaExtractionReady */
   mediaReady: boolean;
   ffmpegReady: boolean;
   postProcessingReady: boolean;
@@ -21,7 +24,6 @@ export interface EngineCapabilitySnapshot {
   unsupportedDirectOptionKeys: Set<string>;
   mediaOptionKeys: Set<string>;
   unsupportedMediaOptionKeys: Set<string>;
-  supportedExternalDownloaders: Set<string>;
   refresh: () => Promise<void>;
   supportsDirectOption: (key: string) => boolean;
   supportsMediaOption: (key: string) => boolean;
@@ -239,10 +241,14 @@ function buildSnapshot(
   const routing = asRecord(root?.routing);
 
   const directReady = asBool(root?.directReady) || asBool(asRecord(curl?.capabilities)?.directDownloads);
-  const mediaReady = asBool(root?.mediaReady) || asBool(media?.available);
+  const mediaExtractionReady =
+    asBool(root?.mediaExtractionReady) || asBool(root?.mediaReady) || asBool(media?.available);
   const mediaCapabilities = asRecord(media?.capabilities);
   const hlsTaskExecutionReady = asBool(mediaCapabilities?.hlsTaskExecution);
   const dashTaskExecutionReady = asBool(mediaCapabilities?.dashTaskExecution);
+  const streamingReady =
+    asBool(root?.streamingReady)
+    || (mediaExtractionReady && (hlsTaskExecutionReady || dashTaskExecutionReady));
   const ffmpegReady = asBool(ffmpeg?.available);
   const postProcessingReady = asBool(root?.postProcessingReady) || ffmpegReady;
 
@@ -268,17 +274,18 @@ function buildSnapshot(
     Array.from(mediaOptionKeys).filter((key) => !unsupportedMediaOptionKeys.has(key)),
   );
   const directProtocolSet = lowerSet(directProtocols);
-  const supportedExternalDownloaders = new Set(asStringArray(media?.supportedExternalDownloaders));
 
   const snapshot: EngineCapabilitySnapshot = {
     loading,
     error,
     raw,
     directReady,
-    mediaReady,
+    mediaExtractionReady,
+    streamingReady,
+    mediaReady: mediaExtractionReady,
     ffmpegReady,
     postProcessingReady,
-    streamResolverReady: mediaReady && (hlsTaskExecutionReady || dashTaskExecutionReady),
+    streamResolverReady: streamingReady,
     directEngineId:
       typeof routing?.directHttpHttpsFtp === 'string'
         ? routing.directHttpHttpsFtp
@@ -302,17 +309,16 @@ function buildSnapshot(
     unsupportedDirectOptionKeys,
     mediaOptionKeys,
     unsupportedMediaOptionKeys,
-    supportedExternalDownloaders,
     refresh,
     supportsDirectOption: (key: string) => directReady && enabledDirectOptionKeys.has(key),
-    supportsMediaOption: (key: string) => mediaReady && enabledMediaOptionKeys.has(key),
+    supportsMediaOption: (key: string) => mediaExtractionReady && enabledMediaOptionKeys.has(key),
     supportsDirectProtocol: (urlOrProtocol: string) => {
       if (!directReady) return false;
       const protocol = protocolFromUrlOrProtocol(urlOrProtocol);
       return Boolean(protocol && directProtocolSet.has(protocol));
     },
     supportsStreamCandidate: (mediaType?: string, source?: string, candidateUrl?: string) => {
-      if (!mediaReady) return false;
+      if (!streamingReady) return false;
       const marker = `${mediaType || ''} ${source || ''} ${candidateUrl || ''}`.toLowerCase();
       const looksHls = marker.includes('hls') || marker.includes('m3u8');
       const looksDash = marker.includes('dash') || marker.includes('mpd');
@@ -333,7 +339,7 @@ function buildSnapshot(
       return null;
     },
     mediaBlockedReason: () => {
-      if (!mediaReady) return 'Media engine is not ready.';
+      if (!mediaExtractionReady) return 'NOVA Media Engine is not ready.';
       return null;
     },
   };
