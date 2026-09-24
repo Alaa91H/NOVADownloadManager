@@ -108,16 +108,13 @@ fn validate_torrent_open_path(path: &Path, cwd: Option<&Path>) -> Result<PathBuf
     };
 
     #[cfg(windows)]
-    {
-        let candidate_text = candidate.to_string_lossy();
-        let lower = candidate_text.to_ascii_lowercase();
-        let plain_unc = candidate_text.starts_with(r"\\")
-            && !candidate_text.starts_with(r"\\?\")
-            && !candidate_text.starts_with(r"\\.\");
-        let verbatim_unc = lower.starts_with(r"\\?\unc\");
-        if plain_unc || verbatim_unc {
+    if let Some(std::path::Component::Prefix(prefix)) = candidate.components().next() {
+        if !matches!(
+            prefix.kind(),
+            std::path::Prefix::Disk(_) | std::path::Prefix::VerbatimDisk(_)
+        ) {
             return Err(
-                "Network torrent paths are not accepted by system-open integration.".to_owned(),
+                "Only local disk torrent paths are accepted by system-open integration.".to_owned(),
             );
         }
     }

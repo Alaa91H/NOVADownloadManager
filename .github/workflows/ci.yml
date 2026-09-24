@@ -189,6 +189,8 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml daemon::torrent_task::tests -- --nocapture
           cargo test --manifest-path src-tauri/Cargo.toml daemon::routes::torrent::tests -- --nocapture
           cargo test --manifest-path src-tauri/Cargo.toml daemon::persist::tests::torrent_snapshot_never_persists_private_tracker_passkey -- --nocapture
+          cargo test --manifest-path src-tauri/Cargo.toml port_selection_tests::system_open -- --nocapture
+          cargo test --manifest-path src-tauri/Cargo.toml port_selection_tests::tauri_bundle_declares_magnet_and_torrent_associations -- --nocapture
           cargo clippy --manifest-path crates/nova-torrent-core/Cargo.toml --all-targets -- -D warnings
           cargo fmt --check --manifest-path crates/nova-torrent-core/Cargo.toml
 

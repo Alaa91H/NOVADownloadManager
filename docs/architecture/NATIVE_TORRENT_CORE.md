@@ -145,16 +145,39 @@ The durable execution layer now includes:
 
 Stage 5 makes the native transfer/storage pipeline executable, but the public torrent engine remains fail-closed. `available` stays false and `routing.torrentMagnet` stays null until Stage 6 registers torrent jobs, APIs, lifecycle state, and UI surfaces.
 
-### Stage 6 — Daemon and UI integration
+### Stage 6 — Daemon and UI integration — implemented
 
-With stages 2–5 implemented, the remaining integration work is:
+The native torrent engine is now connected end-to-end through NOVA's daemon and React/Tauri UI:
 
-- register the native torrent extractor/router;
-- enable `routing.torrentMagnet = "native-torrent"`;
-- create torrent-specific daemon APIs;
-- expose file selection, peers, trackers, availability and piece progress;
-- add Qt/QML torrent dialogs and task details;
-- add browser/OS magnet association handling.
+- `routing.torrentMagnet` routes magnet downloads to `native-torrent`;
+- authenticated daemon APIs analyze magnets, create torrent tasks, expose task details, update file priorities, and control pause/resume/cancel/remove;
+- torrent jobs participate in NOVA's task snapshot, priority queue, bandwidth policy, lifecycle transitions, and restart recovery;
+- the torrent dialog exposes file selection, `High`/`Normal`/`Skip` priority, destination selection, parallel-piece limits, info hash, privacy state, and discovered-peer count;
+- restored completed torrents are rechecked against durable storage instead of trusting a historical completed flag;
+- tracker authorization is kept out of persisted task state, and private tracker endpoints are redacted from restart sources.
+
+### Stage 7 — Native source and OS integration — implemented
+
+NOVA now accepts both native BitTorrent source forms without delegating execution to another client:
+
+- local `.torrent` metainfo files can be opened from the torrent dialog and are parsed by `nova-torrent-core`;
+- metainfo-file downloads discover peers from the already-trusted local metadata instead of requiring BEP 9 metadata exchange;
+- the desktop bundle registers `.torrent` as `application/x-bittorrent` and registers the `magnet:` URL scheme;
+- Windows/Linux launches are forwarded through the single-instance path, while macOS open events use Tauri's runtime open event;
+- cold-start sources are retained until the frontend is ready, and warm-start sources are emitted to the existing torrent dialog;
+- multiple simultaneous system-open requests are queued and deduplicated so an active dialog is never silently replaced;
+- system-open file reads use a bounded one-time allow-list and raw binary IPC; arbitrary frontend-provided filesystem paths are rejected;
+- incoming local files must be regular `.torrent` files, non-empty, within the metainfo size limit, and on a local disk path.
+
+### Remaining advanced swarm work
+
+The download path is operational. Features that remain intentionally unadvertised or disabled are advanced peer-service capabilities rather than prerequisites for native downloading:
+
+- inbound peer listening and upload/seeding;
+- serving BEP 9 metadata and BEP 11 PEX to remote peers;
+- a long-lived DHT server and persistent routing table;
+- seeding ratios/time limits and upload-bandwidth policy;
+- additional torrent task telemetry such as per-peer and per-tracker live tables.
 
 ## Quality gates
 
@@ -163,8 +186,9 @@ The root CI now runs:
 ```bash
 cargo check --manifest-path src-tauri/Cargo.toml
 cargo test --manifest-path crates/nova-torrent-core/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml port_selection_tests::system_open -- --nocapture
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 cargo fmt --check --manifest-path src-tauri/Cargo.toml
 ```
 
-Torrent routing must remain disabled whenever an execution-stage capability is incomplete. This prevents NOVA from presenting parser-only support as a working torrent downloader.
+Torrent routing is enabled only for capabilities that are connected end-to-end. Advanced serving/seeding capabilities continue to report false until their implementations and lifecycle tests are complete.
