@@ -1422,6 +1422,8 @@ pub fn native_media_status() -> Value {
             "orderedAssembly": core.ordered_assembly,
             "youtubeSignatureTransform": core.youtube_signature_transform,
             "youtubeThrottlingTransform": core.youtube_throttling_transform,
+            "challengeTransformCoverage": "verified-native-subset",
+            "challengeTransformFallback": "fail-closed",
             "separateTrackStaging": core.separate_track_staging,
             "hlsTaskExecution": false,
             "dashTaskExecution": false,
@@ -2075,6 +2077,14 @@ mod tests {
         assert_eq!(status["capabilities"]["hlsStaging"], true);
         assert_eq!(status["capabilities"]["dashStaging"], true);
         assert_eq!(status["capabilities"]["youtubeThrottlingTransform"], true);
+        assert_eq!(
+            status["capabilities"]["challengeTransformCoverage"],
+            "verified-native-subset"
+        );
+        assert_eq!(
+            status["capabilities"]["challengeTransformFallback"],
+            "fail-closed"
+        );
         assert_eq!(status["capabilities"]["hlsTaskExecution"], false);
         assert_eq!(status["capabilities"]["dashTaskExecution"], false);
         let supported = status["supportedMediaOptionKeys"]
