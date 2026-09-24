@@ -1061,29 +1061,93 @@ pub(super) fn native_media_probe_payload(
                         .filter(|codec| *codec != "none" && !codec.is_empty())
                         .collect::<Vec<_>>()
                         .join(", ");
-                    serde_json::json!({
-                        "url": stable_page_url,
-                        "formatId": stream.get("id").and_then(serde_json::Value::as_str).unwrap_or("native"),
-                        "label": label,
-                        "height": stream.get("height").cloned().unwrap_or(serde_json::Value::Null),
-                        "width": stream.get("width").cloned().unwrap_or(serde_json::Value::Null),
-                        "ext": stream.get("container").and_then(serde_json::Value::as_str).unwrap_or(""),
-                        "container": stream.get("container").and_then(serde_json::Value::as_str).unwrap_or(""),
-                        "filesize": stream.get("content_length").and_then(serde_json::Value::as_u64).unwrap_or(0),
-                        "filesizeApprox": stream.get("content_length").and_then(serde_json::Value::as_u64).unwrap_or(0),
-                        "estimatedSizeBytes": stream.get("content_length").and_then(serde_json::Value::as_u64).unwrap_or(0),
-                        "vcodec": video_codec,
-                        "acodec": audio_codec,
-                        "codecs": codecs,
-                        "hasVideo": has_video,
-                        "hasAudio": has_audio,
-                        "formatNote": stream.get("language").cloned().unwrap_or(serde_json::Value::Null),
-                        "tbr": bitrate.map(|value| value as f64 / 1000.0),
-                        "abr": audio_bitrate.map(|value| value as f64 / 1000.0),
-                        "vbr": bitrate.map(|value| value as f64 / 1000.0),
-                        "bandwidth": bitrate.or(audio_bitrate),
-                        "fps": stream.get("fps").cloned().unwrap_or(serde_json::Value::Null),
-                    })
+                    let mut format = serde_json::Map::new();
+                    format.insert("url".to_owned(), serde_json::json!(stable_page_url));
+                    format.insert(
+                        "formatId".to_owned(),
+                        serde_json::json!(
+                            stream
+                                .get("id")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or("native")
+                        ),
+                    );
+                    format.insert("label".to_owned(), serde_json::json!(label));
+                    format.insert(
+                        "ext".to_owned(),
+                        serde_json::json!(
+                            stream
+                                .get("container")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or("")
+                        ),
+                    );
+                    format.insert(
+                        "container".to_owned(),
+                        serde_json::json!(
+                            stream
+                                .get("container")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or("")
+                        ),
+                    );
+                    format.insert(
+                        "filesize".to_owned(),
+                        serde_json::json!(
+                            stream
+                                .get("content_length")
+                                .and_then(serde_json::Value::as_u64)
+                                .unwrap_or(0)
+                        ),
+                    );
+                    format.insert(
+                        "filesizeApprox".to_owned(),
+                        serde_json::json!(
+                            stream
+                                .get("content_length")
+                                .and_then(serde_json::Value::as_u64)
+                                .unwrap_or(0)
+                        ),
+                    );
+                    format.insert(
+                        "estimatedSizeBytes".to_owned(),
+                        serde_json::json!(
+                            stream
+                                .get("content_length")
+                                .and_then(serde_json::Value::as_u64)
+                                .unwrap_or(0)
+                        ),
+                    );
+                    format.insert("vcodec".to_owned(), serde_json::json!(video_codec));
+                    format.insert("acodec".to_owned(), serde_json::json!(audio_codec));
+                    format.insert("codecs".to_owned(), serde_json::json!(codecs));
+                    format.insert("hasVideo".to_owned(), serde_json::json!(has_video));
+                    format.insert("hasAudio".to_owned(), serde_json::json!(has_audio));
+
+                    if let Some(value) = stream.get("height").and_then(serde_json::Value::as_u64) {
+                        format.insert("height".to_owned(), serde_json::json!(value));
+                    }
+                    if let Some(value) = stream.get("width").and_then(serde_json::Value::as_u64) {
+                        format.insert("width".to_owned(), serde_json::json!(value));
+                    }
+                    if let Some(value) = language {
+                        format.insert("formatNote".to_owned(), serde_json::json!(value));
+                    }
+                    if let Some(value) = bitrate {
+                        format.insert("tbr".to_owned(), serde_json::json!(value as f64 / 1000.0));
+                        format.insert("vbr".to_owned(), serde_json::json!(value as f64 / 1000.0));
+                    }
+                    if let Some(value) = audio_bitrate {
+                        format.insert("abr".to_owned(), serde_json::json!(value as f64 / 1000.0));
+                    }
+                    if let Some(value) = bitrate.or(audio_bitrate) {
+                        format.insert("bandwidth".to_owned(), serde_json::json!(value));
+                    }
+                    if let Some(value) = stream.get("fps").and_then(serde_json::Value::as_f64) {
+                        format.insert("fps".to_owned(), serde_json::json!(value));
+                    }
+
+                    serde_json::Value::Object(format)
                 })
                 .collect::<Vec<_>>()
         })
