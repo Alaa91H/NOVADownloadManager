@@ -109,6 +109,12 @@ NativeSettings::NativeSettings(QObject *parent)
     migrateLegacySettingsIfNeeded();
 }
 
+NativeSettings::NativeSettings(const QString &settingsFile, QObject *parent)
+    : QObject(parent),
+      m_settings(settingsFile, QSettings::IniFormat) {
+    migrateLegacySettingsIfNeeded();
+}
+
 void NativeSettings::migrateLegacySettingsIfNeeded() {
     static const QString markerKey = QStringLiteral("migration/legacyUiImported");
     if (m_settings.value(markerKey, false).toBool()) {
