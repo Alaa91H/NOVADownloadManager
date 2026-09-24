@@ -69,6 +69,7 @@ impl TorrentStorage {
         if control_dir.exists() {
             return Err(StorageError::ExistingResumeState(control_dir));
         }
+        preflight_selected_files(&root, &meta, &selection)?;
 
         let boundary_dir = control_dir.join(BOUNDARY_DIR_NAME);
         ensure_safe_directory(&root, &control_dir)?;
@@ -623,7 +624,11 @@ fn reject_reserved_collision(meta: &TorrentMetainfo) -> Result<(), StorageError>
     for file in &meta.files {
         let path = Path::new(&file.path);
         if path.components().next().is_some_and(|component| {
-            matches!(component, Component::Normal(value) if value == CONTROL_DIR_NAME)
+            matches!(
+                component,
+                Component::Normal(value)
+                    if value == std::ffi::OsStr::new(CONTROL_DIR_NAME)
+            )
         }) {
             return Err(StorageError::ReservedPathCollision(file.path.clone()));
         }
@@ -633,6 +638,46 @@ fn reject_reserved_collision(meta: &TorrentMetainfo) -> Result<(), StorageError>
 
 fn control_dir(root: &Path, info_hash: String) -> PathBuf {
     root.join(CONTROL_DIR_NAME).join(info_hash)
+}
+
+fn preflight_selected_files(
+    root: &Path,
+    meta: &TorrentMetainfo,
+    selection: &TorrentSelection,
+) -> Result<(), StorageError> {
+    for (index, file) in meta.files.iter().enumerate() {
+        let priority = selection
+            .file_priority(index)
+            .ok_or(StorageError::FileIndexOutOfRange(index))?;
+        if !priority.is_selected() {
+            continue;
+        }
+        let path = target_path(root, &file.path)?;
+        if path.exists() {
+            ensure_target_not_symlink(&path)?;
+            return Err(StorageError::ExistingTarget(path));
+        }
+        if let Some(parent) = path.parent() {
+            let mut current = root.to_path_buf();
+            let relative = parent
+                .strip_prefix(root)
+                .map_err(|_| StorageError::UnsafePath(parent.display().to_string()))?;
+            for component in relative.components() {
+                let Component::Normal(value) = component else {
+                    return Err(StorageError::UnsafePath(parent.display().to_string()));
+                };
+                current.push(value);
+                if current.exists() {
+                    let metadata = std::fs::symlink_metadata(&current)
+                        .map_err(|error| StorageError::Io(current.clone(), error.to_string()))?;
+                    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                        return Err(StorageError::SymlinkOrNonDirectory(current));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn prepare_selected_files(
