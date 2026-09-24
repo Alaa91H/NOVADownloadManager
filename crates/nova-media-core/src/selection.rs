@@ -29,6 +29,8 @@ pub struct MediaSelectionPolicy {
     pub max_height: Option<u32>,
     pub preferred_container: Option<String>,
     pub preferred_language: Option<String>,
+    pub preferred_video_codec: Option<String>,
+    pub preferred_audio_codec: Option<String>,
     pub sort: Vec<MediaSortKey>,
 }
 
@@ -39,6 +41,8 @@ impl Default for MediaSelectionPolicy {
             max_height: None,
             preferred_container: None,
             preferred_language: None,
+            preferred_video_codec: None,
+            preferred_audio_codec: None,
             sort: vec![
                 MediaSortKey::Quality,
                 MediaSortKey::Bitrate,
@@ -94,7 +98,10 @@ fn compare_streams(
         })
 }
 
-fn preference_score(stream: &MediaStream, policy: &MediaSelectionPolicy) -> (u8, u8, u8) {
+fn preference_score(
+    stream: &MediaStream,
+    policy: &MediaSelectionPolicy,
+) -> (u8, u8, u8, u8, u8) {
     let container = stream.container.as_deref().unwrap_or_default();
     let language = stream.language.as_deref().unwrap_or_default();
     let container_match = policy
@@ -105,13 +112,35 @@ fn preference_score(stream: &MediaStream, policy: &MediaSelectionPolicy) -> (u8,
         .preferred_language
         .as_deref()
         .map_or(false, |wanted| language.eq_ignore_ascii_case(wanted));
+    let video_codec_match = codec_matches(
+        stream.video_codec.as_deref(),
+        policy.preferred_video_codec.as_deref(),
+    );
+    let audio_codec_match = codec_matches(
+        stream.audio_codec.as_deref(),
+        policy.preferred_audio_codec.as_deref(),
+    );
     let muxed_video = policy.mode == MediaSelectionMode::Video
         && stream.kind == MediaTrackKind::AudioVideo;
     (
         u8::from(container_match),
         u8::from(language_match),
+        u8::from(video_codec_match),
+        u8::from(audio_codec_match),
         u8::from(muxed_video),
     )
+}
+
+fn codec_matches(actual: Option<&str>, wanted: Option<&str>) -> bool {
+    let Some(wanted) = wanted.map(str::trim).filter(|value| !value.is_empty()) else {
+        return false;
+    };
+    actual.is_some_and(|actual| {
+        actual
+            .trim()
+            .to_ascii_lowercase()
+            .starts_with(&wanted.to_ascii_lowercase())
+    })
 }
 
 fn sort_value(stream: &MediaStream, key: MediaSortKey) -> u64 {
