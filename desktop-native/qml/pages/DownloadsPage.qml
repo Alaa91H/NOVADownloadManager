@@ -79,6 +79,20 @@ Item {
             Layout.fillWidth: true
             hasSelection: root.selectedIndex >= 0
             onRefreshRequested: root.api.refreshDownloads()
+            onPauseRequested: {
+                if (root.selectedIndex >= 0)
+                    root.api.pauseDownload(root.downloads.taskIdAt(root.selectedIndex))
+            }
+            onResumeRequested: {
+                if (root.selectedIndex >= 0)
+                    root.api.resumeDownload(root.downloads.taskIdAt(root.selectedIndex))
+            }
+            onDeleteRequested: {
+                if (root.selectedIndex >= 0) {
+                    root.api.deleteDownload(root.downloads.taskIdAt(root.selectedIndex))
+                    root.selectedIndex = -1
+                }
+            }
         }
 
         Rectangle {
