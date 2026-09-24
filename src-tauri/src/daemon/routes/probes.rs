@@ -1041,6 +1041,10 @@ pub async fn handle_native_media_probe(
         format!("{minutes:02}:{seconds:02}")
     };
 
+    let stable_page_url = metadata
+        .get("webpage_url")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(url);
     let formats = descriptor
         .get("streams")
         .and_then(serde_json::Value::as_array)
@@ -1052,19 +1056,64 @@ pub async fn handle_native_media_probe(
                     let audio_bitrate = stream
                         .get("audio_bitrate_bps")
                         .and_then(serde_json::Value::as_u64);
+                    let video_codec = stream
+                        .get("video_codec")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("none");
+                    let audio_codec = stream
+                        .get("audio_codec")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("none");
+                    let kind = stream
+                        .get("kind")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("");
+                    let has_video =
+                        video_codec != "none" || matches!(kind, "video" | "audio_video");
+                    let has_audio =
+                        audio_codec != "none" || matches!(kind, "audio" | "audio_video");
+                    let height = stream.get("height").and_then(serde_json::Value::as_u64);
+                    let language = stream
+                        .get("language")
+                        .and_then(serde_json::Value::as_str);
+                    let label = height
+                        .map(|value| format!("{value}p"))
+                        .or_else(|| language.map(str::to_owned))
+                        .unwrap_or_else(|| {
+                            if has_video {
+                                "Video".to_owned()
+                            } else if has_audio {
+                                "Audio".to_owned()
+                            } else {
+                                "Media".to_owned()
+                            }
+                        });
+                    let codecs = [video_codec, audio_codec]
+                        .into_iter()
+                        .filter(|codec| *codec != "none" && !codec.is_empty())
+                        .collect::<Vec<_>>()
+                        .join(", ");
                     serde_json::json!({
+                        "url": stable_page_url,
                         "formatId": stream.get("id").and_then(serde_json::Value::as_str).unwrap_or("native"),
+                        "label": label,
                         "height": stream.get("height").cloned().unwrap_or(serde_json::Value::Null),
                         "width": stream.get("width").cloned().unwrap_or(serde_json::Value::Null),
                         "ext": stream.get("container").and_then(serde_json::Value::as_str).unwrap_or(""),
+                        "container": stream.get("container").and_then(serde_json::Value::as_str).unwrap_or(""),
                         "filesize": stream.get("content_length").and_then(serde_json::Value::as_u64).unwrap_or(0),
                         "filesizeApprox": stream.get("content_length").and_then(serde_json::Value::as_u64).unwrap_or(0),
-                        "vcodec": stream.get("video_codec").and_then(serde_json::Value::as_str).unwrap_or("none"),
-                        "acodec": stream.get("audio_codec").and_then(serde_json::Value::as_str).unwrap_or("none"),
+                        "estimatedSizeBytes": stream.get("content_length").and_then(serde_json::Value::as_u64).unwrap_or(0),
+                        "vcodec": video_codec,
+                        "acodec": audio_codec,
+                        "codecs": codecs,
+                        "hasVideo": has_video,
+                        "hasAudio": has_audio,
                         "formatNote": stream.get("language").cloned().unwrap_or(serde_json::Value::Null),
                         "tbr": bitrate.map(|value| value as f64 / 1000.0),
                         "abr": audio_bitrate.map(|value| value as f64 / 1000.0),
                         "vbr": bitrate.map(|value| value as f64 / 1000.0),
+                        "bandwidth": bitrate.or(audio_bitrate),
                         "fps": stream.get("fps").cloned().unwrap_or(serde_json::Value::Null),
                     })
                 })
@@ -1084,6 +1133,8 @@ pub async fn handle_native_media_probe(
         "durationString": duration_string,
         "thumbnail": metadata.get("thumbnail_url").and_then(serde_json::Value::as_str).unwrap_or(""),
         "webpageUrl": metadata.get("webpage_url").and_then(serde_json::Value::as_str).unwrap_or(url),
+        "uploader": metadata.get("uploader").and_then(serde_json::Value::as_str).unwrap_or(""),
+        "description": metadata.get("description").and_then(serde_json::Value::as_str).unwrap_or(""),
         "formats": formats,
         "engine": "nova-media-engine"
     })))
