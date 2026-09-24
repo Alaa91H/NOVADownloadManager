@@ -13,9 +13,11 @@ use nova_media_core::{
     YouTubePlayerScriptSolver, YouTubeSelectionPolicy, DEFAULT_MANIFEST_MAX_BYTES,
 };
 use nova_stream_core::{
-    build_dash_representation_plan, build_hls_media_plan, parse_dash, parse_hls,
-    select_best_hls_variant, DashManifest, HlsPlaylistKind,
+    build_dash_live_refresh, build_dash_representation_plan, build_hls_live_refresh,
+    build_hls_media_plan, parse_dash, parse_hls, select_best_hls_variant, DashLiveCursor,
+    DashManifest, HlsLiveCursor, HlsPlaylistKind, HlsTransferUnitKind,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -137,6 +139,21 @@ enum ResolvedNativeMedia {
 struct ManifestStageOutput {
     parts: Vec<(u64, PathBuf)>,
     staged_bytes: u64,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct HlsLiveTaskCheckpoint {
+    cursor: HlsLiveCursor,
+    next_order: u64,
+    total_bytes: u64,
+    last_init_uri: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct DashLiveTaskCheckpoint {
+    cursor: DashLiveCursor,
+    next_order: u64,
+    total_bytes: u64,
 }
 
 pub async fn create_native_media_task(
@@ -462,8 +479,7 @@ fn run_native_manifest_worker(
     let staging_dir = Path::new(&state.data_dir)
         .join("native-media")
         .join(&id)
-        .join(format!("generation-{generation}"));
-    let _ = std::fs::remove_dir_all(&staging_dir);
+        .join("working");
 
     let progress_state = state.clone();
     let progress_id = id.clone();
@@ -624,9 +640,10 @@ where
         DEFAULT_MANIFEST_MAX_BYTES,
     )
     .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    let mut media_url = response.effective_url.clone();
     let body = String::from_utf8(response.body)
         .map_err(|_| NativeMediaTaskError::Resolution("HLS manifest is not UTF-8".to_owned()))?;
-    let mut manifest = parse_hls(&response.effective_url, &body)
+    let mut manifest = parse_hls(&media_url, &body)
         .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
 
     if manifest.kind == HlsPlaylistKind::Master {
@@ -640,14 +657,21 @@ where
         .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
         let body = String::from_utf8(response.body)
             .map_err(|_| NativeMediaTaskError::Resolution("HLS media playlist is not UTF-8".to_owned()))?;
-        manifest = parse_hls(&response.effective_url, &body)
+        media_url = response.effective_url.clone();
+        manifest = parse_hls(&media_url, &body)
             .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
     }
 
     if !manifest.end_list {
-        return Err(NativeMediaTaskError::UnsupportedFeature(
-            "live HLS scheduling is not connected to the task lifecycle yet".to_owned(),
-        ));
+        return stage_hls_live_stream(
+            &media_url,
+            manifest,
+            context,
+            staging_dir,
+            connections,
+            should_cancel,
+            on_progress,
+        );
     }
     let plan = build_hls_media_plan(&manifest)
         .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
@@ -691,13 +715,23 @@ where
         .map_err(|_| NativeMediaTaskError::Resolution("DASH manifest is not UTF-8".to_owned()))?;
     let manifest = parse_dash(&body)
         .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
-    if manifest.is_dynamic {
-        return Err(NativeMediaTaskError::UnsupportedFeature(
-            "dynamic DASH scheduling is not connected to the task lifecycle yet".to_owned(),
-        ));
-    }
     let (period, adaptation, representation) = best_dash_representation_indices(&manifest)
         .ok_or_else(|| NativeMediaTaskError::Resolution("DASH manifest has no representations".to_owned()))?;
+    if manifest.is_dynamic {
+        return stage_dash_live_stream(
+            &response.effective_url,
+            manifest,
+            period,
+            adaptation,
+            representation,
+            context,
+            staging_dir,
+            connections,
+            should_cancel,
+            on_progress,
+        );
+    }
+    let (period, adaptation, representation) = (period, adaptation, representation);
     let plan = build_dash_representation_plan(
         &manifest,
         &response.effective_url,
@@ -722,6 +756,311 @@ where
         .map(|file| (file.order, file.path))
         .collect();
     Ok((parts, total_bytes))
+}
+
+
+fn stage_hls_live_stream<F, P>(
+    media_url: &str,
+    initial_manifest: nova_stream_core::HlsManifest,
+    context: &HttpRequestContext,
+    staging_dir: &Path,
+    connections: u32,
+    should_cancel: &F,
+    on_progress: &P,
+) -> Result<(Vec<(u64, PathBuf)>, u64), NativeMediaTaskError>
+where
+    F: Fn() -> bool + Sync,
+    P: Fn(u64) + Sync,
+{
+    let checkpoint_path = staging_dir.join("hls-live-checkpoint.json");
+    let mut checkpoint: HlsLiveTaskCheckpoint =
+        read_live_checkpoint(&checkpoint_path).unwrap_or_default();
+    let mut current_manifest = Some(initial_manifest);
+    let mut tick = 0_u64;
+
+    loop {
+        if should_cancel() {
+            return Err(NativeMediaTaskError::Transfer(
+                "native HLS live staging was cancelled".to_owned(),
+            ));
+        }
+
+        let manifest = if let Some(manifest) = current_manifest.take() {
+            manifest
+        } else {
+            let response = fetch_http_bytes_with_context(
+                media_url,
+                context,
+                DEFAULT_MANIFEST_MAX_BYTES,
+            )
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+            let body = String::from_utf8(response.body).map_err(|_| {
+                NativeMediaTaskError::Resolution("HLS live manifest is not UTF-8".to_owned())
+            })?;
+            parse_hls(&response.effective_url, &body)
+                .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?
+        };
+
+        let mut refresh = build_hls_live_refresh(&manifest, checkpoint.cursor)
+            .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
+
+        if let Some(mut plan) = refresh.plan.take() {
+            let mut last_init = checkpoint.last_init_uri.clone();
+            plan.units.retain(|unit| {
+                if unit.kind != HlsTransferUnitKind::Initialization {
+                    return true;
+                }
+                if last_init.as_deref() == Some(unit.uri.as_str()) {
+                    return false;
+                }
+                last_init = Some(unit.uri.clone());
+                true
+            });
+
+            if !plan.units.is_empty() {
+                let tick_dir = staging_dir.join(format!("hls-tick-{tick:08}"));
+                let base = checkpoint.total_bytes;
+                let staged = stage_hls_media_plan_controlled_with_progress(
+                    &plan,
+                    context,
+                    &tick_dir,
+                    connections,
+                    || should_cancel(),
+                    |bytes| on_progress(base.saturating_add(bytes)),
+                )
+                .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+
+                let files = staged
+                    .files
+                    .into_iter()
+                    .map(|file| (file.order, file.path))
+                    .collect::<Vec<_>>();
+                commit_live_parts(staging_dir, &files, &mut checkpoint.next_order)?;
+                checkpoint.total_bytes =
+                    checkpoint.total_bytes.saturating_add(staged.total_bytes);
+                checkpoint.last_init_uri = last_init;
+                let _ = std::fs::remove_dir_all(tick_dir);
+            }
+        }
+
+        checkpoint.cursor = refresh.next_cursor;
+        write_live_checkpoint(&checkpoint_path, &checkpoint)?;
+        on_progress(checkpoint.total_bytes);
+
+        if refresh.ended {
+            return Ok((
+                committed_live_parts(staging_dir)?,
+                checkpoint.total_bytes,
+            ));
+        }
+
+        tick = tick.saturating_add(1);
+        sleep_live_refresh(refresh.reload_after_millis, should_cancel)?;
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stage_dash_live_stream<F, P>(
+    manifest_url: &str,
+    initial_manifest: DashManifest,
+    period: usize,
+    adaptation: usize,
+    representation: usize,
+    context: &HttpRequestContext,
+    staging_dir: &Path,
+    connections: u32,
+    should_cancel: &F,
+    on_progress: &P,
+) -> Result<(Vec<(u64, PathBuf)>, u64), NativeMediaTaskError>
+where
+    F: Fn() -> bool + Sync,
+    P: Fn(u64) + Sync,
+{
+    let checkpoint_path = staging_dir.join("dash-live-checkpoint.json");
+    let mut checkpoint: DashLiveTaskCheckpoint =
+        read_live_checkpoint(&checkpoint_path).unwrap_or_default();
+    let mut current_manifest = Some(initial_manifest);
+    let mut tick = 0_u64;
+
+    loop {
+        if should_cancel() {
+            return Err(NativeMediaTaskError::Transfer(
+                "native DASH live staging was cancelled".to_owned(),
+            ));
+        }
+
+        let (manifest, effective_url) = if let Some(manifest) = current_manifest.take() {
+            (manifest, manifest_url.to_owned())
+        } else {
+            let response = fetch_http_bytes_with_context(
+                manifest_url,
+                context,
+                DEFAULT_MANIFEST_MAX_BYTES,
+            )
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+            let body = String::from_utf8(response.body).map_err(|_| {
+                NativeMediaTaskError::Resolution("DASH live manifest is not UTF-8".to_owned())
+            })?;
+            let manifest = parse_dash(&body)
+                .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
+            (manifest, response.effective_url)
+        };
+
+        if !manifest.is_dynamic {
+            return Err(NativeMediaTaskError::UnsupportedFeature(
+                "DASH live source changed to a static manifest during recording".to_owned(),
+            ));
+        }
+
+        let refresh = build_dash_live_refresh(
+            &manifest,
+            &effective_url,
+            period,
+            adaptation,
+            representation,
+            checkpoint.cursor,
+        )
+        .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
+
+        if let Some(plan) = refresh.plan {
+            let tick_dir = staging_dir.join(format!("dash-tick-{tick:08}"));
+            let base = checkpoint.total_bytes;
+            let staged = stage_dash_representation_plan_controlled_with_progress(
+                &plan,
+                context,
+                &tick_dir,
+                connections,
+                || should_cancel(),
+                |bytes| on_progress(base.saturating_add(bytes)),
+            )
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+            let files = staged
+                .files
+                .into_iter()
+                .map(|file| (file.order, file.path))
+                .collect::<Vec<_>>();
+            commit_live_parts(staging_dir, &files, &mut checkpoint.next_order)?;
+            checkpoint.total_bytes =
+                checkpoint.total_bytes.saturating_add(staged.total_bytes);
+            let _ = std::fs::remove_dir_all(tick_dir);
+        }
+
+        checkpoint.cursor = refresh.next_cursor;
+        write_live_checkpoint(&checkpoint_path, &checkpoint)?;
+        on_progress(checkpoint.total_bytes);
+        tick = tick.saturating_add(1);
+        sleep_live_refresh(refresh.reload_after_millis, should_cancel)?;
+    }
+}
+
+fn live_parts_dir(staging_dir: &Path) -> PathBuf {
+    staging_dir.join("live-parts")
+}
+
+fn commit_live_parts(
+    staging_dir: &Path,
+    parts: &[(u64, PathBuf)],
+    next_order: &mut u64,
+) -> Result<(), NativeMediaTaskError> {
+    let destination = live_parts_dir(staging_dir);
+    std::fs::create_dir_all(&destination)
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    let mut ordered = parts.to_vec();
+    ordered.sort_by_key(|(order, _)| *order);
+    for (_, source) in ordered {
+        let target = destination.join(format!("{:020}.part", *next_order));
+        if target.exists() {
+            std::fs::remove_file(&target)
+                .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+        }
+        std::fs::rename(&source, &target)
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+        *next_order = next_order.saturating_add(1);
+    }
+    Ok(())
+}
+
+fn committed_live_parts(
+    staging_dir: &Path,
+) -> Result<Vec<(u64, PathBuf)>, NativeMediaTaskError> {
+    let directory = live_parts_dir(staging_dir);
+    if !directory.exists() {
+        return Ok(Vec::new());
+    }
+    let mut parts = Vec::new();
+    let entries = std::fs::read_dir(&directory)
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        let Ok(order) = stem.parse::<u64>() else {
+            continue;
+        };
+        parts.push((order, path));
+    }
+    parts.sort_by_key(|(order, _)| *order);
+    Ok(parts)
+}
+
+fn read_live_checkpoint<T>(path: &Path) -> Option<T>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    let bytes = std::fs::read(path).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+fn write_live_checkpoint<T>(path: &Path, checkpoint: &T) -> Result<(), NativeMediaTaskError>
+where
+    T: Serialize,
+{
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    }
+    let payload = serde_json::to_vec(checkpoint)
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    let temp = path.with_extension("json.tmp");
+    std::fs::write(&temp, payload)
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    let file = std::fs::File::open(&temp)
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    file.sync_all()
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    drop(file);
+    if path.exists() {
+        std::fs::remove_file(path)
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    }
+    std::fs::rename(&temp, path)
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    Ok(())
+}
+
+fn sleep_live_refresh<F>(
+    millis: u64,
+    should_cancel: &F,
+) -> Result<(), NativeMediaTaskError>
+where
+    F: Fn() -> bool + Sync,
+{
+    let deadline = Instant::now() + std::time::Duration::from_millis(millis.max(1));
+    while Instant::now() < deadline {
+        if should_cancel() {
+            return Err(NativeMediaTaskError::Transfer(
+                "native live refresh was cancelled".to_owned(),
+            ));
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        std::thread::sleep(remaining.min(std::time::Duration::from_millis(100)));
+    }
+    Ok(())
 }
 
 fn best_dash_representation_indices(manifest: &DashManifest) -> Option<(usize, usize, usize)> {
@@ -800,7 +1139,36 @@ fn update_native_progress(state: &SharedState, id: &str, generation: u64, bytes:
     state.mark_dirty();
 }
 
+fn assemble_live_preview(state: &SharedState, id: &str, generation: u64) {
+    let (output, valid_generation) = match state.native_media_jobs.lock() {
+        Ok(jobs) => jobs.get(id).map_or((PathBuf::new(), false), |job| {
+            (
+                PathBuf::from(&job.task.save_path),
+                job.run_generation.load(Ordering::Acquire) == generation,
+            )
+        }),
+        Err(_) => return,
+    };
+    if !valid_generation || output.as_os_str().is_empty() {
+        return;
+    }
+    let staging = Path::new(&state.data_dir)
+        .join("native-media")
+        .join(id)
+        .join("working");
+    let Ok(parts) = committed_live_parts(&staging) else {
+        return;
+    };
+    if parts.is_empty() {
+        return;
+    }
+    if let Ok(assembly) = assemble_ordered_parts(&parts, &output) {
+        update_native_progress(state, id, generation, assembly.bytes);
+    }
+}
+
 fn finish_native_cancelled(state: &SharedState, id: &str, generation: u64) {
+    assemble_live_preview(state, id, generation);
     let task = {
         let mut jobs = match state.native_media_jobs.lock() {
             Ok(jobs) => jobs,
