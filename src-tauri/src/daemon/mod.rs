@@ -14,7 +14,6 @@ pub mod static_files;
 pub mod telegram;
 pub mod types;
 pub mod utils;
-pub mod media_bridge;
 pub mod native_media;
 
 /// Stable Chromium extension origin derived from NOVA's pinned public key.
@@ -42,7 +41,7 @@ use crate::daemon::state::{AppState, SharedState};
 use crate::daemon::static_files::{serve_asset, serve_index, serve_spa_fallback};
 use crate::daemon::telegram::start_telegram_bot;
 use crate::daemon::types::{
-    transition_task_state, CreateDownloadBody, CurlJob, MediaJob, NativeMediaJob, TaskState,
+    transition_task_state, CreateDownloadBody, CurlJob, NativeMediaJob, TaskState,
     TelegramConfig,
 };
 use crate::lock_or_err;
@@ -376,17 +375,11 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     log::warn!("Failed to create data directory: {e}");
                 }
                 let restored = persist::load(&data_dir);
-                let media_bridge_binary = if cfg!(windows) {
-                    "yt-dlp.exe"
-                } else {
-                    "yt-dlp"
-                };
                 let ffmpeg_binary = if cfg!(windows) {
                     "ffmpeg.exe"
                 } else {
                     "ffmpeg"
                 };
-                let media_bridge_bin = resolve_engine_binary(&resource_dir, media_bridge_binary);
                 let ffmpeg_bin = resolve_engine_binary(&resource_dir, ffmpeg_binary);
 
                 // Build extractor registry
@@ -399,7 +392,6 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 let extractor_registry = SharedExtractorRegistry::new(extractor_registry);
 
                 let state = AppState {
-                    media_jobs: Mutex::new(HashMap::new()),
                     native_media_jobs: Mutex::new(HashMap::new()),
                     curl_jobs: Mutex::new(HashMap::new()),
                     task_snapshot: Mutex::new(HashMap::new()),
@@ -428,9 +420,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                         }),
                     resource_dir,
                     data_dir: data_dir.clone(),
-                    media_bridge_bin: std::sync::RwLock::new(media_bridge_bin.clone()),
                     ffmpeg_bin: std::sync::RwLock::new(ffmpeg_bin.clone()),
-                    bundled_media_bridge_bin: media_bridge_bin,
                     bundled_ffmpeg_bin: ffmpeg_bin,
                     engine_capabilities_cache: std::sync::RwLock::new(None),
                     engine_capabilities_probe: Mutex::new(()),
@@ -688,17 +678,8 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 let shutdown_signal = async move {
                     wait_for_daemon_shutdown(shutdown_rx).await;
                     log::info!("Shutdown signal received; pausing active downloads...");
-                    // Lock in documented order: media_jobs, curl_jobs, task_snapshot
-                    {
-                        let mut media = lock_or_err!(shutdown_state.media_jobs);
-                        for job in media.values_mut() {
-                            if let Some(pid) = job.child {
-                                crate::daemon::utils::kill_process(pid);
-                            }
-                            job.task.status = "paused".to_owned();
-                            job.task.engine_status = Some("shutdown".to_owned());
-                        }
-                    }
+                    // Snapshot first-party libcurl jobs before persisting shutdown state.
+                    let curl_shutdown_snapshots = {
                     let curl_shutdown_snapshots = {
                         let mut curl = lock_or_err!(shutdown_state.curl_jobs);
                         let mut snapshots = Vec::with_capacity(curl.len());
@@ -905,24 +886,17 @@ fn restore_persisted_tasks(
             );
             task.speed_bytes_per_sec = 0;
         } else if task.engine == "media-bridge" {
-            let args = restored
-                .media_args
-                .get(&task.id)
-                .cloned()
-                .unwrap_or_default();
-            if task.status != "completed" && !args.is_empty() {
-                if let Ok(mut jobs) = state.media_jobs.lock() {
-                    jobs.insert(
-                        task.id.clone(),
-                        MediaJob {
-                            task: task.clone(),
-                            child: None,
-                            args,
-                            start_time: Instant::now(),
-                        },
-                    );
-                }
+            if task.status != "completed" {
+                task.status = "error".to_owned();
+                task.engine_status = Some("engine-retired".to_owned());
+                task.error_message = Some(
+                    "This task used the retired Media Bridge engine. Re-add the original media URL to migrate it to NOVA Media Engine."
+                        .to_owned(),
+                );
+                task.speed_bytes_per_sec = 0;
+                task.time_left_seconds = 0;
             }
+        } else if task.engine == "nova-media-engine" {
         } else if task.engine == "nova-media-engine" {
             let request = restored.native_media_requests.get(&task.id).cloned();
             if task.status != "completed" {
