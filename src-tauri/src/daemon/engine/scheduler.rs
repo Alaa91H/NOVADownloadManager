@@ -63,7 +63,7 @@ struct QueueRetryRuntime {
 #[derive(Default)]
 struct QueueSchedulerRuntime {
     window_active: HashMap<String, bool>,
-    completion_fired: HashSet<String>,
+    completion_state: HashMap<String, bool>,
     retries: HashMap<(String, String), QueueRetryRuntime>,
     exit_requested: bool,
 }
@@ -93,7 +93,7 @@ fn parse_hhmm(value: Option<&str>, fallback_hour: u32, fallback_minute: u32) -> 
 /// intuitive and matches desktop queue semantics.
 pub fn queue_schedule_window_active(
     queue: &serde_json::Value,
-    now: DateTime<Local>,
+    now: &DateTime<Local>,
 ) -> bool {
     if !queue
         .get("scheduled")
@@ -144,7 +144,7 @@ pub fn queue_schedule_window_active(
     }
 
     let schedule_day = if overnight && current < end {
-        (now - chrono::Duration::days(1))
+        (now.clone() - chrono::Duration::days(1))
             .weekday()
             .num_days_from_sunday() as u64
     } else {
@@ -203,11 +203,9 @@ impl SmartScheduler {
         let Ok(mut runtime) = self.queue_runtime.lock() else {
             return false;
         };
-        if completed {
-            runtime.completion_fired.insert(queue_id.to_owned())
-        } else {
-            runtime.completion_fired.remove(queue_id);
-            false
+        match runtime.completion_state.insert(queue_id.to_owned(), completed) {
+            Some(previous) => !previous && completed,
+            None => false,
         }
     }
 
@@ -247,7 +245,7 @@ impl SmartScheduler {
     pub fn reset_queue_runtime(&self, queue_id: &str) {
         if let Ok(mut runtime) = self.queue_runtime.lock() {
             runtime.window_active.remove(queue_id);
-            runtime.completion_fired.remove(queue_id);
+            runtime.completion_state.remove(queue_id);
             runtime.retries.retain(|(id, _), _| id != queue_id);
         }
     }
@@ -686,7 +684,7 @@ mod tests {
             .and_local_timezone(Local)
             .single()
             .unwrap();
-        assert!(queue_schedule_window_active(&queue, wednesday_late));
+        assert!(queue_schedule_window_active(&queue, &wednesday_late));
 
         let thursday_early = chrono::NaiveDate::from_ymd_opt(2026, 9, 24)
             .unwrap()
@@ -695,7 +693,7 @@ mod tests {
             .and_local_timezone(Local)
             .single()
             .unwrap();
-        assert!(queue_schedule_window_active(&queue, thursday_early));
+        assert!(queue_schedule_window_active(&queue, &thursday_early));
 
         let thursday_late = chrono::NaiveDate::from_ymd_opt(2026, 9, 24)
             .unwrap()
@@ -704,7 +702,7 @@ mod tests {
             .and_local_timezone(Local)
             .single()
             .unwrap();
-        assert!(!queue_schedule_window_active(&queue, thursday_late));
+        assert!(!queue_schedule_window_active(&queue, &thursday_late));
     }
 
     #[test]
@@ -724,7 +722,7 @@ mod tests {
             .and_local_timezone(Local)
             .single()
             .unwrap();
-        assert!(!queue_schedule_window_active(&queue, now));
+        assert!(!queue_schedule_window_active(&queue, &now));
     }
 
     #[test]
@@ -735,7 +733,7 @@ mod tests {
         assert_eq!(sched.queue_window_transition("night", true), (false, false));
         assert_eq!(sched.queue_window_transition("night", false), (false, true));
 
-        assert!(sched.queue_completion_edge("night", true));
+        assert!(!sched.queue_completion_edge("night", true));
         assert!(!sched.queue_completion_edge("night", true));
         assert!(!sched.queue_completion_edge("night", false));
         assert!(sched.queue_completion_edge("night", true));
