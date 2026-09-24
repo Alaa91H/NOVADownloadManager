@@ -47,6 +47,8 @@ import { PlaylistBrowser } from '../components/media/PlaylistBrowser';
 
 /* ----------------------------------- main component ------------------------------------ */
 
+const PLAYLIST_TASK_CREATE_CONCURRENCY = 4;
+
 export const MediaDownloadPage: React.FC = () => {
   const dialog = useDialogData();
   const { openDialog, closeDialog } = useDialogActions();
@@ -501,13 +503,6 @@ export const MediaDownloadPage: React.FC = () => {
       const isPlaylist = isPlaylistUrl;
       const fileType = saveMode === 'audio' ? 'audio' : 'video';
 
-      let playlistItemsStr = '';
-      if (isPlaylist && playlistResult && !selectAllPlaylist) {
-        playlistItemsStr = Array.from<number>(selectedPlaylistItems)
-          .sort((a, b) => a - b)
-          .join(',');
-      }
-
       const effectiveQuality = requiresFfmpeg && !engineCapabilities.postProcessingReady ? 'best' : quality;
 
       const {
@@ -550,8 +545,6 @@ export const MediaDownloadPage: React.FC = () => {
         ffmpegLocation: settings.extra.ffmpegPath.trim() || undefined,
         bitrate: convertBitrate,
         outputTemplate,
-        playlist: isPlaylist,
-        playlistItems: playlistItemsStr || undefined,
         subtitles: downloadSubtitles,
         subtitleLanguages: subtitleLanguages.trim() || undefined,
         autoSubtitles,
@@ -580,11 +573,68 @@ export const MediaDownloadPage: React.FC = () => {
         remuxFormat: remuxFormat.trim() || undefined,
       });
 
+      if (isPlaylist && playlistResult) {
+        const entries = playlistResult.entries.filter(
+          (entry) => entry.url.trim() && (selectAllPlaylist || selectedPlaylistItems.has(entry.index)),
+        );
+        if (entries.length === 0) {
+          addToast('error', t('media_no_selection'), t('media_no_selection_msg'));
+          return;
+        }
+
+        let nextEntry = 0;
+        let acceptedCount = 0;
+        const worker = async () => {
+          while (nextEntry < entries.length) {
+            const entry = entries[nextEntry];
+            nextEntry += 1;
+            const indexedTitle = `${String(entry.index).padStart(4, '0')} - ${entry.title.trim() || entry.id}`;
+            const task = await addTask(
+              {
+                name: indexedTitle,
+                url: entry.url,
+                sizeBytes: 0,
+                fileType,
+                category: fileType,
+                status: 'queued',
+                savePath,
+                queueId: 'main',
+                description: `Media playlist item ${entry.index}: quality=${quality}, output=${outputTemplate}`,
+                connections: 0,
+                resumable: true,
+                mediaOptions,
+                elapsedSeconds: 0,
+              },
+              true,
+              true,
+            );
+            if (task) acceptedCount += 1;
+          }
+        };
+
+        await Promise.all(
+          Array.from(
+            { length: Math.min(PLAYLIST_TASK_CREATE_CONCURRENCY, entries.length) },
+            () => worker(),
+          ),
+        );
+
+        const outcome = `${acceptedCount}/${entries.length}`;
+        addToast(
+          acceptedCount === entries.length ? 'success' : acceptedCount > 0 ? 'warning' : 'error',
+          t('batch_import'),
+          outcome,
+        );
+        if (acceptedCount > 0) {
+          cleanupSensitiveLink(submittedUrl);
+          setActivePage('downloads');
+        }
+        return;
+      }
+
       const task = await addTask(
         {
-          name: isPlaylist
-            ? playlistResult?.title || t('media_playlist_title_fallback')
-            : probeResult?.title || t('media_download_title_fallback'),
+          name: probeResult?.title || t('media_download_title_fallback'),
           url: submittedUrl,
           sizeBytes: selectedFormatSize,
           fileType,
