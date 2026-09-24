@@ -139,18 +139,42 @@
       "status": "partial",
       "evidence": [
         "desktop-native/qml/pages/BatchImportPage.qml",
-        "desktop-native/src/api/NovaApiClient.cpp"
+        "desktop-native/src/api/NovaApiClient.cpp",
+        "desktop-native/tests/NativeParityTests.cpp"
       ],
       "contains": [
         {
           "file": "desktop-native/src/api/NovaApiClient.cpp",
           "allOf": [
             "importBatch",
-            "pumpBatchRequests"
+            "pumpBatchRequests",
+            "m_batchQueueId",
+            "directOptions",
+            "retryCount",
+            "timeoutSec"
+          ]
+        },
+        {
+          "file": "desktop-native/qml/pages/BatchImportPage.qml",
+          "allOf": [
+            "batch.advanced",
+            "queueIdField",
+            "refererField",
+            "userAgentField",
+            "retryCountField",
+            "timeoutField"
+          ]
+        },
+        {
+          "file": "desktop-native/tests/NativeParityTests.cpp",
+          "allOf": [
+            "batchImportCarriesAdvancedOptions",
+            "NOVA-Test-Agent",
+            "segmented"
           ]
         }
       ],
-      "blocker": "Native batch import currently covers URL expansion, destination, connection count and start behavior, but legacy parity is incomplete for queue selection, Referer/User-Agent, proxy, custom headers, retry policy and timeout controls."
+      "blocker": "Native batch import now carries queue ID, Referer, User-Agent, retry count and timeout into daemon task options, but parity remains incomplete for queue discovery/selection, proxy/custom-header/cookie controls, capability-aware option sanitization, and the legacy 10k/multi-range/alphabetic/step URL expansion syntax."
     },
     {
       "id": "media",
