@@ -159,6 +159,8 @@ jobs:
           cargo test --manifest-path crates/nova-stream-core/Cargo.toml
           cargo test --manifest-path crates/nova-media-core/Cargo.toml
           cargo test --manifest-path crates/nova-torrent-core/Cargo.toml
+          cargo clippy --manifest-path crates/nova-torrent-core/Cargo.toml --all-targets -- -D warnings
+          cargo fmt --check --manifest-path crates/nova-torrent-core/Cargo.toml
 
       - name: Clippy (lib + bin, zero warnings)
         id: clippy
