@@ -32,9 +32,10 @@ pub use selection::{
     select_media_stream, MediaSelectionMode, MediaSelectionPolicy, MediaSortKey,
 };
 pub use youtube::{
-    resolve_youtube_pending_formats, select_youtube_download_plan, youtube_video_id,
-    MediaChapter, YouTubeChallengeKind, YouTubeChallengeResolution, YouTubeChallengeSolver,
-    YouTubeDownloadPlan, YouTubeExtraction, YouTubeExtractor, YouTubePendingFormat,
+    resolve_youtube_pending_formats, resolve_youtube_playlist, select_youtube_download_plan,
+    youtube_playlist_id, youtube_video_id, MediaChapter, YouTubeChallengeKind,
+    YouTubeChallengeResolution, YouTubeChallengeSolver, YouTubeDownloadPlan, YouTubeExtraction,
+    YouTubeExtractor, YouTubePendingFormat, YouTubePlaylist, YouTubePlaylistEntry,
     YouTubeSelectionPolicy,
 };
 pub use youtube_player::YouTubePlayerScriptSolver;
