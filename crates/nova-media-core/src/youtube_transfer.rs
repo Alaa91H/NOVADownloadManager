@@ -97,6 +97,12 @@ pub fn download_youtube_plan_controlled<
     control: F,
     progress: P,
 ) -> Result<YouTubeTransferOutput, YouTubeTransferError> {
+    match control() {
+        TransferControl::Pause => return Err(YouTubeTransferError::Paused),
+        TransferControl::Cancel => return Err(YouTubeTransferError::Cancelled),
+        TransferControl::Continue => {}
+    }
+
     match plan {
         YouTubeDownloadPlan::SingleStream { stream_id } => {
             let stream = find_stream(&extraction.descriptor, stream_id)?;
