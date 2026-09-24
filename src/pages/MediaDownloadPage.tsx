@@ -845,7 +845,7 @@ export const MediaDownloadPage: React.FC = () => {
                         </div>
                       ) : !mediaEngineReady ? (
                         <div className="rounded-xl border border-[var(--border-color)]/30 bg-[var(--bg-hover)]/50 p-3 text-[12px] text-[var(--text-muted)]">
-                          {t('media_quality_requires_ytdlp')}
+                          {t('media_quality_requires_engine')}
                         </div>
                       ) : (
                         <QualityGrid
@@ -890,7 +890,7 @@ export const MediaDownloadPage: React.FC = () => {
                     <div className="mt-3">
                       {!mediaEngineReady ? (
                         <div className="rounded-xl border border-[var(--border-color)]/30 bg-[var(--bg-hover)]/50 p-3 text-[12px] text-[var(--text-muted)]">
-                          {t('media_audio_requires_ytdlp')}
+                          {t('media_audio_requires_engine')}
                         </div>
                       ) : (
                         <AudioGrid
