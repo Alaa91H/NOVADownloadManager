@@ -1350,8 +1350,11 @@ mod tests {
             handshake_timeout: Duration::from_secs(2),
             frame_timeout: Duration::from_secs(2),
             block_timeout: Duration::from_secs(2),
+            metadata_timeout: Duration::from_secs(2),
             pipeline_depth: 4,
+            metadata_pipeline_depth: 4,
             max_block_retries: 1,
+            max_metadata_retries: 1,
             max_control_frames_without_progress: 32,
         }
     }
@@ -1373,6 +1376,151 @@ mod tests {
             cancel,
         )
         .await
+    }
+
+    #[tokio::test]
+    async fn peer_session_fetches_verified_bep9_metadata_and_collects_pex() {
+        let mut info = b"d6:lengthi8e4:name9:piece.bin12:piece lengthi8e6:pieces20:".to_vec();
+        info.extend_from_slice(&[
+            0x42, 0x5a, 0xf1, 0x2a, 0x07, 0x43, 0x50, 0x2b, 0x32, 0x2e,
+            0x93, 0xa0, 0x15, 0xbc, 0xf8, 0x68, 0xe3, 0x24, 0xd5, 0x6a,
+        ]);
+        info.push(b'e');
+        let expected = TorrentMetainfo::from_info_bytes(&info, &[]).unwrap();
+        let info_hash = expected.info_hash;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server_info = info.clone();
+
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut handshake = [0u8; PEER_HANDSHAKE_LEN];
+            stream.read_exact(&mut handshake).await.unwrap();
+            let client = PeerHandshake::decode(&handshake).unwrap();
+            assert!(client.supports_extension_protocol());
+
+            let mut remote =
+                PeerHandshake::new(info_hash, *b"-NVTEST-REMOTE-00001");
+            remote.reserved[5] |= 0x10;
+            stream.write_all(&remote.encode()).await.unwrap();
+
+            let client_extended = read_peer_frame(
+                &mut stream,
+                Duration::from_secs(2),
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+            let PeerMessage::Extended {
+                extension_id: EXTENSION_HANDSHAKE_ID,
+                payload,
+            } = client_extended
+            else {
+                panic!("expected client extended handshake");
+            };
+            let client_caps = ExtendedHandshake::parse(&payload).unwrap();
+            assert_eq!(client_caps.ut_metadata, Some(LOCAL_UT_METADATA_ID));
+
+            let remote_caps = ExtendedHandshake {
+                ut_metadata: Some(3),
+                ut_pex: Some(5),
+                metadata_size: Some(server_info.len()),
+                request_queue: Some(4),
+                client_name: Some("NOVA test peer".to_owned()),
+            };
+            stream
+                .write_all(
+                    &PeerMessage::Extended {
+                        extension_id: EXTENSION_HANDSHAKE_ID,
+                        payload: remote_caps.encode().unwrap(),
+                    }
+                    .encode()
+                    .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            let mut pex = b"d5:added6:".to_vec();
+            pex.extend_from_slice(&[127, 0, 0, 1, 0x1a, 0xe1]);
+            pex.push(b'e');
+            stream
+                .write_all(
+                    &PeerMessage::Extended {
+                        extension_id: LOCAL_UT_PEX_ID,
+                        payload: pex,
+                    }
+                    .encode()
+                    .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            let request = read_peer_frame(
+                &mut stream,
+                Duration::from_secs(2),
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+            let PeerMessage::Extended {
+                extension_id: 3,
+                payload,
+            } = request
+            else {
+                panic!("expected ut_metadata request");
+            };
+            assert_eq!(
+                MetadataMessage::parse(&payload).unwrap(),
+                MetadataMessage::Request { piece: 0 }
+            );
+
+            stream
+                .write_all(
+                    &PeerMessage::Extended {
+                        extension_id: LOCAL_UT_METADATA_ID,
+                        payload: MetadataMessage::Data {
+                            piece: 0,
+                            total_size: server_info.len(),
+                            data: server_info,
+                        }
+                        .encode()
+                        .unwrap(),
+                    }
+                    .encode()
+                    .unwrap(),
+                )
+                .await
+                .unwrap();
+        });
+
+        let cancel = CancellationToken::new();
+        let mut session = PeerSession::connect_with_policy(
+            address,
+            info_hash,
+            *b"-NV0001-123456789012",
+            0,
+            test_config(),
+            true,
+            &cancel,
+        )
+        .await
+        .expect("connect metadata peer");
+
+        let result = session
+            .fetch_metadata(
+                info_hash,
+                &["https://tracker.test/announce".to_owned()],
+                &cancel,
+            )
+            .await
+            .expect("fetch metadata");
+
+        assert_eq!(result.metainfo.info_hash, info_hash);
+        assert_eq!(result.metainfo.name, "piece.bin");
+        assert_eq!(result.metainfo.total_length, 8);
+        assert_eq!(result.pex_peers, vec!["127.0.0.1:6881".parse().unwrap()]);
+        server.await.unwrap();
     }
 
     #[tokio::test]
