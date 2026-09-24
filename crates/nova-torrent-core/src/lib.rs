@@ -35,7 +35,8 @@ pub use magnet::{
     MAX_MAGNET_WEB_SEEDS,
 };
 pub use manifest::{
-    load_storage_manifest, save_storage_manifest_atomic, ManifestError, TorrentStorageManifest,
+    load_storage_manifest, load_storage_manifest_recovering, save_storage_manifest_atomic,
+    ManifestError, TorrentStorageManifest,
     STORAGE_MANIFEST_VERSION,
 };
 pub use metainfo::{
