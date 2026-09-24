@@ -558,6 +558,92 @@ mod tests {
     }
 
     #[test]
+    fn completed_video_track_is_reused_while_audio_resumes_from_network() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind audio resume server");
+        let address = listener.local_addr().expect("audio resume address");
+        let server = std::thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut socket, _) = listener.accept().expect("accept audio resume request");
+                let mut request = [0_u8; 4096];
+                let read = socket.read(&mut request).expect("read audio resume request");
+                let request = String::from_utf8_lossy(&request[..read]);
+                assert!(request.contains(" /audio "));
+                let body = b"AUDIO";
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .expect("write audio resume headers");
+                if !request.starts_with("HEAD ") {
+                    socket.write_all(body).expect("write audio resume body");
+                }
+            }
+        });
+
+        let mut extraction = extraction();
+        extraction.descriptor.streams[0].protocol = MediaProtocol::Http;
+        extraction.descriptor.streams[0].url =
+            "http://127.0.0.1:9/video-must-not-be-requested".to_owned();
+        extraction.descriptor.streams[0].content_length = Some(10);
+        extraction.descriptor.streams[1].protocol = MediaProtocol::Http;
+        extraction.descriptor.streams[1].url = format!("http://{address}/audio");
+        extraction.descriptor.streams[1].content_length = Some(5);
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("nova-youtube-track-resume-{unique}"));
+        std::fs::create_dir_all(&dir).expect("create resume temp dir");
+        let destination = dir.join("staged");
+        let video_path = append_suffix(&destination, ".nova-video.part");
+        std::fs::write(&video_path, b"VIDEO-DATA").expect("write completed video");
+        write_track_checkpoint(
+            &video_path,
+            &YouTubeTrackCheckpoint {
+                schema_version: YOUTUBE_TRACK_CHECKPOINT_VERSION,
+                stream_id: "video".to_owned(),
+                content_length: Some(10),
+                completed_bytes: 10,
+            },
+        )
+        .expect("write video checkpoint");
+
+        let output = download_youtube_plan_controlled(
+            &extraction,
+            &YouTubeDownloadPlan::SeparateTracks {
+                video_stream_id: "video".to_owned(),
+                audio_stream_id: "audio".to_owned(),
+            },
+            &destination,
+            2,
+            || TransferControl::Continue,
+            |_| {},
+        )
+        .expect("resume only missing audio");
+
+        server.join().expect("audio resume server");
+        let YouTubeTransferOutput::SeparateTracks {
+            video_path,
+            audio_path,
+            video_bytes,
+            audio_bytes,
+            ..
+        } = output
+        else {
+            panic!("expected separate tracks");
+        };
+        assert_eq!(video_bytes, 10);
+        assert_eq!(audio_bytes, 5);
+        assert_eq!(std::fs::read(video_path).expect("reused video"), b"VIDEO-DATA");
+        assert_eq!(std::fs::read(audio_path).expect("resumed audio"), b"AUDIO");
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn controlled_separate_tracks_can_cancel_before_network_io() {
         let error = download_youtube_plan_controlled(
             &extraction(),
