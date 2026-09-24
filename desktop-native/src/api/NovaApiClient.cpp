@@ -1,11 +1,13 @@
 #include "api/NovaApiClient.h"
 
+#include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QJsonValue>\n#include <QHash>\n#include <QSet>
+#include <QJsonValue>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QScopeGuard>
+#include <QSet>
 #include <QTimer>
 #include <QUrl>
 
@@ -62,7 +64,9 @@ void NovaApiClient::checkHealth() {
         const QJsonDocument document = QJsonDocument::fromJson(reply->readAll());
         const QJsonObject root = document.object();
         const QString status = root.value(QStringLiteral("status")).toString();
-        const bool healthy = status == QStringLiteral("connected") || status == QStringLiteral("degraded");
+        const bool healthy = status == QStringLiteral("connected")
+            || status == QStringLiteral("ready")
+            || status == QStringLiteral("degraded");
         setConnectionState(healthy, healthy ? QStringLiteral("Engine ready") : QStringLiteral("Engine unavailable"));
     });
 }
@@ -85,6 +89,65 @@ void NovaApiClient::refreshDownloads() {
 
         m_currentDownloads = document.array();
         emit downloadsLoaded(m_currentDownloads);
+    });
+}
+
+void NovaApiClient::createDownload(
+    const QString &url,
+    const QString &name,
+    const QString &savePath,
+    bool startImmediately
+) {
+    const QString trimmedUrl = url.trimmed();
+    if (trimmedUrl.isEmpty()) {
+        emit downloadCreationFailed(QStringLiteral("Enter a download URL."));
+        return;
+    }
+
+    QJsonObject body;
+    body.insert(QStringLiteral("url"), trimmedUrl);
+    body.insert(QStringLiteral("startImmediately"), startImmediately);
+
+    const QString trimmedName = name.trimmed();
+    if (!trimmedName.isEmpty()) {
+        body.insert(QStringLiteral("name"), trimmedName);
+    }
+
+    const QString trimmedSavePath = savePath.trimmed();
+    if (!trimmedSavePath.isEmpty()) {
+        body.insert(QStringLiteral("savePath"), trimmedSavePath);
+    }
+
+    auto *reply = m_network.post(
+        makeRequest(QStringLiteral("/api/downloads")),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+
+        if (reply->error() != QNetworkReply::NoError) {
+            QString message = reply->errorString();
+            if (document.isObject()) {
+                const QString serverMessage = document.object().value(QStringLiteral("error")).toString();
+                if (!serverMessage.isEmpty()) {
+                    message = serverMessage;
+                }
+            }
+            emit downloadCreationFailed(message);
+            return;
+        }
+
+        if (!document.isObject()) {
+            emit downloadCreationFailed(QStringLiteral("Unexpected create-download response."));
+            return;
+        }
+
+        const QString taskId = document.object().value(QStringLiteral("id")).toString();
+        emit downloadCreated(taskId);
+        refreshDownloads();
     });
 }
 

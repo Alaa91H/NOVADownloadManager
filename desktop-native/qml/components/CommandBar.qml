@@ -13,6 +13,7 @@ Rectangle {
     signal refreshRequested()
 
     property bool hasSelection: false
+    property bool engineConnected: false
 
     implicitHeight: Theme.commandHeight
     color: Theme.window
@@ -25,17 +26,20 @@ Rectangle {
 
         Button {
             text: "+  New download"
+            enabled: root.engineConnected
             font.pixelSize: 12
             font.weight: Font.DemiBold
 
             background: Rectangle {
                 radius: Theme.radiusMedium
-                color: parent.pressed ? Qt.darker(Theme.accent, 1.12) : Theme.accent
+                color: parent.enabled
+                    ? (parent.pressed ? Qt.darker(Theme.accent, 1.12) : Theme.accent)
+                    : Theme.accentMuted
             }
 
             contentItem: Text {
                 text: parent.text
-                color: "white"
+                color: parent.enabled ? "white" : Theme.textMuted
                 font: parent.font
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
@@ -65,11 +69,6 @@ Rectangle {
             flat: true
             enabled: root.hasSelection
             onClicked: root.deleteRequested()
-        }
-
-        ToolButton {
-            text: "•••"
-            enabled: root.hasSelection
         }
 
         Item { Layout.fillWidth: true }

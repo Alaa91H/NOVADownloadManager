@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QJsonArray>
+#include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QObject>
@@ -23,6 +24,12 @@ public:
     Q_INVOKABLE void checkHealth();
     Q_INVOKABLE void refreshDownloads();
     Q_INVOKABLE void startDownloadStream();
+    Q_INVOKABLE void createDownload(
+        const QString &url,
+        const QString &name,
+        const QString &savePath,
+        bool startImmediately
+    );
     Q_INVOKABLE void pauseDownload(const QString &id);
     Q_INVOKABLE void resumeDownload(const QString &id);
     Q_INVOKABLE void deleteDownload(const QString &id);
@@ -32,6 +39,8 @@ signals:
     void downloadsLoaded(const QJsonArray &downloads);
     void requestFailed(const QString &message);
     void taskActionCompleted(const QString &action, const QString &taskId);
+    void downloadCreated(const QString &taskId);
+    void downloadCreationFailed(const QString &message);
 
 private:
     QNetworkRequest makeRequest(const QString &path) const;

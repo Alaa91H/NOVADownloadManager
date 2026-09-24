@@ -7,10 +7,10 @@ ApplicationWindow {
     id: window
 
     visible: true
-    width: 1280
-    height: 780
-    minimumWidth: 980
-    minimumHeight: 620
+    width: 1360
+    height: 820
+    minimumWidth: 1040
+    minimumHeight: 660
     title: "NOVA Download Manager"
     color: Theme.window
 
@@ -64,7 +64,7 @@ ApplicationWindow {
                 engineConnected: novaApi.connected
                 engineStatus: novaApi.statusText
                 activeCount: downloadsModel.activeCount
-                totalCount: downloadsModel.count
+                totalCount: downloadsModel.totalCount
                 totalSpeed: downloadsModel.totalSpeed
             }
         }
@@ -76,6 +76,7 @@ ApplicationWindow {
         DownloadsPage {
             downloads: downloadsModel
             api: novaApi
+            page: window.currentPage
         }
     }
 

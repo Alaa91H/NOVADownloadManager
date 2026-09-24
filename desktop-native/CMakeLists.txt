@@ -24,8 +24,10 @@ qt_add_qml_module(nova-native
     QML_FILES
         qml/Main.qml
         qml/Theme.qml
-        qml/components/NavigationRail.qml
+        qml/components/AddDownloadDialog.qml
         qml/components/CommandBar.qml
+        qml/components/DownloadDetailsPanel.qml
+        qml/components/NavigationRail.qml
         qml/components/StatusBar.qml
         qml/pages/DownloadsPage.qml
 )

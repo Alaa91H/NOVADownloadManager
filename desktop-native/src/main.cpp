@@ -38,7 +38,7 @@ int main(int argc, char *argv[]) {
     engine.loadFromModule(QStringLiteral("Nova.Native"), QStringLiteral("Main"));
 
     QTimer refreshTimer;
-    refreshTimer.setInterval(1500);
+    refreshTimer.setInterval(60000);
     QObject::connect(&refreshTimer, &QTimer::timeout, &apiClient, &NovaApiClient::refreshDownloads);
     refreshTimer.start();
 
@@ -49,6 +49,7 @@ int main(int argc, char *argv[]) {
 
     apiClient.checkHealth();
     apiClient.refreshDownloads();
+    apiClient.startDownloadStream();
 
     return app.exec();
 }

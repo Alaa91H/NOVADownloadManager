@@ -8,9 +8,27 @@ Item {
 
     required property var downloads
     required property var api
+    required property string page
 
     property int selectedIndex: -1
+    property var selectedItem: ({})
     property string query: ""
+
+    function pageTitle() {
+        if (page === "active") return "Active downloads"
+        if (page === "queued") return "Queued downloads"
+        if (page === "completed") return "Completed downloads"
+        if (page === "failed") return "Failed downloads"
+        return "Downloads"
+    }
+
+    function pageSubtitle() {
+        if (page === "active") return "Transfers currently using the NOVA engine"
+        if (page === "queued") return "Downloads waiting to start or currently paused"
+        if (page === "completed") return "Successfully completed transfers"
+        if (page === "failed") return "Transfers that need attention"
+        return "Manage active, queued and completed transfers"
+    }
 
     function formatBytes(value) {
         if (!value || value <= 0) return "—"
@@ -39,27 +57,66 @@ Item {
         return Math.floor(value / 3600) + "h " + Math.floor((value % 3600) / 60) + "m"
     }
 
+    function clearSelection() {
+        selectedIndex = -1
+        selectedItem = ({})
+    }
+
+    function updateSelection() {
+        if (selectedIndex < 0 || selectedIndex >= downloads.count) {
+            clearSelection()
+            return
+        }
+        selectedItem = downloads.itemAt(selectedIndex)
+    }
+
+    function applyPageFilter() {
+        clearSelection()
+        downloads.filterState = page
+    }
+
+    Component.onCompleted: {
+        downloads.filterState = page
+        downloads.searchQuery = query
+    }
+
+    onPageChanged: applyPageFilter()
+
+    Connections {
+        target: root.downloads
+
+        function onSummaryChanged() {
+            root.updateSelection()
+        }
+
+        function onFilterChanged() {
+            root.clearSelection()
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
 
         RowLayout {
             Layout.fillWidth: true
-            Layout.preferredHeight: 58
+            Layout.preferredHeight: 68
             Layout.leftMargin: 16
             Layout.rightMargin: 16
             spacing: 12
 
             ColumnLayout {
-                spacing: 0
+                spacing: 2
+
                 Text {
-                    text: "Downloads"
+                    text: root.pageTitle()
                     color: Theme.textPrimary
-                    font.pixelSize: 20
+                    font.pixelSize: 21
                     font.weight: Font.DemiBold
                 }
+
                 Text {
-                    text: "Manage active, queued and completed transfers"
+                    text: root.pageSubtitle()
                     color: Theme.textMuted
                     font.pixelSize: 10
                 }
@@ -67,17 +124,29 @@ Item {
 
             Item { Layout.fillWidth: true }
 
+            Text {
+                text: root.downloads.count + (root.downloads.count === 1 ? " item" : " items")
+                color: Theme.textMuted
+                font.pixelSize: 10
+            }
+
             TextField {
-                Layout.preferredWidth: 260
-                placeholderText: "Search downloads"
+                id: searchField
+                Layout.preferredWidth: 280
+                placeholderText: "Search name, URL, path, engine…"
                 selectByMouse: true
-                onTextChanged: root.query = text
+                onTextChanged: {
+                    root.query = text
+                    root.downloads.searchQuery = text
+                }
             }
         }
 
         CommandBar {
             Layout.fillWidth: true
             hasSelection: root.selectedIndex >= 0
+            engineConnected: root.api.connected
+            onNewDownloadRequested: addDownloadDialog.openNew()
             onRefreshRequested: root.api.refreshDownloads()
             onPauseRequested: {
                 if (root.selectedIndex >= 0)
@@ -90,77 +159,35 @@ Item {
             onDeleteRequested: {
                 if (root.selectedIndex >= 0) {
                     root.api.deleteDownload(root.downloads.taskIdAt(root.selectedIndex))
-                    root.selectedIndex = -1
+                    root.clearSelection()
                 }
             }
         }
 
-        Rectangle {
+        RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.leftMargin: 14
             Layout.rightMargin: 14
             Layout.bottomMargin: 12
-            color: Theme.surface
-            border.color: Theme.border
-            radius: Theme.radiusMedium
-            clip: true
+            spacing: 10
 
-            ColumnLayout {
-                anchors.fill: parent
-                spacing: 0
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                color: Theme.surface
+                border.color: Theme.border
+                radius: Theme.radiusMedium
+                clip: true
 
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 32
-                    color: Theme.sidebar
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 0
 
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 12
-                        anchors.rightMargin: 12
-                        spacing: 10
-
-                        Text { Layout.fillWidth: true; text: "Name"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
-                        Text { Layout.preferredWidth: 88; text: "Size"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
-                        Text { Layout.preferredWidth: 190; text: "Progress"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
-                        Text { Layout.preferredWidth: 90; text: "Speed"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
-                        Text { Layout.preferredWidth: 70; text: "ETA"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
-                        Text { Layout.preferredWidth: 100; text: "Status"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
-                    }
-                }
-
-                ListView {
-                    id: list
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clip: true
-                    boundsBehavior: Flickable.StopAtBounds
-                    model: root.downloads
-                    ScrollBar.vertical: ScrollBar {}
-
-                    delegate: Rectangle {
-                        required property int index
-                        required property string name
-                        required property string status
-                        required property double sizeBytes
-                        required property double progress
-                        required property double speedBytesPerSec
-                        required property int etaSeconds
-
-                        width: list.width
-                        height: Theme.rowHeight
-                        color: root.selectedIndex === index
-                            ? Theme.surfaceSelected
-                            : mouse.containsMouse ? Theme.surfaceHover : "transparent"
-
-                        Rectangle {
-                            anchors.bottom: parent.bottom
-                            width: parent.width
-                            height: 1
-                            color: Theme.border
-                            opacity: 0.65
-                        }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 34
+                        color: Theme.sidebar
 
                         RowLayout {
                             anchors.fill: parent
@@ -168,107 +195,201 @@ Item {
                             anchors.rightMargin: 12
                             spacing: 10
 
-                            Text {
-                                Layout.fillWidth: true
-                                text: name
-                                color: Theme.textPrimary
-                                font.pixelSize: 11
-                                elide: Text.ElideMiddle
-                            }
-
-                            Text {
-                                Layout.preferredWidth: 88
-                                text: root.formatBytes(sizeBytes)
-                                color: Theme.textSecondary
-                                font.pixelSize: 10
-                                font.family: "monospace"
-                            }
-
-                            RowLayout {
-                                Layout.preferredWidth: 190
-                                spacing: 8
-
-                                ProgressBar {
-                                    Layout.fillWidth: true
-                                    from: 0
-                                    to: 1
-                                    value: progress
-                                }
-
-                                Text {
-                                    Layout.preferredWidth: 38
-                                    text: Math.round(progress * 100) + "%"
-                                    color: Theme.textSecondary
-                                    font.pixelSize: 10
-                                    font.family: "monospace"
-                                    horizontalAlignment: Text.AlignRight
-                                }
-                            }
-
-                            Text {
-                                Layout.preferredWidth: 90
-                                text: root.formatSpeed(speedBytesPerSec)
-                                color: speedBytesPerSec > 0 ? Theme.textPrimary : Theme.textMuted
-                                font.pixelSize: 10
-                                font.family: "monospace"
-                            }
-
-                            Text {
-                                Layout.preferredWidth: 70
-                                text: root.formatEta(etaSeconds)
-                                color: Theme.textSecondary
-                                font.pixelSize: 10
-                                font.family: "monospace"
-                            }
-
-                            Text {
-                                Layout.preferredWidth: 100
-                                text: status
-                                color: status === "completed"
-                                    ? Theme.success
-                                    : status === "error" ? Theme.danger
-                                    : status === "paused" ? Theme.warning
-                                    : Theme.textSecondary
-                                font.pixelSize: 10
-                                font.weight: Font.DemiBold
-                            }
-                        }
-
-                        MouseArea {
-                            id: mouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            acceptedButtons: Qt.LeftButton | Qt.RightButton
-                            onClicked: root.selectedIndex = index
+                            Text { Layout.fillWidth: true; text: "Name"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
+                            Text { Layout.preferredWidth: 88; text: "Size"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
+                            Text { Layout.preferredWidth: 190; text: "Progress"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
+                            Text { Layout.preferredWidth: 90; text: "Speed"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
+                            Text { Layout.preferredWidth: 70; text: "ETA"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
+                            Text { Layout.preferredWidth: 100; text: "Status"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.DemiBold }
                         }
                     }
 
-                    footer: Item { width: 1; height: 4 }
+                    ListView {
+                        id: list
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        model: root.downloads
+                        ScrollBar.vertical: ScrollBar {}
+
+                        delegate: Rectangle {
+                            required property int index
+                            required property string taskId
+                            required property string name
+                            required property string status
+                            required property double sizeBytes
+                            required property double progress
+                            required property double speedBytesPerSec
+                            required property int etaSeconds
+
+                            width: list.width
+                            height: Theme.rowHeight
+                            color: root.selectedIndex === index
+                                ? Theme.surfaceSelected
+                                : mouse.containsMouse ? Theme.surfaceHover : "transparent"
+
+                            Rectangle {
+                                anchors.bottom: parent.bottom
+                                width: parent.width
+                                height: 1
+                                color: Theme.border
+                                opacity: 0.65
+                            }
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 12
+                                spacing: 10
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 1
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: name || "Unnamed download"
+                                        color: Theme.textPrimary
+                                        font.pixelSize: 11
+                                        font.weight: Font.Medium
+                                        elide: Text.ElideMiddle
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: taskId
+                                        color: Theme.textMuted
+                                        font.pixelSize: 8
+                                        elide: Text.ElideRight
+                                        visible: taskId.length > 0
+                                    }
+                                }
+
+                                Text {
+                                    Layout.preferredWidth: 88
+                                    text: root.formatBytes(sizeBytes)
+                                    color: Theme.textSecondary
+                                    font.pixelSize: 10
+                                    font.family: "monospace"
+                                }
+
+                                RowLayout {
+                                    Layout.preferredWidth: 190
+                                    spacing: 8
+
+                                    ProgressBar {
+                                        Layout.fillWidth: true
+                                        from: 0
+                                        to: 1
+                                        value: progress
+                                    }
+
+                                    Text {
+                                        Layout.preferredWidth: 38
+                                        text: Math.round(progress * 100) + "%"
+                                        color: Theme.textSecondary
+                                        font.pixelSize: 10
+                                        font.family: "monospace"
+                                        horizontalAlignment: Text.AlignRight
+                                    }
+                                }
+
+                                Text {
+                                    Layout.preferredWidth: 90
+                                    text: root.formatSpeed(speedBytesPerSec)
+                                    color: speedBytesPerSec > 0 ? Theme.textPrimary : Theme.textMuted
+                                    font.pixelSize: 10
+                                    font.family: "monospace"
+                                }
+
+                                Text {
+                                    Layout.preferredWidth: 70
+                                    text: root.formatEta(etaSeconds)
+                                    color: Theme.textSecondary
+                                    font.pixelSize: 10
+                                    font.family: "monospace"
+                                }
+
+                                Text {
+                                    Layout.preferredWidth: 100
+                                    text: status
+                                    color: status === "completed"
+                                        ? Theme.success
+                                        : status === "error" || status === "failed" ? Theme.danger
+                                        : status === "paused" ? Theme.warning
+                                        : Theme.textSecondary
+                                    font.pixelSize: 10
+                                    font.weight: Font.DemiBold
+                                }
+                            }
+
+                            MouseArea {
+                                id: mouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                onClicked: {
+                                    root.selectedIndex = index
+                                    root.updateSelection()
+                                }
+                            }
+                        }
+
+                        footer: Item { width: 1; height: 4 }
+                    }
+                }
+
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    spacing: 8
+                    visible: list.count === 0
+
+                    Text {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: root.query.length > 0
+                            ? "No matching downloads"
+                            : root.page === "downloads" ? "No downloads yet" : "Nothing in this view"
+                        color: Theme.textPrimary
+                        font.pixelSize: 16
+                        font.weight: Font.DemiBold
+                    }
+
+                    Text {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: root.query.length > 0
+                            ? "Try a different search."
+                            : root.api.connected
+                                ? "Start a new download or switch to another category."
+                                : "Start the NOVA engine to load your downloads."
+                        color: Theme.textMuted
+                        font.pixelSize: 11
+                    }
+
+                    Button {
+                        Layout.alignment: Qt.AlignHCenter
+                        visible: root.query.length === 0 && root.api.connected
+                        text: "+ New download"
+                        onClicked: addDownloadDialog.openNew()
+                    }
                 }
             }
 
-            ColumnLayout {
-                anchors.centerIn: parent
-                spacing: 8
-                visible: list.count === 0
-
-                Text {
-                    Layout.alignment: Qt.AlignHCenter
-                    text: "No downloads yet"
-                    color: Theme.textPrimary
-                    font.pixelSize: 16
-                    font.weight: Font.DemiBold
-                }
-
-                Text {
-                    Layout.alignment: Qt.AlignHCenter
-                    text: novaApi.connected
-                        ? "Start a download or refresh the list."
-                        : "Start the NOVA engine to load your downloads."
-                    color: Theme.textMuted
-                    font.pixelSize: 11
-                }
+            DownloadDetailsPanel {
+                Layout.fillHeight: true
+                Layout.preferredWidth: root.selectedIndex >= 0 ? Theme.detailsWidth : 0
+                visible: root.selectedIndex >= 0
+                item: root.selectedItem
+                onCloseRequested: root.clearSelection()
             }
         }
+    }
+
+    AddDownloadDialog {
+        id: addDownloadDialog
+        api: root.api
+        parent: Overlay.overlay
+        x: parent ? Math.round((parent.width - width) / 2) : 0
+        y: parent ? Math.round((parent.height - height) / 2) : 0
     }
 }
