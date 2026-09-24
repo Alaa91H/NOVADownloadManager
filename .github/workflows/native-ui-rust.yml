@@ -33,6 +33,12 @@ on:
 
 permissions: {}
 
+# Prevent compatibility checks from accumulating across rapid development
+# commits while preserving explicit manual validation runs.
+concurrency:
+  group: native-ui-rust-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
 jobs:
   rust-daemon-compatibility:
     name: Rust daemon compatibility
