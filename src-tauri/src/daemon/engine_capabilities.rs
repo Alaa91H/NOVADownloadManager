@@ -2145,6 +2145,9 @@ mod tests {
         assert_eq!(status["postProcessingReady"], false);
         assert_eq!(status["mediaApi"]["resolve"], "/api/media/resolve");
         assert_eq!(status["mediaApi"]["download"], "/api/media/download");
+        assert_eq!(status["routing"]["mediaExtraction"], "nova-media-engine");
+        assert_eq!(status["routing"]["streaming"], "nova-media-engine");
+        assert_eq!(status["routing"]["postProcessing"], serde_json::Value::Null);
     }
 
     #[test]
