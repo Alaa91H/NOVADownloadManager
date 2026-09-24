@@ -10,6 +10,7 @@ mod dash_transfer;
 mod generic;
 mod hls_live;
 mod hls_transfer;
+mod selection;
 mod youtube;
 mod youtube_player;
 mod youtube_transfer;
@@ -26,6 +27,9 @@ pub use hls_live::{refresh_and_stage_hls_live_once, HlsLiveError, HlsLiveStageRe
 pub use hls_transfer::{
     stage_hls_media_plan, stage_hls_media_plan_controlled,
     stage_hls_media_plan_controlled_with_progress, HlsStageError, HlsStageFile, HlsStageResult,
+};
+pub use selection::{
+    select_media_stream, MediaSelectionMode, MediaSelectionPolicy, MediaSortKey,
 };
 pub use youtube::{
     resolve_youtube_pending_formats, select_youtube_download_plan, youtube_video_id,
