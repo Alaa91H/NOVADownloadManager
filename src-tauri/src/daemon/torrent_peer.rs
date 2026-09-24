@@ -1,11 +1,13 @@
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nova_torrent_core::{
-    BlockRequest, InfoHash, PeerHandshake, PeerMessage, PeerState, PieceLayout, TorrentMetainfo,
-    DEFAULT_BLOCK_SIZE, MAX_PEER_FRAME_BYTES, PEER_HANDSHAKE_LEN,
+    BlockRequest, ExtendedHandshake, InfoHash, MetadataAssembler, MetadataMessage, PeerExchange,
+    PeerHandshake, PeerMessage, PeerState, PieceLayout, TorrentMetainfo, DEFAULT_BLOCK_SIZE,
+    EXTENSION_HANDSHAKE_ID, LOCAL_UT_METADATA_ID, LOCAL_UT_PEX_ID, MAX_PEER_FRAME_BYTES,
+    PEER_HANDSHAKE_LEN,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -22,8 +24,11 @@ pub struct PeerSessionConfig {
     pub handshake_timeout: Duration,
     pub frame_timeout: Duration,
     pub block_timeout: Duration,
+    pub metadata_timeout: Duration,
     pub pipeline_depth: usize,
+    pub metadata_pipeline_depth: usize,
     pub max_block_retries: u32,
+    pub max_metadata_retries: u32,
     pub max_control_frames_without_progress: u32,
 }
 
@@ -34,11 +39,22 @@ impl Default for PeerSessionConfig {
             handshake_timeout: Duration::from_secs(8),
             frame_timeout: Duration::from_secs(30),
             block_timeout: Duration::from_secs(12),
+            metadata_timeout: Duration::from_secs(10),
             pipeline_depth: 8,
+            metadata_pipeline_depth: 8,
             max_block_retries: 2,
+            max_metadata_retries: 2,
             max_control_frames_without_progress: 128,
         }
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PeerMetadataResult {
+    pub address: SocketAddr,
+    pub peer_id: [u8; 20],
+    pub metainfo: TorrentMetainfo,
+    pub pex_peers: Vec<SocketAddr>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -377,9 +393,12 @@ pub struct PeerSession {
     remote_peer_id: [u8; 20],
     remote_supports_extensions: bool,
     remote_supports_dht: bool,
+    remote_extensions: Option<ExtendedHandshake>,
+    discovered_pex_peers: VecDeque<SocketAddr>,
     state: PeerState,
     stream: TcpStream,
     config: PeerSessionConfig,
+    allow_private_network: bool,
 }
 
 impl PeerSession {
@@ -432,10 +451,9 @@ impl PeerSession {
         };
         let _ = stream.set_nodelay(true);
 
-        // Do not advertise BEP 10 until extended messaging is implemented.
-        // Advertising an unsupported extension invites message id 20 before
-        // this session engine can parse it.
-        let local_handshake = PeerHandshake::new(info_hash, local_peer_id);
+        let mut local_handshake = PeerHandshake::new(info_hash, local_peer_id);
+        // BEP 10 is now implemented end-to-end for ut_metadata and ut_pex.
+        local_handshake.reserved[5] |= 0x10;
 
         write_all_cancellable(
             &mut stream,
@@ -465,16 +483,37 @@ impl PeerSession {
             return Err(format!("Peer {address} returned our own peer id"));
         }
 
-        Ok(Self {
+        let remote_supports_extensions = remote.supports_extension_protocol();
+        let mut session = Self {
             address,
             _connection_permit: None,
             remote_peer_id: remote.peer_id,
-            remote_supports_extensions: remote.supports_extension_protocol(),
+            remote_supports_extensions,
             remote_supports_dht: remote.supports_dht_port(),
+            remote_extensions: None,
+            discovered_pex_peers: VecDeque::new(),
             state: PeerState::new(piece_count),
             stream,
             config,
-        })
+            allow_private_network,
+        };
+
+        if remote_supports_extensions {
+            let payload = ExtendedHandshake::local(None)
+                .encode()
+                .map_err(|error| format!("Could not encode local extended handshake: {error}"))?;
+            session
+                .send(
+                    &PeerMessage::Extended {
+                        extension_id: EXTENSION_HANDSHAKE_ID,
+                        payload,
+                    },
+                    cancel,
+                )
+                .await?;
+        }
+
+        Ok(session)
     }
 
     fn attach_connection_permit(&mut self, permit: OwnedSemaphorePermit) {
@@ -501,6 +540,15 @@ impl PeerSession {
         &self.state
     }
 
+    pub fn remote_extensions(&self) -> Option<&ExtendedHandshake> {
+        self.remote_extensions.as_ref()
+    }
+
+    pub fn take_discovered_pex_peers(&mut self) -> Vec<SocketAddr> {
+        self.discovered_pex_peers.drain(..).collect()
+    }
+
+
     pub async fn send(&mut self, message: &PeerMessage, cancel: &CancellationToken) -> Result<(), String> {
         let encoded = message
             .encode()
@@ -525,6 +573,31 @@ impl PeerSession {
         self.state
             .apply(&message)
             .map_err(|error| format!("Peer {} protocol state error: {error}", self.address))?;
+
+        if let PeerMessage::Extended {
+            extension_id,
+            payload,
+        } = &message
+        {
+            if *extension_id == EXTENSION_HANDSHAKE_ID {
+                let handshake = ExtendedHandshake::parse(payload)
+                    .map_err(|error| format!("Peer {} sent invalid extended handshake: {error}", self.address))?;
+                self.remote_extensions = Some(handshake);
+            } else if *extension_id == LOCAL_UT_PEX_ID {
+                let pex = PeerExchange::parse(payload)
+                    .map_err(|error| format!("Peer {} sent invalid ut_pex payload: {error}", self.address))?;
+                for peer in pex.added {
+                    if peer.port() == 0
+                        || (is_internal_ip(peer.ip()) && !self.allow_private_network)
+                        || self.discovered_pex_peers.contains(&peer)
+                    {
+                        continue;
+                    }
+                    self.discovered_pex_peers.push_back(peer);
+                }
+            }
+        }
+
         Ok(message)
     }
 
