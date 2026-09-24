@@ -8,7 +8,7 @@ const HEALTH_PAYLOAD = {
   buildVersion: 'test',
   engines: {
     curl: { available: true, version: 'test' },
-    ytdlp: { available: true, version: 'test' },
+    media: { available: true, version: 'test' },
   },
   allEnginesReady: true,
 };

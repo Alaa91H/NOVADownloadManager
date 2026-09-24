@@ -17,8 +17,8 @@ vi.mock('../../../../api/novaClient', () => ({ novaClient: api }));
 import { ExternalToolsSettings } from '../ExternalToolsSettings';
 
 const tool = {
-  id: 'yt-dlp',
-  name: 'yt-dlp',
+  id: 'media-bridge',
+  name: 'media-bridge',
   status: 'Not Installed',
   capabilities: [],
   healthOk: false,
@@ -43,7 +43,7 @@ describe('ExternalToolsSettings', () => {
     api.discoverExternalTool.mockResolvedValue({ ok: false });
     api.checkExternalToolHealth.mockResolvedValue({ ok: false, status: 'Not Installed' });
     api.checkExternalToolUpdates.mockResolvedValue({ available: false });
-    api.installExternalTool.mockResolvedValue({ ok: true, path: '/tools/yt-dlp' });
+    api.installExternalTool.mockResolvedValue({ ok: true, path: '/tools/media-bridge' });
     api.updateExternalTool.mockResolvedValue({ ok: true });
     api.setExternalToolPath.mockResolvedValue({ ok: true });
     api.uninstallExternalTool.mockResolvedValue({ ok: true });
@@ -58,22 +58,22 @@ describe('ExternalToolsSettings', () => {
     api.installExternalTool.mockReturnValueOnce(install.promise);
 
     render(<ExternalToolsSettings onAddToast={onAddToast} />);
-    await screen.findByText('yt-dlp');
+    await screen.findByText('NOVA Media Bridge');
 
     fireEvent.click(screen.getByRole('button', { name: 'Install for Current User' }));
 
-    expect(api.installExternalTool).toHaveBeenCalledWith('yt-dlp', 'user');
+    expect(api.installExternalTool).toHaveBeenCalledWith('media-bridge', 'user');
     expect(screen.getByRole('button', { name: 'Discover' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Check Updates' })).toBeDisabled();
-    expect(screen.getByText('yt-dlp').closest('[aria-busy="true"]')).not.toBeNull();
+    expect(screen.getByText('NOVA Media Bridge').closest('[aria-busy="true"]')).not.toBeNull();
 
-    install.resolve({ ok: true, path: '/tools/yt-dlp' });
+    install.resolve({ ok: true, path: '/tools/media-bridge' });
 
     await waitFor(() => {
       expect(onAddToast).toHaveBeenCalledWith(
         'success',
         'Install verified',
-        'yt-dlp was downloaded, verified, and activated at /tools/yt-dlp.',
+        'NOVA Media Bridge was downloaded, verified, and activated at /tools/media-bridge.',
       );
     });
   });
@@ -85,7 +85,7 @@ describe('ExternalToolsSettings', () => {
     });
 
     render(<ExternalToolsSettings onAddToast={onAddToast} />);
-    await screen.findByText('yt-dlp');
+    await screen.findByText('NOVA Media Bridge');
 
     fireEvent.click(screen.getByRole('button', { name: 'Check Updates' }));
 
@@ -96,6 +96,6 @@ describe('ExternalToolsSettings', () => {
         'GitHub API returned HTTP 403. GitHub API rate limit is exhausted.',
       );
     });
-    expect(onAddToast).not.toHaveBeenCalledWith('success', 'Updates', 'yt-dlp is up to date.');
+    expect(onAddToast).not.toHaveBeenCalledWith('success', 'Updates', 'NOVA Media Bridge is up to date.');
   });
 });
