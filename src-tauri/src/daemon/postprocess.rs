@@ -178,6 +178,11 @@ impl MediaPostProcessor for FfmpegPostProcessor {
             }
         }
 
+        if should_cancel() {
+            let _ = std::fs::remove_file(&temp);
+            return Err(PostProcessError::Cancelled);
+        }
+
         let bytes = std::fs::metadata(&temp)
             .map_err(|error| PostProcessError::Io(error.to_string()))?
             .len();
