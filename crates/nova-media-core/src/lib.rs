@@ -17,11 +17,15 @@ mod youtube_transfer;
 pub use assembly::{assemble_ordered_parts, AssemblyError, AssemblyResult};
 pub use dash_live::{refresh_and_stage_dash_live_once, DashLiveError, DashLiveStageRefresh};
 pub use dash_transfer::{
-    stage_dash_representation_plan, DashStageError, DashStageFile, DashStageResult,
+    stage_dash_representation_plan, stage_dash_representation_plan_controlled,
+    DashStageError, DashStageFile, DashStageResult,
 };
 pub use generic::{GenericDirectMediaExtractor, GenericManifestExtractor};
 pub use hls_live::{refresh_and_stage_hls_live_once, HlsLiveError, HlsLiveStageRefresh};
-pub use hls_transfer::{stage_hls_media_plan, HlsStageError, HlsStageFile, HlsStageResult};
+pub use hls_transfer::{
+    stage_hls_media_plan, stage_hls_media_plan_controlled, HlsStageError, HlsStageFile,
+    HlsStageResult,
+};
 pub use youtube::{
     resolve_youtube_pending_formats, select_youtube_download_plan, youtube_video_id,
     YouTubeChallengeKind, YouTubeChallengeResolution, YouTubeChallengeSolver,

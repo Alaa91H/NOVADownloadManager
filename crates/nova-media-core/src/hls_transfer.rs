@@ -8,8 +8,9 @@ use std::sync::Mutex;
 use aes::Aes128;
 use cbc::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
 use nova_download_core::{
-    fetch_http_bytes_with_context, stream_http_body_with_context,
-    stream_http_range_with_context, HttpRequestContext, MAX_PARALLEL_SEGMENTS,
+    fetch_http_bytes_with_context, stream_http_body_controlled_with_context,
+    stream_http_range_controlled_with_context, HttpRequestContext, TransferControl,
+    TransportError, MAX_PARALLEL_SEGMENTS,
 };
 use nova_stream_core::{
     HlsEncryptionMethod, HlsKey, HlsMediaPlan, HlsTransferUnit,
@@ -57,6 +58,8 @@ pub enum HlsStageError {
     Io(String),
     #[error("native HLS transfer failed: {0}")]
     Transport(String),
+    #[error("native HLS staging was cancelled")]
+    Cancelled,
 }
 
 /// Download all units of one parsed HLS media playlist into deterministic
@@ -71,6 +74,25 @@ pub fn stage_hls_media_plan(
     staging_dir: &Path,
     requested_parallelism: u32,
 ) -> Result<HlsStageResult, HlsStageError> {
+    stage_hls_media_plan_controlled(
+        plan,
+        context,
+        staging_dir,
+        requested_parallelism,
+        || false,
+    )
+}
+
+pub fn stage_hls_media_plan_controlled<F>(
+    plan: &HlsMediaPlan,
+    context: &HttpRequestContext,
+    staging_dir: &Path,
+    requested_parallelism: u32,
+    should_cancel: F,
+) -> Result<HlsStageResult, HlsStageError>
+where
+    F: Fn() -> bool + Sync,
+{
     if plan.units.is_empty() {
         return Err(HlsStageError::EmptyPlan);
     }
@@ -91,6 +113,14 @@ pub fn stage_hls_media_plan(
     std::thread::scope(|scope| {
         for _ in 0..workers {
             scope.spawn(|| loop {
+                if should_cancel() {
+                    if let Ok(mut slot) = first_error.lock() {
+                        if slot.is_none() {
+                            *slot = Some(HlsStageError::Cancelled);
+                        }
+                    }
+                    break;
+                }
                 if first_error.lock().ok().is_some_and(|error| error.is_some()) {
                     break;
                 }
@@ -116,6 +146,7 @@ pub fn stage_hls_media_plan(
                     &key_cache,
                     &temp_path,
                     &final_path,
+                    &should_cancel,
                 );
 
                 match transfer {
@@ -165,6 +196,13 @@ pub fn stage_hls_media_plan(
     })
 }
 
+fn map_transport_error(error: TransportError) -> HlsStageError {
+    match error {
+        TransportError::Cancelled => HlsStageError::Cancelled,
+        other => HlsStageError::Transport(other.to_string()),
+    }
+}
+
 fn validate_encryption_modes(plan: &HlsMediaPlan) -> Result<(), HlsStageError> {
     for unit in &plan.units {
         let Some(key) = &unit.key else {
@@ -201,7 +239,11 @@ fn stage_one_unit(
     key_cache: &Mutex<HashMap<String, [u8; 16]>>,
     temp_path: &Path,
     final_path: &Path,
+    should_cancel: &(dyn Fn() -> bool + Sync),
 ) -> Result<u64, HlsStageError> {
+    if should_cancel() {
+        return Err(HlsStageError::Cancelled);
+    }
     let mut file = OpenOptions::new()
         .create(true)
         .write(true)
@@ -217,11 +259,35 @@ fn stage_one_unit(
             .checked_add(range.length)
             .and_then(|value| value.checked_sub(1))
             .ok_or(HlsStageError::ByteRangeOverflow)?;
-        stream_http_range_with_context(&unit.uri, start, end, &mut file, context)
-            .map_err(|error| HlsStageError::Transport(error.to_string()))?;
+        stream_http_range_controlled_with_context(
+            &unit.uri,
+            start,
+            end,
+            &mut file,
+            context,
+            || {
+                if should_cancel() {
+                    TransferControl::Cancel
+                } else {
+                    TransferControl::Continue
+                }
+            },
+        )
+        .map_err(map_transport_error)?;
     } else {
-        stream_http_body_with_context(&unit.uri, &mut file, context)
-            .map_err(|error| HlsStageError::Transport(error.to_string()))?;
+        stream_http_body_controlled_with_context(
+            &unit.uri,
+            &mut file,
+            context,
+            || {
+                if should_cancel() {
+                    TransferControl::Cancel
+                } else {
+                    TransferControl::Continue
+                }
+            },
+        )
+        .map_err(map_transport_error)?;
     }
 
     file.flush()

@@ -5,7 +5,8 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use nova_download_core::{
-    stream_http_body_with_context, HttpRequestContext, MAX_PARALLEL_SEGMENTS,
+    stream_http_body_controlled_with_context, HttpRequestContext, TransferControl,
+    TransportError, MAX_PARALLEL_SEGMENTS,
 };
 use nova_stream_core::DashRepresentationPlan;
 use thiserror::Error;
@@ -33,6 +34,15 @@ pub enum DashStageError {
     Io(String),
     #[error("native DASH transfer failed: {0}")]
     Transport(String),
+    #[error("native DASH staging was cancelled")]
+    Cancelled,
+}
+
+fn map_transport_error(error: TransportError) -> DashStageError {
+    match error {
+        TransportError::Cancelled => DashStageError::Cancelled,
+        other => DashStageError::Transport(other.to_string()),
+    }
 }
 
 /// Download one static DASH representation into deterministic staging files.
@@ -45,6 +55,25 @@ pub fn stage_dash_representation_plan(
     staging_dir: &Path,
     requested_parallelism: u32,
 ) -> Result<DashStageResult, DashStageError> {
+    stage_dash_representation_plan_controlled(
+        plan,
+        context,
+        staging_dir,
+        requested_parallelism,
+        || false,
+    )
+}
+
+pub fn stage_dash_representation_plan_controlled<F>(
+    plan: &DashRepresentationPlan,
+    context: &HttpRequestContext,
+    staging_dir: &Path,
+    requested_parallelism: u32,
+    should_cancel: F,
+) -> Result<DashStageResult, DashStageError>
+where
+    F: Fn() -> bool + Sync,
+{
     if plan.units.is_empty() {
         return Err(DashStageError::EmptyPlan);
     }
@@ -63,6 +92,14 @@ pub fn stage_dash_representation_plan(
     std::thread::scope(|scope| {
         for _ in 0..workers {
             scope.spawn(|| loop {
+                if should_cancel() {
+                    if let Ok(mut slot) = first_error.lock() {
+                        if slot.is_none() {
+                            *slot = Some(DashStageError::Cancelled);
+                        }
+                    }
+                    break;
+                }
                 if first_error.lock().ok().is_some_and(|error| error.is_some()) {
                     break;
                 }
@@ -87,9 +124,20 @@ pub fn stage_dash_representation_plan(
                         .open(&temp_path)
                         .map_err(|error| DashStageError::Io(error.to_string()))?;
 
-                    let bytes = stream_http_body_with_context(&unit.url, &mut file, context)
-                        .map_err(|error| DashStageError::Transport(error.to_string()))?
-                        .bytes_received;
+                    let bytes = stream_http_body_controlled_with_context(
+                        &unit.url,
+                        &mut file,
+                        context,
+                        || {
+                            if should_cancel() {
+                                TransferControl::Cancel
+                            } else {
+                                TransferControl::Continue
+                            }
+                        },
+                    )
+                    .map_err(map_transport_error)?
+                    .bytes_received;
 
                     file.flush()
                         .and_then(|_| file.sync_all())
