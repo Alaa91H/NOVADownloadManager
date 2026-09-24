@@ -647,6 +647,19 @@ pub async fn update_task_metadata(
     Err("Task not found".to_owned())
 }
 
+async fn wait_native_worker_stopped(
+    active: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while active.load(Ordering::Acquire) {
+        if std::time::Instant::now() >= deadline {
+            return Err("Native media worker did not stop within 10s".to_owned());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    Ok(())
+}
+
 /// Re-download a task from scratch: removes the existing output (and any
 /// segment parts), resets progress, clears stale validators, and restarts.
 pub async fn redownload_task(state: &SharedState, id: &str) -> Result<Task, String> {
@@ -687,16 +700,49 @@ pub async fn redownload_task(state: &SharedState, id: &str) -> Result<Task, Stri
     }
 
     {
-        let out = {
+        let prepared = {
             let mut jobs = lock_or_err!(state.native_media_jobs);
             if let Some(job) = jobs.get_mut(id) {
-                let was_active =
-                    TaskState::from_status(&job.task.status).is_some_and(TaskState::is_active);
-                restart_task_state(&mut job.task, "redownload-requested")?;
-                job.cancel_token.store(true, Ordering::Release);
-                job.run_generation.fetch_add(1, Ordering::Release);
-                let path = std::path::PathBuf::from(&job.task.save_path);
+                let current = TaskState::from_status(&job.task.status)
+                    .ok_or_else(|| format!("Task {id} has unknown state '{}'", job.task.status))?;
+                let was_active = current.is_active();
+                if was_active {
+                    transition_task_state(&mut job.task, TaskState::Pausing, "redownload-stopping")?;
+                    job.cancel_token.store(true, Ordering::Release);
+                }
+                Some((
+                    std::path::PathBuf::from(&job.task.save_path),
+                    job.worker_active.clone(),
+                    was_active,
+                    job.task.clone(),
+                ))
+            } else {
+                None
+            }
+        };
+
+        if let Some((path, worker_active, was_active, stopping_task)) = prepared {
+            if was_active {
+                lock_or_err!(state.task_snapshot).insert(id.to_owned(), stopping_task);
+                state.mark_dirty();
+                wait_native_worker_stopped(&worker_active).await?;
+            }
+
+            let task = {
+                let mut jobs = lock_or_err!(state.native_media_jobs);
+                let job = jobs
+                    .get_mut(id)
+                    .ok_or_else(|| "Native media task disappeared during redownload".to_owned())?;
+                let current = TaskState::from_status(&job.task.status)
+                    .ok_or_else(|| format!("Task {id} has unknown state '{}'", job.task.status))?;
+                if current != TaskState::Queued {
+                    restart_task_state(&mut job.task, "redownload-requested")?;
+                } else {
+                    job.task.engine_status = Some("redownload-requested".to_owned());
+                }
+                job.cancel_token = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                 job.task.downloaded_bytes = 0;
+                job.run_start_downloaded_bytes = 0;
                 job.task.speed_bytes_per_sec = 0;
                 job.task.time_left_seconds = 0;
                 job.task.error_message = None;
@@ -706,16 +752,10 @@ pub async fn redownload_task(state: &SharedState, id: &str) -> Result<Task, Stri
                     0,
                     0,
                 );
-                Some((job.task.clone(), path, was_active))
-            } else {
-                None
-            }
-        };
-        if let Some((task, path, was_active)) = out {
+                job.task.clone()
+            };
+
             crate::daemon::native_media::discard_native_media_task_artifacts(&path, true);
-            if was_active {
-                state.priority_queue.release_active_slot();
-            }
             lock_or_err!(state.task_snapshot).insert(id.to_owned(), task.clone());
             state.mark_dirty();
             crate::daemon::native_media::start_native_media_process(state, id);
@@ -821,42 +861,66 @@ pub async fn delete_task(state: &SharedState, id: &str, delete_files: bool) -> R
     }
 
     {
-        let (entry, was_active) = {
+        let prepared = {
             let mut jobs = lock_or_err!(state.native_media_jobs);
-            let was_active = jobs.get(id).is_some_and(|job| {
-                TaskState::from_status(&job.task.status).is_some_and(TaskState::is_active)
-            });
             if let Some(job) = jobs.get_mut(id) {
-                job.cancel_token.store(true, Ordering::Release);
-                job.run_generation.fetch_add(1, Ordering::Release);
-            }
-            lock_or_err!(state.task_snapshot).remove(id);
-            let job = jobs.remove(id);
-            (
-                job.map(|job| (std::path::PathBuf::from(&job.task.save_path), job.task.url)),
-                was_active,
-            )
-        };
-        if let Some((path, url)) = entry {
-            if was_active {
-                state.priority_queue.stop_download(id);
+                let current = TaskState::from_status(&job.task.status)
+                    .ok_or_else(|| format!("Task {id} has unknown state '{}'", job.task.status))?;
+                let was_active = current.is_active();
+                if was_active {
+                    if current != TaskState::Pausing {
+                        transition_task_state(&mut job.task, TaskState::Pausing, "delete-stopping")?;
+                    }
+                    job.cancel_token.store(true, Ordering::Release);
+                }
+                Some((
+                    job.worker_active.clone(),
+                    was_active,
+                    job.task.clone(),
+                ))
             } else {
+                None
+            }
+        };
+
+        if let Some((worker_active, was_active, stopping_task)) = prepared {
+            if was_active {
+                lock_or_err!(state.task_snapshot).insert(id.to_owned(), stopping_task);
+                state.mark_dirty();
+                wait_native_worker_stopped(&worker_active).await?;
+            }
+
+            let entry = {
+                let mut jobs = lock_or_err!(state.native_media_jobs);
+                if let Some(job) = jobs.get_mut(id) {
+                    job.run_generation.fetch_add(1, Ordering::Release);
+                }
+                lock_or_err!(state.task_snapshot).remove(id);
+                jobs.remove(id).map(|job| {
+                    (
+                        std::path::PathBuf::from(&job.task.save_path),
+                        job.task.url,
+                    )
+                })
+            };
+
+            if let Some((path, url)) = entry {
                 state.priority_queue.remove(id);
+                state.bandwidth_manager.remove_task_limit(id);
+                if !url.is_empty() {
+                    state.metadata_cache.remove(&url);
+                }
+                crate::daemon::native_media::discard_native_media_task_artifacts(
+                    &path,
+                    delete_files,
+                );
+                if let Ok(mut trackers) = state.engine_trackers.write() {
+                    trackers.remove(id);
+                }
+                state.mark_dirty();
+                log::info!("Task {id} deleted (native media, delete_files={delete_files})");
+                return Ok(());
             }
-            state.bandwidth_manager.remove_task_limit(id);
-            if !url.is_empty() {
-                state.metadata_cache.remove(&url);
-            }
-            crate::daemon::native_media::discard_native_media_task_artifacts(
-                &path,
-                delete_files,
-            );
-            if let Ok(mut trackers) = state.engine_trackers.write() {
-                trackers.remove(id);
-            }
-            state.mark_dirty();
-            log::info!("Task {id} deleted (native media, delete_files={delete_files})");
-            return Ok(());
         }
     }
 
