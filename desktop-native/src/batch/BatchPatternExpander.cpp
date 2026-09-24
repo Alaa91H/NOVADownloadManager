@@ -198,7 +198,8 @@ ExpansionResult expandLine(const QString &line) {
     for (const Group &group : std::as_const(groups)) {
         const QStringList values = bracketValues(group.bracket);
         QStringList next;
-        if (results.size() > MaxExpandedUrls / qMax(1, values.size())) {
+        const qsizetype valueCount = qMax<qsizetype>(1, values.size());
+        if (results.size() > MaxExpandedUrls / valueCount) {
             return ExpansionResult{
                 {},
                 QStringLiteral("Pattern expands to too many URLs (max %1).")
