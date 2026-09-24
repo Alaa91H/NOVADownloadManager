@@ -132,6 +132,12 @@ enum ResolvedNativeMedia {
     Manifest(ResolvedManifestMedia),
 }
 
+#[derive(Debug)]
+struct ManifestStageOutput {
+    parts: Vec<(u64, PathBuf)>,
+    staged_bytes: u64,
+}
+
 pub async fn create_native_media_task(
     state: &SharedState,
     body: &CreateDownloadBody,
@@ -455,22 +461,21 @@ fn run_native_manifest_worker(
         update_native_progress(&progress_state, &progress_id, generation, bytes);
     };
 
-    let result = execute_manifest_transfer(
+    let result = stage_manifest_transfer(
         &resolved,
         &staging_dir,
-        &output_path,
         connections,
         &cancelled,
         &progress,
     );
 
     match result {
-        Ok(bytes) => {
+        Ok(staged) => {
             if cancelled() {
                 finish_native_cancelled(&state, &id, generation);
                 return;
             }
-            update_native_progress(&state, &id, generation, bytes);
+            update_native_progress(&state, &id, generation, staged.staged_bytes);
             if let Err(error) = transition_native_task(
                 &state,
                 &id,
@@ -481,32 +486,44 @@ fn run_native_manifest_worker(
                 fail_native_task(&state, &id, generation, error);
                 return;
             }
+            if let Err(error) = verify_staged_parts(&staged.parts, staged.staged_bytes) {
+                fail_native_task(&state, &id, generation, error);
+                return;
+            }
+            if cancelled() {
+                finish_native_cancelled(&state, &id, generation);
+                return;
+            }
             if let Err(error) = transition_native_task(
                 &state,
                 &id,
                 generation,
                 TaskState::Finalizing,
-                "finalizing-media",
+                "assembling-media",
             ) {
                 fail_native_task(&state, &id, generation, error);
                 return;
             }
-            complete_native_task(&state, &id, generation, bytes);
-            let _ = std::fs::remove_dir_all(&staging_dir);
+            match assemble_ordered_parts(&staged.parts, &output_path) {
+                Ok(assembly) => {
+                    complete_native_task(&state, &id, generation, assembly.bytes);
+                    let _ = std::fs::remove_dir_all(&staging_dir);
+                }
+                Err(error) => fail_native_task(&state, &id, generation, error.to_string()),
+            }
         }
-        Err(error) if cancelled() => finish_native_cancelled(&state, &id, generation),
+        Err(_error) if cancelled() => finish_native_cancelled(&state, &id, generation),
         Err(error) => fail_native_task(&state, &id, generation, error.to_string()),
     }
 }
 
-fn execute_manifest_transfer<F, P>(
+fn stage_manifest_transfer<F, P>(
     resolved: &ResolvedManifestMedia,
     staging_dir: &Path,
-    output_path: &Path,
     connections: u32,
     should_cancel: &F,
     on_progress: &P,
-) -> Result<u64, NativeMediaTaskError>
+) -> Result<ManifestStageOutput, NativeMediaTaskError>
 where
     F: Fn() -> bool + Sync,
     P: Fn(u64) + Sync,
@@ -516,38 +533,67 @@ where
         .request_context_for_stream(&resolved.stream)
         .map_err(|error| NativeMediaTaskError::InvalidRequest(error.to_string()))?;
 
-    let parts = match resolved.stream.protocol {
-        MediaProtocol::Hls => stage_hls_stream(
-            &resolved.stream.url,
-            &context,
-            staging_dir,
-            connections,
-            should_cancel,
-            on_progress,
-        )?,
-        MediaProtocol::Dash => stage_dash_stream(
-            &resolved.stream.url,
-            &context,
-            staging_dir,
-            connections,
-            should_cancel,
-            on_progress,
-        )?,
-        MediaProtocol::Http | MediaProtocol::Https => {
-            return Err(NativeMediaTaskError::UnsupportedFeature(
+    match resolved.stream.protocol {
+        MediaProtocol::Hls => {
+            let (parts, staged_bytes) = stage_hls_stream(
+                &resolved.stream.url,
+                &context,
+                staging_dir,
+                connections,
+                should_cancel,
+                on_progress,
+            )?;
+            Ok(ManifestStageOutput {
+                parts,
+                staged_bytes,
+            })
+        }
+        MediaProtocol::Dash => {
+            let (parts, staged_bytes) = stage_dash_stream(
+                &resolved.stream.url,
+                &context,
+                staging_dir,
+                connections,
+                should_cancel,
+                on_progress,
+            )?;
+            Ok(ManifestStageOutput {
+                parts,
+                staged_bytes,
+            })
+        }
+        MediaProtocol::Http | MediaProtocol::Https => Err(
+            NativeMediaTaskError::UnsupportedFeature(
                 "direct stream reached manifest executor".to_owned(),
+            ),
+        ),
+    }
+}
+
+fn verify_staged_parts(parts: &[(u64, PathBuf)], expected_bytes: u64) -> Result<(), String> {
+    if parts.is_empty() {
+        return Err("Native manifest staging produced no media parts".to_owned());
+    }
+    let mut total = 0_u64;
+    for (_, path) in parts {
+        let metadata = std::fs::metadata(path)
+            .map_err(|error| format!("Staged media part is missing: {error}"))?;
+        if !metadata.is_file() {
+            return Err(format!(
+                "Staged media part is not a regular file: {}",
+                path.display()
             ));
         }
-    };
-
-    if should_cancel() {
-        return Err(NativeMediaTaskError::Transfer(
-            "native manifest staging was cancelled".to_owned(),
+        total = total
+            .checked_add(metadata.len())
+            .ok_or_else(|| "Staged media byte count overflow".to_owned())?;
+    }
+    if total != expected_bytes {
+        return Err(format!(
+            "Staged media size mismatch: expected {expected_bytes} bytes, found {total}"
         ));
     }
-    let assembly = assemble_ordered_parts(&parts, output_path)
-        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
-    Ok(assembly.bytes)
+    Ok(())
 }
 
 fn stage_hls_stream<F, P>(
@@ -557,7 +603,7 @@ fn stage_hls_stream<F, P>(
     connections: u32,
     should_cancel: &F,
     on_progress: &P,
-) -> Result<Vec<(u64, PathBuf)>, NativeMediaTaskError>
+) -> Result<(Vec<(u64, PathBuf)>, u64), NativeMediaTaskError>
 where
     F: Fn() -> bool + Sync,
     P: Fn(u64) + Sync,
@@ -604,11 +650,13 @@ where
         |bytes| on_progress(bytes),
     )
     .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
-    Ok(staged
+    let total_bytes = staged.total_bytes;
+    let parts = staged
         .files
         .into_iter()
         .map(|file| (file.order, file.path))
-        .collect())
+        .collect();
+    Ok((parts, total_bytes))
 }
 
 fn stage_dash_stream<F, P>(
@@ -618,7 +666,7 @@ fn stage_dash_stream<F, P>(
     connections: u32,
     should_cancel: &F,
     on_progress: &P,
-) -> Result<Vec<(u64, PathBuf)>, NativeMediaTaskError>
+) -> Result<(Vec<(u64, PathBuf)>, u64), NativeMediaTaskError>
 where
     F: Fn() -> bool + Sync,
     P: Fn(u64) + Sync,
@@ -657,11 +705,13 @@ where
         |bytes| on_progress(bytes),
     )
     .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
-    Ok(staged
+    let total_bytes = staged.total_bytes;
+    let parts = staged
         .files
         .into_iter()
         .map(|file| (file.order, file.path))
-        .collect())
+        .collect();
+    Ok((parts, total_bytes))
 }
 
 fn best_dash_representation_indices(manifest: &DashManifest) -> Option<(usize, usize, usize)> {
