@@ -231,7 +231,7 @@ interface StatusPillProps {
   errorMessage?: string;
 }
 
-const ENGINE_STATUS_LABELS: Record<string, string> = {
+const ENGINE_STATUS_LABELS: Readonly<Partial<Record<string, string>>> = {
   'resolving-url': 'Resolving URL...',
   starting: 'Preparing...',
   'running-libcurl-multi': '',
