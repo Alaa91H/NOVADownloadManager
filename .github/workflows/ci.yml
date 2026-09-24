@@ -154,6 +154,15 @@ jobs:
             exit 1
           fi
 
+      - name: Enforce native media processing ownership boundary
+        run: |
+          set -euo pipefail
+          if grep -RInE 'ffmpeg|ffprobe|yt-dlp|youtube-dl|std::process::Command|Command::new' \
+            crates/nova-media-processing-core; then
+            echo "::error::Native media processing must remain fully in-process."
+            exit 1
+          fi
+
       - name: Test native media cores
         run: |
           cargo test --manifest-path crates/nova-stream-core/Cargo.toml
