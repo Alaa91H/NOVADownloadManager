@@ -54,31 +54,47 @@ pub async fn handle_v1_ping(State(state): State<SharedState>) -> Json<serde_json
     }))
 }
 
-fn trusted_auto_pair_caller(headers: &HeaderMap, pairing_secret: &str) -> bool {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TrustedAutoPairRole {
+    NativeHost,
+    NativeDesktop,
+}
+
+fn trusted_auto_pair_caller(
+    headers: &HeaderMap,
+    pairing_secret: &str,
+) -> Option<TrustedAutoPairRole> {
     let origin = headers.get(ORIGIN).and_then(|value| value.to_str().ok());
 
     // Native auto-pair is intentionally unavailable to direct browser HTTP
     // callers. A non-browser local client must present both its role marker and
     // the fresh per-daemon secret stored in the user's NOVA data directory.
     if origin.is_some() {
-        return false;
+        return None;
     }
-
-    let trusted_role = headers
-        .get(crate::daemon::NATIVE_HOST_PAIRING_HEADER)
-        .and_then(|value| value.to_str().ok())
-        == Some(crate::daemon::NATIVE_HOST_PAIRING_VALUE)
-        || headers
-            .get(crate::daemon::NATIVE_DESKTOP_PAIRING_HEADER)
-            .and_then(|value| value.to_str().ok())
-            == Some(crate::daemon::NATIVE_DESKTOP_PAIRING_VALUE);
 
     let valid_secret = headers
         .get(crate::daemon::NATIVE_PAIRING_SECRET_HEADER)
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value == pairing_secret);
+    if !valid_secret {
+        return None;
+    }
 
-    trusted_role && valid_secret
+    let native_host = headers
+        .get(crate::daemon::NATIVE_HOST_PAIRING_HEADER)
+        .and_then(|value| value.to_str().ok())
+        == Some(crate::daemon::NATIVE_HOST_PAIRING_VALUE);
+    let native_desktop = headers
+        .get(crate::daemon::NATIVE_DESKTOP_PAIRING_HEADER)
+        .and_then(|value| value.to_str().ok())
+        == Some(crate::daemon::NATIVE_DESKTOP_PAIRING_VALUE);
+
+    match (native_host, native_desktop) {
+        (true, false) => Some(TrustedAutoPairRole::NativeHost),
+        (false, true) => Some(TrustedAutoPairRole::NativeDesktop),
+        _ => None,
+    }
 }
 
 pub async fn handle_v1_pair_auto(
@@ -94,27 +110,41 @@ pub async fn handle_v1_pair_auto(
             "error": "pair-auto is only available from loopback"
         }));
     }
-    if !trusted_auto_pair_caller(&headers, &state.native_pairing_secret) {
+    let Some(role) = trusted_auto_pair_caller(&headers, &state.native_pairing_secret) else {
         return Json(serde_json::json!({
             "ok": false,
-            "error": "pair-auto requires a trusted NOVA native client and the current daemon pairing proof"
+            "error": "pair-auto requires one trusted NOVA native role and the current daemon pairing proof"
         }));
-    }
+    };
+
+    let (pair_token, method, warning) = match role {
+        TrustedAutoPairRole::NativeHost => (
+            state.browser_client_token.clone(),
+            "native-host-secret-proof",
+            "This browser token is restricted to the extension-facing API surface and expires when the daemon restarts.",
+        ),
+        TrustedAutoPairRole::NativeDesktop => (
+            state.native_client_token.clone(),
+            "native-desktop-secret-proof",
+            "This desktop token is separate from the daemon master token and expires when the daemon restarts.",
+        ),
+    };
+
     Json(serde_json::json!({
         "ok": true,
-        "pairToken": state.native_client_token,
+        "pairToken": pair_token,
         "autoApproved": true,
-        "method": "native-client-secret-proof",
+        "method": method,
         "protocolVersion": 4,
         "minimumSupportedProtocolVersion": 4,
         "ttlSeconds": 60 * 60 * 24,
-        "warning": "This local-client token is separate from the daemon master token and expires when the daemon restarts."
+        "warning": warning
     }))
 }
 
 #[cfg(test)]
 mod auto_pair_tests {
-    use super::trusted_auto_pair_caller;
+    use super::{trusted_auto_pair_caller, TrustedAutoPairRole};
     use axum::http::{header::ORIGIN, HeaderMap, HeaderValue};
 
     const SECRET: &str = "test-pairing-secret";
@@ -134,7 +164,10 @@ mod auto_pair_tests {
             HeaderValue::from_static(crate::daemon::NATIVE_DESKTOP_PAIRING_VALUE),
         );
         add_secret(&mut headers, SECRET);
-        assert!(trusted_auto_pair_caller(&headers, SECRET));
+        assert_eq!(
+            trusted_auto_pair_caller(&headers, SECRET),
+            Some(TrustedAutoPairRole::NativeDesktop)
+        );
     }
 
     #[test]
@@ -145,7 +178,10 @@ mod auto_pair_tests {
             HeaderValue::from_static(crate::daemon::NATIVE_HOST_PAIRING_VALUE),
         );
         add_secret(&mut headers, SECRET);
-        assert!(trusted_auto_pair_caller(&headers, SECRET));
+        assert_eq!(
+            trusted_auto_pair_caller(&headers, SECRET),
+            Some(TrustedAutoPairRole::NativeHost)
+        );
     }
 
     #[test]
@@ -155,7 +191,7 @@ mod auto_pair_tests {
             crate::daemon::NATIVE_DESKTOP_PAIRING_HEADER,
             HeaderValue::from_static(crate::daemon::NATIVE_DESKTOP_PAIRING_VALUE),
         );
-        assert!(!trusted_auto_pair_caller(&headers, SECRET));
+        assert_eq!(trusted_auto_pair_caller(&headers, SECRET), None);
     }
 
     #[test]
@@ -166,7 +202,22 @@ mod auto_pair_tests {
             HeaderValue::from_static(crate::daemon::NATIVE_HOST_PAIRING_VALUE),
         );
         add_secret(&mut headers, "wrong-pairing-secret");
-        assert!(!trusted_auto_pair_caller(&headers, SECRET));
+        assert_eq!(trusted_auto_pair_caller(&headers, SECRET), None);
+    }
+
+    #[test]
+    fn rejects_ambiguous_native_role_markers() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            crate::daemon::NATIVE_HOST_PAIRING_HEADER,
+            HeaderValue::from_static(crate::daemon::NATIVE_HOST_PAIRING_VALUE),
+        );
+        headers.insert(
+            crate::daemon::NATIVE_DESKTOP_PAIRING_HEADER,
+            HeaderValue::from_static(crate::daemon::NATIVE_DESKTOP_PAIRING_VALUE),
+        );
+        add_secret(&mut headers, SECRET);
+        assert_eq!(trusted_auto_pair_caller(&headers, SECRET), None);
     }
 
     #[test]
@@ -177,7 +228,7 @@ mod auto_pair_tests {
             HeaderValue::from_static(crate::daemon::NOVA_CHROMIUM_EXTENSION_ORIGIN),
         );
         add_secret(&mut headers, SECRET);
-        assert!(!trusted_auto_pair_caller(&headers, SECRET));
+        assert_eq!(trusted_auto_pair_caller(&headers, SECRET), None);
     }
 
     #[test]
@@ -192,7 +243,7 @@ mod auto_pair_tests {
             HeaderValue::from_static(crate::daemon::NATIVE_HOST_PAIRING_VALUE),
         );
         add_secret(&mut headers, SECRET);
-        assert!(!trusted_auto_pair_caller(&headers, SECRET));
+        assert_eq!(trusted_auto_pair_caller(&headers, SECRET), None);
     }
 }
 
