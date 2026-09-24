@@ -9,6 +9,7 @@
 //! sockets and peer connection orchestration are layered on top of these
 //! validated primitives rather than being mixed into the data model.
 
+mod dht;
 mod extension;
 mod magnet;
 mod metainfo;
@@ -16,6 +17,10 @@ mod peer;
 mod scheduler;
 mod tracker;
 
+pub use dht::{
+    DhtError, DhtMessage, DhtNode, DhtNodeId, DhtQuery, DhtResponse, MAX_DHT_NODES,
+    MAX_DHT_PACKET_BYTES, MAX_DHT_PEERS, MAX_DHT_TOKEN_BYTES, MAX_DHT_TRANSACTION_BYTES,
+};
 pub use extension::{
     ExtendedHandshake, ExtensionError, MetadataAssembler, MetadataMessage, PeerExchange,
     EXTENSION_HANDSHAKE_ID, LOCAL_UT_METADATA_ID, LOCAL_UT_PEX_ID, MAX_EXTENDED_HANDSHAKE_BYTES,
