@@ -424,7 +424,29 @@ fn extract_signature_operations(script: &str) -> Result<Vec<TransformOperation>,
     )
     .map_err(|error| error.to_string())?;
 
-    for captures in assignment.captures_iter(script).chain(declaration.captures_iter(script)) {
+    let throttling_body_ptr = match throttling_target.as_ref() {
+        Some(ThrottlingTarget::ArrayElement { array, index }) => {
+            array_transform_function(script, array, *index)
+                .ok()
+                .map(|(_, body)| body.as_ptr() as usize)
+        }
+        _ => None,
+    };
+    let arrow_parenthesized = Regex::new(
+        r#"(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*\(\s*(?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)\s*\)\s*=>\s*\{"#,
+    )
+    .map_err(|error| error.to_string())?;
+    let arrow_single = Regex::new(
+        r#"(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)\s*=>\s*\{"#,
+    )
+    .map_err(|error| error.to_string())?;
+
+    for captures in assignment
+        .captures_iter(script)
+        .chain(declaration.captures_iter(script))
+        .chain(arrow_parenthesized.captures_iter(script))
+        .chain(arrow_single.captures_iter(script))
+    {
         let whole = captures
             .get(0)
             .ok_or_else(|| "signature function match is incomplete".to_owned())?;
@@ -446,6 +468,9 @@ fn extract_signature_operations(script: &str) -> Result<Vec<TransformOperation>,
         let Some(body) = balanced_block(script, brace, b'{', b'}') else {
             continue;
         };
+        if throttling_body_ptr == Some(body.as_ptr() as usize) {
+            continue;
+        }
 
         let Some(working) = transform_working_variable(body, arg)? else {
             continue;
@@ -946,6 +971,41 @@ AB=function(a){a=a.split("");ZZ.XX(a,2);return a.join("")};
                 .decipher_signature(player, "abcdef")
                 .expect("signature"),
             "dcba"
+        );
+    }
+
+    #[test]
+    fn signature_parser_skips_n_transform_hidden_behind_array_alias() {
+        let player = r#"
+NT=function(a){a=a.split("");a.reverse();return a.join("")};
+var NX=[NT];
+SG=function(a){a=a.split("");a=a.slice(2);return a.join("")};
+function apply(p){var x=p.get("n");x&&(x=NX[0](x),p.set("n",x))}
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert_eq!(
+            solver
+                .decipher_signature(player, "abcdef")
+                .expect("signature transform"),
+            "cdef"
+        );
+        assert_eq!(
+            solver
+                .transform_throttling_parameter(player, "abcdef")
+                .expect("n transform"),
+            "fedcba"
+        );
+    }
+
+    #[test]
+    fn signature_parser_supports_arrow_transform() {
+        let player = r#"SG=(a)=>{a=a.split("");a.reverse();return a.join("")};"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert_eq!(
+            solver
+                .decipher_signature(player, "abcdef")
+                .expect("arrow signature"),
+            "fedcba"
         );
     }
 
