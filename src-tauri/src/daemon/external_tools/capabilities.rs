@@ -47,23 +47,7 @@ impl CapabilityResolver {
             }
         }
 
-        let required_tool = match capability_id {
-            id if id.starts_with("media.") => {
-                if matches!(
-                    capability_id,
-                    "media.resolve"
-                        | "media.metadata"
-                        | "media.format_discovery"
-                        | "media.platform_extraction"
-                        | "media.direct_url_resolution"
-                ) {
-                    ToolId::MediaBridge
-                } else {
-                    ToolId::Ffmpeg
-                }
-            }
-            _ => ToolId::Ffmpeg,
-        };
+        let required_tool = ToolId::Ffmpeg;
 
         CapabilityAvailability {
             capability_id: capability_id.to_owned(),
