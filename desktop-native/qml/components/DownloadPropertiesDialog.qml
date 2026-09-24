@@ -99,6 +99,8 @@ Dialog {
                 id: nameField
                 Layout.fillWidth: true
                 selectByMouse: true
+                Accessible.name: root.t("add.fileName")
+                KeyNavigation.tab: urlField
             }
         }
 
@@ -122,6 +124,7 @@ Dialog {
                 LayoutMirroring.enabled: false
                 horizontalAlignment: Text.AlignLeft
                 Accessible.name: root.t("common.sourceUrl")
+                KeyNavigation.tab: cancelButton
             }
         }
 
@@ -147,7 +150,15 @@ Dialog {
                 Text { text: root.t("common.status"); color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
                 Text { text: root.downloadItem.status || "—"; color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 Text { text: root.t("common.destination"); color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
-                Text { text: root.downloadItem.savePath || "—"; color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                Text {
+                    text: root.downloadItem.savePath || "—"
+                    LayoutMirroring.enabled: false
+                    horizontalAlignment: Text.AlignLeft
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                    elide: Text.ElideMiddle
+                    Layout.fillWidth: true
+                }
             }
         }
 
@@ -175,7 +186,10 @@ Dialog {
             Layout.topMargin: 4
 
             Button {
+                id: cancelButton
                 text: root.t("common.cancel")
+                Accessible.name: text
+                KeyNavigation.tab: saveButton
                 flat: true
                 enabled: !root.submitting
                 onClicked: root.close()
@@ -184,7 +198,10 @@ Dialog {
             Item { Layout.fillWidth: true }
 
             Button {
+                id: saveButton
                 text: root.submitting ? root.t("properties.saving") : root.t("properties.save")
+                Accessible.name: text
+                KeyNavigation.tab: nameField
                 enabled: !root.submitting
 
                 background: Rectangle {

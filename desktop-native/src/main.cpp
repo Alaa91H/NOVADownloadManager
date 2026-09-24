@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QTimer>
@@ -15,6 +16,10 @@
 #include "settings/NativeSettings.h"
 
 int main(int argc, char *argv[]) {
+    QGuiApplication::setHighDpiScaleFactorRoundingPolicy(
+        Qt::HighDpiScaleFactorRoundingPolicy::PassThrough
+    );
+
     QApplication app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("NOVA"));
     QCoreApplication::setApplicationName(QStringLiteral("NOVA Download Manager Native"));

@@ -77,7 +77,7 @@ Item {
         }
 
         function onDiagnosticsSaved(path) {
-            root.showNotice("Diagnostics saved to " + path, false)
+            root.showNotice(root.t("settings.diagnosticsSaved") + " " + path, false)
         }
 
         function onLogsFailed(message) {
@@ -112,14 +112,14 @@ Item {
                 Text {
                     text: root.t("settings.subtitle")
                     color: Theme.textMuted
-                    font.pixelSize: 10
+                    font.pixelSize: Theme.fontSmall
                 }
             }
 
             Item { Layout.fillWidth: true }
 
             Button {
-                text: "Refresh engine"
+                text: root.t("settings.refreshEngine")
                 enabled: api.connected
                 onClicked: api.refreshEngineManagement()
             }
@@ -140,7 +140,7 @@ Item {
                 anchors.margins: 9
                 text: root.noticeText
                 color: root.noticeError ? Theme.danger : Theme.success
-                font.pixelSize: 10
+                font.pixelSize: Theme.fontSmall
                 elide: Text.ElideRight
             }
         }
@@ -312,7 +312,7 @@ Item {
                             Text {
                                 text: root.t("settings.downloadDefaults")
                                 color: Theme.textPrimary
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 font.weight: Font.DemiBold
                             }
 
@@ -324,13 +324,13 @@ Item {
                                     id: defaultDirectoryField
                                     Layout.fillWidth: true
                                     text: settings.defaultSaveDirectory
-                                    placeholderText: "Default download directory"
+                                    placeholderText: root.t("settings.defaultDirectory")
                                     selectByMouse: true
                                     onEditingFinished: settings.defaultSaveDirectory = text
                                 }
 
                                 Button {
-                                    text: "Browse…"
+                                    text: root.t("common.browse")
                                     onClicked: {
                                         const chosen = desktop.chooseDirectory(defaultDirectoryField.text)
                                         if (chosen.length > 0) {
@@ -345,9 +345,9 @@ Item {
                                 Layout.fillWidth: true
 
                                 Text {
-                                    text: "Default connections"
+                                    text: root.t("settings.defaultConnections")
                                     color: Theme.textSecondary
-                                    font.pixelSize: 10
+                                    font.pixelSize: Theme.fontSmall
                                 }
 
                                 Item { Layout.fillWidth: true }
@@ -361,7 +361,7 @@ Item {
                             }
 
                             Switch {
-                                text: "Start new workflow downloads immediately"
+                                text: root.t("settings.startWorkflowImmediately")
                                 checked: settings.startImmediately
                                 onToggled: settings.startImmediately = checked
                             }
@@ -384,19 +384,21 @@ Item {
                             Text {
                                 text: root.t("settings.desktopIntegration")
                                 color: Theme.textPrimary
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 font.weight: Font.DemiBold
                             }
 
                             Switch {
-                                text: "Close window to system tray"
+                                text: root.t("settings.closeToTray")
+                                Accessible.name: text
                                 checked: settings.closeToTray
                                 enabled: tray.available
                                 onToggled: settings.closeToTray = checked
                             }
 
                             Switch {
-                                text: "Start minimized to tray"
+                                text: root.t("settings.startMinimized")
+                                Accessible.name: text
                                 checked: settings.startMinimized
                                 enabled: tray.available
                                 onToggled: settings.startMinimized = checked
@@ -404,10 +406,10 @@ Item {
 
                             Text {
                                 text: tray.available
-                                    ? "System tray integration is available."
-                                    : "System tray is unavailable in this desktop session."
+                                    ? root.t("settings.trayAvailable")
+                                    : root.t("settings.trayUnavailable")
                                 color: tray.available ? Theme.success : Theme.warning
-                                font.pixelSize: 9
+                                font.pixelSize: Theme.fontTiny
                             }
                         }
                     }
@@ -431,38 +433,41 @@ Item {
                                 Text {
                                     text: root.t("settings.notifications")
                                     color: Theme.textPrimary
-                                    font.pixelSize: 13
+                                    font.pixelSize: Theme.fontBody
                                     font.weight: Font.DemiBold
                                 }
 
                                 Item { Layout.fillWidth: true }
 
                                 Button {
-                                    text: "Test"
+                                    text: root.t("settings.test")
                                     enabled: tray.available && settings.notificationsEnabled
                                     onClicked: tray.showNotification(
-                                        "NOVA notifications",
-                                        "Native desktop notifications are working."
+                                        root.t("settings.notificationTitle"),
+                                        root.t("settings.notificationTest")
                                     )
                                 }
                             }
 
                             Switch {
-                                text: "Enable desktop notifications"
+                                text: root.t("settings.enableNotifications")
+                                Accessible.name: text
                                 checked: settings.notificationsEnabled
                                 enabled: tray.available
                                 onToggled: settings.notificationsEnabled = checked
                             }
 
                             Switch {
-                                text: "Notify when a download completes"
+                                text: root.t("settings.notifyComplete")
+                                Accessible.name: text
                                 checked: settings.notifyOnComplete
                                 enabled: settings.notificationsEnabled && tray.available
                                 onToggled: settings.notifyOnComplete = checked
                             }
 
                             Switch {
-                                text: "Notify when a download fails"
+                                text: root.t("settings.notifyFailure")
+                                Accessible.name: text
                                 checked: settings.notifyOnFailure
                                 enabled: settings.notificationsEnabled && tray.available
                                 onToggled: settings.notifyOnFailure = checked
@@ -491,16 +496,16 @@ Item {
                                     spacing: 2
 
                                     Text {
-                                        text: "Updates"
+                                        text: root.t("settings.updates")
                                         color: Theme.textPrimary
-                                        font.pixelSize: 13
+                                        font.pixelSize: Theme.fontBody
                                         font.weight: Font.DemiBold
                                     }
 
                                     Text {
-                                        text: "Current version: " + updater.currentVersion
+                                        text: root.t("settings.currentVersion") + ": " + updater.currentVersion
                                         color: Theme.textMuted
-                                        font.pixelSize: 9
+                                        font.pixelSize: Theme.fontTiny
                                     }
                                 }
 
@@ -509,8 +514,8 @@ Item {
                                 ComboBox {
                                     id: updateChannel
                                     model: [
-                                        { label: "Stable", value: "stable" },
-                                        { label: "Preview", value: "preview" }
+                                        { label: root.t("settings.stable"), value: "stable" },
+                                        { label: root.t("settings.preview"), value: "preview" }
                                     ]
                                     textRole: "label"
                                     valueRole: "value"
@@ -519,7 +524,7 @@ Item {
                                 }
 
                                 Button {
-                                    text: updater.busy ? "Checking…" : "Check now"
+                                    text: updater.busy ? root.t("settings.checking") : root.t("settings.checkNow")
                                     enabled: !updater.busy
                                     onClicked: updater.checkForUpdates(settings.updateChannel)
                                 }
@@ -534,12 +539,12 @@ Item {
                                         ? updater.statusText + " · latest " + updater.latestVersion
                                         : updater.statusText
                                     color: updater.updateAvailable ? Theme.success : Theme.textSecondary
-                                    font.pixelSize: 10
+                                    font.pixelSize: Theme.fontSmall
                                     elide: Text.ElideRight
                                 }
 
                                 Button {
-                                    text: "Open release"
+                                    text: root.t("settings.openRelease")
                                     visible: updater.releaseUrl.length > 0
                                     onClicked: updater.openReleasePage()
                                 }
@@ -558,7 +563,7 @@ Item {
                                     anchors.margins: 8
                                     text: updater.automaticInstallStatus
                                     color: Theme.textSecondary
-                                    font.pixelSize: 9
+                                    font.pixelSize: Theme.fontTiny
                                     wrapMode: Text.WordWrap
                                 }
                             }
@@ -571,7 +576,7 @@ Item {
                         Item { Layout.fillWidth: true }
 
                         Button {
-                            text: "Reset native preferences"
+                            text: root.t("settings.resetPreferences")
                             onClicked: settings.resetToDefaults()
                         }
                     }
@@ -602,18 +607,18 @@ Item {
                                 Layout.fillWidth: true
 
                                 Text {
-                                    text: "Runtime capabilities"
+                                    text: root.t("settings.runtimeCapabilities")
                                     color: Theme.textPrimary
-                                    font.pixelSize: 13
+                                    font.pixelSize: Theme.fontBody
                                     font.weight: Font.DemiBold
                                 }
 
                                 Item { Layout.fillWidth: true }
 
                                 Text {
-                                    text: api.engineCapabilities.status || "Unknown"
+                                    text: api.engineCapabilities.status || root.t("common.unknown")
                                     color: api.engineCapabilities.allReady ? Theme.success : Theme.warning
-                                    font.pixelSize: 10
+                                    font.pixelSize: Theme.fontSmall
                                     font.weight: Font.DemiBold
                                 }
                             }
@@ -626,10 +631,10 @@ Item {
 
                                 Repeater {
                                     model: [
-                                        { label: "Direct", ready: Boolean(api.engineCapabilities.directReady) },
-                                        { label: "Media", ready: Boolean(api.engineCapabilities.mediaReady) },
-                                        { label: "Post-processing", ready: Boolean(api.engineCapabilities.postProcessingReady) },
-                                        { label: "All engines", ready: Boolean(api.engineCapabilities.allReady) }
+                                        { label: root.t("settings.direct"), ready: Boolean(api.engineCapabilities.directReady) },
+                                        { label: root.t("settings.media"), ready: Boolean(api.engineCapabilities.mediaReady) },
+                                        { label: root.t("settings.postProcessing"), ready: Boolean(api.engineCapabilities.postProcessingReady) },
+                                        { label: root.t("settings.allEngines"), ready: Boolean(api.engineCapabilities.allReady) }
                                     ]
 
                                     delegate: Rectangle {
@@ -648,13 +653,13 @@ Item {
                                             Text {
                                                 text: modelData.label
                                                 color: Theme.textMuted
-                                                font.pixelSize: 8
+                                                font.pixelSize: Math.max(8, Theme.fontTiny - 1)
                                             }
 
                                             Text {
-                                                text: modelData.ready ? "Ready" : "Unavailable"
+                                                text: modelData.ready ? root.t("settings.ready") : root.t("settings.unavailable")
                                                 color: modelData.ready ? Theme.success : Theme.warning
-                                                font.pixelSize: 11
+                                                font.pixelSize: Math.round(11 * Theme.fontScale)
                                                 font.weight: Font.DemiBold
                                             }
                                         }
@@ -675,22 +680,22 @@ Item {
                                         Layout.preferredWidth: 130
                                         text: modelData
                                         color: Theme.textPrimary
-                                        font.pixelSize: 10
+                                        font.pixelSize: Theme.fontSmall
                                         font.weight: Font.DemiBold
                                     }
 
                                     Text {
                                         Layout.fillWidth: true
-                                        text: item.version || (item.available ? "Available" : "Unavailable")
+                                        text: item.version || (item.available ? root.t("settings.ready") : root.t("settings.unavailable"))
                                         color: Theme.textMuted
-                                        font.pixelSize: 9
+                                        font.pixelSize: Theme.fontTiny
                                         elide: Text.ElideRight
                                     }
 
                                     Text {
-                                        text: item.available ? "READY" : "OFFLINE"
+                                        text: item.available ? root.t("settings.ready").toUpperCase() : root.t("settings.offline")
                                         color: item.available ? Theme.success : Theme.warning
-                                        font.pixelSize: 9
+                                        font.pixelSize: Theme.fontTiny
                                         font.weight: Font.Bold
                                     }
                                 }
@@ -712,9 +717,9 @@ Item {
                             spacing: 9
 
                             Text {
-                                text: "Engine profile"
+                                text: root.t("settings.engineProfile")
                                 color: Theme.textPrimary
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 font.weight: Font.DemiBold
                             }
 
@@ -745,7 +750,7 @@ Item {
                                             Text {
                                                 text: modelData.name || modelData.id
                                                 color: Theme.textPrimary
-                                                font.pixelSize: 11
+                                                font.pixelSize: Math.round(11 * Theme.fontScale)
                                                 font.weight: Font.DemiBold
                                             }
 
@@ -755,15 +760,15 @@ Item {
                                                     + " · " + modelData.default_connections
                                                     + " default / " + modelData.max_connections + " max connections"
                                                 color: Theme.textMuted
-                                                font.pixelSize: 9
+                                                font.pixelSize: Theme.fontTiny
                                                 elide: Text.ElideRight
                                             }
                                         }
 
                                         Button {
                                             text: modelData.id === api.activeEngineProfile
-                                                ? "Active"
-                                                : "Use profile"
+                                                ? root.t("settings.active")
+                                                : root.t("settings.useProfile")
                                             enabled: api.connected
                                                 && modelData.id !== api.activeEngineProfile
                                             onClicked: api.setActiveEngineProfile(modelData.id)
@@ -788,9 +793,9 @@ Item {
                             spacing: 10
 
                             Text {
-                                text: "Bandwidth & retry policy"
+                                text: root.t("settings.bandwidthRetry")
                                 color: Theme.textPrimary
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontBody
                                 font.weight: Font.DemiBold
                             }
 
@@ -798,14 +803,15 @@ Item {
                                 Layout.fillWidth: true
 
                                 Text {
-                                    text: "Global limit (KB/s, 0 = unlimited)"
+                                    text: root.t("settings.globalLimit")
                                     color: Theme.textSecondary
-                                    font.pixelSize: 10
+                                    font.pixelSize: Theme.fontSmall
                                 }
 
                                 Item { Layout.fillWidth: true }
 
                                 SpinBox {
+                                    Accessible.name: root.t("settings.globalLimit")
                                     from: 0
                                     to: 1000000
                                     editable: true
@@ -814,7 +820,8 @@ Item {
                                 }
 
                                 Switch {
-                                    text: "Pause all"
+                                    text: root.t("settings.pauseAll")
+                                    Accessible.name: text
                                     checked: Boolean(api.bandwidthState.paused)
                                     onToggled: api.setBandwidthPaused(checked)
                                 }
@@ -824,29 +831,30 @@ Item {
                                 Layout.fillWidth: true
 
                                 Text {
-                                    text: "Retry policy: "
-                                        + Number(api.retryPolicy.max_retries || 0) + " retries · "
-                                        + Number(api.retryPolicy.base_delay_secs || 0) + "s base delay"
+                                    text: root.t("settings.retryPolicy") + ": "
+                                        + Number(api.retryPolicy.max_retries || 0) + " " + root.t("settings.retries") + " · "
+                                        + Number(api.retryPolicy.base_delay_secs || 0) + "s " + root.t("settings.baseDelay")
                                     color: Theme.textSecondary
-                                    font.pixelSize: 10
+                                    font.pixelSize: Theme.fontSmall
                                 }
 
                                 Item { Layout.fillWidth: true }
 
                                 ComboBox {
                                     id: retryPreset
+                                    Accessible.name: root.t("settings.retryPolicy")
                                     model: [
-                                        { label: "Default", value: "default" },
-                                        { label: "Aggressive", value: "aggressive" },
-                                        { label: "Conservative", value: "conservative" },
-                                        { label: "No retry", value: "none" }
+                                        { label: root.t("settings.defaultPreset"), value: "default" },
+                                        { label: root.t("settings.aggressive"), value: "aggressive" },
+                                        { label: root.t("settings.conservative"), value: "conservative" },
+                                        { label: root.t("settings.noRetry"), value: "none" }
                                     ]
                                     textRole: "label"
                                     valueRole: "value"
                                 }
 
                                 Button {
-                                    text: "Apply"
+                                    text: root.t("settings.apply")
                                     enabled: api.connected
                                     onClicked: api.applyRetryPreset(retryPreset.currentValue)
                                 }
@@ -865,13 +873,13 @@ Item {
                         Layout.fillWidth: true
 
                         Button {
-                            text: api.diagnosticsBusy ? "Running diagnostics…" : "Run full diagnostics"
+                            text: api.diagnosticsBusy ? root.t("settings.runningDiagnostics") : root.t("settings.runDiagnostics")
                             enabled: api.connected && !api.diagnosticsBusy
                             onClicked: api.runDiagnostics()
                         }
 
                         Button {
-                            text: "Save report"
+                            text: root.t("settings.saveReport")
                             enabled: !api.diagnosticsBusy
                                 && api.diagnosticsReport
                                 && Object.keys(api.diagnosticsReport).length > 0
@@ -883,9 +891,11 @@ Item {
                         Text {
                             text: api.logDirectory.length > 0
                                 ? api.logDirectory
-                                : "Log directory unavailable"
+                                : root.t("settings.logUnavailable")
+                            LayoutMirroring.enabled: false
+                            horizontalAlignment: Text.AlignLeft
                             color: Theme.textMuted
-                            font.pixelSize: 9
+                            font.pixelSize: Theme.fontTiny
                             elide: Text.ElideMiddle
                         }
                     }
@@ -905,11 +915,11 @@ Item {
 
                             Repeater {
                                 model: [
-                                    { label: "Status", value: root.diagnosticSummary().status || "Not run" },
-                                    { label: "Network", value: root.diagnosticSummary().networkReachable ? "Reachable" : "Unknown / offline" },
-                                    { label: "Jobs", value: String(root.diagnosticSummary().jobsRunning || 0) },
-                                    { label: "Memory", value: String(root.diagnosticSummary().memoryUsageMb || 0) + " MB" },
-                                    { label: "Disk free", value: String(root.diagnosticSummary().diskFreeGb || 0) + " GB" }
+                                    { label: root.t("common.status"), value: root.diagnosticSummary().status || root.t("settings.notRun") },
+                                    { label: root.t("settings.network"), value: root.diagnosticSummary().networkReachable ? root.t("settings.reachable") : root.t("settings.offlineUnknown") },
+                                    { label: root.t("settings.jobs"), value: String(root.diagnosticSummary().jobsRunning || 0) },
+                                    { label: root.t("settings.memory"), value: String(root.diagnosticSummary().memoryUsageMb || 0) + " MB" },
+                                    { label: root.t("settings.diskFree"), value: String(root.diagnosticSummary().diskFreeGb || 0) + " GB" }
                                 ]
 
                                 delegate: ColumnLayout {
@@ -920,14 +930,14 @@ Item {
                                     Text {
                                         text: modelData.label
                                         color: Theme.textMuted
-                                        font.pixelSize: 8
+                                        font.pixelSize: Math.max(8, Theme.fontTiny - 1)
                                     }
 
                                     Text {
                                         Layout.fillWidth: true
                                         text: modelData.value
                                         color: Theme.textPrimary
-                                        font.pixelSize: 11
+                                        font.pixelSize: Math.round(11 * Theme.fontScale)
                                         font.weight: Font.DemiBold
                                         elide: Text.ElideRight
                                     }
@@ -940,9 +950,9 @@ Item {
                         Layout.fillWidth: true
 
                         Text {
-                            text: "Runtime logs"
+                            text: root.t("settings.runtimeLogs")
                             color: Theme.textPrimary
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontBody
                             font.weight: Font.DemiBold
                         }
 
@@ -954,7 +964,7 @@ Item {
                         }
 
                         Button {
-                            text: "Refresh"
+                            text: root.t("action.refresh")
                             onClicked: api.refreshLogs(logFilter.currentText, 300)
                         }
 
@@ -965,7 +975,7 @@ Item {
                         }
 
                         Button {
-                            text: "Set level"
+                            text: root.t("settings.setLevel")
                             enabled: api.connected
                             onClicked: api.setLogLevel(logLevel.currentText)
                         }
@@ -991,6 +1001,8 @@ Item {
                             delegate: Rectangle {
                                 required property var modelData
                                 width: logList.width
+                                Accessible.name: modelData.level + " " + (modelData.message || "")
+                                Accessible.description: (modelData.timestamp || "") + (modelData.target ? " · " + modelData.target : "")
                                 height: 46
                                 color: modelData.level === "ERROR"
                                     ? Qt.rgba(0.97, 0.32, 0.29, 0.08)
@@ -1012,7 +1024,7 @@ Item {
                                             : modelData.level === "WARN"
                                                 ? Theme.warning
                                                 : Theme.textMuted
-                                        font.pixelSize: 8
+                                        font.pixelSize: Math.max(8, Theme.fontTiny - 1)
                                         font.weight: Font.Bold
                                     }
 
@@ -1024,7 +1036,7 @@ Item {
                                             Layout.fillWidth: true
                                             text: modelData.message || ""
                                             color: Theme.textPrimary
-                                            font.pixelSize: 9
+                                            font.pixelSize: Theme.fontTiny
                                             elide: Text.ElideRight
                                         }
 
@@ -1033,7 +1045,7 @@ Item {
                                             text: (modelData.timestamp || "")
                                                 + (modelData.target ? " · " + modelData.target : "")
                                             color: Theme.textMuted
-                                            font.pixelSize: 8
+                                            font.pixelSize: Math.max(8, Theme.fontTiny - 1)
                                             elide: Text.ElideRight
                                         }
                                     }

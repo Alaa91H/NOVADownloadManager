@@ -19,34 +19,34 @@ Item {
     }
 
     function triggerSummary(trigger) {
-        if (!trigger) return "Unknown trigger"
+        if (!trigger) return root.t("scheduler.unknownTrigger")
         if (trigger.type === "TimeWindow")
             return root.twoDigit(trigger.start_hour) + ":"
                 + root.twoDigit(trigger.start_minute) + " → "
                 + root.twoDigit(trigger.end_hour) + ":"
                 + root.twoDigit(trigger.end_minute)
         if (trigger.type === "BandwidthBelow")
-            return "Bandwidth below " + trigger.threshold_kbps + " KB/s"
-        if (trigger.type === "QueueEmpty") return "Queue becomes empty"
-        if (trigger.type === "AllComplete") return "All downloads complete"
-        return trigger.type || "Unknown trigger"
+            return root.t("scheduler.bandwidthBelow") + " " + trigger.threshold_kbps + " KB/s"
+        if (trigger.type === "QueueEmpty") return root.t("scheduler.queueEmpty")
+        if (trigger.type === "AllComplete") return root.t("scheduler.allComplete")
+        return trigger.type || root.t("scheduler.unknownTrigger")
     }
 
     function actionSummary(action) {
-        if (!action) return "Unknown action"
+        if (!action) return root.t("scheduler.unknownAction")
         if (action.type === "StartDownload")
-            return "Start " + ((action.task_ids || []).length) + " task(s)"
+            return root.t("scheduler.startTasks") + " " + ((action.task_ids || []).length) + " " + root.t("scheduler.tasks")
         if (action.type === "PauseDownload")
-            return "Pause " + ((action.task_ids || []).length) + " task(s)"
+            return root.t("scheduler.pauseTasks") + " " + ((action.task_ids || []).length) + " " + root.t("scheduler.tasks")
         if (action.type === "SetBandwidthLimit")
-            return "Set bandwidth to " + action.kbps + " KB/s"
+            return root.t("scheduler.setBandwidth") + " " + action.kbps + " KB/s"
         if (action.type === "SetPriority")
-            return "Set priority to " + action.priority
+            return root.t("scheduler.setPriority") + " " + action.priority
         if (action.type === "Notify")
-            return "Notify: " + action.message
-        if (action.type === "Shutdown") return "Shutdown computer"
-        if (action.type === "Sleep") return "Sleep computer"
-        return action.type || "Unknown action"
+            return root.t("scheduler.notify") + ": " + action.message
+        if (action.type === "Shutdown") return root.t("scheduler.shutdown")
+        if (action.type === "Sleep") return root.t("scheduler.sleep")
+        return action.type || root.t("scheduler.unknownAction")
     }
 
     function parsedTaskIds() {
@@ -56,7 +56,7 @@ Item {
     function createRule() {
         const name = ruleName.text.trim()
         if (name.length === 0) {
-            formError.text = "Enter a rule name."
+            formError.text = root.t("scheduler.enterName")
             return
         }
 
@@ -64,14 +64,14 @@ Item {
         if (actionType.currentIndex === 0) {
             const ids = parsedTaskIds()
             if (ids.length === 0) {
-                formError.text = "Enter at least one task ID."
+                formError.text = root.t("scheduler.enterTask")
                 return
             }
             action = { type: "StartDownload", task_ids: ids }
         } else if (actionType.currentIndex === 1) {
             const ids = parsedTaskIds()
             if (ids.length === 0) {
-                formError.text = "Enter at least one task ID."
+                formError.text = root.t("scheduler.enterTask")
                 return
             }
             action = { type: "PauseDownload", task_ids: ids }
@@ -80,7 +80,7 @@ Item {
         } else {
             const message = notificationField.text.trim()
             if (message.length === 0) {
-                formError.text = "Enter a notification message."
+                formError.text = root.t("scheduler.enterMessage")
                 return
             }
             action = { type: "Notify", message: message }
@@ -167,14 +167,14 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: api.schedulerRules.length + " rule(s) configured · "
-                        + api.activeSchedulerRuleIds.length + " currently active"
+                    text: api.schedulerRules.length + " " + root.t("scheduler.rulesConfigured") + " · "
+                        + api.activeSchedulerRuleIds.length + " " + root.t("scheduler.currentlyActive")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fontSmall
                 }
 
                 Text {
-                    text: api.connected ? "Daemon scheduler online" : "Engine unavailable"
+                    text: api.connected ? root.t("scheduler.online") : root.t("scheduler.engineUnavailable")
                     color: api.connected ? Theme.success : Theme.warning
                     font.pixelSize: Theme.fontSmall
                     font.weight: Font.DemiBold
@@ -193,6 +193,8 @@ Item {
 
             delegate: Rectangle {
                 required property var modelData
+                Accessible.name: modelData.name || root.t("scheduler.unnamedRule")
+                Accessible.description: root.triggerSummary(modelData.trigger) + " · " + root.actionSummary(modelData.action)
                 width: ruleList.width
                 height: 92
                 radius: Theme.radiusMedium
@@ -215,7 +217,7 @@ Item {
 
                             Text {
                                 Layout.fillWidth: true
-                                text: modelData.name || "Unnamed rule"
+                                text: modelData.name || root.t("scheduler.unnamedRule")
                                 color: Theme.textPrimary
                                 font.pixelSize: Theme.fontBody
                                 font.weight: Font.DemiBold
@@ -223,7 +225,7 @@ Item {
                             }
 
                             Text {
-                                text: api.activeSchedulerRuleIds.indexOf(modelData.id) >= 0 ? "ACTIVE" : ""
+                                text: api.activeSchedulerRuleIds.indexOf(modelData.id) >= 0 ? root.t("scheduler.activeLabel") : ""
                                 color: Theme.accent
                                 font.pixelSize: Theme.fontTiny
                                 font.weight: Font.Bold
@@ -250,7 +252,7 @@ Item {
                     Switch {
                         checked: Boolean(modelData.enabled)
                         enabled: api.connected
-                        text: checked ? "Enabled" : "Disabled"
+                        text: checked ? root.t("scheduler.enabled") : root.t("scheduler.disabled")
                         onClicked: api.setSchedulerRuleEnabled(modelData.id, checked)
                     }
 
@@ -292,7 +294,7 @@ Item {
         focus: true
         closePolicy: Popup.CloseOnEscape
         width: Math.min(620, parent ? parent.width - 48 : 620)
-        title: "New scheduler rule"
+        title: root.t("scheduler.dialogTitle")
 
         background: Rectangle {
             color: Theme.surfaceRaised
@@ -307,11 +309,13 @@ Item {
             TextField {
                 id: ruleName
                 Layout.fillWidth: true
-                placeholderText: "Rule name"
+                placeholderText: root.t("scheduler.ruleName")
+                Accessible.name: root.t("scheduler.ruleName")
+                KeyNavigation.tab: startHour
             }
 
             Text {
-                text: "Time window"
+                text: root.t("scheduler.timeWindow")
                 color: Theme.textSecondary
                 font.pixelSize: Math.round(11 * Theme.fontScale)
                 font.weight: Font.DemiBold
@@ -320,33 +324,34 @@ Item {
             RowLayout {
                 Layout.fillWidth: true
 
-                Text { text: "Start"; color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
-                SpinBox { id: startHour; from: 0; to: 23; value: 1 }
+                Text { text: root.t("scheduler.start"); color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
+                SpinBox { id: startHour; from: 0; to: 23; value: 1; Accessible.name: root.t("scheduler.start") + " hour"; KeyNavigation.tab: startMinute }
                 Text { text: ":"; color: Theme.textMuted }
-                SpinBox { id: startMinute; from: 0; to: 59; value: 0 }
+                SpinBox { id: startMinute; from: 0; to: 59; value: 0; Accessible.name: root.t("scheduler.start") + " minute"; KeyNavigation.tab: endHour }
 
                 Item { Layout.fillWidth: true }
 
-                Text { text: "End"; color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
-                SpinBox { id: endHour; from: 0; to: 23; value: 7 }
+                Text { text: root.t("scheduler.end"); color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
+                SpinBox { id: endHour; from: 0; to: 23; value: 7; Accessible.name: root.t("scheduler.end") + " hour"; KeyNavigation.tab: endMinute }
                 Text { text: ":"; color: Theme.textMuted }
-                SpinBox { id: endMinute; from: 0; to: 59; value: 0 }
+                SpinBox { id: endMinute; from: 0; to: 59; value: 0; Accessible.name: root.t("scheduler.end") + " minute"; KeyNavigation.tab: actionType }
             }
 
             ComboBox {
                 id: actionType
                 Layout.fillWidth: true
-                model: ["Start downloads", "Pause downloads", "Set bandwidth limit", "Notification"]
+                Accessible.name: root.t("scheduler.unknownAction")
+                model: [root.t("scheduler.startDownloads"), root.t("scheduler.pauseDownloads"), root.t("scheduler.setBandwidthLimit"), root.t("scheduler.notification")]
             }
 
             TextField {
                 id: taskIdsField
                 Layout.fillWidth: true
                 visible: actionType.currentIndex === 0 || actionType.currentIndex === 1
-                placeholderText: "Task IDs separated by commas"
+                placeholderText: root.t("scheduler.taskIds")
                 LayoutMirroring.enabled: false
                 horizontalAlignment: Text.AlignLeft
-                Accessible.name: "Task IDs"
+                Accessible.name: root.t("scheduler.taskIds")
             }
 
             RowLayout {
@@ -354,7 +359,7 @@ Item {
                 visible: actionType.currentIndex === 2
 
                 Text {
-                    text: "Bandwidth limit"
+                    text: root.t("scheduler.bandwidthLimit")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fontSmall
                 }
@@ -368,7 +373,7 @@ Item {
                 }
 
                 Text {
-                    text: "KB/s (0 = unlimited)"
+                    text: root.t("scheduler.unlimited")
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontSmall
                 }
@@ -378,7 +383,7 @@ Item {
                 id: notificationField
                 Layout.fillWidth: true
                 visible: actionType.currentIndex === 3
-                placeholderText: "Notification message"
+                placeholderText: root.t("scheduler.notificationMessage")
             }
 
             Text {
@@ -401,7 +406,7 @@ Item {
                 Item { Layout.fillWidth: true }
 
                 Button {
-                    text: "Create rule"
+                    text: root.t("scheduler.createRule")
                     enabled: api.connected
                     onClicked: root.createRule()
                 }

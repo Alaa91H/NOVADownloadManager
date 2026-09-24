@@ -105,6 +105,7 @@ Dialog {
                 LayoutMirroring.enabled: false
                 horizontalAlignment: Text.AlignLeft
                 Accessible.name: root.t("add.url")
+                KeyNavigation.tab: nameField
             }
         }
 
@@ -125,6 +126,7 @@ Dialog {
                 placeholderText: root.t("add.optionalDetect")
                 selectByMouse: true
                 Accessible.name: root.t("add.fileName")
+                KeyNavigation.tab: pathField
             }
         }
 
@@ -151,10 +153,14 @@ Dialog {
                     LayoutMirroring.enabled: false
                     horizontalAlignment: Text.AlignLeft
                     Accessible.name: root.t("common.savePath")
+                    KeyNavigation.tab: browseButton
                 }
 
                 Button {
+                    id: browseButton
                     text: root.t("common.browse")
+                    Accessible.name: text
+                    KeyNavigation.tab: cancelButton
                     enabled: !root.submitting
                     onClicked: {
                         let suggested = pathField.text.trim()
@@ -195,7 +201,10 @@ Dialog {
             Layout.topMargin: 6
 
             Button {
+                id: cancelButton
                 text: root.t("common.cancel")
+                Accessible.name: text
+                KeyNavigation.tab: queueButton
                 flat: true
                 enabled: !root.submitting
                 onClicked: root.close()
@@ -204,13 +213,19 @@ Dialog {
             Item { Layout.fillWidth: true }
 
             Button {
+                id: queueButton
                 text: root.t("add.queue")
+                Accessible.name: text
+                KeyNavigation.tab: downloadNowButton
                 enabled: !root.submitting && urlField.text.trim().length > 0
                 onClicked: root.submit(false)
             }
 
             Button {
+                id: downloadNowButton
                 text: root.submitting ? root.t("add.adding") : root.t("add.downloadNow")
+                Accessible.name: text
+                KeyNavigation.tab: urlField
                 enabled: !root.submitting && urlField.text.trim().length > 0
 
                 background: Rectangle {
