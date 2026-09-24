@@ -12,7 +12,7 @@ pub mod static_files;
 pub mod telegram;
 pub mod types;
 pub mod utils;
-pub mod ytdlp;
+pub mod media_bridge;
 
 /// Stable Chromium extension origin derived from NOVA's pinned public key.
 /// Chrome and Edge enforce this origin as an extension-identity boundary.
@@ -372,7 +372,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     log::warn!("Failed to create data directory: {e}");
                 }
                 let restored = persist::load(&data_dir);
-                let ytdlp_binary = if cfg!(windows) {
+                let media_bridge_binary = if cfg!(windows) {
                     "yt-dlp.exe"
                 } else {
                     "yt-dlp"
@@ -382,7 +382,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 } else {
                     "ffmpeg"
                 };
-                let ytdlp_bin = resolve_engine_binary(&resource_dir, ytdlp_binary);
+                let media_bridge_bin = resolve_engine_binary(&resource_dir, media_bridge_binary);
                 let ffmpeg_bin = resolve_engine_binary(&resource_dir, ffmpeg_binary);
 
                 // Build extractor registry
@@ -390,8 +390,8 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 extractor_registry
                     .register(std::sync::Arc::new(crate::daemon::curl::CurlExtractor));
                 extractor_registry.register(std::sync::Arc::new(
-                    crate::daemon::ytdlp::YtDlpExtractor::new(
-                        ytdlp_bin.clone(),
+                    crate::daemon::media_bridge::MediaBridgeExtractor::new(
+                        media_bridge_bin.clone(),
                         ffmpeg_bin.clone(),
                     ),
                 ));
@@ -426,9 +426,9 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                         }),
                     resource_dir,
                     data_dir: data_dir.clone(),
-                    ytdlp_bin: std::sync::RwLock::new(ytdlp_bin.clone()),
+                    media_bridge_bin: std::sync::RwLock::new(media_bridge_bin.clone()),
                     ffmpeg_bin: std::sync::RwLock::new(ffmpeg_bin.clone()),
-                    bundled_ytdlp_bin: ytdlp_bin,
+                    bundled_media_bridge_bin: media_bridge_bin,
                     bundled_ffmpeg_bin: ffmpeg_bin,
                     engine_capabilities_cache: std::sync::RwLock::new(None),
                     engine_capabilities_probe: Mutex::new(()),
@@ -507,11 +507,11 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     let et = state.external_tools.clone();
                     tokio::task::spawn_blocking(move || {
                         let et = lock_or_err!(et);
-                        let yt_dlp =
-                            et.discover(crate::daemon::external_tools::types::ToolId::YtDlp);
+                        let media_bridge =
+                            et.discover(crate::daemon::external_tools::types::ToolId::MediaBridge);
                         let ffmpeg =
                             et.discover(crate::daemon::external_tools::types::ToolId::Ffmpeg);
-                        vec![yt_dlp, ffmpeg]
+                        vec![media_bridge, ffmpeg]
                     })
                     .await
                     .unwrap_or_else(|e| {
@@ -866,7 +866,7 @@ fn restore_persisted_tasks(
 
         let is_direct_download = task.engine == "curl"
             || task.engine == "libcurl-multi"
-            || (task.engine != "yt-dlp"
+            || (task.engine != "media-bridge"
                 && (task.url.starts_with("http://") || task.url.starts_with("https://")));
 
         // P0 crash/restart consistency: a persisted completed state must still
@@ -903,7 +903,7 @@ fn restore_persisted_tasks(
                     .to_owned(),
             );
             task.speed_bytes_per_sec = 0;
-        } else if task.engine == "yt-dlp" {
+        } else if task.engine == "media-bridge" {
             let args = restored
                 .media_args
                 .get(&task.id)
@@ -924,7 +924,7 @@ fn restore_persisted_tasks(
             }
         } else if task.engine == "curl"
             || task.engine == "libcurl-multi"
-            || (task.engine != "yt-dlp"
+            || (task.engine != "media-bridge"
                 && (task.url.starts_with("http://") || task.url.starts_with("https://")))
         {
             task.engine = "libcurl-multi".to_owned();

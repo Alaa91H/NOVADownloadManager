@@ -11,9 +11,9 @@ use crate::daemon::types::{
 use crate::daemon::utils::{hide_command_window, kill_process, now_str, push_arg};
 use crate::lock_or_err;
 
-// Only these yt-dlp flags are allowed in user-supplied extra_args.
+// Only these media-bridge flags are allowed in user-supplied extra_args.
 // Any unknown `--` or `-` flag is rejected.
-const ALLOWED_YTDLP_ARGS: &[&str] = &[
+const ALLOWED_MEDIA_BRIDGE_ARGS: &[&str] = &[
     "--limit-rate",
     "-r",
     "--retries",
@@ -148,7 +148,7 @@ fn is_safe_extra_arg(arg: &str) -> bool {
         return !arg.contains("..");
     }
     // For flags, only allow known-safe ones (whitelist approach)
-    if let Some(allowed) = ALLOWED_YTDLP_ARGS
+    if let Some(allowed) = ALLOWED_MEDIA_BRIDGE_ARGS
         .iter()
         .find(|allowed| arg == **allowed || arg.starts_with(&format!("{allowed}=")))
     {
@@ -166,7 +166,7 @@ fn is_safe_extra_arg(arg: &str) -> bool {
     false
 }
 
-pub fn start_ytdlp_process(state: &SharedState, id: &str) {
+pub fn start_media_bridge_process(state: &SharedState, id: &str) {
     let record = {
         let mut jobs = lock_or_err!(state.media_jobs);
         let Some(job) = jobs.get_mut(id) else {
@@ -174,7 +174,7 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
         };
         let Some(current) = TaskState::from_status(&job.task.status) else {
             log::error!(
-                "Task {id}: yt-dlp has unknown lifecycle state '{}'",
+                "Task {id}: media-bridge has unknown lifecycle state '{}'",
                 job.task.status
             );
             return;
@@ -183,12 +183,12 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
             if let Err(error) =
                 transition_task_state(&mut job.task, TaskState::Preparing, "starting")
             {
-                log::error!("Task {id}: cannot prepare yt-dlp worker: {error}");
+                log::error!("Task {id}: cannot prepare media-bridge worker: {error}");
                 return;
             }
         } else if current != TaskState::Preparing {
             log::debug!(
-                "Task {id}: yt-dlp start ignored from state '{}'",
+                "Task {id}: media-bridge start ignored from state '{}'",
                 current.as_status()
             );
             return;
@@ -200,9 +200,9 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
 
     {
         let job = record;
-        log::info!("Starting yt-dlp process for task {id}");
-        let ytdlp_bin = state.ytdlp_binary();
-        let mut cmd = Command::new(&ytdlp_bin);
+        log::info!("Starting media-bridge process for task {id}");
+        let media_bridge_bin = state.media_bridge_binary();
+        let mut cmd = Command::new(&media_bridge_bin);
         hide_command_window(&mut cmd);
         match cmd
             .args(&job.args)
@@ -223,17 +223,17 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                         let id2 = id2.clone();
                         move || {
                             let _task_ctx = crate::logging::push_context("task", &id2);
-                            let _phase_ctx = crate::logging::push_context("phase", "ytdlp-stdout");
+                            let _phase_ctx = crate::logging::push_context("phase", "media_bridge-stdout");
                             let reader = BufReader::new(r);
                             for line in reader.lines() {
                                 match line {
                                     Ok(line) if !line.is_empty() => {
-                                        update_ytdlp_progress(&state2, &id2, &line);
+                                        update_media_bridge_progress(&state2, &id2, &line);
                                     }
                                     Ok(_) => {}
                                     Err(error) => {
                                         log::warn!(
-                                            "yt-dlp stdout reader failed for task {id2}: {error}"
+                                            "media-bridge stdout reader failed for task {id2}: {error}"
                                         );
                                         break;
                                     }
@@ -247,17 +247,17 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                         let id2 = id2.clone();
                         move || {
                             let _task_ctx = crate::logging::push_context("task", &id2);
-                            let _phase_ctx = crate::logging::push_context("phase", "ytdlp-stderr");
+                            let _phase_ctx = crate::logging::push_context("phase", "media_bridge-stderr");
                             let reader = BufReader::new(r);
                             for line in reader.lines() {
                                 match line {
                                     Ok(line) if !line.is_empty() => {
-                                        log::debug!("yt-dlp [{id2}]: {line}");
+                                        log::debug!("media-bridge [{id2}]: {line}");
                                     }
                                     Ok(_) => {}
                                     Err(error) => {
                                         log::warn!(
-                                            "yt-dlp stderr reader failed for task {id2}: {error}"
+                                            "media-bridge stderr reader failed for task {id2}: {error}"
                                         );
                                         break;
                                     }
@@ -269,7 +269,7 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
 
                 std::thread::spawn(move || {
                     let _task_ctx = crate::logging::push_context("task", &id2);
-                    let _phase_ctx = crate::logging::push_context("phase", "ytdlp");
+                    let _phase_ctx = crate::logging::push_context("phase", "media_bridge");
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         // The readers drain both pipes concurrently while the
                         // child runs. Wait for process termination first; after
@@ -278,18 +278,18 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                         let status = match child.wait() {
                             Ok(status) => Some(status),
                             Err(error) => {
-                                log::error!("Could not wait for yt-dlp task {id2}: {error}");
+                                log::error!("Could not wait for media-bridge task {id2}: {error}");
                                 None
                             }
                         };
                         if let Some(h) = stdout_handle {
                             if h.join().is_err() {
-                                log::error!("yt-dlp stdout reader panicked for task {id2}");
+                                log::error!("media-bridge stdout reader panicked for task {id2}");
                             }
                         }
                         if let Some(h) = stderr_handle {
                             if h.join().is_err() {
-                                log::error!("yt-dlp stderr reader panicked for task {id2}");
+                                log::error!("media-bridge stderr reader panicked for task {id2}");
                             }
                         }
                         let mut notif = String::new();
@@ -327,7 +327,7 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                                     });
                                     if let Err(error) = lifecycle {
                                         log::error!(
-                                            "Task {id2}: yt-dlp completion transition rejected: {error}"
+                                            "Task {id2}: media-bridge completion transition rejected: {error}"
                                         );
                                         let _ = transition_task_state(
                                             &mut current.task,
@@ -351,7 +351,7 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                                     }
                                 } else if status.is_some_and(|s| s.success()) {
                                     log::error!(
-                                        "yt-dlp exited 0 but produced no output file for task {} (save_path: {})",
+                                        "media-bridge exited 0 but produced no output file for task {} (save_path: {})",
                                         id2, current.task.save_path
                                     );
                                     if let Err(error) = transition_task_state(
@@ -423,11 +423,11 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                     }));
                     if let Err(panic_info) = result {
                         let msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
-                            format!("yt-dlp worker panicked: {s}")
+                            format!("media-bridge worker panicked: {s}")
                         } else if let Some(s) = panic_info.downcast_ref::<String>() {
-                            format!("yt-dlp worker panicked: {s}")
+                            format!("media-bridge worker panicked: {s}")
                         } else {
-                            "yt-dlp worker panicked with unknown payload".to_owned()
+                            "media-bridge worker panicked with unknown payload".to_owned()
                         };
                         log::error!("{msg} (task: {id2})");
                         let panic_task = {
@@ -465,7 +465,7 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                         if let Err(error) =
                             transition_task_state(&mut j.task, TaskState::Downloading, "running")
                         {
-                            log::error!("Task {id}: yt-dlp running transition rejected: {error}");
+                            log::error!("Task {id}: media-bridge running transition rejected: {error}");
                             kill_process(child_pid);
                             j.child = None;
                         }
@@ -480,7 +480,7 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                 }
             }
             Err(e) => {
-                log::error!("Failed to start yt-dlp: {e}");
+                log::error!("Failed to start media-bridge: {e}");
                 let failed_task = {
                     let mut jobs = lock_or_err!(state.media_jobs);
                     if let Some(j) = jobs.get_mut(id) {
@@ -488,7 +488,7 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                             transition_task_state(&mut j.task, TaskState::Failed, "spawn-failed")
                         {
                             log::error!(
-                                "Task {id}: yt-dlp spawn failure transition rejected: {error}"
+                                "Task {id}: media-bridge spawn failure transition rejected: {error}"
                             );
                         }
                         j.task.error_message = Some(format!("Failed to start: {e}"));
@@ -525,7 +525,7 @@ fn parse_progress_u64(value: &str) -> Option<u64> {
     })
 }
 
-/// Verify that a finished yt-dlp task actually produced a non-empty file.
+/// Verify that a finished media-bridge task actually produced a non-empty file.
 /// Checks the recorded `save_path` first, then sibling files sharing the same
 /// stem (format merges change the extension, e.g. `.mkv`; audio extraction
 /// produces `.mp3`/`.opus`, and thumbnails/subtitles are skipped because
@@ -587,11 +587,11 @@ fn update_structured_progress(record: &mut MediaJob, payload: &str) {
     }
 }
 
-pub fn update_ytdlp_progress(state: &SharedState, id: &str, text: &str) {
+pub fn update_media_bridge_progress(state: &SharedState, id: &str, text: &str) {
     let mut jobs = match state.media_jobs.lock() {
         Ok(guard) => guard,
         Err(poisoned) => {
-            log::error!("Mutex poisoned in update_ytdlp_progress: {poisoned}");
+            log::error!("Mutex poisoned in update_media_bridge_progress: {poisoned}");
             return;
         }
     };
@@ -607,7 +607,7 @@ pub fn update_ytdlp_progress(state: &SharedState, id: &str, text: &str) {
             // media title, so the display name is sanitized to a bare safe
             // name (control chars, Windows reserved devices, length bound —
             // mirrors the curl engine path). `save_path` itself is kept
-            // verbatim: it is the real on-disk path yt-dlp reported, which
+            // verbatim: it is the real on-disk path media-bridge reported, which
             // `media_output_produced` validates against for completion.
             if let Some(name) = std::path::Path::new(dest.trim())
                 .file_name()
@@ -778,7 +778,7 @@ fn push_cookie_args(args: &mut Vec<String>, cookies: &str) {
     }
 }
 
-pub fn build_ytdlp_args_with_engines(
+pub fn build_media_bridge_args_with_engines(
     body: &CreateDownloadBody,
     ffmpeg_bin: Option<&str>,
 ) -> Result<Vec<String>, String> {
@@ -793,7 +793,7 @@ pub fn build_ytdlp_args_with_engines(
     let media = body
         .media_options
         .as_ref()
-        .ok_or_else(|| "Missing media_options for yt-dlp task".to_owned())?;
+        .ok_or_else(|| "Missing media_options for media-bridge task".to_owned())?;
     let output_template = media
         .output_template
         .clone()
@@ -810,9 +810,9 @@ pub fn build_ytdlp_args_with_engines(
     ];
 
     if let Some(sp) = &body.save_path {
-        // Neutralize traversal in the yt-dlp output directory (mirrors the
+        // Neutralize traversal in the media-bridge output directory (mirrors the
         // curl engine path) so a server-controlled title or save path cannot
-        // make yt-dlp write outside the chosen folder.
+        // make media-bridge write outside the chosen folder.
         let safe_sp = crate::daemon::utils::sanitize_output_path(std::path::Path::new(sp));
         if let Some(parent) = safe_sp.parent() {
             let dir = parent.to_string_lossy().to_string();
@@ -984,7 +984,7 @@ pub fn build_ytdlp_args_with_engines(
         if external_downloader != "auto" && external_downloader != "native" {
             let value = match external_downloader {
                 "curl" => {
-                    return Err("The curl external downloader binary is no longer bundled. Use 'native' for yt-dlp's built-in HTTP client, or 'ffmpeg' for media processing.".to_owned());
+                    return Err("The curl external downloader binary is no longer bundled. Use 'native' for media-bridge's built-in HTTP client, or 'ffmpeg' for media processing.".to_owned());
                 }
                 "ffmpeg" | "httpie" | "wget" | "axel" => external_downloader.to_owned(),
                 other => {
@@ -1108,7 +1108,7 @@ pub fn build_ytdlp_args_with_engines(
         }
         if !rejected.is_empty() {
             return Err(format!(
-                "Rejected {} unsafe yt-dlp argument(s): {}. Only whitelisted flags are allowed.",
+                "Rejected {} unsafe media-bridge argument(s): {}. Only whitelisted flags are allowed.",
                 rejected.len(),
                 rejected.join(", ")
             ));
@@ -1120,7 +1120,7 @@ pub fn build_ytdlp_args_with_engines(
     Ok(args)
 }
 
-pub async fn create_ytdlp_task(
+pub async fn create_media_bridge_task(
     state: &SharedState,
     body: &CreateDownloadBody,
 ) -> Result<Task, String> {
@@ -1146,7 +1146,7 @@ pub async fn create_ytdlp_task(
 
     if let Some(sp) = &body.save_path {
         // Neutralize any `..`/`.` traversal components in the user-supplied
-        // save path so a server-controlled title cannot push yt-dlp's output
+        // save path so a server-controlled title cannot push media-bridge's output
         // outside the chosen directory (mirrors sanitize_output_path in the
         // curl engine). The directory is preserved verbatim.
         let safe_sp = crate::daemon::utils::sanitize_output_path(std::path::Path::new(sp));
@@ -1158,12 +1158,12 @@ pub async fn create_ytdlp_task(
         }
     }
 
-    let ytdlp_bin = state.ytdlp_binary();
+    let media_bridge_bin = state.media_bridge_binary();
     let ffmpeg_bin = state.ffmpeg_binary();
     if let Some(media_options) = body.media_options.as_ref() {
-        engine_capabilities::validate_ytdlp_media_options(&ytdlp_bin, &ffmpeg_bin, media_options)?;
+        engine_capabilities::validate_media_bridge_media_options(&media_bridge_bin, &ffmpeg_bin, media_options)?;
     }
-    let args = build_ytdlp_args_with_engines(body, Some(&ffmpeg_bin))?;
+    let args = build_media_bridge_args_with_engines(body, Some(&ffmpeg_bin))?;
     let should_start = body.start_immediately.unwrap_or(true);
 
     let task = Task {
@@ -1200,7 +1200,7 @@ pub async fn create_ytdlp_task(
             end_byte: 0,
         }],
         referer: None,
-        engine: "yt-dlp".to_owned(),
+        engine: "media-bridge".to_owned(),
         engine_id: id.clone(),
         engine_status: Some(if should_start { "starting" } else { "queued" }.to_owned()),
         error_message: None,
@@ -1219,7 +1219,7 @@ pub async fn create_ytdlp_task(
     state.mark_dirty();
 
     if should_start {
-        start_ytdlp_process(state, &id);
+        start_media_bridge_process(state, &id);
     }
 
     Ok(task)
@@ -1229,23 +1229,23 @@ pub async fn create_ytdlp_task(
 
 use crate::daemon::engine::extractor::{EngineStatus, Extractor, ValidateError};
 
-pub struct YtDlpExtractor {
-    pub ytdlp_bin: String,
+pub struct MediaBridgeExtractor {
+    pub media_bridge_bin: String,
     pub ffmpeg_bin: String,
 }
 
-impl YtDlpExtractor {
-    pub const fn new(ytdlp_bin: String, ffmpeg_bin: String) -> Self {
+impl MediaBridgeExtractor {
+    pub const fn new(media_bridge_bin: String, ffmpeg_bin: String) -> Self {
         Self {
-            ytdlp_bin,
+            media_bridge_bin,
             ffmpeg_bin,
         }
     }
 }
 
-impl Extractor for YtDlpExtractor {
+impl Extractor for MediaBridgeExtractor {
     fn id(&self) -> &'static str {
-        "yt-dlp"
+        "media-bridge"
     }
 
     fn can_handle(&self, _url: &str, has_media_options: bool) -> bool {
@@ -1262,12 +1262,12 @@ impl Extractor for YtDlpExtractor {
         }
         if body.media_options.is_none() {
             return Err(ValidateError(
-                "Missing media_options for yt-dlp task".into(),
+                "Missing media_options for media-bridge task".into(),
             ));
         }
         if let Some(media) = body.media_options.as_ref() {
-            crate::daemon::engine_capabilities::validate_ytdlp_media_options(
-                &self.ytdlp_bin,
+            crate::daemon::engine_capabilities::validate_media_bridge_media_options(
+                &self.media_bridge_bin,
                 &self.ffmpeg_bin,
                 media,
             )
@@ -1277,7 +1277,7 @@ impl Extractor for YtDlpExtractor {
     }
 
     fn engine_status(&self, _state: &SharedState) -> EngineStatus {
-        let mut cmd = std::process::Command::new(&self.ytdlp_bin);
+        let mut cmd = std::process::Command::new(&self.media_bridge_bin);
         crate::daemon::utils::hide_command_window(&mut cmd);
         let output = cmd.arg("--version").output();
         let (available, version) = match output {
@@ -1288,8 +1288,8 @@ impl Extractor for YtDlpExtractor {
             _ => (false, None),
         };
         EngineStatus {
-            id: "yt-dlp".to_owned(),
-            name: "yt-dlp".to_owned(),
+            id: "media-bridge".to_owned(),
+            name: "media-bridge".to_owned(),
             available,
             version,
             features: vec!["media-extraction".to_owned(), "format-selection".to_owned()],
@@ -1327,7 +1327,7 @@ mod tests {
     }
 
     #[test]
-    fn build_ytdlp_args_applies_advanced_media_options() {
+    fn build_media_bridge_args_applies_advanced_media_options() {
         let media_options = MediaDownloadOptions {
             mode: Some("video".to_string()),
             quality: Some("1080p".to_string()),
@@ -1370,7 +1370,7 @@ mod tests {
             ..Default::default()
         };
 
-        let args = build_ytdlp_args_with_engines(&media_body(media_options), None).unwrap();
+        let args = build_media_bridge_args_with_engines(&media_body(media_options), None).unwrap();
 
         assert!(has_pair(
             &args,
@@ -1408,25 +1408,25 @@ mod tests {
     }
 
     #[test]
-    fn ytdlp_rejects_internal_proxy() {
+    fn media_bridge_rejects_internal_proxy() {
         let options = MediaDownloadOptions {
             proxy: Some("http://127.0.0.1:8080".to_owned()),
             ..Default::default()
         };
 
-        let error = build_ytdlp_args_with_engines(&media_body(options), None)
+        let error = build_media_bridge_args_with_engines(&media_body(options), None)
             .expect_err("internal proxy must be rejected");
         assert!(error.contains("internal address"));
     }
 
     #[test]
-    fn ytdlp_output_dir_neutralizes_path_traversal() {
+    fn media_bridge_output_dir_neutralizes_path_traversal() {
         // A server-controlled save path (or title-derived name) with `..`
-        // must never become yt-dlp's output directory (CWE-22, mirror of the
+        // must never become media-bridge's output directory (CWE-22, mirror of the
         // curl engine fix).
         let mut body = media_body(MediaDownloadOptions::default());
         body.save_path = Some("C:/Downloads/..%2F..%2F..%2Fevil.mp4".to_owned());
-        let args = build_ytdlp_args_with_engines(&body, None).unwrap();
+        let args = build_media_bridge_args_with_engines(&body, None).unwrap();
         // Compare as Path objects (Windows prints backslash separators).
         let p_val = args
             .windows(2)
@@ -1442,7 +1442,7 @@ mod tests {
         // as a legitimate directory name, but nothing may escape upward).
         let mut body2 = media_body(MediaDownloadOptions::default());
         body2.save_path = Some("../../../../tmp/evil.mp4".to_owned());
-        let args2 = build_ytdlp_args_with_engines(&body2, None).unwrap();
+        let args2 = build_media_bridge_args_with_engines(&body2, None).unwrap();
         let p_val = args2
             .windows(2)
             .find(|pair| pair[0] == "-P")
@@ -1452,7 +1452,7 @@ mod tests {
         if let Some(dir) = p_val {
             assert!(
                 !dir.contains(".."),
-                "traversal survived in yt-dlp output dir: {dir}"
+                "traversal survived in media-bridge output dir: {dir}"
             );
             // Relative traversal targets must not survive as path escapes;
             // a leftover `tmp` component is fine only if it does not begin
@@ -1465,13 +1465,13 @@ mod tests {
     }
 
     #[test]
-    fn ytdlp_destination_name_is_sanitized() {
-        // The `Destination:` line yt-dlp prints derives from the
+    fn media_bridge_destination_name_is_sanitized() {
+        // The `Destination:` line media-bridge prints derives from the
         // server-controlled media title; the recorded task name must be a
         // bare safe name (control chars, Windows reserved devices, `..`).
         // `save_path` itself stays verbatim because it is the real on-disk
         // path that `media_output_produced` validates against.
-        let dir = std::env::temp_dir().join(format!("nova-ytdlp-name-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nova-media_bridge-name-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let dir_str = dir.display().to_string();
         let state = std::sync::Arc::new(crate::daemon::persist::tests::test_state(&dir_str));
@@ -1499,7 +1499,7 @@ mod tests {
                     description: String::new(),
                     segments: Vec::new(),
                     referer: None,
-                    engine: "yt-dlp".to_owned(),
+                    engine: "media-bridge".to_owned(),
                     engine_id: id.clone(),
                     engine_status: None,
                     error_message: None,
@@ -1509,7 +1509,7 @@ mod tests {
                 start_time: std::time::Instant::now(),
             },
         );
-        update_ytdlp_progress(
+        update_media_bridge_progress(
             &state,
             &id,
             "Destination: C:/Downloads/..%2F..%2F..%2FCON.mp4",
@@ -1546,7 +1546,7 @@ mod tests {
                 description: String::new(),
                 segments: Vec::new(),
                 referer: None,
-                engine: "yt-dlp".to_owned(),
+                engine: "media-bridge".to_owned(),
                 engine_id: "media-progress".to_owned(),
                 engine_status: None,
                 error_message: None,
@@ -1569,7 +1569,7 @@ mod tests {
     }
 
     #[test]
-    fn ytdlp_task_name_is_sanitized() {
+    fn media_bridge_task_name_is_sanitized() {
         // The media title is server-controlled; a crafted title with path
         // separators must be reduced to a bare file name.
         let mut body = media_body(MediaDownloadOptions::default());

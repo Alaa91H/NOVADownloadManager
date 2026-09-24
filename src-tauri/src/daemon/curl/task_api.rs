@@ -180,7 +180,7 @@ pub async fn pause_task(state: &SharedState, id: &str) -> Result<Task, String> {
             drop(jobs);
             lock_or_err!(state.task_snapshot).insert(id.to_owned(), task.clone());
             state.mark_dirty();
-            log::info!("Task {id} paused (yt-dlp)");
+            log::info!("Task {id} paused (media-bridge)");
             return Ok(task);
         }
     }
@@ -245,8 +245,8 @@ pub async fn resume_task(state: &SharedState, id: &str) -> Result<Task, String> 
             drop(jobs);
             lock_or_err!(state.task_snapshot).insert(id.to_owned(), queued);
             state.mark_dirty();
-            crate::daemon::ytdlp::start_ytdlp_process(state, id);
-            log::info!("Task {id} resuming (yt-dlp)");
+            crate::daemon::media_bridge::start_media_bridge_process(state, id);
+            log::info!("Task {id} resuming (media-bridge)");
             let jobs = lock_or_err!(state.media_jobs);
             return jobs
                 .get(id)
@@ -435,7 +435,7 @@ pub async fn update_task_metadata(
         return Err("Nothing to update".to_owned());
     }
 
-    // Media (yt-dlp) tasks.
+    // Media (media-bridge) tasks.
     {
         let mut jobs = lock_or_err!(state.media_jobs);
         if let Some(job) = jobs.get_mut(id) {
@@ -543,7 +543,7 @@ pub async fn redownload_task(state: &SharedState, id: &str) -> Result<Task, Stri
             }
             lock_or_err!(state.task_snapshot).insert(id.to_owned(), task.clone());
             state.mark_dirty();
-            crate::daemon::ytdlp::start_ytdlp_process(state, id);
+            crate::daemon::media_bridge::start_media_bridge_process(state, id);
             return Ok(task);
         }
     }
@@ -640,7 +640,7 @@ pub async fn delete_task(state: &SharedState, id: &str, delete_files: bool) -> R
             }
             lock_or_err!(state.task_snapshot).remove(id);
             state.mark_dirty();
-            log::info!("Task {id} deleted (yt-dlp, delete_files={delete_files})");
+            log::info!("Task {id} deleted (media-bridge, delete_files={delete_files})");
             return Ok(());
         }
     }

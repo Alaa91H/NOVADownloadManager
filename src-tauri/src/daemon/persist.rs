@@ -11,7 +11,7 @@ use crate::lock_or_err;
 
 /// On-disk snapshot of everything needed to rebuild the download list after
 /// a restart: the last known task state plus the argument vectors needed to
-/// resume interrupted curl and yt-dlp jobs.
+/// resume interrupted curl and media-bridge jobs.
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 pub struct PersistedState {
     pub version: u32,
@@ -456,9 +456,9 @@ pub(crate) mod tests {
             http_client: reqwest::Client::new(),
             resource_dir: String::new(),
             data_dir: data_dir.to_string(),
-            ytdlp_bin: RwLock::new(String::new()),
+            media_bridge_bin: RwLock::new(String::new()),
             ffmpeg_bin: RwLock::new(String::new()),
-            bundled_ytdlp_bin: String::new(),
+            bundled_media_bridge_bin: String::new(),
             bundled_ffmpeg_bin: String::new(),
             telegram_last_update_id: Mutex::new(0),
             engine_capabilities_cache: RwLock::new(None),
@@ -529,7 +529,7 @@ pub(crate) mod tests {
             .task_snapshot
             .lock()
             .unwrap()
-            .insert("m1".to_string(), sample_task("m1", "yt-dlp", "downloading"));
+            .insert("m1".to_string(), sample_task("m1", "media-bridge", "downloading"));
         state
             .task_snapshot
             .lock()
@@ -538,7 +538,7 @@ pub(crate) mod tests {
         state.media_jobs.lock().unwrap().insert(
             "m1".to_string(),
             MediaJob {
-                task: sample_task("m1", "yt-dlp", "downloading"),
+                task: sample_task("m1", "media-bridge", "downloading"),
                 child: None,
                 args: vec![
                     "-f".to_string(),

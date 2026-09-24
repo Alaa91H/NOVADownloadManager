@@ -83,16 +83,16 @@ pub struct AppState {
     /// Active media-engine paths. These may be replaced after NOVA verifies a
     /// managed installation, so every new media operation observes the current
     /// binary without requiring a daemon restart.
-    pub ytdlp_bin: RwLock<String>,
+    pub media_bridge_bin: RwLock<String>,
     pub ffmpeg_bin: RwLock<String>,
     /// Bundled/fallback paths resolved at daemon startup. These are restored
     /// if a NOVA-managed binary is removed or fails a later health check.
-    pub bundled_ytdlp_bin: String,
+    pub bundled_media_bridge_bin: String,
     pub bundled_ffmpeg_bin: String,
     pub telegram_last_update_id: Mutex<i64>,
     pub engine_capabilities_cache: RwLock<Option<(Arc<serde_json::Value>, Instant)>>,
     /// Serializes the subprocess probe in `engine_capabilities()` so concurrent
-    /// requests cannot each spawn redundant yt-dlp/ffmpeg probes.
+    /// requests cannot each spawn redundant media-bridge/ffmpeg probes.
     pub engine_capabilities_probe: Mutex<()>,
     pub task_generation: AtomicU64,
     pub task_list_cache: RwLock<Option<(u64, Arc<Vec<Task>>)>>,
@@ -107,7 +107,7 @@ pub struct AppState {
     pub plugin_api: PluginApi,
     pub engine_trackers: RwLock<HashMap<String, TaskEngineTracker>>,
     pub mirror_managers: Mutex<HashMap<String, MirrorManager>>,
-    /// Registry of download extractors (curl, yt-dlp, etc.)
+    /// Registry of download extractors (curl, media-bridge, etc.)
     pub extractor_registry: SharedExtractorRegistry,
     /// Bearer token for API authentication. Generated at daemon start.
     pub api_token: String,
@@ -115,7 +115,7 @@ pub struct AppState {
     pub download_stats: Mutex<DownloadStats>,
     /// Resource Intelligence Engine — analyzes URLs and selects download strategies.
     pub rie: ResourceIntelligenceEngine,
-    /// External Tool Manager — manages `FFmpeg`, yt-dlp, and other external tools.
+    /// External Tool Manager — manages `FFmpeg`, media-bridge, and other external tools.
     pub external_tools: Arc<Mutex<ExternalToolManager>>,
     /// Policy Engine — central decision layer for all runtime decisions.
     pub policy_engine: Arc<Mutex<PolicyEngine>>,
@@ -137,8 +137,8 @@ impl AppState {
         self.task_generation.fetch_add(1, Ordering::Release);
     }
 
-    pub fn ytdlp_binary(&self) -> String {
-        self.ytdlp_bin
+    pub fn media_bridge_binary(&self) -> String {
+        self.media_bridge_bin
             .read()
             .map(|path| path.clone())
             .unwrap_or_else(|poison| poison.into_inner().clone())
@@ -156,23 +156,23 @@ impl AppState {
     /// analyses and downloads use the replacement immediately.
     pub fn activate_external_tool(&self, tool_id: ToolId, path: String) -> Result<(), String> {
         match tool_id {
-            ToolId::YtDlp => {
-                let mut ytdlp = self
-                    .ytdlp_bin
+            ToolId::MediaBridge => {
+                let mut media_bridge = self
+                    .media_bridge_bin
                     .write()
-                    .map_err(|e| format!("yt-dlp path lock poisoned: {e}"))?;
-                *ytdlp = path;
-                drop(ytdlp);
-                let replacement = std::sync::Arc::new(crate::daemon::ytdlp::YtDlpExtractor::new(
-                    self.ytdlp_binary(),
+                    .map_err(|e| format!("media-bridge path lock poisoned: {e}"))?;
+                *media_bridge = path;
+                drop(media_bridge);
+                let replacement = std::sync::Arc::new(crate::daemon::media_bridge::MediaBridgeExtractor::new(
+                    self.media_bridge_binary(),
                     self.ffmpeg_binary(),
                 ));
                 if !self
                     .extractor_registry
-                    .replace("yt-dlp", replacement)
+                    .replace("media-bridge", replacement)
                     .map_err(|e| e.to_string())?
                 {
-                    return Err("yt-dlp extractor was not registered".to_owned());
+                    return Err("media-bridge extractor was not registered".to_owned());
                 }
             }
             ToolId::Ffmpeg => {
@@ -191,23 +191,23 @@ impl AppState {
 
     pub fn deactivate_external_tool(&self, tool_id: ToolId) -> Result<(), String> {
         match tool_id {
-            ToolId::YtDlp => {
-                let mut ytdlp = self
-                    .ytdlp_bin
+            ToolId::MediaBridge => {
+                let mut media_bridge = self
+                    .media_bridge_bin
                     .write()
-                    .map_err(|e| format!("yt-dlp path lock poisoned: {e}"))?;
-                *ytdlp = self.bundled_ytdlp_bin.clone();
-                drop(ytdlp);
-                let replacement = std::sync::Arc::new(crate::daemon::ytdlp::YtDlpExtractor::new(
-                    self.ytdlp_binary(),
+                    .map_err(|e| format!("media-bridge path lock poisoned: {e}"))?;
+                *media_bridge = self.bundled_media_bridge_bin.clone();
+                drop(media_bridge);
+                let replacement = std::sync::Arc::new(crate::daemon::media_bridge::MediaBridgeExtractor::new(
+                    self.media_bridge_binary(),
                     self.ffmpeg_binary(),
                 ));
                 if !self
                     .extractor_registry
-                    .replace("yt-dlp", replacement)
+                    .replace("media-bridge", replacement)
                     .map_err(|e| e.to_string())?
                 {
-                    return Err("yt-dlp extractor was not registered".to_owned());
+                    return Err("media-bridge extractor was not registered".to_owned());
                 }
             }
             ToolId::Ffmpeg => {
@@ -253,7 +253,7 @@ impl AppState {
             }
         }
         let result = crate::daemon::engine_capabilities::all_engine_status(
-            &self.ytdlp_binary(),
+            &self.media_bridge_binary(),
             &self.ffmpeg_binary(),
         );
         let arc_result = Arc::new(result);

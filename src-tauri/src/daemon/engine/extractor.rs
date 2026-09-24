@@ -55,7 +55,7 @@ impl ExtractorRegistry {
 
     /// Replaces an extractor in place, preserving the registry order used for
     /// selection. Managed external-tool installation uses this to activate a
-    /// newly verified yt-dlp binary without a daemon restart.
+    /// newly verified media-bridge binary without a daemon restart.
     pub fn replace(&mut self, id: &str, replacement: Arc<dyn Extractor>) -> bool {
         if let Some(existing) = self
             .extractors
@@ -155,7 +155,7 @@ mod tests {
             media: false,
         }));
         reg.register(Arc::new(MockExtractor {
-            id: "yt-dlp".into(),
+            id: "media-bridge".into(),
             media: true,
         }));
 
@@ -174,7 +174,7 @@ mod tests {
             reg.select("https://youtube.com/watch?v=123", true)
                 .unwrap()
                 .id(),
-            "yt-dlp"
+            "media-bridge"
         );
     }
 

@@ -21,7 +21,7 @@ use crate::daemon::engine::rules::RuleAction;
 use crate::daemon::state::SharedState;
 use crate::daemon::telegram::telegram_notify;
 use crate::daemon::types::{transition_task_state, CreateDownloadBody, Task, TaskState};
-use crate::daemon::ytdlp::create_ytdlp_task;
+use crate::daemon::media_bridge::create_media_bridge_task;
 use crate::lock_or_err;
 
 use super::common::{daemon_error, fallback_file_name};
@@ -389,7 +389,7 @@ pub async fn handle_create_download(
             )
         })?;
         match extractor.id() {
-            "yt-dlp" => create_ytdlp_task(&state, &body).await,
+            "media-bridge" => create_media_bridge_task(&state, &body).await,
             _ => direct_create(&state, &body).await,
         }
     };
@@ -1141,7 +1141,7 @@ mod tests {
         enriched.queue_id = "fast".to_owned();
         enriched.description = "resolved download metadata".to_owned();
         enriched.referer = Some("https://example.test/page".to_owned());
-        enriched.engine = "yt-dlp".to_owned();
+        enriched.engine = "media-bridge".to_owned();
         enriched.engine_id = "resolved-engine-id".to_owned();
         enriched.size_bytes = 100;
         enriched.resumable = true;
