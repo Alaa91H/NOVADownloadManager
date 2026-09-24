@@ -1411,6 +1411,8 @@ pub fn native_media_status() -> Value {
             "directMediaExecution": core.generic_direct_extraction,
             "formatSelection": true,
             "requestContext": true,
+            "requestContextOriginScoped": true,
+            "derivedUrlAuthScoping": ["streams", "hls-segments", "hls-keys", "dash-units", "subtitles", "thumbnails", "youtube-control"],
             "explicitCookies": true,
             "hlsParsing": core.hls_parsing,
             "hlsStaging": core.hls_staging,
@@ -2068,6 +2070,7 @@ mod tests {
         );
         assert_eq!(status["capabilities"]["separateTrackTaskExecution"], true);
         assert_eq!(status["capabilities"]["formatSorting"], true);
+        assert_eq!(status["capabilities"]["requestContextOriginScoped"], true);
         assert_eq!(status["capabilities"]["playlistProbe"], true);
         assert_eq!(status["capabilities"]["playlistPagination"], true);
         assert_eq!(status["capabilities"]["playlists"], true);
