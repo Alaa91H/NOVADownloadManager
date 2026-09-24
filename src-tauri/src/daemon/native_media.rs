@@ -23,6 +23,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::daemon::browser_cookies::{
+    load_browser_cookie_header, validate_browser_cookie_source,
+};
 use crate::daemon::engine::extractor::{EngineStatus, Extractor, ValidateError};
 use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
 use crate::daemon::postprocess::{
@@ -55,6 +58,7 @@ pub const NATIVE_MEDIA_OPTION_KEYS: &[&str] = &[
     "ffmpegEnabled",
     "outputTemplate",
     "cookies",
+    "cookiesFromBrowser",
     "userAgent",
     "referer",
     "headers",
@@ -118,6 +122,7 @@ impl Extractor for NativeMediaExtractor {
                 "postprocess-mux".to_owned(),
                 "request-context".to_owned(),
                 "cookie-file-auth".to_owned(),
+                "browser-cookie-import-firefox".to_owned(),
             ],
         }
     }
@@ -2232,6 +2237,15 @@ fn validate_native_options(options: &MediaDownloadOptions) -> Result<(), String>
         }
     }
 
+    if let Some(source) = options
+        .cookies_from_browser
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        validate_browser_cookie_source(source)?;
+    }
+
     let serialized = serde_json::to_value(options)
         .map_err(|error| format!("Could not inspect media options: {error}"))?;
     let object = serialized
@@ -2894,15 +2908,33 @@ fn build_extract_request(
         {
             request.headers.insert("Referer".to_owned(), referer.to_owned());
         }
+        let mut cookie_headers = Vec::new();
         if let Some(cookies) = options
             .cookies
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            let cookie_header = resolve_native_cookie_option(cookies, url)
-                .map_err(NativeMediaTaskError::InvalidRequest)?;
-            request.headers.insert("Cookie".to_owned(), cookie_header);
+            cookie_headers.push(
+                resolve_native_cookie_option(cookies, url)
+                    .map_err(NativeMediaTaskError::InvalidRequest)?,
+            );
+        }
+        if let Some(source) = options
+            .cookies_from_browser
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            cookie_headers.push(
+                load_browser_cookie_header(source, url)
+                    .map_err(NativeMediaTaskError::InvalidRequest)?,
+            );
+        }
+        if !cookie_headers.is_empty() {
+            request
+                .headers
+                .insert("Cookie".to_owned(), cookie_headers.join("; "));
         }
         if let Some(headers) = options
             .headers
@@ -3319,6 +3351,31 @@ mod tests {
         let mut body = body("https://cdn.test/video.mp4");
         body.media_options.as_mut().expect("media").split_chapters = Some(true);
         assert!(NativeMediaExtractor.validate(&body).is_err());
+    }
+
+    #[test]
+    fn native_browser_cookie_option_advertises_firefox_and_fails_closed_elsewhere() {
+        assert!(NATIVE_MEDIA_OPTION_KEYS.contains(&"cookiesFromBrowser"));
+
+        let mut request = body("https://media.example.test/video");
+        request
+            .media_options
+            .as_mut()
+            .expect("media")
+            .cookies_from_browser = Some("firefox".to_owned());
+        NativeMediaExtractor
+            .validate(&request)
+            .expect("Firefox browser-cookie import should validate");
+
+        request
+            .media_options
+            .as_mut()
+            .expect("media")
+            .cookies_from_browser = Some("chrome".to_owned());
+        let error = NativeMediaExtractor
+            .validate(&request)
+            .expect_err("unmigrated Chromium decryption must fail closed");
+        assert!(error.0.contains("Firefox only"));
     }
 
     #[test]
