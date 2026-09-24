@@ -47,8 +47,7 @@ fn build_decision_context(
             let active = jobs
                 .values()
                 .filter(|j| {
-                    TaskState::from_status(&j.task.status)
-                        .is_some_and(TaskState::is_active)
+                    TaskState::from_status(&j.task.status).is_some_and(TaskState::is_active)
                 })
                 .count() as u32;
             if let Some(job) = jobs.get(id) {
@@ -916,19 +915,14 @@ fn refresh_plan_remote_state(state: &SharedState, id: &str, plan: &mut DirectDow
     }
 }
 
-fn discard_anonymous_segment_checkpoints(
-    state: &SharedState,
-    id: &str,
-    output_path: &Path,
-) {
+fn discard_anonymous_segment_checkpoints(state: &SharedState, id: &str, output_path: &Path) {
     remove_stale_parts_for(output_path);
     if let Ok(mut jobs) = state.curl_jobs.lock() {
         if let Some(job) = jobs.get_mut(id) {
             job.task.downloaded_bytes = 0;
             job.task.speed_bytes_per_sec = 0;
             job.task.time_left_seconds = 0;
-            job.task.segments =
-                build_segments(job.task.connections, job.task.size_bytes, 0, 0);
+            job.task.segments = build_segments(job.task.connections, job.task.size_bytes, 0, 0);
         }
     }
     if let Ok(mut tasks) = state.task_snapshot.lock() {
@@ -951,8 +945,7 @@ fn discard_resume_checkpoint(state: &SharedState, id: &str, plan: &DirectDownloa
             job.task.downloaded_bytes = 0;
             job.task.speed_bytes_per_sec = 0;
             job.task.time_left_seconds = 0;
-            job.task.segments =
-                build_segments(job.task.connections, job.task.size_bytes, 0, 0);
+            job.task.segments = build_segments(job.task.connections, job.task.size_bytes, 0, 0);
         }
     }
     if let Ok(mut tasks) = state.task_snapshot.lock() {
@@ -1129,8 +1122,8 @@ fn run_single_libcurl(
         plan.total_size,
         plan.output_path.display()
     );
-    let resume_end = (plan.total_size > resume_existing && plan.total_size > 0)
-        .then_some(plan.total_size - 1);
+    let resume_end =
+        (plan.total_size > resume_existing && plan.total_size > 0).then_some(plan.total_size - 1);
     let capture = Arc::new(Mutex::new(if resume_existing > 0 {
         response_capture_for_range(plan, resume_existing, resume_end, None)
     } else {
@@ -1681,8 +1674,7 @@ fn run_segmented_libcurl(
     // All sibling segments share one gradually learned remote identity. This
     // catches same-size object replacement even when the preflight exposed no
     // validator but the range responses later do.
-    let shared_segment_fingerprint =
-        Arc::new(Mutex::new(plan.remote_fingerprint()));
+    let shared_segment_fingerprint = Arc::new(Mutex::new(plan.remote_fingerprint()));
     // C-5: shared flag — when any segment's header callback sees a real
     // Content-Encoding (gzip/br/deflate) on a byte-range response, every
     // segment stops writing so the corrupted (offset-shifted) parts are never
@@ -2048,9 +2040,7 @@ fn run_segmented_libcurl(
             state.bandwidth_manager.paused_flag(),
             || pending_rebuild.get(),
         );
-        if range_rejected.load(Ordering::Acquire)
-            || encoding_rejected.load(Ordering::Acquire)
-        {
+        if range_rejected.load(Ordering::Acquire) || encoding_rejected.load(Ordering::Acquire) {
             break 'drive;
         }
         let rebuild_requested = drive_result?;
@@ -2520,12 +2510,7 @@ fn run_libcurl_download(
         if cancel.load(Ordering::Acquire) {
             return Err("cancelled".to_owned());
         }
-        transition_runtime_task_state(
-            state,
-            id,
-            TaskState::Downloading,
-            "running-libcurl-multi",
-        )?;
+        transition_runtime_task_state(state, id, TaskState::Downloading, "running-libcurl-multi")?;
 
         if effective_url != plan.url {
             log::info!(
@@ -2565,12 +2550,7 @@ fn run_libcurl_download(
             if let Some(ref validator) = preflight.validator {
                 plan.validator = Some(validator.clone());
                 plan.validator_is_etag = preflight.validator_is_etag;
-                persist_resume_validator(
-                    state,
-                    id,
-                    validator,
-                    preflight.validator_is_etag,
-                );
+                persist_resume_validator(state, id, validator, preflight.validator_is_etag);
             }
         }
         // The preflight discovered a real total size for a download that
@@ -2964,12 +2944,7 @@ fn run_libcurl_download(
                 }
                 last_error = error;
                 if attempt + 1 < retry_policy.attempts {
-                    transition_runtime_task_state(
-                        state,
-                        id,
-                        TaskState::Retrying,
-                        "retrying",
-                    )?;
+                    transition_runtime_task_state(state, id, TaskState::Retrying, "retrying")?;
                     let hinted = retry_after.swap(0, Ordering::AcqRel);
                     // Use the self-healer's recommended pause if available,
                     // otherwise fall back to Retry-After header or exponential backoff.
@@ -3094,8 +3069,7 @@ pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, g
             log::info!("Task {id}: stale completion commit (generation {generation}) ignored");
             return;
         }
-        if let Err(error) =
-            transition_task_state(&mut job.task, TaskState::Completed, "completed")
+        if let Err(error) = transition_task_state(&mut job.task, TaskState::Completed, "completed")
         {
             log::error!("Task {id}: final Completed transition rejected: {error}");
             return;
@@ -3262,9 +3236,7 @@ pub fn start_curl_process(state: &SharedState, id: &str) {
             .run_generation
             .fetch_add(1, Ordering::Release)
             .saturating_add(1);
-        if let Err(error) =
-            transition_task_state(&mut job.task, TaskState::Preparing, "starting")
-        {
+        if let Err(error) = transition_task_state(&mut job.task, TaskState::Preparing, "starting") {
             log::error!("Task {id}: cannot prepare libcurl worker: {error}");
             return;
         }
@@ -3603,10 +3575,8 @@ mod tests {
 
     #[test]
     fn plan_ignores_weak_or_invalid_etag_for_resume_and_uses_last_modified() {
-        let dir = std::env::temp_dir().join(format!(
-            "nova-validator-plan-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("nova-validator-plan-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let output = dir.join("file.bin");
         let body = download_body("http://127.0.0.1:1/file.bin", "file.bin", 1024, 1);
@@ -4698,7 +4668,8 @@ mod tests {
                     let mut range: Option<String> = None;
                     let mut if_range: Option<String> = None;
                     for line in req.lines() {
-                        if let Some(rest) = line.to_ascii_lowercase().strip_prefix("range: bytes=") {
+                        if let Some(rest) = line.to_ascii_lowercase().strip_prefix("range: bytes=")
+                        {
                             range = Some(rest.trim().to_owned());
                         } else if line.to_ascii_lowercase().starts_with("if-range:") {
                             if_range = line
