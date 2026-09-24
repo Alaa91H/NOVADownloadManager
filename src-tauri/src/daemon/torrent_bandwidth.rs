@@ -47,9 +47,7 @@ impl TorrentBandwidthLimiter {
         let slot = {
             let mut state = self.state.lock().await;
             let slot = state.next_slot.max(now);
-            state.next_slot = slot
-                .checked_add(duration)
-                .unwrap_or_else(|| slot + Duration::from_secs(24 * 60 * 60));
+            state.next_slot = slot + duration;
             slot
         };
 
@@ -79,7 +77,7 @@ mod tests {
     fn transfer_duration_is_exact_for_common_rates() {
         assert_eq!(
             transfer_duration(16 * 1024, 1024 * 1024),
-            Duration::from_millis(16)
+            Duration::from_micros(15_625)
         );
         assert_eq!(transfer_duration(1, 1), Duration::from_secs(1));
     }
