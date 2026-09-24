@@ -1980,8 +1980,8 @@ pub fn native_torrent_status() -> Value {
         "id": nova_torrent_core::ENGINE_ID,
         "name": "NOVA Torrent Engine",
         "role": "torrent-download-engine",
-        // Keep the engine unavailable for task routing until tracker/peer
-        // orchestration and durable resume are connected end-to-end.
+        // Protocol, discovery, peer transfer, storage, and durable resume are
+        // implemented, but Stage 6 daemon task routing/API registration is not.
         "available": false,
         "foundationReady": true,
         "version": env!("CARGO_PKG_VERSION"),
@@ -1998,6 +1998,15 @@ pub fn native_torrent_status() -> Value {
             "metadataExchangeProtocol": capabilities.metadata_exchange_protocol,
             "pexProtocol": capabilities.pex_protocol,
             "dhtKrpcProtocol": capabilities.dht_krpc_protocol,
+            "fileSelection": capabilities.file_selection,
+            "priorityScheduler": capabilities.priority_scheduler,
+            "durableStorageCore": capabilities.durable_storage,
+            "atomicResumeCheckpoint": capabilities.atomic_resume_checkpoint,
+            "verifiedPieceBitmap": capabilities.verified_piece_bitmap,
+            "startupRecheck": capabilities.startup_recheck,
+            "trackerRedactedStorageManifest": capabilities.tracker_redacted_manifest,
+            "boundaryPieceCache": capabilities.boundary_piece_cache,
+            "ownedTargetTracking": capabilities.owned_file_tracking,
             "pieceHashVerification": true,
             "safeMultiFileLayout": true,
             "httpTrackers": true,
@@ -2027,8 +2036,16 @@ pub fn native_torrent_status() -> Value {
             "peerPieceHashVerification": true,
             "peerReputation": true,
             "peerConnectionLimit": true,
-            "peerTransferExecution": false,
-            "durableResume": false
+            "peerTransferExecution": true,
+            "selectedFileTransfer": true,
+            "sparseStorage": true,
+            "fullPreallocation": true,
+            "generationSafePauseResume": true,
+            "sharedBandwidthLimit": true,
+            "restartSchedulerRestore": true,
+            "durableResume": true,
+            "daemonTaskRouting": false,
+            "torrentTaskLifecycleApi": false
         }
     })
 }
@@ -2107,7 +2124,29 @@ mod tests {
         assert_eq!(status["capabilities"]["peerTcpTransport"], true);
         assert_eq!(status["capabilities"]["peerRequestPipeline"], true);
         assert_eq!(status["capabilities"]["peerReputation"], true);
-        assert_eq!(status["capabilities"]["peerTransferExecution"], false);
+        assert_eq!(status["capabilities"]["peerTransferExecution"], true);
+        assert_eq!(status["capabilities"]["fileSelection"], true);
+        assert_eq!(status["capabilities"]["priorityScheduler"], true);
+        assert_eq!(status["capabilities"]["durableStorageCore"], true);
+        assert_eq!(status["capabilities"]["atomicResumeCheckpoint"], true);
+        assert_eq!(status["capabilities"]["startupRecheck"], true);
+        assert_eq!(status["capabilities"]["trackerRedactedStorageManifest"], true);
+        assert_eq!(status["capabilities"]["ownedTargetTracking"], true);
+        assert_eq!(status["capabilities"]["generationSafePauseResume"], true);
+        assert_eq!(status["capabilities"]["sharedBandwidthLimit"], true);
+        assert_eq!(status["capabilities"]["durableResume"], true);
+        assert_eq!(status["capabilities"]["daemonTaskRouting"], false);
+    }
+
+    #[test]
+    fn torrent_routing_stays_disabled_after_durable_core_completion() {
+        let status = all_engine_status("", "");
+        assert!(status["routing"]["torrentMagnet"].is_null());
+        assert_eq!(status["engines"]["torrent"]["available"], false);
+        assert_eq!(
+            status["engines"]["torrent"]["capabilities"]["daemonTaskRouting"],
+            false
+        );
     }
 
     #[test]
