@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -49,6 +49,7 @@ pub struct TorrentJob {
     pub run_generation: Arc<AtomicU64>,
     pub start_time: Instant,
     pub allocated_kbps: Arc<AtomicU64>,
+    pub active_slot: Arc<AtomicBool>,
     pub priority: DownloadPriority,
     pub requires_reauth: bool,
     pub private: bool,
@@ -211,7 +212,7 @@ pub async fn create_torrent_task(
 
     let (persisted_source, source_requires_reauth) =
         persistable_magnet_source(&analysis.source_uri)?;
-    let requires_reauth = metainfo.private && source_requires_reauth;
+    let _persist_requires_reauth = metainfo.private && source_requires_reauth;
     let id = uuid::Uuid::new_v4().simple().to_string();
     let connections = body
         .connections
@@ -259,8 +260,9 @@ pub async fn create_torrent_task(
         run_generation: Arc::new(AtomicU64::new(0)),
         start_time: Instant::now(),
         allocated_kbps: allocated_kbps.clone(),
+        active_slot: Arc::new(AtomicBool::new(false)),
         priority: DownloadPriority::Normal,
-        requires_reauth,
+        requires_reauth: false,
         private: metainfo.private,
         tracker_peer_count: analysis.resolution.tracker_peers.len(),
         dht_peer_count: analysis.resolution.dht_peers.len(),
@@ -304,10 +306,11 @@ pub fn restore_torrent_job(
         }
     }
 
+    let restored_source = parsed_source.map(str::to_owned);
     Ok(TorrentJob {
         private: false,
         task,
-        source_uri: parsed_source.map(str::to_owned),
+        source_uri: restored_source,
         storage: Arc::new(tokio::sync::Mutex::new(None)),
         candidates: Vec::new(),
         local_peer_id: generate_peer_id(),
@@ -315,6 +318,7 @@ pub fn restore_torrent_job(
         run_generation: Arc::new(AtomicU64::new(0)),
         start_time: Instant::now(),
         allocated_kbps: Arc::new(AtomicU64::new(0)),
+        active_slot: Arc::new(AtomicBool::new(false)),
         priority: DownloadPriority::Normal,
         requires_reauth,
         tracker_peer_count: 0,
@@ -358,8 +362,8 @@ pub async fn torrent_task_details(
             path: file.path.clone(),
             length: file.length,
             priority: plan
-                .priorities
-                .get(index_for_file_priority(&plan.metainfo, index))
+                .file_priorities
+                .get(index)
                 .copied()
                 .unwrap_or(FilePriority::Normal),
         })
@@ -380,14 +384,6 @@ pub async fn torrent_task_details(
         candidate_peer_count: job.candidates.len(),
         requires_reauth: job.requires_reauth,
     })
-}
-
-fn index_for_file_priority(meta: &TorrentMetainfo, file_index: usize) -> usize {
-    let file = &meta.files[file_index];
-    if meta.piece_length == 0 {
-        return 0;
-    }
-    (file.offset / meta.piece_length) as usize
 }
 
 pub async fn update_torrent_file_priorities(
@@ -446,12 +442,12 @@ pub async fn reauthorize_torrent_task(
         return Err("Replacement magnet belongs to a different torrent".to_owned());
     }
 
-    let (persisted, removed_sensitive) = persistable_magnet_source(magnet_uri)?;
+    let (persisted, _removed_sensitive) = persistable_magnet_source(magnet_uri)?;
     let task = {
         let mut jobs = lock_or_err!(state.torrent_jobs);
         let job = jobs.get_mut(id).ok_or_else(|| "Torrent task not found".to_owned())?;
         job.source_uri = Some(magnet_uri.trim().to_owned());
-        job.requires_reauth = job.private && removed_sensitive;
+        job.requires_reauth = false;
         job.task.url = persisted;
         job.task.error_message = None;
         if TaskState::from_status(&job.task.status) == Some(TaskState::Failed) {
@@ -475,6 +471,7 @@ pub fn start_torrent_process(state: &SharedState, id: &str) -> Result<(), String
         local_peer_id,
         source_uri,
         allocated_kbps,
+        active_slot,
         priority,
         size_bytes,
     ) = {
@@ -517,6 +514,7 @@ pub fn start_torrent_process(state: &SharedState, id: &str) -> Result<(), String
             job.local_peer_id,
             job.source_uri.clone(),
             job.allocated_kbps.clone(),
+            job.active_slot.clone(),
             job.priority,
             job.task.size_bytes,
         );
@@ -532,6 +530,7 @@ pub fn start_torrent_process(state: &SharedState, id: &str) -> Result<(), String
         priority,
     );
     state.priority_queue.start_download();
+    active_slot.store(true, Ordering::Release);
     state.mark_dirty();
 
     let state = state.clone();
@@ -547,6 +546,7 @@ pub fn start_torrent_process(state: &SharedState, id: &str) -> Result<(), String
             local_peer_id,
             source_uri,
             allocated_kbps,
+            active_slot,
             priority,
             size_bytes,
         )
@@ -566,11 +566,12 @@ async fn run_torrent_worker(
     mut local_peer_id: [u8; 20],
     source_uri: Option<String>,
     allocated_kbps: Arc<AtomicU64>,
+    active_slot: Arc<AtomicBool>,
     _priority: DownloadPriority,
     _size_bytes: u64,
 ) {
     if !torrent_generation_current(&state, &id, generation) {
-        state.priority_queue.release_active_slot();
+        release_queue_slot(&state, &id, &active_slot, false);
         return;
     }
 
@@ -581,7 +582,7 @@ async fn run_torrent_worker(
         TaskState::Probing,
         "rechecking-torrent",
     ) {
-        fail_torrent_task(&state, &id, generation, error);
+        fail_torrent_task(&state, &id, generation, error, &active_slot);
         return;
     }
 
@@ -597,7 +598,7 @@ async fn run_torrent_worker(
     let storage = match ensure_storage_session(&job_snapshot, storage_slot.clone()).await {
         Ok(storage) => storage,
         Err(error) => {
-            fail_torrent_task(&state, &id, generation, error);
+            fail_torrent_task(&state, &id, generation, error, &active_slot);
             return;
         }
     };
@@ -610,13 +611,14 @@ async fn run_torrent_worker(
                 &id,
                 generation,
                 format!("Torrent startup recheck failed: {error}"),
+                &active_slot,
             );
             return;
         }
     }
 
     if cancel.is_cancelled() || !torrent_generation_current(&state, &id, generation) {
-        finish_torrent_cancelled(&state, &id, generation);
+        finish_torrent_cancelled(&state, &id, generation, &active_slot);
         return;
     }
 
@@ -628,6 +630,7 @@ async fn run_torrent_worker(
                 generation,
                 "Torrent peer discovery source is unavailable; re-authorize the magnet link"
                     .to_owned(),
+                &active_slot,
             );
             return;
         };
@@ -641,6 +644,7 @@ async fn run_torrent_worker(
                         &id,
                         generation,
                         "Resolved magnet metadata does not match persisted torrent".to_owned(),
+                        &active_slot,
                     );
                     return;
                 }
@@ -664,6 +668,7 @@ async fn run_torrent_worker(
                     &id,
                     generation,
                     format!("Torrent peer discovery failed: {error}"),
+                    &active_slot,
                 );
                 return;
             }
@@ -677,7 +682,7 @@ async fn run_torrent_worker(
         TaskState::Downloading,
         "downloading-torrent",
     ) {
-        fail_torrent_task(&state, &id, generation, error);
+        fail_torrent_task(&state, &id, generation, error, &active_slot);
         return;
     }
 
@@ -698,7 +703,7 @@ async fn run_torrent_worker(
         },
     );
 
-    let progress_cancel = cancel.child_token();
+    let progress_cancel = CancellationToken::new();
     let progress_state = state.clone();
     let progress_id = id.clone();
     let progress_storage = storage.clone();
@@ -720,11 +725,11 @@ async fn run_torrent_worker(
     let result = coordinator
         .download_selected(&storage, &candidates, local_peer_id, &cancel)
         .await;
-    cancel.cancel();
+    progress_cancel.cancel();
     let _ = progress_task.await;
 
     if !torrent_generation_current(&state, &id, generation) {
-        state.priority_queue.release_active_slot();
+        release_queue_slot(&state, &id, &active_slot, false);
         return;
     }
 
@@ -763,25 +768,26 @@ async fn run_torrent_worker(
                     &id,
                     generation,
                     "Torrent completed but task lifecycle finalization failed".to_owned(),
+                    &active_slot,
                 );
                 return;
             }
-            state.priority_queue.stop_download(&id);
+            let completed_bytes = get_torrent_task(&state, &id)
+                .map(|task| task.downloaded_bytes)
+                .unwrap_or(0);
+            release_queue_slot(&state, &id, &active_slot, true);
             if let Ok(mut stats) = state.download_stats.lock() {
                 stats.total_completed = stats.total_completed.saturating_add(1);
-                if let Some(task) = get_torrent_task(&state, &id) {
-                    stats.total_downloaded_bytes = stats
-                        .total_downloaded_bytes
-                        .saturating_add(task.downloaded_bytes);
-                }
+                stats.total_downloaded_bytes =
+                    stats.total_downloaded_bytes.saturating_add(completed_bytes);
             }
             state.mark_dirty();
         }
         Err(error) if cancel.is_cancelled() => {
-            finish_torrent_cancelled(&state, &id, generation);
+            finish_torrent_cancelled(&state, &id, generation, &active_slot);
         }
         Err(error) => {
-            fail_torrent_task(&state, &id, generation, error.to_string());
+            fail_torrent_task(&state, &id, generation, error.to_string(), &active_slot);
         }
     }
 }
@@ -801,10 +807,11 @@ async fn update_torrent_progress_once(
     };
     let now = Instant::now();
     let speed = previous
+        .as_ref()
         .map(|(then, bytes)| {
-            let elapsed = now.saturating_duration_since(then).as_secs_f64();
+            let elapsed = now.saturating_duration_since(*then).as_secs_f64();
             if elapsed > 0.0 {
-                ((progress.selected_completed_bytes.saturating_sub(bytes)) as f64 / elapsed) as u64
+                ((progress.selected_completed_bytes.saturating_sub(*bytes)) as f64 / elapsed) as u64
             } else {
                 0
             }
@@ -930,18 +937,13 @@ pub async fn delete_torrent_task(
 ) -> Result<(), String> {
     let job = {
         let mut jobs = lock_or_err!(state.torrent_jobs);
-        let mut job = jobs.remove(id).ok_or_else(|| "Torrent task not found".to_owned())?;
+        let job = jobs.get_mut(id).ok_or_else(|| "Torrent task not found".to_owned())?;
         job.cancel_token.cancel();
         job.run_generation.fetch_add(1, Ordering::AcqRel);
-        job
+        job.clone()
     };
-    lock_or_err!(state.task_snapshot).remove(id);
 
-    if TaskState::from_status(&job.task.status).is_some_and(TaskState::is_active) {
-        state.priority_queue.stop_download(id);
-    } else {
-        state.priority_queue.remove(id);
-    }
+    release_queue_slot(state, id, &job.active_slot, true);
     state.bandwidth_manager.remove_task_limit(id);
 
     let storage = ensure_storage_session(&job, job.storage.clone()).await.ok();
@@ -958,6 +960,9 @@ pub async fn delete_torrent_task(
                 .map_err(|error| format!("Could not remove torrent resume state: {error}"))?;
         }
     }
+
+    lock_or_err!(state.torrent_jobs).remove(id);
+    lock_or_err!(state.task_snapshot).remove(id);
     state.mark_dirty();
     Ok(())
 }
@@ -975,12 +980,7 @@ pub async fn redownload_torrent_task(state: &SharedState, id: &str) -> Result<Ta
     let plan = storage.transfer_plan().await.map_err(|error| error.to_string())?;
     let selection = TorrentSelection::new(
         &plan.metainfo,
-        plan.metainfo
-            .files
-            .iter()
-            .enumerate()
-            .map(|(index, _)| file_priority_for_index(&plan.metainfo, &plan.priorities, index))
-            .collect(),
+        plan.file_priorities.clone(),
     )
     .map_err(|error| error.to_string())?;
     storage
@@ -1007,6 +1007,7 @@ pub async fn redownload_torrent_task(state: &SharedState, id: &str) -> Result<Ta
         current.task.error_message = None;
         current.storage = Arc::new(tokio::sync::Mutex::new(Some(replacement)));
         current.cancel_token = CancellationToken::new();
+        current.active_slot.store(false, Ordering::Release);
         current.run_generation.fetch_add(1, Ordering::AcqRel);
         let task = current.task.clone();
         drop(jobs);
@@ -1015,21 +1016,6 @@ pub async fn redownload_torrent_task(state: &SharedState, id: &str) -> Result<Ta
     state.mark_dirty();
     start_torrent_process(state, id)?;
     get_torrent_task(state, id).ok_or_else(|| "Torrent task not found".to_owned())
-}
-
-fn file_priority_for_index(
-    meta: &TorrentMetainfo,
-    piece_priorities: &[FilePriority],
-    file_index: usize,
-) -> FilePriority {
-    let file = &meta.files[file_index];
-    if meta.piece_length == 0 {
-        return FilePriority::Normal;
-    }
-    piece_priorities
-        .get((file.offset / meta.piece_length) as usize)
-        .copied()
-        .unwrap_or(FilePriority::Normal)
 }
 
 async fn ensure_storage_session(
@@ -1078,15 +1064,20 @@ fn torrent_generation_current(state: &SharedState, id: &str, generation: u64) ->
         .is_some_and(|job| job.run_generation.load(Ordering::Acquire) == generation)
 }
 
-fn finish_torrent_cancelled(state: &SharedState, id: &str, generation: u64) {
+fn finish_torrent_cancelled(
+    state: &SharedState,
+    id: &str,
+    generation: u64,
+    active_slot: &Arc<AtomicBool>,
+) {
     let task = {
         let mut jobs = lock_or_err!(state.torrent_jobs);
         let Some(job) = jobs.get_mut(id) else {
-            state.priority_queue.release_active_slot();
+            release_queue_slot(state, id, active_slot, false);
             return;
         };
         if job.run_generation.load(Ordering::Acquire) != generation {
-            state.priority_queue.release_active_slot();
+            release_queue_slot(state, id, active_slot, false);
             return;
         }
         let current = TaskState::from_status(&job.task.status);
@@ -1099,20 +1090,26 @@ fn finish_torrent_cancelled(state: &SharedState, id: &str, generation: u64) {
         }
         job.task.clone()
     };
-    state.priority_queue.release_active_slot();
+    release_queue_slot(state, id, active_slot, false);
     lock_or_err!(state.task_snapshot).insert(id.to_owned(), task);
     state.mark_dirty();
 }
 
-fn fail_torrent_task(state: &SharedState, id: &str, generation: u64, error: String) {
+fn fail_torrent_task(
+    state: &SharedState,
+    id: &str,
+    generation: u64,
+    error: String,
+    active_slot: &Arc<AtomicBool>,
+) {
     let task = {
         let mut jobs = lock_or_err!(state.torrent_jobs);
         let Some(job) = jobs.get_mut(id) else {
-            state.priority_queue.release_active_slot();
+            release_queue_slot(state, id, active_slot, true);
             return;
         };
         if job.run_generation.load(Ordering::Acquire) != generation {
-            state.priority_queue.release_active_slot();
+            release_queue_slot(state, id, active_slot, false);
             return;
         }
         let _ = transition_task_state(&mut job.task, TaskState::Failed, "error");
@@ -1121,12 +1118,29 @@ fn fail_torrent_task(state: &SharedState, id: &str, generation: u64, error: Stri
         job.task.time_left_seconds = 0;
         job.task.clone()
     };
-    state.priority_queue.stop_download(id);
+    release_queue_slot(state, id, active_slot, true);
     if let Ok(mut stats) = state.download_stats.lock() {
         stats.total_failed = stats.total_failed.saturating_add(1);
     }
     lock_or_err!(state.task_snapshot).insert(id.to_owned(), task);
     state.mark_dirty();
+}
+
+fn release_queue_slot(
+    state: &SharedState,
+    id: &str,
+    active_slot: &Arc<AtomicBool>,
+    remove_entry: bool,
+) {
+    if active_slot.swap(false, Ordering::AcqRel) {
+        if remove_entry {
+            state.priority_queue.stop_download(id);
+        } else {
+            state.priority_queue.release_active_slot();
+        }
+    } else if remove_entry {
+        state.priority_queue.remove(id);
+    }
 }
 
 fn ensure_torrent_queue_entry(
