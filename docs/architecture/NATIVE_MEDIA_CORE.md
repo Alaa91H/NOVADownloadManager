@@ -4,6 +4,8 @@
 
 Implementation branch: `feature/native-media-core`
 
+Current implementation now includes native media request context, bounded manifest fetching, HLS/DASH transfer planning, parallel staging executors, and generic native extractors.
+
 The media subsystem is being moved into the NOVA Rust core. The target runtime has no required yt-dlp executable, Python runtime, Node.js runtime, or Deno runtime.
 
 ## Ownership model
@@ -72,10 +74,10 @@ URL
 ## Migration stages
 
 1. Establish typed media and stream cores.
-2. Complete HLS and DASH parser coverage needed by real downloads.
-3. Add request metadata support to `nova-download-core` for media headers, referer, cookies, and user-agent.
-4. Connect HLS/DASH segment planning to the native transfer core.
-5. Add generic native media extraction.
+2. Complete HLS and DASH parser coverage needed by real downloads. **In progress: core VOD paths implemented.**
+3. Add request metadata support to `nova-download-core` for media headers, referer, cookies, and user-agent. **Implemented.**
+4. Connect HLS/DASH segment planning to the native transfer core. **Implemented for plain HLS VOD and static fixed-template DASH staging.**
+5. Add generic native media extraction. **Implemented for manifest URLs and common direct audio/video files.**
 6. Add first-party site extractors, beginning with YouTube.
 7. Add an embedded JavaScript execution layer only where a site extractor requires it.
 8. Migrate existing desktop API/media jobs onto the native engine.
