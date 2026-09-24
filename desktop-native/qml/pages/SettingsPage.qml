@@ -1007,7 +1007,10 @@ Item {
                         Button {
                             text: root.t("settings.setLevel")
                             enabled: api.connected
-                            onClicked: api.setLogLevel(logLevel.currentText)
+                            onClicked: {
+                                settings.setAdvancedValue("logLevel", logLevel.currentText)
+                                api.setLogLevel(logLevel.currentText)
+                            }
                         }
                     }
 
