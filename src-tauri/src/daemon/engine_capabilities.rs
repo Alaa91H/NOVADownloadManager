@@ -1454,6 +1454,9 @@ pub fn native_media_status() -> Value {
             "metadataSidecar": true,
             "descriptionSidecar": true,
             "metadataWriteEmbed": false,
+            "remuxPolicy": true,
+            "remuxRequiresPostProcessingWhenContainerChanges": true,
+            "chapterMetadata": true,
             "chapterSplit": false,
             "sponsorBlock": false,
             "partialSections": false,
@@ -2067,6 +2070,8 @@ mod tests {
         assert_eq!(status["capabilities"]["autoSubtitles"], true);
         assert_eq!(status["capabilities"]["thumbnailWrite"], true);
         assert_eq!(status["capabilities"]["metadataSidecar"], true);
+        assert_eq!(status["capabilities"]["chapterMetadata"], true);
+        assert_eq!(status["capabilities"]["remuxPolicy"], true);
         assert_eq!(
             status["capabilities"]["audioExtractionMode"],
             "existing-source-representation"
