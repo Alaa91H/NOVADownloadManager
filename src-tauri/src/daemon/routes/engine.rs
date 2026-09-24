@@ -15,8 +15,11 @@ use crate::daemon::engine::plugin_api::PluginManifest;
 use crate::daemon::engine::priority_queue::DownloadPriority;
 use crate::daemon::engine::retry::RetryPolicy;
 use crate::daemon::engine::rules::DownloadRule;
-use crate::daemon::engine::scheduler::{SchedulerAction, SchedulerRule};
+use crate::daemon::engine::scheduler::{
+    queue_schedule_window_active, SchedulerAction, SchedulerRule,
+};
 use crate::daemon::state::SharedState;
+use crate::daemon::types::TaskState;
 use crate::daemon::utils::hide_command_window;
 use crate::lock_or_err;
 
@@ -194,6 +197,7 @@ fn default_queue_catalog() -> Vec<serde_json::Value> {
         "exitOnComplete": false,
         "retryCount": 3,
         "retryDelay": 10,
+        "profileId": "",
         "downloadOrder": []
     })]
 }
@@ -334,6 +338,7 @@ fn normalize_queue_catalog(
             "exitOnComplete": bool_value("exitOnComplete", false),
             "retryCount": bounded_u64("retryCount", 3, 9_999),
             "retryDelay": bounded_u64("retryDelay", 10, 86_400),
+            "profileId": short_text("profileId", ""),
             "downloadOrder": download_order
         }));
     }
@@ -369,6 +374,7 @@ fn default_queue_entry(id: &str, name: &str) -> serde_json::Value {
         "exitOnComplete": false,
         "retryCount": 3,
         "retryDelay": 10,
+        "profileId": "",
         "downloadOrder": []
     })
 }
@@ -626,6 +632,10 @@ fn apply_queue_bandwidth_policy(state: &SharedState, queues: &[serde_json::Value
             .get("limitSpeed")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
+        let one_time = queue
+            .get("oneTimeLimit")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
         let limit = queue
             .get("speedLimitKbs")
             .and_then(serde_json::Value::as_u64)
@@ -638,7 +648,7 @@ fn apply_queue_bandwidth_policy(state: &SharedState, queues: &[serde_json::Value
         };
 
         for task_id in order.iter().filter_map(serde_json::Value::as_str) {
-            if limited && limit > 0 {
+            if limited && !one_time && limit > 0 {
                 state
                     .bandwidth_manager
                     .set_task_limit(task_id.to_owned(), limit);
