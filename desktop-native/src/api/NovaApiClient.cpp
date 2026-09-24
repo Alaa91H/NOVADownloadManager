@@ -528,6 +528,54 @@ bool NovaApiClient::directOptionSupported(const QString &key) const {
     return false;
 }
 
+bool NovaApiClient::mediaOptionSupported(const QString &key) const {
+    const QString normalized = key.trimmed();
+    if (normalized.isEmpty()) {
+        return false;
+    }
+
+    if (m_engineCapabilities.contains(QStringLiteral("mediaReady"))
+        && !m_engineCapabilities.value(QStringLiteral("mediaReady")).toBool()) {
+        return false;
+    }
+
+    const QVariantMap engines =
+        m_engineCapabilities.value(QStringLiteral("engines")).toMap();
+    const QVariantMap mediaEngine = engines.value(QStringLiteral("ytdlp")).toMap();
+    if (!mediaEngine.contains(QStringLiteral("supportedMediaOptionKeys"))) {
+        return true;
+    }
+
+    const QVariantList supported =
+        mediaEngine.value(QStringLiteral("supportedMediaOptionKeys")).toList();
+    for (const QVariant &value : supported) {
+        if (value.toString() == normalized) {
+            return true;
+        }
+    }
+    return false;
+}
+
+QVariantMap NovaApiClient::sanitizeMediaOptions(const QVariantMap &options) const {
+    QVariantMap sanitized;
+    for (auto it = options.constBegin(); it != options.constEnd(); ++it) {
+        if (!mediaOptionSupported(it.key())) {
+            continue;
+        }
+
+        const QVariant &value = it.value();
+        if (!value.isValid() || value.isNull()) {
+            continue;
+        }
+        if (value.metaType().id() == QMetaType::QString
+            && value.toString().trimmed().isEmpty()) {
+            continue;
+        }
+        sanitized.insert(it.key(), value);
+    }
+    return sanitized;
+}
+
 void NovaApiClient::recomputeKnownQueueIds() {
     QStringList nextIds;
     QStringList nextLabels;
@@ -1206,7 +1254,14 @@ void NovaApiClient::createMediaDownload(
         name = QStringLiteral("media");
     }
 
-    QJsonObject options = QJsonObject::fromVariantMap(mediaOptions);
+    if (m_engineCapabilities.contains(QStringLiteral("mediaReady"))
+        && !m_engineCapabilities.value(QStringLiteral("mediaReady")).toBool()) {
+        emit requestFailed(QStringLiteral("The NOVA media engine is not ready."));
+        return;
+    }
+
+    const QVariantMap sanitizedOptions = sanitizeMediaOptions(mediaOptions);
+    QJsonObject options = QJsonObject::fromVariantMap(sanitizedOptions);
     const QString mode = options.value(QStringLiteral("mode")).toString(QStringLiteral("video"));
 
     QJsonObject body;
