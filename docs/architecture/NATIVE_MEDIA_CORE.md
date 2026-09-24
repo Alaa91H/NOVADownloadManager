@@ -64,6 +64,8 @@ Current scope includes:
 
 NOVA extractors may not delegate media ownership to a user-installed external resolver.
 
+This rule is enforced at runtime and in CI: once the first-party native media extractor accepts the request shape, validation or execution failures fail closed and cannot fall through to the compatibility bridge.
+
 The preferred path is:
 
 ```text
