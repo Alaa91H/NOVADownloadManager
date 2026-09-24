@@ -292,6 +292,131 @@ fn read_u32(bytes: &[u8], offset: usize) -> u32 {
     )
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PeerState {
+    piece_count: u32,
+    peer_choking: bool,
+    peer_interested: bool,
+    am_choking: bool,
+    am_interested: bool,
+    bitfield: Vec<u8>,
+}
+
+impl PeerState {
+    pub fn new(piece_count: u32) -> Self {
+        let bitfield_len = (piece_count as usize).div_ceil(8);
+        Self {
+            piece_count,
+            peer_choking: true,
+            peer_interested: false,
+            am_choking: true,
+            am_interested: false,
+            bitfield: vec![0u8; bitfield_len],
+        }
+    }
+
+    pub const fn peer_choking(&self) -> bool {
+        self.peer_choking
+    }
+
+    pub const fn peer_interested(&self) -> bool {
+        self.peer_interested
+    }
+
+    pub const fn am_choking(&self) -> bool {
+        self.am_choking
+    }
+
+    pub const fn am_interested(&self) -> bool {
+        self.am_interested
+    }
+
+    pub fn set_am_choking(&mut self, value: bool) {
+        self.am_choking = value;
+    }
+
+    pub fn set_am_interested(&mut self, value: bool) {
+        self.am_interested = value;
+    }
+
+    pub fn bitfield(&self) -> &[u8] {
+        &self.bitfield
+    }
+
+    pub fn has_piece(&self, piece_index: u32) -> bool {
+        if piece_index >= self.piece_count {
+            return false;
+        }
+        bit_is_set(&self.bitfield, piece_index as usize)
+    }
+
+    pub fn apply(&mut self, message: &PeerMessage) -> Result<(), PeerWireError> {
+        match message {
+            PeerMessage::Choke => self.peer_choking = true,
+            PeerMessage::Unchoke => self.peer_choking = false,
+            PeerMessage::Interested => self.peer_interested = true,
+            PeerMessage::NotInterested => self.peer_interested = false,
+            PeerMessage::Have(piece_index) => {
+                if *piece_index >= self.piece_count {
+                    return Err(PeerWireError::PieceOutOfRange {
+                        piece_index: *piece_index,
+                        piece_count: self.piece_count,
+                    });
+                }
+                set_bit(&mut self.bitfield, *piece_index as usize);
+            }
+            PeerMessage::Bitfield(bitfield) => {
+                validate_bitfield(bitfield, self.piece_count)?;
+                self.bitfield.clone_from(bitfield);
+            }
+            PeerMessage::KeepAlive
+            | PeerMessage::Request { .. }
+            | PeerMessage::Piece { .. }
+            | PeerMessage::Cancel { .. }
+            | PeerMessage::Port(_) => {}
+        }
+        Ok(())
+    }
+}
+
+fn validate_bitfield(bitfield: &[u8], piece_count: u32) -> Result<(), PeerWireError> {
+    let expected = (piece_count as usize).div_ceil(8);
+    if bitfield.len() != expected {
+        return Err(PeerWireError::InvalidBitfieldLength {
+            expected,
+            actual: bitfield.len(),
+        });
+    }
+    if piece_count == 0 || bitfield.is_empty() {
+        return Ok(());
+    }
+
+    let used_bits = (piece_count as usize) % 8;
+    if used_bits != 0 {
+        let unused_mask = (1u8 << (8 - used_bits)) - 1;
+        if bitfield[bitfield.len() - 1] & unused_mask != 0 {
+            return Err(PeerWireError::InvalidBitfieldPadding);
+        }
+    }
+    Ok(())
+}
+
+fn bit_is_set(bitfield: &[u8], piece_index: usize) -> bool {
+    let byte_index = piece_index / 8;
+    let bit_index = piece_index % 8;
+    bitfield
+        .get(byte_index)
+        .is_some_and(|byte| byte & (0x80 >> bit_index) != 0)
+}
+
+fn set_bit(bitfield: &mut [u8], piece_index: usize) {
+    let byte_index = piece_index / 8;
+    let bit_index = piece_index % 8;
+    if let Some(byte) = bitfield.get_mut(byte_index) {
+        *byte |= 0x80 >> bit_index;
+    }
+}
+
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum PeerWireError {
     #[error("invalid BitTorrent peer handshake")]
@@ -302,6 +427,15 @@ pub enum PeerWireError {
     FrameTooLarge(usize),
     #[error("unsupported peer message id: {0}")]
     UnsupportedMessage(u8),
+    #[error("peer piece index {piece_index} is outside piece count {piece_count}")]
+    PieceOutOfRange {
+        piece_index: u32,
+        piece_count: u32,
+    },
+    #[error("peer bitfield length mismatch: expected {expected}, got {actual}")]
+    InvalidBitfieldLength { expected: usize, actual: usize },
+    #[error("peer bitfield sets padding bits outside the torrent piece count")]
+    InvalidBitfieldPadding,
     #[error("peer message {id} has invalid payload length: expected {expected}, got {actual}")]
     InvalidPayloadLength {
         id: u8,
@@ -366,6 +500,53 @@ mod tests {
             }
         );
         assert_eq!(consumed, piece.len());
+    }
+
+    #[test]
+    fn peer_state_tracks_choke_interest_and_piece_availability() {
+        let mut state = PeerState::new(10);
+        assert!(state.peer_choking());
+        assert!(!state.peer_interested());
+        state.apply(&PeerMessage::Unchoke).unwrap();
+        state.apply(&PeerMessage::Interested).unwrap();
+        state.apply(&PeerMessage::Have(9)).unwrap();
+        assert!(!state.peer_choking());
+        assert!(state.peer_interested());
+        assert!(state.has_piece(9));
+        assert!(!state.has_piece(10));
+    }
+
+    #[test]
+    fn peer_state_validates_bitfield_shape_and_padding() {
+        let mut state = PeerState::new(10);
+        assert_eq!(
+            state.apply(&PeerMessage::Bitfield(vec![0xff])),
+            Err(PeerWireError::InvalidBitfieldLength {
+                expected: 2,
+                actual: 1,
+            })
+        );
+        assert_eq!(
+            state.apply(&PeerMessage::Bitfield(vec![0xff, 0x3f])),
+            Err(PeerWireError::InvalidBitfieldPadding)
+        );
+        state
+            .apply(&PeerMessage::Bitfield(vec![0xff, 0xc0]))
+            .expect("valid bitfield");
+        assert!(state.has_piece(0));
+        assert!(state.has_piece(9));
+    }
+
+    #[test]
+    fn peer_state_rejects_out_of_range_have() {
+        let mut state = PeerState::new(2);
+        assert_eq!(
+            state.apply(&PeerMessage::Have(2)),
+            Err(PeerWireError::PieceOutOfRange {
+                piece_index: 2,
+                piece_count: 2,
+            })
+        );
     }
 
     #[test]
