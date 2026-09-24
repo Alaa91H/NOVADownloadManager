@@ -398,3 +398,17 @@ fn parse_tool_id(id: &str) -> Result<ToolId, (StatusCode, Json<serde_json::Value
         )),
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::parse_tool_id;
+    use crate::daemon::external_tools::types::ToolId;
+
+    #[test]
+    fn public_external_tools_accept_only_postprocessing_tools() {
+        assert_eq!(parse_tool_id("ffmpeg").expect("FFmpeg must remain public"), ToolId::Ffmpeg);
+        assert!(parse_tool_id("media-bridge").is_err());
+        assert!(parse_tool_id("media_bridge").is_err());
+    }
+}
