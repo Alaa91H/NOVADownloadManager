@@ -239,7 +239,7 @@ impl AppState {
             }
         }
         // Serialize the read-check-probe-write sequence so concurrent callers
-        // do not each spawn redundant subprocess probes (TOC/TOU race).
+        // do not each repeat runtime capability probes (TOC/TOU race).
         let _guard = match self.engine_capabilities_probe.lock() {
             Ok(guard) => guard,
             Err(poison) => {
@@ -256,10 +256,8 @@ impl AppState {
                 }
             }
         }
-        let result = crate::daemon::engine_capabilities::all_engine_status(
-            &self.media_bridge_binary(),
-            &self.ffmpeg_binary(),
-        );
+        let result =
+            crate::daemon::engine_capabilities::all_engine_status(&self.ffmpeg_binary());
         let arc_result = Arc::new(result);
         if let Ok(mut cache) = self.engine_capabilities_cache.write() {
             *cache = Some((arc_result.clone(), Instant::now()));
