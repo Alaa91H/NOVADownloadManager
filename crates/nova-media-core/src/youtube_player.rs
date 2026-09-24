@@ -427,6 +427,23 @@ fn parse_transform_body(
         r#"(?P<object>[A-Za-z_$][A-Za-z0-9_$]*)\.(?P<method>[A-Za-z_$][A-Za-z0-9_$]*)\((?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)(?:,(?P<value>\d+))?\)"#,
     )
     .map_err(|error| error.to_string())?;
+    let indexed_helper_call = Regex::new(
+        r#"(?P<array>[A-Za-z_$][A-Za-z0-9_$]*)\s*\[\s*(?P<index>\d+)\s*\]\s*\(\s*(?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)(?:\s*,\s*(?P<value>\d+))?\s*\)"#,
+    )
+    .map_err(|error| error.to_string())?;
+    let rotate_left_apply = Regex::new(&format!(
+        r#"{}\.push\.apply\(\s*{},\s*{}\.splice\(0,\s*(\d+)\)\s*\)"#,
+        regex::escape(argument),
+        regex::escape(argument),
+        regex::escape(argument)
+    ))
+    .map_err(|error| error.to_string())?;
+    let rotate_left_spread = Regex::new(&format!(
+        r#"{}\.push\(\s*\.\.\.{}\.splice\(0,\s*(\d+)\)\s*\)"#,
+        regex::escape(argument),
+        regex::escape(argument)
+    ))
+    .map_err(|error| error.to_string())?;
     let direct_splice = Regex::new(&format!(
         r#"{}\s*\.splice\(0,\s*(\d+)\)"#,
         regex::escape(argument)
