@@ -35,6 +35,7 @@ private:
     void handleProbeReply(QNetworkReply *reply, const QUrl &baseUrl);
     bool launchBundledBackend();
     QString bundledBackendPath() const;
+    QString pairingSecretForPort(int port) const;
 
     QNetworkAccessManager m_network;
     QProcess m_backendProcess;
