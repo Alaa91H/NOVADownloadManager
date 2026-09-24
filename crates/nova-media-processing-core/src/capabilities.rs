@@ -31,14 +31,14 @@ pub const fn native_media_processing_capabilities() -> NativeMediaProcessingCapa
         container_sniffing: true,
         packet_model: true,
         mp4_demux: true,
-        mp4_mux: false,
+        mp4_mux: true,
         fragmented_mp4_demux: true,
         mpeg_ts_demux: false,
         webm_demux: false,
         webm_mux: false,
         matroska_demux: false,
         matroska_mux: false,
-        native_remux: false,
+        native_remux: true,
         native_audio_transcode: false,
         native_video_transcode: false,
         hardware_acceleration: false,
@@ -57,8 +57,8 @@ mod tests {
         assert!(caps.packet_model);
         assert!(caps.mp4_demux);
         assert!(caps.fragmented_mp4_demux);
-        assert!(!caps.mp4_mux);
-        assert!(!caps.native_remux);
+        assert!(caps.mp4_mux);
+        assert!(caps.native_remux);
         assert!(!caps.native_audio_transcode);
         assert!(!caps.native_video_transcode);
     }
