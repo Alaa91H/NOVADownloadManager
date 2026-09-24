@@ -178,6 +178,7 @@ export const AddDownloadDialog: React.FC = () => {
         const sub: Record<FileType, string> = {
           video: 'Video',
           audio: 'Audio',
+          torrent: 'Torrents',
           document: 'Documents',
           compressed: 'Archives',
           program: 'Programs',
