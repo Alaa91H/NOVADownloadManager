@@ -31,6 +31,12 @@ Rectangle {
             target[key] = value
     }
 
+    function putComboText(target, key, field) {
+        const value = String(field.editable ? field.editText : field.currentText).trim()
+        if (value.length > 0)
+            target[key] = value
+    }
+
     function putPositive(target, key, field) {
         const value = Number(field.value)
         if (value > 0)
@@ -53,7 +59,8 @@ Rectangle {
         putText(options, "sponsorBlock", sponsorBlockField)
 
         putText(options, "proxy", proxyField)
-        putText(options, "cookiesFromBrowser", cookiesBrowserField)
+        putText(options, "sourceAddress", sourceAddressField)
+        putComboText(options, "cookiesFromBrowser", cookiesBrowserField)
         putText(options, "userAgent", userAgentField)
         putText(options, "referer", refererField)
         putText(options, "headers", headersField)
@@ -221,6 +228,18 @@ Rectangle {
                     Layout.fillWidth: true
                     placeholderText: "https://proxy.example:8080"
                     enabled: root.supports("proxy")
+                    selectByMouse: true
+                    font.family: "monospace"
+                    LayoutMirroring.enabled: false
+                    horizontalAlignment: Text.AlignLeft
+                }
+
+                Text { text: root.t("media.sourceAddress"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+                TextField {
+                    id: sourceAddressField
+                    Layout.fillWidth: true
+                    placeholderText: "192.0.2.10"
+                    enabled: root.supports("sourceAddress")
                     selectByMouse: true
                     font.family: "monospace"
                     LayoutMirroring.enabled: false
