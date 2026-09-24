@@ -19,14 +19,17 @@ pub use assembly::{assemble_ordered_parts, AssemblyError, AssemblyResult};
 pub use dash_live::{refresh_and_stage_dash_live_once, DashLiveError, DashLiveStageRefresh};
 pub use dash_transfer::{
     stage_dash_representation_plan, stage_dash_representation_plan_controlled,
-    stage_dash_representation_plan_controlled_with_progress, DashStageError, DashStageFile,
+    stage_dash_representation_plan_controlled_with_progress,
+    stage_dash_representation_plan_controlled_with_progress_scoped, DashStageError, DashStageFile,
     DashStageResult,
 };
 pub use generic::{GenericDirectMediaExtractor, GenericManifestExtractor};
 pub use hls_live::{refresh_and_stage_hls_live_once, HlsLiveError, HlsLiveStageRefresh};
 pub use hls_transfer::{
     stage_hls_media_plan, stage_hls_media_plan_controlled,
-    stage_hls_media_plan_controlled_with_progress, HlsStageError, HlsStageFile, HlsStageResult,
+    stage_hls_media_plan_controlled_with_progress,
+    stage_hls_media_plan_controlled_with_progress_scoped, HlsStageError, HlsStageFile,
+    HlsStageResult,
 };
 pub use selection::{
     select_media_stream, MediaSelectionMode, MediaSelectionPolicy, MediaSortKey,
