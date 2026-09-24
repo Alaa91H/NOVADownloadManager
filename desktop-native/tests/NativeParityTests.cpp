@@ -728,6 +728,7 @@ void NativeParityTests::mediaDownloadCarriesAdvancedOptions() {
         {QStringLiteral("splitChapters"), true},
         {QStringLiteral("sponsorBlock"), QStringLiteral("sponsor,selfpromo")},
         {QStringLiteral("proxy"), QStringLiteral("https://8.8.8.8:8080")},
+        {QStringLiteral("sourceAddress"), QStringLiteral("192.0.2.10")},
         {QStringLiteral("cookiesFromBrowser"), QStringLiteral("firefox")},
         {QStringLiteral("userAgent"), QStringLiteral("NOVA-Media-Test")},
         {QStringLiteral("referer"), QStringLiteral("https://origin.test/page")},
@@ -765,6 +766,7 @@ void NativeParityTests::mediaDownloadCarriesAdvancedOptions() {
     QCOMPARE(media.value(QStringLiteral("remuxFormat")).toString(), QStringLiteral("mp4"));
     QCOMPARE(media.value(QStringLiteral("sponsorBlock")).toString(), QStringLiteral("sponsor,selfpromo"));
     QCOMPARE(media.value(QStringLiteral("proxy")).toString(), QStringLiteral("https://8.8.8.8:8080"));
+    QCOMPARE(media.value(QStringLiteral("sourceAddress")).toString(), QStringLiteral("192.0.2.10"));
     QCOMPARE(media.value(QStringLiteral("cookiesFromBrowser")).toString(), QStringLiteral("firefox"));
     QCOMPARE(media.value(QStringLiteral("headers")).toString(), QStringLiteral("X-Test: one\nX-Trace: two"));
     QCOMPARE(media.value(QStringLiteral("cookies")).toString(), QStringLiteral("sid=abc"));
