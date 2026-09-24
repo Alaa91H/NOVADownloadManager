@@ -78,7 +78,28 @@ Add, pause, resume, retry, delete, properties, open file/folder and task inspect
 Queues, scheduler, batch import, link grabber and media download.
 
 ### Stage 4 — Desktop integration
-Tray, notifications, taskbar/dock progress, file dialogs, menus, shortcuts and updater.
+
+Status: **in progress — core desktop integration implemented**.
+
+Implemented:
+
+- Persistent native preferences through `QSettings`.
+- System tray with Show/Quit behavior and close-to-tray/start-minimized support.
+- Native completion/failure desktop notifications.
+- Native file and folder dialogs through `QFileDialog`.
+- Windows taskbar download progress through `ITaskbarList3`.
+- Linux launcher progress/count integration through Unity LauncherEntry DBus.
+- Desktop menu bar and global navigation/workflow shortcuts.
+- Native Settings workspace for engine capabilities, profiles, bandwidth and retry policy.
+- Full daemon diagnostics and structured runtime log viewer.
+- Safe Stable/Preview update checks against published GitHub releases.
+- Update installation remains intentionally disabled while the production signed-updater endpoint and public verification key are not configured.
+
+Remaining before Stage 4 is considered complete:
+
+- Signed automatic updater installation after the existing updater signing requirements are satisfied.
+- macOS Dock progress integration and platform validation.
+- Final desktop menu/shortcut behavior validation across Windows, macOS and Linux.
 
 ### Stage 5 — Localization and platform polish
 Full translation import, RTL, themes, accessibility and platform-specific refinement.
