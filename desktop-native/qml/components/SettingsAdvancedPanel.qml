@@ -616,13 +616,13 @@ ScrollView {
                                 "nova-settings-backup.json",
                                 "JSON (*.json)"
                             )
-                            if (path.length > 0)
+                            if (path.length > 0) {
+                                const ok = settings.exportBackup(path)
                                 root.showNotice(
-                                    settings.exportBackup(path)
-                                        ? root.t("settings.exportSuccess")
-                                        : root.t("settings.exportFailed"),
-                                    !settings.exportBackup(path)
+                                    ok ? root.t("settings.exportSuccess") : root.t("settings.exportFailed"),
+                                    !ok
                                 )
+                            }
                         }
                     }
 
