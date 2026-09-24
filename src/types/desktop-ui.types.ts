@@ -332,6 +332,7 @@ export interface Queue {
   exitOnComplete?: boolean;
   retryCount: number;
   retryDelay?: number;
+  profileId?: string;
   downloadOrder: string[]; // List of DownloadItem ids
 }
 
