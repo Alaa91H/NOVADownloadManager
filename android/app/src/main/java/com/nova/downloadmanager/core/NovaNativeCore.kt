@@ -10,7 +10,7 @@ package com.nova.downloadmanager.core
  */
 internal object NovaNativeCore {
     private const val LIBRARY_NAME = "nova_mobile_ffi"
-    private const val CLIENT_BRIDGE_API_VERSION = 2
+    private const val CLIENT_BRIDGE_API_VERSION = 3
     private const val RESUME_APPEND = 0
     private const val RESUME_RESTART = 1
     private const val MISSING_CONTENT_RANGE = -1L
@@ -46,9 +46,10 @@ internal object NovaNativeCore {
         val finalBytes: Long,
     )
 
-    internal data class HttpResourceProbe(
-        val responseStatus: Int,
-        val contentLength: Long?,
+
+    internal data class NativeTransferProgress(
+        val downloadedBytes: Long,
+        val totalBytes: Long,
     )
 
     private val loadFailure: Throwable? = runCatching {
@@ -56,18 +57,6 @@ internal object NovaNativeCore {
     }.exceptionOrNull()
 
     private external fun nativeInitialize(clientBridgeApiVersion: Int): Int
-
-    private external fun nativeProbeHttpResource(url: String): LongArray?
-
-    private external fun nativeStagedTransferBytes(
-        appPrivateRoot: String,
-        relativeDestination: String,
-    ): Long
-
-    private external fun nativeDiscardStagedTransfer(
-        appPrivateRoot: String,
-        relativeDestination: String,
-    ): Boolean
 
     private external fun nativePlanSegmentCount(
         totalBytes: Long,
@@ -103,6 +92,17 @@ internal object NovaNativeCore {
 
     private external fun nativeCancelTransfer(taskId: String): Boolean
 
+    private external fun nativeTransferDownloadedBytes(taskId: String): Long
+
+    private external fun nativeTransferTotalBytes(taskId: String): Long
+
+    private external fun nativeForgetTransferProgress(taskId: String)
+
+    private external fun nativeDiscardAppPrivateTransfer(
+        appPrivateRoot: String,
+        relativeDestination: String,
+    ): Boolean
+
     fun requireCompatible(): Int {
         loadFailure?.let { failure ->
             throw IllegalStateException(
@@ -121,47 +121,6 @@ internal object NovaNativeCore {
             "NOVA native core bridge mismatch: Android expects $CLIENT_BRIDGE_API_VERSION but core returned $coreBridgeVersion"
         }
         return coreBridgeVersion
-    }
-
-    /**
-     * Reads remote HTTP metadata through the same Rust/libcurl stack that owns
-     * the eventual transfer. Callers run this only from Android background
-     * execution contexts.
-     */
-    fun probeHttpResource(url: String): HttpResourceProbe {
-        requireCompatible()
-        require(url.isNotBlank()) { "url must not be blank" }
-        val values = nativeProbeHttpResource(url)
-            ?: error("NOVA native HTTP probe returned no result")
-        check(values.size == 2) { "NOVA native HTTP probe returned an invalid result" }
-        val status = values[0]
-        check(status in 100L..599L) { "NOVA native HTTP probe returned invalid status $status" }
-        val length = values[1]
-        check(length >= -1L) { "NOVA native HTTP probe returned invalid content length $length" }
-        return HttpResourceProbe(
-            responseStatus = status.toInt(),
-            contentLength = length.takeIf { it >= 0L },
-        )
-    }
-
-    fun stagedTransferBytes(
-        appPrivateRoot: String,
-        relativeDestination: String,
-    ): Long {
-        requireCompatible()
-        require(relativeDestination.isNotBlank()) { "relativeDestination must not be blank" }
-        val bytes = nativeStagedTransferBytes(appPrivateRoot, relativeDestination)
-        check(bytes >= 0L) { "NOVA native staged progress query failed" }
-        return bytes
-    }
-
-    fun discardStagedTransfer(
-        appPrivateRoot: String,
-        relativeDestination: String,
-    ): Boolean {
-        requireCompatible()
-        require(relativeDestination.isNotBlank()) { "relativeDestination must not be blank" }
-        return nativeDiscardStagedTransfer(appPrivateRoot, relativeDestination)
     }
 
     /**
@@ -266,4 +225,30 @@ internal object NovaNativeCore {
         return nativeCancelTransfer(taskId)
     }
 
+    fun transferProgress(taskId: String): NativeTransferProgress? {
+        requireCompatible()
+        require(taskId.isNotBlank()) { "taskId must not be blank" }
+        val downloaded = nativeTransferDownloadedBytes(taskId)
+        val total = nativeTransferTotalBytes(taskId)
+        if (downloaded < 0 || total < 0) return null
+        return NativeTransferProgress(
+            downloadedBytes = downloaded,
+            totalBytes = total,
+        )
+    }
+
+    fun forgetTransferProgress(taskId: String) {
+        requireCompatible()
+        require(taskId.isNotBlank()) { "taskId must not be blank" }
+        nativeForgetTransferProgress(taskId)
+    }
+
+    fun discardAppPrivateTransfer(
+        appPrivateRoot: String,
+        relativeDestination: String,
+    ): Boolean {
+        requireCompatible()
+        require(relativeDestination.isNotBlank()) { "relativeDestination must not be blank" }
+        return nativeDiscardAppPrivateTransfer(appPrivateRoot, relativeDestination)
+    }
 }
