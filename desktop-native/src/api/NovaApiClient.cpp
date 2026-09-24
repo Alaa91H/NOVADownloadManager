@@ -532,6 +532,16 @@ void NovaApiClient::recomputeKnownQueueIds() {
     QSet<QString> ids;
     ids.insert(QStringLiteral("main"));
 
+    for (const QVariant &value : m_queueCatalog) {
+        const QString queueId = value.toMap()
+            .value(QStringLiteral("id"))
+            .toString()
+            .trimmed();
+        if (!queueId.isEmpty()) {
+            ids.insert(queueId);
+        }
+    }
+
     for (const QJsonValue &value : m_currentDownloads) {
         const QString queueId = value.toObject()
             .value(QStringLiteral("queueId"))
@@ -553,6 +563,38 @@ void NovaApiClient::recomputeKnownQueueIds() {
 
     m_knownQueueIds = next;
     emit queueCatalogChanged();
+}
+
+void NovaApiClient::refreshQueueCatalog() {
+    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/queues")));
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit requestFailed(QStringLiteral("Unexpected queue catalog response."));
+            return;
+        }
+
+        QVariantList catalog =
+            document.object().value(QStringLiteral("queues")).toArray().toVariantList();
+        if (catalog.isEmpty()) {
+            catalog.append(QVariantMap{
+                {QStringLiteral("id"), QStringLiteral("main")},
+                {QStringLiteral("name"), QStringLiteral("Main Queue")}
+            });
+        }
+
+        m_queueCatalog = catalog;
+        recomputeKnownQueueIds();
+        emit queueCatalogChanged();
+    });
 }
 
 void NovaApiClient::refreshQueue() {
