@@ -15,11 +15,54 @@ Item {
     property bool playlistMode: false
     property var capabilitySnapshot: api.engineCapabilities
     property bool ffmpegTouched: false
+    property bool selectAllPlaylist: true
+    property var selectedPlaylistIndexes: ({})
     property string languageToken: i18n.language
 
     function t(key) {
         const token = root.languageToken
         return i18n.translate(key)
+    }
+
+    function urlLooksLikePlaylist(value) {
+        return /[?&]list=[^&]+/.test(String(value || ""))
+    }
+
+    function resetPlaylistSelection() {
+        selectAllPlaylist = true
+        selectedPlaylistIndexes = ({})
+    }
+
+    function playlistSelectionCount() {
+        if (selectAllPlaylist)
+            return api.mediaPlaylistEntries.length
+        let count = 0
+        for (const key in selectedPlaylistIndexes) {
+            if (selectedPlaylistIndexes[key])
+                ++count
+        }
+        return count
+    }
+
+    function playlistItemsValue() {
+        if (selectAllPlaylist)
+            return ""
+        const values = []
+        for (const key in selectedPlaylistIndexes) {
+            if (selectedPlaylistIndexes[key])
+                values.push(Number(key))
+        }
+        values.sort(function(a, b) { return a - b })
+        return values.join(",")
+    }
+
+    function togglePlaylistItem(index) {
+        if (selectAllPlaylist)
+            return
+        const next = Object.assign({}, selectedPlaylistIndexes)
+        const key = String(index)
+        next[key] = !next[key]
+        selectedPlaylistIndexes = next
     }
 
     function formatBytes(value) {
@@ -51,6 +94,18 @@ Item {
             })
         }
 
+        if (qualityModel.count === 1) {
+            const fallbackHeights = [4320, 2880, 2160, 1440, 1080, 720, 480, 360, 240, 144]
+            for (let j = 0; j < fallbackHeights.length; ++j) {
+                const height = fallbackHeights[j]
+                qualityModel.append({
+                    label: height + "p",
+                    value: height + "p",
+                    size: 0
+                })
+            }
+        }
+
         if (qualityBox.currentIndex < 0)
             qualityBox.currentIndex = 0
     }
@@ -79,6 +134,11 @@ Item {
 
         const isAudio = modeBox.currentIndex === 1
         const qualityValue = qualityBox.currentValue || "best"
+
+        if (playlistMode && !selectAllPlaylist && playlistSelectionCount() === 0) {
+            errorText = root.t("media.noPlaylistSelection")
+            return
+        }
         if (api.engineCapabilities.mediaReady !== true) {
             errorText = root.t("media.engineUnavailable")
             return
@@ -98,8 +158,8 @@ Item {
                 ? outputTemplate.text.trim()
                 : "%(title)s.%(ext)s",
             playlist: playlistMode,
-            playlistItems: playlistMode && playlistItems.text.trim().length > 0
-                ? playlistItems.text.trim()
+            playlistItems: playlistMode && !selectAllPlaylist
+                ? playlistItemsValue()
                 : undefined,
             subtitles: subtitlesCheck.checked,
             subtitleLanguages: subtitleLanguages.text.trim().length > 0
@@ -131,6 +191,17 @@ Item {
             options,
             startImmediately.checked
         )
+    }
+
+    Timer {
+        id: autoProbeTimer
+        interval: 800
+        repeat: false
+        onTriggered: {
+            const value = urlField.text.trim()
+            if (api.connected && value.startsWith("http"))
+                root.analyze()
+        }
     }
 
     Component.onCompleted: {
@@ -166,6 +237,11 @@ Item {
         function onMediaProbeFailed(message) {
             root.errorText = message
             root.statusText = ""
+        }
+
+        function onMediaPlaylistChanged() {
+            if (!api.mediaPlaylistBusy)
+                root.resetPlaylistSelection()
         }
 
         function onMediaPlaylistFailed(message) {
@@ -256,14 +332,25 @@ Item {
                     horizontalAlignment: Text.AlignLeft
                     Accessible.name: root.t("add.url")
                     onAccepted: root.analyze()
+                    onTextChanged: {
+                        const detected = root.urlLooksLikePlaylist(text)
+                        if (detected !== root.playlistMode) {
+                            root.playlistMode = detected
+                            playlistCheck.checked = detected
+                            root.resetPlaylistSelection()
+                        }
+                        autoProbeTimer.restart()
+                    }
                 }
 
                 CheckBox {
                     id: playlistCheck
                     text: root.t("media.playlist")
                     checked: root.playlistMode
+                    enabled: api.mediaOptionSupported("playlist")
                     onToggled: {
                         root.playlistMode = checked
+                        root.resetPlaylistSelection()
                         root.errorText = ""
                         root.statusText = ""
                     }
@@ -323,6 +410,7 @@ Item {
                                     id: modeBox
                                     Layout.fillWidth: true
                                     Accessible.name: root.t("media.mode")
+                                    enabled: api.engineCapabilities.mediaReady === true
                                     model: [root.t("media.videoAudio"), root.t("media.audioOnly")]
                                 }
                             }
@@ -337,6 +425,7 @@ Item {
                                     Layout.fillWidth: true
                                     Accessible.name: root.t("media.quality")
                                     enabled: modeBox.currentIndex === 0
+                                        && api.mediaOptionSupported("quality")
                                     model: qualityModel
                                     textRole: "label"
                                     valueRole: "value"
@@ -353,6 +442,8 @@ Item {
                                     id: audioFormatBox
                                     Layout.fillWidth: true
                                     Accessible.name: root.t("media.audioFormat")
+                                    enabled: api.mediaOptionSupported("audioFormat")
+                                        && api.engineCapabilities.postProcessingReady === true
                                     model: [
                                         { label: "M4A", value: "m4a" },
                                         { label: "MP3", value: "mp3" },
@@ -375,6 +466,8 @@ Item {
                                     id: bitrateBox
                                     Layout.fillWidth: true
                                     Accessible.name: root.t("media.audioQuality")
+                                    enabled: api.mediaOptionSupported("bitrate")
+                                        && api.engineCapabilities.postProcessingReady === true
                                     model: [
                                         { label: "Best", value: "0" },
                                         { label: "320K", value: "320K" },
@@ -423,10 +516,34 @@ Item {
                             spacing: 4
 
                             Text { text: root.t("media.outputTemplate"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+
+                                Button {
+                                    text: root.t("media.templateTitle")
+                                    enabled: api.mediaOptionSupported("outputTemplate")
+                                    onClicked: outputTemplate.text = "%(title)s.%(ext)s"
+                                }
+                                Button {
+                                    text: root.t("media.templateCreator")
+                                    enabled: api.mediaOptionSupported("outputTemplate")
+                                    onClicked: outputTemplate.text = "%(uploader)s - %(title)s.%(ext)s"
+                                }
+                                Button {
+                                    text: root.t("media.templateIndex")
+                                    enabled: api.mediaOptionSupported("outputTemplate")
+                                    onClicked: outputTemplate.text = "%(playlist_index)s - %(title)s.%(ext)s"
+                                }
+                                Item { Layout.fillWidth: true }
+                            }
+
                             TextField {
                                 id: outputTemplate
                                 Layout.fillWidth: true
                                 text: "%(title)s.%(ext)s"
+                                enabled: api.mediaOptionSupported("outputTemplate")
                                 selectByMouse: true
                                 font.family: "monospace"
                                 LayoutMirroring.enabled: false
@@ -443,8 +560,11 @@ Item {
                             TextField {
                                 id: playlistItems
                                 Layout.fillWidth: true
-                                placeholderText: "Optional: 1-10,15,20"
-                                selectByMouse: true
+                                readOnly: true
+                                text: root.selectAllPlaylist
+                                    ? root.t("media.allPlaylistItems")
+                                    : root.playlistItemsValue()
+                                placeholderText: root.t("media.selectPlaylistItems")
                                 LayoutMirroring.enabled: false
                                 horizontalAlignment: Text.AlignLeft
                             }
@@ -468,38 +588,46 @@ Item {
                                 id: subtitlesCheck
                                 text: root.t("media.subtitles")
                                 Accessible.name: text
+                                enabled: api.mediaOptionSupported("subtitles")
                             }
 
                             CheckBox {
                                 id: embedSubtitlesCheck
                                 text: root.t("media.embedSubtitles")
                                 Accessible.name: text
-                                enabled: subtitlesCheck.checked && ffmpegCheck.checked
+                                enabled: subtitlesCheck.checked
+                                    && ffmpegCheck.checked
+                                    && api.mediaOptionSupported("embedSubtitles")
                             }
 
                             CheckBox {
                                 id: thumbnailCheck
                                 text: root.t("media.thumbnail")
                                 Accessible.name: text
+                                enabled: api.mediaOptionSupported("writeThumbnail")
                             }
 
                             CheckBox {
                                 id: embedThumbnailCheck
                                 text: root.t("media.embedThumbnail")
                                 Accessible.name: text
-                                enabled: thumbnailCheck.checked && ffmpegCheck.checked
+                                enabled: thumbnailCheck.checked
+                                    && ffmpegCheck.checked
+                                    && api.mediaOptionSupported("embedThumbnail")
                             }
 
                             CheckBox {
                                 id: infoJsonCheck
                                 text: root.t("media.infoJson")
                                 Accessible.name: text
+                                enabled: api.mediaOptionSupported("writeInfoJson")
                             }
 
                             CheckBox {
                                 id: descriptionCheck
                                 text: root.t("media.description")
                                 Accessible.name: text
+                                enabled: api.mediaOptionSupported("writeDescription")
                             }
                         }
 
@@ -507,6 +635,7 @@ Item {
                             id: subtitleLanguages
                             Layout.fillWidth: true
                             visible: subtitlesCheck.checked
+                            enabled: api.mediaOptionSupported("subtitleLanguages")
                             placeholderText: root.t("media.subtitleLanguages")
                             selectByMouse: true
                             LayoutMirroring.enabled: false
@@ -617,6 +746,32 @@ Item {
                             }
                         }
 
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: root.playlistMode && api.mediaPlaylistEntries.length > 0
+
+                            Text {
+                                text: root.selectAllPlaylist
+                                    ? api.mediaPlaylistEntries.length + " " + root.t("media.selected")
+                                    : root.playlistSelectionCount() + " " + root.t("media.selected")
+                                color: Theme.textMuted
+                                font.pixelSize: Theme.fontTiny
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            Button {
+                                text: root.selectAllPlaylist
+                                    ? root.t("media.all")
+                                    : root.t("media.custom")
+                                enabled: api.mediaOptionSupported("playlistItems")
+                                onClicked: {
+                                    root.selectAllPlaylist = !root.selectAllPlaylist
+                                    root.selectedPlaylistIndexes = ({})
+                                }
+                            }
+                        }
+
                         ListView {
                             id: previewList
                             Layout.fillWidth: true
@@ -639,6 +794,18 @@ Item {
                                     anchors.leftMargin: 10
                                     anchors.rightMargin: 10
                                     spacing: 10
+
+                                    Button {
+                                        visible: root.playlistMode
+                                        enabled: !root.selectAllPlaylist
+                                            && api.mediaOptionSupported("playlistItems")
+                                        text: root.selectAllPlaylist
+                                            || root.selectedPlaylistIndexes[String(modelData.index)]
+                                            ? "✓"
+                                            : "○"
+                                        implicitWidth: 34
+                                        onClicked: root.togglePlaylistItem(Number(modelData.index))
+                                    }
 
                                     ColumnLayout {
                                         Layout.fillWidth: true
