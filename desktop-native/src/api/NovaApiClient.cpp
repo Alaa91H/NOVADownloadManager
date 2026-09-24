@@ -778,6 +778,12 @@ void NovaApiClient::importBatch(
         return;
     }
 
+    if (m_engineCapabilities.contains(QStringLiteral("directReady"))
+        && !m_engineCapabilities.value(QStringLiteral("directReady")).toBool()) {
+        emit requestFailed(QStringLiteral("The NOVA direct-download engine is not ready."));
+        return;
+    }
+
     const Nova::BatchPattern::ExpansionResult expansion =
         Nova::BatchPattern::expandInput(input);
     if (!expansion.ok()) {
@@ -876,8 +882,13 @@ void NovaApiClient::importBatch(
         );
     }
 
-    m_batchConnections = qBound(0, connections, 32);
-    if (m_batchConnections > 1 && directOptionSupported(QStringLiteral("segmented"))) {
+    const bool segmentedSupported =
+        directOptionSupported(QStringLiteral("segmented"))
+        && directOptionSupported(QStringLiteral("range"));
+    m_batchConnections = segmentedSupported
+        ? qBound(0, connections, 32)
+        : 1;
+    if (m_batchConnections > 1) {
         m_batchAdvancedOptions.insert(QStringLiteral("segmented"), true);
     }
     m_batchStartImmediately = startImmediately;
