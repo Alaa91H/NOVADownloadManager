@@ -28,6 +28,7 @@ Item {
     Component.onCompleted: {
         saveDirectory.text = settings.defaultSaveDirectory
         startImmediately.checked = settings.startImmediately
+        api.refreshEngineCapabilities()
         for (let i = 0; i < connections.model.length; ++i) {
             if (connections.model[i].value === settings.defaultConnections) {
                 connections.currentIndex = i
@@ -219,13 +220,12 @@ Item {
                     font.pixelSize: Theme.fontSmall
                 }
 
-                TextField {
-                    id: queueIdField
+                ComboBox {
+                    id: queueSelector
                     Layout.fillWidth: true
-                    text: root.defaultQueueId
+                    model: api.knownQueueIds
                     enabled: !api.batchRunning
-                    LayoutMirroring.enabled: false
-                    horizontalAlignment: Text.AlignLeft
+                    Accessible.name: root.t("batch.queueId")
                 }
 
                 Text {
@@ -240,6 +240,7 @@ Item {
                     to: 100
                     value: 3
                     enabled: !api.batchRunning
+                        && api.directOptionSupported("retryCount")
                 }
 
                 Text {
@@ -253,6 +254,7 @@ Item {
                     Layout.columnSpan: 3
                     Layout.fillWidth: true
                     enabled: !api.batchRunning
+                        && api.directOptionSupported("referer")
                     LayoutMirroring.enabled: false
                     horizontalAlignment: Text.AlignLeft
                 }
@@ -268,6 +270,7 @@ Item {
                     Layout.columnSpan: 3
                     Layout.fillWidth: true
                     enabled: !api.batchRunning
+                        && api.directOptionSupported("userAgent")
                     LayoutMirroring.enabled: false
                     horizontalAlignment: Text.AlignLeft
                 }
@@ -284,9 +287,63 @@ Item {
                     to: 3600
                     value: 60
                     enabled: !api.batchRunning
+                        && api.directOptionSupported("timeoutSec")
                 }
 
                 Item { Layout.columnSpan: 2; Layout.fillWidth: true }
+
+                Text {
+                    text: root.t("batch.proxy")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                }
+
+                TextField {
+                    id: proxyField
+                    Layout.columnSpan: 3
+                    Layout.fillWidth: true
+                    placeholderText: root.t("batch.proxyHint")
+                    enabled: !api.batchRunning
+                        && api.directOptionSupported("proxy")
+                    LayoutMirroring.enabled: false
+                    horizontalAlignment: Text.AlignLeft
+                }
+
+                Text {
+                    text: root.t("batch.headers")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                }
+
+                TextArea {
+                    id: headersField
+                    Layout.columnSpan: 3
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 72
+                    placeholderText: root.t("batch.headersHint")
+                    enabled: !api.batchRunning
+                        && api.directOptionSupported("headers")
+                    wrapMode: TextEdit.NoWrap
+                    LayoutMirroring.enabled: false
+                    horizontalAlignment: Text.AlignLeft
+                }
+
+                Text {
+                    text: root.t("batch.cookies")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                }
+
+                TextField {
+                    id: cookiesField
+                    Layout.columnSpan: 3
+                    Layout.fillWidth: true
+                    placeholderText: root.t("batch.cookiesHint")
+                    enabled: !api.batchRunning
+                        && api.directOptionSupported("cookies")
+                    LayoutMirroring.enabled: false
+                    horizontalAlignment: Text.AlignLeft
+                }
             }
         }
 
@@ -375,6 +432,12 @@ Item {
                         advanced.referer = refererField.text.trim()
                     if (userAgentField.text.trim().length > 0)
                         advanced.userAgent = userAgentField.text.trim()
+                    if (proxyField.text.trim().length > 0)
+                        advanced.proxy = proxyField.text.trim()
+                    if (headersField.text.trim().length > 0)
+                        advanced.headers = headersField.text.trim()
+                    if (cookiesField.text.trim().length > 0)
+                        advanced.cookies = cookiesField.text.trim()
 
                     api.importBatch(
                         linksInput.text,
@@ -382,8 +445,8 @@ Item {
                         connections.currentValue,
                         startImmediately.checked,
                         {
-                            queueId: queueIdField.text.trim().length > 0
-                                ? queueIdField.text.trim()
+                            queueId: queueSelector.currentText.length > 0
+                                ? queueSelector.currentText
                                 : root.defaultQueueId,
                             advanced: advanced
                         }
