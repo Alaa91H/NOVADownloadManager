@@ -9,7 +9,7 @@ use url::{form_urlencoded, Url};
 
 use crate::{
     ExtractRequest, MediaDescriptor, MediaError, MediaExtractor, MediaMetadata, MediaProtocol,
-    MediaSourceKind, MediaStream, MediaTrackKind, SubtitleTrack,
+    MediaSelectionMode, MediaSortKey, MediaSourceKind, MediaStream, MediaTrackKind, SubtitleTrack,
 };
 
 const WATCH_PAGE_MAX_BYTES: usize = 6 * 1024 * 1024;
@@ -200,17 +200,29 @@ fn set_query_parameter(url: &mut Url, key: &str, value: &str) {
     query.append_pair(key, value);
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct YouTubeSelectionPolicy {
+    pub mode: MediaSelectionMode,
     pub max_height: Option<u32>,
     pub prefer_separate_tracks: bool,
+    pub preferred_container: Option<String>,
+    pub preferred_language: Option<String>,
+    pub sort: Vec<MediaSortKey>,
 }
 
 impl Default for YouTubeSelectionPolicy {
     fn default() -> Self {
         Self {
+            mode: MediaSelectionMode::Video,
             max_height: None,
             prefer_separate_tracks: true,
+            preferred_container: None,
+            preferred_language: None,
+            sort: vec![
+                MediaSortKey::Quality,
+                MediaSortKey::Bitrate,
+                MediaSortKey::Size,
+            ],
         }
     }
 }
@@ -253,36 +265,37 @@ pub fn select_youtube_download_plan(
         })
         .collect::<Vec<_>>();
 
+    let best_audio = usable
+        .iter()
+        .copied()
+        .filter(|stream| stream.kind == MediaTrackKind::Audio)
+        .filter(|stream| matches!(stream.protocol, MediaProtocol::Http | MediaProtocol::Https))
+        .max_by(|left, right| compare_youtube_streams(left, right, &policy));
+
+    if policy.mode == MediaSelectionMode::Audio {
+        return best_audio.map(|stream| YouTubeDownloadPlan::SingleStream {
+            stream_id: stream.id.clone(),
+        });
+    }
+
     let best_muxed = usable
         .iter()
         .copied()
         .filter(|stream| stream.kind == MediaTrackKind::AudioVideo)
         .filter(|stream| matches!(stream.protocol, MediaProtocol::Http | MediaProtocol::Https))
-        .max_by_key(|stream| stream_quality_score(stream));
+        .max_by(|left, right| compare_youtube_streams(left, right, &policy));
 
     let best_video = usable
         .iter()
         .copied()
         .filter(|stream| stream.kind == MediaTrackKind::Video)
         .filter(|stream| matches!(stream.protocol, MediaProtocol::Http | MediaProtocol::Https))
-        .max_by_key(|stream| stream_quality_score(stream));
-
-    let best_audio = usable
-        .iter()
-        .copied()
-        .filter(|stream| stream.kind == MediaTrackKind::Audio)
-        .filter(|stream| matches!(stream.protocol, MediaProtocol::Http | MediaProtocol::Https))
-        .max_by_key(|stream| {
-            (
-                stream.audio_bitrate_bps.or(stream.bitrate_bps).unwrap_or(0),
-                stream.content_length.unwrap_or(0),
-            )
-        });
+        .max_by(|left, right| compare_youtube_streams(left, right, &policy));
 
     if policy.prefer_separate_tracks {
         if let (Some(video), Some(audio)) = (best_video, best_audio) {
             let separate_is_better = best_muxed.map_or(true, |muxed| {
-                stream_quality_score(video) > stream_quality_score(muxed)
+                compare_youtube_streams(video, muxed, &policy).is_gt()
             });
             if separate_is_better {
                 return Some(YouTubeDownloadPlan::SeparateTracks {
@@ -309,15 +322,71 @@ pub fn select_youtube_download_plan(
     usable
         .into_iter()
         .filter(|stream| matches!(stream.protocol, MediaProtocol::Hls | MediaProtocol::Dash))
-        .max_by_key(|stream| {
-            (
-                u8::from(stream.protocol == MediaProtocol::Dash),
-                stream_quality_score(stream),
-            )
-        })
+        .max_by(|left, right| compare_youtube_streams(left, right, &policy))
         .map(|stream| YouTubeDownloadPlan::SingleStream {
             stream_id: stream.id.clone(),
         })
+}
+
+fn compare_youtube_streams(
+    left: &MediaStream,
+    right: &MediaStream,
+    policy: &YouTubeSelectionPolicy,
+) -> std::cmp::Ordering {
+    youtube_preference_score(left, policy)
+        .cmp(&youtube_preference_score(right, policy))
+        .then_with(|| {
+            for key in &policy.sort {
+                let ordering = youtube_sort_value(left, *key).cmp(&youtube_sort_value(right, *key));
+                if ordering != std::cmp::Ordering::Equal {
+                    return ordering;
+                }
+            }
+            std::cmp::Ordering::Equal
+        })
+}
+
+fn youtube_preference_score(
+    stream: &MediaStream,
+    policy: &YouTubeSelectionPolicy,
+) -> (u8, u8) {
+    let container_match = policy
+        .preferred_container
+        .as_deref()
+        .map_or(false, |wanted| {
+            stream
+                .container
+                .as_deref()
+                .is_some_and(|actual| actual.eq_ignore_ascii_case(wanted))
+        });
+    let language_match = policy
+        .preferred_language
+        .as_deref()
+        .map_or(false, |wanted| {
+            stream
+                .language
+                .as_deref()
+                .is_some_and(|actual| actual.eq_ignore_ascii_case(wanted))
+        });
+    (u8::from(container_match), u8::from(language_match))
+}
+
+fn youtube_sort_value(stream: &MediaStream, key: MediaSortKey) -> u64 {
+    match key {
+        MediaSortKey::Quality => u64::from(stream.height.unwrap_or(0))
+            .saturating_mul(1_000_000)
+            .saturating_add(
+                stream
+                    .fps
+                    .map(|fps| (fps.max(0.0) * 1_000.0) as u64)
+                    .unwrap_or(0),
+            ),
+        MediaSortKey::Bitrate => stream
+            .audio_bitrate_bps
+            .or(stream.bitrate_bps)
+            .unwrap_or(0),
+        MediaSortKey::Size => stream.content_length.unwrap_or(0),
+    }
 }
 
 fn stream_itag(stream: &MediaStream) -> Option<u64> {
@@ -327,13 +396,6 @@ fn stream_itag(stream: &MediaStream) -> Option<u64> {
         .and_then(|value| value.parse().ok())
 }
 
-fn stream_quality_score(stream: &MediaStream) -> (u32, u32, u64) {
-    (
-        stream.height.unwrap_or(0),
-        stream.fps.map(|fps| (fps * 1000.0) as u32).unwrap_or(0),
-        stream.bitrate_bps.unwrap_or(0),
-    )
-}
 
 pub struct YouTubeExtractor;
 
