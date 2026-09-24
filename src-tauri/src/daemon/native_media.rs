@@ -1917,16 +1917,16 @@ fn resolve_native_media(
             }
         }
 
-        let prefer_separate_tracks = body
+        let postprocessing_enabled = body
             .media_options
             .as_ref()
             .and_then(|options| options.ffmpeg_enabled)
-            .unwrap_or(false);
+            .unwrap_or(true);
         let plan = select_youtube_download_plan(
             &extraction,
             YouTubeSelectionPolicy {
                 max_height,
-                prefer_separate_tracks,
+                prefer_separate_tracks: postprocessing_enabled,
             },
         )
         .ok_or_else(|| {
@@ -1949,11 +1949,48 @@ fn resolve_native_media(
                     })?;
                 resolved_from_descriptor(&extraction.descriptor, stream)
             }
-            YouTubeDownloadPlan::SeparateTracks { .. } => Err(
-                NativeMediaTaskError::UnsupportedFeature(
-                    "separate-track mux is not migrated to task execution yet".to_owned(),
-                ),
-            ),
+            YouTubeDownloadPlan::SeparateTracks {
+                video_stream_id,
+                audio_stream_id,
+            } => {
+                if !postprocessing_enabled {
+                    return Err(NativeMediaTaskError::UnsupportedFeature(
+                        "the selected quality requires separate audio/video tracks, but native post-processing was disabled"
+                            .to_owned(),
+                    ));
+                }
+                let video = extraction
+                    .descriptor
+                    .streams
+                    .iter()
+                    .find(|stream| stream.id == video_stream_id)
+                    .ok_or_else(|| {
+                        NativeMediaTaskError::Resolution(
+                            "selected native video track disappeared".to_owned(),
+                        )
+                    })?;
+                let audio = extraction
+                    .descriptor
+                    .streams
+                    .iter()
+                    .find(|stream| stream.id == audio_stream_id)
+                    .ok_or_else(|| {
+                        NativeMediaTaskError::Resolution(
+                            "selected native audio track disappeared".to_owned(),
+                        )
+                    })?;
+                let expected_bytes = match (video.content_length, audio.content_length) {
+                    (Some(video), Some(audio)) => Some(video.saturating_add(audio)),
+                    _ => None,
+                };
+                Ok(ResolvedNativeMedia::SeparateTracks(ResolvedSeparateTracks {
+                    extraction,
+                    video_stream_id,
+                    audio_stream_id,
+                    output_container: separate_track_output_container(video, audio),
+                    expected_bytes,
+                }))
+            }
         };
     }
 
@@ -1973,6 +2010,35 @@ fn resolve_native_media(
         .ok_or_else(|| NativeMediaTaskError::Resolution("native media result has no playable stream".to_owned()))?;
 
     resolved_from_descriptor(&descriptor, stream)
+}
+
+fn separate_track_output_container(video: &MediaStream, audio: &MediaStream) -> String {
+    let video_container = video
+        .container
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let audio_container = audio
+        .container
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+
+    let mp4_video = matches!(video_container.as_str(), "mp4" | "m4v" | "mov");
+    let mp4_audio = matches!(audio_container.as_str(), "mp4" | "m4a" | "aac");
+    if mp4_video && mp4_audio {
+        return "mp4".to_owned();
+    }
+
+    let webm_video = video_container == "webm";
+    let webm_audio = matches!(audio_container.as_str(), "webm" | "opus" | "ogg");
+    if webm_video && webm_audio {
+        return "webm".to_owned();
+    }
+
+    "mkv".to_owned()
 }
 
 fn resolved_from_descriptor(
