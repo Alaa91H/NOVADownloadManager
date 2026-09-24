@@ -4,8 +4,8 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-pub const RESUME_FORMAT_VERSION: u32 = 1;
-const RESUME_MAGIC: &str = "NOVA-TORRENT-RESUME-1";
+pub const RESUME_FORMAT_VERSION: u32 = 2;
+const RESUME_MAGIC: &str = "NOVA-TORRENT-RESUME-2";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PieceBitmap {
