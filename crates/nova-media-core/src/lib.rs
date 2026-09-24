@@ -10,6 +10,7 @@ mod dash_transfer;
 mod generic;
 mod hls_live;
 mod hls_transfer;
+mod selection;
 mod youtube;
 mod youtube_player;
 mod youtube_transfer;
@@ -27,9 +28,12 @@ pub use hls_transfer::{
     stage_hls_media_plan, stage_hls_media_plan_controlled,
     stage_hls_media_plan_controlled_with_progress, HlsStageError, HlsStageFile, HlsStageResult,
 };
+pub use selection::{
+    select_media_stream, MediaSelectionMode, MediaSelectionPolicy, MediaSortKey,
+};
 pub use youtube::{
     resolve_youtube_pending_formats, select_youtube_download_plan, youtube_video_id,
-    YouTubeChallengeKind, YouTubeChallengeResolution, YouTubeChallengeSolver,
+    MediaChapter, YouTubeChallengeKind, YouTubeChallengeResolution, YouTubeChallengeSolver,
     YouTubeDownloadPlan, YouTubeExtraction, YouTubeExtractor, YouTubePendingFormat,
     YouTubeSelectionPolicy,
 };
@@ -179,6 +183,15 @@ pub struct MediaDescriptor {
 }
 
 impl MediaDescriptor {
+    pub fn request_context(&self) -> Result<HttpRequestContext, MediaError> {
+        let mut context = HttpRequestContext::default();
+        merge_request_headers(&mut context, &self.request_headers);
+        context
+            .validate()
+            .map_err(|error| MediaError::Transport(error.to_string()))?;
+        Ok(context)
+    }
+
     pub fn playable_streams(&self) -> impl Iterator<Item = &MediaStream> {
         self.streams.iter().filter(|stream| {
             matches!(

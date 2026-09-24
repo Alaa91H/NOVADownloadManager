@@ -9,7 +9,8 @@ use nova_media_core::{
     assemble_ordered_parts, download_youtube_plan_controlled, resolve_youtube_pending_formats,
     select_youtube_download_plan, stage_dash_representation_plan_controlled_with_progress,
     stage_hls_media_plan_controlled_with_progress, youtube_video_id, ExtractRequest,
-    MediaDescriptor, MediaProtocol, MediaStream, YouTubeDownloadPlan, YouTubeExtraction,
+    select_media_stream, MediaChapter, MediaDescriptor, MediaProtocol, MediaSelectionMode,
+    MediaSelectionPolicy, MediaSortKey, MediaStream, YouTubeDownloadPlan, YouTubeExtraction,
     YouTubeExtractor, YouTubePlayerScriptSolver, YouTubeSelectionPolicy, YouTubeTransferOutput,
     YouTubeTransferProgress, DEFAULT_MANIFEST_MAX_BYTES,
 };
@@ -41,6 +42,15 @@ pub struct NativeMediaExtractor;
 pub const NATIVE_MEDIA_OPTION_KEYS: &[&str] = &[
     "mode",
     "quality",
+    "formatSelector",
+    "formatSort",
+    "audioFormat",
+    "subtitles",
+    "subtitleLanguages",
+    "autoSubtitles",
+    "writeThumbnail",
+    "writeInfoJson",
+    "writeDescription",
     "ffmpegEnabled",
     "outputTemplate",
     "cookies",
@@ -141,12 +151,15 @@ struct ResolvedDirectMedia {
     container: Option<String>,
     content_length: Option<u64>,
     context: HttpRequestContext,
+    descriptor: MediaDescriptor,
+    chapters: Vec<MediaChapter>,
 }
 
 #[derive(Clone, Debug)]
 struct ResolvedManifestMedia {
     descriptor: MediaDescriptor,
     stream: MediaStream,
+    chapters: Vec<MediaChapter>,
 }
 
 #[derive(Clone, Debug)]
@@ -225,6 +238,8 @@ async fn create_native_direct_task(
     body: &CreateDownloadBody,
     resolved: ResolvedDirectMedia,
 ) -> Result<Task, NativeMediaTaskError> {
+    let descriptor = resolved.descriptor.clone();
+    let chapters = resolved.chapters.clone();
     let mut direct = body.clone();
     direct.url = Some(resolved.url);
     direct.media_options = None;
@@ -260,6 +275,10 @@ async fn create_native_direct_task(
         options.insert("headers".to_owned(), Value::String(headers));
     }
     direct.direct_options = Some(options);
+
+    let source_url = direct.url.as_deref().unwrap_or_default();
+    let (_, output_path) = crate::daemon::curl::destination_from_body(&direct, source_url);
+    prepare_native_sidecars(body, &descriptor, &chapters, &output_path)?;
 
     log::info!(
         "NOVA Media Engine resolved media to native direct transport: {}",
@@ -321,6 +340,12 @@ fn create_native_manifest_task(
         std::fs::create_dir_all(parent)
             .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
     }
+    prepare_native_sidecars(
+        body,
+        &resolved.descriptor,
+        &resolved.chapters,
+        &output_path,
+    )?;
 
     let id = Uuid::new_v4().to_string();
     let connections = crate::daemon::curl::requested_connections(body.connections);
@@ -461,6 +486,12 @@ fn create_native_separate_track_task(
         std::fs::create_dir_all(parent)
             .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
     }
+    prepare_native_sidecars(
+        body,
+        &resolved.extraction.descriptor,
+        &resolved.extraction.chapters,
+        &output_path,
+    )?;
 
     let id = Uuid::new_v4().to_string();
     let connections = crate::daemon::curl::requested_connections(body.connections);
@@ -1929,12 +1960,266 @@ pub(crate) fn is_native_manifest_url(url: &str) -> bool {
     path.ends_with(".m3u8") || path.ends_with(".mpd")
 }
 
+#[derive(Clone, Debug)]
+struct NativeSelectionPreferences {
+    mode: MediaSelectionMode,
+    preferred_container: Option<String>,
+    preferred_video_codec: Option<String>,
+    preferred_audio_codec: Option<String>,
+    sort: Vec<MediaSortKey>,
+}
+
+fn native_selection_preferences(
+    options: Option<&MediaDownloadOptions>,
+) -> Result<NativeSelectionPreferences, String> {
+    let mode = options
+        .and_then(|options| options.mode.as_deref())
+        .unwrap_or("video")
+        .trim()
+        .to_ascii_lowercase();
+    let mode = match mode.as_str() {
+        "video" | "best" | "auto" => MediaSelectionMode::Video,
+        "audio" => MediaSelectionMode::Audio,
+        other => return Err(format!("Native media mode '{other}' is not supported")),
+    };
+
+    let configured_audio_format = options
+        .and_then(|options| options.audio_format.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if mode != MediaSelectionMode::Audio && configured_audio_format.is_some() {
+        return Err("audioFormat requires native media mode 'audio'".to_owned());
+    }
+
+    let mut preferred_container = None;
+    if mode == MediaSelectionMode::Audio {
+        if let Some(format) = configured_audio_format {
+            preferred_container = match format.to_ascii_lowercase().as_str() {
+                "best" | "auto" => None,
+                "m4a" | "mp4" | "aac" => Some("mp4".to_owned()),
+                "webm" | "opus" | "ogg" => Some("webm".to_owned()),
+                "mp3" | "flac" | "wav" | "alac" => {
+                    return Err(format!(
+                        "Audio format '{format}' requires transcoding; native extraction only selects an existing audio representation"
+                    ));
+                }
+                other => {
+                    return Err(format!(
+                        "Native audio container preference '{other}' is not supported"
+                    ));
+                }
+            };
+        }
+    }
+
+    let mut preferred_video_codec = None;
+    let mut preferred_audio_codec = None;
+    let mut sort = Vec::new();
+    if let Some(expression) = options
+        .and_then(|options| options.format_sort.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        for raw in expression.split(',').map(str::trim).filter(|value| !value.is_empty()) {
+            let lower = raw.to_ascii_lowercase();
+            match lower.as_str() {
+                "res" | "height" | "quality" => push_sort_key(&mut sort, MediaSortKey::Quality),
+                "br" | "bitrate" | "abr" | "vbr" => {
+                    push_sort_key(&mut sort, MediaSortKey::Bitrate)
+                }
+                "size" | "filesize" | "filesize_approx" => {
+                    push_sort_key(&mut sort, MediaSortKey::Size)
+                }
+                _ if lower.starts_with("codec:") => {
+                    let mut parts = lower.split(':');
+                    let _ = parts.next();
+                    if let Some(video) = parts.next().filter(|value| !value.is_empty()) {
+                        preferred_video_codec = Some(normalize_codec_preference(video));
+                    }
+                    if let Some(audio) = parts.next().filter(|value| !value.is_empty()) {
+                        preferred_audio_codec = Some(normalize_codec_preference(audio));
+                    }
+                    if parts.next().is_some() {
+                        return Err(format!("Unsupported native format sort token '{raw}'"));
+                    }
+                }
+                _ if lower.starts_with("ext:") || lower.starts_with("container:") => {
+                    let value = lower
+                        .split_once(':')
+                        .map(|(_, value)| value)
+                        .unwrap_or_default()
+                        .trim();
+                    if value.is_empty() {
+                        return Err(format!("Unsupported native format sort token '{raw}'"));
+                    }
+                    preferred_container = Some(normalize_container_preference(value)?);
+                }
+                _ => return Err(format!("Unsupported native format sort token '{raw}'")),
+            }
+        }
+    }
+    if sort.is_empty() {
+        sort = vec![
+            MediaSortKey::Quality,
+            MediaSortKey::Bitrate,
+            MediaSortKey::Size,
+        ];
+    }
+
+    Ok(NativeSelectionPreferences {
+        mode,
+        preferred_container,
+        preferred_video_codec,
+        preferred_audio_codec,
+        sort,
+    })
+}
+
+fn push_sort_key(sort: &mut Vec<MediaSortKey>, key: MediaSortKey) {
+    if !sort.contains(&key) {
+        sort.push(key);
+    }
+}
+
+fn normalize_codec_preference(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "m4a" | "aac" => "mp4a".to_owned(),
+        "h264" => "avc".to_owned(),
+        "h265" | "hevc" => "hev".to_owned(),
+        other => other.to_owned(),
+    }
+}
+
+fn normalize_container_preference(value: &str) -> Result<String, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "mp4" | "m4a" | "aac" => Ok("mp4".to_owned()),
+        "webm" | "opus" | "ogg" => Ok("webm".to_owned()),
+        "mkv" | "matroska" => Ok("mkv".to_owned()),
+        other => Err(format!("Native container preference '{other}' is not supported")),
+    }
+}
+
+fn normalized_stream_id(value: &str) -> String {
+    let value = value.trim();
+    if value.starts_with("youtube-itag-") {
+        value.to_owned()
+    } else if value.chars().all(|character| character.is_ascii_digit()) {
+        format!("youtube-itag-{value}")
+    } else {
+        value.to_owned()
+    }
+}
+
+fn explicit_youtube_plan(
+    extraction: &YouTubeExtraction,
+    selector: Option<&str>,
+) -> Result<Option<YouTubeDownloadPlan>, NativeMediaTaskError> {
+    let Some(selector) = selector.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    if matches!(selector.to_ascii_lowercase().as_str(), "best" | "auto") {
+        return Ok(None);
+    }
+
+    let ids = selector
+        .split('+')
+        .map(normalized_stream_id)
+        .collect::<Vec<_>>();
+    if ids.len() > 2 {
+        return Err(NativeMediaTaskError::UnsupportedFeature(format!(
+            "native format selector '{selector}' is not supported"
+        )));
+    }
+    let pending: std::collections::BTreeSet<String> = extraction
+        .pending_formats
+        .iter()
+        .filter_map(|format| format.itag)
+        .map(|itag| format!("youtube-itag-{itag}"))
+        .collect();
+    for id in &ids {
+        if pending.contains(id) {
+            return Err(NativeMediaTaskError::UnsupportedFeature(format!(
+                "selected format '{id}' still requires an unresolved media challenge"
+            )));
+        }
+        if !extraction.descriptor.streams.iter().any(|stream| stream.id == *id) {
+            return Err(NativeMediaTaskError::InvalidRequest(format!(
+                "native format selector references unknown stream '{id}'"
+            )));
+        }
+    }
+
+    match ids.as_slice() {
+        [stream_id] => Ok(Some(YouTubeDownloadPlan::SingleStream {
+            stream_id: stream_id.clone(),
+        })),
+        [first, second] => {
+            let first_stream = extraction
+                .descriptor
+                .streams
+                .iter()
+                .find(|stream| stream.id == *first)
+                .expect("validated first stream");
+            let second_stream = extraction
+                .descriptor
+                .streams
+                .iter()
+                .find(|stream| stream.id == *second)
+                .expect("validated second stream");
+            let (video, audio) = match (first_stream.kind, second_stream.kind) {
+                (nova_media_core::MediaTrackKind::Video, nova_media_core::MediaTrackKind::Audio) => {
+                    (first, second)
+                }
+                (nova_media_core::MediaTrackKind::Audio, nova_media_core::MediaTrackKind::Video) => {
+                    (second, first)
+                }
+                _ => {
+                    return Err(NativeMediaTaskError::InvalidRequest(
+                        "a two-stream native format selector must contain one video-only and one audio-only representation"
+                            .to_owned(),
+                    ))
+                }
+            };
+            Ok(Some(YouTubeDownloadPlan::SeparateTracks {
+                video_stream_id: video.clone(),
+                audio_stream_id: audio.clone(),
+            }))
+        }
+        _ => Ok(None),
+    }
+}
+
 fn validate_native_options(options: &MediaDownloadOptions) -> Result<(), String> {
+    let _ = native_selection_preferences(Some(options))?;
+    if let Some(selector) = options
+        .format_selector
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if selector.split('+').count() > 2 {
+            return Err(format!(
+                "Native format selector '{selector}' is not supported"
+            ));
+        }
+    }
     let mode = options.mode.as_deref().unwrap_or("video").trim().to_ascii_lowercase();
-    if !matches!(mode.as_str(), "video" | "best" | "auto") {
+    if !matches!(mode.as_str(), "video" | "best" | "auto" | "audio") {
         return Err(format!(
             "Native media mode '{mode}' is not migrated yet"
         ));
+    }
+
+    if options
+        .subtitle_languages
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+        && options.subtitles != Some(true)
+        && options.auto_subtitles != Some(true)
+    {
+        return Err(
+            "subtitleLanguages requires subtitles=true or autoSubtitles=true".to_owned(),
+        );
     }
 
     if let Some(template) = options.output_template.as_deref().map(str::trim) {
@@ -1988,6 +2273,8 @@ fn resolve_native_media(
         .as_ref()
         .and_then(|options| options.quality.as_deref())
         .and_then(parse_quality_height);
+    let selection = native_selection_preferences(body.media_options.as_ref())
+        .map_err(NativeMediaTaskError::InvalidRequest)?;
 
     if youtube_video_id(&parsed).is_some() {
         let extractor = YouTubeExtractor;
@@ -2016,16 +2303,31 @@ fn resolve_native_media(
             .as_ref()
             .and_then(|options| options.ffmpeg_enabled)
             .unwrap_or(false);
-        let plan = select_youtube_download_plan(
+        let youtube_policy = YouTubeSelectionPolicy {
+            mode: selection.mode,
+            max_height,
+            prefer_separate_tracks: postprocessing_enabled,
+            preferred_container: selection.preferred_container.clone(),
+            preferred_language: None,
+            preferred_video_codec: selection.preferred_video_codec.clone(),
+            preferred_audio_codec: selection.preferred_audio_codec.clone(),
+            sort: selection.sort.clone(),
+        };
+        let plan = explicit_youtube_plan(
             &extraction,
-            YouTubeSelectionPolicy {
-                max_height,
-                prefer_separate_tracks: postprocessing_enabled,
-            },
-        )
+            body.media_options
+                .as_ref()
+                .and_then(|options| options.format_selector.as_deref()),
+        )?
+        .or_else(|| select_youtube_download_plan(&extraction, youtube_policy))
         .ok_or_else(|| {
             NativeMediaTaskError::UnsupportedFeature(
-                "no native-ready media stream was found after challenge resolution".to_owned(),
+                if selection.mode == MediaSelectionMode::Audio {
+                    "no native-ready audio-only representation was found after challenge resolution"
+                        .to_owned()
+                } else {
+                    "no native-ready media stream was found after challenge resolution".to_owned()
+                },
             )
         })?;
 
@@ -2041,12 +2343,27 @@ fn resolve_native_media(
                             "selected native media stream disappeared".to_owned(),
                         )
                     })?;
-                resolved_from_descriptor(&extraction.descriptor, stream)
+                if selection.mode == MediaSelectionMode::Audio
+                    && stream.kind != nova_media_core::MediaTrackKind::Audio
+                {
+                    return Err(NativeMediaTaskError::InvalidRequest(
+                        "audio mode requires an audio-only source representation".to_owned(),
+                    ));
+                }
+                ensure_requested_audio_container(stream, body.media_options.as_ref())?;
+                let mut resolved = resolved_from_descriptor(&extraction.descriptor, stream)?;
+                attach_native_chapters(&mut resolved, extraction.chapters.clone());
+                Ok(resolved)
             }
             YouTubeDownloadPlan::SeparateTracks {
                 video_stream_id,
                 audio_stream_id,
             } => {
+                if selection.mode == MediaSelectionMode::Audio {
+                    return Err(NativeMediaTaskError::InvalidRequest(
+                        "audio mode cannot use a video+audio format selector".to_owned(),
+                    ));
+                }
                 if !postprocessing_enabled {
                     return Err(NativeMediaTaskError::UnsupportedFeature(
                         "the selected quality requires separate audio/video tracks, but native post-processing was disabled"
@@ -2093,18 +2410,309 @@ fn resolve_native_media(
     let descriptor = registry
         .resolve(&request)
         .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
-    let stream = descriptor
-        .playable_streams()
-        .max_by_key(|stream| {
-            (
-                stream.height.unwrap_or(0),
-                stream.bitrate_bps.unwrap_or(0),
-                stream.content_length.unwrap_or(0),
-            )
-        })
-        .ok_or_else(|| NativeMediaTaskError::Resolution("native media result has no playable stream".to_owned()))?;
+    let stream = select_media_stream(
+        &descriptor,
+        &MediaSelectionPolicy {
+            mode: selection.mode,
+            max_height,
+            preferred_container: selection.preferred_container.clone(),
+            preferred_language: None,
+            preferred_video_codec: selection.preferred_video_codec.clone(),
+            preferred_audio_codec: selection.preferred_audio_codec.clone(),
+            sort: selection.sort.clone(),
+        },
+    )
+    .ok_or_else(|| {
+        NativeMediaTaskError::Resolution(
+            if selection.mode == MediaSelectionMode::Audio {
+                "native media result has no audio-only stream".to_owned()
+            } else {
+                "native media result has no playable video stream".to_owned()
+            },
+        )
+    })?;
+    ensure_requested_audio_container(stream, body.media_options.as_ref())?;
 
     resolved_from_descriptor(&descriptor, stream)
+}
+
+fn ensure_requested_audio_container(
+    stream: &MediaStream,
+    options: Option<&MediaDownloadOptions>,
+) -> Result<(), NativeMediaTaskError> {
+    let Some(requested) = options
+        .and_then(|options| options.audio_format.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(());
+    };
+    if matches!(requested.to_ascii_lowercase().as_str(), "best" | "auto") {
+        return Ok(());
+    }
+    let required = match requested.to_ascii_lowercase().as_str() {
+        "m4a" | "mp4" | "aac" => "mp4",
+        "webm" | "opus" | "ogg" => "webm",
+        _ => return Ok(()),
+    };
+    let actual = stream.container.as_deref().unwrap_or_default();
+    if actual.eq_ignore_ascii_case(required) {
+        Ok(())
+    } else {
+        Err(NativeMediaTaskError::UnsupportedFeature(format!(
+            "requested audio format '{requested}' is not available as a native source representation"
+        )))
+    }
+}
+
+const NATIVE_SUBTITLE_MAX_BYTES: usize = 8 * 1024 * 1024;
+const NATIVE_THUMBNAIL_MAX_BYTES: usize = 24 * 1024 * 1024;
+
+fn prepare_native_sidecars(
+    body: &CreateDownloadBody,
+    descriptor: &MediaDescriptor,
+    chapters: &[MediaChapter],
+    output_path: &Path,
+) -> Result<(), NativeMediaTaskError> {
+    let Some(options) = body.media_options.as_ref() else {
+        return Ok(());
+    };
+    let wants_subtitles =
+        options.subtitles == Some(true) || options.auto_subtitles == Some(true);
+    let wants_thumbnail = options.write_thumbnail == Some(true);
+    let wants_info = options.write_info_json == Some(true);
+    let wants_description = options.write_description == Some(true);
+    if !wants_subtitles && !wants_thumbnail && !wants_info && !wants_description {
+        return Ok(());
+    }
+
+    if let Some(parent) = output_path
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    }
+
+    if wants_info {
+        let payload = safe_descriptor_info_json(descriptor, chapters);
+        write_atomic_sidecar(
+            &sidecar_path(output_path, ".info.json"),
+            serde_json::to_vec_pretty(&payload)
+                .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?
+                .as_slice(),
+        )?;
+    }
+
+    if wants_description {
+        write_atomic_sidecar(
+            &sidecar_path(output_path, ".description.txt"),
+            descriptor
+                .metadata
+                .description
+                .as_deref()
+                .unwrap_or_default()
+                .as_bytes(),
+        )?;
+    }
+
+    let context = descriptor
+        .request_context()
+        .map_err(|error| NativeMediaTaskError::InvalidRequest(error.to_string()))?;
+
+    if wants_thumbnail {
+        let url = descriptor
+            .metadata
+            .thumbnail_url
+            .as_deref()
+            .ok_or_else(|| {
+                NativeMediaTaskError::UnsupportedFeature(
+                    "the media descriptor does not expose a thumbnail".to_owned(),
+                )
+            })?;
+        let response = fetch_http_bytes_with_context(url, &context, NATIVE_THUMBNAIL_MAX_BYTES)
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+        let extension = sidecar_extension_from_url(&response.effective_url, "jpg");
+        write_atomic_sidecar(
+            &sidecar_path(output_path, &format!(".thumbnail.{extension}")),
+            &response.body,
+        )?;
+    }
+
+    if wants_subtitles {
+        let languages = requested_subtitle_languages(options);
+        let selected = descriptor
+            .subtitles
+            .iter()
+            .filter(|track| {
+                (track.automatic && options.auto_subtitles == Some(true))
+                    || (!track.automatic && options.subtitles == Some(true))
+            })
+            .filter(|track| subtitle_language_matches(&track.language, &languages))
+            .collect::<Vec<_>>();
+        if selected.is_empty() {
+            return Err(NativeMediaTaskError::UnsupportedFeature(
+                "no subtitle track matches the requested native subtitle policy".to_owned(),
+            ));
+        }
+
+        for track in selected {
+            let response =
+                fetch_http_bytes_with_context(&track.url, &context, NATIVE_SUBTITLE_MAX_BYTES)
+                    .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+            let language = safe_sidecar_component(&track.language, "und");
+            let format = track
+                .format
+                .as_deref()
+                .map(|value| safe_sidecar_component(value, "sub"))
+                .unwrap_or_else(|| "sub".to_owned());
+            let suffix = if track.automatic {
+                format!(".auto.{language}.{format}")
+            } else {
+                format!(".{language}.{format}")
+            };
+            write_atomic_sidecar(&sidecar_path(output_path, &suffix), &response.body)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn requested_subtitle_languages(options: &MediaDownloadOptions) -> Vec<String> {
+    options
+        .subtitle_languages
+        .as_deref()
+        .unwrap_or("en")
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+        .collect()
+}
+
+fn subtitle_language_matches(language: &str, requested: &[String]) -> bool {
+    if requested.is_empty() || requested.iter().any(|value| value == "all" || value == "*") {
+        return true;
+    }
+    let language = language.to_ascii_lowercase();
+    requested.iter().any(|wanted| {
+        language == *wanted
+            || language
+                .strip_prefix(wanted)
+                .is_some_and(|suffix| suffix.starts_with('-'))
+    })
+}
+
+fn safe_descriptor_info_json(
+    descriptor: &MediaDescriptor,
+    chapters: &[MediaChapter],
+) -> Value {
+    let streams = descriptor
+        .streams
+        .iter()
+        .map(|stream| {
+            serde_json::json!({
+                "id": stream.id,
+                "kind": stream.kind,
+                "protocol": stream.protocol,
+                "container": stream.container,
+                "videoCodec": stream.video_codec,
+                "audioCodec": stream.audio_codec,
+                "width": stream.width,
+                "height": stream.height,
+                "fps": stream.fps,
+                "bitrateBps": stream.bitrate_bps,
+                "audioBitrateBps": stream.audio_bitrate_bps,
+                "contentLength": stream.content_length,
+                "language": stream.language,
+            })
+        })
+        .collect::<Vec<_>>();
+    let subtitles = descriptor
+        .subtitles
+        .iter()
+        .map(|track| {
+            serde_json::json!({
+                "language": track.language,
+                "name": track.name,
+                "format": track.format,
+                "automatic": track.automatic,
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "schemaVersion": 1,
+        "sourceKind": descriptor.source_kind,
+        "isLive": descriptor.is_live,
+        "metadata": {
+            "title": descriptor.metadata.title,
+            "description": descriptor.metadata.description,
+            "durationMillis": descriptor.metadata.duration_millis,
+            "uploader": descriptor.metadata.uploader,
+            "webpageUrl": descriptor.metadata.webpage_url,
+        },
+        "streams": streams,
+        "subtitles": subtitles,
+        "chapters": chapters,
+    })
+}
+
+fn sidecar_path(output_path: &Path, suffix: &str) -> PathBuf {
+    let parent = output_path.parent().unwrap_or_else(|| Path::new(""));
+    let stem = output_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("nova-media");
+    parent.join(format!("{stem}{suffix}"))
+}
+
+fn sidecar_extension_from_url(url: &str, fallback: &str) -> String {
+    reqwest::Url::parse(url)
+        .ok()
+        .and_then(|url| {
+            url.path_segments()
+                .and_then(|mut segments| segments.next_back())
+                .and_then(|name| Path::new(name).extension())
+                .and_then(|extension| extension.to_str())
+                .map(|extension| safe_sidecar_component(extension, fallback))
+        })
+        .unwrap_or_else(|| fallback.to_owned())
+}
+
+fn safe_sidecar_component(value: &str, fallback: &str) -> String {
+    let safe = value
+        .chars()
+        .filter(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
+        .take(32)
+        .collect::<String>();
+    if safe.is_empty() {
+        fallback.to_owned()
+    } else {
+        safe
+    }
+}
+
+fn write_atomic_sidecar(path: &Path, bytes: &[u8]) -> Result<(), NativeMediaTaskError> {
+    let mut temp = path.as_os_str().to_os_string();
+    temp.push(".tmp");
+    let temp = PathBuf::from(temp);
+    std::fs::write(&temp, bytes)
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    let file = std::fs::File::open(&temp)
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    file.sync_all()
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    drop(file);
+    if path.exists() {
+        std::fs::remove_file(path)
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    }
+    std::fs::rename(&temp, path)
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    Ok(())
 }
 
 fn separate_track_output_container(video: &MediaStream, audio: &MediaStream) -> String {
@@ -2136,6 +2744,17 @@ fn separate_track_output_container(video: &MediaStream, audio: &MediaStream) -> 
     "mkv".to_owned()
 }
 
+fn attach_native_chapters(
+    resolved: &mut ResolvedNativeMedia,
+    chapters: Vec<MediaChapter>,
+) {
+    match resolved {
+        ResolvedNativeMedia::Direct(media) => media.chapters = chapters,
+        ResolvedNativeMedia::Manifest(media) => media.chapters = chapters,
+        ResolvedNativeMedia::SeparateTracks(media) => media.extraction.chapters = chapters,
+    }
+}
+
 fn resolved_from_descriptor(
     descriptor: &MediaDescriptor,
     stream: &MediaStream,
@@ -2151,12 +2770,15 @@ fn resolved_from_descriptor(
                 container: stream.container.clone(),
                 content_length: stream.content_length,
                 context,
+                descriptor: descriptor.clone(),
+                chapters: Vec::new(),
             }))
         }
         MediaProtocol::Hls | MediaProtocol::Dash => Ok(ResolvedNativeMedia::Manifest(
             ResolvedManifestMedia {
                 descriptor: descriptor.clone(),
                 stream: stream.clone(),
+                chapters: Vec::new(),
             },
         )),
     }
@@ -2369,6 +2991,49 @@ mod tests {
     }
 
     #[test]
+    fn native_audio_mode_accepts_source_container_selection() {
+        let mut request = body("https://cdn.test/audio");
+        let media = request.media_options.as_mut().expect("media");
+        media.mode = Some("audio".to_owned());
+        media.audio_format = Some("m4a".to_owned());
+        media.format_sort = Some("br,size,codec::m4a".to_owned());
+        NativeMediaExtractor
+            .validate(&request)
+            .expect("native audio selection options");
+    }
+
+    #[test]
+    fn native_audio_mode_rejects_transcoding_only_format() {
+        let mut request = body("https://cdn.test/audio");
+        let media = request.media_options.as_mut().expect("media");
+        media.mode = Some("audio".to_owned());
+        media.audio_format = Some("mp3".to_owned());
+        let error = NativeMediaExtractor
+            .validate(&request)
+            .expect_err("mp3 requires transcoding");
+        assert!(error.0.contains("requires transcoding"));
+    }
+
+    #[test]
+    fn audio_format_is_not_silently_ignored_in_video_mode() {
+        let mut request = body("https://cdn.test/video");
+        request.media_options.as_mut().expect("media").audio_format =
+            Some("m4a".to_owned());
+        let error = NativeMediaExtractor
+            .validate(&request)
+            .expect_err("audioFormat must be meaningful");
+        assert!(error.0.contains("mode 'audio'"));
+    }
+
+    #[test]
+    fn native_format_sort_rejects_unknown_tokens() {
+        let mut request = body("https://cdn.test/video");
+        request.media_options.as_mut().expect("media").format_sort =
+            Some("res,unknown-key".to_owned());
+        assert!(NativeMediaExtractor.validate(&request).is_err());
+    }
+
+    #[test]
     fn standard_video_options_use_native_path() {
         let body = body("https://cdn.test/video.mp4");
         NativeMediaExtractor
@@ -2377,18 +3042,82 @@ mod tests {
     }
 
     #[test]
-    fn advanced_media_option_is_rejected_by_native_engine() {
+    fn unsupported_embed_option_is_rejected_by_native_engine() {
         let mut body = body("https://cdn.test/video.mp4");
-        body.media_options.as_mut().expect("media").subtitles = Some(true);
+        body.media_options.as_mut().expect("media").embed_subtitles = Some(true);
         assert!(NativeMediaExtractor.validate(&body).is_err());
     }
 
     #[test]
     fn unimplemented_execution_option_is_not_advertised_or_accepted() {
-        assert!(!NATIVE_MEDIA_OPTION_KEYS.contains(&"audioFormat"));
+        assert!(!NATIVE_MEDIA_OPTION_KEYS.contains(&"splitChapters"));
         let mut body = body("https://cdn.test/video.mp4");
-        body.media_options.as_mut().expect("media").audio_format = Some("m4a".to_owned());
+        body.media_options.as_mut().expect("media").split_chapters = Some(true);
         assert!(NativeMediaExtractor.validate(&body).is_err());
+    }
+
+    #[test]
+    fn metadata_sidecar_excludes_transport_secrets_and_stream_urls() {
+        let mut request_headers = BTreeMap::new();
+        request_headers.insert("Cookie".to_owned(), "session=secret-cookie".to_owned());
+        let mut stream_headers = BTreeMap::new();
+        stream_headers.insert("Authorization".to_owned(), "Bearer secret-header".to_owned());
+        let descriptor = MediaDescriptor {
+            source_kind: nova_media_core::MediaSourceKind::Site,
+            metadata: nova_media_core::MediaMetadata {
+                title: "Safe metadata".to_owned(),
+                description: Some("description".to_owned()),
+                duration_millis: Some(1_000),
+                uploader: Some("uploader".to_owned()),
+                webpage_url: "https://media.test/watch".to_owned(),
+                thumbnail_url: Some(
+                    "https://cdn.test/thumb.jpg?token=secret-thumbnail".to_owned(),
+                ),
+            },
+            streams: vec![MediaStream {
+                id: "stream".to_owned(),
+                kind: nova_media_core::MediaTrackKind::AudioVideo,
+                protocol: MediaProtocol::Https,
+                url: "https://cdn.test/video.mp4?token=secret-stream".to_owned(),
+                container: Some("mp4".to_owned()),
+                video_codec: Some("avc1".to_owned()),
+                audio_codec: Some("mp4a".to_owned()),
+                width: Some(1920),
+                height: Some(1080),
+                fps: Some(30.0),
+                bitrate_bps: Some(4_000_000),
+                audio_bitrate_bps: Some(128_000),
+                content_length: Some(10),
+                language: None,
+                headers: stream_headers,
+            }],
+            subtitles: vec![nova_media_core::SubtitleTrack {
+                language: "en".to_owned(),
+                name: Some("English".to_owned()),
+                url: "https://cdn.test/subtitle?token=secret-subtitle".to_owned(),
+                format: Some("vtt".to_owned()),
+                automatic: false,
+            }],
+            request_headers,
+            is_live: false,
+        };
+
+        let serialized =
+            serde_json::to_string(&safe_descriptor_info_json(&descriptor, &[]))
+                .expect("metadata json");
+        assert!(serialized.contains("Safe metadata"));
+        assert!(!serialized.contains("secret-cookie"));
+        assert!(!serialized.contains("secret-header"));
+        assert!(!serialized.contains("secret-stream"));
+        assert!(!serialized.contains("secret-subtitle"));
+        assert!(!serialized.contains("secret-thumbnail"));
+    }
+
+    #[test]
+    fn subtitle_language_filter_supports_exact_prefix_and_all() {
+        assert!(subtitle_language_matches("en-US", &["en".to_owned()]));
+        assert!(!subtitle_language_matches("ar", &["en".to_owned()]));
+        assert!(subtitle_language_matches("ar", &["all".to_owned()]));
     }
 
     #[test]

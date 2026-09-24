@@ -459,6 +459,7 @@ mod tests {
                 request_headers: BTreeMap::new(),
                 is_live: false,
             },
+            chapters: Vec::new(),
             pending_formats: Vec::<YouTubePendingFormat>::new(),
             player_js_url: None,
             visitor_data: None,
