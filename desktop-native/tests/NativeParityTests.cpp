@@ -627,6 +627,7 @@ void NativeParityTests::batchImportHonorsRuntimeCapabilities() {
     QCOMPARE(batchStartedSpy.at(0).at(1).toInt(), 0);
 
     const QJsonObject body = QJsonDocument::fromJson(capturedBody).object();
+    QCOMPARE(body.value(QStringLiteral("connections")).toInt(), 1);
     const QJsonObject direct = body.value(QStringLiteral("directOptions")).toObject();
     QCOMPARE(
         direct.value(QStringLiteral("referer")).toString(),
