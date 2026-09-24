@@ -338,7 +338,13 @@ fn normalize_queue_catalog(
             "exitOnComplete": bool_value("exitOnComplete", false),
             "retryCount": bounded_u64("retryCount", 3, 9_999),
             "retryDelay": bounded_u64("retryDelay", 10, 86_400),
-            "profileId": short_text("profileId", ""),
+            "profileId": object
+                .get("profileId")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| value.len() <= 128)
+                .unwrap_or("")
+                .to_owned(),
             "downloadOrder": download_order
         }));
     }
@@ -647,8 +653,12 @@ fn apply_queue_bandwidth_policy(state: &SharedState, queues: &[serde_json::Value
             continue;
         };
 
+        if one_time {
+            continue;
+        }
+
         for task_id in order.iter().filter_map(serde_json::Value::as_str) {
-            if limited && !one_time && limit > 0 {
+            if limited && limit > 0 {
                 state
                     .bandwidth_manager
                     .set_task_limit(task_id.to_owned(), limit);
