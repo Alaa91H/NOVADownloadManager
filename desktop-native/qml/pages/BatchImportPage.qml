@@ -16,6 +16,7 @@ Item {
     property int failedCount: 0
     property int duplicateCount: 0
     property string resultText: ""
+    property bool advancedExpanded: false
     property string languageToken: i18n.language
 
     function t(key) {
@@ -183,6 +184,111 @@ Item {
             }
         }
 
+        RowLayout {
+            Layout.fillWidth: true
+
+            Button {
+                text: root.t("batch.advanced") + (root.advancedExpanded ? " ▲" : " ▼")
+                enabled: !api.batchRunning
+                onClicked: root.advancedExpanded = !root.advancedExpanded
+            }
+
+            Item { Layout.fillWidth: true }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: advancedGrid.implicitHeight + 20
+            visible: root.advancedExpanded
+            radius: Theme.radiusMedium
+            color: Theme.surface
+            border.color: Theme.border
+
+            GridLayout {
+                id: advancedGrid
+                anchors.fill: parent
+                anchors.margins: 10
+                columns: 4
+                columnSpacing: 10
+                rowSpacing: 8
+
+                Text {
+                    text: root.t("batch.queueId")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                }
+
+                TextField {
+                    id: queueIdField
+                    Layout.fillWidth: true
+                    text: "main"
+                    enabled: !api.batchRunning
+                    LayoutMirroring.enabled: false
+                    horizontalAlignment: Text.AlignLeft
+                }
+
+                Text {
+                    text: root.t("batch.retries")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                }
+
+                SpinBox {
+                    id: retryCountField
+                    from: 0
+                    to: 100
+                    value: 3
+                    enabled: !api.batchRunning
+                }
+
+                Text {
+                    text: root.t("batch.referer")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                }
+
+                TextField {
+                    id: refererField
+                    Layout.columnSpan: 3
+                    Layout.fillWidth: true
+                    enabled: !api.batchRunning
+                    LayoutMirroring.enabled: false
+                    horizontalAlignment: Text.AlignLeft
+                }
+
+                Text {
+                    text: root.t("batch.userAgent")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                }
+
+                TextField {
+                    id: userAgentField
+                    Layout.columnSpan: 3
+                    Layout.fillWidth: true
+                    enabled: !api.batchRunning
+                    LayoutMirroring.enabled: false
+                    horizontalAlignment: Text.AlignLeft
+                }
+
+                Text {
+                    text: root.t("batch.timeout")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSmall
+                }
+
+                SpinBox {
+                    id: timeoutField
+                    from: 0
+                    to: 3600
+                    value: 60
+                    enabled: !api.batchRunning
+                }
+
+                Item { Layout.columnSpan: 2; Layout.fillWidth: true }
+            }
+        }
+
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: progressColumn.implicitHeight + 20
@@ -260,11 +366,26 @@ Item {
 
                 onClicked: {
                     root.resetProgress()
+                    const advanced = {
+                        retryCount: retryCountField.value,
+                        timeoutSec: timeoutField.value
+                    }
+                    if (refererField.text.trim().length > 0)
+                        advanced.referer = refererField.text.trim()
+                    if (userAgentField.text.trim().length > 0)
+                        advanced.userAgent = userAgentField.text.trim()
+
                     api.importBatch(
                         linksInput.text,
                         saveDirectory.text,
                         connections.currentValue,
-                        startImmediately.checked
+                        startImmediately.checked,
+                        {
+                            queueId: queueIdField.text.trim().length > 0
+                                ? queueIdField.text.trim()
+                                : "main",
+                            advanced: advanced
+                        }
                     )
                 }
             }
