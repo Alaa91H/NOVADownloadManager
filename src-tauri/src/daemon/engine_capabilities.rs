@@ -1992,6 +1992,10 @@ pub fn native_torrent_status() -> Value {
             "pieceScheduler": capabilities.piece_scheduler,
             "httpTrackerProtocol": capabilities.http_tracker_protocol,
             "udpTrackerProtocol": capabilities.udp_tracker_protocol,
+            "extensionProtocol": capabilities.extension_protocol,
+            "metadataExchangeProtocol": capabilities.metadata_exchange_protocol,
+            "pexProtocol": capabilities.pex_protocol,
+            "dhtKrpcProtocol": capabilities.dht_krpc_protocol,
             "pieceHashVerification": true,
             "safeMultiFileLayout": true,
             "httpTrackers": true,
@@ -1999,9 +2003,20 @@ pub fn native_torrent_status() -> Value {
             "trackerTierFailover": true,
             "trackerRetryBackoff": true,
             "trackerSsrfProtection": true,
-            "dht": false,
-            "pex": false,
-            "metadataExchange": false,
+            "dht": true,
+            "dhtPeerDiscovery": true,
+            "dhtAnnouncePeer": true,
+            "dhtServer": false,
+            "dhtPersistentRoutingTable": false,
+            "pex": true,
+            "pexReceive": true,
+            "pexServe": false,
+            "metadataExchange": true,
+            "metadataRetrieval": true,
+            "metadataServe": false,
+            "magnetResolver": true,
+            "trackerlessMagnetDiscovery": true,
+            "privateDiscoveryGuard": true,
             "peerTcpTransport": true,
             "peerHandshakeValidation": true,
             "peerStateMachine": true,
@@ -2080,6 +2095,13 @@ mod tests {
         assert_eq!(status["capabilities"]["httpTrackers"], true);
         assert_eq!(status["capabilities"]["udpTrackers"], true);
         assert_eq!(status["capabilities"]["trackerSsrfProtection"], true);
+        assert_eq!(status["capabilities"]["extensionProtocol"], true);
+        assert_eq!(status["capabilities"]["metadataExchange"], true);
+        assert_eq!(status["capabilities"]["dhtPeerDiscovery"], true);
+        assert_eq!(status["capabilities"]["pexReceive"], true);
+        assert_eq!(status["capabilities"]["privateDiscoveryGuard"], true);
+        assert_eq!(status["capabilities"]["dhtServer"], false);
+        assert_eq!(status["capabilities"]["metadataServe"], false);
         assert_eq!(status["capabilities"]["peerTcpTransport"], true);
         assert_eq!(status["capabilities"]["peerRequestPipeline"], true);
         assert_eq!(status["capabilities"]["peerReputation"], true);
