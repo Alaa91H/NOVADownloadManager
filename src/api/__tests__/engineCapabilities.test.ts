@@ -14,6 +14,12 @@ function validCapabilities() {
     postProcessingReady: true,
     directProtocols: ['http', 'https', 'ftp'],
     compatibilityMode: 'runtime-verified-capabilities',
+    mediaApi: {
+      resolve: '/api/media/resolve',
+      probe: '/api/media/probe',
+      download: '/api/media/download',
+      postprocessStatus: '/api/media/postprocess/status',
+    },
     routing: {
       directHttpHttpsFtp: 'libcurl-multi',
       webMediaAndPlaylists: 'nova-media-engine',
@@ -37,6 +43,8 @@ describe('engine capabilities contract', () => {
     expect(capabilities.engines.libcurlMulti.available).toBe(true);
     expect(capabilities.mediaExtractionReady).toBe(true);
     expect(capabilities.streamingReady).toBe(true);
+    expect(capabilities.mediaApi.resolve).toBe('/api/media/resolve');
+    expect(capabilities.mediaApi.download).toBe('/api/media/download');
     expect(capabilities.routing.torrentMagnet).toBeNull();
   });
 
