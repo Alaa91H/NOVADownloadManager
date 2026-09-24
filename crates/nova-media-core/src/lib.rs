@@ -76,6 +76,10 @@ pub struct NativeMediaCoreCapabilities {
     pub youtube_signature_transform: bool,
     pub youtube_throttling_transform: bool,
     pub separate_track_staging: bool,
+    pub native_mp4_demux: bool,
+    pub native_fragmented_mp4_demux: bool,
+    pub native_mp4_mux: bool,
+    pub native_remux: bool,
 }
 
 pub const fn native_media_core_capabilities() -> NativeMediaCoreCapabilities {
@@ -93,6 +97,10 @@ pub const fn native_media_core_capabilities() -> NativeMediaCoreCapabilities {
         youtube_signature_transform: true,
         youtube_throttling_transform: true,
         separate_track_staging: true,
+        native_mp4_demux: true,
+        native_fragmented_mp4_demux: true,
+        native_mp4_mux: true,
+        native_remux: true,
     }
 }
 
@@ -412,6 +420,10 @@ mod tests {
         assert!(capabilities.separate_track_staging);
         assert!(capabilities.youtube_signature_transform);
         assert!(capabilities.youtube_throttling_transform);
+        assert!(capabilities.native_mp4_demux);
+        assert!(capabilities.native_fragmented_mp4_demux);
+        assert!(capabilities.native_mp4_mux);
+        assert!(capabilities.native_remux);
     }
 
     struct TestExtractor {
