@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use url::Url;
 
 use crate::{
@@ -51,10 +52,10 @@ impl MediaExtractor for GenericManifestExtractor {
                 audio_bitrate_bps: None,
                 content_length: None,
                 language: None,
-                headers: request.headers.clone(),
+                headers: BTreeMap::new(),
             }],
             subtitles: Vec::new(),
-            request_headers: request.headers.clone(),
+            request_headers: BTreeMap::new(),
             is_live: false,
         })
     }
@@ -107,10 +108,10 @@ impl MediaExtractor for GenericDirectMediaExtractor {
                 audio_bitrate_bps: None,
                 content_length: None,
                 language: None,
-                headers: request.headers.clone(),
+                headers: BTreeMap::new(),
             }],
             subtitles: Vec::new(),
-            request_headers: request.headers.clone(),
+            request_headers: BTreeMap::new(),
             is_live: false,
         })
     }
