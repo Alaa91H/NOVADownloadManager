@@ -699,12 +699,15 @@ pub async fn redownload_task(state: &SharedState, id: &str) -> Result<Task, Stri
                 None
             }
         };
-        if let Some((task, path, _was_active)) = out {
+        if let Some((task, path, was_active)) = out {
             let _ = std::fs::remove_file(&path);
             let staging = std::path::Path::new(&state.data_dir)
                 .join("native-media")
                 .join(id);
             let _ = std::fs::remove_dir_all(staging);
+            if was_active {
+                state.priority_queue.release_active_slot();
+            }
             lock_or_err!(state.task_snapshot).insert(id.to_owned(), task.clone());
             state.mark_dirty();
             crate::daemon::native_media::start_native_media_process(state, id);
@@ -812,15 +815,28 @@ pub async fn delete_task(state: &SharedState, id: &str, delete_files: bool) -> R
     {
         let entry = {
             let mut jobs = lock_or_err!(state.native_media_jobs);
+            let was_active = jobs.get(id).is_some_and(|job| {
+                TaskState::from_status(&job.task.status).is_some_and(TaskState::is_active)
+            });
             if let Some(job) = jobs.get_mut(id) {
                 job.cancel_token.store(true, Ordering::Release);
                 job.run_generation.fetch_add(1, Ordering::AcqRel);
             }
             lock_or_err!(state.task_snapshot).remove(id);
-            jobs.remove(id)
-                .map(|job| (std::path::PathBuf::from(job.task.save_path), job.task.url))
+            jobs.remove(id).map(|job| {
+                (
+                    std::path::PathBuf::from(job.task.save_path),
+                    job.task.url,
+                    was_active,
+                )
+            })
         };
-        if let Some((path, url)) = entry {
+        if let Some((path, url, was_active)) = entry {
+            if was_active {
+                state.priority_queue.stop_download(id);
+            } else {
+                state.priority_queue.remove(id);
+            }
             if !url.is_empty() {
                 state.metadata_cache.remove(&url);
             }
