@@ -600,7 +600,7 @@ Function .onInit
           StrCpy $INSTDIR "$PROGRAMFILES\${PRODUCTNAME}"
         ${EndIf}
       !else if "${INSTALLMODE}" == "currentUser"
-        StrCpy $INSTDIR "$LOCALAPPDATA\${PRODUCTNAME}"
+        StrCpy $INSTDIR "$LOCALAPPDATA\Programs\${PRODUCTNAME}"
       !endif
       Call RestorePreviousInstallLocation
     ${EndIf}
@@ -648,7 +648,7 @@ Function .onInit
         StrCpy $INSTDIR "$PROGRAMFILES\${PRODUCTNAME}"
       ${EndIf}
     !else if "${INSTALLMODE}" == "currentUser"
-      StrCpy $INSTDIR "$LOCALAPPDATA\${PRODUCTNAME}"
+      StrCpy $INSTDIR "$LOCALAPPDATA\Programs\${PRODUCTNAME}"
     !endif
 
     Call RestorePreviousInstallLocation

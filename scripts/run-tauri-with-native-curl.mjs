@@ -60,7 +60,9 @@ if (process.platform === 'linux') {
   });
 }
 
-const result = spawnSync('tauri', ['build'], {
+const tauriArgs = process.argv.slice(2);
+
+const result = spawnSync('tauri', ['build', ...tauriArgs], {
   cwd: ROOT,
   env,
   stdio: 'inherit',
