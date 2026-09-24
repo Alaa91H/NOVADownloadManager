@@ -12,6 +12,7 @@
 mod dht;
 mod extension;
 mod magnet;
+mod manifest;
 mod metainfo;
 mod peer;
 mod resume;
@@ -32,6 +33,10 @@ pub use extension::{
 pub use magnet::{
     MagnetLink, MagnetParseError, MAX_MAGNET_TRACKERS, MAX_MAGNET_URI_BYTES,
     MAX_MAGNET_WEB_SEEDS,
+};
+pub use manifest::{
+    load_storage_manifest, save_storage_manifest_atomic, ManifestError, TorrentStorageManifest,
+    STORAGE_MANIFEST_VERSION,
 };
 pub use metainfo::{
     FileSlice, InfoHash, TorrentFile, TorrentMetainfo, TorrentMetainfoError,
