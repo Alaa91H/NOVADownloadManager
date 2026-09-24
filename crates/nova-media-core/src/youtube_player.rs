@@ -449,6 +449,15 @@ fn parse_transform_body(
         r#"(?P<array>[A-Za-z_$][A-Za-z0-9_$]*)\s*\[\s*(?P<index>\d+)\s*\]\s*\(\s*(?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)(?:\s*,\s*(?P<value>\d+))?\s*\)"#,
     )
     .map_err(|error| error.to_string())?;
+    let bracket_helper_call = Regex::new(
+        r#"(?P<object>[A-Za-z_$][A-Za-z0-9_$]*)\s*\[\s*["'](?P<method>[A-Za-z_$][A-Za-z0-9_$]*)["']\s*\]\s*\(\s*(?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)(?:\s*,\s*(?P<value>\d+))?\s*\)"#,
+    )
+    .map_err(|error| error.to_string())?;
+    let undefined_guard = Regex::new(&format!(
+        r#"^if\s*\(\s*typeof\s+[A-Za-z_$][A-Za-z0-9_$]*\s*={2,3}\s*["']undefined["']\s*\)\s*return\s+{}$"#,
+        regex::escape(argument)
+    ))
+    .map_err(|error| error.to_string())?;
     let rotate_left_apply = Regex::new(&format!(
         r#"{}\.push\.apply\(\s*{},\s*{}\.splice\(0,\s*(\d+)\)\s*\)"#,
         regex::escape(argument),
@@ -476,7 +485,11 @@ fn parse_transform_body(
 
     let mut operations = Vec::new();
     for statement in body.split(';').map(str::trim).filter(|part| !part.is_empty()) {
-        if statement.contains(".split(") || statement.contains(".join(") || statement.starts_with("return ") {
+        if statement.contains(".split(")
+            || statement.contains(".join(")
+            || statement.starts_with("return ")
+            || undefined_guard.is_match(statement)
+        {
             continue;
         }
 
@@ -542,6 +555,26 @@ fn parse_transform_body(
                 .and_then(|value| value.as_str().parse::<usize>().ok())
                 .unwrap_or(0);
             operations.push(classify_array_helper_operation(script, array, index, amount)?);
+            continue;
+        }
+
+        if let Some(captures) = bracket_helper_call.captures(statement) {
+            if captures.name("arg").map(|value| value.as_str()) != Some(argument) {
+                continue;
+            }
+            let object = captures
+                .name("object")
+                .map(|value| value.as_str())
+                .ok_or_else(|| "YouTube transform helper object is missing".to_owned())?;
+            let method = captures
+                .name("method")
+                .map(|value| value.as_str())
+                .ok_or_else(|| "YouTube transform helper method is missing".to_owned())?;
+            let amount = captures
+                .name("value")
+                .and_then(|value| value.as_str().parse::<usize>().ok())
+                .unwrap_or(0);
+            operations.push(classify_helper_operation(script, object, method, amount)?);
             continue;
         }
 
@@ -660,7 +693,7 @@ fn classify_helper_operation(
         .ok_or_else(|| format!("YouTube signature helper object {object} is malformed"))?;
 
     let method_pattern = Regex::new(&format!(
-        r#"{}\s*:\s*function\([^)]*\)\s*\{{"#,
+        r#"(?:"|')?{}(?:"|')?\s*:\s*function\([^)]*\)\s*\{{"#,
         regex::escape(method)
     ))
     .map_err(|error| error.to_string())?;
@@ -866,6 +899,37 @@ function apply(p){var x=p.get("n");x&&(x=NX[0](x),p.set("n",x))}
                 .transform_throttling_parameter(player, "abcdef")
                 .expect("indexed n transform"),
             "cdefab"
+        );
+    }
+
+    #[test]
+    fn n_transform_tracks_local_split_variable_and_safe_guard() {
+        let player = r#"
+NT=function(a){if(typeof Q==="undefined")return a;var b=a.split("");b.reverse();return b.join("")};
+function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert_eq!(
+            solver
+                .transform_throttling_parameter(player, "abcdef")
+                .expect("local-variable n transform"),
+            "fedcba"
+        );
+    }
+
+    #[test]
+    fn n_transform_supports_bracket_notation_helpers() {
+        let player = r#"
+var HH={"Rv":function(a){a.reverse()}};
+NT=function(a){a=a.split("");HH["Rv"](a);return a.join("")};
+function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert_eq!(
+            solver
+                .transform_throttling_parameter(player, "abcdef")
+                .expect("bracket helper n transform"),
+            "fedcba"
         );
     }
 
