@@ -31,7 +31,6 @@ interface NovaHealth {
       capabilities?: Record<string, unknown>;
       supportedMediaOptionKeys?: string[];
       unsupportedMediaOptionKeys?: string[];
-      supportedExternalDownloaders?: string[];
       error?: string;
     };
     ffmpeg?: {
