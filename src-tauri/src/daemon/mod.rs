@@ -932,7 +932,7 @@ fn restore_persisted_tasks(
                             },
                         );
                     }
-                } else {
+                } else if task.engine_status.as_deref() != Some("completion-invalid") {
                     task.status = "error".to_owned();
                     task.engine_status = Some("native-request-missing".to_owned());
                     task.error_message = Some(
@@ -1296,6 +1296,82 @@ mod tests {
             .error_message
             .as_deref()
             .is_some_and(|message| message.contains("expected 100 bytes")));
+        std::fs::remove_dir_all(&data_dir).ok();
+    }
+
+    #[test]
+    fn restoration_rebuilds_interrupted_native_media_job_without_curl_fallback() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "nova-restore-native-media-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&data_dir).expect("create test data directory");
+        let data_dir_string = data_dir.display().to_string();
+        let state = Arc::new(persist::tests::test_state(&data_dir_string));
+
+        let mut task = restoration_test_task("native-media", "downloading");
+        task.engine = "nova-media-engine".to_owned();
+        task.engine_id = task.id.clone();
+        task.file_type = "video".to_owned();
+        task.save_path = data_dir.join("native-media.mp4").display().to_string();
+
+        let request = CreateDownloadBody {
+            url: Some("https://www.youtube.com/watch?v=dQw4w9WgXcQ".to_owned()),
+            name: Some("native-media.mp4".to_owned()),
+            file_type: Some("video".to_owned()),
+            size_bytes: None,
+            category: Some("video".to_owned()),
+            queue_id: Some("main".to_owned()),
+            connections: Some(4),
+            resumable: Some(true),
+            save_path: Some(task.save_path.clone()),
+            description: None,
+            referer: None,
+            start_immediately: Some(false),
+            direct_options: None,
+            media_options: Some(crate::daemon::types::MediaDownloadOptions {
+                mode: Some("video".to_owned()),
+                quality: Some("1080p".to_owned()),
+                ..Default::default()
+            }),
+        };
+
+        restore_persisted_tasks(
+            &state,
+            persist::PersistedState {
+                tasks: vec![task],
+                native_media_requests: HashMap::from([(
+                    "native-media".to_owned(),
+                    request,
+                )]),
+                ..Default::default()
+            },
+        );
+
+        let snapshot = state.task_snapshot.lock().expect("lock restored snapshot");
+        let restored = snapshot.get("native-media").expect("restored native task");
+        assert_eq!(restored.status, "paused");
+        assert_eq!(restored.engine_status.as_deref(), Some("interrupted"));
+        drop(snapshot);
+
+        let jobs = state
+            .native_media_jobs
+            .lock()
+            .expect("lock native media jobs");
+        let job = jobs.get("native-media").expect("native media job");
+        assert!(!job.worker_active.load(std::sync::atomic::Ordering::Acquire));
+        assert_eq!(
+            job.request.url.as_deref(),
+            Some("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        );
+        drop(jobs);
+        assert!(state.curl_jobs.lock().expect("lock curl jobs").is_empty());
+        assert!(state
+            .priority_queue
+            .entries()
+            .iter()
+            .any(|entry| entry.task_id == "native-media"));
+
         std::fs::remove_dir_all(&data_dir).ok();
     }
 
