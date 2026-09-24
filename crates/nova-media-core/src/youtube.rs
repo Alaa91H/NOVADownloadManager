@@ -57,6 +57,149 @@ struct YouTubeBootstrap {
     visitor_data: Option<String>,
 }
 
+pub trait YouTubeChallengeSolver: Send + Sync {
+    fn decipher_signature(
+        &self,
+        player_javascript: &str,
+        encrypted_signature: &str,
+    ) -> Result<String, String>;
+
+    fn transform_throttling_parameter(
+        &self,
+        player_javascript: &str,
+        value: &str,
+    ) -> Result<String, String>;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct YouTubeChallengeResolution {
+    pub resolved_stream_ids: Vec<String>,
+    pub unresolved_itags: Vec<u64>,
+}
+
+pub fn resolve_youtube_pending_formats(
+    extraction: &mut YouTubeExtraction,
+    context: &HttpRequestContext,
+    solver: &dyn YouTubeChallengeSolver,
+) -> Result<YouTubeChallengeResolution, MediaError> {
+    if extraction.pending_formats.is_empty() {
+        return Ok(YouTubeChallengeResolution {
+            resolved_stream_ids: Vec::new(),
+            unresolved_itags: Vec::new(),
+        });
+    }
+
+    let player_js_url = extraction
+        .player_js_url
+        .as_deref()
+        .ok_or_else(|| MediaError::ExtractorFailed {
+            extractor: "youtube-native",
+            message: "YouTube player JavaScript URL is unavailable for challenge resolution"
+                .to_owned(),
+        })?;
+
+    let mut player_context = context.clone();
+    if player_context.user_agent.is_none() {
+        player_context.user_agent = Some(YOUTUBE_BROWSER_UA.to_owned());
+    }
+    if player_context.referer.is_none() {
+        player_context.referer = Some(extraction.descriptor.metadata.webpage_url.clone());
+    }
+
+    let player_js = fetch_http_bytes_with_context(
+        player_js_url,
+        &player_context,
+        PLAYER_RESPONSE_MAX_BYTES,
+    )
+    .map_err(|error| MediaError::Transport(error.to_string()))?;
+    let player_js =
+        String::from_utf8(player_js.body).map_err(|_| MediaError::ExtractorFailed {
+            extractor: "youtube-native",
+            message: "YouTube player JavaScript is not valid UTF-8".to_owned(),
+        })?;
+
+    let pending = std::mem::take(&mut extraction.pending_formats);
+    let mut unresolved = Vec::new();
+    let mut resolved_stream_ids = Vec::new();
+    let mut unresolved_itags = Vec::new();
+
+    for format in pending {
+        match resolve_one_pending_format(&format, &player_js, solver) {
+            Ok(stream) => {
+                if !extraction
+                    .descriptor
+                    .streams
+                    .iter()
+                    .any(|existing| existing.id == stream.id)
+                {
+                    resolved_stream_ids.push(stream.id.clone());
+                    extraction.descriptor.streams.push(stream);
+                }
+            }
+            Err(_) => {
+                if let Some(itag) = format.itag {
+                    unresolved_itags.push(itag);
+                }
+                unresolved.push(format);
+            }
+        }
+    }
+
+    extraction.pending_formats = unresolved;
+    Ok(YouTubeChallengeResolution {
+        resolved_stream_ids,
+        unresolved_itags,
+    })
+}
+
+fn resolve_one_pending_format(
+    format: &YouTubePendingFormat,
+    player_javascript: &str,
+    solver: &dyn YouTubeChallengeSolver,
+) -> Result<MediaStream, String> {
+    let source_url = format
+        .cipher_url
+        .as_deref()
+        .ok_or_else(|| "challenged YouTube format has no base URL".to_owned())?;
+    let mut url = Url::parse(source_url)
+        .map_err(|error| format!("invalid challenged YouTube format URL: {error}"))?;
+
+    if let Some(encrypted_signature) = format.encrypted_signature.as_deref() {
+        let signature = solver.decipher_signature(player_javascript, encrypted_signature)?;
+        let parameter = format
+            .signature_parameter
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .unwrap_or("signature");
+        set_query_parameter(&mut url, parameter, &signature);
+    }
+
+    if let Some(throttling) = format.throttling_parameter.as_deref() {
+        let transformed =
+            solver.transform_throttling_parameter(player_javascript, throttling)?;
+        set_query_parameter(&mut url, "n", &transformed);
+    }
+
+    let mut stream = format.stream_template.clone();
+    stream.url = url.to_string();
+    Ok(stream)
+}
+
+fn set_query_parameter(url: &mut Url, key: &str, value: &str) {
+    let pairs = url
+        .query_pairs()
+        .filter(|(existing, _)| existing != key)
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect::<Vec<_>>();
+
+    url.set_query(None);
+    let mut query = url.query_pairs_mut();
+    for (existing, existing_value) in pairs {
+        query.append_pair(&existing, &existing_value);
+    }
+    query.append_pair(key, value);
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct YouTubeSelectionPolicy {
     pub max_height: Option<u32>,
@@ -993,6 +1136,69 @@ var ytInitialPlayerResponse = {"videoDetails":{"title":"NOVA","videoId":"dQw4w9W
         );
         assert_eq!(extraction.descriptor.subtitles.len(), 1);
         assert!(extraction.descriptor.subtitles[0].automatic);
+    }
+
+    struct FakeChallengeSolver;
+
+    impl YouTubeChallengeSolver for FakeChallengeSolver {
+        fn decipher_signature(
+            &self,
+            _player_javascript: &str,
+            encrypted_signature: &str,
+        ) -> Result<String, String> {
+            Ok(encrypted_signature.chars().rev().collect())
+        }
+
+        fn transform_throttling_parameter(
+            &self,
+            _player_javascript: &str,
+            value: &str,
+        ) -> Result<String, String> {
+            Ok(value.to_ascii_uppercase())
+        }
+    }
+
+    #[test]
+    fn challenge_resolution_rebuilds_signature_and_n_parameters() {
+        let pending = YouTubePendingFormat {
+            itag: Some(137),
+            mime_type: Some("video/mp4".to_owned()),
+            cipher_url: Some("https://video.test/v.mp4?n=abc&x=1".to_owned()),
+            encrypted_signature: Some("secret".to_owned()),
+            signature_parameter: Some("sig".to_owned()),
+            throttling_parameter: Some("abc".to_owned()),
+            challenge: YouTubeChallengeKind::SignatureAndThrottling,
+            stream_template: MediaStream {
+                id: "youtube-itag-137".to_owned(),
+                kind: MediaTrackKind::Video,
+                protocol: MediaProtocol::Https,
+                url: "https://video.test/v.mp4?n=abc&x=1".to_owned(),
+                container: Some("mp4".to_owned()),
+                video_codec: Some("avc1".to_owned()),
+                audio_codec: None,
+                width: Some(1920),
+                height: Some(1080),
+                fps: Some(60.0),
+                bitrate_bps: Some(4_000_000),
+                audio_bitrate_bps: None,
+                content_length: None,
+                language: None,
+                headers: BTreeMap::new(),
+            },
+        };
+
+        let stream = resolve_one_pending_format(
+            &pending,
+            "function player(){}",
+            &FakeChallengeSolver,
+        )
+        .expect("resolved challenge");
+        let url = Url::parse(&stream.url).expect("resolved URL");
+        let query: BTreeMap<_, _> = url.query_pairs().into_owned().collect();
+
+        assert_eq!(query.get("sig").map(String::as_str), Some("terces"));
+        assert_eq!(query.get("n").map(String::as_str), Some("ABC"));
+        assert_eq!(query.get("x").map(String::as_str), Some("1"));
     }
 
     #[test]
