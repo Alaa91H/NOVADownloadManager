@@ -580,8 +580,12 @@ pub async fn update_task_metadata(
             }
             if let Some(ref u) = new_url {
                 let parsed = DirectUrl::parse(u)?;
-                job.task.url = parsed.normalized.clone();
-                job.request.url = Some(parsed.normalized);
+                if parsed.normalized != job.task.url {
+                    return Err(
+                        "Changing the source URL of an existing native multi-track task is not supported; add it as a new media download."
+                            .to_owned(),
+                    );
+                }
             }
             if let Some(ref n) = new_name {
                 job.task.name = n.clone();
