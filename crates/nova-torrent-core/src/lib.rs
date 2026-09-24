@@ -48,6 +48,8 @@ pub struct TorrentCoreCapabilities {
     pub magnet_btih: bool,
     pub peer_wire_v1: bool,
     pub piece_scheduler: bool,
+    pub http_tracker_protocol: bool,
+    pub udp_tracker_protocol: bool,
 }
 
 impl TorrentCoreCapabilities {
@@ -57,6 +59,8 @@ impl TorrentCoreCapabilities {
             magnet_btih: true,
             peer_wire_v1: true,
             piece_scheduler: true,
+            http_tracker_protocol: true,
+            udp_tracker_protocol: true,
         }
     }
 }
@@ -75,6 +79,8 @@ mod tests {
                 magnet_btih: true,
                 peer_wire_v1: true,
                 piece_scheduler: true,
+                http_tracker_protocol: true,
+                udp_tracker_protocol: true,
             }
         );
     }
