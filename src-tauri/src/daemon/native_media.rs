@@ -12,7 +12,8 @@ use nova_media_core::{
     processing::{
         mux_demuxers_to_mp4_controlled, MediaDemuxer, MediaProcessingControl, Mp4Demuxer,
     },
-    resolve_youtube_pending_formats, select_youtube_download_plan, youtube_video_id,
+    resolve_youtube_pending_formats, select_youtube_download_plan,
+    select_youtube_mp4_download_plan, youtube_video_id,
     ExtractRequest, MediaDescriptor, MediaProtocol, MediaStream, YouTubeDownloadPlan,
     YouTubeExtractor, YouTubePlayerScriptSolver, YouTubeSelectionPolicy,
 };
@@ -775,32 +776,27 @@ fn resolve_native_execution(
             }
         }
 
-        let preferred = select_youtube_download_plan(
-            &extraction,
-            YouTubeSelectionPolicy {
-                max_height,
-                prefer_separate_tracks: true,
-            },
-        )
-        .ok_or_else(|| {
-            NativeMediaTaskError::UnsupportedFeature(
-                "no native-ready media stream was found after challenge resolution".to_owned(),
-            )
-        })?;
-
-        if let YouTubeDownloadPlan::SeparateTracks {
-            video_stream_id,
-            audio_stream_id,
-        } = &preferred
-        {
-            let video = find_descriptor_stream(&extraction.descriptor, video_stream_id)?;
-            let audio = find_descriptor_stream(&extraction.descriptor, audio_stream_id)?;
-            if stream_is_mp4_muxable(video) && stream_is_mp4_muxable(audio) {
-                return Ok(ResolvedNativeExecution::Separate(ResolvedSeparateMedia {
-                    title: extraction.descriptor.metadata.title.clone(),
-                    video: resolved_track_from_descriptor(&extraction.descriptor, video)?,
-                    audio: resolved_track_from_descriptor(&extraction.descriptor, audio)?,
-                }));
+        if let Some(preferred) = select_youtube_mp4_download_plan(&extraction, max_height) {
+            match preferred {
+                YouTubeDownloadPlan::SeparateTracks {
+                    video_stream_id,
+                    audio_stream_id,
+                } => {
+                    let video =
+                        find_descriptor_stream(&extraction.descriptor, &video_stream_id)?;
+                    let audio =
+                        find_descriptor_stream(&extraction.descriptor, &audio_stream_id)?;
+                    return Ok(ResolvedNativeExecution::Separate(ResolvedSeparateMedia {
+                        title: extraction.descriptor.metadata.title.clone(),
+                        video: resolved_track_from_descriptor(&extraction.descriptor, video)?,
+                        audio: resolved_track_from_descriptor(&extraction.descriptor, audio)?,
+                    }));
+                }
+                YouTubeDownloadPlan::SingleStream { stream_id } => {
+                    let stream = find_descriptor_stream(&extraction.descriptor, &stream_id)?;
+                    return resolved_direct_from_descriptor(&extraction.descriptor, stream)
+                        .map(ResolvedNativeExecution::Direct);
+                }
             }
         }
 
@@ -868,19 +864,6 @@ fn find_descriptor_stream<'a>(
                 "selected native media stream disappeared".to_owned(),
             )
         })
-}
-
-fn stream_is_mp4_muxable(stream: &MediaStream) -> bool {
-    matches!(stream.protocol, MediaProtocol::Http | MediaProtocol::Https)
-        && stream
-            .container
-            .as_deref()
-            .is_some_and(|container| {
-                matches!(
-                    container.trim().to_ascii_lowercase().as_str(),
-                    "mp4" | "m4a" | "m4v" | "mov"
-                )
-            })
 }
 
 fn resolved_track_from_descriptor(
