@@ -6,7 +6,7 @@ import Nova.Native
 ApplicationWindow {
     id: window
 
-    visible: true
+    visible: !nativeSettings.startMinimized || !trayManager.enabled
     width: 1360
     height: 820
     minimumWidth: 1040
@@ -66,7 +66,9 @@ ApplicationWindow {
                                                  ? mediaDownloaderPage
                                                  : window.currentPage === "grabber"
                                                      ? linkGrabberPage
-                                                     : placeholderPage
+                                                     : window.currentPage === "settings"
+                                                         ? settingsPage
+                                                         : placeholderPage
             }
 
             StatusBar {
@@ -104,6 +106,7 @@ ApplicationWindow {
 
         BatchImportPage {
             api: novaApi
+            settings: nativeSettings
         }
     }
 
@@ -120,6 +123,7 @@ ApplicationWindow {
 
         MediaDownloaderPage {
             api: novaApi
+            settings: nativeSettings
         }
     }
 
@@ -128,6 +132,34 @@ ApplicationWindow {
 
         LinkGrabberPage {
             api: novaApi
+            settings: nativeSettings
+        }
+    }
+
+    Component {
+        id: settingsPage
+
+        SettingsPage {
+            api: novaApi
+            settings: nativeSettings
+            tray: trayManager
+        }
+    }
+
+    Connections {
+        target: trayManager
+
+        function onShowRequested() {
+            window.show()
+            window.raise()
+            window.requestActivate()
+        }
+    }
+
+    onClosing: close => {
+        if (nativeSettings.closeToTray && trayManager.available && trayManager.enabled) {
+            close.accepted = false
+            window.hide()
         }
     }
 

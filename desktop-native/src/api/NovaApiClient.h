@@ -31,6 +31,16 @@ class NovaApiClient final : public QObject {
     Q_PROPERTY(bool ffmpegAvailable READ ffmpegAvailable NOTIFY ffmpegChanged)
     Q_PROPERTY(bool directProbeBusy READ directProbeBusy NOTIFY directProbeChanged)
     Q_PROPERTY(QVariantMap directProbe READ directProbe NOTIFY directProbeChanged)
+    Q_PROPERTY(QVariantMap engineCapabilities READ engineCapabilities NOTIFY engineManagementChanged)
+    Q_PROPERTY(QVariantList engineProfiles READ engineProfiles NOTIFY engineManagementChanged)
+    Q_PROPERTY(QString activeEngineProfile READ activeEngineProfile NOTIFY engineManagementChanged)
+    Q_PROPERTY(QVariantMap bandwidthState READ bandwidthState NOTIFY engineManagementChanged)
+    Q_PROPERTY(QVariantMap retryPolicy READ retryPolicy NOTIFY engineManagementChanged)
+    Q_PROPERTY(bool diagnosticsBusy READ diagnosticsBusy NOTIFY diagnosticsChanged)
+    Q_PROPERTY(QVariantMap diagnosticsReport READ diagnosticsReport NOTIFY diagnosticsChanged)
+    Q_PROPERTY(QVariantList logEntries READ logEntries NOTIFY logsChanged)
+    Q_PROPERTY(QString logLevel READ logLevel NOTIFY logsChanged)
+    Q_PROPERTY(QString logDirectory READ logDirectory NOTIFY logsChanged)
 
 public:
     explicit NovaApiClient(QObject *parent = nullptr);
@@ -53,6 +63,16 @@ public:
     bool ffmpegAvailable() const noexcept { return m_ffmpegAvailable; }
     bool directProbeBusy() const noexcept { return m_directProbeBusy; }
     QVariantMap directProbe() const { return m_directProbe; }
+    QVariantMap engineCapabilities() const { return m_engineCapabilities; }
+    QVariantList engineProfiles() const { return m_engineProfiles; }
+    QString activeEngineProfile() const { return m_activeEngineProfile; }
+    QVariantMap bandwidthState() const { return m_bandwidthState; }
+    QVariantMap retryPolicy() const { return m_retryPolicy; }
+    bool diagnosticsBusy() const noexcept { return m_diagnosticsBusy; }
+    QVariantMap diagnosticsReport() const { return m_diagnosticsReport; }
+    QVariantList logEntries() const { return m_logEntries; }
+    QString logLevel() const { return m_logLevel; }
+    QString logDirectory() const { return m_logDirectory; }
 
     void setBaseUrl(const QUrl &baseUrl);
     void setBearerToken(const QString &token);
@@ -108,6 +128,21 @@ public:
         bool startImmediately
     );
 
+    Q_INVOKABLE void refreshEngineManagement();
+    Q_INVOKABLE void refreshEngineCapabilities();
+    Q_INVOKABLE void refreshEngineProfiles();
+    Q_INVOKABLE void setActiveEngineProfile(const QString &profileId);
+    Q_INVOKABLE void refreshBandwidthState();
+    Q_INVOKABLE void setGlobalBandwidthLimit(qint64 kbps);
+    Q_INVOKABLE void setBandwidthPaused(bool paused);
+    Q_INVOKABLE void refreshRetryPolicy();
+    Q_INVOKABLE void applyRetryPreset(const QString &preset);
+
+    Q_INVOKABLE void runDiagnostics();
+    Q_INVOKABLE void saveDiagnosticsReport();
+    Q_INVOKABLE void refreshLogs(const QString &minimumLevel = QString(), int limit = 300);
+    Q_INVOKABLE void setLogLevel(const QString &level);
+
 signals:
     void connectionChanged();
     void downloadsLoaded(const QJsonArray &downloads);
@@ -138,6 +173,14 @@ signals:
     void directProbeChanged();
     void directProbeFailed(const QString &message);
     void directDownloadCreated(const QString &taskId);
+
+    void engineManagementChanged();
+    void engineManagementFailed(const QString &message);
+    void diagnosticsChanged();
+    void diagnosticsFailed(const QString &message);
+    void diagnosticsSaved(const QString &path);
+    void logsChanged();
+    void logsFailed(const QString &message);
 
 private:
     QNetworkRequest makeRequest(const QString &path) const;
@@ -190,4 +233,17 @@ private:
 
     bool m_directProbeBusy{false};
     QVariantMap m_directProbe;
+
+    QVariantMap m_engineCapabilities;
+    QVariantList m_engineProfiles;
+    QString m_activeEngineProfile;
+    QVariantMap m_bandwidthState;
+    QVariantMap m_retryPolicy;
+
+    bool m_diagnosticsBusy{false};
+    QVariantMap m_diagnosticsReport;
+
+    QVariantList m_logEntries;
+    QString m_logLevel{QStringLiteral("info")};
+    QString m_logDirectory;
 };

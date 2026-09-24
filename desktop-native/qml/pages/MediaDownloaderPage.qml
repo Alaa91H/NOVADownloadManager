@@ -7,6 +7,7 @@ Item {
     id: root
 
     required property var api
+    required property var settings
 
     property string errorText: ""
     property string statusText: ""
@@ -113,6 +114,8 @@ Item {
     Component.onCompleted: {
         api.refreshFfmpegStatus()
         rebuildQualityModel()
+        saveDirectory.text = settings.defaultSaveDirectory
+        startImmediately.checked = settings.startImmediately
     }
 
     Connections {

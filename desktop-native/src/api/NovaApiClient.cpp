@@ -1111,3 +1111,358 @@ void NovaApiClient::createDirectFromProbe(
         refreshQueue();
     });
 }
+
+
+void NovaApiClient::refreshEngineManagement() {
+    refreshEngineCapabilities();
+    refreshEngineProfiles();
+    refreshBandwidthState();
+    refreshRetryPolicy();
+}
+
+void NovaApiClient::refreshEngineCapabilities() {
+    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/engines/capabilities")));
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit engineManagementFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit engineManagementFailed(QStringLiteral("Unexpected engine capabilities response."));
+            return;
+        }
+
+        m_engineCapabilities = document.object().toVariantMap();
+        emit engineManagementChanged();
+    });
+}
+
+void NovaApiClient::refreshEngineProfiles() {
+    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/engine/profiles")));
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit engineManagementFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit engineManagementFailed(QStringLiteral("Unexpected engine profiles response."));
+            return;
+        }
+
+        const QJsonObject root = document.object();
+        m_engineProfiles = root.value(QStringLiteral("profiles")).toArray().toVariantList();
+        m_activeEngineProfile = root.value(QStringLiteral("active_profile")).toString();
+        emit engineManagementChanged();
+    });
+}
+
+void NovaApiClient::setActiveEngineProfile(const QString &profileId) {
+    const QString id = profileId.trimmed();
+    if (id.isEmpty()) {
+        return;
+    }
+
+    QJsonObject body;
+    body.insert(QStringLiteral("profile_id"), id);
+    auto *reply = m_network.post(
+        makeRequest(QStringLiteral("/api/engine/profiles")),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, id]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit engineManagementFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject() || !document.object().value(QStringLiteral("ok")).toBool()) {
+            emit engineManagementFailed(QStringLiteral("The engine rejected this profile."));
+            return;
+        }
+
+        m_activeEngineProfile = id;
+        emit engineManagementChanged();
+        refreshBandwidthState();
+        refreshRetryPolicy();
+    });
+}
+
+void NovaApiClient::refreshBandwidthState() {
+    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/engine/bandwidth")));
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit engineManagementFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit engineManagementFailed(QStringLiteral("Unexpected bandwidth response."));
+            return;
+        }
+
+        m_bandwidthState = document.object().toVariantMap();
+        emit engineManagementChanged();
+    });
+}
+
+void NovaApiClient::setGlobalBandwidthLimit(qint64 kbps) {
+    QJsonObject body;
+    body.insert(QStringLiteral("global_limit_kbps"), qMax<qint64>(0, kbps));
+
+    auto *reply = m_network.post(
+        makeRequest(QStringLiteral("/api/engine/bandwidth")),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit engineManagementFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+        refreshBandwidthState();
+    });
+}
+
+void NovaApiClient::setBandwidthPaused(bool paused) {
+    QJsonObject body;
+    body.insert(QStringLiteral("paused"), paused);
+
+    auto *reply = m_network.post(
+        makeRequest(QStringLiteral("/api/engine/bandwidth")),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit engineManagementFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+        refreshBandwidthState();
+    });
+}
+
+void NovaApiClient::refreshRetryPolicy() {
+    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/engine/retry-policy")));
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit engineManagementFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit engineManagementFailed(QStringLiteral("Unexpected retry-policy response."));
+            return;
+        }
+
+        m_retryPolicy = document.object().value(QStringLiteral("policy")).toObject().toVariantMap();
+        emit engineManagementChanged();
+    });
+}
+
+void NovaApiClient::applyRetryPreset(const QString &presetText) {
+    const QString preset = presetText.trimmed().toLower();
+    static const QSet<QString> allowed{
+        QStringLiteral("default"),
+        QStringLiteral("aggressive"),
+        QStringLiteral("conservative"),
+        QStringLiteral("none")
+    };
+    if (!allowed.contains(preset)) {
+        emit engineManagementFailed(QStringLiteral("Unknown retry preset."));
+        return;
+    }
+
+    QJsonObject body;
+    body.insert(QStringLiteral("preset"), preset);
+
+    auto *reply = m_network.post(
+        makeRequest(QStringLiteral("/api/engine/retry-policy")),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit engineManagementFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit engineManagementFailed(QStringLiteral("Unexpected retry-policy update response."));
+            return;
+        }
+
+        m_retryPolicy = document.object().value(QStringLiteral("policy")).toObject().toVariantMap();
+        emit engineManagementChanged();
+    });
+}
+
+void NovaApiClient::runDiagnostics() {
+    if (m_diagnosticsBusy) {
+        return;
+    }
+
+    m_diagnosticsBusy = true;
+    emit diagnosticsChanged();
+
+    QNetworkRequest request = makeRequest(QStringLiteral("/api/diagnostics"));
+    request.setTransferTimeout(50000);
+    auto *reply = m_network.get(request);
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        m_diagnosticsBusy = false;
+
+        if (reply->error() != QNetworkReply::NoError) {
+            emit diagnosticsChanged();
+            emit diagnosticsFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit diagnosticsChanged();
+            emit diagnosticsFailed(QStringLiteral("Unexpected diagnostics response."));
+            return;
+        }
+
+        m_diagnosticsReport = document.object().toVariantMap();
+        emit diagnosticsChanged();
+    });
+}
+
+void NovaApiClient::saveDiagnosticsReport() {
+    if (m_diagnosticsReport.isEmpty()) {
+        emit diagnosticsFailed(QStringLiteral("Run diagnostics before saving a report."));
+        return;
+    }
+
+    QJsonObject body = QJsonObject::fromVariantMap(m_diagnosticsReport);
+    body.insert(QStringLiteral("save"), true);
+
+    auto *reply = m_network.post(
+        makeRequest(QStringLiteral("/api/diagnostics")),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit diagnosticsFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit diagnosticsFailed(QStringLiteral("Unexpected diagnostics-save response."));
+            return;
+        }
+
+        const QJsonObject root = document.object();
+        if (!root.value(QStringLiteral("saved")).toBool()) {
+            emit diagnosticsFailed(root.value(QStringLiteral("error")).toString(
+                QStringLiteral("Diagnostics report could not be saved.")
+            ));
+            return;
+        }
+
+        emit diagnosticsSaved(root.value(QStringLiteral("path")).toString());
+    });
+}
+
+void NovaApiClient::refreshLogs(const QString &minimumLevel, int limit) {
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("limit"), QString::number(qBound(1, limit, 2000)));
+    const QString normalizedLevel = minimumLevel.trimmed().toLower();
+    if (!normalizedLevel.isEmpty() && normalizedLevel != QStringLiteral("all")) {
+        query.addQueryItem(QStringLiteral("level"), normalizedLevel);
+    }
+
+    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/logs"), query));
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit logsFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit logsFailed(QStringLiteral("Unexpected logs response."));
+            return;
+        }
+
+        const QJsonObject root = document.object();
+        m_logEntries = root.value(QStringLiteral("entries")).toArray().toVariantList();
+        m_logLevel = root.value(QStringLiteral("level")).toString(m_logLevel);
+        m_logDirectory = root.value(QStringLiteral("logDir")).toString();
+        emit logsChanged();
+    });
+}
+
+void NovaApiClient::setLogLevel(const QString &levelText) {
+    const QString level = levelText.trimmed().toLower();
+    static const QSet<QString> allowed{
+        QStringLiteral("off"),
+        QStringLiteral("error"),
+        QStringLiteral("warn"),
+        QStringLiteral("info"),
+        QStringLiteral("debug"),
+        QStringLiteral("trace")
+    };
+    if (!allowed.contains(level)) {
+        emit logsFailed(QStringLiteral("Unknown log level."));
+        return;
+    }
+
+    QJsonObject body;
+    body.insert(QStringLiteral("level"), level);
+
+    auto *reply = m_network.sendCustomRequest(
+        makeRequest(QStringLiteral("/api/logs/level")),
+        QByteArrayLiteral("PATCH"),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit logsFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (document.isObject()) {
+            m_logLevel = document.object().value(QStringLiteral("level")).toString(m_logLevel);
+        }
+        emit logsChanged();
+        refreshLogs(QString(), 300);
+    });
+}

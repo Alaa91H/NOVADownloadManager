@@ -7,6 +7,7 @@ Item {
     id: root
 
     required property var api
+    required property var settings
 
     property string errorText: ""
     property string statusText: ""
@@ -33,6 +34,11 @@ Item {
         errorText = ""
         statusText = ""
         api.probeDirectLink(url)
+    }
+
+    Component.onCompleted: {
+        saveDirectory.text = settings.defaultSaveDirectory
+        startImmediately.checked = settings.startImmediately
     }
 
     Connections {

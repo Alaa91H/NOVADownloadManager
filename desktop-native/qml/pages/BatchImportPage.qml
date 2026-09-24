@@ -7,6 +7,7 @@ Item {
     id: root
 
     required property var api
+    required property var settings
 
     property int totalCount: 0
     property int completedCount: 0
@@ -14,6 +15,17 @@ Item {
     property int failedCount: 0
     property int duplicateCount: 0
     property string resultText: ""
+
+    Component.onCompleted: {
+        saveDirectory.text = settings.defaultSaveDirectory
+        startImmediately.checked = settings.startImmediately
+        for (let i = 0; i < connections.model.length; ++i) {
+            if (connections.model[i].value === settings.defaultConnections) {
+                connections.currentIndex = i
+                break
+            }
+        }
+    }
 
     function resetProgress() {
         totalCount = 0
