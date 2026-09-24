@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Added a non-elevated Windows installer for the current user.** NOVA can now be installed under the user's local app data without Administrator privileges, while releases also retain a separate per-machine installer for all-users deployment.
 - **Added a shared Rust download core for desktop and Android.** Range planning, validated HTTP range transport, resumable app-private file transfer, and HTTP(S)-only protocol enforcement now live outside Tauri and Android UI code.
 - **Added an Android-safe mobile transfer facade.** The facade restricts destinations to app-private relative paths and exposes native pause/cancel session control by opaque task ID.
 - **Added encrypted durable Android transfer intents.** Resume URLs are stored with Android Keystore AES/GCM encryption instead of being written in clear text to the task catalog.
@@ -17,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Improved
 
+- **Made Windows release packaging scope-aware.** CI now produces distinct `user` and `machine` NSIS artifacts, Scoop prefers the non-elevated user installer, and WinGet manifests advertise both supported installation scopes.
 - **Moved Android direct-download bytes off Android DownloadManager and into NOVA's Rust core.** Kotlin now owns lifecycle/catalog projection while libcurl performs the network transfer.
 - **Added validated resume, pause, and cancel semantics.** Partial staging bytes are retained for pause/failure resume, while cancellation removes partial output and encrypted transfer intent.
 - **Unified desktop and mobile segment planning.** Desktop preserves its higher host-specific connection ceiling while sharing the same range geometry implementation.
