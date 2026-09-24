@@ -392,6 +392,144 @@ ScrollView {
                     horizontalAlignment: Text.AlignLeft
                     onEditingFinished: root.setAdvanced("userAgent", text)
                 }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: tlsColumn.implicitHeight + 18
+                    radius: Theme.radiusSmall
+                    color: Theme.surfaceRaised
+                    border.color: Theme.border
+
+                    ColumnLayout {
+                        id: tlsColumn
+                        anchors.fill: parent
+                        anchors.margins: 9
+                        spacing: 8
+
+                        Text {
+                            text: root.t("settings.httpTls")
+                            color: Theme.textPrimary
+                            font.pixelSize: Theme.fontSmall
+                            font.weight: Font.DemiBold
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Text { text: root.t("settings.keepalive"); color: Theme.textSecondary; font.pixelSize: Theme.fontTiny }
+                            SpinBox {
+                                from: 0
+                                to: 86400
+                                value: Number(root.advanced("keepaliveTimeSec", 0))
+                                onValueModified: root.setAdvanced("keepaliveTimeSec", value)
+                            }
+
+                            Text { text: root.t("settings.httpVersion"); color: Theme.textSecondary; font.pixelSize: Theme.fontTiny }
+                            ComboBox {
+                                id: httpVersionBox
+                                model: [
+                                    {label: root.t("settings.automatic"), value: ""},
+                                    {label: "HTTP/1.0", value: "1.0"},
+                                    {label: "HTTP/1.1", value: "1.1"},
+                                    {label: "HTTP/2", value: "2"},
+                                    {label: "HTTP/2 prior knowledge", value: "2-prior-knowledge"},
+                                    {label: "HTTP/3", value: "3"}
+                                ]
+                                textRole: "label"
+                                valueRole: "value"
+                                currentIndex: {
+                                    const wanted = String(root.advanced("httpVersion", ""))
+                                    for (let i = 0; i < model.length; ++i) {
+                                        if (String(model[i].value) === wanted)
+                                            return i
+                                    }
+                                    return 0
+                                }
+                                onActivated: root.setAdvanced("httpVersion", currentValue)
+                            }
+
+                            Text { text: root.t("settings.tlsMinimum"); color: Theme.textSecondary; font.pixelSize: Theme.fontTiny }
+                            ComboBox {
+                                id: tlsMinBox
+                                model: [
+                                    {label: root.t("settings.automatic"), value: ""},
+                                    {label: "TLS 1.0", value: "1.0"},
+                                    {label: "TLS 1.1", value: "1.1"},
+                                    {label: "TLS 1.2", value: "1.2"},
+                                    {label: "TLS 1.3", value: "1.3"}
+                                ]
+                                textRole: "label"
+                                valueRole: "value"
+                                currentIndex: {
+                                    const wanted = String(root.advanced("tlsMin", ""))
+                                    for (let i = 0; i < model.length; ++i) {
+                                        if (String(model[i].value) === wanted)
+                                            return i
+                                    }
+                                    return 0
+                                }
+                                onActivated: root.setAdvanced("tlsMin", currentValue)
+                            }
+
+                            Switch {
+                                text: root.t("settings.allowInsecureTls")
+                                checked: Boolean(root.advanced("insecure", false))
+                                onToggled: root.setAdvanced("insecure", checked)
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            TextField {
+                                Layout.fillWidth: true
+                                placeholderText: root.t("settings.caCertificate")
+                                text: String(root.advanced("caCert", ""))
+                                LayoutMirroring.enabled: false
+                                horizontalAlignment: Text.AlignLeft
+                                onEditingFinished: root.setAdvanced("caCert", text)
+                            }
+                            Button {
+                                text: root.t("common.browse")
+                                onClicked: {
+                                    const path = desktop.chooseOpenFile(
+                                        String(root.advanced("caCert", "")),
+                                        root.t("settings.certificateFiles") + " (*)"
+                                    )
+                                    if (path.length > 0)
+                                        root.setAdvanced("caCert", path)
+                                }
+                            }
+
+                            TextField {
+                                Layout.fillWidth: true
+                                placeholderText: root.t("settings.clientCertificate")
+                                text: String(root.advanced("clientCert", ""))
+                                LayoutMirroring.enabled: false
+                                horizontalAlignment: Text.AlignLeft
+                                onEditingFinished: root.setAdvanced("clientCert", text)
+                            }
+
+                            TextField {
+                                Layout.fillWidth: true
+                                placeholderText: root.t("settings.clientKey")
+                                text: String(root.advanced("clientKey", ""))
+                                LayoutMirroring.enabled: false
+                                horizontalAlignment: Text.AlignLeft
+                                onEditingFinished: root.setAdvanced("clientKey", text)
+                            }
+                        }
+
+                        TextField {
+                            Layout.fillWidth: true
+                            placeholderText: root.t("settings.tlsCiphers")
+                            text: String(root.advanced("ciphers", ""))
+                            LayoutMirroring.enabled: false
+                            horizontalAlignment: Text.AlignLeft
+                            onEditingFinished: root.setAdvanced("ciphers", text)
+                        }
+                    }
+                }
             }
         }
 
