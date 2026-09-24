@@ -147,8 +147,14 @@ impl TaskState {
                     | Self::Paused
                     | Self::Failed
             ),
-            Self::Verifying => matches!(next, Self::Finalizing | Self::Failed),
-            Self::Finalizing => matches!(next, Self::Completed | Self::Failed),
+            Self::Verifying => matches!(
+                next,
+                Self::Finalizing | Self::Pausing | Self::Paused | Self::Failed
+            ),
+            Self::Finalizing => matches!(
+                next,
+                Self::Completed | Self::Pausing | Self::Paused | Self::Failed
+            ),
             Self::Completed => false,
             Self::Failed => matches!(next, Self::Queued | Self::Paused),
             Self::Interrupted => matches!(
@@ -569,6 +575,13 @@ mod tests {
         ByteRange, RecoveryCheckpoint, ResourceContinuity, ResourceIdentity, ResumeAction, Segment,
         TaskState, MAX_PARALLEL_SEGMENTS, RECOVERY_SCHEMA_VERSION,
     };
+
+    #[test]
+    fn verification_and_finalization_can_pause() {
+        assert!(TaskState::Verifying.can_transition_to(TaskState::Pausing));
+        assert!(TaskState::Finalizing.can_transition_to(TaskState::Pausing));
+        assert!(TaskState::Pausing.can_transition_to(TaskState::Paused));
+    }
 
     #[test]
     fn legacy_segment_without_byte_range_deserializes() {
