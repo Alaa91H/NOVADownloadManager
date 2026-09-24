@@ -256,8 +256,7 @@ impl AppState {
                 }
             }
         }
-        let result =
-            crate::daemon::engine_capabilities::all_engine_status(&self.ffmpeg_binary());
+        let result = crate::daemon::engine_capabilities::all_engine_status(&self.ffmpeg_binary());
         let arc_result = Arc::new(result);
         if let Ok(mut cache) = self.engine_capabilities_cache.write() {
             *cache = Some((arc_result.clone(), Instant::now()));
