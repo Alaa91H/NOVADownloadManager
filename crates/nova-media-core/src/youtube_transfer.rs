@@ -88,7 +88,7 @@ pub fn download_youtube_plan(
                 .map_err(|error| YouTubeTransferError::Transport(error.to_string()))?;
             let video_path = append_suffix(destination, ".nova-video.part");
             let audio_path = append_suffix(destination, ".nova-audio.part");
-            let per_track_connections = requested_connections.max(2).div_ceil(2);
+            let per_track_connections = (requested_connections.max(2) + 1) / 2;
 
             let (video_result, audio_result) = std::thread::scope(|scope| {
                 let video_worker = scope.spawn(|| {
