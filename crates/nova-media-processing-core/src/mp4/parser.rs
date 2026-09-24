@@ -79,6 +79,12 @@ pub fn parse_movie(moov_payload: &[u8], fragmented: bool) -> Result<ParsedMp4, M
     if tracks.is_empty() {
         return Err(demux_error("MP4 moov contains no tracks"));
     }
+    let mut track_ids = BTreeSet::new();
+    for track in &tracks {
+        if track.track.id == 0 || !track_ids.insert(track.track.id) {
+            return Err(demux_error("MP4 track ids must be unique and non-zero"));
+        }
+    }
 
     let duration_millis = movie_duration.or_else(|| {
         tracks
@@ -387,7 +393,7 @@ fn parse_sample_table(children: &[Mp4Box<'_>]) -> Result<SampleTable, MediaProce
         table.sample_to_chunk = parse_stsc(stsc.payload)?;
     }
     if let Some(stts) = child(children, *b"stts") {
-        table.decode_times = parse_time_runs(stts.payload, false)?;
+        table.decode_times = parse_time_runs(stts.payload)?;
     }
     if let Some(ctts) = child(children, *b"ctts") {
         table.composition_offsets = parse_ctts(ctts.payload)?;
@@ -505,7 +511,7 @@ fn parse_stsc(data: &[u8]) -> Result<Vec<SampleToChunk>, MediaProcessingError> {
     Ok(result)
 }
 
-fn parse_time_runs(data: &[u8], _signed: bool) -> Result<Vec<(u32, u32)>, MediaProcessingError> {
+fn parse_time_runs(data: &[u8]) -> Result<Vec<(u32, u32)>, MediaProcessingError> {
     let (_, _, body) = full_box_body(data)?;
     let count = usize::try_from(read_u32(slice(body, 0, 4)?)?)
         .map_err(|_| demux_error("time-entry count does not fit platform"))?;
