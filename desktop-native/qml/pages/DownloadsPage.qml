@@ -27,6 +27,65 @@ Item {
         return i18n.translate(key)
     }
 
+    function columnVisible(key) {
+        if (key === "name")
+            return true
+        const columns = nativeSettings.downloadColumns
+        for (let i = 0; i < columns.length; ++i) {
+            if (columns[i] === key)
+                return true
+        }
+        return false
+    }
+
+    function toggleColumn(key) {
+        if (key === "name")
+            return
+
+        const columns = []
+        const current = nativeSettings.downloadColumns
+        let found = false
+        for (let i = 0; i < current.length; ++i) {
+            if (current[i] === key) {
+                found = true
+                continue
+            }
+            columns.push(current[i])
+        }
+        if (!found)
+            columns.push(key)
+        nativeSettings.downloadColumns = columns
+    }
+
+    function resetColumns() {
+        nativeSettings.downloadColumns = [
+            "name", "size", "progress", "speed", "eta", "status"
+        ]
+    }
+
+    function requestSort(key) {
+        if (downloads.sortKey === key) {
+            downloads.sortAscending = !downloads.sortAscending
+        } else {
+            downloads.sortKey = key
+            downloads.sortAscending = true
+        }
+        nativeSettings.downloadSortKey = downloads.sortKey
+        nativeSettings.downloadSortAscending = downloads.sortAscending
+        clearSelection()
+    }
+
+    function sortIndicator(key) {
+        if (downloads.sortKey !== key)
+            return ""
+        return downloads.sortAscending ? " ↑" : " ↓"
+    }
+
+    function applyPresentationSettings() {
+        downloads.sortKey = nativeSettings.downloadSortKey
+        downloads.sortAscending = nativeSettings.downloadSortAscending
+    }
+
     function openNewDownload() {
         addDownloadDialog.openNew()
     }
@@ -180,6 +239,15 @@ Item {
     Component.onCompleted: {
         downloads.filterState = page
         downloads.searchQuery = query
+        applyPresentationSettings()
+    }
+
+    Connections {
+        target: nativeSettings
+
+        function onSettingsChanged() {
+            root.applyPresentationSettings()
+        }
     }
 
     onPageChanged: applyPageFilter()
@@ -304,6 +372,13 @@ Item {
                     root.query = text
                     root.downloads.searchQuery = text
                 }
+            }
+
+            ToolButton {
+                id: columnsButton
+                text: root.t("downloads.columns")
+                Accessible.name: text
+                onClicked: columnsMenu.popup()
             }
         }
 
@@ -440,12 +515,53 @@ Item {
                             anchors.rightMargin: 12
                             spacing: 10
 
-                            Text { Layout.fillWidth: true; text: root.t("common.name"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
-                            Text { Layout.preferredWidth: 88; text: root.t("common.size"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
-                            Text { Layout.preferredWidth: 190; text: root.t("common.progress"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
-                            Text { Layout.preferredWidth: 90; text: root.t("common.speed"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
-                            Text { Layout.preferredWidth: 70; text: root.t("common.eta"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
-                            Text { Layout.preferredWidth: 100; text: root.t("common.status"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
+                            ToolButton {
+                                Layout.fillWidth: true
+                                text: root.t("common.name") + root.sortIndicator("name")
+                                flat: true
+                                Accessible.name: text
+                                onClicked: root.requestSort("name")
+                            }
+                            ToolButton {
+                                Layout.preferredWidth: 88
+                                visible: root.columnVisible("size")
+                                text: root.t("common.size") + root.sortIndicator("size")
+                                flat: true
+                                Accessible.name: text
+                                onClicked: root.requestSort("size")
+                            }
+                            ToolButton {
+                                Layout.preferredWidth: 190
+                                visible: root.columnVisible("progress")
+                                text: root.t("common.progress") + root.sortIndicator("progress")
+                                flat: true
+                                Accessible.name: text
+                                onClicked: root.requestSort("progress")
+                            }
+                            ToolButton {
+                                Layout.preferredWidth: 90
+                                visible: root.columnVisible("speed")
+                                text: root.t("common.speed") + root.sortIndicator("speed")
+                                flat: true
+                                Accessible.name: text
+                                onClicked: root.requestSort("speed")
+                            }
+                            ToolButton {
+                                Layout.preferredWidth: 70
+                                visible: root.columnVisible("eta")
+                                text: root.t("common.eta") + root.sortIndicator("eta")
+                                flat: true
+                                Accessible.name: text
+                                onClicked: root.requestSort("eta")
+                            }
+                            ToolButton {
+                                Layout.preferredWidth: 100
+                                visible: root.columnVisible("status")
+                                text: root.t("common.status") + root.sortIndicator("status")
+                                flat: true
+                                Accessible.name: text
+                                onClicked: root.requestSort("status")
+                            }
                         }
                     }
 
@@ -516,6 +632,7 @@ Item {
 
                                 Text {
                                     Layout.preferredWidth: 88
+                                    visible: root.columnVisible("size")
                                     text: root.formatBytes(sizeBytes)
                                     color: Theme.textSecondary
                                     font.pixelSize: Theme.fontSmall
@@ -524,6 +641,7 @@ Item {
 
                                 RowLayout {
                                     Layout.preferredWidth: 190
+                                    visible: root.columnVisible("progress")
                                     spacing: 8
 
                                     ProgressBar {
@@ -545,6 +663,7 @@ Item {
 
                                 Text {
                                     Layout.preferredWidth: 90
+                                    visible: root.columnVisible("speed")
                                     text: root.formatSpeed(speedBytesPerSec)
                                     color: speedBytesPerSec > 0 ? Theme.textPrimary : Theme.textMuted
                                     font.pixelSize: Theme.fontSmall
@@ -553,6 +672,7 @@ Item {
 
                                 Text {
                                     Layout.preferredWidth: 70
+                                    visible: root.columnVisible("eta")
                                     text: root.formatEta(etaSeconds)
                                     color: Theme.textSecondary
                                     font.pixelSize: Theme.fontSmall
@@ -561,6 +681,7 @@ Item {
 
                                 Text {
                                     Layout.preferredWidth: 100
+                                    visible: root.columnVisible("status")
                                     text: status
                                     color: status === "completed"
                                         ? Theme.success
@@ -622,7 +743,9 @@ Item {
                                 }
 
                                 MenuItem {
-                                    text: root.isRetryStatus(status) ? "Retry from beginning" : "Redownload from beginning"
+                                    text: root.isRetryStatus(status)
+                                        ? root.t("downloads.retryBeginning")
+                                        : root.t("downloads.redownloadBeginning")
                                     enabled: root.api.connected
                                     onTriggered: {
                                         root.selectRow(index)
@@ -674,8 +797,10 @@ Item {
                     Text {
                         Layout.alignment: Qt.AlignHCenter
                         text: root.query.length > 0
-                            ? "No matching downloads"
-                            : root.page === "downloads" ? "No downloads yet" : "Nothing in this view"
+                            ? root.t("downloads.noMatch")
+                            : root.page === "downloads"
+                                ? root.t("downloads.noDownloads")
+                                : root.t("downloads.nothingView")
                         color: Theme.textPrimary
                         font.pixelSize: 16
                         font.weight: Font.DemiBold
@@ -711,6 +836,53 @@ Item {
                 onOpenFolderRequested: root.revealSelectedFile()
                 onPropertiesRequested: root.showSelectedProperties()
             }
+        }
+    }
+
+
+    Menu {
+        id: columnsMenu
+
+        MenuItem {
+            text: root.t("common.name")
+            checkable: true
+            checked: true
+            enabled: false
+        }
+        MenuItem {
+            text: root.t("common.size")
+            checkable: true
+            checked: root.columnVisible("size")
+            onTriggered: root.toggleColumn("size")
+        }
+        MenuItem {
+            text: root.t("common.progress")
+            checkable: true
+            checked: root.columnVisible("progress")
+            onTriggered: root.toggleColumn("progress")
+        }
+        MenuItem {
+            text: root.t("common.speed")
+            checkable: true
+            checked: root.columnVisible("speed")
+            onTriggered: root.toggleColumn("speed")
+        }
+        MenuItem {
+            text: root.t("common.eta")
+            checkable: true
+            checked: root.columnVisible("eta")
+            onTriggered: root.toggleColumn("eta")
+        }
+        MenuItem {
+            text: root.t("common.status")
+            checkable: true
+            checked: root.columnVisible("status")
+            onTriggered: root.toggleColumn("status")
+        }
+        MenuSeparator {}
+        MenuItem {
+            text: root.t("downloads.resetColumns")
+            onTriggered: root.resetColumns()
         }
     }
 

@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QSettings>
 #include <QString>
+#include <QStringList>
 #include <QVariant>
 
 class NativeSettings final : public QObject {
@@ -21,6 +22,9 @@ class NativeSettings final : public QObject {
     Q_PROPERTY(bool highContrast READ highContrast WRITE setHighContrast NOTIFY settingsChanged)
     Q_PROPERTY(bool reducedMotion READ reducedMotion WRITE setReducedMotion NOTIFY settingsChanged)
     Q_PROPERTY(double fontScale READ fontScale WRITE setFontScale NOTIFY settingsChanged)
+    Q_PROPERTY(QStringList downloadColumns READ downloadColumns WRITE setDownloadColumns NOTIFY settingsChanged)
+    Q_PROPERTY(QString downloadSortKey READ downloadSortKey WRITE setDownloadSortKey NOTIFY settingsChanged)
+    Q_PROPERTY(bool downloadSortAscending READ downloadSortAscending WRITE setDownloadSortAscending NOTIFY settingsChanged)
 
 public:
     explicit NativeSettings(QObject *parent = nullptr);
@@ -39,6 +43,9 @@ public:
     bool highContrast() const;
     bool reducedMotion() const;
     double fontScale() const;
+    QStringList downloadColumns() const;
+    QString downloadSortKey() const;
+    bool downloadSortAscending() const;
 
     void setDefaultSaveDirectory(const QString &value);
     void setDefaultConnections(int value);
@@ -54,6 +61,9 @@ public:
     void setHighContrast(bool value);
     void setReducedMotion(bool value);
     void setFontScale(double value);
+    void setDownloadColumns(const QStringList &value);
+    void setDownloadSortKey(const QString &value);
+    void setDownloadSortAscending(bool value);
 
     Q_INVOKABLE void resetToDefaults();
 

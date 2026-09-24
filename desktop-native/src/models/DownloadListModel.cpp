@@ -1,6 +1,8 @@
 #include "models/DownloadListModel.h"
 
+#include <algorithm>
 #include <QJsonObject>
+#include <QSet>
 #include <QtGlobal>
 
 DownloadListModel::DownloadListModel(QObject *parent)
@@ -173,6 +175,40 @@ void DownloadListModel::setSearchQuery(const QString &searchQuery) {
     emit filterChanged();
 }
 
+void DownloadListModel::setSortKey(const QString &sortKey) {
+    static const QSet<QString> allowed{
+        QStringLiteral("name"),
+        QStringLiteral("size"),
+        QStringLiteral("progress"),
+        QStringLiteral("speed"),
+        QStringLiteral("eta"),
+        QStringLiteral("status"),
+        QStringLiteral("dateAdded"),
+        QStringLiteral("engine")
+    };
+
+    const QString normalized = allowed.contains(sortKey.trimmed())
+        ? sortKey.trimmed()
+        : QStringLiteral("dateAdded");
+    if (m_sortKey == normalized) {
+        return;
+    }
+
+    m_sortKey = normalized;
+    rebuildVisibleItems();
+    emit sortChanged();
+}
+
+void DownloadListModel::setSortAscending(bool ascending) {
+    if (m_sortAscending == ascending) {
+        return;
+    }
+
+    m_sortAscending = ascending;
+    rebuildVisibleItems();
+    emit sortChanged();
+}
+
 bool DownloadListModel::matchesCurrentFilter(const Item &item) const {
     const QString state = m_filterState;
     const QString status = item.status.trimmed().toLower();
@@ -206,6 +242,42 @@ bool DownloadListModel::matchesCurrentFilter(const Item &item) const {
         || item.status.contains(needle, Qt::CaseInsensitive);
 }
 
+int DownloadListModel::compareItems(
+    const Item &left,
+    const Item &right,
+    const QString &sortKey
+) {
+    const auto compareNumber = [](auto a, auto b) {
+        if (a < b) return -1;
+        if (a > b) return 1;
+        return 0;
+    };
+
+    if (sortKey == QStringLiteral("name")) {
+        return QString::localeAwareCompare(left.name.toLower(), right.name.toLower());
+    }
+    if (sortKey == QStringLiteral("size")) {
+        return compareNumber(left.sizeBytes, right.sizeBytes);
+    }
+    if (sortKey == QStringLiteral("progress")) {
+        return compareNumber(left.progress, right.progress);
+    }
+    if (sortKey == QStringLiteral("speed")) {
+        return compareNumber(left.speedBytesPerSec, right.speedBytesPerSec);
+    }
+    if (sortKey == QStringLiteral("eta")) {
+        return compareNumber(left.etaSeconds, right.etaSeconds);
+    }
+    if (sortKey == QStringLiteral("status")) {
+        return QString::localeAwareCompare(left.status.toLower(), right.status.toLower());
+    }
+    if (sortKey == QStringLiteral("engine")) {
+        return QString::localeAwareCompare(left.engine.toLower(), right.engine.toLower());
+    }
+
+    return QString::compare(left.dateAdded, right.dateAdded, Qt::CaseInsensitive);
+}
+
 void DownloadListModel::rebuildVisibleItems() {
     QVector<Item> filtered;
     filtered.reserve(m_allItems.size());
@@ -215,6 +287,18 @@ void DownloadListModel::rebuildVisibleItems() {
             filtered.push_back(item);
         }
     }
+
+    std::stable_sort(
+        filtered.begin(),
+        filtered.end(),
+        [this](const Item &left, const Item &right) {
+            int comparison = compareItems(left, right, m_sortKey);
+            if (comparison == 0) {
+                comparison = QString::compare(left.id, right.id, Qt::CaseInsensitive);
+            }
+            return m_sortAscending ? comparison < 0 : comparison > 0;
+        }
+    );
 
     beginResetModel();
     m_items = std::move(filtered);

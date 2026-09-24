@@ -284,13 +284,44 @@
     {
       "id": "columns-sorting",
       "label": "Column configuration and sorting",
-      "status": "gap",
+      "status": "partial",
       "legacyEvidence": [
         "src/components/ColumnConfigPanel.tsx",
         "src/hooks/useColumnState.ts",
         "src/hooks/useTaskSortFilter.ts"
       ],
-      "blocker": "Native downloads table still needs configurable columns and user-controlled sorting."
+      "blocker": "Core native columns can now be shown/hidden and sorted persistently. Legacy-only extended columns (retries, CRC32, priority, completed date, smart category and related metadata) are not yet available in the native table.",
+      "evidence": [
+        "desktop-native/qml/pages/DownloadsPage.qml",
+        "desktop-native/src/models/DownloadListModel.cpp",
+        "desktop-native/src/settings/NativeSettings.cpp"
+      ],
+      "contains": [
+        {
+          "file": "desktop-native/qml/pages/DownloadsPage.qml",
+          "allOf": [
+            "columnsMenu",
+            "requestSort",
+            "toggleColumn"
+          ]
+        },
+        {
+          "file": "desktop-native/src/models/DownloadListModel.cpp",
+          "allOf": [
+            "setSortKey",
+            "setSortAscending",
+            "std::stable_sort"
+          ]
+        },
+        {
+          "file": "desktop-native/src/settings/NativeSettings.cpp",
+          "allOf": [
+            "downloadColumns",
+            "downloadSortKey",
+            "downloadSortAscending"
+          ]
+        }
+      ]
     },
     {
       "id": "browser-integration",

@@ -84,6 +84,64 @@ double NativeSettings::fontScale() const {
     return qBound(0.85, value<double>(QStringLiteral("appearance/fontScale"), 1.0), 1.35);
 }
 
+QStringList NativeSettings::downloadColumns() const {
+    const QStringList fallback{
+        QStringLiteral("name"),
+        QStringLiteral("size"),
+        QStringLiteral("progress"),
+        QStringLiteral("speed"),
+        QStringLiteral("eta"),
+        QStringLiteral("status")
+    };
+    const QStringList stored = value<QStringList>(
+        QStringLiteral("downloads/columns"),
+        fallback
+    );
+
+    static const QSet<QString> allowed{
+        QStringLiteral("name"),
+        QStringLiteral("size"),
+        QStringLiteral("progress"),
+        QStringLiteral("speed"),
+        QStringLiteral("eta"),
+        QStringLiteral("status")
+    };
+
+    QStringList result{QStringLiteral("name")};
+    for (const QString &column : stored) {
+        const QString normalized = column.trimmed().toLower();
+        if (normalized != QStringLiteral("name")
+            && allowed.contains(normalized)
+            && !result.contains(normalized)) {
+            result.append(normalized);
+        }
+    }
+    return result;
+}
+
+QString NativeSettings::downloadSortKey() const {
+    const QString stored = value<QString>(
+        QStringLiteral("downloads/sortKey"),
+        QStringLiteral("dateAdded")
+    ).trimmed();
+
+    static const QSet<QString> allowed{
+        QStringLiteral("name"),
+        QStringLiteral("size"),
+        QStringLiteral("progress"),
+        QStringLiteral("speed"),
+        QStringLiteral("eta"),
+        QStringLiteral("status"),
+        QStringLiteral("dateAdded"),
+        QStringLiteral("engine")
+    };
+    return allowed.contains(stored) ? stored : QStringLiteral("dateAdded");
+}
+
+bool NativeSettings::downloadSortAscending() const {
+    return value<bool>(QStringLiteral("downloads/sortAscending"), false);
+}
+
 void NativeSettings::setDefaultSaveDirectory(const QString &value) {
     store(QStringLiteral("downloads/defaultDirectory"), value.trimmed());
 }
@@ -155,6 +213,58 @@ void NativeSettings::setReducedMotion(bool value) {
 
 void NativeSettings::setFontScale(double value) {
     store(QStringLiteral("appearance/fontScale"), qBound(0.85, value, 1.35));
+}
+
+void NativeSettings::setDownloadColumns(const QStringList &value) {
+    static const QStringList defaults{
+        QStringLiteral("name"),
+        QStringLiteral("size"),
+        QStringLiteral("progress"),
+        QStringLiteral("speed"),
+        QStringLiteral("eta"),
+        QStringLiteral("status")
+    };
+    static const QSet<QString> allowed{
+        QStringLiteral("name"),
+        QStringLiteral("size"),
+        QStringLiteral("progress"),
+        QStringLiteral("speed"),
+        QStringLiteral("eta"),
+        QStringLiteral("status")
+    };
+
+    QStringList normalized{QStringLiteral("name")};
+    for (const QString &column : value) {
+        const QString key = column.trimmed().toLower();
+        if (key != QStringLiteral("name")
+            && allowed.contains(key)
+            && !normalized.contains(key)) {
+            normalized.append(key);
+        }
+    }
+    store(QStringLiteral("downloads/columns"), normalized);
+}
+
+void NativeSettings::setDownloadSortKey(const QString &value) {
+    static const QSet<QString> allowed{
+        QStringLiteral("name"),
+        QStringLiteral("size"),
+        QStringLiteral("progress"),
+        QStringLiteral("speed"),
+        QStringLiteral("eta"),
+        QStringLiteral("status"),
+        QStringLiteral("dateAdded"),
+        QStringLiteral("engine")
+    };
+    const QString normalized = value.trimmed();
+    store(
+        QStringLiteral("downloads/sortKey"),
+        allowed.contains(normalized) ? normalized : QStringLiteral("dateAdded")
+    );
+}
+
+void NativeSettings::setDownloadSortAscending(bool value) {
+    store(QStringLiteral("downloads/sortAscending"), value);
 }
 
 void NativeSettings::resetToDefaults() {

@@ -14,6 +14,8 @@ class DownloadListModel final : public QAbstractListModel {
     Q_PROPERTY(qint64 totalSpeed READ totalSpeed NOTIFY summaryChanged)
     Q_PROPERTY(QString filterState READ filterState WRITE setFilterState NOTIFY filterChanged)
     Q_PROPERTY(QString searchQuery READ searchQuery WRITE setSearchQuery NOTIFY filterChanged)
+    Q_PROPERTY(QString sortKey READ sortKey WRITE setSortKey NOTIFY sortChanged)
+    Q_PROPERTY(bool sortAscending READ sortAscending WRITE setSortAscending NOTIFY sortChanged)
 
 public:
     enum Role {
@@ -49,9 +51,13 @@ public:
 
     QString filterState() const { return m_filterState; }
     QString searchQuery() const { return m_searchQuery; }
+    QString sortKey() const { return m_sortKey; }
+    bool sortAscending() const noexcept { return m_sortAscending; }
 
     void setFilterState(const QString &filterState);
     void setSearchQuery(const QString &searchQuery);
+    void setSortKey(const QString &sortKey);
+    void setSortAscending(bool ascending);
 
     Q_INVOKABLE QString taskIdAt(int row) const;
     Q_INVOKABLE QVariantMap itemAt(int row) const;
@@ -63,6 +69,7 @@ public slots:
 signals:
     void summaryChanged();
     void filterChanged();
+    void sortChanged();
 
 private:
     struct Item {
@@ -86,10 +93,13 @@ private:
 
     static bool isActiveStatus(const QString &status);
     bool matchesCurrentFilter(const Item &item) const;
+    static int compareItems(const Item &left, const Item &right, const QString &sortKey);
     void rebuildVisibleItems();
 
     QVector<Item> m_allItems;
     QVector<Item> m_items;
     QString m_filterState{QStringLiteral("downloads")};
     QString m_searchQuery;
+    QString m_sortKey{QStringLiteral("dateAdded")};
+    bool m_sortAscending{false};
 };
