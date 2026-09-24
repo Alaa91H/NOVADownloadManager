@@ -1036,6 +1036,98 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn peer_session_retries_timed_out_block_once_and_accepts_retry_response() {
+        let metainfo = test_metainfo();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let info_hash = metainfo.info_hash;
+
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut handshake = [0u8; PEER_HANDSHAKE_LEN];
+            stream.read_exact(&mut handshake).await.unwrap();
+            let remote = PeerHandshake::new(
+                info_hash,
+                *b"-NVTEST-REMOTE-00001",
+            );
+            stream.write_all(&remote.encode()).await.unwrap();
+
+            let interested = read_peer_frame(
+                &mut stream,
+                Duration::from_secs(2),
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(interested, PeerMessage::Interested);
+            stream
+                .write_all(&PeerMessage::Unchoke.encode().unwrap())
+                .await
+                .unwrap();
+
+            let first = read_peer_frame(
+                &mut stream,
+                Duration::from_secs(2),
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+            let retry = read_peer_frame(
+                &mut stream,
+                Duration::from_secs(2),
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(first, retry);
+
+            let PeerMessage::Request {
+                piece_index,
+                begin,
+                ..
+            } = retry
+            else {
+                panic!("expected retried request");
+            };
+            stream
+                .write_all(
+                    &PeerMessage::Piece {
+                        piece_index,
+                        begin,
+                        block: b"abcdefgh".to_vec(),
+                    }
+                    .encode()
+                    .unwrap(),
+                )
+                .await
+                .unwrap();
+        });
+
+        let cancel = CancellationToken::new();
+        let mut config = test_config();
+        config.block_timeout = Duration::from_millis(100);
+        config.max_block_retries = 1;
+        let mut session = PeerSession::connect_with_policy(
+            address,
+            metainfo.info_hash,
+            *b"-NV0001-123456789012",
+            1,
+            config,
+            true,
+            &cancel,
+        )
+        .await
+        .unwrap();
+
+        let result = session
+            .download_piece(&metainfo, 0, &cancel)
+            .await
+            .expect("retry should succeed");
+        assert_eq!(result.bytes, b"abcdefgh");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn peer_session_rejects_unsolicited_block() {
         let metainfo = test_metainfo();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
