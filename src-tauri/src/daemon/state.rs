@@ -119,7 +119,7 @@ pub struct AppState {
     pub download_stats: Mutex<DownloadStats>,
     /// Resource Intelligence Engine — analyzes URLs and selects download strategies.
     pub rie: ResourceIntelligenceEngine,
-    /// External Tool Manager — manages `FFmpeg`, media-bridge, and other external tools.
+    /// External Tool Manager — manages the optional FFmpeg post-processing tool.
     pub external_tools: Arc<Mutex<ExternalToolManager>>,
     /// Policy Engine — central decision layer for all runtime decisions.
     pub policy_engine: Arc<Mutex<PolicyEngine>>,
@@ -160,25 +160,6 @@ impl AppState {
     /// analyses and downloads use the replacement immediately.
     pub fn activate_external_tool(&self, tool_id: ToolId, path: String) -> Result<(), String> {
         match tool_id {
-            ToolId::MediaBridge => {
-                let mut media_bridge = self
-                    .media_bridge_bin
-                    .write()
-                    .map_err(|e| format!("media-bridge path lock poisoned: {e}"))?;
-                *media_bridge = path;
-                drop(media_bridge);
-                let replacement = std::sync::Arc::new(crate::daemon::media_bridge::MediaBridgeExtractor::new(
-                    self.media_bridge_binary(),
-                    self.ffmpeg_binary(),
-                ));
-                if !self
-                    .extractor_registry
-                    .replace("media-bridge", replacement)
-                    .map_err(|e| e.to_string())?
-                {
-                    return Err("media-bridge extractor was not registered".to_owned());
-                }
-            }
             ToolId::Ffmpeg => {
                 let mut ffmpeg = self
                     .ffmpeg_bin
@@ -195,25 +176,6 @@ impl AppState {
 
     pub fn deactivate_external_tool(&self, tool_id: ToolId) -> Result<(), String> {
         match tool_id {
-            ToolId::MediaBridge => {
-                let mut media_bridge = self
-                    .media_bridge_bin
-                    .write()
-                    .map_err(|e| format!("media-bridge path lock poisoned: {e}"))?;
-                *media_bridge = self.bundled_media_bridge_bin.clone();
-                drop(media_bridge);
-                let replacement = std::sync::Arc::new(crate::daemon::media_bridge::MediaBridgeExtractor::new(
-                    self.media_bridge_binary(),
-                    self.ffmpeg_binary(),
-                ));
-                if !self
-                    .extractor_registry
-                    .replace("media-bridge", replacement)
-                    .map_err(|e| e.to_string())?
-                {
-                    return Err("media-bridge extractor was not registered".to_owned());
-                }
-            }
             ToolId::Ffmpeg => {
                 let mut ffmpeg = self
                     .ffmpeg_bin
