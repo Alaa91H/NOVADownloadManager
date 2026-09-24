@@ -194,23 +194,94 @@
     {
       "id": "scheduler",
       "label": "Scheduler",
-      "status": "partial",
+      "status": "covered",
       "evidence": [
         "desktop-native/qml/pages/SchedulerPage.qml",
-        "desktop-native/src/api/NovaApiClient.cpp"
+        "desktop-native/qml/components/QueueSchedulerPanel.qml",
+        "desktop-native/qml/components/QueueSettingsPanel.qml",
+        "desktop-native/src/api/NovaApiClient.cpp",
+        "desktop-native/src/main.cpp",
+        "desktop-native/tests/NativeParityTests.cpp",
+        "src-tauri/src/daemon/engine/scheduler.rs",
+        "src-tauri/src/daemon/routes/engine.rs",
+        "src-tauri/src/daemon/mod.rs"
       ],
       "contains": [
+        {
+          "file": "src-tauri/src/daemon/engine/scheduler.rs",
+          "allOf": [
+            "queue_schedule_window_active",
+            "queue_window_transition",
+            "queue_completion_edge",
+            "queue_retry_due",
+            "request_exit",
+            "exit_requested"
+          ]
+        },
+        {
+          "file": "src-tauri/src/daemon/routes/engine.rs",
+          "allOf": [
+            "run_queue_scheduler_tick",
+            "apply_queue_retry_policy",
+            "apply_queue_temporary_bandwidth",
+            "apply_engine_profile",
+            "maxActive",
+            "retryCount",
+            "retryDelay",
+            "shutdownOnComplete",
+            "hangupOnComplete",
+            "exitOnComplete",
+            "profileId"
+          ]
+        },
+        {
+          "file": "desktop-native/qml/components/QueueSchedulerPanel.qml",
+          "allOf": [
+            "QueueSettingsPanel",
+            "schedulerPowerCommandsEnabled",
+            "setSchedulerPowerCommandsEnabled",
+            "refreshEngineProfiles"
+          ]
+        },
+        {
+          "file": "desktop-native/qml/components/QueueSettingsPanel.qml",
+          "allOf": [
+            "scheduleType",
+            "maxActive",
+            "limitSpeed",
+            "oneTimeLimit",
+            "retryCount",
+            "retryDelay",
+            "shutdownOnComplete",
+            "hangupOnComplete",
+            "exitOnComplete",
+            "profileId"
+          ]
+        },
         {
           "file": "desktop-native/src/api/NovaApiClient.cpp",
           "allOf": [
             "refreshScheduler",
-            "addSchedulerRule",
-            "setSchedulerRuleEnabled",
-            "deleteSchedulerRule"
+            "setSchedulerPowerCommandsEnabled",
+            "schedulerExitRequested"
+          ]
+        },
+        {
+          "file": "desktop-native/tests/NativeParityTests.cpp",
+          "allOf": [
+            "schedulerStatusCarriesCompletionControls",
+            "schedulerPowerCommandsEnabled",
+            "schedulerExitRequested"
+          ]
+        },
+        {
+          "file": "src-tauri/src/daemon/mod.rs",
+          "allOf": [
+            "Duration::from_secs(5)",
+            "run_scheduler_tick"
           ]
         }
-      ],
-      "blocker": "Native scheduler supports daemon-backed rules, but legacy parity is incomplete for queue-centric schedules, days/schedule modes, max-active controls, retry timing, completion actions, task ordering and engine-profile integration."
+      ]
     },
     {
       "id": "batch-import",
