@@ -18,8 +18,8 @@ use crate::daemon::curl::{
 use crate::daemon::state::{
     PendingCaptureReview, SharedState, CAPTURE_REVIEW_TTL, MAX_PENDING_CAPTURE_REVIEWS,
 };
+use crate::daemon::native_media::create_native_media_task;
 use crate::daemon::types::{CreateDownloadBody, Task};
-use crate::daemon::media_bridge::create_media_bridge_task;
 
 use super::common::hidden_output_timed;
 use super::engine::extension_capabilities_from_status;
@@ -176,7 +176,7 @@ pub async fn handle_v1_extension_settings(
         "settings": {
             "captureEndpoint": "/captures",
             "directEngine": "libcurl-multi",
-            "mediaEngine": "media-bridge",
+            "mediaEngine": "nova-media-engine",
             "postProcessor": "ffmpeg",
             "torrentMagnet": false
         }
@@ -231,7 +231,7 @@ pub(super) fn browser_ext_response(state: &SharedState) -> Json<serde_json::Valu
         "mediaDownloads": capabilities.get("mediaReady").cloned().unwrap_or(serde_json::Value::Bool(false)),
         "postProcessing": capabilities.get("postProcessingReady").cloned().unwrap_or(serde_json::Value::Bool(false)),
         "directEngine": "libcurl-multi",
-        "mediaEngine": "media-bridge",
+        "mediaEngine": "nova-media-engine",
         "postProcessor": "ffmpeg",
         "engineCapabilities": capabilities,
         "capabilities": extension_capabilities
@@ -445,7 +445,7 @@ pub(super) fn extension_candidate_to_download_body(
         media_type == "manifest" || source == "hls-manifest" || source == "dash-manifest";
     if is_stream_manifest {
         if !(url.starts_with("http://") || url.starts_with("https://")) {
-            return Err("Only http(s) HLS/DASH manifests can be handed off to media-bridge.".to_owned());
+            return Err("Only http(s) HLS/DASH manifests can be handed off to NOVA Media Engine.".to_owned());
         }
     } else if !(url.starts_with("http://")
         || url.starts_with("https://")
@@ -652,16 +652,14 @@ async fn create_download_from_body(
         .as_deref()
         .ok_or_else(|| "Missing candidate URL".to_owned())?;
     crate::daemon::utils::is_safe_target_url(url)?;
-    match state.extractor_registry.validate(download_body) {
-        Ok(extractor) if extractor.id() == "media-bridge" => {
-            create_media_bridge_task(state, download_body).await
-        }
-        Ok(_) => direct_create(state, download_body).await,
-        Err(_) if download_body.media_options.is_some() => {
-            create_media_bridge_task(state, download_body).await
-        }
-        Err(_) => direct_create(state, download_body).await,
+
+    if download_body.media_options.is_some() {
+        return create_native_media_task(state, download_body)
+            .await
+            .map_err(|error| error.to_string());
     }
+
+    direct_create(state, download_body).await
 }
 
 fn capture_review_response(review_id: String, duplicate: bool) -> Json<serde_json::Value> {
