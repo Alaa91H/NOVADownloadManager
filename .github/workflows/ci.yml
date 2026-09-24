@@ -1076,8 +1076,11 @@ jobs:
 
       - name: Build duration
         if: always() && steps.timing.outputs.start && steps.timing_end.outputs.end
+        env:
+          BUILD_START: ${{ steps.timing.outputs.start }}
+          BUILD_END: ${{ steps.timing_end.outputs.end }}
         run: |
-          duration=$(( steps.timing_end.outputs.end - steps.timing.outputs.start ))
+          duration=$(( BUILD_END - BUILD_START ))
           echo "### ${{ matrix.platform }} — ${duration}s" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload release artifacts
