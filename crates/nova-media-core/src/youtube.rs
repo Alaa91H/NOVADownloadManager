@@ -843,13 +843,16 @@ fn collect_playlist_continuations_into(value: &Value, tokens: &mut Vec<String>) 
     match value {
         Value::Object(map) => {
             if let Some(token) = map
-                .pointer("/continuationEndpoint/continuationCommand/token")
+                .get("continuationEndpoint")
+                .and_then(|value| value.get("continuationCommand"))
+                .and_then(|value| value.get("token"))
                 .and_then(Value::as_str)
             {
                 tokens.push(token.to_owned());
             }
             if let Some(token) = map
-                .pointer("/nextContinuationData/continuation")
+                .get("nextContinuationData")
+                .and_then(|value| value.get("continuation"))
                 .and_then(Value::as_str)
             {
                 tokens.push(token.to_owned());
