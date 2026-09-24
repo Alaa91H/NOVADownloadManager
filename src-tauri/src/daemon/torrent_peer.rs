@@ -70,6 +70,7 @@ pub struct PeerPieceResult {
 pub struct PeerReputation {
     pub successful_pieces: u32,
     pub successful_bytes: u64,
+    pub successful_metadata_exchanges: u32,
     pub connect_failures: u32,
     pub timeouts: u32,
     pub protocol_errors: u32,
@@ -80,6 +81,12 @@ impl PeerReputation {
     pub fn record_success(&mut self, bytes: u64) {
         self.successful_pieces = self.successful_pieces.saturating_add(1);
         self.successful_bytes = self.successful_bytes.saturating_add(bytes);
+        self.timeouts = self.timeouts.saturating_sub(1);
+    }
+
+    pub fn record_metadata_success(&mut self) {
+        self.successful_metadata_exchanges =
+            self.successful_metadata_exchanges.saturating_add(1);
         self.timeouts = self.timeouts.saturating_sub(1);
     }
 
@@ -107,7 +114,8 @@ impl PeerReputation {
     }
 
     pub fn priority_score(&self) -> i64 {
-        let successes = i64::from(self.successful_pieces) * 100;
+        let successes = i64::from(self.successful_pieces) * 100
+            + i64::from(self.successful_metadata_exchanges) * 50;
         let throughput_credit = (self.successful_bytes / (1024 * 1024)).min(100) as i64;
         let penalties = i64::from(self.connect_failures) * 5
             + i64::from(self.timeouts) * 20
@@ -335,6 +343,94 @@ impl PeerEngine {
         ))
     }
 
+    pub async fn fetch_metadata_from_candidates(
+        &self,
+        candidates: &[SocketAddr],
+        info_hash: InfoHash,
+        trackers: &[String],
+        local_peer_id: [u8; 20],
+        cancel: &CancellationToken,
+    ) -> Result<PeerMetadataResult, String> {
+        let ranked = self.ranked_candidates(candidates).await;
+        if ranked.is_empty() {
+            return Err("No eligible torrent peers are available for metadata exchange".to_owned());
+        }
+
+        let mut queue = VecDeque::from(ranked);
+        let mut seen = queue.iter().copied().collect::<HashSet<_>>();
+        let mut failures = Vec::new();
+
+        while let Some(address) = queue.pop_front() {
+            if cancel.is_cancelled() {
+                return Err("Magnet metadata peer selection cancelled".to_owned());
+            }
+
+            let connection_permit = tokio::select! {
+                _ = cancel.cancelled() => return Err("Magnet metadata peer selection cancelled".to_owned()),
+                permit = self.connection_slots.clone().acquire_owned() => {
+                    permit.map_err(|_| "Torrent peer connection limiter is closed".to_owned())?
+                }
+            };
+
+            let mut session = match PeerSession::connect_with_policy(
+                address,
+                info_hash,
+                local_peer_id,
+                0,
+                self.config.session.clone(),
+                self.allow_private_network,
+                cancel,
+            )
+            .await
+            {
+                Ok(mut session) => {
+                    session.attach_connection_permit(connection_permit);
+                    session
+                }
+                Err(error) => {
+                    self.record_failure(address, &error).await;
+                    failures.push(format!("{address}: {}", limit_peer_error(&error)));
+                    continue;
+                }
+            };
+
+            if !session.supports_extensions() {
+                let error = format!("Peer {address} does not support BEP 10");
+                self.record_failure(address, &error).await;
+                failures.push(format!("{address}: {}", limit_peer_error(&error)));
+                continue;
+            }
+
+            match session
+                .fetch_metadata(info_hash, trackers, cancel)
+                .await
+            {
+                Ok(result) => {
+                    self.reputation
+                        .lock()
+                        .await
+                        .get_mut(address)
+                        .record_metadata_success();
+                    return Ok(result);
+                }
+                Err(error) => {
+                    for peer in session.take_discovered_pex_peers() {
+                        if seen.insert(peer) {
+                            queue.push_back(peer);
+                        }
+                    }
+                    self.record_failure(address, &error).await;
+                    failures.push(format!("{address}: {}", limit_peer_error(&error)));
+                }
+            }
+        }
+
+        Err(format!(
+            "All eligible peers failed magnet metadata exchange: {}",
+            failures.join("; ")
+        ))
+    }
+
     #[cfg(test)]
     fn for_tests(config: PeerEngineConfig) -> Self {
         let limit = config.max_outbound_connections.max(1);
@@ -349,7 +445,10 @@ impl PeerEngine {
     async fn record_failure(&self, address: SocketAddr, error: &str) {
         let mut book = self.reputation.lock().await;
         let reputation = book.get_mut(address);
-        if error.contains("SHA-1 verification") {
+        if error.contains("SHA-1 verification")
+            || error.contains("metadata SHA-1")
+            || error.contains("hash mismatch")
+        {
             reputation.record_hash_failure();
         } else if error.contains("timed out")
             || error.contains("too long")
