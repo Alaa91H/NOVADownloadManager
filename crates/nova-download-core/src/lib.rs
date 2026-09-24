@@ -585,6 +585,114 @@ pub fn fetch_http_bytes_with_context(
     })
 }
 
+/// POST a bounded request body and collect a bounded response entirely
+/// through NOVA's native libcurl transport.
+///
+/// This is intended for media metadata/control APIs such as site-native player
+/// endpoints. Large payloads belong in the streaming transfer path instead.
+pub fn post_http_bytes_with_context(
+    url: &str,
+    context: &HttpRequestContext,
+    content_type: &str,
+    request_body: &[u8],
+    max_response_bytes: usize,
+) -> Result<HttpBufferResponse, TransportError> {
+    ensure_http_url(url)?;
+    if max_response_bytes == 0 {
+        return Err(TransportError::InvalidRequestContext {
+            message: "in-memory response limit must be greater than zero".to_owned(),
+        });
+    }
+    validate_request_value(content_type, "content-type")?;
+
+    let mut easy = Easy::new();
+    easy.url(url).map_err(transport_error)?;
+    easy.follow_location(true).map_err(transport_error)?;
+    easy.max_redirections(10).map_err(transport_error)?;
+    easy.connect_timeout(Duration::from_secs(15))
+        .map_err(transport_error)?;
+    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
+    easy.accept_encoding("identity").map_err(transport_error)?;
+    easy.post(true).map_err(transport_error)?;
+    easy.post_fields_copy(request_body).map_err(transport_error)?;
+    apply_request_context(
+        &mut easy,
+        context,
+        &[("Content-Type", content_type)],
+    )?;
+
+    let header_status = Cell::new(None::<u16>);
+    let headers_validated = Cell::new(false);
+    let response_content_type = RefCell::new(None::<String>);
+    let body = RefCell::new(Vec::<u8>::new());
+    let exceeded_limit = Cell::new(false);
+
+    let perform_result = {
+        let mut transfer = easy.transfer();
+        transfer
+            .header_function(|header| {
+                if let Some(status) = parse_http_status(header) {
+                    header_status.set(Some(status));
+                    headers_validated.set(false);
+                    response_content_type.replace(None);
+                } else if header == b"\r\n" || header == b"\n" {
+                    headers_validated.set(
+                        header_status
+                            .get()
+                            .is_some_and(|status| (200..300).contains(&status)),
+                    );
+                } else if let Some(value) = parse_header_value(header, "content-type") {
+                    response_content_type.replace(Some(value));
+                }
+                true
+            })
+            .map_err(transport_error)?;
+        transfer
+            .write_function(|data| {
+                if !headers_validated.get() {
+                    return Ok(data.len());
+                }
+                let mut output = body.borrow_mut();
+                if output.len().saturating_add(data.len()) > max_response_bytes {
+                    exceeded_limit.set(true);
+                    return Ok(0);
+                }
+                output.extend_from_slice(data);
+                Ok(data.len())
+            })
+            .map_err(transport_error)?;
+        transfer.perform()
+    };
+
+    if exceeded_limit.get() {
+        return Err(TransportError::ResponseTooLarge {
+            limit_bytes: max_response_bytes,
+        });
+    }
+    perform_result.map_err(transport_error)?;
+
+    let status = easy.response_code().map_err(transport_error)?;
+    let response_status =
+        u16::try_from(status).map_err(|_| TransportError::InvalidStatus { status })?;
+    if !(200..300).contains(&response_status) {
+        return Err(TransportError::RequestFailed {
+            message: format!("native HTTP POST returned status {response_status}"),
+        });
+    }
+    let effective_url = easy
+        .effective_url()
+        .map_err(transport_error)?
+        .unwrap_or(url)
+        .to_owned();
+
+    Ok(HttpBufferResponse {
+        response_status,
+        effective_url,
+        content_type: response_content_type.into_inner(),
+        body: body.into_inner(),
+    })
+}
+
 /// Perform and validate one inclusive HTTP byte-range GET.
 ///
 /// The sink receives bytes only after the response proves HTTP 206 and the
@@ -1759,6 +1867,38 @@ mod tests {
             injected.validate(),
             Err(TransportError::InvalidRequestContext { .. })
         ));
+    }
+
+    #[test]
+    fn bounded_post_sends_json_through_native_transport() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind POST server");
+        let address = listener.local_addr().expect("POST server address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept POST");
+            let mut request = [0_u8; 4096];
+            let read = stream.read(&mut request).expect("read POST");
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.starts_with("POST /player HTTP/1.1"));
+            assert!(request.to_ascii_lowercase().contains("content-type: application/json"));
+            assert!(request.contains("{\"videoId\":\"abc\"}"));
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}",
+                )
+                .expect("write POST response");
+        });
+
+        let response = post_http_bytes_with_context(
+            &format!("http://{address}/player"),
+            &HttpRequestContext::default(),
+            "application/json",
+            br#"{"videoId":"abc"}"#,
+            1024,
+        )
+        .expect("native POST");
+        server.join().expect("POST server");
+
+        assert_eq!(response.body, br#"{"ok":true}"#);
     }
 
     #[test]
