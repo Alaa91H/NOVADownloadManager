@@ -115,6 +115,30 @@ where
     F: Fn() -> bool + Sync,
     P: Fn(u64) + Sync,
 {
+    stage_hls_media_plan_controlled_with_progress_scoped(
+        plan,
+        context,
+        None,
+        staging_dir,
+        requested_parallelism,
+        should_cancel,
+        on_progress,
+    )
+}
+
+pub fn stage_hls_media_plan_controlled_with_progress_scoped<F, P>(
+    plan: &HlsMediaPlan,
+    context: &HttpRequestContext,
+    context_origin: Option<&str>,
+    staging_dir: &Path,
+    requested_parallelism: u32,
+    should_cancel: F,
+    on_progress: P,
+) -> Result<HlsStageResult, HlsStageError>
+where
+    F: Fn() -> bool + Sync,
+    P: Fn(u64) + Sync,
+{
     if plan.units.is_empty() {
         return Err(HlsStageError::EmptyPlan);
     }
@@ -165,6 +189,7 @@ where
                 let transfer = stage_one_unit(
                     unit,
                     context,
+                    context_origin,
                     &key_cache,
                     &temp_path,
                     &final_path,
@@ -261,6 +286,7 @@ fn validate_encryption_modes(plan: &HlsMediaPlan) -> Result<(), HlsStageError> {
 fn stage_one_unit(
     unit: &HlsTransferUnit,
     context: &HttpRequestContext,
+    context_origin: Option<&str>,
     key_cache: &Mutex<HashMap<String, [u8; 16]>>,
     temp_path: &Path,
     final_path: &Path,
@@ -269,6 +295,10 @@ fn stage_one_unit(
     if should_cancel() {
         return Err(HlsStageError::Cancelled);
     }
+    let request_context = context_origin
+        .map(|origin| crate::scope_http_request_context(context, origin, &unit.uri))
+        .unwrap_or_else(|| context.clone());
+
     let mut file = OpenOptions::new()
         .create(true)
         .write(true)
@@ -289,7 +319,7 @@ fn stage_one_unit(
             start,
             end,
             &mut file,
-            context,
+            &request_context,
             || {
                 if should_cancel() {
                     TransferControl::Cancel
@@ -303,7 +333,7 @@ fn stage_one_unit(
         stream_http_body_controlled_with_context(
             &unit.uri,
             &mut file,
-            context,
+            &request_context,
             || {
                 if should_cancel() {
                     TransferControl::Cancel
@@ -325,7 +355,14 @@ fn stage_one_unit(
         .as_ref()
         .filter(|key| key.method == HlsEncryptionMethod::Aes128)
     {
-        decrypt_staged_unit(unit, key, context, key_cache, temp_path)?
+        decrypt_staged_unit(
+            unit,
+            key,
+            context,
+            context_origin,
+            key_cache,
+            temp_path,
+        )?
     } else {
         fs::metadata(temp_path)
             .map(|metadata| metadata.len())
@@ -343,11 +380,17 @@ fn decrypt_staged_unit(
     unit: &HlsTransferUnit,
     key: &HlsKey,
     context: &HttpRequestContext,
+    context_origin: Option<&str>,
     key_cache: &Mutex<HashMap<String, [u8; 16]>>,
     path: &Path,
 ) -> Result<u64, HlsStageError> {
     let key_uri = key.uri.as_deref().ok_or(HlsStageError::MissingKeyUri)?;
-    let key_bytes = get_aes128_key(key_uri, context, key_cache)?;
+    let key_bytes = get_aes128_key(
+        key_uri,
+        context,
+        context_origin,
+        key_cache,
+    )?;
     let iv = resolve_iv(unit, key)?;
 
     let ciphertext = fs::read(path).map_err(|error| HlsStageError::Io(error.to_string()))?;
@@ -368,6 +411,7 @@ fn decrypt_staged_unit(
 fn get_aes128_key(
     key_uri: &str,
     context: &HttpRequestContext,
+    context_origin: Option<&str>,
     key_cache: &Mutex<HashMap<String, [u8; 16]>>,
 ) -> Result<[u8; 16], HlsStageError> {
     if let Ok(cache) = key_cache.lock() {
@@ -376,7 +420,10 @@ fn get_aes128_key(
         }
     }
 
-    let response = fetch_http_bytes_with_context(key_uri, context, 16)
+    let request_context = context_origin
+        .map(|origin| crate::scope_http_request_context(context, origin, key_uri))
+        .unwrap_or_else(|| context.clone());
+    let response = fetch_http_bytes_with_context(key_uri, &request_context, 16)
         .map_err(|error| HlsStageError::Transport(error.to_string()))?;
     if response.body.len() != 16 {
         return Err(HlsStageError::InvalidKeyLength(response.body.len()));
