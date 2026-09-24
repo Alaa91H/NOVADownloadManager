@@ -2523,7 +2523,11 @@ fn ensure_requested_audio_container(
         "webm" | "opus" | "ogg" => "webm",
         _ => return Ok(()),
     };
-    let actual = stream.container.as_deref().unwrap_or_default();
+    let actual = stream
+        .container
+        .as_deref()
+        .map(normalize_container_alias)
+        .unwrap_or_default();
     if actual.eq_ignore_ascii_case(required) {
         Ok(())
     } else {
