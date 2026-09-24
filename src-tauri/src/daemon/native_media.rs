@@ -490,81 +490,104 @@ fn run_native_separate_transfer(
     let video_total = Arc::new(AtomicU64::new(separate.video.content_length.unwrap_or(0)));
     let audio_total = Arc::new(AtomicU64::new(separate.audio.content_length.unwrap_or(0)));
 
-    let per_track_connections = (connections.max(2) + 1) / 2;
-    let transfer_results = std::thread::scope(|scope| {
-        let mut handles = Vec::new();
-        for (track, path, downloaded, total) in [
-            (&separate.video, &video_path, &video_downloaded, &video_total),
-            (&separate.audio, &audio_path, &audio_downloaded, &audio_total),
-        ] {
-            let state = state.clone();
-            let id = id.to_owned();
-            let token = token.clone();
-            let other_downloaded = if Arc::ptr_eq(downloaded, &video_downloaded) {
-                audio_downloaded.clone()
-            } else {
-                video_downloaded.clone()
-            };
-            let other_total = if Arc::ptr_eq(total, &video_total) {
-                audio_total.clone()
-            } else {
-                video_total.clone()
-            };
-            handles.push(scope.spawn(move || {
-                download_http_to_path_segmented_controlled_with_context(
-                    &track.url,
-                    path,
-                    per_track_connections,
-                    &track.context,
-                    || {
-                        if token.load(Ordering::Acquire) {
-                            TransferControl::Pause
-                        } else {
-                            TransferControl::Continue
-                        }
-                    },
-                    |bytes, discovered_total| {
-                        downloaded.store(bytes, Ordering::Release);
-                        if let Some(value) = discovered_total {
-                            total.store(value, Ordering::Release);
-                        }
-                        let aggregate = bytes.saturating_add(other_downloaded.load(Ordering::Acquire));
-                        let own_total = total.load(Ordering::Acquire);
-                        let other_total = other_total.load(Ordering::Acquire);
-                        let aggregate_total = (own_total > 0 && other_total > 0)
-                            .then_some(own_total.saturating_add(other_total));
-                        update_native_media_progress(
-                            &state,
-                            &id,
-                            generation,
-                            aggregate,
-                            aggregate_total,
-                        );
-                    },
-                )
-            }));
+    let budget = connections.max(1);
+    if budget == 1 {
+        download_native_track(
+            state,
+            id,
+            generation,
+            &separate.video,
+            &video_path,
+            1,
+            token,
+            &video_downloaded,
+            &audio_downloaded,
+            &video_total,
+            &audio_total,
+        )?;
+        if token.load(Ordering::Acquire) {
+            return Err("native transfer paused".to_owned());
         }
-        handles
-            .into_iter()
-            .map(|handle| handle.join().map_err(|_| "native media transfer worker panicked".to_owned()))
-            .collect::<Vec<_>>()
-    });
-
-    for result in transfer_results {
-        result?.map_err(|error| error.to_string())?;
+        download_native_track(
+            state,
+            id,
+            generation,
+            &separate.audio,
+            &audio_path,
+            1,
+            token,
+            &audio_downloaded,
+            &video_downloaded,
+            &audio_total,
+            &video_total,
+        )?;
+    } else {
+        let video_connections = budget.div_ceil(2);
+        let audio_connections = budget - video_connections;
+        let transfer_results = std::thread::scope(|scope| {
+            let video = scope.spawn(|| {
+                download_native_track(
+                    state,
+                    id,
+                    generation,
+                    &separate.video,
+                    &video_path,
+                    video_connections,
+                    token,
+                    &video_downloaded,
+                    &audio_downloaded,
+                    &video_total,
+                    &audio_total,
+                )
+            });
+            let audio = scope.spawn(|| {
+                download_native_track(
+                    state,
+                    id,
+                    generation,
+                    &separate.audio,
+                    &audio_path,
+                    audio_connections,
+                    token,
+                    &audio_downloaded,
+                    &video_downloaded,
+                    &audio_total,
+                    &video_total,
+                )
+            });
+            (video.join(), audio.join())
+        });
+        transfer_results
+            .0
+            .map_err(|_| "native video transfer worker panicked".to_owned())??;
+        transfer_results
+            .1
+            .map_err(|_| "native audio transfer worker panicked".to_owned())??;
     }
 
     if token.load(Ordering::Acquire) {
         return Err("native transfer paused".to_owned());
     }
-    if !native_transition(state, id, generation, TaskState::Verifying, "verifying-tracks") {
+    if !native_transition(
+        state,
+        id,
+        generation,
+        TaskState::Verifying,
+        "verifying-tracks",
+    ) {
         return Err("native task generation changed during verification".to_owned());
     }
 
     let mut video = Mp4Demuxer::open(&video_path).map_err(|error| error.to_string())?;
     let mut audio = Mp4Demuxer::open(&audio_path).map_err(|error| error.to_string())?;
 
-    if !native_transition(state, id, generation, TaskState::Finalizing, "muxing-mp4") {
+    if !native_transition(
+        state,
+        id,
+        generation,
+        TaskState::Finalizing,
+        "muxing-mp4",
+    ) {
         return Err("native task generation changed during finalization".to_owned());
     }
 
@@ -585,6 +608,49 @@ fn run_native_separate_transfer(
 
     discard_native_media_staging(destination);
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn download_native_track(
+    state: &SharedState,
+    id: &str,
+    generation: u64,
+    track: &ResolvedTrackTransfer,
+    path: &Path,
+    connections: u32,
+    token: &Arc<AtomicBool>,
+    downloaded: &Arc<AtomicU64>,
+    other_downloaded: &Arc<AtomicU64>,
+    total: &Arc<AtomicU64>,
+    other_total: &Arc<AtomicU64>,
+) -> Result<(), String> {
+    download_http_to_path_segmented_controlled_with_context(
+        &track.url,
+        path,
+        connections.max(1),
+        &track.context,
+        || {
+            if token.load(Ordering::Acquire) {
+                TransferControl::Pause
+            } else {
+                TransferControl::Continue
+            }
+        },
+        |bytes, discovered_total| {
+            downloaded.store(bytes, Ordering::Release);
+            if let Some(value) = discovered_total {
+                total.store(value, Ordering::Release);
+            }
+            let aggregate = bytes.saturating_add(other_downloaded.load(Ordering::Acquire));
+            let own_total = total.load(Ordering::Acquire);
+            let peer_total = other_total.load(Ordering::Acquire);
+            let aggregate_total =
+                (own_total > 0 && peer_total > 0).then_some(own_total.saturating_add(peer_total));
+            update_native_media_progress(state, id, generation, aggregate, aggregate_total);
+        },
+    )
+    .map(|_| ())
+    .map_err(|error| error.to_string())
 }
 
 fn native_transition(
