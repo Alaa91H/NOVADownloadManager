@@ -150,6 +150,7 @@ Item {
             Layout.fillWidth: true
 
             TabButton { text: root.t("settings.general") }
+            TabButton { text: root.t("settings.advanced") }
             TabButton { text: root.t("settings.engine") }
             TabButton { text: root.t("settings.diagnostics") }
         }
@@ -604,6 +605,12 @@ Item {
                         }
                     }
                 }
+            }
+
+            SettingsAdvancedPanel {
+                api: root.api
+                settings: root.settings
+                desktop: root.desktop
             }
 
             ScrollView {
