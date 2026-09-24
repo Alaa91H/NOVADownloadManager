@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { novaClient, setApiBase, setAuthToken } from '../novaClient';
-import type { DownloadItem } from '../../types/desktop-ui.types';
+import type { DownloadItem, Queue } from '../../types/desktop-ui.types';
 
 // A minimal EventSource stub that lets tests dispatch events deterministically.
 class EventSourceStub {
@@ -147,6 +147,72 @@ describe('novaClient request (REPAIR 0.3)', () => {
     expect(url).toBe('http://127.0.0.1:3199/api/health');
     const headers = init.headers as Headers;
     expect(headers.get('Authorization')).toBe('Bearer sekrit');
+  });
+
+  it('syncs the legacy queue catalog through the authenticated daemon API', async () => {
+    setAuthToken('queue-token');
+    const queues = [
+      {
+        id: 'main',
+        name: 'Main Queue',
+        active: true,
+        scheduled: false,
+        scheduleType: 'daily',
+        maxActive: 1,
+        scheduleCompleted: false,
+        startTime: '00:00',
+        endTime: '23:59',
+        days: [0, 1, 2, 3, 4, 5, 6],
+        limitSpeed: false,
+        speedLimitKbs: 0,
+        oneTimeLimit: false,
+        shutdownOnComplete: false,
+        hangupOnComplete: false,
+        exitOnComplete: false,
+        retryCount: 3,
+        retryDelay: 10,
+        downloadOrder: [],
+      },
+      {
+        id: 'night',
+        name: 'Night Queue',
+        active: false,
+        scheduled: true,
+        scheduleType: 'custom',
+        maxActive: 2,
+        scheduleCompleted: false,
+        startTime: '02:00',
+        endTime: '08:00',
+        days: [1, 3, 5],
+        limitSpeed: false,
+        speedLimitKbs: 0,
+        oneTimeLimit: false,
+        shutdownOnComplete: false,
+        hangupOnComplete: false,
+        exitOnComplete: false,
+        retryCount: 3,
+        retryDelay: 10,
+        downloadOrder: [],
+      },
+    ] satisfies Queue[];
+
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ ok: true, version: 1, queues }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await novaClient.syncQueueCatalog(queues);
+    expect(response.queues.map((queue) => queue.id)).toEqual(['main', 'night']);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('http://127.0.0.1:3199/api/queues');
+    expect(init.method).toBe('PUT');
+    const headers = init.headers as Headers;
+    expect(headers.get('Authorization')).toBe('Bearer queue-token');
+    expect(headers.get('Content-Type')).toBe('application/json');
+    expect(JSON.parse(String(init.body))).toEqual({ queues });
   });
 
   it('aborts the request when the timeout fires', async () => {
