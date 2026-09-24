@@ -964,6 +964,7 @@ fn restore_persisted_tasks(
         } else if task.engine == "curl"
             || task.engine == "libcurl-multi"
             || (task.engine != "media-bridge"
+                && task.engine != "nova-media-engine"
                 && (task.url.starts_with("http://") || task.url.starts_with("https://")))
         {
             task.engine = "libcurl-multi".to_owned();
