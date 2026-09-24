@@ -316,9 +316,23 @@ export const taskStore = create<TaskState>()((set, get) => ({
       addToast('error', 'Open File', 'No saved file path is available for this download.');
       return;
     }
+    const torrentRoot = task.engine === 'native-torrent';
     const opened = await tauriClient.openDownloadedFile(task.savePath);
-    if (opened) addToast('success', 'File opened', `Opened "${task.name}".`);
-    else addToast('error', 'File opened', `Could not open "${task.name}". The file may have moved.`);
+    if (opened) {
+      addToast(
+        'success',
+        torrentRoot ? 'Torrent folder opened' : 'File opened',
+        torrentRoot ? `Opened the destination folder for "${task.name}".` : `Opened "${task.name}".`,
+      );
+    } else {
+      addToast(
+        'error',
+        torrentRoot ? 'Torrent folder' : 'File opened',
+        torrentRoot
+          ? `Could not open the destination folder for "${task.name}".`
+          : `Could not open "${task.name}". The file may have moved.`,
+      );
+    }
   },
 
   openTaskLocation: async (id) => {
@@ -332,7 +346,10 @@ export const taskStore = create<TaskState>()((set, get) => ({
       addToast('error', 'Open File Location', 'No saved file path is available for this download.');
       return;
     }
-    const opened = await tauriClient.revealDownloadedFile(task.savePath);
+    const opened =
+      task.engine === 'native-torrent'
+        ? await tauriClient.openDownloadedFile(task.savePath)
+        : await tauriClient.revealDownloadedFile(task.savePath);
     if (opened) addToast('success', 'Folder opened', `Opened location for "${task.name}".`);
     else addToast('error', 'Folder opened', `Could not open the location for "${task.name}".`);
   },
