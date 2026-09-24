@@ -726,6 +726,74 @@ fn throw_android_transfer_error(env: &mut jni::JNIEnv<'_>, message: impl Into<St
 
 #[cfg(target_os = "android")]
 #[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeResolveMediaJson(
+    mut env: jni::JNIEnv<'_>,
+    _receiver: jni::objects::JObject<'_>,
+    url: jni::objects::JString<'_>,
+    user_agent: jni::objects::JString<'_>,
+    referer: jni::objects::JString<'_>,
+    cookie_header: jni::objects::JString<'_>,
+) -> jni::sys::jstring {
+    let url = match jni_string(&mut env, &url, "media URL") {
+        Ok(value) => value,
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            return std::ptr::null_mut();
+        }
+    };
+    let user_agent = match jni_string(&mut env, &user_agent, "media user-agent") {
+        Ok(value) => value,
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            return std::ptr::null_mut();
+        }
+    };
+    let referer = match jni_string(&mut env, &referer, "media referer") {
+        Ok(value) => value,
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            return std::ptr::null_mut();
+        }
+    };
+    let cookie_header = match jni_string(&mut env, &cookie_header, "media cookie header") {
+        Ok(value) => value,
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            return std::ptr::null_mut();
+        }
+    };
+
+    let optional = |value: String| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_owned())
+    };
+    let descriptor = match resolve_mobile_media_descriptor(MobileMediaResolveRequest {
+        url,
+        user_agent: optional(user_agent),
+        referer: optional(referer),
+        cookie_header: optional(cookie_header),
+    }) {
+        Ok(descriptor) => descriptor,
+        Err(error) => {
+            throw_android_transfer_error(&mut env, error.to_string());
+            return std::ptr::null_mut();
+        }
+    };
+
+    match env.new_string(mobile_media_descriptor_json(&descriptor)) {
+        Ok(value) => value.into_raw(),
+        Err(error) => {
+            throw_android_transfer_error(
+                &mut env,
+                format!("failed to encode native media descriptor for Android: {error}"),
+            );
+            std::ptr::null_mut()
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
 pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeDownloadToAppPrivate(
     mut env: jni::JNIEnv<'_>,
     _receiver: jni::objects::JObject<'_>,
