@@ -25,19 +25,31 @@ requireContains(
   'non-elevated current-user installer default',
 );
 requireFile('scripts/build-windows-installers.mjs');
+requireFile('src-tauri/tauri.user.conf.json');
+requireFile('src-tauri/tauri.machine.conf.json');
 requireContains(
   'scripts/run-tauri-with-native-curl.mjs',
   'process.argv.slice(2)',
   'Tauri CLI argument forwarding',
 );
 requireContains(
+  'src-tauri/tauri.user.conf.json',
+  '"installMode": "currentUser"',
+  'current-user Tauri build flavor',
+);
+requireContains(
+  'src-tauri/tauri.machine.conf.json',
+  '"installMode": "perMachine"',
+  'per-machine Tauri build flavor',
+);
+requireContains(
   'scripts/build-windows-installers.mjs',
-  "runScope('user', 'currentUser')",
+  "runScope('user', 'currentUser', USER_CONFIG)",
   'current-user NSIS build',
 );
 requireContains(
   'scripts/build-windows-installers.mjs',
-  "runScope('machine', 'perMachine')",
+  "runScope('machine', 'perMachine', MACHINE_CONFIG)",
   'per-machine NSIS build',
 );
 requireContains(
