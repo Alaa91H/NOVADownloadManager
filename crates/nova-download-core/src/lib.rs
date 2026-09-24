@@ -1862,7 +1862,7 @@ mod tests {
         let mut injected = HttpRequestContext::default();
         injected
             .headers
-            .insert("X-Test".to_owned(), "ok\\r\\nInjected: yes".to_owned());
+            .insert("X-Test".to_owned(), "ok\r\nInjected: yes".to_owned());
         assert!(matches!(
             injected.validate(),
             Err(TransportError::InvalidRequestContext { .. })
@@ -1916,7 +1916,7 @@ mod tests {
             assert!(request.contains("User-Agent: NOVA-Media-Test/1"));
             stream
                 .write_all(
-                    b"HTTP/1.1 200 OK\\r\\nContent-Type: application/vnd.apple.mpegurl\\r\\nContent-Length: 8\\r\\nConnection: close\\r\\n\\r\\n#EXTM3U\\n",
+                    b"HTTP/1.1 200 OK\r\nContent-Type: application/vnd.apple.mpegurl\r\nContent-Length: 8\r\nConnection: close\r\n\r\n#EXTM3U\n",
                 )
                 .expect("write context response");
         });
@@ -1937,7 +1937,7 @@ mod tests {
         .expect("bounded native fetch");
         server.join().expect("context server");
 
-        assert_eq!(response.body, b"#EXTM3U\\n");
+        assert_eq!(response.body, b"#EXTM3U\n");
         assert_eq!(
             response.content_type.as_deref(),
             Some("application/vnd.apple.mpegurl")
