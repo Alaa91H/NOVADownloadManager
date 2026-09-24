@@ -392,16 +392,19 @@
       "id": "browser-integration",
       "label": "Browser integration status and pairing",
       "status": "partial",
-      "blocker": "The native bundle now contains a headless Rust backend and dedicated Native Messaging host; Qt auto-discovers/pairs with the daemon and can repair user-level Chrome/Chromium, Edge and Firefox Native Messaging registration on Windows, macOS and Linux. Remaining parity work is packaged end-to-end browser capture validation with the real extension on each platform.",
+      "blocker": "Qt and the browser Native Messaging host now use a rotating per-daemon pairing proof. Qt receives a separate full local desktop token; the browser host receives a distinct route-scoped browser token, and direct browser HTTP token minting is rejected. Remaining parity work is packaged end-to-end browser capture validation with the real extension on Windows, macOS and Linux.",
       "evidence": [
         "desktop-native/src/platform/BackendBootstrap.cpp",
         "desktop-native/src/platform/DesktopIntegration.cpp",
         "desktop-native/qml/components/BrowserIntegrationPanel.qml",
-        "src-tauri/src/bin/nova-native-backend.rs",
-        "src-tauri/src/bin/nova-native-host.rs",
-        "src-tauri/src/native_host.rs",
+        "src-tauri/src/daemon/mod.rs",
+        "src-tauri/src/daemon/state.rs",
         "src-tauri/src/daemon/routes/extension.rs",
-        ".github/workflows/native-ui.yml",
+        "src-tauri/src/native_host.rs",
+        "browser-extension/src/bridge/pairing-manager.ts",
+        "browser-extension/src/tests/unit/pairing-manager.test.ts",
+        "browser-extension/src/tests/unit/bridge-manager.test.ts",
+        ".github/workflows/native-ui-rust.yml",
         "docs/extension/ZERO_CLICK_PAIRING.md"
       ],
       "contains": [
@@ -409,34 +412,42 @@
           "file": "desktop-native/src/platform/BackendBootstrap.cpp",
           "allOf": [
             "x-nova-native-desktop",
-            "nova-native-backend",
-            "pairToken",
-            "backendReady"
+            "x-nova-pairing-secret",
+            "nova-daemon.pairing.json",
+            "pairToken"
           ]
         },
         {
-          "file": "desktop-native/src/platform/DesktopIntegration.cpp",
+          "file": "src-tauri/src/daemon/mod.rs",
           "allOf": [
-            "browserNativeHostStatus",
-            "repairBrowserNativeHost",
-            "writeNativeHostManifest",
-            "nova-native-host"
-          ]
-        },
-        {
-          "file": "src-tauri/src/native_host.rs",
-          "allOf": [
-            "resolve_desktop_executable",
-            "nova-native",
-            "run_native_messaging_host"
+            "browser_client_path_allowed",
+            "native_client_token",
+            "browser_client_token",
+            "nova-daemon.pairing.json"
           ]
         },
         {
           "file": "src-tauri/src/daemon/routes/extension.rs",
           "allOf": [
-            "NATIVE_DESKTOP_PAIRING_HEADER",
-            "handle_v1_pair_auto",
-            "set_browser_capture_enabled"
+            "TrustedAutoPairRole",
+            "native-host-secret-proof",
+            "native-desktop-secret-proof",
+            "NATIVE_PAIRING_SECRET_HEADER"
+          ]
+        },
+        {
+          "file": "src-tauri/src/native_host.rs",
+          "allOf": [
+            "pairing_secret_for_base_url",
+            "NATIVE_PAIRING_SECRET_HEADER",
+            "native-messaging-secret-proof"
+          ]
+        },
+        {
+          "file": "browser-extension/src/bridge/pairing-manager.ts",
+          "allOf": [
+            "requestNative",
+            "never allowed to mint a bearer token"
           ]
         }
       ]
