@@ -26,7 +26,7 @@ impl Extractor for NativeMediaExtractor {
 
     fn validate(&self, body: &CreateDownloadBody) -> Result<(), ValidateError> {
         let url = body.url.as_deref().unwrap_or("").trim();
-        let parsed = url::Url::parse(url)
+        let parsed = reqwest::Url::parse(url)
             .map_err(|_| ValidateError("Invalid media URL".to_owned()))?;
         if !matches!(parsed.scheme(), "http" | "https") {
             return Err(ValidateError("Native media requires HTTP(S)".to_owned()));
@@ -84,10 +84,10 @@ pub async fn create_native_media_task(
     let mut direct = body.clone();
     direct.url = Some(resolved.url);
     direct.media_options = None;
-    if direct.name.as_deref().is_none_or(|name| name.trim().is_empty()) {
+    if direct.name.as_deref().map_or(true, |name| name.trim().is_empty()) {
         direct.name = Some(resolved.title);
     }
-    if direct.file_type.as_deref().is_none_or(|kind| kind.trim().is_empty()) {
+    if direct.file_type.as_deref().map_or(true, |kind| kind.trim().is_empty()) {
         direct.file_type = resolved.container;
     }
     if direct.size_bytes.unwrap_or(0) == 0 {
