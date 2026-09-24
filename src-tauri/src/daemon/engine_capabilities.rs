@@ -2020,7 +2020,7 @@ mod tests {
         assert_eq!(status["capabilities"]["directMediaExecution"], true);
         assert_eq!(status["capabilities"]["hlsStaging"], true);
         assert_eq!(status["capabilities"]["dashStaging"], true);
-        assert_eq!(status["capabilities"]["youtubeThrottlingTransform"], false);
+        assert_eq!(status["capabilities"]["youtubeThrottlingTransform"], true);
         assert_eq!(status["capabilities"]["hlsTaskExecution"], false);
         assert_eq!(status["capabilities"]["dashTaskExecution"], false);
         let supported = status["supportedMediaOptionKeys"]
