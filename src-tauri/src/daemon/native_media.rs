@@ -1902,6 +1902,16 @@ mod tests {
     }
 
     #[test]
+    fn native_manifest_task_capabilities_remain_separate_from_multitrack_mux() {
+        let capabilities = nova_media_core::native_media_core_capabilities();
+        assert!(capabilities.hls_staging);
+        assert!(capabilities.hls_live_refresh);
+        assert!(capabilities.dash_staging);
+        assert!(capabilities.dash_live_refresh);
+        assert!(capabilities.separate_track_staging);
+    }
+
+    #[test]
     fn parses_common_quality_limits() {
         assert_eq!(parse_quality_height("1080p"), Some(1080));
         assert_eq!(parse_quality_height("4k"), Some(2160));
