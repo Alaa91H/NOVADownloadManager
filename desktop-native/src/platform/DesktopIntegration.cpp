@@ -87,6 +87,7 @@ bool DesktopIntegration::revealInFolder(const QString &path) {
     return openFolder(fileInfo.absoluteFilePath());
 #endif
 
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
     if (!started) {
         fail(QStringLiteral("reveal-file"), QStringLiteral("The operating system could not reveal this file."));
         return false;
@@ -94,4 +95,5 @@ bool DesktopIntegration::revealInFolder(const QString &path) {
 
     emit operationSucceeded(QStringLiteral("reveal-file"));
     return true;
+#endif
 }
