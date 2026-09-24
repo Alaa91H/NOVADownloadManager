@@ -23,6 +23,8 @@ pub struct PersistedState {
     pub recovery_checkpoints: HashMap<String, RecoveryCheckpoint>,
     pub media_args: HashMap<String, Vec<String>>,
     #[serde(default)]
+    pub native_media_requests: HashMap<String, crate::daemon::types::CreateDownloadBody>,
+    #[serde(default)]
     pub curl_args: HashMap<String, Vec<String>>,
     /// Per-task libcurl options are persisted separately from diagnostic CLI
     /// arguments. Authentication-bearing options are removed before writing
@@ -183,12 +185,46 @@ pub fn load(data_dir: &str) -> PersistedState {
     }
 }
 
+fn native_request_requires_reauth(
+    request: &crate::daemon::types::CreateDownloadBody,
+) -> bool {
+    request.referer.as_deref().is_some_and(|value| !value.trim().is_empty())
+        || request.media_options.as_ref().is_some_and(|options| {
+            options
+                .cookies
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty())
+                || options
+                    .headers
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty())
+                || options
+                    .referer
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty())
+        })
+}
+
+fn sanitize_native_media_request(
+    request: &crate::daemon::types::CreateDownloadBody,
+) -> crate::daemon::types::CreateDownloadBody {
+    let mut sanitized = request.clone();
+    sanitized.referer = None;
+    if let Some(options) = sanitized.media_options.as_mut() {
+        options.cookies = None;
+        options.headers = None;
+        options.referer = None;
+    }
+    sanitized
+}
+
 fn build_snapshot(state: &AppState) -> PersistedState {
     // Acquire locks in documented order (media_jobs → curl_jobs → task_snapshot)
     // within a block scope so curl_jobs is released before download_stats,
     // preventing AB-BA deadlock with transfer.rs (which locks download_stats → curl_jobs).
     let (
         media_args,
+        native_media_requests,
         curl_args,
         curl_direct_options,
         resume_requires_reauth,
@@ -197,6 +233,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         telegram_last_update_id,
     ) = {
         let media_jobs = lock_or_err!(state.media_jobs);
+        let native_media_jobs = lock_or_err!(state.native_media_jobs);
         let curl_jobs = lock_or_err!(state.curl_jobs);
         let snapshot = lock_or_err!(state.task_snapshot);
 
@@ -204,6 +241,11 @@ fn build_snapshot(state: &AppState) -> PersistedState {
             .iter()
             .map(|(id, job)| (id.clone(), sanitize_resume_args(&job.args)))
             .collect();
+        let native_media_requests: HashMap<String, crate::daemon::types::CreateDownloadBody> =
+            native_media_jobs
+                .iter()
+                .map(|(id, job)| (id.clone(), sanitize_native_media_request(&job.request)))
+                .collect();
         let curl_args: HashMap<String, Vec<String>> = curl_jobs
             .iter()
             .map(|(id, job)| (id.clone(), sanitize_resume_args(&job.args)))
@@ -224,6 +266,12 @@ fn build_snapshot(state: &AppState) -> PersistedState {
                     job.args.iter().any(|arg| is_sensitive_resume_argument(arg))
                         || direct_options_require_reauth(&job.direct_options)
                 })
+                .map(|(id, _)| id.clone()),
+        );
+        resume_requires_reauth.extend(
+            native_media_jobs
+                .iter()
+                .filter(|(_, job)| native_request_requires_reauth(&job.request))
                 .map(|(id, _)| id.clone()),
         );
         resume_requires_reauth.sort();
@@ -251,6 +299,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         let telegram_last_update_id = *lock_or_err!(state.telegram_last_update_id);
         (
             media_args,
+            native_media_requests,
             curl_args,
             curl_direct_options,
             resume_requires_reauth,
@@ -267,6 +316,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         tasks,
         recovery_checkpoints,
         media_args,
+        native_media_requests,
         curl_args,
         curl_direct_options,
         resume_requires_reauth,
