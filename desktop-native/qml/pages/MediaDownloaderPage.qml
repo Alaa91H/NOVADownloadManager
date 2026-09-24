@@ -193,6 +193,28 @@ Item {
             writeDescription: descriptionCheck.checked
         }
 
+        const defaults = settings.advancedSettings || ({})
+        let defaultProxy = ""
+        if (Boolean(defaults.vpnEnabled) && String(defaults.vpnMode || "") === "proxy")
+            defaultProxy = String(defaults.vpnProxyUrl || "").trim()
+        else if (Boolean(defaults.proxyEnabled) && String(defaults.proxyHost || "").trim().length > 0) {
+            defaultProxy = String(defaults.proxyType || "http") + "://"
+                + String(defaults.proxyHost).trim()
+            if (String(defaults.proxyPort || "").trim().length > 0)
+                defaultProxy += ":" + String(defaults.proxyPort).trim()
+        }
+        if (defaultProxy.length > 0)
+            options.proxy = defaultProxy
+        if (String(defaults.userAgent || "").trim().length > 0)
+            options.userAgent = String(defaults.userAgent).trim()
+        if (Boolean(defaults.vpnEnabled)
+            && String(defaults.vpnMode || "") === "bind"
+            && String(defaults.vpnBindAddress || "").trim().length > 0)
+            options.sourceAddress = String(defaults.vpnBindAddress).trim()
+        options.retries = Number(defaults.retryCount || 0)
+        options.socketTimeoutSec = Number(defaults.timeoutSec || 60)
+        options.bufferSizeKbs = Number(defaults.bufferSizeKb || 256)
+
         const advancedOptions = mediaAdvanced.buildOptions()
         for (const key in advancedOptions)
             options[key] = advancedOptions[key]
