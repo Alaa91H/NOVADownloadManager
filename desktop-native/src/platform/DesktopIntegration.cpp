@@ -1,6 +1,8 @@
 #include "platform/DesktopIntegration.h"
 
+#include <QClipboard>
 #include <QCoreApplication>
+#include <QGuiApplication>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFile>
@@ -362,6 +364,15 @@ bool DesktopIntegration::openExternalUrl(const QString &url) {
 
     emit operationSucceeded(QStringLiteral("open-url"));
     return true;
+}
+
+
+QString DesktopIntegration::readClipboardText() const {
+    QClipboard *clipboard = QGuiApplication::clipboard();
+    if (!clipboard) {
+        return {};
+    }
+    return clipboard->text(QClipboard::Clipboard);
 }
 
 
