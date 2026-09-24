@@ -150,8 +150,9 @@ Implemented:
 - `check-parity.mjs --require-complete` is the production replacement gate.
 - Pull requests targeting `main` run the complete replacement gate, so the legacy UI cannot be removed while blockers remain.
 - Native preview builds still validate evidence files/tokens and carry a generated `PARITY_REPORT.md`.
-- Media, Queue, Scheduler and Settings remain `partial` after direct comparison with the legacy UI. Batch Import has since returned to `covered` after behavioral parity work and migration tests.
+- Queue, Scheduler and Settings remain `partial` after direct comparison with the legacy UI. Batch Import and Media Downloader have returned to `covered` after behavioral parity work and migration tests.
 - Batch Import is behaviorally covered: clipboard paste, 10k bounded numeric/alphabetic/stepped/combined expansion, preview counting, exact deduplication, runtime protocol/capability gating, queue selection, destination/connections/start behavior and advanced Referer/User-Agent/proxy/header/cookie/retry/timeout controls.
+- Media Downloader is behaviorally covered: debounced probing, playlist auto-detection and item selection, quality/audio/output-template workflows, subtitles/thumbnails/metadata, format selector/sort/sections/filter/remux/SponsorBlock, proxy/source-address/browser cookies/headers/cookies and rate/retry/fragment/sleep controls, all filtered against runtime media capabilities.
 - Legacy queue definitions are bridged through the daemon `/api/queues` catalog so Qt can select empty custom queues without reading WebView localStorage directly.
 - Core Downloads columns support persistent show/hide configuration and persistent ascending/descending sorting through the native model/QSettings path.
 - Clipboard URL monitoring matches the legacy 1.5-second detection behavior and ignores pre-existing clipboard content.
@@ -164,7 +165,6 @@ Implemented:
 
 Current replacement blockers:
 
-- Complete Media parity: advanced format/sort/section/remux/SponsorBlock/network/cookie/header/rate/retry/fragment/sleep controls.
 - Complete Queue parity: queue creation/deletion/reordering, moving tasks between queues, per-queue ordering and advanced queue controls.
 - Complete Scheduler parity: queue-centric schedules, schedule modes/days, max-active, retry timing, completion actions, task ordering and engine-profile integration.
 - Complete Settings parity and validated migration of existing legacy UI preferences.
