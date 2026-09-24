@@ -210,6 +210,16 @@ impl PeerEngine {
         Self::new(PeerEngineConfig::default())
     }
 
+    pub fn with_download_limiter(
+        &self,
+        limiter: Arc<TorrentBandwidthLimiter>,
+    ) -> Self {
+        let mut engine = self.clone();
+        engine.download_limiter = Some(limiter);
+        engine
+    }
+
+
     pub async fn reputation(&self, address: SocketAddr) -> PeerReputation {
         self.reputation.lock().await.get(&address)
     }
