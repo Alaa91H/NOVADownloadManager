@@ -14,7 +14,9 @@ import { settingsStore } from './settingsStore';
 import { useEngineStore } from './engineStore';
 
 const isNativeEngineTask = (task: DownloadItem) =>
-  task.engine === 'curl' || task.engine === 'libcurl-multi' || task.engine === 'yt-dlp';
+  task.engine === 'curl'
+  || task.engine === 'libcurl-multi'
+  || task.engine === 'nova-media-engine';
 
 // Cap concurrent createDownload calls when importing a large batch so a 10k-URL
 // batch doesn't serialize every round-trip through the daemon one at a time.
@@ -183,7 +185,9 @@ export const taskStore = create<TaskState>()((set, get) => ({
       const normalizedTask = {
         ...(captureReviewId
           ? await novaClient.createDownloadFromCaptureReview(captureReviewId, payload)
-          : await novaClient.createDownload(payload)),
+          : newItem.mediaOptions
+            ? await novaClient.createMediaDownload(payload)
+            : await novaClient.createDownload(payload)),
       };
       set((p) => ({ tasks: [normalizedTask, ...p.tasks.filter((item) => item.id !== normalizedTask.id)] }));
       uiStore.getState().setSelectedTaskId(normalizedTask.id);
