@@ -35,6 +35,10 @@ pub use youtube::{
 pub use youtube_player::YouTubePlayerScriptSolver;
 pub use youtube_transfer::{download_youtube_plan, YouTubeTransferError, YouTubeTransferOutput};
 
+/// Native in-process container and codec processing surface.
+/// Higher layers can migrate post-processing here without spawning external tools.
+pub use nova_media_processing_core as processing;
+
 use std::collections::BTreeMap;
 
 use nova_download_core::{fetch_http_bytes_with_context, HttpRequestContext};
