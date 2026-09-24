@@ -1191,6 +1191,79 @@ pub async fn handle_media_bridge_probe(
     })))
 }
 
+pub async fn handle_native_media_probe_playlist(
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let url = params.get("url").map_or("", String::as_str).trim();
+    if url.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Missing url"})),
+        ));
+    }
+    if let Err(error) = crate::daemon::utils::is_safe_target_url(url) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": error})),
+        ));
+    }
+
+    let request = nova_media_core::ExtractRequest::new(url);
+    let playlist = tokio::task::spawn_blocking(move || {
+        nova_media_core::resolve_youtube_playlist(&request)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": format!("Native playlist worker failed: {error}")
+            })),
+        )
+    })?
+    .map_err(|error| {
+        (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({"error": error})),
+        )
+    })?;
+
+    let entries = playlist
+        .entries
+        .into_iter()
+        .map(|entry| {
+            let duration = entry.duration_millis.unwrap_or(0) as f64 / 1000.0;
+            let hours = (duration / 3600.0).floor() as u64;
+            let minutes = ((duration % 3600.0) / 60.0).floor() as u64;
+            let seconds = (duration % 60.0).floor() as u64;
+            let duration_string = if hours > 0 {
+                format!("{hours:02}:{minutes:02}:{seconds:02}")
+            } else {
+                format!("{minutes:02}:{seconds:02}")
+            };
+            serde_json::json!({
+                "id": entry.id,
+                "title": entry.title,
+                "url": entry.url,
+                "duration": duration,
+                "durationString": duration_string,
+                "thumbnail": entry.thumbnail_url.unwrap_or_default(),
+                "index": entry.index,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Ok(Json(serde_json::json!({
+        "id": playlist.id,
+        "title": playlist.title,
+        "webpageUrl": playlist.webpage_url,
+        "entries": entries,
+        "truncated": playlist.truncated,
+        "engine": "nova-media-engine",
+    })))
+}
+
 pub async fn handle_media_bridge_probe_playlist(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<SharedState>,
@@ -1341,6 +1414,10 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
             get(handle_native_media_resolve).post(handle_native_media_resolve_post),
         )
         .route("/api/media/probe", get(handle_native_media_probe))
+        .route(
+            "/api/media/probe-playlist",
+            get(handle_native_media_probe_playlist),
+        )
         .route("/api/media/bridge/probe", get(handle_media_bridge_probe))
         .route(
             "/api/media/bridge/probe-playlist",
