@@ -327,34 +327,26 @@
       "id": "browser-integration",
       "label": "Browser integration status and pairing",
       "status": "partial",
-      "blocker": "Browser integration now has live status/capabilities, secure capture configuration, cross-platform registration diagnostics and a trusted Windows per-user registration repair path. Full cross-platform parity still requires automated native-host repair/registration on macOS and Linux plus validation against packaged native releases.",
+      "blocker": "The native bundle now contains a headless Rust backend and dedicated Native Messaging host; Qt auto-discovers/pairs with the daemon and can repair user-level Chrome/Chromium, Edge and Firefox Native Messaging registration on Windows, macOS and Linux. Remaining parity work is packaged end-to-end browser capture validation with the real extension on each platform.",
       "evidence": [
-        "desktop-native/src/api/NovaApiClient.cpp",
-        "desktop-native/qml/components/BrowserIntegrationPanel.qml",
+        "desktop-native/src/platform/BackendBootstrap.cpp",
         "desktop-native/src/platform/DesktopIntegration.cpp",
+        "desktop-native/qml/components/BrowserIntegrationPanel.qml",
+        "src-tauri/src/bin/nova-native-backend.rs",
+        "src-tauri/src/bin/nova-native-host.rs",
+        "src-tauri/src/native_host.rs",
         "src-tauri/src/daemon/routes/extension.rs",
-        "src-tauri/windows/hooks.nsi",
-        "docs/extension/ZERO_CLICK_PAIRING.md",
-        "src/dialogs/integration/BrowserIntegrationDialog.tsx"
+        ".github/workflows/native-ui.yml",
+        "docs/extension/ZERO_CLICK_PAIRING.md"
       ],
       "contains": [
         {
-          "file": "desktop-native/src/api/NovaApiClient.cpp",
+          "file": "desktop-native/src/platform/BackendBootstrap.cpp",
           "allOf": [
-            "refreshBrowserIntegration",
-            "setBrowserCaptureEnabled",
-            "/api/browser-extension/health",
-            "/api/browser-extension/config"
-          ]
-        },
-        {
-          "file": "desktop-native/qml/components/BrowserIntegrationPanel.qml",
-          "allOf": [
-            "browserIntegrationHealth",
-            "setBrowserCaptureEnabled",
-            "browserNativeHostStatus",
-            "repairBrowserNativeHost",
-            "browser.tokenProtected"
+            "x-nova-native-desktop",
+            "nova-native-backend",
+            "pairToken",
+            "backendReady"
           ]
         },
         {
@@ -362,17 +354,24 @@
           "allOf": [
             "browserNativeHostStatus",
             "repairBrowserNativeHost",
-            "NativeMessagingHosts",
-            "trustedWindowsRepairSource"
+            "writeNativeHostManifest",
+            "nova-native-host"
+          ]
+        },
+        {
+          "file": "src-tauri/src/native_host.rs",
+          "allOf": [
+            "resolve_desktop_executable",
+            "nova-native",
+            "run_native_messaging_host"
           ]
         },
         {
           "file": "src-tauri/src/daemon/routes/extension.rs",
           "allOf": [
+            "NATIVE_DESKTOP_PAIRING_HEADER",
             "handle_v1_pair_auto",
-            "set_browser_capture_enabled",
-            "configApplied",
-            "trusted_auto_pair_caller"
+            "set_browser_capture_enabled"
           ]
         }
       ]
@@ -438,9 +437,12 @@
       "label": "Windows/macOS/Linux architecture validation",
       "status": "partial",
       "evidence": [
-        ".github/workflows/native-ui.yml"
+        ".github/workflows/native-ui.yml",
+        "desktop-native/src/platform/BackendBootstrap.cpp",
+        "src-tauri/src/bin/nova-native-backend.rs",
+        "src-tauri/src/bin/nova-native-host.rs"
       ],
-      "blocker": "Native CI currently validates Windows and Ubuntu x64; ARM64 and macOS validation remain."
+      "blocker": "Native CI now builds Windows, Ubuntu and macOS preview bundles with the Qt UI plus Rust backend/native host. Explicit ARM64 matrix coverage and packaged end-to-end runtime validation remain."
     },
     {
       "id": "accessibility-hidpi",

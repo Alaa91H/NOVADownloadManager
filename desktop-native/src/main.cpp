@@ -10,6 +10,7 @@
 #include "models/DownloadListModel.h"
 #include "localization/I18nManager.h"
 #include "platform/AppearanceManager.h"
+#include "platform/BackendBootstrap.h"
 #include "platform/ClipboardMonitor.h"
 #include "platform/DesktopIntegration.h"
 #include "platform/TrayManager.h"
@@ -32,20 +33,12 @@ int main(int argc, char *argv[]) {
     DownloadListModel downloadsModel;
     I18nManager i18nManager;
     AppearanceManager appearanceManager;
+    BackendBootstrap backendBootstrap;
     ClipboardMonitor clipboardMonitor;
     DesktopIntegration desktopIntegration;
     NativeSettings nativeSettings;
     TrayManager trayManager;
     UpdaterManager updaterManager;
-
-    const QByteArray apiBase = qgetenv("NOVA_API_BASE");
-    const QByteArray apiToken = qgetenv("NOVA_API_TOKEN");
-    if (!apiBase.isEmpty()) {
-        apiClient.setBaseUrl(QUrl(QString::fromUtf8(apiBase)));
-    }
-    if (!apiToken.isEmpty()) {
-        apiClient.setBearerToken(QString::fromUtf8(apiToken));
-    }
 
     QObject::connect(&apiClient, &NovaApiClient::downloadsLoaded,
                      &downloadsModel, &DownloadListModel::replaceFromJson);
@@ -83,6 +76,7 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty(QStringLiteral("novaApi"), &apiClient);
     engine.rootContext()->setContextProperty(QStringLiteral("i18n"), &i18nManager);
     engine.rootContext()->setContextProperty(QStringLiteral("appearanceManager"), &appearanceManager);
+    engine.rootContext()->setContextProperty(QStringLiteral("backendBootstrap"), &backendBootstrap);
     engine.rootContext()->setContextProperty(QStringLiteral("clipboardMonitor"), &clipboardMonitor);
     engine.rootContext()->setContextProperty(QStringLiteral("downloadsModel"), &downloadsModel);
     engine.rootContext()->setContextProperty(QStringLiteral("desktopIntegration"), &desktopIntegration);
@@ -105,12 +99,10 @@ int main(int argc, char *argv[]) {
     QTimer refreshTimer;
     refreshTimer.setInterval(60000);
     QObject::connect(&refreshTimer, &QTimer::timeout, &apiClient, &NovaApiClient::refreshDownloads);
-    refreshTimer.start();
 
     QTimer healthTimer;
     healthTimer.setInterval(10000);
     QObject::connect(&healthTimer, &QTimer::timeout, &apiClient, &NovaApiClient::checkHealth);
-    healthTimer.start();
 
     QTimer browserIntegrationTimer;
     browserIntegrationTimer.setInterval(15000);
@@ -120,7 +112,6 @@ int main(int argc, char *argv[]) {
         &apiClient,
         &NovaApiClient::refreshBrowserIntegration
     );
-    browserIntegrationTimer.start();
 
     QObject::connect(
         &apiClient,
@@ -133,10 +124,57 @@ int main(int argc, char *argv[]) {
         }
     );
 
-    apiClient.checkHealth();
-    apiClient.refreshDownloads();
-    apiClient.refreshBrowserIntegration();
-    apiClient.startDownloadStream();
+    bool apiInitialized = false;
+    const auto initializeApi = [
+        &apiClient,
+        &refreshTimer,
+        &healthTimer,
+        &browserIntegrationTimer,
+        &apiInitialized
+    ](const QUrl &baseUrl, const QString &token) {
+        if (apiInitialized || !baseUrl.isValid() || token.trimmed().isEmpty()) {
+            return;
+        }
+
+        apiInitialized = true;
+        apiClient.setBaseUrl(baseUrl);
+        apiClient.setBearerToken(token);
+
+        refreshTimer.start();
+        healthTimer.start();
+        browserIntegrationTimer.start();
+
+        apiClient.checkHealth();
+        apiClient.refreshDownloads();
+        apiClient.refreshBrowserIntegration();
+        apiClient.startDownloadStream();
+    };
+
+    QObject::connect(
+        &backendBootstrap,
+        &BackendBootstrap::backendReady,
+        &app,
+        initializeApi
+    );
+    QObject::connect(
+        &backendBootstrap,
+        &BackendBootstrap::bootstrapFailed,
+        &app,
+        [&apiClient](const QString &message) {
+            apiClient.reportBootstrapFailure(message);
+        }
+    );
+
+    const QByteArray apiBase = qgetenv("NOVA_API_BASE");
+    const QByteArray apiToken = qgetenv("NOVA_API_TOKEN");
+    if (!apiBase.isEmpty() && !apiToken.isEmpty()) {
+        initializeApi(
+            QUrl(QString::fromUtf8(apiBase)),
+            QString::fromUtf8(apiToken)
+        );
+    } else {
+        backendBootstrap.start();
+    }
 
     return app.exec();
 }

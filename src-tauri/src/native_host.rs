@@ -100,9 +100,51 @@ fn launch_capture_review_window() -> Result<(), String> {
     launch_desktop_process(Some("--capture-review"))
 }
 
-fn launch_desktop_process(argument: Option<&str>) -> Result<(), String> {
-    let executable = std::env::current_exe()
+fn resolve_desktop_executable() -> Result<std::path::PathBuf, String> {
+    if let Some(explicit) = std::env::var_os("NOVA_DESKTOP_EXECUTABLE")
+        .filter(|value| !value.is_empty())
+    {
+        let path = std::path::PathBuf::from(explicit);
+        if path.is_absolute() && path.is_file() {
+            return Ok(path);
+        }
+        return Err("NOVA_DESKTOP_EXECUTABLE must point to an existing absolute file".to_owned());
+    }
+
+    let current = std::env::current_exe()
         .map_err(|error| format!("cannot resolve NOVA executable: {error}"))?;
+    let parent = current
+        .parent()
+        .ok_or_else(|| "NOVA native host executable has no parent directory".to_owned())?;
+
+    #[cfg(target_os = "windows")]
+    let sibling = parent.join("nova-native.exe");
+    #[cfg(not(target_os = "windows"))]
+    let sibling = parent.join("nova-native");
+
+    if sibling.is_file() {
+        return Ok(sibling);
+    }
+
+    // Backward compatibility for the legacy combined Tauri executable: when
+    // Native Messaging is still registered directly to that binary, relaunch
+    // the same executable without the browser arguments to open the UI/daemon.
+    let stem = current
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    if stem != "nova-native-host" {
+        return Ok(current);
+    }
+
+    Err(format!(
+        "native desktop executable was not found next to {}",
+        current.display()
+    ))
+}
+
+fn launch_desktop_process(argument: Option<&str>) -> Result<(), String> {
+    let executable = resolve_desktop_executable()?;
     let mut command = std::process::Command::new(executable);
     if let Some(argument) = argument {
         command.arg(argument);
@@ -267,6 +309,19 @@ fn obtain_api_token(client: &reqwest::blocking::Client, base_url: &str) -> Optio
         .get("pairToken")
         .and_then(Value::as_str)
         .map(String::from)
+}
+
+#[cfg(test)]
+mod desktop_launch_tests {
+    use super::resolve_desktop_executable;
+
+    #[test]
+    fn explicit_desktop_executable_must_be_absolute_and_exist() {
+        std::env::set_var("NOVA_DESKTOP_EXECUTABLE", "relative-nova-native");
+        let error = resolve_desktop_executable().expect_err("relative override must fail");
+        assert!(error.contains("absolute"));
+        std::env::remove_var("NOVA_DESKTOP_EXECUTABLE");
+    }
 }
 
 fn read_native_message() -> io::Result<Value> {

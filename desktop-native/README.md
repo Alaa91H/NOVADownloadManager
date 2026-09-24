@@ -44,7 +44,7 @@ NOVA_API_BASE=http://127.0.0.1:3199
 NOVA_API_TOKEN=<daemon bearer token>
 ```
 
-The production native bootstrap will replace manual token injection with the same trusted-local pairing/security guarantees used by the current desktop application.
+Production native builds use an automatic bootstrap: the Qt UI first discovers an existing loopback daemon and, if necessary, starts the bundled `nova-native-backend`. It then obtains the bearer token through the trusted local desktop auto-pair contract. `NOVA_API_BASE` / `NOVA_API_TOKEN` remain development overrides only.
 
 ## Current milestone
 
@@ -62,7 +62,9 @@ Implemented native surfaces include:
 - Stable/Preview release checks with automatic install intentionally disabled until updater signing is production-ready
 - English/Arabic/German live localization, RTL, System/Light/Dark themes, High Contrast, Reduced Motion and text scaling
 - Keyboard shortcuts, focus/accessibility metadata and High-DPI policy
-- Windows and Linux Qt 6.8.3 CI validation
+- Windows, Linux and macOS Qt 6.8.3 CI validation
+- Bundled headless Rust backend and dedicated browser Native Messaging host
+- Automatic trusted-local backend discovery/pairing and cross-platform browser-host registration repair
 
 ## Stage 6 parity and preview builds
 
@@ -77,7 +79,7 @@ node desktop-native/scripts/check-parity.mjs
 
 The parity command writes `build/native-parity-report.md`.
 
-On the feature branch, GitHub Actions builds native preview artifacts for Windows and Linux. Each bundle contains:
+On the feature branch, GitHub Actions builds native preview artifacts for Windows, Linux and macOS. Each bundle contains:
 
 - the installed native executable/application files;
 - `BUILD_INFO.txt` with commit/platform metadata;

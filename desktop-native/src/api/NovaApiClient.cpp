@@ -46,6 +46,14 @@ void NovaApiClient::setBearerToken(const QString &token) {
     m_bearerToken = token.trimmed();
 }
 
+void NovaApiClient::reportBootstrapFailure(const QString &message) {
+    const QString text = message.trimmed().isEmpty()
+        ? QStringLiteral("NOVA engine bootstrap failed")
+        : message.trimmed();
+    setConnectionState(false, text);
+    emit requestFailed(text);
+}
+
 QNetworkRequest NovaApiClient::makeRequest(const QString &path) const {
     QUrl url = m_baseUrl;
     QString normalizedPath = path;

@@ -1145,6 +1145,49 @@ fn default_integration_data_dir() -> PathBuf {
     ))
 }
 
+/// Persistent data directory shared by the Qt native frontend, the headless
+/// Rust backend and the browser Native Messaging host. This intentionally
+/// matches Tauri's historical app-data location for the same application ID,
+/// so the native migration does not fork downloads/settings state.
+#[must_use]
+pub fn native_desktop_data_dir() -> PathBuf {
+    if let Some(override_dir) = std::env::var_os("NOVA_NATIVE_DATA_DIR")
+        .filter(|value| !value.is_empty())
+    {
+        return PathBuf::from(override_dir);
+    }
+
+    #[cfg(target_os = "windows")]
+    if let Some(base) = std::env::var_os("APPDATA").filter(|value| !value.is_empty()) {
+        return PathBuf::from(base).join("com.nova.downloadmanager");
+    }
+
+    #[cfg(target_os = "macos")]
+    if let Some(home) = std::env::var_os("HOME").filter(|value| !value.is_empty()) {
+        return PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join("com.nova.downloadmanager");
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        if let Some(xdg) = std::env::var_os("XDG_DATA_HOME")
+            .filter(|value| !value.is_empty())
+        {
+            return PathBuf::from(xdg).join("com.nova.downloadmanager");
+        }
+        if let Some(home) = std::env::var_os("HOME").filter(|value| !value.is_empty()) {
+            return PathBuf::from(home)
+                .join(".local")
+                .join("share")
+                .join("com.nova.downloadmanager");
+        }
+    }
+
+    std::env::temp_dir().join("com.nova.downloadmanager")
+}
+
 fn integration_data_dir() -> PathBuf {
     std::env::var_os("NOVA_INTEGRATION_DATA_DIR")
         .filter(|value| !value.is_empty())
@@ -1186,6 +1229,53 @@ pub fn run_integration_mode() {
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     log::info!("Integration daemon stopped; exiting host process.");
+}
+
+
+/// Run the production headless backend used by the Qt desktop frontend.
+/// Unlike `--integration`, this uses the persistent NOVA app-data directory
+/// and therefore owns the user's real queue/settings state.
+pub fn run_native_backend() {
+    let preferred_port = std::env::var("NOVA_DAEMON_PORT")
+        .ok()
+        .and_then(|port| port.parse::<u16>().ok())
+        .filter(|port| *port >= 1024)
+        .unwrap_or(DEFAULT_DAEMON_PORT);
+    let port = find_available_daemon_port(preferred_port);
+
+    let resource_dir = std::env::var_os("NOVA_RESOURCE_DIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .and_then(|path| path.parent().map(Path::to_path_buf))
+        })
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    let data_dir = native_desktop_data_dir();
+    if let Err(error) = std::fs::create_dir_all(&data_dir) {
+        log::error!(
+            "Native backend could not create app data directory {}: {error}",
+            data_dir.display()
+        );
+        return;
+    }
+
+    log::info!(
+        "Native backend: starting daemon on port {port} with persistent data at {}",
+        data_dir.display()
+    );
+    daemon::start_daemon(
+        resource_dir.display().to_string(),
+        data_dir.display().to_string(),
+        port,
+    );
+
+    while daemon::is_running() {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    log::info!("Native backend daemon stopped; exiting.");
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1346,6 +1436,17 @@ mod port_selection_tests {
         assert!(is_integration_argument("--integration"));
         assert!(!is_integration_argument("--background"));
         assert!(!is_integration_argument("--integration=true"));
+    }
+
+    #[test]
+    fn native_desktop_data_dir_honors_explicit_override() {
+        let expected = std::env::temp_dir().join(format!(
+            "nova-native-data-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::env::set_var("NOVA_NATIVE_DATA_DIR", &expected);
+        assert_eq!(native_desktop_data_dir(), expected);
+        std::env::remove_var("NOVA_NATIVE_DATA_DIR");
     }
 
     #[test]

@@ -31,12 +31,36 @@ jobs:
         os:
           - windows-latest
           - ubuntu-latest
+          - macos-latest
 
     runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust backend build dependencies (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          bash scripts/install-linux-build-deps.sh \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libcurl4-openssl-dev \
+            libbrotli-dev \
+            libzstd-dev \
+            libnghttp2-dev \
+            libssh2-1-dev \
+            pkg-config
+
+      - name: Build native Rust runtime
+        run: cargo build --manifest-path src-tauri/Cargo.toml --release --bin nova-native-backend --bin nova-native-host
 
       - name: Check localization gate
         run: node desktop-native/scripts/check-localization.mjs
@@ -59,6 +83,43 @@ jobs:
       - name: Install preview bundle
         run: cmake --install build/native --config Release --prefix "preview/NOVA-Native-${{ runner.os }}"
 
+      - name: Add Rust runtime to preview (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bundle = "preview/NOVA-Native-Windows/bin"
+          Copy-Item "src-tauri/target/release/nova-native-backend.exe" $bundle
+          Copy-Item "src-tauri/target/release/nova-native-host.exe" $bundle
+          if (!(Test-Path (Join-Path $bundle "nova-native-backend.exe"))) { throw "Native backend missing" }
+          if (!(Test-Path (Join-Path $bundle "nova-native-host.exe"))) { throw "Native host missing" }
+
+      - name: Add Rust runtime to preview (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          bundle="preview/NOVA-Native-Linux/bin"
+          cp src-tauri/target/release/nova-native-backend "$bundle/"
+          cp src-tauri/target/release/nova-native-host "$bundle/"
+          chmod 0755 "$bundle/nova-native-backend" "$bundle/nova-native-host"
+          test -x "$bundle/nova-native-backend"
+          test -x "$bundle/nova-native-host"
+
+      - name: Prepare macOS native bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          bundle="preview/NOVA-Native-macOS"
+          app="$(find "$bundle" -type d -name '*.app' -print -quit)"
+          test -n "$app"
+          macos_bin="$app/Contents/MacOS"
+          test -x "$macos_bin/nova-native"
+          cp src-tauri/target/release/nova-native-backend "$macos_bin/"
+          cp src-tauri/target/release/nova-native-host "$macos_bin/"
+          chmod 0755 "$macos_bin/nova-native-backend" "$macos_bin/nova-native-host"
+          macdeployqt "$app" -qmldir=desktop-native/qml
+          test -x "$macos_bin/nova-native-backend"
+          test -x "$macos_bin/nova-native-host"
+
       - name: Deploy Qt runtime (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -74,7 +135,50 @@ jobs:
           Platform: Windows
           Qt: 6.8.3
           Stage: 6 parity freeze
+          Runtime: Qt UI + Rust backend + Native Messaging host
           "@ | Set-Content (Join-Path $bundle "BUILD_INFO.txt")
+
+      - name: Prepare macOS preview metadata
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          bundle="preview/NOVA-Native-macOS"
+          cp build/native-parity-report.md "$bundle/PARITY_REPORT.md"
+          {
+            echo "NOVA Native Preview"
+            echo "Commit: ${GITHUB_SHA}"
+            echo "Branch: ${GITHUB_REF_NAME}"
+            echo "Platform: macOS"
+            echo "Qt: 6.8.3"
+            echo "Stage: 6 parity freeze"
+            echo "Runtime: Qt UI + Rust backend + Native Messaging host"
+          } > "$bundle/BUILD_INFO.txt"
+
+      - name: Smoke-test native backend auto-pair (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime="preview/NOVA-Native-Linux/bin"
+          data_dir="$RUNNER_TEMP/nova-native-backend-smoke"
+          mkdir -p "$data_dir"
+          NOVA_NATIVE_DATA_DIR="$data_dir" NOVA_DAEMON_PORT=3299 "$runtime/nova-native-backend" &
+          backend_pid=$!
+          trap 'kill "$backend_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for _ in $(seq 1 40); do
+            response="$(curl -fsS -X POST \
+              -H 'Content-Type: application/json' \
+              -H 'x-nova-native-desktop: 1' \
+              -d '{}' \
+              http://127.0.0.1:3299/v1/pair/auto 2>/dev/null || true)"
+            if printf '%s' "$response" | grep -q '"pairToken"'; then
+              ready=1
+              break
+            fi
+            sleep 0.25
+          done
+          test "$ready" -eq 1
 
       - name: Prepare Linux preview metadata
         if: runner.os == 'Linux'
@@ -89,6 +193,7 @@ jobs:
             echo "Platform: Linux"
             echo "Qt: 6.8.3"
             echo "Stage: 6 parity freeze"
+            echo "Runtime: Qt UI + Rust backend + Native Messaging host"
           } > "$bundle/BUILD_INFO.txt"
           ldd "$bundle/bin/nova-native" > "$bundle/LINUX_RUNTIME_DEPENDENCIES.txt" || true
 

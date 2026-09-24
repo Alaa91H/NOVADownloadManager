@@ -155,20 +155,23 @@ Implemented:
 - Clipboard URL monitoring now matches the legacy 1.5-second detection behavior: it ignores pre-existing clipboard content, extracts new HTTP/HTTPS links and opens the native Add Download dialog only after the engine is connected.
 - Browser integration now exposes live daemon-backed status, enabled/paired state, bridge version, capture endpoint and direct/media/post-processing capabilities in the native Settings workspace.
 - Native Qt can now enable or disable browser capture through the daemon's existing `/api/browser-extension/config` endpoint. The daemon applies only the browser-enable patch atomically and preserves unrelated settings and protected pairing credential markers.
-- Native browser diagnostics validate Chrome/Chromium, Edge and Firefox Native Messaging registration plus the manifest/host executable. Windows can repair missing per-user registrations only from a manifest verified inside the trusted machine-wide NOVA installation.
+- Native browser diagnostics validate Chrome/Chromium, Edge and Firefox Native Messaging registration plus the manifest/host executable.
+- Native Messaging registration repair is now user-scoped on Windows, macOS and Linux. The Qt application generates atomic manifests that point only to the bundled sibling `nova-native-host` executable.
+- The production native runtime is split into `nova-native` (Qt UI), `nova-native-backend` (headless Rust daemon) and `nova-native-host` (browser Native Messaging transport). Qt discovers an existing daemon first, otherwise starts the bundled backend and obtains its bearer token through the trusted loopback desktop auto-pair contract.
 - Native browser integration follows the project's zero-click pairing security model: pairing credentials are never displayed or copied by the Qt UI; setup links route users to the extension release and pairing documentation.
 - Windows preview bundles deploy the required Qt runtime through `windeployqt`.
-- Linux preview bundles include the installed native binary, desktop entry and an `ldd` runtime dependency report.
+- Linux preview bundles include the Qt UI, Rust backend/native host, desktop entry, an `ldd` runtime dependency report and a live backend auto-pair smoke test.
+- macOS preview builds are now part of the native CI matrix and package the Rust backend/native host beside the Qt application executable.
 - Every preview bundle carries `PARITY_REPORT.md` and `BUILD_INFO.txt` for QA traceability.
 - Preview artifacts are retained by GitHub Actions for 14 days.
 
 Current parity blockers tracked by the executable manifest:
 
-- Complete automatic Native Messaging registration/repair for packaged macOS and Linux native releases, then validate browser capture end to end on all desktop platforms.
+- Validate packaged browser capture end to end with the real NOVA extension on Windows, macOS and Linux.
 - Legacy-only advanced download columns beyond the native core set (for example retries, CRC32, priority, completed date and smart category metadata).
 - Full legacy language catalog beyond the current English/Arabic/German native baseline.
 - Production signed automatic updater installation.
-- macOS and ARM64 native validation.
+- Explicit ARM64 native validation beyond the hosted desktop matrix.
 - Dedicated large-list/reconnect/crash-recovery stress validation.
 - Final screen-reader, multi-monitor and platform accessibility validation.
 

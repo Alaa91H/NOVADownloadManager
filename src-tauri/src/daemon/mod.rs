@@ -22,6 +22,11 @@ pub(crate) const NOVA_CHROMIUM_EXTENSION_ORIGIN: &str =
 /// Browser callers cannot use it because daemon CORS does not allow this header.
 pub(crate) const NATIVE_HOST_PAIRING_HEADER: &str = "x-nova-native-host";
 pub(crate) const NATIVE_HOST_PAIRING_VALUE: &str = "1";
+/// Marker used by the trusted Qt desktop bootstrap. Like the native-host
+/// marker, browser CORS never permits this header; only local non-browser
+/// clients can present it on the loopback transport.
+pub(crate) const NATIVE_DESKTOP_PAIRING_HEADER: &str = "x-nova-native-desktop";
+pub(crate) const NATIVE_DESKTOP_PAIRING_VALUE: &str = "1";
 
 use axum::routing::get;
 use axum::Router;

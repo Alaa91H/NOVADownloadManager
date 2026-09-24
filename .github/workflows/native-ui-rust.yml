@@ -59,5 +59,11 @@ jobs:
       - name: Cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml
 
-      - name: Browser integration config tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml browser_config_tests --lib
+      - name: Check native runtime binaries
+        run: cargo check --manifest-path src-tauri/Cargo.toml --bin nova-native-backend --bin nova-native-host
+
+      - name: Native bootstrap and browser integration tests
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml native_desktop_data_dir_honors_explicit_override --lib
+          cargo test --manifest-path src-tauri/Cargo.toml accepts_the_native_desktop_marker --lib
+          cargo test --manifest-path src-tauri/Cargo.toml browser_config_tests --lib

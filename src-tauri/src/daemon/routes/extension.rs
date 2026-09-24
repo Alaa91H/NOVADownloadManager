@@ -65,9 +65,14 @@ fn trusted_auto_pair_caller(headers: &HeaderMap) -> bool {
             .get(crate::daemon::NATIVE_HOST_PAIRING_HEADER)
             .and_then(|value| value.to_str().ok())
             == Some(crate::daemon::NATIVE_HOST_PAIRING_VALUE);
+    let native_desktop = origin.is_none()
+        && headers
+            .get(crate::daemon::NATIVE_DESKTOP_PAIRING_HEADER)
+            .and_then(|value| value.to_str().ok())
+            == Some(crate::daemon::NATIVE_DESKTOP_PAIRING_VALUE);
     let chromium_extension = origin == Some(crate::daemon::NOVA_CHROMIUM_EXTENSION_ORIGIN);
 
-    native_host || chromium_extension
+    native_host || native_desktop || chromium_extension
 }
 
 pub async fn handle_v1_pair_auto(
@@ -116,6 +121,16 @@ mod auto_pair_tests {
         headers.insert(
             ORIGIN,
             HeaderValue::from_static(crate::daemon::NOVA_CHROMIUM_EXTENSION_ORIGIN),
+        );
+        assert!(trusted_auto_pair_caller(&headers));
+    }
+
+    #[test]
+    fn accepts_the_native_desktop_marker() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            crate::daemon::NATIVE_DESKTOP_PAIRING_HEADER,
+            HeaderValue::from_static(crate::daemon::NATIVE_DESKTOP_PAIRING_VALUE),
         );
         assert!(trusted_auto_pair_caller(&headers));
     }

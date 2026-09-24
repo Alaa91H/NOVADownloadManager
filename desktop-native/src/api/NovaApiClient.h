@@ -80,6 +80,7 @@ public:
 
     void setBaseUrl(const QUrl &baseUrl);
     void setBearerToken(const QString &token);
+    void reportBootstrapFailure(const QString &message);
 
     Q_INVOKABLE void checkHealth();
     Q_INVOKABLE void refreshDownloads();
