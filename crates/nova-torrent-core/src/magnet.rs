@@ -159,7 +159,11 @@ fn push_unique_url(
     } else {
         matches!(parsed.scheme(), "http" | "https")
     };
-    if !allowed || parsed.host_str().is_none() {
+    if !allowed
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
         return Err(MagnetParseError::InvalidUrl(raw.to_owned()));
     }
     if !output.iter().any(|existing| existing == raw) {
@@ -231,6 +235,30 @@ mod tests {
         )
         .expect_err("conflicting hashes");
         assert_eq!(error, MagnetParseError::ConflictingBtih);
+    }
+
+    #[test]
+    fn rejects_excessive_tracker_count() {
+        let mut value = format!("magnet:?xt=urn:btih:{}", "0".repeat(40));
+        for index in 0..=MAX_MAGNET_TRACKERS {
+            value.push_str(&format!("&tr=https://tracker-{index}.test/announce"));
+        }
+        assert_eq!(
+            MagnetLink::parse(&value).expect_err("too many trackers"),
+            MagnetParseError::TooManyTrackers
+        );
+    }
+
+    #[test]
+    fn rejects_tracker_userinfo() {
+        let value = format!(
+            "magnet:?xt=urn:btih:{}&tr=https://user:pass@tracker.test/announce",
+            "0".repeat(40)
+        );
+        assert!(matches!(
+            MagnetLink::parse(&value),
+            Err(MagnetParseError::InvalidUrl(_))
+        ));
     }
 
     #[test]
