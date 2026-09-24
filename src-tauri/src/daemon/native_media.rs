@@ -50,8 +50,15 @@ impl Extractor for NativeMediaExtractor {
     }
 
     fn can_handle(&self, url: &str, has_media_options: bool) -> bool {
-        has_media_options
-            && (url.starts_with("http://") || url.starts_with("https://"))
+        let http = url
+            .split_once(':')
+            .map_or("", |(scheme, _)| scheme)
+            .eq_ignore_ascii_case("http")
+            || url
+                .split_once(':')
+                .map_or("", |(scheme, _)| scheme)
+                .eq_ignore_ascii_case("https");
+        http && (has_media_options || is_native_manifest_url(url))
     }
 
     fn validate(&self, body: &CreateDownloadBody) -> Result<(), ValidateError> {
@@ -62,11 +69,12 @@ impl Extractor for NativeMediaExtractor {
             return Err(ValidateError("Native media requires HTTP(S)".to_owned()));
         }
 
-        let options = body
-            .media_options
-            .as_ref()
-            .ok_or_else(|| ValidateError("Missing media options".to_owned()))?;
-        validate_native_options(options).map_err(ValidateError)
+        if let Some(options) = body.media_options.as_ref() {
+            validate_native_options(options).map_err(ValidateError)?;
+        } else if !is_native_manifest_url(url) {
+            return Err(ValidateError("Missing media options".to_owned()));
+        }
+        Ok(())
     }
 
     fn allow_validation_fallback(&self) -> bool {
@@ -1276,6 +1284,18 @@ fn complete_native_task(state: &SharedState, id: &str, generation: u64, bytes: u
     state.mark_dirty();
 }
 
+pub(crate) fn is_native_manifest_url(url: &str) -> bool {
+    let path = url
+        .split('#')
+        .next()
+        .unwrap_or(url)
+        .split('?')
+        .next()
+        .unwrap_or(url)
+        .to_ascii_lowercase();
+    path.ends_with(".m3u8") || path.ends_with(".mpd")
+}
+
 fn validate_native_options(options: &MediaDownloadOptions) -> Result<(), String> {
     let mode = options.mode.as_deref().unwrap_or("video").trim().to_ascii_lowercase();
     if !matches!(mode.as_str(), "video" | "best" | "auto") {
@@ -1570,6 +1590,23 @@ mod tests {
                 ..Default::default()
             }),
         }
+    }
+
+    #[test]
+    fn manifest_urls_are_native_even_without_media_options() {
+        let mut request = body("https://cdn.test/live.m3u8?token=abc");
+        request.media_options = None;
+        NativeMediaExtractor
+            .validate(&request)
+            .expect("manifest does not require explicit media options");
+        assert!(NativeMediaExtractor.can_handle(
+            "HTTPS://cdn.test/stream.mpd#fragment",
+            false
+        ));
+        assert!(!NativeMediaExtractor.can_handle(
+            "https://cdn.test/file.zip",
+            false
+        ));
     }
 
     #[test]
