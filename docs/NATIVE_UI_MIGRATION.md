@@ -117,11 +117,14 @@ Implemented in the first Stage 5 slice:
 - Adjustable text scale and shared typography tokens.
 - Dynamic light/dark semantic color palette.
 - Localized main menus, navigation rail, command bar, status bar and primary Settings headings.
+- Localized Downloads workspace, queue manager, batch import, media downloader, link grabber and core download dialogs.
+- RTL-safe URL/path/output-template fields that explicitly remain left-to-right inside Arabic layouts.
+- Shared text-scale tokens applied across the newly localized workflows.
 - Keyboard focus rings and accessibility names for the primary navigation and command actions.
 
 Remaining before Stage 5 is complete:
 
-- Migrate every page/dialog string into the localization catalog.
+- Finish migrating the remaining Scheduler sub-dialog text, advanced Settings strings and residual workflow labels into the localization catalog.
 - Import the full language set supported by the legacy UI.
 - Complete per-page RTL layout review, especially tables, inspectors and mixed URL/path content.
 - Extend typography scaling to every legacy-sized text declaration.
