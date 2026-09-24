@@ -112,9 +112,12 @@ pub struct AppState {
     /// Master bearer token used only by the in-process trusted desktop/webview layer.
     /// It is never returned by the loopback auto-pair endpoint.
     pub api_token: String,
-    /// Separate bearer token issued to trusted local native clients after they
-    /// prove possession of the per-daemon pairing secret.
+    /// Full local bearer token issued only to the trusted Qt desktop after it
+    /// proves possession of the per-daemon pairing secret.
     pub native_client_token: String,
+    /// Restricted bearer token issued to the browser Native Messaging host.
+    /// Middleware accepts it only for the extension-facing API surface.
+    pub browser_client_token: String,
     /// Random proof secret rotated on every daemon start. It is written only to
     /// the user's NOVA data directory and must accompany native auto-pair calls.
     pub native_pairing_secret: String,
