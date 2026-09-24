@@ -705,7 +705,7 @@ impl PeerSession {
                 let handshake = ExtendedHandshake::parse(payload)
                     .map_err(|error| format!("Peer {} sent invalid extended handshake: {error}", self.address))?;
                 self.remote_extensions = Some(handshake);
-            } else if *extension_id == LOCAL_UT_PEX_ID {
+            } else if *extension_id == LOCAL_UT_PEX_ID && self.config.enable_pex {
                 let pex = PeerExchange::parse(payload)
                     .map_err(|error| format!("Peer {} sent invalid ut_pex payload: {error}", self.address))?;
                 for peer in pex.added {
