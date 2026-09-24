@@ -1,15 +1,19 @@
 #include <QtTest>
 
 #include <QElapsedTimer>
+#include <QFile>
 #include <QHostAddress>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QSignalSpy>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QTemporaryDir>
 
 #include "api/NovaApiClient.h"
 #include "models/DownloadListModel.h"
+#include "settings/NativeSettings.h"
 
 class NativeParityTests final : public QObject {
     Q_OBJECT
@@ -18,6 +22,7 @@ private slots:
     void largeListRemainsResponsive();
     void streamReconnectsAfterDaemonReturns();
     void reconnectBackoffIsBounded();
+    void legacyUiPreferencesMigrateOnce();
 };
 
 void NativeParityTests::largeListRemainsResponsive() {
@@ -194,6 +199,87 @@ void NativeParityTests::reconnectBackoffIsBounded() {
     QCOMPARE(NovaApiClient::streamReconnectDelayForAttempt(5), 5000);
     QCOMPARE(NovaApiClient::streamReconnectDelayForAttempt(50), 5000);
     QCOMPARE(NovaApiClient::streamReconnectDelayForAttempt(-10), 250);
+}
+
+
+void NativeParityTests::legacyUiPreferencesMigrateOnce() {
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    const QByteArray previousDataDir = qgetenv("NOVA_NATIVE_DATA_DIR");
+    qputenv("NOVA_NATIVE_DATA_DIR", temp.path().toUtf8());
+
+    const QString configPath = temp.filePath(QStringLiteral("config.json"));
+    QFile config(configPath);
+    QVERIFY(config.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    const QJsonObject legacy{
+        {
+            QStringLiteral("general"),
+            QJsonObject{{QStringLiteral("monitorClipboard"), true}}
+        },
+        {
+            QStringLiteral("connection"),
+            QJsonObject{{QStringLiteral("maxConnections"), 24}}
+        },
+        {
+            QStringLiteral("saveAndCategories"),
+            QJsonObject{{QStringLiteral("defaultFolder"), QStringLiteral("/legacy/downloads")}}
+        },
+        {
+            QStringLiteral("extra"),
+            QJsonObject{{QStringLiteral("language"), QStringLiteral("de-DE")}}
+        }
+    };
+    config.write(QJsonDocument(legacy).toJson(QJsonDocument::Compact));
+    config.close();
+
+    const QString settingsFile = temp.filePath(QStringLiteral("native-settings.ini"));
+    {
+        NativeSettings settings(settingsFile, nullptr);
+        QCOMPARE(settings.defaultSaveDirectory(), QStringLiteral("/legacy/downloads"));
+        QCOMPARE(settings.defaultConnections(), 24);
+        QVERIFY(settings.monitorClipboard());
+        QCOMPARE(settings.uiLanguage(), QStringLiteral("de"));
+
+        settings.setDefaultConnections(8);
+        settings.setMonitorClipboard(false);
+    }
+
+    QVERIFY(config.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    const QJsonObject changedLegacy{
+        {
+            QStringLiteral("general"),
+            QJsonObject{{QStringLiteral("monitorClipboard"), true}}
+        },
+        {
+            QStringLiteral("connection"),
+            QJsonObject{{QStringLiteral("maxConnections"), 32}}
+        },
+        {
+            QStringLiteral("saveAndCategories"),
+            QJsonObject{{QStringLiteral("defaultFolder"), QStringLiteral("/changed/legacy")}}
+        },
+        {
+            QStringLiteral("extra"),
+            QJsonObject{{QStringLiteral("language"), QStringLiteral("ar")}}
+        }
+    };
+    config.write(QJsonDocument(changedLegacy).toJson(QJsonDocument::Compact));
+    config.close();
+
+    {
+        NativeSettings settings(settingsFile, nullptr);
+        QCOMPARE(settings.defaultSaveDirectory(), QStringLiteral("/legacy/downloads"));
+        QCOMPARE(settings.defaultConnections(), 8);
+        QVERIFY(!settings.monitorClipboard());
+        QCOMPARE(settings.uiLanguage(), QStringLiteral("de"));
+    }
+
+    if (previousDataDir.isEmpty()) {
+        qunsetenv("NOVA_NATIVE_DATA_DIR");
+    } else {
+        qputenv("NOVA_NATIVE_DATA_DIR", previousDataDir);
+    }
 }
 
 QTEST_GUILESS_MAIN(NativeParityTests)
