@@ -1308,7 +1308,13 @@ pub async fn handle_rules_delete(
 pub async fn handle_scheduler_list(State(state): State<SharedState>) -> Json<serde_json::Value> {
     let rules = state.scheduler.rules();
     let active_ids = state.scheduler.active_rule_ids();
-    Json(serde_json::json!({"ok": true, "rules": rules, "active_rule_ids": active_ids}))
+    Json(serde_json::json!({
+        "ok": true,
+        "rules": rules,
+        "active_rule_ids": active_ids,
+        "powerCommandsEnabled": state.scheduler.power_commands_enabled(),
+        "exitRequested": state.scheduler.exit_requested()
+    }))
 }
 
 #[derive(Deserialize)]
@@ -1358,8 +1364,387 @@ pub async fn handle_scheduler_power_commands(
     }))
 }
 
-/// Periodic scheduler tick: evaluate all rules and apply triggered actions.
+fn queue_task_ids(queue: &serde_json::Value) -> Vec<String> {
+    queue
+        .get("downloadOrder")
+        .and_then(serde_json::Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn apply_queue_retry_policy(state: &SharedState, queue: &serde_json::Value) {
+    let max_retries = queue
+        .get("retryCount")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(3)
+        .min(9_999) as u32;
+    let delay = queue
+        .get("retryDelay")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(10)
+        .clamp(1, 86_400);
+
+    if let Ok(mut policy) = state.default_retry_policy.write() {
+        *policy = RetryPolicy {
+            max_retries,
+            base_delay: std::time::Duration::from_secs(delay),
+            max_delay: std::time::Duration::from_secs(delay),
+            backoff_multiplier: 1.0,
+            jitter: false,
+        };
+    }
+}
+
+fn apply_queue_temporary_bandwidth(
+    state: &SharedState,
+    queue: &serde_json::Value,
+    active: bool,
+) {
+    if !queue
+        .get("oneTimeLimit")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        return;
+    }
+
+    let limited = queue
+        .get("limitSpeed")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    let limit = queue
+        .get("speedLimitKbs")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+
+    for task_id in queue_task_ids(queue) {
+        if active && limited && limit > 0 {
+            state.bandwidth_manager.set_task_limit(task_id, limit);
+        } else {
+            state.bandwidth_manager.remove_task_limit(&task_id);
+        }
+    }
+}
+
+fn scheduler_shutdown(state: &SharedState, source: &str) {
+    if !state.scheduler.power_commands_enabled() {
+        log::warn!("Scheduler: shutdown blocked for {source} — power commands not enabled");
+        return;
+    }
+    log::info!("Scheduler: shutdown requested by {source}");
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("shutdown")
+            .args(["/s", "/t", "30"])
+            .spawn();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("shutdown")
+            .args(["-h", "+1"])
+            .spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("shutdown")
+            .args(["-h", "+1"])
+            .spawn();
+    }
+}
+
+fn scheduler_sleep(state: &SharedState, source: &str) {
+    if !state.scheduler.power_commands_enabled() {
+        log::warn!("Scheduler: sleep blocked for {source} — power commands not enabled");
+        return;
+    }
+    log::info!("Scheduler: sleep requested by {source}");
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("rundll32.exe")
+            .args(["powrprof.dll,SetSuspendState", "0,1,0"])
+            .spawn();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("systemctl")
+            .arg("suspend")
+            .spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("pmset").arg("sleepnow").spawn();
+    }
+}
+
+async fn run_queue_scheduler_tick(state: &SharedState) {
+    let mut queues = load_reconciled_queue_catalog(state);
+    let now = chrono::Local::now();
+    let mut catalog_changed = false;
+
+    for queue in &mut queues {
+        let Some(queue_id) = queue_value_id(queue).map(str::to_owned) else {
+            continue;
+        };
+        let scheduled = queue
+            .get("scheduled")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let window_active = queue_schedule_window_active(queue, now);
+        let (entered_window, left_window) =
+            state.scheduler.queue_window_transition(&queue_id, window_active);
+
+        if let Some(object) = queue.as_object_mut() {
+            let previous_active = object
+                .get("active")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            if previous_active != window_active {
+                object.insert("active".to_owned(), serde_json::Value::Bool(window_active));
+                catalog_changed = true;
+            }
+        }
+
+        let task_ids = queue_task_ids(queue);
+        let statuses: HashMap<String, String> = {
+            let snapshot = lock_or_err!(state.task_snapshot);
+            task_ids
+                .iter()
+                .filter_map(|task_id| {
+                    snapshot
+                        .get(task_id)
+                        .map(|task| (task_id.clone(), task.status.clone()))
+                })
+                .collect()
+        };
+
+        if entered_window {
+            let profile_id = queue
+                .get("profileId")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .unwrap_or("");
+            if !profile_id.is_empty() && !apply_engine_profile(state, profile_id) {
+                log::warn!(
+                    "Scheduler: queue {queue_id} references unknown profile {profile_id}"
+                );
+            }
+            apply_queue_retry_policy(state, queue);
+            apply_queue_temporary_bandwidth(state, queue, true);
+            state.event_bus.publish(
+                crate::daemon::engine::event_bus::EngineEvent::SchedulerTriggered {
+                    task_id: format!("queue:{queue_id}"),
+                    action: "window-start".to_owned(),
+                },
+            );
+        } else if window_active {
+            apply_queue_temporary_bandwidth(state, queue, true);
+        }
+
+        if window_active {
+            let max_active = queue
+                .get("maxActive")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(1)
+                .clamp(1, 64) as usize;
+            let retry_count = queue
+                .get("retryCount")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(3)
+                .min(9_999) as u32;
+            let retry_delay = queue
+                .get("retryDelay")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(10)
+                .clamp(1, 86_400);
+
+            let mut active_count = statuses
+                .values()
+                .filter(|status| {
+                    TaskState::from_status(status)
+                        .is_some_and(TaskState::is_active)
+                })
+                .count();
+
+            for task_id in &task_ids {
+                let state_now = statuses
+                    .get(task_id)
+                    .and_then(|status| TaskState::from_status(status));
+
+                let is_failed = matches!(
+                    state_now,
+                    Some(TaskState::Failed | TaskState::Interrupted)
+                );
+                if !is_failed {
+                    let _ = state.scheduler.queue_retry_due(
+                        &queue_id,
+                        task_id,
+                        false,
+                        retry_count,
+                        retry_delay,
+                    );
+                }
+
+                if active_count >= max_active {
+                    continue;
+                }
+
+                let should_start = matches!(
+                    state_now,
+                    Some(TaskState::Queued | TaskState::Paused)
+                );
+                let retry_due = is_failed
+                    && state.scheduler.queue_retry_due(
+                        &queue_id,
+                        task_id,
+                        true,
+                        retry_count,
+                        retry_delay,
+                    );
+
+                if should_start || retry_due {
+                    match crate::daemon::curl::resume_task(state, task_id).await {
+                        Ok(_) => {
+                            active_count += 1;
+                            state.event_bus.publish(
+                                crate::daemon::engine::event_bus::EngineEvent::SchedulerTriggered {
+                                    task_id: task_id.clone(),
+                                    action: if retry_due {
+                                        format!("queue-retry:{queue_id}")
+                                    } else {
+                                        format!("queue-start:{queue_id}")
+                                    },
+                                },
+                            );
+                        }
+                        Err(error) => {
+                            log::warn!(
+                                "Scheduler: queue {queue_id} could not resume {task_id}: {error}"
+                            );
+                        }
+                    }
+                }
+            }
+        } else {
+            apply_queue_temporary_bandwidth(state, queue, false);
+
+            for task_id in &task_ids {
+                let state_now = statuses
+                    .get(task_id)
+                    .and_then(|status| TaskState::from_status(status));
+                let _ = state.scheduler.queue_retry_due(
+                    &queue_id,
+                    task_id,
+                    false,
+                    0,
+                    1,
+                );
+
+                if scheduled && state_now.is_some_and(TaskState::is_active) {
+                    if let Err(error) = crate::daemon::curl::pause_task(state, task_id).await {
+                        log::warn!(
+                            "Scheduler: queue {queue_id} could not pause {task_id}: {error}"
+                        );
+                    }
+                }
+            }
+
+            if left_window
+                && queue
+                    .get("scheduleType")
+                    .and_then(serde_json::Value::as_str)
+                    == Some("once")
+            {
+                if let Some(object) = queue.as_object_mut() {
+                    if !object
+                        .get("scheduleCompleted")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false)
+                    {
+                        object.insert(
+                            "scheduleCompleted".to_owned(),
+                            serde_json::Value::Bool(true),
+                        );
+                        catalog_changed = true;
+                    }
+                }
+            }
+        }
+
+        let all_complete = !task_ids.is_empty()
+            && task_ids.iter().all(|task_id| {
+                statuses
+                    .get(task_id)
+                    .and_then(|status| TaskState::from_status(status))
+                    == Some(TaskState::Completed)
+            });
+
+        if state
+            .scheduler
+            .queue_completion_edge(&queue_id, all_complete)
+        {
+            if queue
+                .get("scheduleType")
+                .and_then(serde_json::Value::as_str)
+                == Some("once")
+            {
+                if let Some(object) = queue.as_object_mut() {
+                    object.insert(
+                        "scheduleCompleted".to_owned(),
+                        serde_json::Value::Bool(true),
+                    );
+                    catalog_changed = true;
+                }
+            }
+
+            apply_queue_temporary_bandwidth(state, queue, false);
+
+            let shutdown = queue
+                .get("shutdownOnComplete")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            let sleep = queue
+                .get("hangupOnComplete")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            let exit = queue
+                .get("exitOnComplete")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+
+            if shutdown {
+                scheduler_shutdown(state, &format!("queue:{queue_id}"));
+            } else if sleep {
+                scheduler_sleep(state, &format!("queue:{queue_id}"));
+            }
+            if exit {
+                state.scheduler.request_exit();
+                state.event_bus.publish(
+                    crate::daemon::engine::event_bus::EngineEvent::SchedulerTriggered {
+                        task_id: format!("queue:{queue_id}"),
+                        action: "exit-application".to_owned(),
+                    },
+                );
+            }
+        }
+    }
+
+    if catalog_changed {
+        if let Err(error) = write_queue_catalog(&state.data_dir, &queues) {
+            log::warn!("Scheduler: could not persist queue runtime state: {error}");
+        }
+    }
+}
+
+/// Periodic scheduler tick: evaluate queue schedules first, then generic rules.
 pub async fn run_scheduler_tick(state: &SharedState) {
+    run_queue_scheduler_tick(state).await;
+
     // Compute download-state counters for the QueueEmpty/AllComplete
     // triggers. Locks acquired in documented order: media_jobs → curl_jobs →
     // task_snapshot.
@@ -1442,53 +1827,10 @@ pub async fn run_scheduler_tick(state: &SharedState) {
                 crate::daemon::telegram::telegram_notify(state, &message).await;
             }
             SchedulerAction::Shutdown => {
-                if !state.scheduler.power_commands_enabled() {
-                    log::warn!("Scheduler: shutdown blocked — power commands not enabled");
-                    continue;
-                }
-                log::info!("Scheduler: all downloads complete — shutting down the system");
-                #[cfg(target_os = "windows")]
-                {
-                    let _ = std::process::Command::new("shutdown")
-                        .args(["/s", "/t", "30"])
-                        .spawn();
-                }
-                #[cfg(target_os = "linux")]
-                {
-                    let _ = std::process::Command::new("shutdown")
-                        .args(["-h", "+1"])
-                        .spawn();
-                }
-                #[cfg(target_os = "macos")]
-                {
-                    let _ = std::process::Command::new("shutdown")
-                        .args(["-h", "+1"])
-                        .spawn();
-                }
+                scheduler_shutdown(state, "generic-rule");
             }
             SchedulerAction::Sleep => {
-                if !state.scheduler.power_commands_enabled() {
-                    log::warn!("Scheduler: sleep blocked — power commands not enabled");
-                    continue;
-                }
-                log::info!("Scheduler: all downloads complete — putting system to sleep");
-                #[cfg(target_os = "windows")]
-                {
-                    let _ = std::process::Command::new("rundll32.exe")
-                        .args(["powrprof.dll,SetSuspendState", "0,1,0"])
-                        .spawn();
-                }
-                #[cfg(target_os = "linux")]
-                {
-                    let _ = std::process::Command::new("systemctl")
-                        .arg("suspend")
-                        .spawn();
-                }
-                #[cfg(target_os = "macos")]
-                {
-                    // L3: macOS has no systemctl; pmset is the supported API.
-                    let _ = std::process::Command::new("pmset").arg("sleepnow").spawn();
-                }
+                scheduler_sleep(state, "generic-rule");
             }
         }
     }
