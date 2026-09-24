@@ -21,7 +21,6 @@ use crate::daemon::state::{
 use crate::daemon::native_media::create_native_media_task;
 use crate::daemon::types::{CreateDownloadBody, Task};
 
-use super::common::hidden_output_timed;
 use super::engine::extension_capabilities_from_status;
 
 use serde_json::json;
@@ -814,27 +813,141 @@ pub async fn handle_consume_capture_review(
     }
 }
 
+async fn native_media_probe_for_extension(
+    url: &str,
+    context: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mut request = nova_media_core::ExtractRequest::new(url);
+    if let Some(referer) = context
+        .get("referrer")
+        .or_else(|| context.get("pageUrl"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        request
+            .headers
+            .insert("Referer".to_owned(), referer.to_owned());
+    }
+
+    let owned = url.to_owned();
+    let resolved = tokio::time::timeout(
+        Duration::from_secs(35),
+        tokio::task::spawn_blocking(move || {
+            super::probes::resolve_native_media_request(request)
+        }),
+    )
+    .await
+    .map_err(|_| "Native media analysis timed out".to_owned())?
+    .map_err(|error| format!("Native media analysis worker failed: {error}"))?
+    .map_err(|error| format!("Native media analysis failed: {error}"))?;
+
+    super::probes::native_media_probe_payload(&resolved, &owned)
+}
+
+fn normalized_native_catalog_formats(
+    info: &serde_json::Value,
+) -> Vec<serde_json::Value> {
+    let mut formats = info
+        .get("formats")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|format| {
+            let url = format.get("url").and_then(serde_json::Value::as_str)?;
+            let height = format.get("height").and_then(serde_json::Value::as_u64);
+            let width = format.get("width").and_then(serde_json::Value::as_u64);
+            let bandwidth = format
+                .get("bandwidth")
+                .and_then(serde_json::Value::as_u64)
+                .or_else(|| {
+                    format
+                        .get("tbr")
+                        .and_then(serde_json::Value::as_f64)
+                        .map(|value| (value * 1000.0).max(0.0) as u64)
+                })
+                .or_else(|| {
+                    format
+                        .get("abr")
+                        .and_then(serde_json::Value::as_f64)
+                        .map(|value| (value * 1000.0).max(0.0) as u64)
+                });
+            Some(serde_json::json!({
+                "url": url,
+                "formatId": format.get("formatId").and_then(serde_json::Value::as_str).unwrap_or("native"),
+                "label": format.get("label").and_then(serde_json::Value::as_str).unwrap_or("Native"),
+                "width": width,
+                "height": height,
+                "bandwidth": bandwidth,
+                "codecs": format.get("codecs").and_then(serde_json::Value::as_str).unwrap_or(""),
+                "container": format
+                    .get("container")
+                    .or_else(|| format.get("ext"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(""),
+                "fps": format.get("fps").and_then(serde_json::Value::as_f64),
+                "hasVideo": format.get("hasVideo").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                "hasAudio": format.get("hasAudio").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                "estimatedSizeBytes": format
+                    .get("estimatedSizeBytes")
+                    .or_else(|| format.get("filesize"))
+                    .and_then(serde_json::Value::as_u64),
+                "tbr": format.get("tbr").and_then(serde_json::Value::as_f64),
+                "vbr": format.get("vbr").and_then(serde_json::Value::as_f64),
+                "abr": format.get("abr").and_then(serde_json::Value::as_f64),
+            }))
+        })
+        .collect::<Vec<_>>();
+
+    formats.sort_by(|left, right| {
+        let left_height = left
+            .get("height")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        let right_height = right
+            .get("height")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        right_height.cmp(&left_height).then_with(|| {
+            let left_bandwidth = left
+                .get("bandwidth")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
+            let right_bandwidth = right
+                .get("bandwidth")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
+            right_bandwidth.cmp(&left_bandwidth)
+        })
+    });
+    formats.dedup_by(|left, right| {
+        left.get("formatId") == right.get("formatId")
+            && left.get("height") == right.get("height")
+    });
+    formats
+}
+
 pub async fn handle_v1_stream_resolve(
-    State(state): State<SharedState>,
+    State(_state): State<SharedState>,
     Json(body): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
     let url = body
         .get("url")
-        .and_then(|v| v.as_str())
+        .and_then(serde_json::Value::as_str)
         .unwrap_or("")
         .trim();
     let manifest_type = body
         .get("manifestType")
-        .and_then(|v| v.as_str())
+        .and_then(serde_json::Value::as_str)
         .unwrap_or("hls");
-    if url.is_empty() {
-        return Json(
-            serde_json::json!({"ok": false, "resolved": false, "message": "Missing url", "qualities": []}),
-        );
-    }
-    if url.starts_with('-') {
+    if url.is_empty() || url.starts_with('-') {
         return Json(
             serde_json::json!({"ok": false, "resolved": false, "message": "Invalid url", "qualities": []}),
+        );
+    }
+    if !matches!(manifest_type, "hls" | "dash") {
+        return Json(
+            serde_json::json!({"ok": false, "resolved": false, "message": "Unsupported manifest type", "qualities": []}),
         );
     }
     if !(url.starts_with("http://") || url.starts_with("https://")) {
@@ -842,196 +955,47 @@ pub async fn handle_v1_stream_resolve(
             serde_json::json!({"ok": false, "resolved": false, "message": "Only http(s) stream manifests are supported", "qualities": []}),
         );
     }
-    if let Err(e) = crate::daemon::utils::is_safe_target_url(url) {
-        log::warn!("Blocked stream resolve of unsafe URL {url}: {e}");
+    if let Err(error) = crate::daemon::utils::is_safe_target_url(url) {
+        log::warn!("Blocked stream resolve of unsafe URL {url}: {error}");
         return Json(
-            serde_json::json!({"ok": false, "resolved": false, "message": e, "qualities": []}),
+            serde_json::json!({"ok": false, "resolved": false, "message": error, "qualities": []}),
         );
     }
 
-    let media_bridge_bin = state.media_bridge_binary();
-    let url2 = url.to_owned();
-    let joined = tokio::task::spawn_blocking(move || {
-        hidden_output_timed(
-            &media_bridge_bin,
-            &[
-                "--dump-json",
-                "--no-playlist",
-                "--no-warnings",
-                "--skip-download",
-                "--",
-                &url2,
-            ],
-            Duration::from_secs(30),
-        )
-    })
-    .await;
-
-    let spawned = match joined {
-        Ok(value) => value,
-        Err(error) => {
-            return Json(
-                serde_json::json!({"ok": false, "resolved": false, "message": format!("Stream resolve worker failed: {}", error), "qualities": []}),
-            );
-        }
-    };
-    let process_output = match spawned {
-        Ok(value) => value,
-        Err(error) => {
-            if error.kind() == std::io::ErrorKind::TimedOut {
-                return Json(
-                    serde_json::json!({"ok": false, "resolved": false, "message": "Stream resolve timed out", "qualities": []}),
-                );
-            }
-            return Json(
-                serde_json::json!({"ok": false, "resolved": false, "message": format!("NOVA Media Engine bridge failed to start: {}", error), "qualities": []}),
-            );
-        }
-    };
-    if !process_output.status.success() {
-        return Json(
-            serde_json::json!({"ok": false, "resolved": false, "message": String::from_utf8_lossy(&process_output.stderr).lines().next().unwrap_or("NOVA Media Engine could not resolve this stream"), "qualities": []}),
-        );
-    }
-    let stdout = String::from_utf8_lossy(&process_output.stdout);
-    let info: serde_json::Value = match serde_json::from_str(&stdout) {
-        Ok(value) => value,
-        Err(_) => {
-            return Json(
-                serde_json::json!({"ok": false, "resolved": false, "message": "Could not parse media-bridge stream metadata", "qualities": []}),
-            )
-        }
-    };
-    let mut qualities = Vec::new();
-    if let Some(formats) = info.get("formats").and_then(|v| v.as_array()) {
-        for format in formats {
-            let Some(format_url) = format.get("url").and_then(|v| v.as_str()) else {
-                continue;
-            };
-            let height = format
-                .get("height")
-                .and_then(serde_json::Value::as_u64)
-                .map(|v| v as u32);
-            let width = format
-                .get("width")
-                .and_then(serde_json::Value::as_u64)
-                .map(|v| v as u32);
-            let bandwidth = format
-                .get("tbr")
-                .and_then(serde_json::Value::as_f64)
-                .map(|v| (v * 1000.0).max(0.0) as u64)
-                .or_else(|| {
-                    format
-                        .get("abr")
-                        .and_then(serde_json::Value::as_f64)
-                        .map(|v| (v * 1000.0).max(0.0) as u64)
-                });
-            let label = format
-                .get("format_note")
-                .or_else(|| format.get("resolution"))
-                .or_else(|| format.get("format_id"))
-                .and_then(|v| v.as_str())
-                .map(std::borrow::ToOwned::to_owned)
-                .or_else(|| height.map(|h| format!("{h}p")));
-            let mut q = serde_json::Map::new();
-            q.insert("url".to_owned(), serde_json::json!(format_url));
-            if let Some(width) = width {
-                q.insert("width".to_owned(), serde_json::json!(width));
-            }
-            if let Some(height) = height {
-                q.insert("height".to_owned(), serde_json::json!(height));
-            }
-            if let Some(bandwidth) = bandwidth {
-                q.insert("bandwidth".to_owned(), serde_json::json!(bandwidth));
-            }
-            if let Some(codecs) = format
-                .get("vcodec")
-                .or_else(|| format.get("acodec"))
-                .and_then(|v| v.as_str())
-                .filter(|v| !v.is_empty() && *v != "none")
-            {
-                q.insert("codecs".to_owned(), serde_json::json!(codecs));
-            }
-            if let Some(label) = label.filter(|v| !v.is_empty()) {
-                q.insert("label".to_owned(), serde_json::json!(label));
-            }
-            if let Some(format_id) = format
-                .get("format_id")
-                .and_then(|v| v.as_str())
-                .filter(|v| !v.is_empty())
-            {
-                q.insert("formatId".to_owned(), serde_json::json!(format_id));
-            }
-            if let Some(container) = format
-                .get("ext")
-                .and_then(|v| v.as_str())
-                .filter(|v| !v.is_empty())
-            {
-                q.insert("container".to_owned(), serde_json::json!(container));
-            }
-            if let Some(fps) = format
-                .get("fps")
-                .and_then(serde_json::Value::as_f64)
-                .filter(|v| *v > 0.0)
-            {
-                q.insert("fps".to_owned(), serde_json::json!(fps));
-            }
-            q.insert(
-                "hasVideo".to_owned(),
-                serde_json::json!(format
-                    .get("vcodec")
-                    .and_then(|v| v.as_str())
-                    .is_some_and(|v| v != "none")),
-            );
-            q.insert(
-                "hasAudio".to_owned(),
-                serde_json::json!(format
-                    .get("acodec")
-                    .and_then(|v| v.as_str())
-                    .is_some_and(|v| v != "none")),
-            );
-            qualities.push(serde_json::Value::Object(q));
-        }
-    }
-    qualities.sort_by(|a, b| {
-        let ah = a
-            .get("height")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        let bh = b
-            .get("height")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        bh.cmp(&ah)
+    let context = serde_json::json!({
+        "pageUrl": body.get("pageUrl").and_then(serde_json::Value::as_str)
     });
-    qualities.dedup_by(|a, b| a.get("url") == b.get("url"));
+    let info = match native_media_probe_for_extension(url, &context).await {
+        Ok(info) => info,
+        Err(error) => {
+            return Json(
+                serde_json::json!({"ok": false, "resolved": false, "message": error, "qualities": []}),
+            );
+        }
+    };
+    let qualities = normalized_native_catalog_formats(&info);
+    let estimated_size = qualities
+        .iter()
+        .filter_map(|quality| {
+            quality
+                .get("estimatedSizeBytes")
+                .and_then(serde_json::Value::as_u64)
+        })
+        .max();
 
-    let mut payload = serde_json::Map::new();
-    payload.insert("ok".to_owned(), serde_json::json!(true));
-    payload.insert("resolved".to_owned(), serde_json::json!(true));
-    payload.insert("manifestType".to_owned(), serde_json::json!(manifest_type));
-    payload.insert("qualities".to_owned(), serde_json::Value::Array(qualities));
-    if let Some(duration) = info
-        .get("duration")
-        .and_then(serde_json::Value::as_f64)
-        .filter(|v| *v >= 0.0)
-    {
-        payload.insert("durationSec".to_owned(), serde_json::json!(duration));
-    }
-    if let Some(is_live) = info.get("is_live").and_then(serde_json::Value::as_bool) {
-        payload.insert("isLive".to_owned(), serde_json::json!(is_live));
-    }
-    payload.insert("drmProtected".to_owned(), serde_json::json!(false));
-    payload.insert("subtitleTracks".to_owned(), serde_json::json!([]));
-    payload.insert("audioTracks".to_owned(), serde_json::json!([]));
-    if let Some(size) = info
-        .get("filesize")
-        .or_else(|| info.get("filesize_approx"))
-        .and_then(serde_json::Value::as_u64)
-    {
-        payload.insert("estimatedSizeBytes".to_owned(), serde_json::json!(size));
-    }
-    Json(serde_json::Value::Object(payload))
+    Json(serde_json::json!({
+        "ok": true,
+        "resolved": true,
+        "manifestType": manifest_type,
+        "qualities": qualities,
+        "durationSec": info.get("duration").and_then(serde_json::Value::as_f64),
+        "isLive": info.get("isLive").and_then(serde_json::Value::as_bool).unwrap_or(false),
+        "drmProtected": false,
+        "subtitleTracks": [],
+        "audioTracks": [],
+        "estimatedSizeBytes": estimated_size,
+        "engine": "nova-media-engine"
+    }))
 }
 
 fn managed_media_is_drm_protected(body: &serde_json::Value) -> bool {
