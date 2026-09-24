@@ -13,7 +13,7 @@ const successfulPair = {
   ok: true as const,
   pairToken: '0123456789abcdef0123456789abcdef',
   autoApproved: true,
-  method: 'native-client-secret-proof',
+  method: 'native-host-secret-proof',
   protocolVersion: 4,
   minimumSupportedProtocolVersion: 4,
 };
