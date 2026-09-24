@@ -45,7 +45,7 @@ QHash<int, QByteArray> DownloadListModel::roleNames() const {
     };
 }
 
-int DownloadListModel::activeCount() const noexcept {
+QString DownloadListModel::taskIdAt(int row) const {\n    if (row < 0 || row >= m_items.size()) {\n        return {};\n    }\n    return m_items.at(row).id;\n}\n\nint DownloadListModel::activeCount() const noexcept {
     int count = 0;
     for (const auto &item : m_items) {
         if (item.status == QStringLiteral("downloading") ||
