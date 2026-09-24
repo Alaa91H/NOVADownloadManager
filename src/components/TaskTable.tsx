@@ -746,7 +746,9 @@ export const TaskTable: React.FC = () => {
                                           ? t('cat_audio')
                                           : task.fileType === 'document'
                                             ? t('cat_documents')
-                                            : t('cat_other')}
+                                            : task.fileType === 'torrent'
+                                              ? 'Torrent'
+                                              : t('cat_other')}
                                 </span>
                               </span>
                             </td>
