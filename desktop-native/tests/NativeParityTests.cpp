@@ -30,6 +30,8 @@ private slots:
     void batchImportHonorsRuntimeCapabilities();
     void mediaDownloadCarriesAdvancedOptions();
     void mediaDownloadHonorsRuntimeCapabilities();
+    void queueCatalogManagementIsDaemonBacked();
+    void queueStartStopHonorsMaxActive();
 };
 
 void NativeParityTests::largeListRemainsResponsive() {
@@ -902,6 +904,305 @@ void NativeParityTests::mediaDownloadHonorsRuntimeCapabilities() {
     QVERIFY(!media.contains(QStringLiteral("cookies")));
     QVERIFY(!media.contains(QStringLiteral("remuxFormat")));
     QVERIFY(!media.contains(QStringLiteral("sleepIntervalSec")));
+}
+
+
+void NativeParityTests::queueCatalogManagementIsDaemonBacked() {
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+    QList<QByteArray> requestLines;
+    QList<QByteArray> requestBodies;
+
+    auto queuePayload = [](const QByteArray &queues, const QByteArray &extra = QByteArray()) {
+        QByteArray body = "{\"ok\":true,\"queues\":" + queues;
+        if (!extra.isEmpty()) {
+            body += "," + extra;
+        }
+        body += "}";
+        return body;
+    };
+
+    connect(&server, &QTcpServer::newConnection, &server, [&]() {
+        while (server.hasPendingConnections()) {
+            QTcpSocket *socket = server.nextPendingConnection();
+            auto *buffer = new QByteArray();
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, [buffer]() { delete buffer; });
+            QObject::connect(socket, &QTcpSocket::readyRead, socket, [&, socket, buffer, queuePayload]() {
+                buffer->append(socket->readAll());
+                const int headerEnd = buffer->indexOf("\r\n\r\n");
+                if (headerEnd < 0) return;
+
+                const QByteArray headers = buffer->left(headerEnd);
+                const QByteArray requestLine = headers.left(headers.indexOf("\r\n"));
+                const QRegularExpression lengthPattern(
+                    QStringLiteral("Content-Length:\\s*(\\d+)"),
+                    QRegularExpression::CaseInsensitiveOption
+                );
+                const auto match = lengthPattern.match(QString::fromLatin1(headers));
+                const int contentLength = match.hasMatch() ? match.captured(1).toInt() : 0;
+                const int bodyStart = headerEnd + 4;
+                if (buffer->size() < bodyStart + contentLength) return;
+
+                const QByteArray requestBody = buffer->mid(bodyStart, contentLength);
+                requestLines.append(requestLine);
+                requestBodies.append(requestBody);
+
+                const QByteArray baseQueues =
+                    "[{\"id\":\"main\",\"name\":\"Main Queue\",\"maxActive\":2,\"downloadOrder\":[]},"
+                    "{\"id\":\"night\",\"name\":\"Night Queue\",\"maxActive\":1,\"downloadOrder\":[]}]";
+                const QByteArray withArchive =
+                    "[{\"id\":\"main\",\"name\":\"Main Queue\",\"maxActive\":2,\"downloadOrder\":[]},"
+                    "{\"id\":\"night\",\"name\":\"Night Queue\",\"maxActive\":1,\"downloadOrder\":[]},"
+                    "{\"id\":\"archive\",\"name\":\"Archive\",\"maxActive\":3,\"limitSpeed\":true,"
+                    "\"speedLimitKbs\":2048,\"retryCount\":9999,\"retryDelay\":120,\"downloadOrder\":[]}]";
+                const QByteArray archiveOne =
+                    "[{\"id\":\"main\",\"name\":\"Main Queue\",\"downloadOrder\":[]},"
+                    "{\"id\":\"night\",\"name\":\"Night Queue\",\"downloadOrder\":[]},"
+                    "{\"id\":\"archive\",\"name\":\"Archive\",\"maxActive\":3,\"downloadOrder\":[\"task-1\"]}]";
+                const QByteArray archiveTwo =
+                    "[{\"id\":\"main\",\"name\":\"Main Queue\",\"downloadOrder\":[]},"
+                    "{\"id\":\"night\",\"name\":\"Night Queue\",\"downloadOrder\":[]},"
+                    "{\"id\":\"archive\",\"name\":\"Archive\",\"maxActive\":3,\"downloadOrder\":[\"task-1\",\"task-2\"]}]";
+                const QByteArray archiveReordered =
+                    "[{\"id\":\"main\",\"name\":\"Main Queue\",\"downloadOrder\":[]},"
+                    "{\"id\":\"archive\",\"name\":\"Archive\",\"maxActive\":3,\"downloadOrder\":[\"task-2\",\"task-1\"]},"
+                    "{\"id\":\"night\",\"name\":\"Night Queue\",\"downloadOrder\":[]}]";
+
+                QByteArray responseBody;
+                if (requestLine.startsWith("GET /api/queues ")) {
+                    responseBody = "{\"ok\":true,\"version\":1,\"queues\":" + baseQueues + "}";
+                } else if (requestLine.startsWith("POST /api/queues HTTP")) {
+                    responseBody = queuePayload(
+                        withArchive,
+                        "\"queue\":{\"id\":\"archive\",\"name\":\"Archive\",\"downloadOrder\":[]}"
+                    );
+                } else if (requestLine.startsWith("POST /api/queues/archive/tasks/task-1 ")) {
+                    responseBody = queuePayload(archiveOne);
+                } else if (requestLine.startsWith("POST /api/queues/archive/tasks/task-2 ")) {
+                    responseBody = queuePayload(archiveTwo);
+                } else if (requestLine.startsWith("POST /api/queues/archive/tasks/reorder ")) {
+                    responseBody = queuePayload(archiveReordered);
+                } else if (requestLine.startsWith("POST /api/queues/reorder ")) {
+                    responseBody = queuePayload(archiveReordered);
+                } else if (requestLine.startsWith("POST /api/queues/archive ")) {
+                    responseBody = queuePayload(
+                        withArchive,
+                        "\"queue\":{\"id\":\"archive\",\"name\":\"Archive\",\"maxActive\":3,"
+                        "\"limitSpeed\":true,\"speedLimitKbs\":2048,\"retryCount\":9999,\"retryDelay\":120,"
+                        "\"downloadOrder\":[]}"
+                    );
+                } else if (requestLine.startsWith("DELETE /api/queues/archive ")) {
+                    responseBody = queuePayload(baseQueues);
+                } else if (requestLine.startsWith("GET /api/downloads ")) {
+                    responseBody = "[]";
+                } else if (requestLine.startsWith("GET /api/engine/queue ")) {
+                    responseBody =
+                        "{\"ok\":true,\"entries\":[],\"active_count\":0,"
+                        "\"total_bandwidth_kbps\":0,\"next_to_start\":null}";
+                } else {
+                    responseBody = "{\"ok\":true}";
+                }
+
+                socket->write(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
+                    + QByteArray::number(responseBody.size()) + "\r\n\r\n" + responseBody
+                );
+                socket->disconnectFromHost();
+            });
+        }
+    });
+
+    NovaApiClient client;
+    client.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())));
+    QSignalSpy catalogSpy(&client, &NovaApiClient::queueCatalogActionCompleted);
+
+    client.refreshQueueCatalog();
+    QTRY_COMPARE_WITH_TIMEOUT(client.queueCatalog().size(), 2, 3000);
+
+    client.createQueue(QStringLiteral("Archive"));
+    QTRY_VERIFY_WITH_TIMEOUT(catalogSpy.count() >= 1, 3000);
+    QCOMPARE(catalogSpy.at(0).at(0).toString(), QStringLiteral("create"));
+    QCOMPARE(catalogSpy.at(0).at(1).toString(), QStringLiteral("archive"));
+
+    client.updateQueue(QVariantMap{
+        {QStringLiteral("id"), QStringLiteral("archive")},
+        {QStringLiteral("name"), QStringLiteral("Archive")},
+        {QStringLiteral("maxActive"), 3},
+        {QStringLiteral("limitSpeed"), true},
+        {QStringLiteral("speedLimitKbs"), 2048},
+        {QStringLiteral("retryCount"), 9999},
+        {QStringLiteral("retryDelay"), 120}
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(catalogSpy.count() >= 2, 3000);
+
+    client.moveTaskToQueue(QStringLiteral("task-1"), QStringLiteral("archive"));
+    QTRY_VERIFY_WITH_TIMEOUT(catalogSpy.count() >= 3, 3000);
+    client.moveTaskToQueue(QStringLiteral("task-2"), QStringLiteral("archive"));
+    QTRY_VERIFY_WITH_TIMEOUT(catalogSpy.count() >= 4, 3000);
+
+    client.moveQueueTask(QStringLiteral("archive"), QStringLiteral("task-2"), -1);
+    QTRY_VERIFY_WITH_TIMEOUT(catalogSpy.count() >= 5, 3000);
+    const QVariantMap archiveAfterTaskReorder = client.queueCatalog().at(1).toMap();
+    QCOMPARE(
+        archiveAfterTaskReorder.value(QStringLiteral("downloadOrder")).toStringList(),
+        QStringList({QStringLiteral("task-2"), QStringLiteral("task-1")})
+    );
+
+    client.moveQueue(QStringLiteral("archive"), -1);
+    QTRY_VERIFY_WITH_TIMEOUT(catalogSpy.count() >= 6, 3000);
+    QCOMPARE(client.queueCatalog().at(1).toMap().value(QStringLiteral("id")).toString(),
+             QStringLiteral("archive"));
+
+    client.deleteQueue(QStringLiteral("archive"));
+    QTRY_VERIFY_WITH_TIMEOUT(catalogSpy.count() >= 7, 3000);
+    QTRY_COMPARE_WITH_TIMEOUT(client.queueCatalog().size(), 2, 3000);
+
+    bool sawCreate = false;
+    bool sawUpdate = false;
+    bool sawQueueReorder = false;
+    bool sawTaskReorder = false;
+    bool sawMove = false;
+    bool sawDelete = false;
+    for (int i = 0; i < requestLines.size(); ++i) {
+        const QByteArray &line = requestLines.at(i);
+        if (line.startsWith("POST /api/queues HTTP")) {
+            sawCreate = requestBodies.at(i).contains("\"name\":\"Archive\"");
+        } else if (line.startsWith("POST /api/queues/archive HTTP")) {
+            sawUpdate = requestBodies.at(i).contains("\"retryCount\":9999")
+                && requestBodies.at(i).contains("\"speedLimitKbs\":2048");
+        } else if (line.startsWith("POST /api/queues/reorder ")) {
+            sawQueueReorder = requestBodies.at(i).contains("\"queueIds\"");
+        } else if (line.startsWith("POST /api/queues/archive/tasks/reorder ")) {
+            sawTaskReorder = requestBodies.at(i).contains(
+                "\"taskIds\":[\"task-2\",\"task-1\"]"
+            );
+        } else if (line.startsWith("POST /api/queues/archive/tasks/task-1 ")) {
+            sawMove = true;
+        } else if (line.startsWith("DELETE /api/queues/archive ")) {
+            sawDelete = true;
+        }
+    }
+
+    QVERIFY(sawCreate);
+    QVERIFY(sawUpdate);
+    QVERIFY(sawQueueReorder);
+    QVERIFY(sawTaskReorder);
+    QVERIFY(sawMove);
+    QVERIFY(sawDelete);
+}
+
+void NativeParityTests::queueStartStopHonorsMaxActive() {
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+    QList<QByteArray> requestLines;
+    connect(&server, &QTcpServer::newConnection, &server, [&]() {
+        while (server.hasPendingConnections()) {
+            QTcpSocket *socket = server.nextPendingConnection();
+            auto *buffer = new QByteArray();
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, [buffer]() { delete buffer; });
+            QObject::connect(socket, &QTcpSocket::readyRead, socket, [&, socket, buffer]() {
+                buffer->append(socket->readAll());
+                const int headerEnd = buffer->indexOf("\r\n\r\n");
+                if (headerEnd < 0) return;
+
+                const QByteArray headers = buffer->left(headerEnd);
+                const QByteArray requestLine = headers.left(headers.indexOf("\r\n"));
+                const QRegularExpression lengthPattern(
+                    QStringLiteral("Content-Length:\\s*(\\d+)"),
+                    QRegularExpression::CaseInsensitiveOption
+                );
+                const auto match = lengthPattern.match(QString::fromLatin1(headers));
+                const int contentLength = match.hasMatch() ? match.captured(1).toInt() : 0;
+                const int bodyStart = headerEnd + 4;
+                if (buffer->size() < bodyStart + contentLength) return;
+                requestLines.append(requestLine);
+
+                QByteArray responseBody;
+                if (requestLine.startsWith("GET /api/queues ")) {
+                    responseBody =
+                        "{\"ok\":true,\"queues\":[{\"id\":\"main\",\"name\":\"Main Queue\","
+                        "\"maxActive\":2,\"downloadOrder\":[\"active\",\"queued\",\"paused\"]}]}";
+                } else if (requestLine.startsWith("GET /api/downloads ")) {
+                    responseBody =
+                        "["
+                        "{\"id\":\"active\",\"name\":\"active.bin\",\"queueId\":\"main\",\"status\":\"downloading\"},"
+                        "{\"id\":\"queued\",\"name\":\"queued.bin\",\"queueId\":\"main\",\"status\":\"queued\"},"
+                        "{\"id\":\"paused\",\"name\":\"paused.bin\",\"queueId\":\"main\",\"status\":\"paused\"}"
+                        "]";
+                } else if (requestLine.startsWith("POST /api/downloads/queued/resume ")) {
+                    responseBody =
+                        "{\"id\":\"queued\",\"name\":\"queued.bin\",\"queueId\":\"main\",\"status\":\"downloading\"}";
+                } else if (requestLine.startsWith("POST /api/downloads/active/pause ")) {
+                    responseBody =
+                        "{\"id\":\"active\",\"name\":\"active.bin\",\"queueId\":\"main\",\"status\":\"paused\"}";
+                } else if (requestLine.startsWith("GET /api/engine/queue ")) {
+                    responseBody =
+                        "{\"ok\":true,\"entries\":[],\"active_count\":1,"
+                        "\"total_bandwidth_kbps\":0,\"next_to_start\":\"queued\"}";
+                } else {
+                    responseBody = "{\"ok\":true}";
+                }
+
+                socket->write(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
+                    + QByteArray::number(responseBody.size()) + "\r\n\r\n" + responseBody
+                );
+                socket->disconnectFromHost();
+            });
+        }
+    });
+
+    NovaApiClient client;
+    client.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())));
+    client.refreshQueueCatalog();
+    client.refreshDownloads();
+
+    QTRY_COMPARE_WITH_TIMEOUT(client.queueCatalog().size(), 1, 3000);
+    QSignalSpy downloadsSpy(&client, &NovaApiClient::downloadsLoaded);
+    QTRY_VERIFY_WITH_TIMEOUT(downloadsSpy.count() >= 1, 3000);
+
+    requestLines.clear();
+    client.startQueue(QStringLiteral("main"));
+    QTRY_VERIFY_WITH_TIMEOUT(
+        std::any_of(
+            requestLines.cbegin(),
+            requestLines.cend(),
+            [](const QByteArray &line) {
+                return line.startsWith("POST /api/downloads/queued/resume ");
+            }
+        ),
+        3000
+    );
+
+    int resumeCount = 0;
+    for (const QByteArray &line : requestLines) {
+        if (line.contains("/resume ")) ++resumeCount;
+    }
+    QCOMPARE(resumeCount, 1);
+    QVERIFY(std::none_of(
+        requestLines.cbegin(),
+        requestLines.cend(),
+        [](const QByteArray &line) {
+            return line.startsWith("POST /api/downloads/paused/resume ");
+        }
+    ));
+
+    requestLines.clear();
+    client.stopQueue(QStringLiteral("main"));
+    QTRY_VERIFY_WITH_TIMEOUT(
+        std::any_of(
+            requestLines.cbegin(),
+            requestLines.cend(),
+            [](const QByteArray &line) {
+                return line.startsWith("POST /api/downloads/active/pause ");
+            }
+        ),
+        3000
+    );
 }
 
 QTEST_GUILESS_MAIN(NativeParityTests)
