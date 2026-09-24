@@ -9,7 +9,7 @@ describe('novaClient', () => {
   it('health() builds correct URL', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ status: 'connected', engines: { curl: {}, ytdlp: {} } }),
+      json: () => Promise.resolve({ status: 'connected', engines: { curl: {}, media: {} } }),
     });
     await novaClient.health();
     expect(fetch).toHaveBeenCalledWith(

@@ -14,14 +14,14 @@ function validCapabilities() {
     compatibilityMode: 'runtime-verified-capabilities',
     routing: {
       directHttpHttpsFtp: 'libcurl-multi',
-      webMediaAndPlaylists: 'yt-dlp',
-      mergeRemuxExtractSubtitles: 'ffmpeg via yt-dlp',
+      webMediaAndPlaylists: 'nova-media-engine',
+      mergeRemuxExtractSubtitles: 'nova-media-postprocess',
       torrentMagnet: null,
     },
     engines: {
       curl: engine,
       libcurlMulti: engine,
-      ytdlp: engine,
+      media: engine,
       ffmpeg: engine,
     },
   };
