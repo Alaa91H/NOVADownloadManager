@@ -4,7 +4,7 @@
 
 Implementation branch: `feature/native-media-core`
 
-Current implementation now includes native media request context, bounded manifest fetching, HLS/DASH transfer planning, parallel staging executors, and generic native extractors.
+Current implementation now includes native media request context, bounded manifest fetching, HLS/DASH transfer planning, parallel staging executors, generic native extractors, HLS AES-128 decryption, incremental HLS/DASH live refresh cursors, DASH SegmentTimeline planning, and atomic ordered assembly.
 
 The media subsystem is being moved into the NOVA Rust core. The target runtime has no required yt-dlp executable, Python runtime, Node.js runtime, or Deno runtime.
 
@@ -74,9 +74,9 @@ URL
 ## Migration stages
 
 1. Establish typed media and stream cores.
-2. Complete HLS and DASH parser coverage needed by real downloads. **In progress: core VOD paths implemented.**
+2. Complete HLS and DASH parser coverage needed by real downloads. **Implemented for HLS VOD/live basics, AES-128, DASH fixed templates and SegmentTimeline snapshots.**
 3. Add request metadata support to `nova-download-core` for media headers, referer, cookies, and user-agent. **Implemented.**
-4. Connect HLS/DASH segment planning to the native transfer core. **Implemented for plain HLS VOD and static fixed-template DASH staging.**
+4. Connect HLS/DASH segment planning to the native transfer core. **Implemented for HLS VOD/live ticks and static/dynamic timeline DASH snapshots.**
 5. Add generic native media extraction. **Implemented for manifest URLs and common direct audio/video files.**
 6. Add first-party site extractors, beginning with YouTube.
 7. Add an embedded JavaScript execution layer only where a site extractor requires it.
@@ -100,3 +100,23 @@ The old runtime path must not be removed until the native path passes:
 - Windows/Linux/macOS build and integration tests.
 
 This staged removal keeps the product functional while ensuring the final architecture has zero runtime dependency on yt-dlp.
+
+
+## Current native streaming boundaries
+
+Implemented in-process:
+
+- HLS AES-128/CBC with PKCS#7 unpadding;
+- default IV derivation from media sequence and explicit IV parsing;
+- live HLS cursors that emit only unseen media sequences;
+- DASH SegmentTimeline parsing including bounded `r=-1` expansion;
+- incremental dynamic DASH cursors using Time/Number identity;
+- atomic ordered assembly for a single representation.
+
+Still intentionally separate:
+
+- SAMPLE-AES and DRM key formats;
+- multi-track audio/video muxing;
+- codec transcoding;
+- site-specific JavaScript challenge execution;
+- first-party YouTube extraction.
