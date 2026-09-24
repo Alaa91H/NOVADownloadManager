@@ -563,32 +563,56 @@ pub async fn update_task_metadata(
         }
     }
 
-    // Native HLS/DASH tasks.
+    // Native HLS/DASH/separate-track tasks.
     {
-        let mut jobs = lock_or_err!(state.native_media_jobs);
-        if let Some(job) = jobs.get_mut(id) {
-            if TaskState::from_status(&job.task.status).is_some_and(TaskState::is_active) {
-                return Err("Stop the download before editing it".to_owned());
-            }
-            if let Some(ref u) = new_url {
-                if !(u.starts_with("http://") || u.starts_with("https://")) {
-                    return Err("Only http(s) URLs are supported for native media tasks".to_owned());
+        let out = {
+            let mut jobs = lock_or_err!(state.native_media_jobs);
+            if let Some(job) = jobs.get_mut(id) {
+                if TaskState::from_status(&job.task.status).is_some_and(TaskState::is_active) {
+                    return Err("Stop the download before editing it".to_owned());
                 }
-                job.task.url = u.clone();
-                job.request.url = Some(u.clone());
-            }
-            if let Some(ref n) = new_name {
-                job.task.name = n.clone();
-                job.request.name = Some(n.clone());
-                if let Some(new_path) =
-                    rename_destination_on_disk(std::path::Path::new(&job.task.save_path), n)
-                {
-                    job.task.save_path = new_path.to_string_lossy().to_string();
-                    job.request.save_path = Some(job.task.save_path.clone());
+                let mut source_changed = false;
+                if let Some(ref u) = new_url {
+                    if !(u.starts_with("http://") || u.starts_with("https://")) {
+                        return Err("Only http(s) URLs are supported for native media tasks".to_owned());
+                    }
+                    source_changed = job.task.url != *u;
+                    job.task.url = u.clone();
+                    job.request.url = Some(u.clone());
+                    if source_changed {
+                        job.task.downloaded_bytes = 0;
+                        job.task.speed_bytes_per_sec = 0;
+                        job.task.time_left_seconds = 0;
+                        for segment in &mut job.task.segments {
+                            segment.downloaded_bytes = 0;
+                            segment.progress = 0.0;
+                            segment.active = false;
+                            segment.speed = 0;
+                        }
+                    }
                 }
+                if let Some(ref n) = new_name {
+                    job.task.name = n.clone();
+                    job.request.name = Some(n.clone());
+                    if let Some(new_path) =
+                        rename_destination_on_disk(std::path::Path::new(&job.task.save_path), n)
+                    {
+                        job.task.save_path = new_path.to_string_lossy().to_string();
+                        job.request.save_path = Some(job.task.save_path.clone());
+                    }
+                }
+                Some((job.task.clone(), source_changed))
+            } else {
+                None
             }
-            let task = job.task.clone();
-            drop(jobs);
+        };
+        if let Some((task, source_changed)) = out {
+            if source_changed {
+                let staging = std::path::Path::new(&state.data_dir)
+                    .join("native-media")
+                    .join(id);
+                let _ = std::fs::remove_dir_all(staging);
+            }
             lock_or_err!(state.task_snapshot).insert(id.to_owned(), task.clone());
             state.mark_dirty();
             return Ok(task);
@@ -690,10 +714,24 @@ pub async fn redownload_task(state: &SharedState, id: &str) -> Result<Task, Stri
                 job.run_generation.fetch_add(1, Ordering::AcqRel);
                 let path = std::path::PathBuf::from(&job.task.save_path);
                 job.task.downloaded_bytes = 0;
-                job.task.size_bytes = 0;
                 job.task.speed_bytes_per_sec = 0;
                 job.task.time_left_seconds = 0;
                 job.task.error_message = None;
+                for segment in &mut job.task.segments {
+                    segment.downloaded_bytes = 0;
+                    segment.progress = 0.0;
+                    segment.active = false;
+                    segment.speed = 0;
+                }
+                job.task.size_bytes = if job.protocol == "separate-tracks" {
+                    job.task
+                        .segments
+                        .iter()
+                        .map(|segment| segment.total_bytes)
+                        .fold(0_u64, u64::saturating_add)
+                } else {
+                    0
+                };
                 Some((job.task.clone(), path, was_active))
             } else {
                 None
