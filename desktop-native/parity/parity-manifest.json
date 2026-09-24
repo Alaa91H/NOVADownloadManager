@@ -653,9 +653,11 @@
       "status": "partial",
       "evidence": [
         "desktop-native/src/localization/I18nManager.cpp",
-        "desktop-native/scripts/check-localization.mjs"
+        "desktop-native/scripts/check-localization.mjs",
+        "desktop-native/src/localization/LegacyI18nCatalog.cpp",
+        "src/lib/i18n/languageMetadata.ts"
       ],
-      "blocker": "Native catalog currently starts with English, Arabic and German; the legacy UI ships a much larger language set."
+      "blocker": "Native language selection now mirrors the full legacy language metadata and reuses matching legacy locale entries through a resource-backed bridge with English fallback. Remaining parity work is completing native-key translation coverage beyond the reusable legacy keys and validating RTL/typography per language."
     },
     {
       "id": "search-filter",
