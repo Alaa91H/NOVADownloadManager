@@ -843,7 +843,9 @@ void NovaApiClient::probeMedia(const QString &urlText) {
         }
 
         m_mediaFormats.clear();
-        for (auto it = bestByHeight.crbegin(); it != bestByHeight.crend(); ++it) {
+        auto it = bestByHeight.constEnd();
+        while (it != bestByHeight.constBegin()) {
+            --it;
             m_mediaFormats.append(it.value());
         }
 
