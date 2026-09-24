@@ -452,6 +452,18 @@ export const novaClient = {
     );
   },
 
+  async createMediaDownload(payload: CreateDownloadPayload): Promise<DownloadItem> {
+    return request<DownloadItem>(
+      '/api/media/download',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+      30000,
+    );
+  },
+
   async listCaptureReviews(): Promise<PendingCaptureReview[]> {
     const response = await request<{ ok: boolean; reviews?: PendingCaptureReview[]; message?: string }>(
       '/v1/capture-reviews',
