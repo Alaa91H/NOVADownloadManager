@@ -1324,7 +1324,16 @@ async fn handle_deprecated_media_bridge_playlist_probe(
 
 #[cfg(test)]
 mod bounded_body_tests {
-    use super::append_limited_probe_chunk;
+    use super::{append_limited_probe_chunk, retired_media_bridge_response};
+    use axum::http::StatusCode;
+
+    #[test]
+    fn retired_media_bridge_routes_point_to_native_replacements() {
+        let (status, Json(payload)) = retired_media_bridge_response("/api/media/probe");
+        assert_eq!(status, StatusCode::GONE);
+        assert_eq!(payload["replacement"], "/api/media/probe");
+        assert_eq!(payload["engine"], "nova-media-engine");
+    }
 
     #[test]
     fn streamed_probe_body_never_exceeds_its_inspection_budget() {
