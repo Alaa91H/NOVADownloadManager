@@ -2149,7 +2149,25 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
         )
         .route(
             "/api/queues",
-            get(handle_queue_catalog_get).put(handle_queue_catalog_put),
+            get(handle_queue_catalog_get)
+                .put(handle_queue_catalog_put)
+                .post(handle_queue_create),
+        )
+        .route(
+            "/api/queues/reorder",
+            post(handle_queue_reorder),
+        )
+        .route(
+            "/api/queues/{queue_id}",
+            post(handle_queue_update).delete(handle_queue_delete),
+        )
+        .route(
+            "/api/queues/{queue_id}/tasks/reorder",
+            post(handle_queue_reorder_tasks),
+        )
+        .route(
+            "/api/queues/{queue_id}/tasks/{task_id}",
+            post(handle_queue_move_task),
         )
         .route(
             "/api/engine/queue",
