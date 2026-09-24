@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 
 use crate::{
     MediaCodec, MediaDemuxer, MediaMuxResult, MediaMuxer, MediaPacket,
-    MediaProcessingError, MediaTimeBase, MediaTrack, MediaTrackKind, MediaTimestamp,
+    MediaProcessingControl, MediaProcessingError, MediaTimeBase, MediaTrack,
+    MediaTrackKind, MediaTimestamp,
 };
 
 const MOVIE_TIMESCALE: u32 = 1000;
@@ -297,6 +298,24 @@ pub fn mux_demuxers_to_mp4(
     destination: &Path,
     demuxers: &mut [&mut dyn MediaDemuxer],
 ) -> Result<MediaMuxResult, MediaProcessingError> {
+    mux_demuxers_to_mp4_controlled(
+        destination,
+        demuxers,
+        || MediaProcessingControl::Continue,
+        |_| {},
+    )
+}
+
+pub fn mux_demuxers_to_mp4_controlled<C, P>(
+    destination: &Path,
+    demuxers: &mut [&mut dyn MediaDemuxer],
+    control: C,
+    progress: P,
+) -> Result<MediaMuxResult, MediaProcessingError>
+where
+    C: Fn() -> MediaProcessingControl,
+    P: Fn(u64),
+{
     if demuxers.is_empty() {
         return Err(mux_error("MP4 merge requires at least one input demuxer"));
     }
@@ -313,8 +332,14 @@ pub fn mux_demuxers_to_mp4(
         mappings.push(map);
     }
 
+    let mut processed_bytes = 0_u64;
     for (index, demuxer) in demuxers.iter_mut().enumerate() {
         while let Some(mut packet) = demuxer.next_packet()? {
+            match control() {
+                MediaProcessingControl::Continue => {}
+                MediaProcessingControl::Pause => return Err(MediaProcessingError::Paused),
+                MediaProcessingControl::Cancel => return Err(MediaProcessingError::Cancelled),
+            }
             let output_id = mappings[index].get(&packet.track_id).copied().ok_or_else(|| {
                 mux_error(format!(
                     "input demuxer emitted unregistered track {}",
@@ -322,11 +347,19 @@ pub fn mux_demuxers_to_mp4(
                 ))
             })?;
             packet.track_id = output_id;
+            processed_bytes = processed_bytes
+                .checked_add(packet.data.len() as u64)
+                .ok_or_else(|| mux_error("MP4 processing byte counter overflow"))?;
             muxer.write_packet(&packet)?;
+            progress(processed_bytes);
         }
     }
 
-    muxer.finalize()
+    match control() {
+        MediaProcessingControl::Continue => muxer.finalize(),
+        MediaProcessingControl::Pause => Err(MediaProcessingError::Paused),
+        MediaProcessingControl::Cancel => Err(MediaProcessingError::Cancelled),
+    }
 }
 
 fn validate_track(track: &MediaTrack) -> Result<(), MediaProcessingError> {
