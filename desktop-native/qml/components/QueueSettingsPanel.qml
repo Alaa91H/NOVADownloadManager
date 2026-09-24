@@ -89,7 +89,11 @@ Rectangle {
             scheduleCompleted: false,
             startTime: startTime.text.trim().length > 0 ? startTime.text.trim() : "02:00",
             endTime: endTime.text.trim().length > 0 ? endTime.text.trim() : "08:00",
-            days: selectedDays(),
+            days: scheduleType.currentIndex === 0
+                ? [new Date().getDay()]
+                : scheduleType.currentIndex === 1
+                    ? [0,1,2,3,4,5,6]
+                    : selectedDays(),
             limitSpeed: limitSpeed.checked,
             speedLimitKbs: speedLimit.value,
             oneTimeLimit: oneTimeLimit.checked,
@@ -210,7 +214,7 @@ Rectangle {
         RowLayout {
             SpinBox {
                 id: retryCount
-                from: 0
+                from: 1
                 to: 9999
                 value: 3
             }
