@@ -334,12 +334,15 @@ where
 
     let mut processed_bytes = 0_u64;
     for (index, demuxer) in demuxers.iter_mut().enumerate() {
-        while let Some(mut packet) = demuxer.next_packet()? {
+        loop {
             match control() {
                 MediaProcessingControl::Continue => {}
                 MediaProcessingControl::Pause => return Err(MediaProcessingError::Paused),
                 MediaProcessingControl::Cancel => return Err(MediaProcessingError::Cancelled),
             }
+            let Some(mut packet) = demuxer.next_packet()? else {
+                break;
+            };
             let output_id = mappings[index].get(&packet.track_id).copied().ok_or_else(|| {
                 mux_error(format!(
                     "input demuxer emitted unregistered track {}",
@@ -1150,6 +1153,35 @@ mod tests {
         assert_eq!(payloads, vec![b"VID".to_vec(), b"AUD".to_vec()]);
 
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn controlled_mux_pauses_before_consuming_the_next_packet() {
+        let path = temp_path("controlled-pause");
+        let video = video_track(1);
+        let mut input = MemoryDemuxer {
+            probe: MediaProbe {
+                container: MediaContainer::Mp4,
+                duration_millis: Some(1000),
+                tracks: vec![video.clone()],
+            },
+            packets: [packet(1, video.time_base, 0, 1000, b"VIDEO")]
+                .into_iter()
+                .collect(),
+        };
+        let mut inputs: [&mut dyn MediaDemuxer; 1] = [&mut input];
+        let error = mux_demuxers_to_mp4_controlled(
+            &path,
+            &mut inputs,
+            || MediaProcessingControl::Pause,
+            |_| panic!("paused mux must not publish progress"),
+        )
+        .expect_err("pause must interrupt mux");
+
+        assert_eq!(error, MediaProcessingError::Paused);
+        assert_eq!(input.packets.len(), 1, "packet must remain unread");
+        assert!(!path.exists());
+        assert!(!append_suffix(&path, ".nova-mp4.tmp").exists());
     }
 
     #[test]
