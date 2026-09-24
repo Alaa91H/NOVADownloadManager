@@ -26,6 +26,10 @@ pub struct PersistedState {
     pub native_media_requests: HashMap<String, crate::daemon::types::CreateDownloadBody>,
     #[serde(default)]
     pub native_media_protocols: HashMap<String, String>,
+    /// Sanitized torrent magnet sources. Credential-bearing tracker query
+    /// parameters are intentionally excluded and require reauthorization.
+    #[serde(default)]
+    pub torrent_sources: HashMap<String, String>,
     #[serde(default)]
     pub curl_args: HashMap<String, Vec<String>>,
     /// Per-task libcurl options are persisted separately from diagnostic CLI
@@ -222,13 +226,14 @@ fn sanitize_native_media_request(
 
 fn build_snapshot(state: &AppState) -> PersistedState {
     // Acquire locks in documented order
-    // (media_jobs → native_media_jobs → curl_jobs → task_snapshot)
+    // (media_jobs → native_media_jobs → torrent_jobs → curl_jobs → task_snapshot)
     // within a block scope so curl_jobs is released before download_stats,
     // preventing AB-BA deadlock with transfer.rs (which locks download_stats → curl_jobs).
     let (
         media_args,
         native_media_requests,
         native_media_protocols,
+        torrent_sources,
         curl_args,
         curl_direct_options,
         resume_requires_reauth,
@@ -238,6 +243,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
     ) = {
         let media_jobs = lock_or_err!(state.media_jobs);
         let native_media_jobs = lock_or_err!(state.native_media_jobs);
+        let torrent_jobs = lock_or_err!(state.torrent_jobs);
         let curl_jobs = lock_or_err!(state.curl_jobs);
         let snapshot = lock_or_err!(state.task_snapshot);
 
@@ -253,6 +259,18 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         let native_media_protocols: HashMap<String, String> = native_media_jobs
             .iter()
             .map(|(id, job)| (id.clone(), job.protocol.clone()))
+            .collect();
+        let torrent_sources: HashMap<String, String> = torrent_jobs
+            .iter()
+            .filter_map(|(id, job)| {
+                let source = job
+                    .source_uri
+                    .as_deref()
+                    .unwrap_or(job.task.url.as_str());
+                crate::daemon::torrent_task::persistable_magnet_source(source)
+                    .ok()
+                    .map(|(sanitized, _)| (id.clone(), sanitized))
+            })
             .collect();
         let curl_args: HashMap<String, Vec<String>> = curl_jobs
             .iter()
@@ -282,6 +300,21 @@ fn build_snapshot(state: &AppState) -> PersistedState {
                 .filter(|(_, job)| native_request_requires_reauth(&job.request))
                 .map(|(id, _)| id.clone()),
         );
+        resume_requires_reauth.extend(
+            torrent_jobs
+                .iter()
+                .filter_map(|(id, job)| {
+                    let source = job
+                        .source_uri
+                        .as_deref()
+                        .unwrap_or(job.task.url.as_str());
+                    let removed_sensitive = crate::daemon::torrent_task::persistable_magnet_source(source)
+                        .map(|(_, removed)| removed)
+                        .unwrap_or(true);
+                    (job.requires_reauth || (job.private && removed_sensitive))
+                        .then_some(id.clone())
+                }),
+        );
         resume_requires_reauth.sort();
         resume_requires_reauth.dedup();
         let tasks: Vec<Task> = snapshot.values().cloned().collect();
@@ -309,6 +342,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
             media_args,
             native_media_requests,
             native_media_protocols,
+            torrent_sources,
             curl_args,
             curl_direct_options,
             resume_requires_reauth,
@@ -321,12 +355,13 @@ fn build_snapshot(state: &AppState) -> PersistedState {
     let stats = lock_or_err!(state.download_stats).clone();
 
     PersistedState {
-        version: 2,
+        version: 3,
         tasks,
         recovery_checkpoints,
         media_args,
         native_media_requests,
         native_media_protocols,
+        torrent_sources,
         curl_args,
         curl_direct_options,
         resume_requires_reauth,
@@ -578,6 +613,55 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn torrent_snapshot_never_persists_private_tracker_passkey() {
+        let dir = std::env::temp_dir().join(format!(
+            "nova-persist-torrent-secret-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = test_state(&dir.display().to_string());
+
+        let mut task = sample_task("torrent-secret", "native-torrent", "paused");
+        task.engine_id = "1111111111111111111111111111111111111111".to_owned();
+        task.file_type = "torrent".to_owned();
+        task.category = "torrent".to_owned();
+        task.url =
+            "magnet:?xt=urn:btih:1111111111111111111111111111111111111111&dn=test"
+                .to_owned();
+        task.save_path = dir.join("payload").display().to_string();
+
+        let secret_source = "magnet:?xt=urn:btih:1111111111111111111111111111111111111111&dn=test&tr=https%3A%2F%2Ftracker.example%2Fannounce%3Fpasskey%3Dsuper-secret";
+        let mut job = crate::daemon::torrent_task::restore_torrent_job(
+            task.clone(),
+            Some(secret_source.to_owned()),
+            false,
+        )
+        .unwrap();
+        job.private = true;
+        state
+            .torrent_jobs
+            .lock()
+            .unwrap()
+            .insert(task.id.clone(), job);
+        state
+            .task_snapshot
+            .lock()
+            .unwrap()
+            .insert(task.id.clone(), task.clone());
+
+        let snapshot = build_snapshot(&state);
+        let json = serde_json::to_string(&snapshot).unwrap();
+        assert!(!json.contains("super-secret"));
+        assert!(!json.contains("passkey"));
+        assert!(snapshot.resume_requires_reauth.contains(&task.id));
+        let persisted = snapshot.torrent_sources.get(&task.id).unwrap();
+        assert!(persisted.starts_with("magnet:?"));
+        assert!(!persisted.contains("tracker.example"));
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn save_and_load_round_trip() {
         let dir = std::env::temp_dir().join(format!("nova-persist-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -651,7 +735,7 @@ pub(crate) mod tests {
         let loaded = load(&dir_str);
 
         assert_eq!(loaded.tasks.len(), 3);
-        assert_eq!(loaded.version, 2);
+        assert_eq!(loaded.version, 3);
         let checkpoint = loaded
             .recovery_checkpoints
             .get("c1")
