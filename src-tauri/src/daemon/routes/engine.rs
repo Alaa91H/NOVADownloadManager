@@ -1,4 +1,5 @@
 use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
 use axum::response::Json;
 use axum::routing::{delete, get, post};
 use axum::Router;
@@ -162,6 +163,272 @@ pub async fn handle_engine_events_for_task(
         .map(|e| serde_json::json!({"id": e.id, "event": e.event, "timestamp_millis": e.timestamp_millis}))
         .collect();
     Json(serde_json::json!({"ok": true, "task_id": task_id, "events": serialized}))
+}
+
+const MAX_QUEUE_CATALOG_ENTRIES: usize = 128;
+const MAX_QUEUE_DOWNLOAD_ORDER: usize = 10_000;
+
+#[derive(Deserialize)]
+pub struct QueueCatalogBody {
+    queues: Vec<serde_json::Value>,
+}
+
+fn default_queue_catalog() -> Vec<serde_json::Value> {
+    vec![serde_json::json!({
+        "id": "main",
+        "name": "Main Queue",
+        "active": true,
+        "scheduled": false,
+        "scheduleType": "daily",
+        "maxActive": 1,
+        "scheduleCompleted": false,
+        "startTime": "00:00",
+        "endTime": "23:59",
+        "days": [0, 1, 2, 3, 4, 5, 6],
+        "limitSpeed": false,
+        "speedLimitKbs": 0,
+        "oneTimeLimit": false,
+        "shutdownOnComplete": false,
+        "hangupOnComplete": false,
+        "exitOnComplete": false,
+        "retryCount": 3,
+        "retryDelay": 10,
+        "downloadOrder": []
+    })]
+}
+
+fn queue_catalog_path(data_dir: &str) -> std::path::PathBuf {
+    std::path::Path::new(data_dir).join("nova-queue-catalog.json")
+}
+
+fn valid_queue_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | ':' | '-'))
+}
+
+fn normalize_queue_catalog(
+    queues: Vec<serde_json::Value>,
+) -> Result<Vec<serde_json::Value>, String> {
+    if queues.len() > MAX_QUEUE_CATALOG_ENTRIES {
+        return Err(format!(
+            "Queue catalog exceeds the maximum of {MAX_QUEUE_CATALOG_ENTRIES} entries"
+        ));
+    }
+
+    let mut normalized = Vec::with_capacity(queues.len().max(1));
+    let mut seen = std::collections::HashSet::new();
+
+    for value in queues {
+        let object = value
+            .as_object()
+            .ok_or_else(|| "Queue catalog entries must be JSON objects".to_owned())?;
+
+        let id = object
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|id| valid_queue_id(id))
+            .ok_or_else(|| "Queue id is missing or invalid".to_owned())?
+            .to_owned();
+
+        if !seen.insert(id.clone()) {
+            return Err(format!("Duplicate queue id: {id}"));
+        }
+
+        let name = object
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty() && name.len() <= 256)
+            .unwrap_or(&id)
+            .to_owned();
+
+        let schedule_type = object
+            .get("scheduleType")
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| matches!(*value, "once" | "daily" | "custom"))
+            .unwrap_or("daily");
+
+        let days: Vec<u64> = object
+            .get("days")
+            .and_then(serde_json::Value::as_array)
+            .map(|values| {
+                let mut out: Vec<u64> = values
+                    .iter()
+                    .filter_map(serde_json::Value::as_u64)
+                    .filter(|day| *day <= 6)
+                    .collect();
+                out.sort_unstable();
+                out.dedup();
+                if out.is_empty() {
+                    vec![0, 1, 2, 3, 4, 5, 6]
+                } else {
+                    out
+                }
+            })
+            .unwrap_or_else(|| vec![0, 1, 2, 3, 4, 5, 6]);
+
+        let download_order: Vec<String> = object
+            .get("downloadOrder")
+            .and_then(serde_json::Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty() && id.len() <= 128)
+                    .take(MAX_QUEUE_DOWNLOAD_ORDER)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let bounded_u64 = |key: &str, default: u64, max: u64| {
+            object
+                .get(key)
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(default)
+                .min(max)
+        };
+        let bool_value = |key: &str, default: bool| {
+            object
+                .get(key)
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(default)
+        };
+        let short_text = |key: &str, default: &str| {
+            object
+                .get(key)
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty() && value.len() <= 32)
+                .unwrap_or(default)
+                .to_owned()
+        };
+
+        normalized.push(serde_json::json!({
+            "id": id,
+            "name": name,
+            "active": bool_value("active", false),
+            "scheduled": bool_value("scheduled", false),
+            "scheduleType": schedule_type,
+            "maxActive": bounded_u64("maxActive", 1, 64).max(1),
+            "scheduleCompleted": bool_value("scheduleCompleted", false),
+            "startTime": short_text("startTime", "00:00"),
+            "endTime": short_text("endTime", "23:59"),
+            "days": days,
+            "limitSpeed": bool_value("limitSpeed", false),
+            "speedLimitKbs": bounded_u64("speedLimitKbs", 0, 10_000_000),
+            "oneTimeLimit": bool_value("oneTimeLimit", false),
+            "shutdownOnComplete": bool_value("shutdownOnComplete", false),
+            "hangupOnComplete": bool_value("hangupOnComplete", false),
+            "exitOnComplete": bool_value("exitOnComplete", false),
+            "retryCount": bounded_u64("retryCount", 3, 100),
+            "retryDelay": bounded_u64("retryDelay", 10, 86_400),
+            "downloadOrder": download_order
+        }));
+    }
+
+    if !seen.contains("main") {
+        normalized.insert(0, default_queue_catalog().remove(0));
+    }
+
+    Ok(normalized)
+}
+
+fn read_queue_catalog(data_dir: &str) -> Vec<serde_json::Value> {
+    let path = queue_catalog_path(data_dir);
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return default_queue_catalog();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return default_queue_catalog();
+    };
+    let Some(queues) = value.get("queues").and_then(serde_json::Value::as_array) else {
+        return default_queue_catalog();
+    };
+    normalize_queue_catalog(queues.clone()).unwrap_or_else(|_| default_queue_catalog())
+}
+
+fn write_queue_catalog(data_dir: &str, queues: &[serde_json::Value]) -> Result<(), String> {
+    let path = queue_catalog_path(data_dir);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("Failed to create queue catalog directory: {error}"))?;
+    }
+
+    let payload = serde_json::to_vec_pretty(&serde_json::json!({
+        "version": 1,
+        "queues": queues
+    }))
+    .map_err(|error| format!("Failed to serialize queue catalog: {error}"))?;
+
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, payload)
+        .map_err(|error| format!("Failed to write queue catalog: {error}"))?;
+
+    if let Ok(file) = std::fs::File::open(&tmp) {
+        let _ = file.sync_all();
+    }
+
+    if let Err(first_error) = std::fs::rename(&tmp, &path) {
+        if !path.exists() {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(format!("Failed to install queue catalog: {first_error}"));
+        }
+
+        let backup = path.with_extension("json.bak");
+        let _ = std::fs::remove_file(&backup);
+        std::fs::rename(&path, &backup)
+            .map_err(|error| format!("Failed to stage queue catalog backup: {error}"))?;
+
+        if let Err(error) = std::fs::rename(&tmp, &path) {
+            let _ = std::fs::rename(&backup, &path);
+            let _ = std::fs::remove_file(&tmp);
+            return Err(format!("Failed to replace queue catalog: {error}"));
+        }
+        let _ = std::fs::remove_file(&backup);
+    }
+
+    Ok(())
+}
+
+pub async fn handle_queue_catalog_get(
+    State(state): State<SharedState>,
+) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "ok": true,
+        "version": 1,
+        "queues": read_queue_catalog(&state.data_dir)
+    }))
+}
+
+pub async fn handle_queue_catalog_put(
+    State(state): State<SharedState>,
+    Json(body): Json<QueueCatalogBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let queues = normalize_queue_catalog(body.queues).map_err(|error| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"ok": false, "error": error})),
+        )
+    })?;
+
+    write_queue_catalog(&state.data_dir, &queues).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"ok": false, "error": error})),
+        )
+    })?;
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "version": 1,
+        "queues": queues
+    })))
 }
 
 // â”€â”€â”€ Engine: Priority Queue â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1454,6 +1721,10 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
         .route(
             "/api/engine/cache",
             get(handle_metadata_cache_stats).delete(handle_metadata_cache_clear),
+        )
+        .route(
+            "/api/queues",
+            get(handle_queue_catalog_get).put(handle_queue_catalog_put),
         )
         .route(
             "/api/engine/queue",
