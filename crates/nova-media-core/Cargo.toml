@@ -12,6 +12,7 @@ rust-version = "1.77"
 cbc = { version = "0.1.2", features = ["std"] }
 aes = "0.8.4"
 nova-download-core = { path = "../nova-download-core" }
+nova-media-processing-core = { path = "../nova-media-processing-core" }
 nova-stream-core = { path = "../nova-stream-core" }
 regex = "1"
 serde = { version = "1", features = ["derive"] }
