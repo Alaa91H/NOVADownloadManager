@@ -60,7 +60,7 @@ Implemented native surfaces include:
 - Behaviorally covered settings control center, engine management, diagnostics and runtime logs
 - System tray, notifications and Windows/Linux desktop progress
 - Stable/Preview release checks with automatic install intentionally disabled until updater signing is production-ready
-- Full legacy language selection with resource-backed legacy locale reuse and English fallback; native English/Arabic/German catalogs remain the highest-coverage baseline, with RTL, System/Light/Dark themes, High Contrast, Reduced Motion and text scaling
+- Full legacy language selection with resource-backed locale reuse, curated native-to-legacy aliases, a CI-enforced 40% reuse floor, and English fallback for unmatched native-only copy; native English/Arabic/German catalogs remain the highest-coverage baseline, with RTL, System/Light/Dark themes, High Contrast, Reduced Motion and text scaling
 - Keyboard shortcuts, focus/accessibility metadata and High-DPI policy
 - Windows, Linux and macOS Qt 6.8.3 CI validation
 - Bundled headless Rust backend and dedicated browser Native Messaging host
@@ -74,6 +74,7 @@ Run the local gates with:
 
 ```bash
 node desktop-native/scripts/check-localization.mjs
+node desktop-native/scripts/check-native-i18n-coverage.mjs
 node desktop-native/scripts/check-product-copy.mjs
 node desktop-native/scripts/check-parity.mjs
 cmake -S desktop-native -B build/native-tests -DNOVA_BUILD_TESTS=ON
