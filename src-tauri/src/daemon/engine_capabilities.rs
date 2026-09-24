@@ -1981,6 +1981,8 @@ pub fn native_torrent_status() -> Value {
             "magnetBtih": capabilities.magnet_btih,
             "peerWireV1": capabilities.peer_wire_v1,
             "pieceScheduler": capabilities.piece_scheduler,
+            "httpTrackerProtocol": capabilities.http_tracker_protocol,
+            "udpTrackerProtocol": capabilities.udp_tracker_protocol,
             "pieceHashVerification": true,
             "safeMultiFileLayout": true,
             "httpTrackers": false,
@@ -2053,6 +2055,8 @@ mod tests {
         assert_eq!(status["available"], false);
         assert_eq!(status["capabilities"]["metainfoV1"], true);
         assert_eq!(status["capabilities"]["magnetBtih"], true);
+        assert_eq!(status["capabilities"]["httpTrackerProtocol"], true);
+        assert_eq!(status["capabilities"]["udpTrackerProtocol"], true);
         assert_eq!(status["capabilities"]["peerTransferExecution"], false);
     }
 
