@@ -5,12 +5,14 @@
 //! native download core owns transfer scheduling and persistence.
 
 mod assembly;
+mod dash_live;
 mod dash_transfer;
 mod generic;
 mod hls_live;
 mod hls_transfer;
 
 pub use assembly::{assemble_ordered_parts, AssemblyError, AssemblyResult};
+pub use dash_live::{refresh_and_stage_dash_live_once, DashLiveError, DashLiveStageRefresh};
 pub use dash_transfer::{
     stage_dash_representation_plan, DashStageError, DashStageFile, DashStageResult,
 };
