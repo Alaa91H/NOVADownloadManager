@@ -1,3 +1,4 @@
+pub mod browser_cookies;
 pub mod curl;
 pub mod diagnostics;
 pub mod direct;
