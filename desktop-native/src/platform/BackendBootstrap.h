@@ -21,6 +21,7 @@ public:
     QString statusText() const { return m_statusText; }
 
     Q_INVOKABLE void start();
+    Q_INVOKABLE void recover();
 
 signals:
     void stateChanged();
@@ -42,5 +43,6 @@ private:
     int m_round{0};
     bool m_startedBackend{false};
     bool m_ready{false};
+    bool m_shuttingDown{false};
     QString m_statusText{QStringLiteral("Discovering NOVA engine…")};
 };

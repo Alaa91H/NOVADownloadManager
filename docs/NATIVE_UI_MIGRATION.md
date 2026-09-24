@@ -163,6 +163,8 @@ Implemented:
 - Linux preview bundles include the Qt UI, Rust backend/native host, desktop entry, an `ldd` runtime dependency report and a live backend auto-pair smoke test.
 - macOS 15 ARM64 (Apple Silicon) preview builds are part of the native CI matrix and package the Rust backend/native host beside the Qt application executable. The runner is pinned to macOS 15 because Qt 6.8 LTS is the project baseline.
 - Every preview bundle carries `PARITY_REPORT.md` and `BUILD_INFO.txt` for QA traceability.
+- Native CTest coverage now stress-loads 20,000 downloads, validates filter/sort/search responsiveness, forces a real SSE disconnect/reconnect, and verifies bounded reconnect backoff.
+- The Qt bootstrap now recovers from an owned Rust backend process exit by rediscovering/restarting the backend and re-pairing without restarting the UI.
 - Preview artifacts are retained by GitHub Actions for 14 days.
 
 Current parity blockers tracked by the executable manifest:
@@ -172,7 +174,6 @@ Current parity blockers tracked by the executable manifest:
 - Full legacy language catalog beyond the current English/Arabic/German native baseline.
 - Production signed automatic updater installation.
 - Windows ARM64, Linux ARM64 and macOS Intel validation beyond the current Windows/Linux x64 + macOS ARM64 matrix.
-- Dedicated large-list/reconnect/crash-recovery stress validation.
 - Final screen-reader, multi-monitor and platform accessibility validation.
 
 Stage 6 does **not** authorize removing the legacy UI while any merge/removal blocker remains.

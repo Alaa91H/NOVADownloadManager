@@ -466,12 +466,49 @@
     {
       "id": "large-list-recovery",
       "label": "Large-list performance and crash/error recovery",
-      "status": "partial",
+      "status": "covered",
       "evidence": [
+        "desktop-native/tests/NativeParityTests.cpp",
         "desktop-native/src/models/DownloadListModel.cpp",
-        "desktop-native/src/api/NovaApiClient.cpp"
+        "desktop-native/src/api/NovaApiClient.cpp",
+        "desktop-native/src/platform/BackendBootstrap.cpp",
+        ".github/workflows/native-ui.yml"
       ],
-      "blocker": "Stage 6 still needs explicit stress/recovery test fixtures for large lists and daemon disconnect/reconnect."
+      "contains": [
+        {
+          "file": "desktop-native/tests/NativeParityTests.cpp",
+          "allOf": [
+            "largeListRemainsResponsive",
+            "20000",
+            "streamReconnectsAfterDaemonReturns",
+            "reconnectBackoffIsBounded"
+          ]
+        },
+        {
+          "file": "desktop-native/src/api/NovaApiClient.cpp",
+          "allOf": [
+            "streamReconnectDelayForAttempt",
+            "scheduleStreamReconnect",
+            "refreshDownloads",
+            "setLiveUpdatesConnected"
+          ]
+        },
+        {
+          "file": "desktop-native/src/platform/BackendBootstrap.cpp",
+          "allOf": [
+            "BackendBootstrap::recover",
+            "QProcess::finished",
+            "Recovering NOVA engine"
+          ]
+        },
+        {
+          "file": ".github/workflows/native-ui.yml",
+          "allOf": [
+            "Native stress and recovery tests",
+            "ctest --test-dir build/native"
+          ]
+        }
+      ]
     }
   ]
 }

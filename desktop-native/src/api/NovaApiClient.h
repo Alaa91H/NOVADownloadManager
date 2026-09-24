@@ -43,6 +43,7 @@ class NovaApiClient final : public QObject {
     Q_PROPERTY(QString logDirectory READ logDirectory NOTIFY logsChanged)
     Q_PROPERTY(bool browserIntegrationBusy READ browserIntegrationBusy NOTIFY browserIntegrationChanged)
     Q_PROPERTY(QVariantMap browserIntegrationHealth READ browserIntegrationHealth NOTIFY browserIntegrationChanged)
+    Q_PROPERTY(bool liveUpdatesConnected READ liveUpdatesConnected NOTIFY liveUpdatesChanged)
 
 public:
     explicit NovaApiClient(QObject *parent = nullptr);
@@ -77,6 +78,9 @@ public:
     QString logDirectory() const { return m_logDirectory; }
     bool browserIntegrationBusy() const noexcept { return m_browserIntegrationBusy; }
     QVariantMap browserIntegrationHealth() const { return m_browserIntegrationHealth; }
+    bool liveUpdatesConnected() const noexcept { return m_liveUpdatesConnected; }
+
+    static int streamReconnectDelayForAttempt(int attempt) noexcept;
 
     void setBaseUrl(const QUrl &baseUrl);
     void setBearerToken(const QString &token);
@@ -193,6 +197,9 @@ signals:
     void browserIntegrationChanged();
     void browserIntegrationFailed(const QString &message);
 
+    void liveUpdatesChanged();
+    void streamReconnectScheduled(int delayMs);
+
 private:
     QNetworkRequest makeRequest(const QString &path) const;
     QNetworkRequest makeRequest(const QString &path, const QUrlQuery &query) const;
@@ -200,6 +207,8 @@ private:
     void runTaskAction(const QString &id, const QString &action);
     void processStreamChunk();
     void processStreamEvent(const QByteArray &eventBlock);
+    void setLiveUpdatesConnected(bool connected);
+    void scheduleStreamReconnect();
     void mergeDownloadsDelta(const QJsonObject &delta);
     void sendSchedulerRule(const QJsonObject &rule, const QString &path, const QString &action);
     void pumpBatchRequests();
@@ -214,6 +223,9 @@ private:
     QNetworkReply *m_streamReply{nullptr};
     QByteArray m_streamBuffer;
     QJsonArray m_currentDownloads;
+    QTimer *m_streamReconnectTimer{nullptr};
+    int m_streamReconnectAttempt{0};
+    bool m_liveUpdatesConnected{false};
 
     QVariantList m_queueEntries;
     int m_queueActiveCount{0};

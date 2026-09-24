@@ -75,10 +75,13 @@ jobs:
           cache: true
 
       - name: Configure
-        run: cmake -S desktop-native -B build/native -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S desktop-native -B build/native -DCMAKE_BUILD_TYPE=Release -DNOVA_BUILD_TESTS=ON
 
       - name: Build
         run: cmake --build build/native --config Release --parallel
+
+      - name: Native stress and recovery tests
+        run: ctest --test-dir build/native -C Release --output-on-failure
 
       - name: Install preview bundle
         run: cmake --install build/native --config Release --prefix "preview/NOVA-Native-${{ runner.os }}"

@@ -7,6 +7,8 @@ set(NOVA_APP_VERSION "2.4.48-alpha")
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(NOVA_BUILD_TESTS "Build native Qt stress/recovery tests" OFF)
+
 find_package(Qt6 6.8 REQUIRED COMPONENTS Quick QuickControls2 Network Widgets)
 if(UNIX AND NOT APPLE)
     find_package(Qt6 6.8 REQUIRED COMPONENTS DBus)
@@ -80,6 +82,36 @@ endif()
 
 if(WIN32)
     target_link_libraries(nova-native PRIVATE ole32 uuid advapi32)
+endif()
+
+
+if(NOVA_BUILD_TESTS)
+    enable_testing()
+    find_package(Qt6 6.8 REQUIRED COMPONENTS Test)
+
+    qt_add_executable(nova-native-tests
+        tests/NativeParityTests.cpp
+        src/api/NovaApiClient.cpp
+        src/api/NovaApiClient.h
+        src/models/DownloadListModel.cpp
+        src/models/DownloadListModel.h
+    )
+    target_include_directories(nova-native-tests PRIVATE src)
+    target_link_libraries(nova-native-tests
+        PRIVATE
+            Qt6::Network
+            Qt6::Test
+    )
+
+    add_test(
+        NAME nova-native-parity
+        COMMAND nova-native-tests
+    )
+    set_tests_properties(
+        nova-native-parity
+        PROPERTIES
+            TIMEOUT 30
+    )
 endif()
 
 install(TARGETS nova-native

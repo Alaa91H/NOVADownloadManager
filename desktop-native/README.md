@@ -75,6 +75,9 @@ Run the local gates with:
 ```bash
 node desktop-native/scripts/check-localization.mjs
 node desktop-native/scripts/check-parity.mjs
+cmake -S desktop-native -B build/native-tests -DNOVA_BUILD_TESTS=ON
+cmake --build build/native-tests --parallel
+ctest --test-dir build/native-tests --output-on-failure
 ```
 
 The parity command writes `build/native-parity-report.md`.

@@ -124,19 +124,16 @@ int main(int argc, char *argv[]) {
         }
     );
 
-    bool apiInitialized = false;
     const auto initializeApi = [
         &apiClient,
         &refreshTimer,
         &healthTimer,
-        &browserIntegrationTimer,
-        &apiInitialized
+        &browserIntegrationTimer
     ](const QUrl &baseUrl, const QString &token) {
-        if (apiInitialized || !baseUrl.isValid() || token.trimmed().isEmpty()) {
+        if (!baseUrl.isValid() || token.trimmed().isEmpty()) {
             return;
         }
 
-        apiInitialized = true;
         apiClient.setBaseUrl(baseUrl);
         apiClient.setBearerToken(token);
 
@@ -162,6 +159,16 @@ int main(int argc, char *argv[]) {
         &app,
         [&apiClient](const QString &message) {
             apiClient.reportBootstrapFailure(message);
+        }
+    );
+    QObject::connect(
+        &apiClient,
+        &NovaApiClient::connectionChanged,
+        &app,
+        [&apiClient, &backendBootstrap]() {
+            if (!apiClient.connected() && backendBootstrap.ready()) {
+                backendBootstrap.recover();
+            }
         }
     );
 

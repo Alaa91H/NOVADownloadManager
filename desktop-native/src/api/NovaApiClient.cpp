@@ -16,6 +16,7 @@
 #include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
+#include <QtGlobal>
 
 namespace {
 
@@ -34,7 +35,40 @@ QString responseErrorMessage(QNetworkReply *reply, const QByteArray &payload) {
 } // namespace
 
 NovaApiClient::NovaApiClient(QObject *parent)
-    : QObject(parent) {}
+    : QObject(parent),
+      m_streamReconnectTimer(new QTimer(this)) {
+    m_streamReconnectTimer->setSingleShot(true);
+    connect(
+        m_streamReconnectTimer,
+        &QTimer::timeout,
+        this,
+        &NovaApiClient::startDownloadStream
+    );
+}
+
+int NovaApiClient::streamReconnectDelayForAttempt(int attempt) noexcept {
+    const int boundedAttempt = qBound(0, attempt, 5);
+    const int delay = 250 * (1 << boundedAttempt);
+    return qMin(delay, 5000);
+}
+
+void NovaApiClient::setLiveUpdatesConnected(bool connected) {
+    if (m_liveUpdatesConnected == connected) {
+        return;
+    }
+    m_liveUpdatesConnected = connected;
+    emit liveUpdatesChanged();
+}
+
+void NovaApiClient::scheduleStreamReconnect() {
+    if (m_streamReconnectTimer->isActive()) {
+        return;
+    }
+
+    const int delay = streamReconnectDelayForAttempt(m_streamReconnectAttempt++);
+    m_streamReconnectTimer->start(delay);
+    emit streamReconnectScheduled(delay);
+}
 
 void NovaApiClient::setBaseUrl(const QUrl &baseUrl) {
     if (baseUrl.isValid() && !baseUrl.isEmpty()) {
@@ -92,9 +126,11 @@ void NovaApiClient::checkHealth() {
     auto *reply = m_network.get(makeRequest(QStringLiteral("/api/health")));
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const bool wasConnected = m_connected;
 
         if (reply->error() != QNetworkReply::NoError) {
             setConnectionState(false, QStringLiteral("Engine unavailable"));
+            setLiveUpdatesConnected(false);
             emit requestFailed(reply->errorString());
             return;
         }
@@ -105,7 +141,16 @@ void NovaApiClient::checkHealth() {
         const bool healthy = status == QStringLiteral("connected")
             || status == QStringLiteral("ready")
             || status == QStringLiteral("degraded");
-        setConnectionState(healthy, healthy ? QStringLiteral("Engine ready") : QStringLiteral("Engine unavailable"));
+        setConnectionState(
+            healthy,
+            healthy ? QStringLiteral("Engine ready") : QStringLiteral("Engine unavailable")
+        );
+
+        if (healthy && !wasConnected) {
+            m_streamReconnectAttempt = 0;
+            refreshDownloads();
+            startDownloadStream();
+        }
     });
 }
 
@@ -236,7 +281,7 @@ void NovaApiClient::updateDownloadMetadata(
 }
 
 void NovaApiClient::startDownloadStream() {
-    if (m_streamReply) {
+    if (m_streamReply || (m_streamReconnectTimer && m_streamReconnectTimer->isActive())) {
         return;
     }
 
@@ -244,12 +289,30 @@ void NovaApiClient::startDownloadStream() {
     request.setRawHeader("Accept", "text/event-stream");
     m_streamReply = m_network.get(request);
 
+    connect(
+        m_streamReply,
+        &QNetworkReply::metaDataChanged,
+        this,
+        [this]() {
+            if (!m_streamReply) {
+                return;
+            }
+            const int status = m_streamReply
+                ->attribute(QNetworkRequest::HttpStatusCodeAttribute)
+                .toInt();
+            if (status >= 200 && status < 300) {
+                m_streamReconnectAttempt = 0;
+                setLiveUpdatesConnected(true);
+            }
+        }
+    );
     connect(m_streamReply, &QNetworkReply::readyRead, this, &NovaApiClient::processStreamChunk);
     connect(m_streamReply, &QNetworkReply::finished, this, [this]() {
         if (!m_streamReply) {
             return;
         }
 
+        const bool wasLive = m_liveUpdatesConnected;
         const QString errorText = m_streamReply->error() == QNetworkReply::NoError
             ? QStringLiteral("Live updates disconnected")
             : m_streamReply->errorString();
@@ -257,9 +320,12 @@ void NovaApiClient::startDownloadStream() {
         m_streamReply->deleteLater();
         m_streamReply = nullptr;
         m_streamBuffer.clear();
+        setLiveUpdatesConnected(false);
 
-        emit requestFailed(errorText);
-        QTimer::singleShot(1500, this, &NovaApiClient::startDownloadStream);
+        if (wasLive) {
+            emit requestFailed(errorText);
+        }
+        scheduleStreamReconnect();
     });
 }
 
@@ -310,12 +376,16 @@ void NovaApiClient::processStreamEvent(const QByteArray &eventBlock) {
 
     const QJsonDocument document = QJsonDocument::fromJson(data);
     if (eventName == "downloads" && document.isArray()) {
+        m_streamReconnectAttempt = 0;
+        setLiveUpdatesConnected(true);
         m_currentDownloads = document.array();
         emit downloadsLoaded(m_currentDownloads);
         return;
     }
 
     if (eventName == "downloads-delta" && document.isObject()) {
+        m_streamReconnectAttempt = 0;
+        setLiveUpdatesConnected(true);
         mergeDownloadsDelta(document.object());
     }
 }

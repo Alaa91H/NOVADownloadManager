@@ -29,15 +29,28 @@ BackendBootstrap::BackendBootstrap(QObject *parent)
         &QProcess::errorOccurred,
         this,
         [this](QProcess::ProcessError error) {
-            if (m_ready || error == QProcess::Crashed) {
+            if (m_shuttingDown || error == QProcess::Crashed) {
                 return;
             }
             setStatus(QStringLiteral("NOVA backend could not be started."));
         }
     );
+    connect(
+        &m_backendProcess,
+        qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
+        this,
+        [this](int, QProcess::ExitStatus) {
+            const bool ownedBackend = m_startedBackend;
+            m_startedBackend = false;
+            if (!m_shuttingDown && ownedBackend) {
+                recover();
+            }
+        }
+    );
 }
 
 BackendBootstrap::~BackendBootstrap() {
+    m_shuttingDown = true;
     if (m_startedBackend && m_backendProcess.state() != QProcess::NotRunning) {
         m_backendProcess.terminate();
         if (!m_backendProcess.waitForFinished(1200)) {
@@ -56,7 +69,7 @@ void BackendBootstrap::setStatus(const QString &text) {
 }
 
 void BackendBootstrap::start() {
-    if (m_ready) {
+    if (m_ready || m_retryTimer.isActive()) {
         return;
     }
 
@@ -64,6 +77,25 @@ void BackendBootstrap::start() {
     m_nextPort = kFirstPort;
     setStatus(QStringLiteral("Discovering NOVA engine…"));
     beginProbeRound();
+}
+
+void BackendBootstrap::recover() {
+    if (m_shuttingDown) {
+        return;
+    }
+
+    if (m_ready) {
+        m_ready = false;
+        emit stateChanged();
+    }
+
+    m_round = 0;
+    m_nextPort = kFirstPort;
+    setStatus(QStringLiteral("Recovering NOVA engine…"));
+
+    if (!m_retryTimer.isActive()) {
+        m_retryTimer.start(kRetryDelayMs);
+    }
 }
 
 void BackendBootstrap::beginProbeRound() {
@@ -133,6 +165,7 @@ void BackendBootstrap::handleProbeReply(QNetworkReply *reply, const QUrl &baseUr
             const bool approved = object.value(QStringLiteral("autoApproved")).toBool(false);
             if (!token.isEmpty() && approved) {
                 m_ready = true;
+                m_round = 0;
                 setStatus(QStringLiteral("NOVA engine ready"));
                 emit stateChanged();
                 emit backendReady(baseUrl, token);
