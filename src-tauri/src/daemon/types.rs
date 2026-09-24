@@ -261,6 +261,13 @@ pub struct NativeMediaJob {
     pub request: CreateDownloadBody,
     pub cancel_token: Arc<AtomicBool>,
     pub run_generation: Arc<AtomicU64>,
+    /// True while the current generation owns a worker thread. Lifecycle
+    /// operations use this to avoid deleting or reusing staging files before
+    /// the previous worker has fully unwound.
+    pub worker_active: Arc<AtomicBool>,
+    /// Bytes already staged when the current generation started; excluded
+    /// from instantaneous speed calculations after resume.
+    pub run_start_downloaded_bytes: u64,
     pub start_time: Instant,
 }
 
