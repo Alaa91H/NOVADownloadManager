@@ -734,7 +734,9 @@ fn reject_reserved_collision(meta: &TorrentMetainfo) -> Result<(), StorageError>
             matches!(
                 component,
                 Component::Normal(value)
-                    if value == std::ffi::OsStr::new(CONTROL_DIR_NAME)
+                    if value
+                        .to_string_lossy()
+                        .eq_ignore_ascii_case(CONTROL_DIR_NAME)
             )
         }) {
             return Err(StorageError::ReservedPathCollision(file.path.clone()));
