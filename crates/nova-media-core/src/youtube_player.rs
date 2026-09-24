@@ -1,6 +1,16 @@
+use std::collections::{hash_map::DefaultHasher, VecDeque};
+use std::hash::{Hash, Hasher};
+use std::sync::{Mutex, OnceLock};
+
 use regex::Regex;
 
 use crate::youtube::YouTubeChallengeSolver;
+
+const PLAYER_SCRIPT_PARSE_CACHE_SIZE: usize = 8;
+const PLAYER_SCRIPT_MAX_BYTES: usize = 8 * 1024 * 1024;
+
+static THROTTLING_PLAN_CACHE: OnceLock<Mutex<VecDeque<(u64, Vec<TransformOperation>)>>> =
+    OnceLock::new();
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TransformOperation {
@@ -33,7 +43,7 @@ impl YouTubeChallengeSolver for YouTubePlayerScriptSolver {
         player_javascript: &str,
         value: &str,
     ) -> Result<String, String> {
-        let operations = extract_throttling_operations(player_javascript)?;
+        let operations = cached_throttling_operations(player_javascript)?;
         apply_transform_operations(value, &operations)
     }
 }
@@ -43,6 +53,35 @@ impl YouTubeChallengeSolver for YouTubePlayerScriptSolver {
 enum ThrottlingTarget {
     Named(String),
     ArrayElement { array: String, index: usize },
+}
+
+
+fn cached_throttling_operations(script: &str) -> Result<Vec<TransformOperation>, String> {
+    if script.len() > PLAYER_SCRIPT_MAX_BYTES {
+        return Err(format!(
+            "YouTube player script exceeds native parser limit of {PLAYER_SCRIPT_MAX_BYTES} bytes"
+        ));
+    }
+
+    let mut hasher = DefaultHasher::new();
+    script.hash(&mut hasher);
+    let key = hasher.finish();
+    let cache = THROTTLING_PLAN_CACHE.get_or_init(|| Mutex::new(VecDeque::new()));
+
+    if let Ok(cache) = cache.lock() {
+        if let Some((_, operations)) = cache.iter().find(|(cached, _)| *cached == key) {
+            return Ok(operations.clone());
+        }
+    }
+
+    let operations = extract_throttling_operations(script)?;
+    if let Ok(mut cache) = cache.lock() {
+        if cache.len() >= PLAYER_SCRIPT_PARSE_CACHE_SIZE {
+            cache.pop_front();
+        }
+        cache.push_back((key, operations.clone()));
+    }
+    Ok(operations)
 }
 
 fn extract_throttling_operations(script: &str) -> Result<Vec<TransformOperation>, String> {
@@ -304,6 +343,7 @@ fn split_top_level(source: &str, delimiter: u8) -> Vec<&str> {
 
 
 fn extract_signature_operations(script: &str) -> Result<Vec<TransformOperation>, String> {
+    let throttling_target = locate_throttling_target(script).ok();
     let assignment = Regex::new(
         r#"(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*function\((?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)\)\s*\{"#,
     )
@@ -317,6 +357,16 @@ fn extract_signature_operations(script: &str) -> Result<Vec<TransformOperation>,
         let whole = captures
             .get(0)
             .ok_or_else(|| "signature function match is incomplete".to_owned())?;
+        let name = captures
+            .name("name")
+            .map(|value| value.as_str())
+            .ok_or_else(|| "signature function name is missing".to_owned())?;
+        if matches!(
+            throttling_target.as_ref(),
+            Some(ThrottlingTarget::Named(target)) if target == name
+        ) {
+            continue;
+        }
         let arg = captures
             .name("arg")
             .map(|value| value.as_str())
@@ -700,6 +750,37 @@ AB=function(a){a=a.split("");ZZ.XX(a,2);return a.join("")};
                 .expect("signature"),
             "dcba"
         );
+    }
+
+    #[test]
+    fn signature_parser_does_not_select_verified_n_transform() {
+        let player = r#"
+NT=function(a){a=a.split("");a.reverse();return a.join("")};
+SG=function(a){a=a.split("");a=a.slice(2);return a.join("")};
+function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert_eq!(
+            solver
+                .decipher_signature(player, "abcdef")
+                .expect("signature transform"),
+            "cdef"
+        );
+        assert_eq!(
+            solver
+                .transform_throttling_parameter(player, "abcdef")
+                .expect("n transform"),
+            "fedcba"
+        );
+    }
+
+    #[test]
+    fn n_transform_rejects_oversized_player_script() {
+        let player = "x".repeat(PLAYER_SCRIPT_MAX_BYTES + 1);
+        let solver = YouTubePlayerScriptSolver;
+        assert!(solver
+            .transform_throttling_parameter(&player, "abc")
+            .is_err());
     }
 
     #[test]
