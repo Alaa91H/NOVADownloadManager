@@ -11,8 +11,10 @@ pub use dash::{
     DashSegmentTemplate,
 };
 pub use hls::{
-    parse_hls, HlsByteRange, HlsEncryptionMethod, HlsError, HlsInitMap, HlsKey, HlsManifest,
-    HlsPlaylistKind, HlsRendition, HlsRenditionKind, HlsSegment, HlsVariant,
+    build_hls_media_plan, parse_hls, select_best_hls_variant, HlsByteRange,
+    HlsEncryptionMethod, HlsError, HlsInitMap, HlsKey, HlsManifest, HlsMediaPlan,
+    HlsPlanError, HlsPlaylistKind, HlsRendition, HlsRenditionKind, HlsSegment,
+    HlsTransferUnit, HlsTransferUnitKind, HlsVariant,
 };
 
 use serde::{Deserialize, Serialize};
