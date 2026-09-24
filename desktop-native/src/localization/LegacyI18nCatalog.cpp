@@ -38,6 +38,124 @@ void appendLanguage(
         }
     );
 }
+const QHash<QString, QString> &nativeLegacyAliases() {
+    static const QHash<QString, QString> aliases{
+        {QStringLiteral("nav.downloads"), QStringLiteral("all_downloads")},
+        {QStringLiteral("nav.queue"), QStringLiteral("nav_queues")},
+        {QStringLiteral("nav.scheduler"), QStringLiteral("scheduler")},
+        {QStringLiteral("action.redownload"), QStringLiteral("menu_redownload")},
+        {QStringLiteral("action.folder"), QStringLiteral("menu_open_file_location")},
+        {QStringLiteral("common.browse"), QStringLiteral("ui_browse")},
+        {QStringLiteral("common.savePath"), QStringLiteral("task_save_path")},
+        {QStringLiteral("common.addDownload"), QStringLiteral("add_download")},
+        {QStringLiteral("downloads.title"), QStringLiteral("all_downloads")},
+        {QStringLiteral("downloads.completedTitle"), QStringLiteral("completed")},
+        {QStringLiteral("downloads.dateAdded"), QStringLiteral("col_date_added")},
+        {QStringLiteral("downloads.elapsed"), QStringLiteral("col_elapsed")},
+        {QStringLiteral("downloads.retries"), QStringLiteral("col_retries")},
+        {QStringLiteral("downloads.priority"), QStringLiteral("col_priority")},
+        {QStringLiteral("downloads.completedDate"), QStringLiteral("col_date_completed")},
+        {QStringLiteral("downloads.smartCategory"), QStringLiteral("col_smart_category")},
+        {QStringLiteral("add.fileName"), QStringLiteral("task_file_name")},
+        {QStringLiteral("add.downloadNow"), QStringLiteral("add_dl_start_now")},
+        {QStringLiteral("redownload.retryTitle"), QStringLiteral("menu_retry_download")},
+        {QStringLiteral("properties.save"), QStringLiteral("task_save_changes")},
+        {QStringLiteral("details.openFile"), QStringLiteral("menu_open_file")},
+        {QStringLiteral("details.showFolder"), QStringLiteral("menu_open_file_location")},
+        {QStringLiteral("queue.start"), QStringLiteral("sched_start_queue")},
+        {QStringLiteral("queue.stop"), QStringLiteral("sched_stop_queue")},
+        {QStringLiteral("queue.maxActive"), QStringLiteral("sched_max_concurrent")},
+        {QStringLiteral("queue.retries"), QStringLiteral("sched_retries_title")},
+        {QStringLiteral("queue.retryDelay"), QStringLiteral("sched_retry_wait")},
+        {QStringLiteral("queue.completionActions"), QStringLiteral("sched_actions_on_complete")},
+        {QStringLiteral("queue.shutdown"), QStringLiteral("sched_action_shutdown")},
+        {QStringLiteral("queue.sleep"), QStringLiteral("progress_sleep")},
+        {QStringLiteral("scheduler.title"), QStringLiteral("scheduler")},
+        {QStringLiteral("scheduler.selectQueue"), QStringLiteral("sched_select_queue")},
+        {QStringLiteral("scheduler.shutdown"), QStringLiteral("progress_shutdown")},
+        {QStringLiteral("scheduler.sleep"), QStringLiteral("progress_sleep")},
+        {QStringLiteral("scheduler.notification"), QStringLiteral("statusbar_notifications_title")},
+        {QStringLiteral("batch.destination"), QStringLiteral("batch_save_dir")},
+        {QStringLiteral("batch.paste"), QStringLiteral("batch_paste")},
+        {QStringLiteral("batch.queueId"), QStringLiteral("batch_queue")},
+        {QStringLiteral("media.formatSelector"), QStringLiteral("media_adv_format_selector")},
+        {QStringLiteral("media.formatSort"), QStringLiteral("media_adv_format_sort")},
+        {QStringLiteral("media.downloadSections"), QStringLiteral("media_adv_download_sections")},
+        {QStringLiteral("media.matchFilter"), QStringLiteral("media_adv_match_filter")},
+        {QStringLiteral("media.remuxFormat"), QStringLiteral("media_adv_remux_format")},
+        {QStringLiteral("media.sponsorBlock"), QStringLiteral("media_adv_sponsorblock_segments")},
+        {QStringLiteral("media.proxy"), QStringLiteral("media_adv_proxy")},
+        {QStringLiteral("media.userAgent"), QStringLiteral("media_adv_user_agent")},
+        {QStringLiteral("media.referer"), QStringLiteral("media_adv_referer")},
+        {QStringLiteral("media.headers"), QStringLiteral("media_adv_custom_headers")},
+        {QStringLiteral("media.cookies"), QStringLiteral("media_adv_cookies")},
+        {QStringLiteral("media.rateLimit"), QStringLiteral("media_adv_rate_limit_kbs")},
+        {QStringLiteral("media.retries"), QStringLiteral("media_adv_retries")},
+        {QStringLiteral("media.fragmentRetries"), QStringLiteral("media_adv_fragment_retries")},
+        {QStringLiteral("media.concurrentFragments"), QStringLiteral("media_adv_concurrent_fragments")},
+        {QStringLiteral("media.sleepInterval"), QStringLiteral("media_adv_sleep_interval_seconds")},
+        {QStringLiteral("media.maxSleepInterval"), QStringLiteral("media_adv_max_sleep_seconds")},
+        {QStringLiteral("media.embedSubtitles"), QStringLiteral("media_adv_embed_subtitles")},
+        {QStringLiteral("media.thumbnail"), QStringLiteral("media_adv_write_thumbnail")},
+        {QStringLiteral("media.embedThumbnail"), QStringLiteral("media_adv_embed_thumbnail")},
+        {QStringLiteral("media.infoJson"), QStringLiteral("media_adv_write_info_json")},
+        {QStringLiteral("media.description"), QStringLiteral("media_adv_write_description")},
+        {QStringLiteral("media.subtitleLanguages"), QStringLiteral("media_adv_subtitle_languages")},
+        {QStringLiteral("settings.general"), QStringLiteral("set_tab_general")},
+        {QStringLiteral("settings.engine"), QStringLiteral("set_tab_engines")},
+        {QStringLiteral("settings.language"), QStringLiteral("settings_interface_language")},
+        {QStringLiteral("settings.highContrast"), QStringLiteral("set_theme_contrast_high")},
+        {QStringLiteral("settings.closeToTray"), QStringLiteral("set_tray_icon")},
+        {QStringLiteral("settings.enableNotifications"), QStringLiteral("settings_show_notification")},
+        {QStringLiteral("settings.defaultDirectory"), QStringLiteral("settings_default_folder")},
+        {QStringLiteral("settings.speedLimiter"), QStringLiteral("speed_limiter")},
+        {QStringLiteral("settings.networkPerformance"), QStringLiteral("settings_performance_bandwidth")},
+        {QStringLiteral("settings.proxyPort"), QStringLiteral("settings_port")},
+        {QStringLiteral("settings.proxyUser"), QStringLiteral("settings_proxy_username")},
+        {QStringLiteral("settings.httpVersion"), QStringLiteral("add_dl_http_version")},
+        {QStringLiteral("settings.tlsMinimum"), QStringLiteral("add_dl_tls_min")},
+        {QStringLiteral("settings.allowInsecureTls"), QStringLiteral("add_dl_insecure")},
+        {QStringLiteral("settings.maxRedirects"), QStringLiteral("add_dl_max_redirects")},
+        {QStringLiteral("settings.dnsServers"), QStringLiteral("add_dl_dns_servers")},
+        {QStringLiteral("settings.keepalive"), QStringLiteral("add_dl_keepalive")},
+        {QStringLiteral("settings.caCertificate"), QStringLiteral("add_dl_ca_cert")},
+        {QStringLiteral("settings.clientCertificate"), QStringLiteral("add_dl_client_cert")},
+        {QStringLiteral("settings.clientKey"), QStringLiteral("add_dl_client_key")},
+        {QStringLiteral("settings.tlsCiphers"), QStringLiteral("add_dl_cipher_suites")},
+        {QStringLiteral("settings.ffmpegAutoMerge"), QStringLiteral("settings_ffmpeg_merge")},
+        {QStringLiteral("settings.telegram"), QStringLiteral("set_sub_telegram")},
+        {QStringLiteral("settings.telegramEnabled"), QStringLiteral("settings_enable_telegram")},
+        {QStringLiteral("settings.telegramTestOk"), QStringLiteral("settings_toast_telegram_ok")},
+        {QStringLiteral("settings.shortcuts"), QStringLiteral("shortcuts_title")},
+        {QStringLiteral("settings.shortcutsEnabled"), QStringLiteral("shortcuts_enable")},
+        {QStringLiteral("settings.shortcutAdd"), QStringLiteral("shortcut_add_download")},
+        {QStringLiteral("settings.shortcutBatch"), QStringLiteral("shortcut_batch_download")},
+        {QStringLiteral("settings.shortcutSearch"), QStringLiteral("shortcut_focus_search")},
+        {QStringLiteral("settings.shortcutDelete"), QStringLiteral("shortcut_delete_selected")},
+        {QStringLiteral("settings.shortcutSettings"), QStringLiteral("shortcut_open_settings")},
+        {QStringLiteral("settings.shortcutScheduler"), QStringLiteral("shortcut_open_scheduler")},
+        {QStringLiteral("settings.shortcutSelectAll"), QStringLiteral("shortcut_select_all_downloads")},
+        {QStringLiteral("settings.shortcutResumeSelected"), QStringLiteral("shortcut_resume_selected")},
+        {QStringLiteral("settings.shortcutResumeAll"), QStringLiteral("shortcut_resume_all")},
+        {QStringLiteral("settings.shortcutStopSelected"), QStringLiteral("shortcut_stop_selected")},
+        {QStringLiteral("settings.shortcutStopAll"), QStringLiteral("shortcut_stop_all")},
+        {QStringLiteral("settings.shortcutDeleteCompleted"), QStringLiteral("shortcut_delete_completed")},
+        {QStringLiteral("settings.shortcutNotifications"), QStringLiteral("shortcut_toggle_notifications")},
+        {QStringLiteral("settings.shortcutSpeedLimiter"), QStringLiteral("shortcut_toggle_speed_limiter")},
+        {QStringLiteral("settings.backupRestore"), QStringLiteral("settings_backup_restore")},
+        {QStringLiteral("settings.exportSettings"), QStringLiteral("settings_export")},
+        {QStringLiteral("settings.importSettings"), QStringLiteral("settings_import")},
+        {QStringLiteral("settings.factoryReset"), QStringLiteral("settings_factory_reset")},
+        {QStringLiteral("settings.vpnProxyUrl"), QStringLiteral("settings_vpn_proxy")},
+        {QStringLiteral("settings.pauseAll"), QStringLiteral("topbar_pause_all_tip")},
+        {QStringLiteral("browser.title"), QStringLiteral("nav_browser_integration")},
+        {QStringLiteral("browser.connected"), QStringLiteral("statusbar_browser_connected")},
+        {QStringLiteral("browser.degraded"), QStringLiteral("statusbar_browser_degraded")},
+        {QStringLiteral("browser.disconnected"), QStringLiteral("statusbar_browser_disconnected")},
+    };
+    return aliases;
+}
+
 }
 
 const LegacyI18nCatalog &LegacyI18nCatalog::instance() {
@@ -143,6 +261,14 @@ QString LegacyI18nCatalog::translate(
     const auto &dictionary = locale(normalized);
     if (dictionary.isEmpty()) {
         return {};
+    }
+
+    const auto alias = nativeLegacyAliases().constFind(nativeKey);
+    if (alias != nativeLegacyAliases().constEnd()) {
+        const auto translated = dictionary.constFind(alias.value());
+        if (translated != dictionary.constEnd() && !translated.value().isEmpty()) {
+            return translated.value();
+        }
     }
 
     const QString directKey = legacyKeyCandidate(nativeKey);
