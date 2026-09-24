@@ -23,6 +23,10 @@ if (process.platform !== 'win32') {
 }
 
 function scopedInstallerName(fileName, scope) {
+  // Keep the historical machine-wide setup filename for backward-compatible
+  // release URLs and update channels. Only the new non-elevated flavor gets
+  // an explicit suffix.
+  if (scope === 'machine') return fileName;
   if (/-setup\.exe$/i.test(fileName)) {
     return fileName.replace(/-setup\.exe$/i, `-${scope}-setup.exe`);
   }
