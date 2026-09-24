@@ -2126,7 +2126,11 @@ mod tests {
         assert!(supported.iter().any(|value| value == "formatSelector"));
         assert!(supported.iter().any(|value| value == "formatSort"));
         assert!(supported.iter().any(|value| value == "audioFormat"));
-        assert!(!supported.iter().any(|value| value == "audioFormat"));
+        assert!(supported.iter().any(|value| value == "ffmpegEnabled"));
+        let unsupported = status["unsupportedMediaOptionKeys"]
+            .as_array()
+            .expect("unsupportedMediaOptionKeys");
+        assert!(unsupported.iter().any(|value| value == "proxy"));
     }
 
     #[test]
