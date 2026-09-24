@@ -8,6 +8,7 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QMap>
+#include <QMetaType>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QRegularExpression>
