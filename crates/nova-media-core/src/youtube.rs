@@ -872,9 +872,14 @@ fn collect_playlist_continuations_into(value: &Value, tokens: &mut Vec<String>) 
 
 fn text_value(value: &Value) -> Option<String> {
     value
-        .get("simpleText")
-        .and_then(Value::as_str)
+        .as_str()
         .map(str::to_owned)
+        .or_else(|| {
+            value
+                .get("simpleText")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
         .or_else(|| {
             value
                 .get("runs")
@@ -1374,11 +1379,13 @@ fn normalize_chapters(player: &Value, duration_millis: Option<u64>) -> Vec<Media
     chapters.sort_by_key(|chapter| chapter.start_millis);
     chapters.dedup_by(|left, right| left.start_millis == right.start_millis);
     for index in 0..chapters.len() {
-        chapters[index].end_millis = chapters
+        let start_millis = chapters[index].start_millis;
+        let end_millis = chapters
             .get(index + 1)
             .map(|next| next.start_millis)
             .or(duration_millis)
-            .filter(|end| *end >= chapters[index].start_millis);
+            .filter(|end| *end >= start_millis);
+        chapters[index].end_millis = end_millis;
     }
     chapters
 }
