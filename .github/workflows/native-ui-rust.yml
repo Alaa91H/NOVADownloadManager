@@ -79,6 +79,8 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml native_desktop_data_dir_honors_explicit_override --lib
           cargo test --manifest-path src-tauri/Cargo.toml accepts_native_desktop_with_current_secret --lib
           cargo test --manifest-path src-tauri/Cargo.toml rejects_native_marker_without_secret --lib
+          cargo test --manifest-path src-tauri/Cargo.toml rejects_ambiguous_native_role_markers --lib
+          cargo test --manifest-path src-tauri/Cargo.toml browser_token_is_limited_to_extension_api_surface --lib
           cargo test --manifest-path src-tauri/Cargo.toml pairing_secret_parser_requires_matching_port_and_strong_secret --lib
           cargo test --manifest-path src-tauri/Cargo.toml browser_config_tests --lib
 
