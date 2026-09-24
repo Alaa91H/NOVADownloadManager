@@ -19,6 +19,7 @@ pub mod native_torrent;
 pub mod torrent_peer;
 pub mod torrent_dht;
 pub mod torrent_magnet;
+pub mod torrent_storage;
 
 /// Stable Chromium extension origin derived from NOVA's pinned public key.
 /// Chrome and Edge enforce this origin as an extension-identity boundary.
