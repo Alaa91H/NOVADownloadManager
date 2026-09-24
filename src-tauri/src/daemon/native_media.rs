@@ -1956,13 +1956,17 @@ fn native_selection_preferences(
         other => return Err(format!("Native media mode '{other}' is not supported")),
     };
 
+    let configured_audio_format = options
+        .and_then(|options| options.audio_format.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if mode != MediaSelectionMode::Audio && configured_audio_format.is_some() {
+        return Err("audioFormat requires native media mode 'audio'".to_owned());
+    }
+
     let mut preferred_container = None;
     if mode == MediaSelectionMode::Audio {
-        if let Some(format) = options
-            .and_then(|options| options.audio_format.as_deref())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
+        if let Some(format) = configured_audio_format {
             preferred_container = match format.to_ascii_lowercase().as_str() {
                 "best" | "auto" => None,
                 "m4a" | "mp4" | "aac" => Some("mp4".to_owned()),
@@ -2679,6 +2683,49 @@ mod tests {
         video.container = Some("mp4".to_owned());
         audio.container = Some("webm".to_owned());
         assert_eq!(separate_track_output_container(&video, &audio), "mkv");
+    }
+
+    #[test]
+    fn native_audio_mode_accepts_source_container_selection() {
+        let mut request = body("https://cdn.test/audio");
+        let media = request.media_options.as_mut().expect("media");
+        media.mode = Some("audio".to_owned());
+        media.audio_format = Some("m4a".to_owned());
+        media.format_sort = Some("br,size,codec::m4a".to_owned());
+        NativeMediaExtractor
+            .validate(&request)
+            .expect("native audio selection options");
+    }
+
+    #[test]
+    fn native_audio_mode_rejects_transcoding_only_format() {
+        let mut request = body("https://cdn.test/audio");
+        let media = request.media_options.as_mut().expect("media");
+        media.mode = Some("audio".to_owned());
+        media.audio_format = Some("mp3".to_owned());
+        let error = NativeMediaExtractor
+            .validate(&request)
+            .expect_err("mp3 requires transcoding");
+        assert!(error.0.contains("requires transcoding"));
+    }
+
+    #[test]
+    fn audio_format_is_not_silently_ignored_in_video_mode() {
+        let mut request = body("https://cdn.test/video");
+        request.media_options.as_mut().expect("media").audio_format =
+            Some("m4a".to_owned());
+        let error = NativeMediaExtractor
+            .validate(&request)
+            .expect_err("audioFormat must be meaningful");
+        assert!(error.0.contains("mode 'audio'"));
+    }
+
+    #[test]
+    fn native_format_sort_rejects_unknown_tokens() {
+        let mut request = body("https://cdn.test/video");
+        request.media_options.as_mut().expect("media").format_sort =
+            Some("res,unknown-key".to_owned());
+        assert!(NativeMediaExtractor.validate(&request).is_err());
     }
 
     #[test]
