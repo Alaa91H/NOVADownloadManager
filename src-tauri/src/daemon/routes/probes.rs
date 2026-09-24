@@ -1103,6 +1103,7 @@ pub(super) fn native_media_probe_payload(
         "webpageUrl": metadata.get("webpage_url").and_then(serde_json::Value::as_str).unwrap_or(url),
         "uploader": metadata.get("uploader").and_then(serde_json::Value::as_str).unwrap_or(""),
         "description": metadata.get("description").and_then(serde_json::Value::as_str).unwrap_or(""),
+        "isLive": descriptor.get("is_live").and_then(serde_json::Value::as_bool).unwrap_or(false),
         "formats": formats,
         "engine": "nova-media-engine"
     }))
