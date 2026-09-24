@@ -4,6 +4,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow, ProgressBarStatus } from '@tauri-apps/api/window';
 import { logger } from '../utils/logger';
 import { tauriClient } from '../api/tauriClient';
+import { novaClient } from '../api/novaClient';
 import {
   useTaskData,
   useTaskSelectors,
@@ -18,6 +19,7 @@ import {
   useNavigationData,
   useNavigationActions,
   useNotificationsData,
+  useQueueData,
   useI18n,
 } from '../store/selectors';
 import { useEngineStore } from '../store/engineStore';
@@ -88,6 +90,7 @@ const AppShellInner: React.FC = () => {
   const { activePage } = useNavigationData();
   const { setActivePage } = useNavigationActions();
   const tasks = useTaskData();
+  const queues = useQueueData();
   const tasksRef = useRef(tasks);
   useEffect(() => {
     tasksRef.current = tasks;
@@ -112,6 +115,25 @@ const AppShellInner: React.FC = () => {
       setConnectTimer(0);
     }
   }, [bridge.status]);
+
+  // Stage 6.1 migration bridge: while the legacy UI is still available, copy
+  // its localStorage-backed queue catalog into the daemon. The Qt frontend can
+  // then discover even empty custom queues without reading browser/WebView
+  // storage directly. Debounce task-order churn so large batches do not write
+  // the catalog once per accepted download.
+  useEffect(() => {
+    if (bridge.status !== 'connected') return;
+
+    const timer = window.setTimeout(() => {
+      void novaClient.syncQueueCatalog(queues).catch((error: unknown) => {
+        logger.warn('QueueCatalog', 'Could not sync legacy queue catalog to daemon', error);
+      });
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [bridge.status, queues]);
 
   useEffect(() => {
     if (bridge.status !== 'connecting') {
