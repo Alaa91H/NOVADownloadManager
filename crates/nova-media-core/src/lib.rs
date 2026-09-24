@@ -6,12 +6,14 @@
 
 mod dash_transfer;
 mod generic;
+mod hls_live;
 mod hls_transfer;
 
 pub use dash_transfer::{
     stage_dash_representation_plan, DashStageError, DashStageFile, DashStageResult,
 };
 pub use generic::{GenericDirectMediaExtractor, GenericManifestExtractor};
+pub use hls_live::{refresh_and_stage_hls_live_once, HlsLiveError, HlsLiveStageRefresh};
 pub use hls_transfer::{stage_hls_media_plan, HlsStageError, HlsStageFile, HlsStageResult};
 
 use std::collections::BTreeMap;
