@@ -514,9 +514,14 @@ jobs:
 
       - name: Stage and verify signed Android release APK
         if: steps.android_signing.outputs.available == 'true'
+        id: android_artifact
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
+          version=$(printf '%s' "$version" | sed -E 's#[^A-Za-z0-9._+-]+#-#g; s/^-+//; s/-+$//')
+          if [ -z "$version" ]; then
+            version="build-${GITHUB_RUN_NUMBER}"
+          fi
           source_apk=android/app/build/outputs/apk/release/app-release.apk
           apksigner_path="${ANDROID_HOME:?}/build-tools/36.0.0/apksigner"
           test -s "$source_apk"
@@ -524,12 +529,13 @@ jobs:
           "$apksigner_path" verify --verbose --print-certs "$source_apk"
           mkdir -p release
           cp "$source_apk" "release/Nova.Download.Manager_${version}_android_arm64-v8a.apk"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Upload Android release artifact
         if: steps.android_signing.outputs.available == 'true'
         uses: actions/upload-artifact@v7
         with:
-          name: Nova-android-arm64-${{ github.ref_name }}-${{ github.sha }}
+          name: Nova-android-arm64-${{ steps.android_artifact.outputs.version }}-${{ github.sha }}
           path: release/*.apk
           if-no-files-found: error
           retention-days: 30
