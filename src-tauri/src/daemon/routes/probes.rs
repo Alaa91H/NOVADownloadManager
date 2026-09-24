@@ -1326,6 +1326,7 @@ async fn handle_deprecated_media_bridge_playlist_probe(
 mod bounded_body_tests {
     use super::{append_limited_probe_chunk, retired_media_bridge_response};
     use axum::http::StatusCode;
+    use axum::Json;
 
     #[test]
     fn retired_media_bridge_routes_point_to_native_replacements() {
