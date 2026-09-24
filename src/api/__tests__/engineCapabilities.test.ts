@@ -22,6 +22,9 @@ function validCapabilities() {
     },
     routing: {
       directHttpHttpsFtp: 'libcurl-multi',
+      mediaExtraction: 'nova-media-engine',
+      streaming: 'nova-media-engine',
+      postProcessing: 'nova-media-postprocess',
       webMediaAndPlaylists: 'nova-media-engine',
       mergeRemuxExtractSubtitles: 'nova-media-postprocess',
       torrentMagnet: null,
@@ -45,6 +48,9 @@ describe('engine capabilities contract', () => {
     expect(capabilities.streamingReady).toBe(true);
     expect(capabilities.mediaApi.resolve).toBe('/api/media/resolve');
     expect(capabilities.mediaApi.download).toBe('/api/media/download');
+    expect(capabilities.routing.mediaExtraction).toBe('nova-media-engine');
+    expect(capabilities.routing.streaming).toBe('nova-media-engine');
+    expect(capabilities.routing.postProcessing).toBe('nova-media-postprocess');
     expect(capabilities.routing.torrentMagnet).toBeNull();
   });
 
