@@ -390,7 +390,9 @@ pub async fn handle_create_download(
             )
         })?;
         match extractor.id() {
-            "nova-media-engine" => create_native_media_task(&state, &body).await,
+            "nova-media-engine" => create_native_media_task(&state, &body)
+                .await
+                .map_err(|error| error.to_string()),
             "media-bridge" => create_media_bridge_task(&state, &body).await,
             _ => direct_create(&state, &body).await,
         }

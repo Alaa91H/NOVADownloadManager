@@ -112,6 +112,8 @@ request URL + authorized headers/cookies
 - native format selection;
 - challenge separation between ready and unresolved formats;
 - pure-Rust signature transform family support;
+- native throttling-parameter transform discovery and execution for verified player transform families;
+- bounded player-transform plan cache with fail-closed invalidation;
 - native direct media transfer execution;
 - `/api/media/native/resolve` GET and POST migration API.
 
@@ -119,7 +121,7 @@ request URL + authorized headers/cookies
 
 Still isolated behind typed interfaces:
 
-- evolving throttling/challenge transforms not yet covered by the native parser;
+- newly observed throttling/challenge transform families that fall outside the verified native parser subset;
 - multi-track container muxing;
 - browser-cookie import and cookie-file loading;
 - codec transcoding;
