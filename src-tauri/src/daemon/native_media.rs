@@ -2601,6 +2601,8 @@ fn prepare_native_sidecars(
                     "the media descriptor does not expose a thumbnail".to_owned(),
                 )
             })?;
+        crate::daemon::utils::is_safe_target_url(url)
+            .map_err(NativeMediaTaskError::InvalidRequest)?;
         let response = fetch_http_bytes_with_context(url, &context, NATIVE_THUMBNAIL_MAX_BYTES)
             .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
         let extension = sidecar_extension_from_url(&response.effective_url, "jpg");
@@ -2628,6 +2630,8 @@ fn prepare_native_sidecars(
         }
 
         for track in selected {
+            crate::daemon::utils::is_safe_target_url(&track.url)
+                .map_err(NativeMediaTaskError::InvalidRequest)?;
             let response =
                 fetch_http_bytes_with_context(&track.url, &context, NATIVE_SUBTITLE_MAX_BYTES)
                     .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
