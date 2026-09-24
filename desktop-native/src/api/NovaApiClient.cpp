@@ -2,7 +2,7 @@
 
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QNetworkReply>
+#include <QNetworkReply>\n#include <QScopeGuard>
 #include <QNetworkRequest>
 
 NovaApiClient::NovaApiClient(QObject *parent)
