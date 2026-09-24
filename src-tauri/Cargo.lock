@@ -3056,6 +3056,8 @@ dependencies = [
 name = "nova-media-core"
 version = "0.1.0"
 dependencies = [
+ "aes 0.8.4",
+ "cbc",
  "nova-download-core",
  "nova-stream-core",
  "serde",
