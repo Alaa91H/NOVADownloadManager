@@ -346,7 +346,7 @@ impl DhtEngine {
         for bootstrap in &self.config.bootstrap {
             let lookup = tokio::select! {
                 _ = cancel.cancelled() => return Err("DHT bootstrap resolution cancelled".to_owned()),
-                result = timeout(self.config.bootstrap_timeout, lookup_host(bootstrap)) => {
+                result = timeout(self.config.bootstrap_timeout, lookup_host(bootstrap.as_str())) => {
                     match result {
                         Ok(Ok(addresses)) => addresses.collect::<Vec<_>>(),
                         Ok(Err(_)) | Err(_) => Vec::new(),
