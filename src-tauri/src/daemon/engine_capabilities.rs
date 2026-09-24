@@ -1995,6 +1995,14 @@ pub fn native_torrent_status() -> Value {
             "dht": false,
             "pex": false,
             "metadataExchange": false,
+            "peerTcpTransport": true,
+            "peerHandshakeValidation": true,
+            "peerStateMachine": true,
+            "peerRequestPipeline": true,
+            "peerPieceAssembly": true,
+            "peerPieceHashVerification": true,
+            "peerReputation": true,
+            "peerConnectionLimit": true,
             "peerTransferExecution": false,
             "durableResume": false
         }
@@ -2065,6 +2073,9 @@ mod tests {
         assert_eq!(status["capabilities"]["httpTrackers"], true);
         assert_eq!(status["capabilities"]["udpTrackers"], true);
         assert_eq!(status["capabilities"]["trackerSsrfProtection"], true);
+        assert_eq!(status["capabilities"]["peerTcpTransport"], true);
+        assert_eq!(status["capabilities"]["peerRequestPipeline"], true);
+        assert_eq!(status["capabilities"]["peerReputation"], true);
         assert_eq!(status["capabilities"]["peerTransferExecution"], false);
     }
 
