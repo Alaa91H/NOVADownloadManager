@@ -123,18 +123,16 @@ pub fn get_feature_requirements(feature: &str) -> Vec<(&'static str, ToolId)> {
         | "media.transcode"
         | "media.audio_extract"
         | "media.video_convert"
-        | "media.thumbnail_extract"
-        | "media.media_probe" => {
+        | "media.thumbnail_extract" => {
             vec![("FFmpeg", ToolId::Ffmpeg)]
         }
         "media.resolve"
         | "media.metadata"
         | "media.format_discovery"
         | "media.platform_extraction"
-        | "media.direct_url_resolution" => {
-            vec![("media-bridge", ToolId::MediaBridge)]
-        }
-        "media.extract_and_process" => vec![("media-bridge", ToolId::MediaBridge), ("FFmpeg", ToolId::Ffmpeg)],
+        | "media.direct_url_resolution"
+        | "media.media_probe" => vec![],
+        "media.extract_and_process" => vec![("FFmpeg", ToolId::Ffmpeg)],
         _ => vec![],
     }
 }
