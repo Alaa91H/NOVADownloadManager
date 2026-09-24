@@ -8,10 +8,12 @@ The native interface is intentionally isolated from the existing React/Tauri fro
 
 The new UI uses:
 
-- Qt 6.5+
+- Qt 6.8 LTS or newer
 - C++20
 - Qt Quick / QML
+- Qt Quick Controls 2
 - Qt Network
+- CMake 3.24+
 - The existing NOVA Rust daemon and download engines
 
 It does **not** reimplement libcurl multi, yt-dlp/FFmpeg routing, queue execution, scheduler execution, browser capture, or the Rust core.
@@ -21,13 +23,13 @@ It does **not** reimplement libcurl multi, yt-dlp/FFmpeg routing, queue executio
 Requirements:
 
 - CMake 3.24+
-- Qt 6.5+ with Quick, QuickControls2 and Network
+- Qt 6.8+ with Quick, QuickControls2 and Network
 - A C++20 compiler
 
 Example:
 
 ```bash
-cmake -S desktop-native -B build/native -DCMAKE_PREFIX_PATH=/path/to/Qt/6.x/lib/cmake
+cmake -S desktop-native -B build/native -DCMAKE_PREFIX_PATH=/path/to/Qt/6.8/lib/cmake
 cmake --build build/native --config Release
 ```
 
@@ -56,11 +58,12 @@ Implemented:
 - Native list/progress/status presentation
 - Bottom status bar
 - Independent CMake build
+- Windows and Linux native-UI CI validation
 
 Next:
 
 1. Trusted local authentication/bootstrap
-2. SSE download delta stream
+2. Complete and harden live download event handling
 3. Selection model and real task commands
 4. Add Download workflow
 5. Details/Inspector pane
