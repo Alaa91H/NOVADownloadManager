@@ -613,11 +613,6 @@ pub fn resolve_youtube_playlist(
     })?;
 
     let mut playlist = normalize_playlist_payload(&playlist_id, &playlist_url, &initial);
-    let mut seen_ids = playlist
-        .entries
-        .iter()
-        .map(|entry| entry.id.clone())
-        .collect::<BTreeSet<_>>();
     let mut continuations = collect_playlist_continuations(&initial);
     let mut seen_tokens = BTreeSet::new();
     let mut page_count = 0_usize;
@@ -646,10 +641,8 @@ pub fn resolve_youtube_playlist(
                 playlist.truncated = true;
                 break;
             }
-            if seen_ids.insert(entry.id.clone()) {
-                entry.index = playlist.entries.len().saturating_add(1);
-                playlist.entries.push(entry);
-            }
+            entry.index = playlist.entries.len().saturating_add(1);
+            playlist.entries.push(entry);
         }
         for continuation in collect_playlist_continuations(&page) {
             if !seen_tokens.contains(&continuation) {
@@ -730,8 +723,6 @@ fn normalize_playlist_payload(
 
     let mut entries = Vec::new();
     collect_playlist_entries(payload, &mut entries);
-    let mut seen = BTreeSet::new();
-    entries.retain(|entry| seen.insert(entry.id.clone()));
     for (index, entry) in entries.iter_mut().enumerate() {
         entry.index = index.saturating_add(1);
     }
