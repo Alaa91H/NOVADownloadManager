@@ -210,6 +210,31 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
+    fn controlled_dash_staging_cancels_before_network_io() {
+        let plan = DashRepresentationPlan {
+            representation_id: Some("v1".to_owned()),
+            track_kind: DashTrackKind::Video,
+            bandwidth: Some(1_000_000),
+            units: vec![DashTransferUnit {
+                order: 0,
+                url: "https://example.invalid/1.m4s".to_owned(),
+                initialization: false,
+                number: Some(1),
+                time: None,
+            }],
+        };
+
+        let result = stage_dash_representation_plan_controlled(
+            &plan,
+            &HttpRequestContext::default(),
+            Path::new("/unused"),
+            1,
+            || true,
+        );
+        assert_eq!(result, Err(DashStageError::Cancelled));
+    }
+
+    #[test]
     fn stages_dash_init_and_media_units_in_order() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind DASH server");
         let address = listener.local_addr().expect("DASH server address");

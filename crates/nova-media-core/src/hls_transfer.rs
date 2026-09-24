@@ -426,6 +426,32 @@ mod tests {
     type Aes128CbcEncryptor = cbc::Encryptor<Aes128>;
 
     #[test]
+    fn controlled_hls_staging_cancels_before_network_io() {
+        let plan = HlsMediaPlan {
+            units: vec![HlsTransferUnit {
+                order: 0,
+                kind: HlsTransferUnitKind::MediaSegment,
+                uri: "https://example.invalid/segment.ts".to_owned(),
+                byte_range: None,
+                sequence: Some(1),
+                discontinuity: false,
+                key: None,
+            }],
+            end_list: true,
+            target_duration_seconds: Some(6),
+        };
+
+        let result = stage_hls_media_plan_controlled(
+            &plan,
+            &HttpRequestContext::default(),
+            Path::new("/unused"),
+            1,
+            || true,
+        );
+        assert_eq!(result, Err(HlsStageError::Cancelled));
+    }
+
+    #[test]
     fn derives_sequence_iv_and_parses_explicit_iv() {
         let unit = HlsTransferUnit {
             order: 0,
