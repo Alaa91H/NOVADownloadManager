@@ -13,6 +13,7 @@ pub mod telegram;
 pub mod types;
 pub mod utils;
 pub mod media_bridge;
+pub mod native_media;
 
 /// Stable Chromium extension origin derived from NOVA's pinned public key.
 /// Chrome and Edge enforce this origin as an extension-identity boundary.
@@ -389,6 +390,9 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 let mut extractor_registry = ExtractorRegistry::new();
                 extractor_registry
                     .register(std::sync::Arc::new(crate::daemon::curl::CurlExtractor));
+                extractor_registry.register(std::sync::Arc::new(
+                    crate::daemon::native_media::NativeMediaExtractor,
+                ));
                 extractor_registry.register(std::sync::Arc::new(
                     crate::daemon::media_bridge::MediaBridgeExtractor::new(
                         media_bridge_bin.clone(),

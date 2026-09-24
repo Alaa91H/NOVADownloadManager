@@ -72,11 +72,29 @@ impl ExtractorRegistry {
     pub fn validate(&self, body: &CreateDownloadBody) -> Result<Arc<dyn Extractor>, ValidateError> {
         let has_media = body.media_options.is_some();
         let url = body.url.as_deref().unwrap_or("");
-        let extractor = self
-            .select(url, has_media)
-            .ok_or_else(|| ValidateError(format!("No extractor found for URL: {url}")))?;
-        extractor.validate(body)?;
-        Ok(extractor)
+        let mut validation_errors = Vec::new();
+
+        for extractor in self
+            .extractors
+            .iter()
+            .filter(|extractor| extractor.can_handle(url, has_media))
+        {
+            match extractor.validate(body) {
+                Ok(()) => return Ok(extractor.clone()),
+                Err(error) => {
+                    validation_errors.push(format!("{}: {}", extractor.id(), error));
+                }
+            }
+        }
+
+        if validation_errors.is_empty() {
+            Err(ValidateError(format!("No extractor found for URL: {url}")))
+        } else {
+            Err(ValidateError(format!(
+                "No compatible extractor accepted the request: {}",
+                validation_errors.join("; ")
+            )))
+        }
     }
 }
 
@@ -214,6 +232,61 @@ mod tests {
         let result = reg.validate(&body);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().id(), "curl");
+    }
+
+    struct RejectingExtractor;
+
+    impl Extractor for RejectingExtractor {
+        fn id(&self) -> &str {
+            "native-first"
+        }
+
+        fn can_handle(&self, _url: &str, has_media: bool) -> bool {
+            has_media
+        }
+
+        fn validate(&self, _body: &CreateDownloadBody) -> Result<(), ValidateError> {
+            Err(ValidateError("unsupported native option".to_owned()))
+        }
+
+        fn engine_status(&self, _state: &SharedState) -> EngineStatus {
+            EngineStatus {
+                id: "native-first".to_owned(),
+                name: "NOVA Media Engine".to_owned(),
+                available: true,
+                version: None,
+                features: Vec::new(),
+            }
+        }
+    }
+
+    #[test]
+    fn registry_validation_falls_through_to_next_matching_extractor() {
+        let mut reg = ExtractorRegistry::new();
+        reg.register(Arc::new(RejectingExtractor));
+        reg.register(Arc::new(MockExtractor {
+            id: "media-bridge".into(),
+            media: true,
+        }));
+        let body = CreateDownloadBody {
+            url: Some("https://example.com/video".into()),
+            name: None,
+            file_type: None,
+            size_bytes: None,
+            category: None,
+            queue_id: None,
+            connections: None,
+            resumable: None,
+            save_path: None,
+            description: None,
+            referer: None,
+            start_immediately: None,
+            direct_options: None,
+            media_options: Some(Default::default()),
+        };
+
+        let selected = reg.validate(&body).expect("fallback extractor");
+        assert_eq!(selected.id(), "media-bridge");
     }
 
     #[test]
