@@ -394,11 +394,11 @@ pub async fn handle_create_download(
             "nova-media-engine" => create_native_media_task(&state, &body)
                 .await
                 .map_err(|error| error.to_string()),
-            "media-bridge" => Err(
-                "The legacy Media Bridge is not available through the public download API."
+            "libcurl-multi" => direct_create(&state, &body).await,
+            _ => Err(
+                "The selected extractor is internal and is not available through the public download API."
                     .to_owned(),
             ),
-            _ => direct_create(&state, &body).await,
         }
     };
 
