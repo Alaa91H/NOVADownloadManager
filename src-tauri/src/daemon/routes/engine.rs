@@ -521,6 +521,7 @@ pub async fn handle_queue_catalog_get(
             log::warn!("Could not persist reconciled queue catalog: {error}");
         }
     }
+    apply_queue_bandwidth_policy(&state, &queues);
     Json(serde_json::json!({
         "ok": true,
         "version": 1,
@@ -572,6 +573,7 @@ pub async fn handle_queue_catalog_put(
     let queues = reconcile_queue_catalog(&state, queues);
     write_queue_catalog(&state.data_dir, &queues)
         .map_err(|error| queue_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    apply_queue_bandwidth_policy(&state, &queues);
 
     Ok(Json(serde_json::json!({
         "ok": true,
@@ -618,6 +620,35 @@ fn load_reconciled_queue_catalog(state: &SharedState) -> Vec<serde_json::Value> 
     reconcile_queue_catalog(state, read_queue_catalog(&state.data_dir))
 }
 
+fn apply_queue_bandwidth_policy(state: &SharedState, queues: &[serde_json::Value]) {
+    for queue in queues {
+        let limited = queue
+            .get("limitSpeed")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let limit = queue
+            .get("speedLimitKbs")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        let Some(order) = queue
+            .get("downloadOrder")
+            .and_then(serde_json::Value::as_array)
+        else {
+            continue;
+        };
+
+        for task_id in order.iter().filter_map(serde_json::Value::as_str) {
+            if limited && limit > 0 {
+                state
+                    .bandwidth_manager
+                    .set_task_limit(task_id.to_owned(), limit);
+            } else {
+                state.bandwidth_manager.remove_task_limit(task_id);
+            }
+        }
+    }
+}
+
 pub async fn handle_queue_create(
     State(state): State<SharedState>,
     Json(body): Json<QueueCreateBody>,
@@ -655,6 +686,7 @@ pub async fn handle_queue_create(
         .map_err(|error| queue_error(StatusCode::BAD_REQUEST, error))?;
     write_queue_catalog(&state.data_dir, &queues)
         .map_err(|error| queue_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    apply_queue_bandwidth_policy(&state, &queues);
 
     Ok(Json(serde_json::json!({
         "ok": true,
@@ -703,6 +735,7 @@ pub async fn handle_queue_update(
         .ok_or_else(|| queue_error(StatusCode::INTERNAL_SERVER_ERROR, "Updated queue disappeared"))?;
     write_queue_catalog(&state.data_dir, &queues)
         .map_err(|error| queue_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    apply_queue_bandwidth_policy(&state, &queues);
 
     Ok(Json(serde_json::json!({"ok": true, "queue": queue, "queues": queues})))
 }
@@ -758,6 +791,7 @@ pub async fn handle_queue_delete(
 
     write_queue_catalog(&state.data_dir, &queues)
         .map_err(|error| queue_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    apply_queue_bandwidth_policy(&state, &queues);
 
     Ok(Json(serde_json::json!({
         "ok": true,
@@ -800,6 +834,7 @@ pub async fn handle_queue_reorder(
 
     write_queue_catalog(&state.data_dir, &reordered)
         .map_err(|error| queue_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    apply_queue_bandwidth_policy(&state, &reordered);
     Ok(Json(serde_json::json!({"ok": true, "queues": reordered})))
 }
 
@@ -834,6 +869,7 @@ pub async fn handle_queue_move_task(
     let queues = reconcile_queue_catalog(&state, queues);
     write_queue_catalog(&state.data_dir, &queues)
         .map_err(|error| queue_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    apply_queue_bandwidth_policy(&state, &queues);
 
     Ok(Json(serde_json::json!({
         "ok": true,
@@ -886,6 +922,7 @@ pub async fn handle_queue_reorder_tasks(
 
     write_queue_catalog(&state.data_dir, &queues)
         .map_err(|error| queue_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    apply_queue_bandwidth_policy(&state, &queues);
     Ok(Json(serde_json::json!({"ok": true, "queues": queues})))
 }
 
