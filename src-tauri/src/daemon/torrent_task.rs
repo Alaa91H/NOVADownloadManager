@@ -845,6 +845,54 @@ async fn update_torrent_progress_once(
     state.mark_dirty();
 }
 
+pub async fn shutdown_torrent_tasks(state: &SharedState) {
+    let pending = {
+        let mut jobs = lock_or_err!(state.torrent_jobs);
+        let mut pending = Vec::new();
+        for (id, job) in jobs.iter_mut() {
+            let current = TaskState::from_status(&job.task.status);
+            if current == Some(TaskState::Completed) {
+                continue;
+            }
+            job.cancel_token.cancel();
+            job.run_generation.fetch_add(1, Ordering::AcqRel);
+            if current != Some(TaskState::Paused) {
+                if let Some(current) = current {
+                    if current.can_transition_to(TaskState::Paused) {
+                        let _ = transition_task_state(&mut job.task, TaskState::Paused, "shutdown");
+                    } else {
+                        job.task.status = TaskState::Paused.as_status().to_owned();
+                        job.task.engine_status = Some("shutdown".to_owned());
+                    }
+                } else {
+                    job.task.status = TaskState::Paused.as_status().to_owned();
+                    job.task.engine_status = Some("shutdown".to_owned());
+                }
+            }
+            job.task.speed_bytes_per_sec = 0;
+            job.task.time_left_seconds = 0;
+            pending.push((
+                id.clone(),
+                job.task.clone(),
+                job.storage.clone(),
+                job.active_slot.clone(),
+            ));
+        }
+        pending
+    };
+
+    for (id, task, storage_slot, active_slot) in pending {
+        if let Some(storage) = storage_slot.lock().await.clone() {
+            let _ = storage.pause().await;
+        }
+        release_queue_slot(state, &id, &active_slot, false);
+        lock_or_err!(state.task_snapshot).insert(id, task);
+    }
+    if !lock_or_err!(state.torrent_jobs).is_empty() {
+        state.mark_dirty();
+    }
+}
+
 pub async fn pause_torrent_task(state: &SharedState, id: &str) -> Result<Task, String> {
     let (storage_slot, generation, active) = {
         let mut jobs = lock_or_err!(state.torrent_jobs);
