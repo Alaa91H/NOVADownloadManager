@@ -706,6 +706,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                             axum::http::Method::GET,
                             axum::http::Method::POST,
                             axum::http::Method::PATCH,
+                            axum::http::Method::PUT,
                             axum::http::Method::DELETE,
                             axum::http::Method::OPTIONS,
                         ])
