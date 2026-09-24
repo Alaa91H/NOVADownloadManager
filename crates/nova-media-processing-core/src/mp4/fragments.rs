@@ -243,6 +243,13 @@ fn parse_trun(
         None
     };
 
+    if flags & TRUN_FIRST_SAMPLE_FLAGS_PRESENT != 0
+        && flags & TRUN_SAMPLE_FLAGS_PRESENT != 0
+    {
+        return Err(demux_error(
+            "trun cannot contain both first-sample-flags and per-sample flags",
+        ));
+    }
     let first_sample_flags = if flags & TRUN_FIRST_SAMPLE_FLAGS_PRESENT != 0 {
         let value = read_u32(slice(body, cursor, 4)?)?;
         cursor += 4;
