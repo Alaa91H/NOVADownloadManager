@@ -32,6 +32,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Check localization gate
+        run: node desktop-native/scripts/check-localization.mjs
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
