@@ -37,8 +37,10 @@ Bracket parseBracket(QString raw) {
         const qint64 parsedStep = raw.mid(stepIndex + 1).toLongLong(&stepOk);
         if (stepOk && parsedStep > 0) {
             step = parsedStep;
-            raw = raw.left(stepIndex);
         }
+        // The legacy parser treats an invalid/non-positive step suffix as the
+        // default step=1 while still parsing the underlying range.
+        raw = raw.left(stepIndex);
     }
 
     const int dashIndex = raw.indexOf(QLatin1Char('-'));
