@@ -408,6 +408,182 @@ fn create_native_manifest_task(
     Ok(task)
 }
 
+fn create_native_separate_track_task(
+    state: &SharedState,
+    body: &CreateDownloadBody,
+    resolved: ResolvedSeparateTracks,
+) -> Result<Task, NativeMediaTaskError> {
+    let video = resolved
+        .extraction
+        .descriptor
+        .streams
+        .iter()
+        .find(|stream| stream.id == resolved.video_stream_id)
+        .ok_or_else(|| {
+            NativeMediaTaskError::Resolution(
+                "selected native video track disappeared before task creation".to_owned(),
+            )
+        })?;
+    let audio = resolved
+        .extraction
+        .descriptor
+        .streams
+        .iter()
+        .find(|stream| stream.id == resolved.audio_stream_id)
+        .ok_or_else(|| {
+            NativeMediaTaskError::Resolution(
+                "selected native audio track disappeared before task creation".to_owned(),
+            )
+        })?;
+
+    let mut task_body = body.clone();
+    if task_body
+        .name
+        .as_deref()
+        .map_or(true, |name| name.trim().is_empty())
+    {
+        let mut title = resolved.extraction.descriptor.metadata.title.trim().to_owned();
+        if title.is_empty() {
+            title = "nova-media".to_owned();
+        }
+        if Path::new(&title).extension().is_none() {
+            title.push('.');
+            title.push_str(&resolved.output_container);
+        }
+        task_body.name = Some(title);
+    }
+    if task_body
+        .file_type
+        .as_deref()
+        .map_or(true, |kind| kind.trim().is_empty())
+    {
+        task_body.file_type = Some(resolved.output_container.clone());
+    }
+
+    let source_url = body.url.as_deref().unwrap_or_default();
+    let (name, output_path) =
+        crate::daemon::curl::destination_from_body(&task_body, source_url);
+    if let Some(parent) = output_path
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    }
+
+    let id = Uuid::new_v4().to_string();
+    let connections = crate::daemon::curl::requested_connections(body.connections);
+    let video_total = video.content_length.unwrap_or(0);
+    let audio_total = audio.content_length.unwrap_or(0);
+    let expected_bytes = resolved
+        .expected_bytes
+        .or_else(|| {
+            (video_total > 0 && audio_total > 0)
+                .then_some(video_total.saturating_add(audio_total))
+        })
+        .unwrap_or_else(|| body.size_bytes.unwrap_or(0));
+
+    let segments = vec![
+        Segment {
+            id: 0,
+            progress: 0.0,
+            downloaded_bytes: 0,
+            total_bytes: video_total,
+            active: false,
+            speed: 0,
+            start_byte: 0,
+            end_byte: video_total.saturating_sub(1),
+        },
+        Segment {
+            id: 1,
+            progress: 0.0,
+            downloaded_bytes: 0,
+            total_bytes: audio_total,
+            active: false,
+            speed: 0,
+            start_byte: 0,
+            end_byte: audio_total.saturating_sub(1),
+        },
+    ];
+
+    let task = Task {
+        id: id.clone(),
+        name,
+        url: source_url.to_owned(),
+        file_type: task_body
+            .file_type
+            .clone()
+            .unwrap_or_else(|| resolved.output_container.clone()),
+        status: if body.start_immediately.unwrap_or(true) {
+            TaskState::Preparing.as_status()
+        } else {
+            TaskState::Queued.as_status()
+        }
+        .to_owned(),
+        size_bytes: expected_bytes,
+        downloaded_bytes: 0,
+        speed_bytes_per_sec: 0,
+        time_left_seconds: 0,
+        elapsed_seconds: 0,
+        date_added: crate::daemon::utils::now_str(),
+        category: body.category.clone().unwrap_or_else(|| "video".to_owned()),
+        queue_id: body.queue_id.clone().unwrap_or_else(|| "main".to_owned()),
+        connections,
+        resumable: body.resumable.unwrap_or(true),
+        save_path: output_path.to_string_lossy().to_string(),
+        description: body.description.clone().unwrap_or_else(|| {
+            "Native separate audio/video download with NOVA post-processing".to_owned()
+        }),
+        segments,
+        referer: body.referer.clone(),
+        engine: "nova-media-engine".to_owned(),
+        engine_id: id.clone(),
+        engine_status: Some(
+            if body.start_immediately.unwrap_or(true) {
+                "starting"
+            } else {
+                "queued"
+            }
+            .to_owned(),
+        ),
+        error_message: None,
+    };
+
+    let job = NativeMediaJob {
+        task: task.clone(),
+        request: body.clone(),
+        protocol: "separate-tracks".to_owned(),
+        cancel_token: Arc::new(AtomicBool::new(false)),
+        run_generation: Arc::new(AtomicU64::new(0)),
+        start_time: Instant::now(),
+    };
+
+    {
+        let mut jobs = state
+            .native_media_jobs
+            .lock()
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+        let mut snapshot = state
+            .task_snapshot
+            .lock()
+            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+        if snapshot.len() >= 10_000 {
+            return Err(NativeMediaTaskError::Transfer(
+                "Maximum number of tasks reached. Complete or delete some tasks before creating new ones."
+                    .to_owned(),
+            ));
+        }
+        jobs.insert(id.clone(), job);
+        snapshot.insert(id.clone(), task.clone());
+    }
+    state.mark_dirty();
+
+    if body.start_immediately.unwrap_or(true) {
+        start_native_media_process(state, &id);
+    }
+    Ok(task)
+}
+
 pub fn start_native_media_process(state: &SharedState, id: &str) {
     let prepared = {
         let mut jobs = match state.native_media_jobs.lock() {
