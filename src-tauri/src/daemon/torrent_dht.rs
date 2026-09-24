@@ -1,9 +1,9 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
 use nova_torrent_core::{
-    DhtMessage, DhtNode, DhtNodeId, DhtQuery, DhtResponse, InfoHash, MAX_DHT_PACKET_BYTES,
+    DhtMessage, DhtNodeId, DhtQuery, DhtResponse, InfoHash, MAX_DHT_PACKET_BYTES,
     MAX_DHT_PEERS,
 };
 use tokio::net::{lookup_host, UdpSocket};
