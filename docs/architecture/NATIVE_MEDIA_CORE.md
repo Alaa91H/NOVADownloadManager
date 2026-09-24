@@ -4,7 +4,7 @@
 
 Implementation branch: `feature/native-media-core`
 
-Current implementation now includes native media request context, bounded manifest fetching, HLS/DASH transfer planning, parallel staging executors, generic native extractors, HLS AES-128 decryption, incremental HLS/DASH live refresh cursors, DASH SegmentTimeline planning, and atomic ordered assembly.
+Current implementation now includes native media request context, bounded GET/POST control traffic, HLS/DASH transfer planning, parallel staging executors, generic native extractors, HLS AES-128 decryption, incremental HLS/DASH live refresh cursors, DASH SegmentTimeline planning, atomic ordered assembly, and the first first-party YouTube extraction/transfer path.
 
 The media subsystem is being moved into the NOVA Rust core. The target runtime has no required yt-dlp executable, Python runtime, Node.js runtime, or Deno runtime.
 
@@ -78,9 +78,9 @@ URL
 3. Add request metadata support to `nova-download-core` for media headers, referer, cookies, and user-agent. **Implemented.**
 4. Connect HLS/DASH segment planning to the native transfer core. **Implemented for HLS VOD/live ticks and static/dynamic timeline DASH snapshots.**
 5. Add generic native media extraction. **Implemented for manifest URLs and common direct audio/video files.**
-6. Add first-party site extractors, beginning with YouTube.
-7. Add an embedded JavaScript execution layer only where a site extractor requires it.
-8. Migrate existing desktop API/media jobs onto the native engine.
+6. Add first-party site extractors, beginning with YouTube. **Implemented for watch/short/live URL parsing, watch-page bootstrap, Innertube fallback, metadata/formats/captions, native selection and direct transfer execution.**
+7. Add an embedded challenge execution layer only where a site extractor requires it. **Pure-Rust YouTube signature transforms are implemented; the evolving `n` transform remains fail-closed behind a typed solver contract.**
+8. Migrate existing desktop API/media jobs onto the native engine. **Started with `/api/media/native/resolve` GET/POST while legacy endpoints remain available during parity validation.**
 9. Remove runtime yt-dlp discovery, installation, updater, subprocess and compatibility code.
 10. Remove the legacy yt-dlp binary from release resources after feature-parity acceptance tests pass.
 
@@ -118,5 +118,39 @@ Still intentionally separate:
 - SAMPLE-AES and DRM key formats;
 - multi-track audio/video muxing;
 - codec transcoding;
-- site-specific JavaScript challenge execution;
-- first-party YouTube extraction.
+- YouTube `n` throttling transform patterns not yet covered by the pure-Rust solver;
+- multi-track container muxing after separate video/audio downloads;
+- browser-cookie import and cookie-file loading in the native resolver;
+- wider first-party site extractor coverage beyond YouTube.
+
+
+## Native YouTube path
+
+The first-party YouTube implementation is owned by `nova-media-core` and does not invoke yt-dlp.
+
+Current flow:
+
+```text
+YouTube URL
+ -> video-id validation
+ -> native watch-page fetch
+ -> ytcfg / ytInitialPlayerResponse
+ -> native Innertube POST fallback
+ -> MediaDescriptor + subtitles
+ -> ready formats + challenged formats
+ -> pure-Rust signature solver where supported
+ -> format selection
+ -> nova-download-core segmented transfer
+ -> single stream output or separate video/audio staging
+```
+
+Important invariants:
+
+- formats carrying unresolved `signatureCipher` or `n` parameters never enter the ready stream list;
+- unknown player-script transforms fail closed rather than guessing;
+- direct YouTube media bytes use the same libcurl scheduler as normal NOVA downloads;
+- the native resolver exposes pending challenge state to callers;
+- `/api/media/native/resolve` accepts existing media request context through GET/POST migration endpoints;
+- cookie files and browser-cookie import are not silently delegated to an external executable.
+
+The built-in `YouTubePlayerScriptSolver` currently recognizes the classic reverse/drop/swap signature-transform family directly from player JavaScript. The `n` transform remains behind the same solver interface so the implementation can evolve without changing extraction, selection, or transfer contracts.
