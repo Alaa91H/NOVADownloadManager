@@ -8,6 +8,8 @@ function validCapabilities() {
     status: 'connected',
     allReady: true,
     directReady: true,
+    mediaExtractionReady: true,
+    streamingReady: true,
     mediaReady: true,
     postProcessingReady: true,
     directProtocols: ['http', 'https', 'ftp'],
@@ -33,14 +35,18 @@ describe('engine capabilities contract', () => {
 
     expect(capabilities.directProtocols).toEqual(['http', 'https', 'ftp']);
     expect(capabilities.engines.libcurlMulti.available).toBe(true);
+    expect(capabilities.mediaExtractionReady).toBe(true);
+    expect(capabilities.streamingReady).toBe(true);
     expect(capabilities.routing.torrentMagnet).toBeNull();
   });
 
   it('rejects capability responses without required readiness flags', () => {
     const response = validCapabilities();
-    delete (response as Partial<typeof response>).directReady;
+    delete (response as Partial<typeof response>).mediaExtractionReady;
 
-    expect(() => parseEngineCapabilitiesResponse(response)).toThrow('directReady must be a boolean');
+    expect(() => parseEngineCapabilitiesResponse(response)).toThrow(
+      'mediaExtractionReady must be a boolean',
+    );
   });
 
   it('rejects responses from an incompatible contract mode', () => {
