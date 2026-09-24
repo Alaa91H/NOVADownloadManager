@@ -259,6 +259,7 @@ pub struct MediaJob {
 pub struct NativeMediaJob {
     pub task: Task,
     pub request: CreateDownloadBody,
+    pub protocol: String,
     pub cancel_token: Arc<AtomicBool>,
     pub run_generation: Arc<AtomicU64>,
     pub start_time: Instant,

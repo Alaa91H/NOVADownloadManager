@@ -93,6 +93,28 @@ pub fn stage_hls_media_plan_controlled<F>(
 where
     F: Fn() -> bool + Sync,
 {
+    stage_hls_media_plan_controlled_with_progress(
+        plan,
+        context,
+        staging_dir,
+        requested_parallelism,
+        should_cancel,
+        |_| {},
+    )
+}
+
+pub fn stage_hls_media_plan_controlled_with_progress<F, P>(
+    plan: &HlsMediaPlan,
+    context: &HttpRequestContext,
+    staging_dir: &Path,
+    requested_parallelism: u32,
+    should_cancel: F,
+    on_progress: P,
+) -> Result<HlsStageResult, HlsStageError>
+where
+    F: Fn() -> bool + Sync,
+    P: Fn(u64) + Sync,
+{
     if plan.units.is_empty() {
         return Err(HlsStageError::EmptyPlan);
     }
@@ -151,7 +173,10 @@ where
 
                 match transfer {
                     Ok(bytes) => {
-                        total_bytes.fetch_add(bytes, Ordering::AcqRel);
+                        let total = total_bytes
+                            .fetch_add(bytes, Ordering::AcqRel)
+                            .saturating_add(bytes);
+                        on_progress(total);
                         if let Ok(mut entries) = results.lock() {
                             entries[index] = Some(HlsStageFile {
                                 order: unit.order,
