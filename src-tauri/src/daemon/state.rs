@@ -109,8 +109,15 @@ pub struct AppState {
     pub mirror_managers: Mutex<HashMap<String, MirrorManager>>,
     /// Registry of download extractors (curl, yt-dlp, etc.)
     pub extractor_registry: SharedExtractorRegistry,
-    /// Bearer token for API authentication. Generated at daemon start.
+    /// Master bearer token used only by the in-process trusted desktop/webview layer.
+    /// It is never returned by the loopback auto-pair endpoint.
     pub api_token: String,
+    /// Separate bearer token issued to trusted local native clients after they
+    /// prove possession of the per-daemon pairing secret.
+    pub native_client_token: String,
+    /// Random proof secret rotated on every daemon start. It is written only to
+    /// the user's NOVA data directory and must accompany native auto-pair calls.
+    pub native_pairing_secret: String,
     /// Accumulated download statistics persisted across sessions.
     pub download_stats: Mutex<DownloadStats>,
     /// Resource Intelligence Engine — analyzes URLs and selects download strategies.
