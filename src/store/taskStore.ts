@@ -194,7 +194,7 @@ export const taskStore = create<TaskState>()((set, get) => ({
           .getState()
           .addToast('success', 'Download added', `"${normalizedTask.name}" was added to the download queue.`);
       }
-      if (downloadImmediately) {
+      if (downloadImmediately && !silent) {
         playAppSound(settingsStore.getState().settings, 'start');
         uiStore.getState().openDialog('activeProgress', normalizedTask);
       }
@@ -203,9 +203,11 @@ export const taskStore = create<TaskState>()((set, get) => ({
       const errorMessage = extractErrorMessage(error, 'Unknown error');
       logger.error('TaskStore', `Failed to create download for ${logSafeUrlOrigin(newItem.url)}: ${errorMessage}`);
       bridgeStore.getState().setIsDegradedMode(true);
-      uiStore
-        .getState()
-        .addToast('error', 'NOVA daemon', extractErrorMessage(error, 'The local download engine rejected the task.'));
+      if (!silent) {
+        uiStore
+          .getState()
+          .addToast('error', 'NOVA daemon', extractErrorMessage(error, 'The local download engine rejected the task.'));
+      }
       return null;
     }
   },
