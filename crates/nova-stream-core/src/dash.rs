@@ -2,6 +2,7 @@ use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use url::Url;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DashSegmentTemplate {
@@ -251,6 +252,313 @@ fn local_name(name: &[u8]) -> &[u8] {
     name.rsplit(|byte| *byte == b':').next().unwrap_or(name)
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DashTrackKind {
+    Video,
+    Audio,
+    Other,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct DashTransferUnit {
+    pub order: u64,
+    pub url: String,
+    pub initialization: bool,
+    pub number: Option<u64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct DashRepresentationPlan {
+    pub representation_id: Option<String>,
+    pub track_kind: DashTrackKind,
+    pub bandwidth: Option<u64>,
+    pub units: Vec<DashTransferUnit>,
+}
+
+#[derive(Debug, Error, Eq, PartialEq)]
+pub enum DashPlanError {
+    #[error("dynamic DASH planning requires the live refresh scheduler")]
+    DynamicManifest,
+    #[error("DASH adaptation set index is out of range")]
+    MissingAdaptation,
+    #[error("DASH representation index is out of range")]
+    MissingRepresentation,
+    #[error("DASH manifest URL is invalid")]
+    InvalidManifestUrl,
+    #[error("DASH SegmentTemplate has no media template")]
+    MissingMediaTemplate,
+    #[error("DASH fixed-duration SegmentTemplate requires duration/timescale metadata")]
+    MissingSegmentTiming,
+    #[error("DASH MPD is missing mediaPresentationDuration")]
+    MissingPresentationDuration,
+    #[error("unsupported DASH duration value: {0}")]
+    InvalidPresentationDuration(String),
+    #[error("DASH template requires a representation id")]
+    MissingRepresentationId,
+    #[error("DASH template requires a representation bandwidth")]
+    MissingBandwidth,
+    #[error("DASH template token is unsupported: {0}")]
+    UnsupportedTemplateToken(String),
+}
+
+pub fn select_best_dash_representation(
+    adaptation: &DashAdaptationSet,
+) -> Option<&DashRepresentation> {
+    adaptation.representations.iter().max_by_key(|representation| {
+        (
+            u64::from(representation.width.unwrap_or(0))
+                * u64::from(representation.height.unwrap_or(0)),
+            representation.bandwidth.unwrap_or(0),
+        )
+    })
+}
+
+/// Build a native transfer plan for a static DASH representation.
+///
+/// This first planner supports direct BaseURL resources and fixed-duration
+/// SegmentTemplate MPDs. SegmentTimeline/dynamic refresh are intentionally
+/// separate extensions rather than silently approximated.
+pub fn build_dash_representation_plan(
+    manifest: &DashManifest,
+    manifest_url: &str,
+    period_index: usize,
+    adaptation_index: usize,
+    representation_index: usize,
+) -> Result<DashRepresentationPlan, DashPlanError> {
+    if manifest.is_dynamic {
+        return Err(DashPlanError::DynamicManifest);
+    }
+
+    let period = manifest
+        .periods
+        .get(period_index)
+        .ok_or(DashPlanError::MissingAdaptation)?;
+    let adaptation = period
+        .adaptations
+        .get(adaptation_index)
+        .ok_or(DashPlanError::MissingAdaptation)?;
+    let representation = adaptation
+        .representations
+        .get(representation_index)
+        .ok_or(DashPlanError::MissingRepresentation)?;
+
+    let mut base =
+        Url::parse(manifest_url).map_err(|_| DashPlanError::InvalidManifestUrl)?;
+    if let Some(adaptation_base) = &adaptation.base_url {
+        base = base
+            .join(adaptation_base)
+            .map_err(|_| DashPlanError::InvalidManifestUrl)?;
+    }
+    if let Some(representation_base) = &representation.base_url {
+        base = base
+            .join(representation_base)
+            .map_err(|_| DashPlanError::InvalidManifestUrl)?;
+    }
+
+    let track_kind = dash_track_kind(adaptation, representation);
+    let template = representation
+        .segment_template
+        .as_ref()
+        .or(adaptation.segment_template.as_ref());
+
+    let Some(template) = template else {
+        return Ok(DashRepresentationPlan {
+            representation_id: representation.id.clone(),
+            track_kind,
+            bandwidth: representation.bandwidth,
+            units: vec![DashTransferUnit {
+                order: 0,
+                url: base.to_string(),
+                initialization: false,
+                number: None,
+            }],
+        });
+    };
+
+    let media_template = template
+        .media
+        .as_deref()
+        .ok_or(DashPlanError::MissingMediaTemplate)?;
+    let timescale = template.timescale.unwrap_or(1);
+    let segment_duration = template.duration.ok_or(DashPlanError::MissingSegmentTiming)?;
+    if timescale == 0 || segment_duration == 0 {
+        return Err(DashPlanError::MissingSegmentTiming);
+    }
+
+    let duration_text = manifest
+        .media_presentation_duration
+        .as_deref()
+        .ok_or(DashPlanError::MissingPresentationDuration)?;
+    let total_millis = parse_iso8601_duration_millis(duration_text)
+        .ok_or_else(|| DashPlanError::InvalidPresentationDuration(duration_text.to_owned()))?;
+    let numerator = u128::from(total_millis) * u128::from(timescale);
+    let denominator = u128::from(segment_duration) * 1000;
+    let segment_count = numerator
+        .saturating_add(denominator.saturating_sub(1))
+        / denominator;
+    let segment_count = u64::try_from(segment_count).unwrap_or(u64::MAX);
+
+    let start_number = template.start_number.unwrap_or(1);
+    let mut units = Vec::with_capacity(segment_count.saturating_add(1) as usize);
+    let mut order = 0_u64;
+
+    if let Some(initialization) = template.initialization.as_deref() {
+        let rendered = render_dash_template(initialization, representation, None)?;
+        let url = base
+            .join(&rendered)
+            .map_err(|_| DashPlanError::InvalidManifestUrl)?
+            .to_string();
+        units.push(DashTransferUnit {
+            order,
+            url,
+            initialization: true,
+            number: None,
+        });
+        order += 1;
+    }
+
+    for offset in 0..segment_count {
+        let number = start_number.saturating_add(offset);
+        let rendered = render_dash_template(media_template, representation, Some(number))?;
+        let url = base
+            .join(&rendered)
+            .map_err(|_| DashPlanError::InvalidManifestUrl)?
+            .to_string();
+        units.push(DashTransferUnit {
+            order,
+            url,
+            initialization: false,
+            number: Some(number),
+        });
+        order += 1;
+    }
+
+    Ok(DashRepresentationPlan {
+        representation_id: representation.id.clone(),
+        track_kind,
+        bandwidth: representation.bandwidth,
+        units,
+    })
+}
+
+fn dash_track_kind(
+    adaptation: &DashAdaptationSet,
+    representation: &DashRepresentation,
+) -> DashTrackKind {
+    let kind = adaptation
+        .content_type
+        .as_deref()
+        .or_else(|| adaptation.mime_type.as_deref())
+        .or_else(|| representation.mime_type.as_deref())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    if kind.starts_with("video") {
+        DashTrackKind::Video
+    } else if kind.starts_with("audio") {
+        DashTrackKind::Audio
+    } else {
+        DashTrackKind::Other
+    }
+}
+
+fn render_dash_template(
+    template: &str,
+    representation: &DashRepresentation,
+    number: Option<u64>,
+) -> Result<String, DashPlanError> {
+    let mut output = String::with_capacity(template.len() + 16);
+    let mut rest = template;
+
+    while let Some(start) = rest.find('$') {
+        output.push_str(&rest[..start]);
+        rest = &rest[start + 1..];
+
+        if rest.starts_with('$') {
+            output.push('$');
+            rest = &rest[1..];
+            continue;
+        }
+
+        let end = rest
+            .find('$')
+            .ok_or_else(|| DashPlanError::UnsupportedTemplateToken(rest.to_owned()))?;
+        let token = &rest[..end];
+        rest = &rest[end + 1..];
+
+        match token {
+            "RepresentationID" => output.push_str(
+                representation
+                    .id
+                    .as_deref()
+                    .ok_or(DashPlanError::MissingRepresentationId)?,
+            ),
+            "Bandwidth" => output.push_str(
+                &representation
+                    .bandwidth
+                    .ok_or(DashPlanError::MissingBandwidth)?
+                    .to_string(),
+            ),
+            "Number" => output.push_str(
+                &number
+                    .ok_or_else(|| DashPlanError::UnsupportedTemplateToken(token.to_owned()))?
+                    .to_string(),
+            ),
+            _ if token.starts_with("Number%0") && token.ends_with('d') => {
+                let width = token
+                    .strip_prefix("Number%0")
+                    .and_then(|value| value.strip_suffix('d'))
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .ok_or_else(|| DashPlanError::UnsupportedTemplateToken(token.to_owned()))?;
+                let number = number
+                    .ok_or_else(|| DashPlanError::UnsupportedTemplateToken(token.to_owned()))?;
+                output.push_str(&format!("{number:0width$}"));
+            }
+            _ => return Err(DashPlanError::UnsupportedTemplateToken(token.to_owned())),
+        }
+    }
+
+    output.push_str(rest);
+    Ok(output)
+}
+
+fn parse_iso8601_duration_millis(value: &str) -> Option<u64> {
+    let rest = value.strip_prefix("PT")?;
+    if rest.is_empty() {
+        return None;
+    }
+
+    let mut number = String::new();
+    let mut total_seconds = 0_f64;
+    for character in rest.chars() {
+        if character.is_ascii_digit() || character == '.' {
+            number.push(character);
+            continue;
+        }
+
+        let value = number.parse::<f64>().ok()?;
+        number.clear();
+        match character {
+            'H' => total_seconds += value * 3600.0,
+            'M' => total_seconds += value * 60.0,
+            'S' => total_seconds += value,
+            _ => return None,
+        }
+    }
+
+    if !number.is_empty() || !total_seconds.is_finite() || total_seconds < 0.0 {
+        return None;
+    }
+
+    let millis = total_seconds * 1000.0;
+    if millis > u64::MAX as f64 {
+        None
+    } else {
+        Some(millis.round() as u64)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -312,5 +620,74 @@ mod tests {
             parse_dash("<root/>"),
             Err(DashError::MissingMpd)
         );
+    }
+
+    #[test]
+    fn selects_best_dash_representation_by_resolution() {
+        let adaptation = DashAdaptationSet {
+            content_type: Some("video".to_owned()),
+            representations: vec![
+                DashRepresentation {
+                    id: Some("720".to_owned()),
+                    bandwidth: Some(8_000_000),
+                    width: Some(1280),
+                    height: Some(720),
+                    ..DashRepresentation::default()
+                },
+                DashRepresentation {
+                    id: Some("1080".to_owned()),
+                    bandwidth: Some(5_000_000),
+                    width: Some(1920),
+                    height: Some(1080),
+                    ..DashRepresentation::default()
+                },
+            ],
+            ..DashAdaptationSet::default()
+        };
+
+        assert_eq!(
+            select_best_dash_representation(&adaptation)
+                .and_then(|representation| representation.id.as_deref()),
+            Some("1080")
+        );
+    }
+
+    #[test]
+    fn plans_fixed_duration_dash_template() {
+        let manifest = parse_dash(
+            r#"<MPD type="static" mediaPresentationDuration="PT10S">
+<Period><AdaptationSet contentType="video">
+<SegmentTemplate timescale="1" duration="4" startNumber="5"
+ initialization="init-$RepresentationID$.mp4"
+ media="chunk-$Number%03d$-$Bandwidth$.m4s"/>
+<Representation id="v1" bandwidth="2000" width="1920" height="1080"/>
+</AdaptationSet></Period></MPD>"#,
+        )
+        .expect("dash");
+
+        let plan = build_dash_representation_plan(
+            &manifest,
+            "https://cdn.test/path/manifest.mpd",
+            0,
+            0,
+            0,
+        )
+        .expect("DASH plan");
+
+        assert_eq!(plan.units.len(), 4);
+        assert_eq!(
+            plan.units[0].url,
+            "https://cdn.test/path/init-v1.mp4"
+        );
+        assert_eq!(
+            plan.units[1].url,
+            "https://cdn.test/path/chunk-005-2000.m4s"
+        );
+        assert_eq!(plan.units[3].number, Some(7));
+    }
+
+    #[test]
+    fn parses_fractional_iso_duration() {
+        assert_eq!(parse_iso8601_duration_millis("PT1M2.5S"), Some(62_500));
     }
 }
