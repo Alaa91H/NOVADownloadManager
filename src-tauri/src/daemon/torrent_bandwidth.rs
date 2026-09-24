@@ -43,22 +43,24 @@ impl TorrentBandwidthLimiter {
         }
 
         let duration = transfer_duration(bytes, self.rate_bytes_per_second);
+        let mut state = self.state.lock().await;
         let now = Instant::now();
-        let slot = {
-            let mut state = self.state.lock().await;
-            let slot = state.next_slot.max(now);
-            state.next_slot = slot + duration;
-            slot
-        };
+        let slot = state.next_slot.max(now);
 
-        if slot <= now {
-            return Ok(());
+        if slot > now {
+            tokio::select! {
+                _ = cancel.cancelled() => {
+                    return Err("Torrent bandwidth wait cancelled".to_owned());
+                }
+                _ = sleep_until(slot) => {}
+            }
         }
 
-        tokio::select! {
-            _ = cancel.cancelled() => Err("Torrent bandwidth wait cancelled".to_owned()),
-            _ = sleep_until(slot) => Ok(()),
-        }
+        // Reserve the following slot only after this request has actually
+        // reached its turn. A cancelled waiter therefore cannot leave phantom
+        // bandwidth debt that delays a later resume.
+        state.next_slot = slot + duration;
+        Ok(())
     }
 }
 
