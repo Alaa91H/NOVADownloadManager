@@ -85,6 +85,15 @@ pub struct TorrentCoreCapabilities {
     pub metadata_exchange_protocol: bool,
     pub pex_protocol: bool,
     pub dht_krpc_protocol: bool,
+    pub file_selection: bool,
+    pub priority_scheduler: bool,
+    pub durable_storage: bool,
+    pub atomic_resume_checkpoint: bool,
+    pub verified_piece_bitmap: bool,
+    pub startup_recheck: bool,
+    pub tracker_redacted_manifest: bool,
+    pub boundary_piece_cache: bool,
+    pub owned_file_tracking: bool,
 }
 
 impl TorrentCoreCapabilities {
@@ -100,6 +109,15 @@ impl TorrentCoreCapabilities {
             metadata_exchange_protocol: true,
             pex_protocol: true,
             dht_krpc_protocol: true,
+            file_selection: true,
+            priority_scheduler: true,
+            durable_storage: true,
+            atomic_resume_checkpoint: true,
+            verified_piece_bitmap: true,
+            startup_recheck: true,
+            tracker_redacted_manifest: true,
+            boundary_piece_cache: true,
+            owned_file_tracking: true,
         }
     }
 }
@@ -124,6 +142,15 @@ mod tests {
                 metadata_exchange_protocol: true,
                 pex_protocol: true,
                 dht_krpc_protocol: true,
+                file_selection: true,
+                priority_scheduler: true,
+                durable_storage: true,
+                atomic_resume_checkpoint: true,
+                verified_piece_bitmap: true,
+                startup_recheck: true,
+                tracker_redacted_manifest: true,
+                boundary_piece_cache: true,
+                owned_file_tracking: true,
             }
         );
     }
