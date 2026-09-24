@@ -141,6 +141,38 @@ Item {
 
         RowLayout {
             Layout.fillWidth: true
+            spacing: 8
+
+            Button {
+                text: root.t("batch.paste")
+                enabled: !api.batchRunning
+                onClicked: {
+                    const clipboardText = desktop.readClipboardText().trim()
+                    if (clipboardText.length === 0)
+                        return
+                    linksInput.text = linksInput.text.trim().length > 0
+                        ? linksInput.text + "\n" + clipboardText
+                        : clipboardText
+                }
+            }
+
+            Item { Layout.fillWidth: true }
+
+            Text {
+                id: batchPreview
+                property var preview: api.batchExpansionPreview(linksInput.text)
+
+                text: preview.overflow
+                    ? root.t("batch.tooMany")
+                    : root.t("batch.expanded") + ": " + preview.count
+                color: preview.overflow ? Theme.danger : Theme.textSecondary
+                font.pixelSize: Theme.fontSmall
+                Accessible.name: text
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
             spacing: 10
 
             RowLayout {
@@ -414,7 +446,10 @@ Item {
 
             Button {
                 text: api.batchRunning ? root.t("batch.importing") : root.t("batch.import")
-                enabled: api.connected && !api.batchRunning && linksInput.text.trim().length > 0
+                enabled: api.connected
+                    && !api.batchRunning
+                    && linksInput.text.trim().length > 0
+                    && !batchPreview.preview.overflow
 
                 background: Rectangle {
                     radius: Theme.radiusMedium
