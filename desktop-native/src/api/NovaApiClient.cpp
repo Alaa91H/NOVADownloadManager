@@ -509,14 +509,16 @@ bool NovaApiClient::directOptionSupported(const QString &key) const {
     const QVariantMap engines =
         m_engineCapabilities.value(QStringLiteral("engines")).toMap();
     const QVariantMap curl = engines.value(QStringLiteral("curl")).toMap();
-    const QVariantList supported =
-        curl.value(QStringLiteral("supportedDirectOptionKeys")).toList();
-
     // Capabilities may not have been fetched yet. Preserve normal daemon-side
-    // validation until the runtime capability snapshot arrives.
-    if (supported.isEmpty()) {
+    // validation until the runtime capability snapshot arrives. Once the curl
+    // engine publishes the key list, an empty list means no advanced options
+    // are available and must not be treated as "unknown".
+    if (!curl.contains(QStringLiteral("supportedDirectOptionKeys"))) {
         return true;
     }
+
+    const QVariantList supported =
+        curl.value(QStringLiteral("supportedDirectOptionKeys")).toList();
 
     for (const QVariant &value : supported) {
         if (value.toString() == normalized) {
