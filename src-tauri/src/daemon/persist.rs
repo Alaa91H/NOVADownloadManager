@@ -197,6 +197,10 @@ fn native_request_requires_reauth(
                 .as_deref()
                 .is_some_and(|value| !value.trim().is_empty())
                 || options
+                    .cookies_from_browser
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty())
+                || options
                     .headers
                     .as_deref()
                     .is_some_and(|value| !value.trim().is_empty())
@@ -214,6 +218,7 @@ fn sanitize_native_media_request(
     sanitized.referer = None;
     if let Some(options) = sanitized.media_options.as_mut() {
         options.cookies = None;
+        options.cookies_from_browser = None;
         options.headers = None;
         options.referer = None;
     }
