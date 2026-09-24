@@ -1797,7 +1797,13 @@ fn fail_native_task(state: &SharedState, id: &str, generation: u64, error: Strin
 }
 
 fn complete_native_task(state: &SharedState, id: &str, generation: u64, bytes: u64) {
-    let task = {
+    enum Completion {
+        Completed(Task),
+        Paused(Task),
+        Stale,
+    }
+
+    let completion = {
         let mut jobs = match state.native_media_jobs.lock() {
             Ok(jobs) => jobs,
             Err(_) => return,
@@ -1806,27 +1812,55 @@ fn complete_native_task(state: &SharedState, id: &str, generation: u64, bytes: u
             return;
         };
         if job.run_generation.load(Ordering::Acquire) != generation {
-            return;
+            Completion::Stale
+        } else {
+            let current = TaskState::from_status(&job.task.status);
+            if matches!(current, Some(TaskState::Pausing | TaskState::Paused)) {
+                if current == Some(TaskState::Pausing) {
+                    let _ = transition_task_state(&mut job.task, TaskState::Paused, "paused");
+                }
+                job.task.speed_bytes_per_sec = 0;
+                Completion::Paused(job.task.clone())
+            } else {
+                job.task.size_bytes = bytes;
+                job.task.downloaded_bytes = bytes;
+                job.task.speed_bytes_per_sec = 0;
+                job.task.time_left_seconds = 0;
+                job.task.error_message = None;
+                if let Err(error) =
+                    transition_task_state(&mut job.task, TaskState::Completed, "completed")
+                {
+                    log::error!("Native media task {id}: completion transition rejected: {error}");
+                    return;
+                }
+                Completion::Completed(job.task.clone())
+            }
         }
-        job.task.size_bytes = bytes;
-        job.task.downloaded_bytes = bytes;
-        job.task.speed_bytes_per_sec = 0;
-        job.task.time_left_seconds = 0;
-        job.task.error_message = None;
-        if transition_task_state(&mut job.task, TaskState::Completed, "completed").is_err() {
-            return;
-        }
-        job.task.clone()
     };
-    if let Ok(mut snapshot) = state.task_snapshot.lock() {
-        snapshot.insert(id.to_owned(), task);
+
+    match completion {
+        Completion::Completed(task) => {
+            if let Ok(mut snapshot) = state.task_snapshot.lock() {
+                snapshot.insert(id.to_owned(), task);
+            }
+            state.priority_queue.stop_download(id);
+            if let Ok(mut stats) = state.download_stats.lock() {
+                stats.total_completed = stats.total_completed.saturating_add(1);
+                stats.total_downloaded_bytes =
+                    stats.total_downloaded_bytes.saturating_add(bytes);
+            }
+            state.mark_dirty();
+        }
+        Completion::Paused(task) => {
+            if let Ok(mut snapshot) = state.task_snapshot.lock() {
+                snapshot.insert(id.to_owned(), task);
+            }
+            state.priority_queue.release_active_slot();
+            state.mark_dirty();
+            crate::daemon::persist::save_now(state.as_ref());
+        }
+        Completion::Stale => {}
     }
-    state.priority_queue.stop_download(id);
-    if let Ok(mut stats) = state.download_stats.lock() {
-        stats.total_completed = stats.total_completed.saturating_add(1);
-        stats.total_downloaded_bytes = stats.total_downloaded_bytes.saturating_add(bytes);
-    }
-    state.mark_dirty();
 }
 
 pub(crate) fn is_native_manifest_url(url: &str) -> bool {
