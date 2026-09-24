@@ -253,7 +253,21 @@ pub async fn handle_v1_auth_check(State(state): State<SharedState>) -> Json<serd
         "ok": true,
         "protocolVersion": 4,
         "minimumSupportedProtocolVersion": 4,
-        "scopes": ["task.add", "task.addBatch", "task.pause", "task.resume", "task.cancel", "events.sse", "settings.snapshot"],
+        "scopes": [
+            "task.read",
+            "task.add",
+            "task.pause",
+            "task.resume",
+            "task.cancel",
+            "media.add",
+            "capture.review",
+            "stream.resolve",
+            "stream.add",
+            "analysis.run",
+            "events.sse",
+            "settings.snapshot",
+            "browser.integration"
+        ],
         "capabilities": extension_capabilities_from_status(&status)
     }))
 }
