@@ -331,6 +331,14 @@ void NativeParityTests::batchPatternsMatchLegacySyntax() {
 
     {
         const auto expanded = Nova::BatchPattern::expandInput(
+            QStringLiteral("https://example.test/file[1-10000].bin")
+        );
+        QVERIFY(expanded.ok());
+        QCOMPARE(expanded.urls.size(), Nova::BatchPattern::MaxExpandedUrls);
+    }
+
+    {
+        const auto expanded = Nova::BatchPattern::expandInput(
             QStringLiteral("https://example.test/file[1-10001].bin")
         );
         QVERIFY(!expanded.ok());
@@ -430,8 +438,13 @@ void NativeParityTests::batchImportCarriesAdvancedOptions() {
         {QStringLiteral("advanced"), advanced}
     };
 
+    QSignalSpy batchStartedSpy(&client, &NovaApiClient::batchImportStarted);
+
     client.importBatch(
-        QStringLiteral("https://example.test/file.zip"),
+        QStringLiteral(
+            "https://example.test/file.zip\n"
+            "https://example.test/file.zip"
+        ),
         QString(),
         8,
         false,
@@ -439,6 +452,9 @@ void NativeParityTests::batchImportCarriesAdvancedOptions() {
     );
 
     QTRY_VERIFY_WITH_TIMEOUT(!capturedBody.isEmpty(), 3000);
+    QTRY_VERIFY_WITH_TIMEOUT(batchStartedSpy.count() >= 1, 3000);
+    QCOMPARE(batchStartedSpy.at(0).at(0).toInt(), 1);
+    QCOMPARE(batchStartedSpy.at(0).at(1).toInt(), 1);
 
     const QJsonDocument request = QJsonDocument::fromJson(capturedBody);
     QVERIFY(request.isObject());
@@ -568,8 +584,11 @@ void NativeParityTests::batchImportHonorsRuntimeCapabilities() {
         {QStringLiteral("retryCount"), 4}
     };
 
+    QSignalSpy batchStartedSpy(&client, &NovaApiClient::batchImportStarted);
+
     client.importBatch(
         QStringLiteral(
+            "ftp://example.test/blocked.bin\n"
             "https://example.test/file[01-03:2]_[a-b].zip"
         ),
         QString(),
@@ -582,6 +601,10 @@ void NativeParityTests::batchImportHonorsRuntimeCapabilities() {
     );
 
     QTRY_VERIFY_WITH_TIMEOUT(!capturedBody.isEmpty(), 3000);
+    QTRY_VERIFY_WITH_TIMEOUT(batchStartedSpy.count() >= 1, 3000);
+    QCOMPARE(batchStartedSpy.at(0).at(0).toInt(), 4);
+    QCOMPARE(batchStartedSpy.at(0).at(1).toInt(), 0);
+
     const QJsonObject body = QJsonDocument::fromJson(capturedBody).object();
     const QJsonObject direct = body.value(QStringLiteral("directOptions")).toObject();
     QCOMPARE(
