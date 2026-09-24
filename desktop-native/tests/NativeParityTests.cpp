@@ -17,6 +17,7 @@
 #include "api/NovaApiClient.h"
 #include "batch/BatchPatternExpander.h"
 #include "models/DownloadListModel.h"
+#include "localization/I18nManager.h"
 #include "settings/NativeSettings.h"
 
 class NativeParityTests final : public QObject {
@@ -27,6 +28,7 @@ private slots:
     void streamReconnectsAfterDaemonReturns();
     void reconnectBackoffIsBounded();
     void legacyUiPreferencesMigrateOnce();
+    void legacyLocalizationCatalogCoversFullLanguageSet();
     void batchPatternsMatchLegacySyntax();
     void batchImportCarriesAdvancedOptions();
     void batchImportHonorsRuntimeCapabilities();
@@ -305,6 +307,47 @@ void NativeParityTests::legacyUiPreferencesMigrateOnce() {
     } else {
         qputenv("NOVA_NATIVE_DATA_DIR", previousDataDir);
     }
+}
+
+
+void NativeParityTests::legacyLocalizationCatalogCoversFullLanguageSet() {
+    I18nManager i18n;
+    const QVariantList languages = i18n.supportedLanguages();
+    QVERIFY2(
+        languages.size() > 100,
+        "Native language catalog must expose the full legacy language set"
+    );
+
+    auto containsLanguage = [&languages](const QString &code) {
+        return std::any_of(
+            languages.cbegin(),
+            languages.cend(),
+            [&code](const QVariant &entry) {
+                return entry.toMap().value(QStringLiteral("code")).toString() == code;
+            }
+        );
+    };
+
+    QVERIFY(containsLanguage(QStringLiteral("fr")));
+    QVERIFY(containsLanguage(QStringLiteral("ur")));
+    QVERIFY(containsLanguage(QStringLiteral("zh-tw")));
+
+    i18n.setLanguage(QStringLiteral("fr-FR"));
+    QCOMPARE(i18n.language(), QStringLiteral("fr"));
+    QCOMPARE(i18n.translate(QStringLiteral("action.delete")), QStringLiteral("Supprimer"));
+    QVERIFY(!i18n.rtl());
+
+    i18n.setLanguage(QStringLiteral("ur"));
+    QCOMPARE(i18n.language(), QStringLiteral("ur"));
+    QVERIFY(i18n.rtl());
+
+    i18n.setLanguage(QStringLiteral("zh-TW"));
+    QCOMPARE(i18n.language(), QStringLiteral("zh-tw"));
+    QVERIFY(!i18n.rtl());
+
+    i18n.setLanguage(QStringLiteral("de-DE"));
+    QCOMPARE(i18n.language(), QStringLiteral("de"));
+    QCOMPARE(i18n.translate(QStringLiteral("settings.language")), QStringLiteral("Sprache"));
 }
 
 
