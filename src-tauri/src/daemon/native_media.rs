@@ -51,6 +51,7 @@ pub const NATIVE_MEDIA_OPTION_KEYS: &[&str] = &[
     "writeThumbnail",
     "writeInfoJson",
     "writeDescription",
+    "remuxFormat",
     "ffmpegEnabled",
     "outputTemplate",
     "cookies",
@@ -2351,6 +2352,7 @@ fn resolve_native_media(
                     ));
                 }
                 ensure_requested_audio_container(stream, body.media_options.as_ref())?;
+                ensure_native_remux_policy(stream, body.media_options.as_ref())?;
                 let mut resolved = resolved_from_descriptor(&extraction.descriptor, stream)?;
                 attach_native_chapters(&mut resolved, extraction.chapters.clone());
                 Ok(resolved)
@@ -2394,7 +2396,11 @@ fn resolve_native_media(
                     (Some(video), Some(audio)) => Some(video.saturating_add(audio)),
                     _ => None,
                 };
-                let output_container = separate_track_output_container(video, audio);
+                let default_container = separate_track_output_container(video, audio);
+                let output_container = requested_separate_track_container(
+                    &default_container,
+                    body.media_options.as_ref(),
+                )?;
                 Ok(ResolvedNativeMedia::SeparateTracks(ResolvedSeparateTracks {
                     extraction,
                     video_stream_id,
@@ -2432,8 +2438,73 @@ fn resolve_native_media(
         )
     })?;
     ensure_requested_audio_container(stream, body.media_options.as_ref())?;
+    ensure_native_remux_policy(stream, body.media_options.as_ref())?;
 
     resolved_from_descriptor(&descriptor, stream)
+}
+
+fn ensure_native_remux_policy(
+    stream: &MediaStream,
+    options: Option<&MediaDownloadOptions>,
+) -> Result<(), NativeMediaTaskError> {
+    let Some(requested) = options
+        .and_then(|options| options.remux_format.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(());
+    };
+    if matches!(requested.to_ascii_lowercase().as_str(), "auto" | "best") {
+        return Ok(());
+    }
+    let requested = normalize_container_preference(requested)
+        .map_err(NativeMediaTaskError::InvalidRequest)?;
+    let actual = stream
+        .container
+        .as_deref()
+        .map(normalize_container_alias)
+        .unwrap_or_default();
+    if actual == requested {
+        Ok(())
+    } else {
+        Err(NativeMediaTaskError::UnsupportedFeature(format!(
+            "remuxFormat='{requested}' requires NOVA post-processing for this source container"
+        )))
+    }
+}
+
+fn requested_separate_track_container(
+    default_container: &str,
+    options: Option<&MediaDownloadOptions>,
+) -> Result<String, NativeMediaTaskError> {
+    let Some(requested) = options
+        .and_then(|options| options.remux_format.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(default_container.to_owned());
+    };
+    if matches!(requested.to_ascii_lowercase().as_str(), "auto" | "best") {
+        return Ok(default_container.to_owned());
+    }
+    let requested = normalize_container_preference(requested)
+        .map_err(NativeMediaTaskError::InvalidRequest)?;
+    if requested == "mkv" || requested == default_container {
+        Ok(requested)
+    } else {
+        Err(NativeMediaTaskError::UnsupportedFeature(format!(
+            "separate-track copy-mux cannot produce '{requested}' from native '{default_container}' tracks without additional post-processing"
+        )))
+    }
+}
+
+fn normalize_container_alias(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "m4a" | "aac" => "mp4".to_owned(),
+        "opus" | "ogg" => "webm".to_owned(),
+        "matroska" => "mkv".to_owned(),
+        other => other.to_owned(),
+    }
 }
 
 fn ensure_requested_audio_container(
@@ -3031,6 +3102,46 @@ mod tests {
         request.media_options.as_mut().expect("media").format_sort =
             Some("res,unknown-key".to_owned());
         assert!(NativeMediaExtractor.validate(&request).is_err());
+    }
+
+    #[test]
+    fn native_remux_policy_accepts_same_container_and_rejects_conversion() {
+        let stream = MediaStream {
+            id: "v".to_owned(),
+            kind: nova_media_core::MediaTrackKind::AudioVideo,
+            protocol: MediaProtocol::Https,
+            url: "https://cdn.test/v.mp4".to_owned(),
+            container: Some("mp4".to_owned()),
+            video_codec: Some("avc1".to_owned()),
+            audio_codec: Some("mp4a".to_owned()),
+            width: Some(1280),
+            height: Some(720),
+            fps: Some(30.0),
+            bitrate_bps: Some(1_000_000),
+            audio_bitrate_bps: Some(128_000),
+            content_length: Some(100),
+            language: None,
+            headers: BTreeMap::new(),
+        };
+        let mut options = MediaDownloadOptions::default();
+        options.remux_format = Some("mp4".to_owned());
+        ensure_native_remux_policy(&stream, Some(&options)).expect("same container");
+
+        options.remux_format = Some("webm".to_owned());
+        assert!(matches!(
+            ensure_native_remux_policy(&stream, Some(&options)),
+            Err(NativeMediaTaskError::UnsupportedFeature(_))
+        ));
+    }
+
+    #[test]
+    fn separate_tracks_can_copy_mux_to_mkv_policy() {
+        let mut options = MediaDownloadOptions::default();
+        options.remux_format = Some("mkv".to_owned());
+        assert_eq!(
+            requested_separate_track_container("mp4", Some(&options)).expect("mkv copy mux"),
+            "mkv"
+        );
     }
 
     #[test]
