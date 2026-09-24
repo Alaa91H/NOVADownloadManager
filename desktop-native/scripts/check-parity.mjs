@@ -47,7 +47,13 @@ const errors = [];
 const seen = new Set();
 
 if (manifest.schemaVersion !== 1) errors.push("Unsupported parity manifest schemaVersion.");
-if (manifest.stage !== "6-parity-freeze") errors.push("Parity manifest stage must be 6-parity-freeze.");
+const supportedStages = new Set(["6-parity-freeze", "6.1-true-parity-hardening"]);
+if (!supportedStages.has(manifest.stage)) {
+  errors.push("Parity manifest stage must be a supported native parity stage.");
+}
+if (typeof manifest.releaseReplacementReady !== "boolean") {
+  errors.push("Manifest must declare releaseReplacementReady as a boolean.");
+}
 if (!Array.isArray(manifest.capabilities)) errors.push("Manifest capabilities must be an array.");
 
 const rows = [];
@@ -120,6 +126,24 @@ for (const id of expectedCapabilities) {
   if (!seen.has(id)) errors.push(`Required parity gate missing from manifest: ${id}`);
 }
 
+const incompleteCount = partial + gap + blocked;
+if (manifest.releaseReplacementReady && incompleteCount > 0) {
+  errors.push(
+    `releaseReplacementReady cannot be true while ${partial} partial, ${gap} gap and ${blocked} blocked capabilities remain.`
+  );
+}
+
+const requireComplete = process.argv.includes("--require-complete")
+  || process.env.NOVA_REQUIRE_COMPLETE_PARITY === "1";
+if (requireComplete && incompleteCount > 0) {
+  errors.push(
+    `Native replacement readiness requires all capabilities covered; remaining: ${partial} partial, ${gap} gap, ${blocked} blocked.`
+  );
+}
+if (requireComplete && !manifest.releaseReplacementReady) {
+  errors.push("Native replacement readiness requires releaseReplacementReady=true.");
+}
+
 if (errors.length > 0) fail(errors);
 
 fs.mkdirSync(reportDir, { recursive: true });
@@ -130,6 +154,8 @@ const lines = [
   `Preview version: **${manifest.nativePreviewVersion || "unknown"}**`,
   "",
   `Coverage summary: **${covered} covered**, **${partial} partial**, **${gap} gaps**, **${blocked} blocked**.`,
+  "",
+  `Legacy UI replacement ready: **${manifest.releaseReplacementReady ? "YES" : "NO"}**.`,
   "",
   "| Capability | Status | Notes |",
   "| --- | --- | --- |",
@@ -146,10 +172,12 @@ lines.push(
   "- Covered capabilities must keep their evidence files and required implementation tokens.",
   "- Existing parity gaps stay explicit until implemented; they are not silently treated as complete.",
   "- New native preview builds must carry this report so QA can see current blockers.",
+  "- `--require-complete` (or `NOVA_REQUIRE_COMPLETE_PARITY=1`) is the production replacement gate and fails until every capability is covered and releaseReplacementReady is true.",
+  "- A manifest with releaseReplacementReady=true is invalid while any partial, gap or blocked capability remains.",
   ""
 );
 
 fs.writeFileSync(reportPath, lines.join("\n"), "utf8");
 
-console.log(`Parity gate passed: ${covered} covered, ${partial} partial, ${gap} gaps, ${blocked} blocked.`);
+console.log(`Parity manifest validated: ${covered} covered, ${partial} partial, ${gap} gaps, ${blocked} blocked; replacement-ready=${manifest.releaseReplacementReady}.`);
 console.log(`Report written to ${path.relative(repoRoot, reportPath)}`);
