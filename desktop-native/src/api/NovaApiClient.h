@@ -2,6 +2,7 @@
 
 #include <QJsonArray>
 #include <QNetworkAccessManager>
+#include <QNetworkReply>
 #include <QObject>
 #include <QUrl>
 
@@ -21,19 +22,32 @@ public:
 
     Q_INVOKABLE void checkHealth();
     Q_INVOKABLE void refreshDownloads();
+    Q_INVOKABLE void startDownloadStream();
+    Q_INVOKABLE void pauseDownload(const QString &id);
+    Q_INVOKABLE void resumeDownload(const QString &id);
+    Q_INVOKABLE void deleteDownload(const QString &id);
 
 signals:
     void connectionChanged();
     void downloadsLoaded(const QJsonArray &downloads);
     void requestFailed(const QString &message);
+    void taskActionCompleted(const QString &action, const QString &taskId);
 
 private:
     QNetworkRequest makeRequest(const QString &path) const;
     void setConnectionState(bool connected, const QString &text);
+    void runTaskAction(const QString &id, const QString &action);
+    void processStreamChunk();
+    void processStreamEvent(const QByteArray &eventBlock);
+    void mergeDownloadsDelta(const QJsonObject &delta);
 
     QNetworkAccessManager m_network;
     QUrl m_baseUrl{QStringLiteral("http://127.0.0.1:3199")};
     QString m_bearerToken;
     bool m_connected{false};
     QString m_statusText{QStringLiteral("Connecting…")};
+
+    QNetworkReply *m_streamReply{nullptr};
+    QByteArray m_streamBuffer;
+    QJsonArray m_currentDownloads;
 };
