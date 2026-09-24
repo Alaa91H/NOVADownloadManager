@@ -16,6 +16,53 @@ Dialog {
         return i18n.translate(key)
     }
 
+    function buildNetworkOptions() {
+        const a = settings.advancedSettings || ({})
+        const options = {}
+
+        let proxy = ""
+        if (Boolean(a.vpnEnabled) && String(a.vpnMode || "") === "proxy") {
+            proxy = String(a.vpnProxyUrl || "").trim()
+        } else if (Boolean(a.proxyEnabled) && String(a.proxyHost || "").trim().length > 0) {
+            const scheme = String(a.proxyType || "http").trim()
+            proxy = scheme + "://" + String(a.proxyHost).trim()
+            if (String(a.proxyPort || "").trim().length > 0)
+                proxy += ":" + String(a.proxyPort).trim()
+        }
+        if (proxy.length > 0)
+            options.proxy = proxy
+
+        if (Boolean(a.proxyEnabled)) {
+            if (String(a.proxyUser || "").trim().length > 0)
+                options.proxyUser = String(a.proxyUser).trim()
+            if (String(a.proxyPassword || "").length > 0)
+                options.proxyPassword = String(a.proxyPassword)
+            options.proxyTunnel = Boolean(a.proxyTunnel)
+        }
+
+        if (Boolean(a.vpnEnabled)
+            && String(a.vpnMode || "") === "bind"
+            && String(a.vpnBindAddress || "").trim().length > 0) {
+            options.interface = String(a.vpnBindAddress).trim()
+        }
+
+        options.timeoutSec = Number(a.timeoutSec || 60)
+        options.connectTimeoutSec = Number(a.connectTimeoutSec || 30)
+        options.retryCount = Number(a.retryCount || 0)
+        options.retryDelaySec = Number(a.retryDelaySec || 5)
+        options.maxRedirs = Number(a.maxRedirs || 20)
+        options.dnsCacheTimeoutSec = Number(a.dnsCacheTimeoutSec || 300)
+
+        if (String(a.dnsServers || "").trim().length > 0)
+            options.dnsServers = String(a.dnsServers).trim()
+        if (String(a.ipResolve || "").trim().length > 0)
+            options.ipResolve = String(a.ipResolve).trim()
+        if (String(a.userAgent || "").trim().length > 0)
+            options.userAgent = String(a.userAgent).trim()
+
+        return options
+    }
+
     modal: true
     focus: true
     closePolicy: Popup.CloseOnEscape
@@ -56,11 +103,23 @@ Dialog {
 
         errorText = ""
         submitting = true
-        api.createDownload(
+        const a = settings.advancedSettings || ({})
+        if (Boolean(a.vpnEnabled)
+            && String(a.vpnMode || "") === "bind"
+            && Boolean(a.vpnKillSwitch)
+            && String(a.vpnBindAddress || "").trim().length === 0) {
+            submitting = false
+            errorText = root.t("add.vpnBindRequired")
+            return
+        }
+
+        api.createDownloadAdvanced(
             urlField.text,
             nameField.text,
             pathField.text,
-            startNow
+            startNow,
+            settings.defaultConnections,
+            root.buildNetworkOptions()
         )
     }
 
