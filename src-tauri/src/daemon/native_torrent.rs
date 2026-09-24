@@ -7,8 +7,7 @@ use nova_torrent_core::{
     UdpAnnounceResponse, UdpConnectResponse, MAX_TRACKER_RESPONSE_BYTES,
 };
 use reqwest::header::LOCATION;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{lookup_host, TcpStream, UdpSocket};
+use tokio::net::{lookup_host, UdpSocket};
 use tokio::time::{sleep, timeout};
 
 use crate::daemon::utils::{is_internal_ip, private_network_allowed};
@@ -484,7 +483,7 @@ async fn udp_recv(
 }
 
 fn random_u32() -> u32 {
-    let bytes = uuid::Uuid::new_v4().into_bytes();
+    let bytes = *uuid::Uuid::new_v4().as_bytes();
     u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
 }
 
@@ -531,6 +530,7 @@ impl TrackerAttemptError {
 mod tests {
     use super::*;
     use nova_torrent_core::{InfoHash, TrackerEvent};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     fn announce_request() -> TrackerAnnounceRequest {
         TrackerAnnounceRequest {
