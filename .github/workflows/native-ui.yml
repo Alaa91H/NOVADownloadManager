@@ -86,6 +86,9 @@ jobs:
       - name: Check localization gate
         run: node desktop-native/scripts/check-localization.mjs
 
+      - name: Check localization bridge coverage
+        run: node desktop-native/scripts/check-native-i18n-coverage.mjs
+
       - name: Check product-copy branding
         run: node desktop-native/scripts/check-product-copy.mjs
 
