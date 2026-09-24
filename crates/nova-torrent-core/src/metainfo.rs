@@ -158,6 +158,7 @@ impl TorrentMetainfo {
             .collect::<Vec<_>>();
 
         let (files, total_length) = parse_files(info, &name)?;
+        validate_output_paths(&files)?;
         if total_length == 0 {
             return Err(TorrentMetainfoError::InvalidField {
                 field: "info.length/info.files",
@@ -471,10 +472,48 @@ fn decode_component(bytes: &[u8], field: &'static str) -> Result<String, Torrent
         || value.chars().any(|character| character == '\0' || character.is_control())
         || value.ends_with(' ')
         || value.ends_with('.')
+        || is_windows_reserved_component(value)
     {
         return Err(TorrentMetainfoError::UnsafePath(value.to_owned()));
     }
     Ok(value.to_owned())
+}
+
+fn is_windows_reserved_component(value: &str) -> bool {
+    let stem = value
+        .split('.')
+        .next()
+        .unwrap_or(value)
+        .to_ascii_uppercase();
+    matches!(
+        stem.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$" | "CONIN$" | "CONOUT$"
+    ) || (stem.len() == 4
+        && (stem.starts_with("COM") || stem.starts_with("LPT"))
+        && matches!(stem.as_bytes()[3], b'1'..=b'9'))
+}
+
+fn validate_output_paths(files: &[TorrentFile]) -> Result<(), TorrentMetainfoError> {
+    let mut paths = files
+        .iter()
+        .map(|file| file.path.to_lowercase())
+        .collect::<Vec<_>>();
+    paths.sort();
+
+    for pair in paths.windows(2) {
+        let previous = &pair[0];
+        let current = &pair[1];
+        if current == previous
+            || current
+                .strip_prefix(previous)
+                .is_some_and(|suffix| suffix.starts_with('/'))
+        {
+            return Err(TorrentMetainfoError::UnsafePath(format!(
+                "colliding torrent output paths: {previous} and {current}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn parse_trackers(
@@ -950,6 +989,55 @@ mod tests {
         bytes.extend_from_slice(b"ee");
         let error = TorrentMetainfo::parse(&bytes).expect_err("unsafe path must fail");
         assert!(matches!(error, TorrentMetainfoError::UnsafePath(_)));
+    }
+
+    #[test]
+    fn rejects_windows_reserved_device_name() {
+        let mut bytes =
+            b"d4:infod6:lengthi1e4:name3:CON12:piece lengthi1e6:pieces20:".to_vec();
+        bytes.extend_from_slice(&[7u8; 20]);
+        bytes.extend_from_slice(b"ee");
+        assert!(matches!(
+            TorrentMetainfo::parse(&bytes),
+            Err(TorrentMetainfoError::UnsafePath(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_case_insensitive_and_parent_file_collisions() {
+        let duplicate = vec![
+            TorrentFile {
+                path: "root/A.bin".to_owned(),
+                length: 1,
+                offset: 0,
+            },
+            TorrentFile {
+                path: "root/a.BIN".to_owned(),
+                length: 1,
+                offset: 1,
+            },
+        ];
+        assert!(matches!(
+            validate_output_paths(&duplicate),
+            Err(TorrentMetainfoError::UnsafePath(_))
+        ));
+
+        let parent_collision = vec![
+            TorrentFile {
+                path: "root/a".to_owned(),
+                length: 1,
+                offset: 0,
+            },
+            TorrentFile {
+                path: "root/a/b.bin".to_owned(),
+                length: 1,
+                offset: 1,
+            },
+        ];
+        assert!(matches!(
+            validate_output_paths(&parent_collision),
+            Err(TorrentMetainfoError::UnsafePath(_))
+        ));
     }
 
     #[test]
