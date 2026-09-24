@@ -36,9 +36,6 @@ impl fmt::Display for FourCc {
 #[derive(Clone, Copy, Debug)]
 pub struct Mp4Box<'a> {
     pub kind: FourCc,
-    pub offset: usize,
-    pub size: usize,
-    pub header_size: usize,
     pub payload: &'a [u8],
 }
 
@@ -96,9 +93,6 @@ pub fn parse_boxes(data: &[u8]) -> Result<Vec<Mp4Box<'_>>, MediaProcessingError>
         }
         result.push(Mp4Box {
             kind,
-            offset: cursor,
-            size: box_size,
-            header_size,
             payload: &data[cursor + header_size..end],
         });
 
@@ -199,7 +193,6 @@ mod tests {
         assert_eq!(boxes[0].kind, FourCc::new(*b"free"));
         assert_eq!(boxes[0].payload, b"ABCD");
         assert_eq!(boxes[1].kind, FourCc::new(*b"wide"));
-        assert_eq!(boxes[1].header_size, 16);
         assert_eq!(boxes[1].payload, b"WXYZ");
     }
 
