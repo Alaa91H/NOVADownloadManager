@@ -6,6 +6,7 @@ on:
       - feature/qt6-native-desktop-ui
     paths:
       - "src-tauri/**"
+      - "browser-extension/**"
       - ".github/workflows/native-ui-rust.yml"
   pull_request:
     branches:
@@ -14,6 +15,7 @@ on:
     paths:
       - "src-tauri/**"
       - "desktop-native/**"
+      - "browser-extension/**"
       - ".github/workflows/native-ui-rust.yml"
   workflow_dispatch:
 
@@ -35,6 +37,16 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
@@ -65,5 +77,16 @@ jobs:
       - name: Native bootstrap and browser integration tests
         run: |
           cargo test --manifest-path src-tauri/Cargo.toml native_desktop_data_dir_honors_explicit_override --lib
-          cargo test --manifest-path src-tauri/Cargo.toml accepts_the_native_desktop_marker --lib
+          cargo test --manifest-path src-tauri/Cargo.toml accepts_native_desktop_with_current_secret --lib
+          cargo test --manifest-path src-tauri/Cargo.toml rejects_native_marker_without_secret --lib
+          cargo test --manifest-path src-tauri/Cargo.toml pairing_secret_parser_requires_matching_port_and_strong_secret --lib
           cargo test --manifest-path src-tauri/Cargo.toml browser_config_tests --lib
+
+      - name: Install browser-extension dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Browser pairing typecheck
+        run: pnpm --filter nova-browser-extension typecheck
+
+      - name: Browser pairing unit tests
+        run: pnpm --filter nova-browser-extension test:unit
