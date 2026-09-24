@@ -484,6 +484,8 @@ pub(crate) mod tests {
                 crate::daemon::engine::extractor::ExtractorRegistry::new(),
             ),
             api_token: String::new(),
+            native_client_token: String::from("test-native-client-token"),
+            native_pairing_secret: String::from("test-native-pairing-secret"),
             download_stats: Mutex::new(DownloadStats::default()),
             rie: crate::daemon::resource_intelligence::ResourceIntelligenceEngine::new(),
             external_tools: std::sync::Arc::new(std::sync::Mutex::new(
