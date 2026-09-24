@@ -1,7 +1,18 @@
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
 
-use nova_download_core::HttpRequestContext;
+use nova_download_core::{
+    discard_http_download_artifacts, download_http_to_path_segmented_controlled_with_context,
+    HttpRequestContext, TransferControl, TransportError,
+};
 use nova_media_core::{
+    processing::{
+        mux_demuxers_to_mp4_controlled, MediaDemuxer, MediaProcessingControl,
+        MediaProcessingError, Mp4Demuxer,
+    },
     resolve_youtube_pending_formats, select_youtube_download_plan, youtube_video_id,
     ExtractRequest, MediaDescriptor, MediaProtocol, MediaStream, YouTubeDownloadPlan,
     YouTubeExtractor, YouTubePlayerScriptSolver, YouTubeSelectionPolicy,
@@ -10,7 +21,12 @@ use serde_json::Value;
 
 use crate::daemon::engine::extractor::{EngineStatus, Extractor, ValidateError};
 use crate::daemon::state::SharedState;
-use crate::daemon::types::{CreateDownloadBody, MediaDownloadOptions, Task};
+use crate::daemon::types::{
+    transition_task_state, CreateDownloadBody, MediaDownloadOptions, NativeMediaJob, Task,
+    TaskState,
+};
+use crate::lock_or_err;
+use uuid::Uuid;
 
 pub struct NativeMediaExtractor;
 
@@ -97,7 +113,7 @@ impl std::fmt::Display for NativeMediaTaskError {
 
 impl std::error::Error for NativeMediaTaskError {}
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct ResolvedDirectMedia {
     url: String,
     title: String,
@@ -106,58 +122,171 @@ struct ResolvedDirectMedia {
     context: HttpRequestContext,
 }
 
+#[derive(Clone, Debug)]
+struct ResolvedTrackTransfer {
+    url: String,
+    content_length: Option<u64>,
+    context: HttpRequestContext,
+}
+
+#[derive(Clone, Debug)]
+struct ResolvedSeparateMedia {
+    title: String,
+    video: ResolvedTrackTransfer,
+    audio: ResolvedTrackTransfer,
+}
+
+#[derive(Clone, Debug)]
+enum ResolvedNativeExecution {
+    Direct(ResolvedDirectMedia),
+    Separate(ResolvedSeparateMedia),
+}
+
 pub async fn create_native_media_task(
     state: &SharedState,
     body: &CreateDownloadBody,
 ) -> Result<Task, NativeMediaTaskError> {
     let owned = body.clone();
-    let resolved = tokio::task::spawn_blocking(move || resolve_native_direct(&owned))
+    let resolved = tokio::task::spawn_blocking(move || resolve_native_execution(&owned))
         .await
         .map_err(|error| NativeMediaTaskError::Worker(error.to_string()))??;
 
-    let mut direct = body.clone();
-    direct.url = Some(resolved.url);
-    direct.media_options = None;
-    if direct.name.as_deref().map_or(true, |name| name.trim().is_empty()) {
-        direct.name = Some(resolved.title);
-    }
-    if direct.file_type.as_deref().map_or(true, |kind| kind.trim().is_empty()) {
-        direct.file_type = resolved.container;
-    }
-    if direct.size_bytes.unwrap_or(0) == 0 {
-        direct.size_bytes = resolved.content_length;
-    }
+    match resolved {
+        ResolvedNativeExecution::Direct(resolved) => {
+            let mut direct = body.clone();
+            direct.url = Some(resolved.url);
+            direct.media_options = None;
+            if direct.name.as_deref().map_or(true, |name| name.trim().is_empty()) {
+                direct.name = Some(resolved.title);
+            }
+            if direct.file_type.as_deref().map_or(true, |kind| kind.trim().is_empty()) {
+                direct.file_type = resolved.container;
+            }
+            if direct.size_bytes.unwrap_or(0) == 0 {
+                direct.size_bytes = resolved.content_length;
+            }
 
-    let mut options = direct.direct_options.take().unwrap_or_default();
-    if let Some(user_agent) = resolved.context.user_agent {
-        options.insert("userAgent".to_owned(), Value::String(user_agent));
-    }
-    if let Some(referer) = resolved.context.referer {
-        direct.referer = Some(referer.clone());
-        options.insert("referer".to_owned(), Value::String(referer));
-    }
-    if let Some(cookies) = resolved.context.cookie_header {
-        options.insert("cookies".to_owned(), Value::String(cookies));
-    }
-    if !resolved.context.headers.is_empty() {
-        let headers = resolved
-            .context
-            .headers
-            .into_iter()
-            .map(|(name, value)| format!("{name}: {value}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        options.insert("headers".to_owned(), Value::String(headers));
-    }
-    direct.direct_options = Some(options);
+            let mut options = direct.direct_options.take().unwrap_or_default();
+            if let Some(user_agent) = resolved.context.user_agent {
+                options.insert("userAgent".to_owned(), Value::String(user_agent));
+            }
+            if let Some(referer) = resolved.context.referer {
+                direct.referer = Some(referer.clone());
+                options.insert("referer".to_owned(), Value::String(referer));
+            }
+            if let Some(cookies) = resolved.context.cookie_header {
+                options.insert("cookies".to_owned(), Value::String(cookies));
+            }
+            if !resolved.context.headers.is_empty() {
+                let headers = resolved
+                    .context
+                    .headers
+                    .into_iter()
+                    .map(|(name, value)| format!("{name}: {value}"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                options.insert("headers".to_owned(), Value::String(headers));
+            }
+            direct.direct_options = Some(options);
 
-    log::info!(
-        "NOVA Media Engine resolved media to native direct transport: {}",
-        direct.url.as_deref().unwrap_or_default()
-    );
-    crate::daemon::curl::create_curl_task(state, &direct)
-        .await
-        .map_err(NativeMediaTaskError::Transfer)
+            log::info!(
+                "NOVA Media Engine resolved media to native direct transport: {}",
+                direct.url.as_deref().unwrap_or_default()
+            );
+            crate::daemon::curl::create_curl_task(state, &direct)
+                .await
+                .map_err(NativeMediaTaskError::Transfer)
+        }
+        ResolvedNativeExecution::Separate(resolved) => {
+            create_native_separate_task(state, body, &resolved)
+        }
+    }
+}
+
+fn create_native_separate_task(
+    state: &SharedState,
+    body: &CreateDownloadBody,
+    resolved: &ResolvedSeparateMedia,
+) -> Result<Task, NativeMediaTaskError> {
+    let mut normalized = body.clone();
+    if normalized.name.as_deref().map_or(true, |name| name.trim().is_empty()) {
+        normalized.name = Some(format!("{}.mp4", resolved.title));
+    }
+    normalized.file_type = Some("video".to_owned());
+    normalized.size_bytes = match (
+        resolved.video.content_length,
+        resolved.audio.content_length,
+    ) {
+        (Some(video), Some(audio)) => video.checked_add(audio),
+        _ => None,
+    };
+
+    let (name, output_path) =
+        crate::daemon::curl::destination_from_body(&normalized, body.url.as_deref().unwrap_or(""));
+    crate::daemon::direct::FileWriter::ensure_parent(&output_path)
+        .map_err(NativeMediaTaskError::Transfer)?;
+
+    let id = Uuid::new_v4().to_string();
+    let connections = body.connections.unwrap_or(4).clamp(1, 128);
+    let size_bytes = normalized.size_bytes.unwrap_or(0);
+    let task = Task {
+        id: id.clone(),
+        name,
+        url: body.url.clone().unwrap_or_default(),
+        file_type: "video".to_owned(),
+        status: TaskState::Queued.as_status().to_owned(),
+        size_bytes,
+        downloaded_bytes: native_staged_bytes(&output_path),
+        speed_bytes_per_sec: 0,
+        time_left_seconds: 0,
+        elapsed_seconds: 0,
+        date_added: chrono::Utc::now().to_rfc3339(),
+        category: body.category.clone().unwrap_or_else(|| "video".to_owned()),
+        queue_id: body.queue_id.clone().unwrap_or_else(|| "main".to_owned()),
+        connections,
+        resumable: true,
+        save_path: output_path.to_string_lossy().to_string(),
+        description: body.description.clone().unwrap_or_else(|| {
+            "Native multi-track media download and MP4 mux".to_owned()
+        }),
+        segments: crate::daemon::utils::build_segments(
+            connections,
+            size_bytes,
+            native_staged_bytes(&output_path),
+            0,
+        ),
+        referer: body.referer.clone(),
+        engine: "nova-media-engine".to_owned(),
+        engine_id: id.clone(),
+        engine_status: Some("queued".to_owned()),
+        error_message: None,
+    };
+
+    let job = NativeMediaJob {
+        task: task.clone(),
+        request: body.clone(),
+        cancel_token: Arc::new(AtomicBool::new(false)),
+        run_generation: Arc::new(AtomicU64::new(0)),
+        start_time: Instant::now(),
+    };
+
+    {
+        let mut jobs = lock_or_err!(state.native_media_jobs);
+        let mut snapshot = lock_or_err!(state.task_snapshot);
+        if snapshot.len() >= 10_000 {
+            return Err(NativeMediaTaskError::Transfer(
+                "Maximum number of tasks reached".to_owned(),
+            ));
+        }
+        jobs.insert(id.clone(), job);
+        snapshot.insert(id.clone(), task.clone());
+    }
+    state.mark_dirty();
+
+    if body.start_immediately.unwrap_or(true) {
+        start_native_media_process(state, &id);
+    }
+    Ok(task)
 }
 
 fn validate_native_options(options: &MediaDownloadOptions) -> Result<(), String> {
@@ -207,9 +336,9 @@ fn option_is_configured(value: &Value) -> bool {
     }
 }
 
-fn resolve_native_direct(
+fn resolve_native_execution(
     body: &CreateDownloadBody,
-) -> Result<ResolvedDirectMedia, NativeMediaTaskError> {
+) -> Result<ResolvedNativeExecution, NativeMediaTaskError> {
     let request = build_extract_request(body)?;
     let parsed = request
         .parsed_url()
@@ -233,16 +362,11 @@ fn resolve_native_direct(
             }
         }
 
-        let prefer_separate_tracks = body
-            .media_options
-            .as_ref()
-            .and_then(|options| options.ffmpeg_enabled)
-            .unwrap_or(false);
-        let plan = select_youtube_download_plan(
+        let preferred = select_youtube_download_plan(
             &extraction,
             YouTubeSelectionPolicy {
                 max_height,
-                prefer_separate_tracks,
+                prefer_separate_tracks: true,
             },
         )
         .ok_or_else(|| {
@@ -251,23 +375,45 @@ fn resolve_native_direct(
             )
         })?;
 
-        return match plan {
+        if let YouTubeDownloadPlan::SeparateTracks {
+            video_stream_id,
+            audio_stream_id,
+        } = &preferred
+        {
+            let video = find_descriptor_stream(&extraction.descriptor, video_stream_id)?;
+            let audio = find_descriptor_stream(&extraction.descriptor, audio_stream_id)?;
+            if stream_is_mp4_muxable(video) && stream_is_mp4_muxable(audio) {
+                return Ok(ResolvedNativeExecution::Separate(ResolvedSeparateMedia {
+                    title: extraction.descriptor.metadata.title.clone(),
+                    video: resolved_track_from_descriptor(&extraction.descriptor, video)?,
+                    audio: resolved_track_from_descriptor(&extraction.descriptor, audio)?,
+                }));
+            }
+        }
+
+        let fallback = select_youtube_download_plan(
+            &extraction,
+            YouTubeSelectionPolicy {
+                max_height,
+                prefer_separate_tracks: false,
+            },
+        )
+        .ok_or_else(|| {
+            NativeMediaTaskError::UnsupportedFeature(
+                "no MP4-muxable or combined native media stream is available".to_owned(),
+            )
+        })?;
+
+        return match fallback {
             YouTubeDownloadPlan::SingleStream { stream_id } => {
-                let stream = extraction
-                    .descriptor
-                    .streams
-                    .iter()
-                    .find(|stream| stream.id == stream_id)
-                    .ok_or_else(|| {
-                        NativeMediaTaskError::Resolution(
-                            "selected native media stream disappeared".to_owned(),
-                        )
-                    })?;
+                let stream = find_descriptor_stream(&extraction.descriptor, &stream_id)?;
                 resolved_direct_from_descriptor(&extraction.descriptor, stream)
+                    .map(ResolvedNativeExecution::Direct)
             }
             YouTubeDownloadPlan::SeparateTracks { .. } => Err(
                 NativeMediaTaskError::UnsupportedFeature(
-                    "separate-track mux is not migrated to task execution yet".to_owned(),
+                    "the selected separate tracks require a container muxer not implemented yet"
+                        .to_owned(),
                 ),
             ),
         };
@@ -293,7 +439,54 @@ fn resolve_native_direct(
             )
         })?;
 
-    resolved_direct_from_descriptor(&descriptor, stream)
+    resolved_direct_from_descriptor(&descriptor, stream).map(ResolvedNativeExecution::Direct)
+}
+
+fn find_descriptor_stream<'a>(
+    descriptor: &'a MediaDescriptor,
+    stream_id: &str,
+) -> Result<&'a MediaStream, NativeMediaTaskError> {
+    descriptor
+        .streams
+        .iter()
+        .find(|stream| stream.id == stream_id)
+        .ok_or_else(|| {
+            NativeMediaTaskError::Resolution(
+                "selected native media stream disappeared".to_owned(),
+            )
+        })
+}
+
+fn stream_is_mp4_muxable(stream: &MediaStream) -> bool {
+    matches!(stream.protocol, MediaProtocol::Http | MediaProtocol::Https)
+        && stream
+            .container
+            .as_deref()
+            .is_some_and(|container| {
+                matches!(
+                    container.trim().to_ascii_lowercase().as_str(),
+                    "mp4" | "m4a" | "m4v" | "mov"
+                )
+            })
+}
+
+fn resolved_track_from_descriptor(
+    descriptor: &MediaDescriptor,
+    stream: &MediaStream,
+) -> Result<ResolvedTrackTransfer, NativeMediaTaskError> {
+    if !matches!(stream.protocol, MediaProtocol::Http | MediaProtocol::Https) {
+        return Err(NativeMediaTaskError::UnsupportedFeature(
+            "selected track requires manifest task execution".to_owned(),
+        ));
+    }
+    let context = descriptor
+        .request_context_for_stream(stream)
+        .map_err(|error| NativeMediaTaskError::InvalidRequest(error.to_string()))?;
+    Ok(ResolvedTrackTransfer {
+        url: stream.url.clone(),
+        content_length: stream.content_length,
+        context,
+    })
 }
 
 fn resolved_direct_from_descriptor(
