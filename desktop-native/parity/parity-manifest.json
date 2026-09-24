@@ -223,10 +223,14 @@
     {
       "id": "media",
       "label": "Media downloader",
-      "status": "partial",
+      "status": "covered",
       "evidence": [
         "desktop-native/qml/pages/MediaDownloaderPage.qml",
-        "desktop-native/src/api/NovaApiClient.cpp"
+        "desktop-native/qml/components/MediaAdvancedPanel.qml",
+        "desktop-native/src/api/NovaApiClient.cpp",
+        "desktop-native/tests/NativeParityTests.cpp",
+        "src-tauri/src/daemon/engine_capabilities.rs",
+        "src-tauri/src/daemon/ytdlp.rs"
       ],
       "contains": [
         {
@@ -234,11 +238,63 @@
           "allOf": [
             "probeMedia",
             "probeMediaPlaylist",
-            "createMediaDownload"
+            "createMediaDownload",
+            "mediaOptionSupported",
+            "sanitizeMediaOptions",
+            "supportedMediaOptionKeys"
+          ]
+        },
+        {
+          "file": "desktop-native/qml/components/MediaAdvancedPanel.qml",
+          "allOf": [
+            "formatSelector",
+            "formatSort",
+            "downloadSections",
+            "matchFilter",
+            "remuxFormat",
+            "sponsorBlock",
+            "sourceAddress",
+            "cookiesFromBrowser",
+            "rateLimitKbs",
+            "fragmentRetries",
+            "concurrentFragments",
+            "sleepIntervalSec",
+            "maxSleepIntervalSec"
+          ]
+        },
+        {
+          "file": "desktop-native/qml/pages/MediaDownloaderPage.qml",
+          "allOf": [
+            "autoProbeTimer",
+            "playlistSelectionCount",
+            "playlistItemsValue",
+            "media.templateTitle",
+            "media.templateCreator",
+            "media.templateIndex",
+            "MediaAdvancedPanel"
+          ]
+        },
+        {
+          "file": "src-tauri/src/daemon/engine_capabilities.rs",
+          "allOf": [
+            "supportedMediaOptionKeys",
+            "validate_ytdlp_media_options",
+            "formatSelector",
+            "downloadSections",
+            "concurrentFragments"
+          ]
+        },
+        {
+          "file": "desktop-native/tests/NativeParityTests.cpp",
+          "allOf": [
+            "mediaDownloadCarriesAdvancedOptions",
+            "mediaDownloadHonorsRuntimeCapabilities",
+            "sourceAddress",
+            "sponsorBlock",
+            "fragmentRetries"
           ]
         }
-      ],
-      "blocker": "Native media workflow covers probing, quality/audio selection, playlists, subtitles, thumbnails and metadata, but legacy advanced controls are incomplete (format overrides/sorting, sections, remux, SponsorBlock, proxy/cookies/headers, rate/retry/fragment and sleep controls)."
+      ]
     },
     {
       "id": "link-grabber",
