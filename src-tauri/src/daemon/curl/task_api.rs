@@ -1056,21 +1056,21 @@ impl Extractor for CurlExtractor {
 
 #[cfg(test)]
 mod tests {
-    use super::replace_pinned_resolve;
+    use super::{list_all_tasks, pause_task, replace_pinned_resolve};
     use crate::daemon::curl::{
         build_curl_args, destination_from_body, drive_multi_wait_perform, split_ranges,
         CurlExtractor, CurlMultiGuard,
     };
     use crate::daemon::engine::extractor::Extractor;
-    use crate::daemon::types::CreateDownloadBody;
+    use crate::daemon::types::{CreateDownloadBody, NativeMediaJob, Task};
     use ::curl::easy::Easy2;
     use std::io::Read;
     use std::io::Write;
     use std::net::TcpListener;
-    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     fn base_body() -> CreateDownloadBody {
         CreateDownloadBody {
@@ -1094,6 +1094,77 @@ mod tests {
     fn has_pair(args: &[String], flag: &str, value: &str) -> bool {
         args.windows(2)
             .any(|pair| pair[0] == flag && pair[1] == value)
+    }
+
+    #[tokio::test]
+    async fn native_media_job_is_listed_and_pause_requests_worker_cancellation() {
+        let dir = std::env::temp_dir().join(format!(
+            "nova-task-api-native-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let state = Arc::new(crate::daemon::persist::tests::test_state(
+            &dir.display().to_string(),
+        ));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let task = Task {
+            id: "native-task".to_owned(),
+            name: "native.mp4".to_owned(),
+            url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ".to_owned(),
+            file_type: "video".to_owned(),
+            status: "downloading".to_owned(),
+            size_bytes: 100,
+            downloaded_bytes: 25,
+            speed_bytes_per_sec: 10,
+            time_left_seconds: 8,
+            elapsed_seconds: 2,
+            date_added: "2026-09-24T00:00:00Z".to_owned(),
+            category: "video".to_owned(),
+            queue_id: "main".to_owned(),
+            connections: 4,
+            resumable: true,
+            save_path: dir.join("native.mp4").display().to_string(),
+            description: "native multi-track".to_owned(),
+            segments: Vec::new(),
+            referer: None,
+            engine: "nova-media-engine".to_owned(),
+            engine_id: "native-task".to_owned(),
+            engine_status: Some("downloading-tracks".to_owned()),
+            error_message: None,
+        };
+        state.native_media_jobs.lock().unwrap().insert(
+            task.id.clone(),
+            NativeMediaJob {
+                task: task.clone(),
+                request: base_body(),
+                cancel_token: cancel.clone(),
+                run_generation: Arc::new(AtomicU64::new(1)),
+                worker_active: Arc::new(AtomicBool::new(true)),
+                run_start_downloaded_bytes: 0,
+                start_time: Instant::now(),
+            },
+        );
+
+        let listed = list_all_tasks(&state).await;
+        assert!(listed.iter().any(|entry| entry.id == "native-task"));
+
+        let paused = pause_task(&state, "native-task")
+            .await
+            .expect("pause native task");
+        assert_eq!(paused.status, "pausing");
+        assert!(cancel.load(Ordering::Acquire));
+
+        // This test does not spawn a worker; clear the synthetic ownership flag
+        // before dropping state so it accurately models a completed teardown.
+        state
+            .native_media_jobs
+            .lock()
+            .unwrap()
+            .get("native-task")
+            .expect("native task")
+            .worker_active
+            .store(false, Ordering::Release);
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
