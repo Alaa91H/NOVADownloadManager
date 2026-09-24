@@ -925,7 +925,7 @@ impl Extractor for CurlExtractor {
     }
 
     fn can_handle(&self, url: &str, has_media_options: bool) -> bool {
-        if has_media_options {
+        if has_media_options || crate::daemon::native_media::is_native_manifest_url(url) {
             return false;
         }
         // URI schemes are case-insensitive (RFC 3986). A textual lowercase
@@ -1015,6 +1015,17 @@ mod tests {
     fn has_pair(args: &[String], flag: &str, value: &str) -> bool {
         args.windows(2)
             .any(|pair| pair[0] == flag && pair[1] == value)
+    }
+
+    #[test]
+    fn curl_yields_manifest_urls_to_native_media() {
+        let extractor = CurlExtractor;
+        assert!(!extractor.can_handle(
+            "https://cdn.test/master.m3u8?token=abc",
+            false
+        ));
+        assert!(!extractor.can_handle("https://cdn.test/stream.mpd", false));
+        assert!(extractor.can_handle("https://cdn.test/archive.zip", false));
     }
 
     #[test]
