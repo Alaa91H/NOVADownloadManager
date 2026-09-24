@@ -374,7 +374,7 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
     let id = id.to_owned();
     std::thread::spawn(move || {
         let _worker_guard = NativeWorkerGuard(worker_active);
-        if !native_transition(&state, &id, generation, TaskState::Downloading, "downloading-tracks") {
+        if !native_transition(&state, &id, generation, TaskState::Probing, "resolving-media") {
             return;
         }
 
@@ -385,6 +385,26 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
                 return;
             }
         };
+
+        if token.load(Ordering::Acquire) {
+            mark_native_media_failed(
+                &state,
+                &id,
+                generation,
+                "native media resolution paused".to_owned(),
+                true,
+            );
+            return;
+        }
+        if !native_transition(
+            &state,
+            &id,
+            generation,
+            TaskState::Downloading,
+            "downloading-tracks",
+        ) {
+            return;
+        }
 
         let result = match execution {
             ResolvedNativeExecution::Direct(direct) => {
