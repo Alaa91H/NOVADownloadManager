@@ -318,6 +318,40 @@ mod tests {
     }
 
     #[test]
+    fn destructive_discard_removes_shared_core_sidecars_and_segments() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("nova-mobile-discard-{unique}"));
+        let relative = Path::new("nova-staging/task.part");
+        let destination = root.join(relative);
+        std::fs::create_dir_all(destination.parent().expect("staging parent"))
+            .expect("create staging parent");
+
+        for path in [
+            destination.clone(),
+            PathBuf::from(format!("{}.nova-identity", destination.display())),
+            PathBuf::from(format!("{}.nova-segments", destination.display())),
+            PathBuf::from(format!("{}.nova-seg-0000", destination.display())),
+            PathBuf::from(format!("{}.nova-seg-0000.done", destination.display())),
+            PathBuf::from(format!("{}.nova-merge", destination.display())),
+        ] {
+            std::fs::write(path, b"temporary").expect("seed transfer artifact");
+        }
+
+        discard_app_private_transfer(&root, relative).expect("discard transfer artifacts");
+
+        assert!(!destination.exists());
+        assert!(!PathBuf::from(format!("{}.nova-identity", destination.display())).exists());
+        assert!(!PathBuf::from(format!("{}.nova-segments", destination.display())).exists());
+        assert!(!PathBuf::from(format!("{}.nova-seg-0000", destination.display())).exists());
+        assert!(!PathBuf::from(format!("{}.nova-seg-0000.done", destination.display())).exists());
+        assert!(!PathBuf::from(format!("{}.nova-merge", destination.display())).exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn progress_snapshot_tracks_atomic_session_state() {
         let task_id = "progress-test";
         let state = Arc::new(SessionState::new());
