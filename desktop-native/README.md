@@ -82,6 +82,8 @@ cmake --build build/native-tests --parallel
 ctest --test-dir build/native-tests --output-on-failure
 ```
 
+`check-native-i18n-coverage.mjs` rejects alias drift and any regression below the current 40% native-to-legacy translation reuse floor.
+
 The parity command writes `build/native-parity-report.md`. The production replacement gate is `node desktop-native/scripts/check-parity.mjs --require-complete`; it must remain failing until every capability is covered and `releaseReplacementReady` is explicitly enabled.
 
 On the feature branch, GitHub Actions builds native preview artifacts for Windows, Linux and macOS. Each bundle contains:
