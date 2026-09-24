@@ -491,7 +491,29 @@ void NativeSettings::setDownloadSortAscending(bool value) {
 }
 
 void NativeSettings::resetToDefaults() {
+    const bool legacyImported = m_settings.value(
+        QStringLiteral("migration/legacyUiImported"),
+        false
+    ).toBool();
+    const QString legacySource = m_settings.value(
+        QStringLiteral("migration/legacyUiSource")
+    ).toString();
+
     m_settings.clear();
+
+    if (legacyImported) {
+        m_settings.setValue(
+            QStringLiteral("migration/legacyUiImported"),
+            true
+        );
+        if (!legacySource.isEmpty()) {
+            m_settings.setValue(
+                QStringLiteral("migration/legacyUiSource"),
+                legacySource
+            );
+        }
+    }
+
     m_settings.sync();
     emit settingsChanged();
 }
