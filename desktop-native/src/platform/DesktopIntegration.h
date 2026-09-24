@@ -20,6 +20,7 @@ public:
     Q_INVOKABLE bool openExternalUrl(const QString &url);
     Q_INVOKABLE QVariantMap browserNativeHostStatus() const;
     Q_INVOKABLE bool repairBrowserNativeHost();
+    Q_INVOKABLE QString readClipboardText() const;
     Q_INVOKABLE QString chooseDirectory(const QString &initialDirectory = QString());
     Q_INVOKABLE QString chooseSaveFile(
         const QString &suggestedPath = QString(),
