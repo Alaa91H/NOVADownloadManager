@@ -1,5 +1,6 @@
 #include "batch/BatchPatternExpander.h"
 
+#include <QList>
 #include <QRegularExpression>
 #include <QtGlobal>
 
@@ -213,7 +214,10 @@ ExpansionResult expandInput(const QString &input) {
                     .arg(MaxExpandedUrls)
             };
         }
-        output.append(expanded.urls);
+        output.reserve(output.size() + expanded.urls.size());
+        for (const QString &url : std::as_const(expanded.urls)) {
+            output.append(url);
+        }
     }
 
     return ExpansionResult{output, {}};
