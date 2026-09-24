@@ -873,6 +873,7 @@ fn restore_persisted_tasks(
         let is_direct_download = task.engine == "curl"
             || task.engine == "libcurl-multi"
             || (task.engine != "media-bridge"
+                && task.engine != "nova-media-engine"
                 && (task.url.starts_with("http://") || task.url.starts_with("https://")));
 
         // P0 crash/restart consistency: a persisted completed state must still
@@ -928,9 +929,36 @@ fn restore_persisted_tasks(
                     );
                 }
             }
+        } else if task.engine == "nova-media-engine" {
+            let request = restored.native_media_requests.get(&task.id).cloned();
+            if task.status != "completed" {
+                if let Some(request) = request {
+                    if let Ok(mut jobs) = state.native_media_jobs.lock() {
+                        jobs.insert(
+                            task.id.clone(),
+                            NativeMediaJob {
+                                task: task.clone(),
+                                request,
+                                protocol: "manifest".to_owned(),
+                                cancel_token: Arc::new(AtomicBool::new(false)),
+                                run_generation: Arc::new(AtomicU64::new(0)),
+                                start_time: Instant::now(),
+                            },
+                        );
+                    }
+                } else {
+                    task.status = "error".to_owned();
+                    task.engine_status = Some("native-request-missing".to_owned());
+                    task.error_message = Some(
+                        "The native media request could not be restored. Re-add the media URL to continue."
+                            .to_owned(),
+                    );
+                }
+            }
         } else if task.engine == "curl"
             || task.engine == "libcurl-multi"
             || (task.engine != "media-bridge"
+                && task.engine != "nova-media-engine"
                 && (task.url.starts_with("http://") || task.url.starts_with("https://")))
         {
             task.engine = "libcurl-multi".to_owned();
