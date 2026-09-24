@@ -388,16 +388,24 @@ impl PeerState {
             PeerMessage::Interested => self.peer_interested = true,
             PeerMessage::NotInterested => self.peer_interested = false,
             PeerMessage::Have(piece_index) => {
-                if *piece_index >= self.piece_count {
-                    return Err(PeerWireError::PieceOutOfRange {
-                        piece_index: *piece_index,
-                        piece_count: self.piece_count,
-                    });
+                // piece_count == 0 is used by magnet metadata sessions before
+                // the BEP 9 info dictionary reveals torrent geometry. Ignore
+                // HAVE indexes in that state rather than allocating from an
+                // untrusted index.
+                if self.piece_count != 0 {
+                    if *piece_index >= self.piece_count {
+                        return Err(PeerWireError::PieceOutOfRange {
+                            piece_index: *piece_index,
+                            piece_count: self.piece_count,
+                        });
+                    }
+                    set_bit(&mut self.bitfield, *piece_index as usize);
                 }
-                set_bit(&mut self.bitfield, *piece_index as usize);
             }
             PeerMessage::Bitfield(bitfield) => {
-                validate_bitfield(bitfield, self.piece_count)?;
+                if self.piece_count != 0 {
+                    validate_bitfield(bitfield, self.piece_count)?;
+                }
                 self.bitfield.clone_from(bitfield);
             }
             PeerMessage::KeepAlive
@@ -579,6 +587,19 @@ mod tests {
             .expect("valid bitfield");
         assert!(state.has_piece(0));
         assert!(state.has_piece(9));
+    }
+
+    #[test]
+    fn peer_state_allows_pre_metadata_availability_without_allocating_from_have() {
+        let mut state = PeerState::new(0);
+        state
+            .apply(&PeerMessage::Bitfield(vec![0x80, 0x00]))
+            .expect("pre-metadata bitfield");
+        state
+            .apply(&PeerMessage::Have(u32::MAX))
+            .expect("pre-metadata have is ignored");
+        assert_eq!(state.bitfield(), &[0x80, 0x00]);
+        assert!(!state.has_piece(0));
     }
 
     #[test]
