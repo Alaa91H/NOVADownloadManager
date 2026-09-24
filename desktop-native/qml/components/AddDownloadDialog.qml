@@ -7,6 +7,8 @@ Dialog {
     id: root
 
     required property var api
+    required property var desktop
+    required property var settings
 
     modal: true
     focus: true
@@ -127,11 +129,32 @@ Dialog {
                 font.weight: Font.DemiBold
             }
 
-            TextField {
-                id: pathField
+            RowLayout {
                 Layout.fillWidth: true
-                placeholderText: "Optional — use NOVA default destination"
-                selectByMouse: true
+                spacing: 8
+
+                TextField {
+                    id: pathField
+                    Layout.fillWidth: true
+                    placeholderText: "Optional — choose an exact file destination"
+                    selectByMouse: true
+                }
+
+                Button {
+                    text: "Browse…"
+                    enabled: !root.submitting
+                    onClicked: {
+                        let suggested = pathField.text.trim()
+                        if (suggested.length === 0)
+                            suggested = settings.defaultSaveDirectory
+                        if (nameField.text.trim().length > 0)
+                            suggested += "/" + nameField.text.trim()
+
+                        const chosen = desktop.chooseSaveFile(suggested, "All files (*)")
+                        if (chosen.length > 0)
+                            pathField.text = chosen
+                    }
+                }
             }
         }
 

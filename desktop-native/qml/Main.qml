@@ -16,6 +16,96 @@ ApplicationWindow {
 
     property string currentPage: "downloads"
 
+    function openNewDownload() {
+        window.currentPage = "downloads"
+        Qt.callLater(function() {
+            if (contentLoader.item && contentLoader.item.openNewDownload)
+                contentLoader.item.openNewDownload()
+        })
+    }
+
+    Action {
+        id: newDownloadAction
+        text: "New Download"
+        shortcut: StandardKey.New
+        enabled: novaApi.connected
+        onTriggered: window.openNewDownload()
+    }
+
+    Action {
+        id: refreshAction
+        text: "Refresh"
+        shortcut: "F5"
+        onTriggered: {
+            if (window.currentPage === "settings") {
+                novaApi.refreshEngineManagement()
+                novaApi.refreshLogs("", 300)
+            } else {
+                novaApi.refreshDownloads()
+            }
+        }
+    }
+
+    Action {
+        id: settingsAction
+        text: "Settings"
+        shortcut: "Ctrl+,"
+        onTriggered: window.currentPage = "settings"
+    }
+
+    Action {
+        id: checkUpdatesAction
+        text: "Check for Updates"
+        onTriggered: {
+            window.currentPage = "settings"
+            updaterManager.checkForUpdates(nativeSettings.updateChannel)
+        }
+    }
+
+    menuBar: MenuBar {
+        Menu {
+            title: "File"
+            MenuItem { action: newDownloadAction }
+            MenuItem {
+                text: "Batch Import"
+                shortcut: "Ctrl+Shift+B"
+                onTriggered: window.currentPage = "batch"
+            }
+            MenuSeparator {}
+            MenuItem {
+                text: "Quit"
+                shortcut: StandardKey.Quit
+                onTriggered: Qt.quit()
+            }
+        }
+
+        Menu {
+            title: "View"
+            MenuItem { text: "Downloads"; shortcut: "Alt+1"; onTriggered: window.currentPage = "downloads" }
+            MenuItem { text: "Active"; shortcut: "Alt+2"; onTriggered: window.currentPage = "active" }
+            MenuItem { text: "Queued"; shortcut: "Alt+3"; onTriggered: window.currentPage = "queued" }
+            MenuItem { text: "Completed"; shortcut: "Alt+4"; onTriggered: window.currentPage = "completed" }
+            MenuItem { text: "Failed"; shortcut: "Alt+5"; onTriggered: window.currentPage = "failed" }
+            MenuSeparator {}
+            MenuItem { action: refreshAction }
+        }
+
+        Menu {
+            title: "Tools"
+            MenuItem { text: "Queue Manager"; onTriggered: window.currentPage = "queue" }
+            MenuItem { text: "Scheduler"; onTriggered: window.currentPage = "scheduler" }
+            MenuItem { text: "Media Downloader"; shortcut: "Ctrl+Shift+M"; onTriggered: window.currentPage = "media" }
+            MenuItem { text: "Link Grabber"; shortcut: "Ctrl+L"; onTriggered: window.currentPage = "grabber" }
+            MenuSeparator {}
+            MenuItem { action: settingsAction }
+        }
+
+        Menu {
+            title: "Help"
+            MenuItem { action: checkUpdatesAction }
+        }
+    }
+
     palette.window: Theme.window
     palette.windowText: Theme.textPrimary
     palette.base: Theme.surface
@@ -49,6 +139,7 @@ ApplicationWindow {
             spacing: 0
 
             Loader {
+                id: contentLoader
                 Layout.fillWidth: true
                 Layout.fillHeight: true
 
@@ -107,6 +198,7 @@ ApplicationWindow {
         BatchImportPage {
             api: novaApi
             settings: nativeSettings
+            desktop: desktopIntegration
         }
     }
 
@@ -124,6 +216,7 @@ ApplicationWindow {
         MediaDownloaderPage {
             api: novaApi
             settings: nativeSettings
+            desktop: desktopIntegration
         }
     }
 
@@ -133,6 +226,7 @@ ApplicationWindow {
         LinkGrabberPage {
             api: novaApi
             settings: nativeSettings
+            desktop: desktopIntegration
         }
     }
 
@@ -143,6 +237,8 @@ ApplicationWindow {
             api: novaApi
             settings: nativeSettings
             tray: trayManager
+            desktop: desktopIntegration
+            updater: updaterManager
         }
     }
 

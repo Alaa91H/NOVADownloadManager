@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=NOVA Download Manager
+Comment=Professional download manager for direct and media downloads
+Exec=nova-native
+Icon=folder-download
+Terminal=false
+Categories=Network;Utility;
+StartupNotify=true
+StartupWMClass=nova-native

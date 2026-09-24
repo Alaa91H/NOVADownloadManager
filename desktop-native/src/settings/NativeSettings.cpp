@@ -45,6 +45,15 @@ bool NativeSettings::notifyOnFailure() const {
     return value<bool>(QStringLiteral("notifications/onFailure"), true);
 }
 
+QString NativeSettings::updateChannel() const {
+    const QString stored = value<QString>(QStringLiteral("updates/channel"), QStringLiteral("stable"))
+        .trimmed()
+        .toLower();
+    return stored == QStringLiteral("preview")
+        ? QStringLiteral("preview")
+        : QStringLiteral("stable");
+}
+
 void NativeSettings::setDefaultSaveDirectory(const QString &value) {
     store(QStringLiteral("downloads/defaultDirectory"), value.trimmed());
 }
@@ -75,6 +84,13 @@ void NativeSettings::setNotifyOnComplete(bool value) {
 
 void NativeSettings::setNotifyOnFailure(bool value) {
     store(QStringLiteral("notifications/onFailure"), value);
+}
+
+void NativeSettings::setUpdateChannel(const QString &value) {
+    const QString normalized = value.trimmed().toLower() == QStringLiteral("preview")
+        ? QStringLiteral("preview")
+        : QStringLiteral("stable");
+    store(QStringLiteral("updates/channel"), normalized);
 }
 
 void NativeSettings::resetToDefaults() {

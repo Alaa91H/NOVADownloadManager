@@ -3,23 +3,29 @@
 #include <QQmlContext>
 #include <QTimer>
 #include <QUrl>
+#include <QWindow>
 
 #include "api/NovaApiClient.h"
 #include "models/DownloadListModel.h"
 #include "platform/DesktopIntegration.h"
 #include "platform/TrayManager.h"
+#include "platform/UpdaterManager.h"
 #include "settings/NativeSettings.h"
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("NOVA"));
     QCoreApplication::setApplicationName(QStringLiteral("NOVA Download Manager Native"));
+#ifdef NOVA_NATIVE_VERSION
+    QCoreApplication::setApplicationVersion(QStringLiteral(NOVA_NATIVE_VERSION));
+#endif
 
     NovaApiClient apiClient;
     DownloadListModel downloadsModel;
     DesktopIntegration desktopIntegration;
     NativeSettings nativeSettings;
     TrayManager trayManager;
+    UpdaterManager updaterManager;
 
     const QByteArray apiBase = qgetenv("NOVA_API_BASE");
     const QByteArray apiToken = qgetenv("NOVA_API_TOKEN");
@@ -34,6 +40,8 @@ int main(int argc, char *argv[]) {
                      &downloadsModel, &DownloadListModel::replaceFromJson);
     QObject::connect(&apiClient, &NovaApiClient::downloadsLoaded,
                      &trayManager, &TrayManager::handleDownloads);
+    QObject::connect(&apiClient, &NovaApiClient::downloadsLoaded,
+                     &desktopIntegration, &DesktopIntegration::handleDownloads);
 
     const auto syncDesktopPreferences = [&nativeSettings, &trayManager]() {
         trayManager.setNotificationsEnabled(nativeSettings.notificationsEnabled());
@@ -55,12 +63,19 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty(QStringLiteral("desktopIntegration"), &desktopIntegration);
     engine.rootContext()->setContextProperty(QStringLiteral("nativeSettings"), &nativeSettings);
     engine.rootContext()->setContextProperty(QStringLiteral("trayManager"), &trayManager);
+    engine.rootContext()->setContextProperty(QStringLiteral("updaterManager"), &updaterManager);
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
                      &app, []() { QCoreApplication::exit(-1); },
                      Qt::QueuedConnection);
 
     engine.loadFromModule(QStringLiteral("Nova.Native"), QStringLiteral("Main"));
+
+    if (!engine.rootObjects().isEmpty()) {
+        if (auto *window = qobject_cast<QWindow *>(engine.rootObjects().constFirst())) {
+            desktopIntegration.setWindow(window);
+        }
+    }
 
     QTimer refreshTimer;
     refreshTimer.setInterval(60000);

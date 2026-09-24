@@ -8,6 +8,7 @@ Item {
 
     required property var api
     required property var settings
+    required property var desktop
 
     property int totalCount: 0
     property int completedCount: 0
@@ -123,12 +124,27 @@ Item {
             Layout.fillWidth: true
             spacing: 10
 
-            TextField {
-                id: saveDirectory
+            RowLayout {
                 Layout.fillWidth: true
-                placeholderText: "Optional destination directory"
-                selectByMouse: true
-                enabled: !api.batchRunning
+                spacing: 6
+
+                TextField {
+                    id: saveDirectory
+                    Layout.fillWidth: true
+                    placeholderText: "Optional destination directory"
+                    selectByMouse: true
+                    enabled: !api.batchRunning
+                }
+
+                Button {
+                    text: "Browse…"
+                    enabled: !api.batchRunning
+                    onClicked: {
+                        const chosen = desktop.chooseDirectory(saveDirectory.text)
+                        if (chosen.length > 0)
+                            saveDirectory.text = chosen
+                    }
+                }
             }
 
             ComboBox {

@@ -9,6 +9,8 @@ Item {
     required property var api
     required property var settings
     required property var tray
+    required property var desktop
+    required property var updater
 
     property string noticeText: ""
     property bool noticeError: false
@@ -38,6 +40,14 @@ Item {
     Component.onCompleted: {
         api.refreshEngineManagement()
         api.refreshLogs("", 300)
+    }
+
+    Connections {
+        target: updater
+
+        function onUpdateCheckFailed(message) {
+            root.showNotice(message, true)
+        }
     }
 
     Connections {
@@ -161,12 +171,29 @@ Item {
                                 font.weight: Font.DemiBold
                             }
 
-                            TextField {
+                            RowLayout {
                                 Layout.fillWidth: true
-                                text: settings.defaultSaveDirectory
-                                placeholderText: "Default download directory"
-                                selectByMouse: true
-                                onEditingFinished: settings.defaultSaveDirectory = text
+                                spacing: 8
+
+                                TextField {
+                                    id: defaultDirectoryField
+                                    Layout.fillWidth: true
+                                    text: settings.defaultSaveDirectory
+                                    placeholderText: "Default download directory"
+                                    selectByMouse: true
+                                    onEditingFinished: settings.defaultSaveDirectory = text
+                                }
+
+                                Button {
+                                    text: "Browse…"
+                                    onClicked: {
+                                        const chosen = desktop.chooseDirectory(defaultDirectoryField.text)
+                                        if (chosen.length > 0) {
+                                            defaultDirectoryField.text = chosen
+                                            settings.defaultSaveDirectory = chosen
+                                        }
+                                    }
+                                }
                             }
 
                             RowLayout {
@@ -294,6 +321,101 @@ Item {
                                 checked: settings.notifyOnFailure
                                 enabled: settings.notificationsEnabled && tray.available
                                 onToggled: settings.notifyOnFailure = checked
+                            }
+                        }
+                    }
+
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: updatesColumn.implicitHeight + 28
+                        radius: Theme.radiusMedium
+                        color: Theme.surface
+                        border.color: Theme.border
+
+                        ColumnLayout {
+                            id: updatesColumn
+                            anchors.fill: parent
+                            anchors.margins: 14
+                            spacing: 10
+
+                            RowLayout {
+                                Layout.fillWidth: true
+
+                                ColumnLayout {
+                                    spacing: 2
+
+                                    Text {
+                                        text: "Updates"
+                                        color: Theme.textPrimary
+                                        font.pixelSize: 13
+                                        font.weight: Font.DemiBold
+                                    }
+
+                                    Text {
+                                        text: "Current version: " + updater.currentVersion
+                                        color: Theme.textMuted
+                                        font.pixelSize: 9
+                                    }
+                                }
+
+                                Item { Layout.fillWidth: true }
+
+                                ComboBox {
+                                    id: updateChannel
+                                    model: [
+                                        { label: "Stable", value: "stable" },
+                                        { label: "Preview", value: "preview" }
+                                    ]
+                                    textRole: "label"
+                                    valueRole: "value"
+                                    currentIndex: settings.updateChannel === "preview" ? 1 : 0
+                                    onActivated: settings.updateChannel = currentValue
+                                }
+
+                                Button {
+                                    text: updater.busy ? "Checking…" : "Check now"
+                                    enabled: !updater.busy
+                                    onClicked: updater.checkForUpdates(settings.updateChannel)
+                                }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: updater.latestVersion.length > 0
+                                        ? updater.statusText + " · latest " + updater.latestVersion
+                                        : updater.statusText
+                                    color: updater.updateAvailable ? Theme.success : Theme.textSecondary
+                                    font.pixelSize: 10
+                                    elide: Text.ElideRight
+                                }
+
+                                Button {
+                                    text: "Open release"
+                                    visible: updater.releaseUrl.length > 0
+                                    onClicked: updater.openReleasePage()
+                                }
+                            }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                implicitHeight: updaterSafetyText.implicitHeight + 16
+                                radius: Theme.radiusSmall
+                                color: Qt.rgba(0.82, 0.60, 0.13, 0.08)
+                                border.color: Theme.warning
+
+                                Text {
+                                    id: updaterSafetyText
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    text: updater.automaticInstallStatus
+                                    color: Theme.textSecondary
+                                    font.pixelSize: 9
+                                    wrapMode: Text.WordWrap
+                                }
                             }
                         }
                     }

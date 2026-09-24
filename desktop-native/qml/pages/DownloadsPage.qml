@@ -21,6 +21,10 @@ Item {
     property string noticeText: ""
     property bool noticeIsError: false
 
+    function openNewDownload() {
+        addDownloadDialog.openNew()
+    }
+
     function pageTitle() {
         if (page === "active") return "Active downloads"
         if (page === "queued") return "Queued downloads"
@@ -224,20 +228,9 @@ Item {
     }
 
     Shortcut {
-        sequence: StandardKey.New
-        enabled: root.api.connected && !addDownloadDialog.visible
-        onActivated: addDownloadDialog.openNew()
-    }
-
-    Shortcut {
         sequence: StandardKey.Find
         enabled: !addDownloadDialog.visible
         onActivated: searchField.forceActiveFocus()
-    }
-
-    Shortcut {
-        sequence: "F5"
-        onActivated: root.api.refreshDownloads()
     }
 
     Shortcut {
@@ -715,6 +708,8 @@ Item {
     AddDownloadDialog {
         id: addDownloadDialog
         api: root.api
+        desktop: desktopIntegration
+        settings: nativeSettings
         parent: Overlay.overlay
         x: parent ? Math.round((parent.width - width) / 2) : 0
         y: parent ? Math.round((parent.height - height) / 2) : 0

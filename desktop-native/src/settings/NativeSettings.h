@@ -15,6 +15,7 @@ class NativeSettings final : public QObject {
     Q_PROPERTY(bool notificationsEnabled READ notificationsEnabled WRITE setNotificationsEnabled NOTIFY settingsChanged)
     Q_PROPERTY(bool notifyOnComplete READ notifyOnComplete WRITE setNotifyOnComplete NOTIFY settingsChanged)
     Q_PROPERTY(bool notifyOnFailure READ notifyOnFailure WRITE setNotifyOnFailure NOTIFY settingsChanged)
+    Q_PROPERTY(QString updateChannel READ updateChannel WRITE setUpdateChannel NOTIFY settingsChanged)
 
 public:
     explicit NativeSettings(QObject *parent = nullptr);
@@ -27,6 +28,7 @@ public:
     bool notificationsEnabled() const;
     bool notifyOnComplete() const;
     bool notifyOnFailure() const;
+    QString updateChannel() const;
 
     void setDefaultSaveDirectory(const QString &value);
     void setDefaultConnections(int value);
@@ -36,6 +38,7 @@ public:
     void setNotificationsEnabled(bool value);
     void setNotifyOnComplete(bool value);
     void setNotifyOnFailure(bool value);
+    void setUpdateChannel(const QString &value);
 
     Q_INVOKABLE void resetToDefaults();
 

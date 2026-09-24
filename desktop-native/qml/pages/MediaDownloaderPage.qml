@@ -8,6 +8,7 @@ Item {
 
     required property var api
     required property var settings
+    required property var desktop
 
     property string errorText: ""
     property string statusText: ""
@@ -349,11 +350,25 @@ Item {
                             spacing: 4
 
                             Text { text: "Destination folder"; color: Theme.textMuted; font.pixelSize: 9 }
-                            TextField {
-                                id: saveDirectory
+                            RowLayout {
                                 Layout.fillWidth: true
-                                placeholderText: "Optional destination directory"
-                                selectByMouse: true
+                                spacing: 6
+
+                                TextField {
+                                    id: saveDirectory
+                                    Layout.fillWidth: true
+                                    placeholderText: "Optional destination directory"
+                                    selectByMouse: true
+                                }
+
+                                Button {
+                                    text: "Browse…"
+                                    onClicked: {
+                                        const chosen = desktop.chooseDirectory(saveDirectory.text)
+                                        if (chosen.length > 0)
+                                            saveDirectory.text = chosen
+                                    }
+                                }
                             }
                         }
 

@@ -1,11 +1,16 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(NOVANative VERSION 0.1.0 LANGUAGES CXX)
+project(NOVANative VERSION 2.4.48 LANGUAGES CXX)
+
+set(NOVA_APP_VERSION "2.4.48-alpha")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Quick QuickControls2 Network Widgets)
+if(UNIX AND NOT APPLE)
+    find_package(Qt6 6.8 REQUIRED COMPONENTS DBus)
+endif()
 qt_standard_project_setup(REQUIRES 6.8)
 
 qt_add_executable(nova-native
@@ -18,6 +23,8 @@ qt_add_executable(nova-native
     src/platform/DesktopIntegration.h
     src/platform/TrayManager.cpp
     src/platform/TrayManager.h
+    src/platform/UpdaterManager.cpp
+    src/platform/UpdaterManager.h
     src/settings/NativeSettings.cpp
     src/settings/NativeSettings.h
 )
@@ -48,6 +55,7 @@ qt_add_qml_module(nova-native
 )
 
 target_include_directories(nova-native PRIVATE src)
+target_compile_definitions(nova-native PRIVATE NOVA_NATIVE_VERSION="${NOVA_APP_VERSION}")
 
 target_link_libraries(nova-native
     PRIVATE
@@ -57,7 +65,22 @@ target_link_libraries(nova-native
         Qt6::Widgets
 )
 
+if(UNIX AND NOT APPLE)
+    target_link_libraries(nova-native PRIVATE Qt6::DBus)
+endif()
+
+if(WIN32)
+    target_link_libraries(nova-native PRIVATE ole32 uuid)
+endif()
+
 install(TARGETS nova-native
     BUNDLE DESTINATION .
     RUNTIME DESTINATION bin
 )
+
+if(UNIX AND NOT APPLE)
+    install(
+        FILES resources/nova-native.desktop
+        DESTINATION share/applications
+    )
+endif()
