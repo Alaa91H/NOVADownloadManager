@@ -440,10 +440,13 @@ pub fn youtube_video_id(url: &Url) -> Option<String> {
 }
 
 fn extract_bootstrap(html: &str) -> Option<YouTubeBootstrap> {
-    let cfg = extract_json_object_after_markers(
-        html,
-        &["ytcfg.set(", "window.ytcfg.set(", "ytcfg.data_ ="],
-    )?;
+    let cfg = ["ytcfg.set(", "window.ytcfg.set(", "ytcfg.data_ ="]
+        .iter()
+        .flat_map(|marker| extract_json_objects_after_marker(html, marker))
+        .find(|cfg| {
+            cfg.get("INNERTUBE_API_KEY").and_then(Value::as_str).is_some()
+                && cfg.get("INNERTUBE_CONTEXT").is_some()
+        })?;
 
     let api_key = cfg.get("INNERTUBE_API_KEY")?.as_str()?.to_owned();
     let context = cfg.get("INNERTUBE_CONTEXT")?.clone();
@@ -463,7 +466,11 @@ fn extract_bootstrap(html: &str) -> Option<YouTubeBootstrap> {
     let player_js_url = cfg
         .get("PLAYER_JS_URL")
         .and_then(Value::as_str)
-        .and_then(resolve_youtube_url);
+        .and_then(resolve_youtube_url)
+        .or_else(|| {
+            extract_json_string_property(html, "jsUrl")
+                .and_then(|value| resolve_youtube_url(&value))
+        });
     let visitor_data = context
         .pointer("/client/visitorData")
         .and_then(Value::as_str)
@@ -950,6 +957,69 @@ fn value_to_header_string(value: &Value) -> Option<String> {
         .or_else(|| value.as_u64().map(|value| value.to_string()))
 }
 
+fn extract_json_objects_after_marker(text: &str, marker: &str) -> Vec<Value> {
+    let mut values = Vec::new();
+    let mut offset = 0;
+
+    while offset < text.len() {
+        let Some(found) = text[offset..].find(marker) else {
+            break;
+        };
+        let start = offset + found + marker.len();
+        let tail = &text[start..];
+        let Some(brace) = tail.find('{') else {
+            break;
+        };
+        let object = &tail[brace..];
+        if let Some(json) = balanced_json_object(object) {
+            if let Ok(value) = serde_json::from_str(json) {
+                values.push(value);
+            }
+        }
+        offset = start.saturating_add(brace).saturating_add(1);
+    }
+
+    values
+}
+
+fn extract_json_string_property(text: &str, property: &str) -> Option<String> {
+    let marker = format!("\"{property}\":");
+    let mut offset = 0;
+
+    while let Some(found) = text[offset..].find(&marker) {
+        let start = offset + found + marker.len();
+        let tail = text[start..].trim_start();
+        if !tail.starts_with('"') {
+            offset = start;
+            continue;
+        }
+
+        let bytes = tail.as_bytes();
+        let mut escaped = false;
+        for index in 1..bytes.len() {
+            let byte = bytes[index];
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            if byte == b'\\' {
+                escaped = true;
+                continue;
+            }
+            if byte == b'"' {
+                let encoded = &tail[..=index];
+                if let Ok(value) = serde_json::from_str::<String>(encoded) {
+                    return Some(value);
+                }
+                break;
+            }
+        }
+        offset = start;
+    }
+
+    None
+}
+
 fn extract_json_object_after_markers(text: &str, markers: &[&str]) -> Option<Value> {
     for marker in markers {
         let mut offset = 0;
@@ -1044,6 +1114,25 @@ mod tests {
                 &Url::parse("https://www.youtube.com/watch?v=short").expect("URL")
             ),
             None
+        );
+    }
+
+    #[test]
+    fn bootstrap_skips_partial_ytcfg_calls_and_falls_back_to_js_url() {
+        let html = r#"
+<script>
+ytcfg.set({"EXPERIMENT_FLAGS":{"x":true}});
+ytcfg.set({"INNERTUBE_API_KEY":"key2","INNERTUBE_CONTEXT_CLIENT_NAME":1,
+"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB","clientVersion":"2.0"}}});
+window.bootstrap={"jsUrl":"\\/s\\/player\\/fallback\\/base.js"};
+</script>
+"#;
+
+        let bootstrap = extract_bootstrap(html).expect("bootstrap");
+        assert_eq!(bootstrap.api_key, "key2");
+        assert_eq!(
+            bootstrap.player_js_url.as_deref(),
+            Some("https://www.youtube.com/s/player/fallback/base.js")
         );
     }
 
