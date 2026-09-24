@@ -58,6 +58,11 @@ requireContains(
   'per-machine NSIS build',
 );
 requireContains(
+  'scripts/build-windows-installers.mjs',
+  "if (scope === 'machine') return fileName",
+  'backward-compatible per-machine installer filename',
+);
+requireContains(
   '.github/workflows/ci.yml',
   'node scripts/build-windows-installers.mjs',
   'dual-scope Windows release packaging',
