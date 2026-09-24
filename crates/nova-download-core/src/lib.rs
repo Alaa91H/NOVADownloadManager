@@ -830,6 +830,44 @@ pub struct HttpFileTransfer {
     pub effective_url: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HttpBodyTransfer {
+    pub response_status: u16,
+    pub bytes_received: u64,
+    pub effective_url: String,
+}
+
+pub fn stream_http_body_with_context<W: Write>(
+    url: &str,
+    sink: &mut W,
+    context: &HttpRequestContext,
+) -> Result<HttpBodyTransfer, TransportError> {
+    stream_http_body_controlled_with_context(
+        url,
+        sink,
+        context,
+        || TransferControl::Continue,
+    )
+}
+
+pub fn stream_http_body_controlled_with_context<
+    W: Write,
+    F: FnMut() -> TransferControl,
+>(
+    url: &str,
+    sink: &mut W,
+    context: &HttpRequestContext,
+    control: F,
+) -> Result<HttpBodyTransfer, TransportError> {
+    let (response_status, bytes_received, effective_url) =
+        stream_http_full_controlled(url, sink, context, control)?;
+    Ok(HttpBodyTransfer {
+        response_status,
+        bytes_received,
+        effective_url,
+    })
+}
+
 fn stream_http_full_controlled<W: Write, F: FnMut() -> TransferControl>(
     url: &str,
     sink: &mut W,
