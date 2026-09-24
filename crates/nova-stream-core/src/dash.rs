@@ -322,6 +322,7 @@ pub struct DashTransferUnit {
     pub url: String,
     pub initialization: bool,
     pub number: Option<u64>,
+    pub time: Option<u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -334,8 +335,10 @@ pub struct DashRepresentationPlan {
 
 #[derive(Debug, Error, Eq, PartialEq)]
 pub enum DashPlanError {
-    #[error("dynamic DASH planning requires the live refresh scheduler")]
+    #[error("dynamic DASH without SegmentTimeline requires the live refresh scheduler")]
     DynamicManifest,
+    #[error("DASH SegmentTimeline repeat is invalid or cannot be bounded")]
+    InvalidTimelineRepeat,
     #[error("DASH adaptation set index is out of range")]
     MissingAdaptation,
     #[error("DASH representation index is out of range")]
@@ -382,10 +385,6 @@ pub fn build_dash_representation_plan(
     adaptation_index: usize,
     representation_index: usize,
 ) -> Result<DashRepresentationPlan, DashPlanError> {
-    if manifest.is_dynamic {
-        return Err(DashPlanError::DynamicManifest);
-    }
-
     let period = manifest
         .periods
         .get(period_index)
@@ -419,6 +418,9 @@ pub fn build_dash_representation_plan(
         .or(adaptation.segment_template.as_ref());
 
     let Some(template) = template else {
+        if manifest.is_dynamic {
+            return Err(DashPlanError::DynamicManifest);
+        }
         return Ok(DashRepresentationPlan {
             representation_id: representation.id.clone(),
             track_kind,
@@ -428,6 +430,7 @@ pub fn build_dash_representation_plan(
                 url: base.to_string(),
                 initialization: false,
                 number: None,
+                time: None,
             }],
         });
     };
@@ -437,30 +440,16 @@ pub fn build_dash_representation_plan(
         .as_deref()
         .ok_or(DashPlanError::MissingMediaTemplate)?;
     let timescale = template.timescale.unwrap_or(1);
-    let segment_duration = template.duration.ok_or(DashPlanError::MissingSegmentTiming)?;
-    if timescale == 0 || segment_duration == 0 {
+    if timescale == 0 {
         return Err(DashPlanError::MissingSegmentTiming);
     }
 
-    let duration_text = manifest
-        .media_presentation_duration
-        .as_deref()
-        .ok_or(DashPlanError::MissingPresentationDuration)?;
-    let total_millis = parse_iso8601_duration_millis(duration_text)
-        .ok_or_else(|| DashPlanError::InvalidPresentationDuration(duration_text.to_owned()))?;
-    let numerator = u128::from(total_millis) * u128::from(timescale);
-    let denominator = u128::from(segment_duration) * 1000;
-    let segment_count = numerator
-        .saturating_add(denominator.saturating_sub(1))
-        / denominator;
-    let segment_count = u64::try_from(segment_count).unwrap_or(u64::MAX);
-
     let start_number = template.start_number.unwrap_or(1);
-    let mut units = Vec::with_capacity(segment_count.saturating_add(1) as usize);
+    let mut units = Vec::new();
     let mut order = 0_u64;
 
     if let Some(initialization) = template.initialization.as_deref() {
-        let rendered = render_dash_template(initialization, representation, None)?;
+        let rendered = render_dash_template(initialization, representation, None, None)?;
         let url = base
             .join(&rendered)
             .map_err(|_| DashPlanError::InvalidManifestUrl)?
@@ -470,24 +459,61 @@ pub fn build_dash_representation_plan(
             url,
             initialization: true,
             number: None,
+            time: None,
         });
         order += 1;
     }
 
-    for offset in 0..segment_count {
-        let number = start_number.saturating_add(offset);
-        let rendered = render_dash_template(media_template, representation, Some(number))?;
-        let url = base
-            .join(&rendered)
-            .map_err(|_| DashPlanError::InvalidManifestUrl)?
-            .to_string();
-        units.push(DashTransferUnit {
-            order,
-            url,
-            initialization: false,
-            number: Some(number),
-        });
-        order += 1;
+    if !template.timeline.is_empty() {
+        append_timeline_units(
+            manifest,
+            template,
+            media_template,
+            representation,
+            &base,
+            start_number,
+            &mut order,
+            &mut units,
+        )?;
+    } else {
+        if manifest.is_dynamic {
+            return Err(DashPlanError::DynamicManifest);
+        }
+        let segment_duration = template.duration.ok_or(DashPlanError::MissingSegmentTiming)?;
+        if segment_duration == 0 {
+            return Err(DashPlanError::MissingSegmentTiming);
+        }
+
+        let duration_text = manifest
+            .media_presentation_duration
+            .as_deref()
+            .ok_or(DashPlanError::MissingPresentationDuration)?;
+        let total_millis = parse_iso8601_duration_millis(duration_text)
+            .ok_or_else(|| DashPlanError::InvalidPresentationDuration(duration_text.to_owned()))?;
+        let numerator = u128::from(total_millis) * u128::from(timescale);
+        let denominator = u128::from(segment_duration) * 1000;
+        let segment_count = numerator
+            .saturating_add(denominator.saturating_sub(1))
+            / denominator;
+        let segment_count = u64::try_from(segment_count).unwrap_or(u64::MAX);
+
+        for offset in 0..segment_count {
+            let number = start_number.saturating_add(offset);
+            let rendered =
+                render_dash_template(media_template, representation, Some(number), None)?;
+            let url = base
+                .join(&rendered)
+                .map_err(|_| DashPlanError::InvalidManifestUrl)?
+                .to_string();
+            units.push(DashTransferUnit {
+                order,
+                url,
+                initialization: false,
+                number: Some(number),
+                time: None,
+            });
+            order += 1;
+        }
     }
 
     Ok(DashRepresentationPlan {
@@ -496,6 +522,82 @@ pub fn build_dash_representation_plan(
         bandwidth: representation.bandwidth,
         units,
     })
+}
+
+fn append_timeline_units(
+    manifest: &DashManifest,
+    template: &DashSegmentTemplate,
+    media_template: &str,
+    representation: &DashRepresentation,
+    base: &Url,
+    start_number: u64,
+    order: &mut u64,
+    units: &mut Vec<DashTransferUnit>,
+) -> Result<(), DashPlanError> {
+    let timescale = template.timescale.unwrap_or(1);
+    let presentation_units = manifest
+        .media_presentation_duration
+        .as_deref()
+        .and_then(parse_iso8601_duration_millis)
+        .map(|millis| (u128::from(millis) * u128::from(timescale)) / 1000)
+        .and_then(|value| u64::try_from(value).ok());
+
+    let mut current_time = 0_u64;
+    let mut number = start_number;
+
+    for (index, entry) in template.timeline.iter().enumerate() {
+        if entry.duration == 0 {
+            return Err(DashPlanError::MissingSegmentTiming);
+        }
+        if let Some(start_time) = entry.start_time {
+            current_time = start_time;
+        }
+
+        let repeat_count = if entry.repeat >= 0 {
+            u64::try_from(entry.repeat).unwrap_or(0)
+        } else if entry.repeat == -1 {
+            let boundary = template
+                .timeline
+                .get(index + 1)
+                .and_then(|next| next.start_time)
+                .or(presentation_units)
+                .ok_or(DashPlanError::InvalidTimelineRepeat)?;
+            if boundary <= current_time {
+                return Err(DashPlanError::InvalidTimelineRepeat);
+            }
+            boundary
+                .saturating_sub(current_time)
+                .saturating_sub(1)
+                / entry.duration
+        } else {
+            return Err(DashPlanError::InvalidTimelineRepeat);
+        };
+
+        for _ in 0..=repeat_count {
+            let rendered = render_dash_template(
+                media_template,
+                representation,
+                Some(number),
+                Some(current_time),
+            )?;
+            let url = base
+                .join(&rendered)
+                .map_err(|_| DashPlanError::InvalidManifestUrl)?
+                .to_string();
+            units.push(DashTransferUnit {
+                order: *order,
+                url,
+                initialization: false,
+                number: Some(number),
+                time: Some(current_time),
+            });
+            *order = order.saturating_add(1);
+            number = number.saturating_add(1);
+            current_time = current_time.saturating_add(entry.duration);
+        }
+    }
+
+    Ok(())
 }
 
 fn dash_track_kind(
@@ -523,6 +625,7 @@ fn render_dash_template(
     template: &str,
     representation: &DashRepresentation,
     number: Option<u64>,
+    time: Option<u64>,
 ) -> Result<String, DashPlanError> {
     let mut output = String::with_capacity(template.len() + 16);
     let mut rest = template;
@@ -558,6 +661,11 @@ fn render_dash_template(
             ),
             "Number" => output.push_str(
                 &number
+                    .ok_or_else(|| DashPlanError::UnsupportedTemplateToken(token.to_owned()))?
+                    .to_string(),
+            ),
+            "Time" => output.push_str(
+                &time
                     .ok_or_else(|| DashPlanError::UnsupportedTemplateToken(token.to_owned()))?
                     .to_string(),
             ),
@@ -740,6 +848,81 @@ mod tests {
             "https://cdn.test/path/chunk-005-2000.m4s"
         );
         assert_eq!(plan.units[3].number, Some(7));
+    }
+
+    #[test]
+    fn parses_and_plans_segment_timeline_with_time_tokens() {
+        let manifest = parse_dash(
+            r#"<MPD type="static" mediaPresentationDuration="PT8S">
+<Period><AdaptationSet contentType="video">
+<SegmentTemplate timescale="1000" startNumber="10"
+ initialization="init-$RepresentationID$.mp4"
+ media="chunk-$Time$-$Number$.m4s">
+<SegmentTimeline>
+<S t="0" d="2000" r="2"/>
+<S d="2000"/>
+</SegmentTimeline>
+</SegmentTemplate>
+<Representation id="v1" bandwidth="3000"/>
+</AdaptationSet></Period></MPD>"#,
+        )
+        .expect("timeline dash");
+
+        let timeline = &manifest.periods[0].adaptations[0]
+            .segment_template
+            .as_ref()
+            .expect("template")
+            .timeline;
+        assert_eq!(timeline.len(), 2);
+        assert_eq!(timeline[0].repeat, 2);
+
+        let plan = build_dash_representation_plan(
+            &manifest,
+            "https://cdn.test/live/manifest.mpd",
+            0,
+            0,
+            0,
+        )
+        .expect("timeline plan");
+
+        assert_eq!(plan.units.len(), 5);
+        assert_eq!(plan.units[1].time, Some(0));
+        assert_eq!(plan.units[2].time, Some(2000));
+        assert_eq!(
+            plan.units[3].url,
+            "https://cdn.test/live/chunk-4000-12.m4s"
+        );
+        assert_eq!(plan.units[4].time, Some(6000));
+    }
+
+    #[test]
+    fn bounds_negative_timeline_repeat_using_next_start() {
+        let manifest = parse_dash(
+            r#"<MPD type="dynamic" minimumUpdatePeriod="PT2S">
+<Period><AdaptationSet contentType="audio">
+<SegmentTemplate timescale="1" media="$Time$.m4s">
+<SegmentTimeline><S t="10" d="2" r="-1"/><S t="16" d="2"/></SegmentTimeline>
+</SegmentTemplate>
+<Representation id="a1" bandwidth="128000"/>
+</AdaptationSet></Period></MPD>"#,
+        )
+        .expect("dynamic timeline");
+
+        let plan = build_dash_representation_plan(
+            &manifest,
+            "https://cdn.test/manifest.mpd",
+            0,
+            0,
+            0,
+        )
+        .expect("dynamic timeline snapshot");
+
+        let times: Vec<_> = plan
+            .units
+            .iter()
+            .filter_map(|unit| unit.time)
+            .collect();
+        assert_eq!(times, vec![10, 12, 14, 16]);
     }
 
     #[test]
