@@ -229,6 +229,27 @@ impl TorrentStorage {
         selection: TorrentSelection,
     ) -> Result<u64, StorageError> {
         validate_selection(&self.meta, &selection)?;
+
+        // A path that was previously skipped was never owned by this torrent
+        // storage session. Refuse to adopt an unrelated file if the user later
+        // selects that path.
+        for (index, file) in self.meta.files.iter().enumerate() {
+            let old = self
+                .selection
+                .file_priority(index)
+                .ok_or(StorageError::FileIndexOutOfRange(index))?;
+            let new = selection
+                .file_priority(index)
+                .ok_or(StorageError::FileIndexOutOfRange(index))?;
+            if !old.is_selected() && new.is_selected() {
+                let path = target_path(&self.root, &file.path)?;
+                if path.exists() {
+                    ensure_target_not_symlink(&path)?;
+                    return Err(StorageError::ExistingTarget(path));
+                }
+            }
+        }
+
         prepare_selected_files(
             &self.root,
             &self.meta,
@@ -236,6 +257,21 @@ impl TorrentStorage {
             AllocationMode::Sparse,
             false,
         )?;
+
+        // Verified state is reusable only when the set of selected file slices
+        // for that piece is unchanged. Priority-only changes keep the bit;
+        // selection membership changes are fail-closed and require recheck or
+        // redownload under the new layout.
+        for piece_index in 0..self.meta.piece_count() {
+            if piece_selected_files(&self.meta, &self.selection, piece_index)?
+                != piece_selected_files(&self.meta, &selection, piece_index)?
+            {
+                self.checkpoint.verified.set(piece_index, false)?;
+                self.checkpoint.boundary_cache.set(piece_index, false)?;
+                self.remove_boundary_cache(piece_index);
+            }
+        }
+
         self.selection = selection;
         self.checkpoint.priorities = self.selection.priorities().to_vec();
         let generation = self.checkpoint.next_generation()?;
@@ -647,6 +683,32 @@ impl TorrentStorage {
             ".tmp",
         ));
     }
+}
+
+fn piece_selected_files(
+    meta: &TorrentMetainfo,
+    selection: &TorrentSelection,
+    piece_index: usize,
+) -> Result<Vec<usize>, StorageError> {
+    let piece_start = (piece_index as u64)
+        .checked_mul(meta.piece_length)
+        .ok_or(StorageError::LengthOverflow)?;
+    let piece_size = meta
+        .piece_size(piece_index)
+        .ok_or(StorageError::PieceOutOfRange(piece_index))?;
+    let mut selected = meta
+        .map_range(piece_start, piece_size)?
+        .into_iter()
+        .filter_map(|slice| {
+            selection
+                .file_priority(slice.file_index)
+                .is_some_and(FilePriority::is_selected)
+                .then_some(slice.file_index)
+        })
+        .collect::<Vec<_>>();
+    selected.sort_unstable();
+    selected.dedup();
+    Ok(selected)
 }
 
 fn validate_selection(
@@ -1074,6 +1136,52 @@ mod tests {
         assert_eq!(report.invalid_pieces, 1);
         assert!(!resumed.checkpoint().verified.is_set(1).unwrap());
 
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn selection_priority_only_change_preserves_verified_piece() {
+        let root = temp_root("priority-change");
+        let meta = multi_meta();
+        let selection = TorrentSelection::all(&meta);
+        let mut storage =
+            TorrentStorage::create(&root, meta.clone(), selection, AllocationMode::Sparse)
+                .unwrap();
+        let generation = storage.begin_run().unwrap();
+        storage.write_verified_piece(generation, 1, b"efgh").unwrap();
+
+        storage
+            .update_selection(
+                TorrentSelection::new(
+                    &meta,
+                    vec![FilePriority::Normal, FilePriority::High],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert!(storage.checkpoint().verified.is_set(1).unwrap());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn selecting_previously_skipped_existing_path_refuses_clobber() {
+        let root = temp_root("select-existing");
+        let meta = multi_meta();
+        let selection = TorrentSelection::new(
+            &meta,
+            vec![FilePriority::Skip, FilePriority::Normal],
+        )
+        .unwrap();
+        let mut storage =
+            TorrentStorage::create(&root, meta.clone(), selection, AllocationMode::Sparse)
+                .unwrap();
+
+        std::fs::create_dir_all(root.join("bundle")).unwrap();
+        std::fs::write(root.join("bundle/a.bin"), b"user-data").unwrap();
+        assert!(matches!(
+            storage.update_selection(TorrentSelection::all(&meta)),
+            Err(StorageError::ExistingTarget(_))
+        ));
         let _ = std::fs::remove_dir_all(root);
     }
 
