@@ -108,8 +108,18 @@ fn validate_torrent_open_path(path: &Path, cwd: Option<&Path>) -> Result<PathBuf
     };
 
     #[cfg(windows)]
-    if candidate.to_string_lossy().starts_with(r"\\") {
-        return Err("Network torrent paths are not accepted by system-open integration.".to_owned());
+    {
+        let candidate_text = candidate.to_string_lossy();
+        let lower = candidate_text.to_ascii_lowercase();
+        let plain_unc = candidate_text.starts_with(r"\\")
+            && !candidate_text.starts_with(r"\\?\")
+            && !candidate_text.starts_with(r"\\.\");
+        let verbatim_unc = lower.starts_with(r"\\?\unc\");
+        if plain_unc || verbatim_unc {
+            return Err(
+                "Network torrent paths are not accepted by system-open integration.".to_owned(),
+            );
+        }
     }
 
     let extension = candidate
@@ -1570,6 +1580,10 @@ mod port_selection_tests {
         );
         assert_eq!(
             torrent_open_request_from_argument("--integration", None).unwrap(),
+            None
+        );
+        assert_eq!(
+            torrent_open_request_from_argument("💾-unrelated-argument", None).unwrap(),
             None
         );
         assert!(torrent_open_request_from_argument("magnet:?dn=missing-hash", None).is_err());

@@ -6,6 +6,7 @@ import './index.css';
 import { tauriClient, type TorrentOpenRequest } from './api/tauriClient';
 import { restoreSettingsFromDisk } from './store/settingsStore';
 import { uiStore } from './store/uiStore';
+import { createTorrentSystemOpenQueue } from './utils/torrentSystemOpen';
 
 function openSystemTorrent(request: TorrentOpenRequest) {
   if (request.kind === 'magnet') {
@@ -19,6 +20,20 @@ function openSystemTorrent(request: TorrentOpenRequest) {
   });
 }
 
+const torrentSystemOpenQueue = createTorrentSystemOpenQueue(
+  () => uiStore.getState().dialog.active !== null,
+  openSystemTorrent,
+);
+
+uiStore.subscribe((state, previous) => {
+  if (previous.dialog.active === 'torrentDownload' && state.dialog.active !== 'torrentDownload') {
+    torrentSystemOpenQueue.releaseActive();
+  }
+  if (state.dialog.active === null) {
+    torrentSystemOpenQueue.flush();
+  }
+});
+
 async function bootstrapApplication() {
   if (window.__TAURI_INTERNALS__) {
     const { warnings, error } = await restoreSettingsFromDisk();
@@ -31,22 +46,11 @@ async function bootstrapApplication() {
 
     try {
       await listen<TorrentOpenRequest>('nova-torrent-open', (event) => {
-        openSystemTorrent(event.payload);
+        torrentSystemOpenQueue.enqueue(event.payload);
       });
 
       const pending = await tauriClient.takePendingTorrentOpens();
-      if (pending.length > 0) {
-        openSystemTorrent(pending[0]);
-        if (pending.length > 1) {
-          uiStore
-            .getState()
-            .addToast(
-              'info',
-              'Torrent system open',
-              `NOVA received ${String(pending.length)} torrent sources. The first source was opened; open the others again after finishing this dialog.`,
-            );
-        }
-      }
+      torrentSystemOpenQueue.enqueueMany(pending);
     } catch (reason) {
       uiStore
         .getState()
