@@ -35,6 +35,7 @@ export interface EngineCapabilitiesResponse {
     libcurlMulti: EngineRuntimeCapabilities;
     media: EngineRuntimeCapabilities;
     ffmpeg: EngineRuntimeCapabilities;
+    torrent: EngineRuntimeCapabilities;
   };
 }
 
@@ -111,6 +112,7 @@ export function parseEngineCapabilitiesResponse(value: unknown): EngineCapabilit
       libcurlMulti: asRecord(engines.libcurlMulti, 'engines.libcurlMulti'),
       media: asRecord(engines.media, 'engines.media'),
       ffmpeg: asRecord(engines.ffmpeg, 'engines.ffmpeg'),
+      torrent: asRecord(engines.torrent, 'engines.torrent'),
     },
   };
 }
