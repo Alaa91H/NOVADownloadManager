@@ -8,7 +8,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::native_torrent::TrackerTransport;
-use crate::daemon::torrent_dht::{DhtDiscovery, DhtEngine};
+use crate::daemon::torrent_dht::DhtEngine;
 use crate::daemon::torrent_peer::{generate_peer_id, PeerEngine, PeerMetadataResult};
 
 #[derive(Clone, Debug)]
