@@ -17,6 +17,7 @@ pub mod media_bridge;
 pub mod native_media;
 pub mod native_torrent;
 pub mod torrent_peer;
+pub mod torrent_policy;
 pub mod torrent_dht;
 pub mod torrent_bandwidth;
 pub mod torrent_magnet;
