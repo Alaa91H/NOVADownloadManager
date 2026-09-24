@@ -4,8 +4,10 @@
 //! external media executables. Extractors produce typed descriptors; NOVA's
 //! native download core owns transfer scheduling and persistence.
 
+mod generic;
 mod hls_transfer;
 
+pub use generic::{GenericDirectMediaExtractor, GenericManifestExtractor};
 pub use hls_transfer::{stage_hls_media_plan, HlsStageError, HlsStageFile, HlsStageResult};
 
 use std::collections::BTreeMap;
@@ -275,6 +277,13 @@ pub struct ExtractorRegistry {
 }
 
 impl ExtractorRegistry {
+    pub fn with_native_defaults() -> Self {
+        let mut registry = Self::default();
+        registry.register(GenericManifestExtractor);
+        registry.register(GenericDirectMediaExtractor);
+        registry
+    }
+
     pub fn register<E>(&mut self, extractor: E)
     where
         E: MediaExtractor + 'static,
@@ -445,6 +454,22 @@ mod tests {
 
         assert_eq!(descriptor.metadata.title, "example");
         assert_eq!(descriptor.source_kind, MediaSourceKind::Site);
+    }
+
+    #[test]
+    fn native_default_registry_resolves_manifests_before_direct_media() {
+        let registry = ExtractorRegistry::with_native_defaults();
+        assert_eq!(
+            registry.ids(),
+            vec!["generic-manifest", "generic-direct-media"]
+        );
+        assert_eq!(
+            registry
+                .resolve(&ExtractRequest::new("https://cdn.test/master.m3u8"))
+                .expect("HLS")
+                .source_kind,
+            MediaSourceKind::Hls
+        );
     }
 
     #[test]
