@@ -1554,6 +1554,121 @@ function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
     }
 
     #[test]
+    fn audio_mode_selects_audio_only_and_honors_container_preference() {
+        let mut extraction = YouTubeExtraction {
+            video_id: "audio-mode".to_owned(),
+            descriptor: MediaDescriptor {
+                source_kind: MediaSourceKind::Site,
+                metadata: MediaMetadata {
+                    title: "audio".to_owned(),
+                    description: None,
+                    duration_millis: None,
+                    uploader: None,
+                    webpage_url: "https://youtube.test/watch?v=audio".to_owned(),
+                    thumbnail_url: None,
+                },
+                streams: vec![
+                    MediaStream {
+                        id: "muxed".to_owned(),
+                        kind: MediaTrackKind::AudioVideo,
+                        protocol: MediaProtocol::Https,
+                        url: "https://video.test/muxed.mp4".to_owned(),
+                        container: Some("mp4".to_owned()),
+                        video_codec: Some("avc1".to_owned()),
+                        audio_codec: Some("mp4a".to_owned()),
+                        width: Some(1920),
+                        height: Some(1080),
+                        fps: Some(30.0),
+                        bitrate_bps: Some(5_000_000),
+                        audio_bitrate_bps: Some(128_000),
+                        content_length: Some(500),
+                        language: None,
+                        headers: BTreeMap::new(),
+                    },
+                    MediaStream {
+                        id: "audio-webm".to_owned(),
+                        kind: MediaTrackKind::Audio,
+                        protocol: MediaProtocol::Https,
+                        url: "https://video.test/audio.webm".to_owned(),
+                        container: Some("webm".to_owned()),
+                        video_codec: None,
+                        audio_codec: Some("opus".to_owned()),
+                        width: None,
+                        height: None,
+                        fps: None,
+                        bitrate_bps: Some(192_000),
+                        audio_bitrate_bps: Some(192_000),
+                        content_length: Some(20),
+                        language: Some("en".to_owned()),
+                        headers: BTreeMap::new(),
+                    },
+                    MediaStream {
+                        id: "audio-mp4".to_owned(),
+                        kind: MediaTrackKind::Audio,
+                        protocol: MediaProtocol::Https,
+                        url: "https://video.test/audio.m4a".to_owned(),
+                        container: Some("mp4".to_owned()),
+                        video_codec: None,
+                        audio_codec: Some("mp4a".to_owned()),
+                        width: None,
+                        height: None,
+                        fps: None,
+                        bitrate_bps: Some(128_000),
+                        audio_bitrate_bps: Some(128_000),
+                        content_length: Some(15),
+                        language: Some("en".to_owned()),
+                        headers: BTreeMap::new(),
+                    },
+                ],
+                subtitles: Vec::new(),
+                request_headers: BTreeMap::new(),
+                is_live: false,
+            },
+            pending_formats: Vec::new(),
+            player_js_url: None,
+            visitor_data: None,
+        };
+
+        assert_eq!(
+            select_youtube_download_plan(
+                &extraction,
+                YouTubeSelectionPolicy {
+                    mode: MediaSelectionMode::Audio,
+                    ..YouTubeSelectionPolicy::default()
+                },
+            ),
+            Some(YouTubeDownloadPlan::SingleStream {
+                stream_id: "audio-webm".to_owned(),
+            })
+        );
+
+        assert_eq!(
+            select_youtube_download_plan(
+                &extraction,
+                YouTubeSelectionPolicy {
+                    mode: MediaSelectionMode::Audio,
+                    preferred_container: Some("mp4".to_owned()),
+                    ..YouTubeSelectionPolicy::default()
+                },
+            ),
+            Some(YouTubeDownloadPlan::SingleStream {
+                stream_id: "audio-mp4".to_owned(),
+            })
+        );
+
+        extraction.pending_formats.push(YouTubePendingFormat {
+            itag: None,
+            mime_type: None,
+            cipher_url: None,
+            encrypted_signature: None,
+            signature_parameter: None,
+            throttling_parameter: None,
+            challenge: YouTubeChallengeKind::ThrottlingParameter,
+            stream_template: extraction.descriptor.streams[1].clone(),
+        });
+    }
+
+    #[test]
     fn quality_ceiling_selects_expected_separate_video_track() {
         let mut streams = vec![MediaStream {
             id: "muxed-720".to_owned(),
