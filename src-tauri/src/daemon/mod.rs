@@ -126,6 +126,45 @@ pub fn shared_api_token() -> String {
         .clone()
 }
 
+#[cfg(test)]
+mod browser_client_scope_tests {
+    use super::browser_client_path_allowed;
+
+    #[test]
+    fn browser_token_is_limited_to_extension_api_surface() {
+        for path in [
+            "/v1/auth/check",
+            "/v1/extension-settings",
+            "/v1/events",
+            "/v1/tasks",
+            "/v1/tasks/task-1",
+            "/v1/task/pause",
+            "/v1/add",
+            "/v1/media/add",
+            "/v1/capture-reviews",
+            "/v1/capture-reviews/review-1/consume",
+            "/v1/stream/resolve",
+            "/v1/analyze",
+            "/v1/analyze/progress",
+            "/api/browser-extension/health",
+        ] {
+            assert!(browser_client_path_allowed(path), "{path} should be allowed");
+        }
+
+        for path in [
+            "/api/downloads",
+            "/api/downloads/events",
+            "/api/engine/queue",
+            "/api/engine/scheduler",
+            "/api/logs",
+            "/api/diagnostics",
+            "/api/engines/download",
+        ] {
+            assert!(!browser_client_path_allowed(path), "{path} should be denied");
+        }
+    }
+}
+
 /// Path used for request/response log lines, with the SSE `token` query
 /// parameter redacted so the shared API token never lands in the log file.
 fn loggable_path(uri: &axum::http::Uri) -> String {
@@ -187,6 +226,24 @@ async fn request_log_middleware(
     response
 }
 
+fn browser_client_path_allowed(path: &str) -> bool {
+    path == "/v1/auth/check"
+        || path == "/v1/extension-settings"
+        || path == "/v1/events"
+        || path == "/v1/tasks"
+        || path.starts_with("/v1/tasks/")
+        || path.starts_with("/v1/task/")
+        || path == "/v1/add"
+        || path == "/v1/media/add"
+        || path == "/v1/capture-reviews"
+        || path.starts_with("/v1/capture-reviews/")
+        || path.starts_with("/v1/stream/")
+        || path == "/v1/analyze"
+        || path == "/v1/analyze/progress"
+        || path == "/api/browser-extension/config"
+        || path == "/api/browser-extension/health"
+}
+
 /// Middleware that enforces Bearer token authentication on API routes.
 /// Exempt paths: /api/health, /api/engines/capabilities, /v1/pair/auto,
 /// / (SPA index), /assets/*, and SPA fallback.
@@ -220,6 +277,9 @@ async fn auth_middleware(
             if bearer == state.api_token || bearer == state.native_client_token {
                 return Ok(next.run(request).await);
             }
+            if bearer == state.browser_client_token && browser_client_path_allowed(path) {
+                return Ok(next.run(request).await);
+            }
         }
     }
 
@@ -232,7 +292,11 @@ async fn auth_middleware(
         if let Some(query) = request.uri().query() {
             for pair in query.split('&') {
                 if let Some(token) = pair.strip_prefix("token=") {
-                    if token == state.api_token || token == state.native_client_token {
+                    if token == state.api_token
+                        || token == state.native_client_token
+                        || (token == state.browser_client_token
+                            && browser_client_path_allowed(path))
+                    {
                         log::warn!(
                             "SSE token accepted via URL query parameter on {path}; \
                              the token can leak into browser history, Referer headers, \
@@ -464,6 +528,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     extractor_registry,
                     api_token: shared_api_token(),
                     native_client_token: generate_api_token(),
+                    browser_client_token: generate_api_token(),
                     native_pairing_secret: generate_api_token(),
                     download_stats: Mutex::new({
                         let mut s = restored.stats.clone();
@@ -703,7 +768,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 let pairing_payload = serde_json::json!({
                     "port": port,
                     "pid": std::process::id(),
-                    "secret": state.native_pairing_secret,
+                    "secret": state.native_pairing_secret.clone(),
                     "protocolVersion": 1
                 });
                 match serde_json::to_vec(&pairing_payload) {
