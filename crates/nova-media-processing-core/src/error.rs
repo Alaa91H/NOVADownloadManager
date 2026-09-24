@@ -8,6 +8,8 @@ pub enum MediaProcessingError {
     UnsupportedContainer(String),
     #[error("unsupported native media codec: {0}")]
     UnsupportedCodec(String),
+    #[error("unsupported native media operation: {0}")]
+    UnsupportedOperation(String),
     #[error("native media probe failed: {0}")]
     Probe(String),
     #[error("native media demux failed: {0}")]
