@@ -739,7 +739,15 @@ impl PeerSession {
             ));
         }
 
-        let remote = self.wait_for_extended_handshake(cancel).await?;
+        let remote = timeout(
+            self.config.metadata_timeout,
+            self.wait_for_extended_handshake(cancel),
+        )
+        .await
+        .map_err(|_| format!(
+            "Peer {} timed out before providing an extended handshake",
+            self.address
+        ))??;
         let remote_metadata_id = remote.ut_metadata.ok_or_else(|| {
             format!("Peer {} does not advertise ut_metadata", self.address)
         })?;
