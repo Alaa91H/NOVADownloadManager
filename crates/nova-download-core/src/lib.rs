@@ -182,7 +182,7 @@ fn transport_error(error: curl::Error) -> TransportError {
 fn validate_request_value(value: &str, label: &str) -> Result<(), TransportError> {
     if value
         .chars()
-        .any(|character| matches!(character, '\\r' | '\\n' | '\\0'))
+        .any(|character| matches!(character, '\r' | '\n' | '\0'))
     {
         return Err(TransportError::InvalidRequestContext {
             message: format!("{label} contains a forbidden control character"),
