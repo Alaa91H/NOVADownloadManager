@@ -922,7 +922,7 @@ jobs:
           run_tauri_build() {
             local log_file="$1"
             if [ "${RUNNER_OS:-}" = "Windows" ]; then
-              node scripts/build-windows-installers.mjs 2>&1 | tee "$log_file"
+              pnpm exec node scripts/build-windows-installers.mjs 2>&1 | tee "$log_file"
             else
               pnpm run tauri:build --bundles ${{ matrix.bundle_targets }} 2>&1 | tee "$log_file"
             fi
