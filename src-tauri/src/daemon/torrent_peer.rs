@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nova_torrent_core::{
@@ -8,6 +9,8 @@ use nova_torrent_core::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::sync::{Mutex, Semaphore};
+use tokio::task::JoinSet;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
@@ -127,6 +130,212 @@ impl PeerReputationBook {
         ranked.dedup();
         ranked
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct PeerEngineConfig {
+    pub session: PeerSessionConfig,
+    pub max_outbound_connections: usize,
+}
+
+impl Default for PeerEngineConfig {
+    fn default() -> Self {
+        Self {
+            session: PeerSessionConfig::default(),
+            max_outbound_connections: 32,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct PeerEngine {
+    config: PeerEngineConfig,
+    reputation: Arc<Mutex<PeerReputationBook>>,
+}
+
+impl PeerEngine {
+    pub fn new(config: PeerEngineConfig) -> Self {
+        Self {
+            config,
+            reputation: Arc::new(Mutex::new(PeerReputationBook::default())),
+        }
+    }
+
+    pub fn production_default() -> Self {
+        Self::new(PeerEngineConfig::default())
+    }
+
+    pub async fn reputation(&self, address: SocketAddr) -> PeerReputation {
+        self.reputation.lock().await.get(&address)
+    }
+
+    pub async fn ranked_candidates(&self, candidates: &[SocketAddr]) -> Vec<SocketAddr> {
+        self.reputation.lock().await.rank_candidates(candidates)
+    }
+
+    /// Establish a bounded batch of outbound sessions. The semaphore makes
+    /// the connection ceiling explicit even when this method is later called
+    /// by multiple swarm tasks concurrently.
+    pub async fn connect_candidates(
+        &self,
+        candidates: &[SocketAddr],
+        info_hash: InfoHash,
+        local_peer_id: [u8; 20],
+        piece_count: u32,
+        cancel: &CancellationToken,
+    ) -> Vec<PeerSession> {
+        let ranked = self.ranked_candidates(candidates).await;
+        let limit = self.config.max_outbound_connections.max(1);
+        let semaphore = Arc::new(Semaphore::new(limit));
+        let mut tasks = JoinSet::new();
+
+        for address in ranked {
+            let permit = semaphore.clone();
+            let config = self.config.session.clone();
+            let child_cancel = cancel.child_token();
+            tasks.spawn(async move {
+                let _permit = permit.acquire_owned().await.ok()?;
+                let result = PeerSession::connect(
+                    address,
+                    info_hash,
+                    local_peer_id,
+                    piece_count,
+                    config,
+                    &child_cancel,
+                )
+                .await;
+                Some((address, result))
+            });
+        }
+
+        let mut sessions = Vec::new();
+        while let Some(joined) = tasks.join_next().await {
+            if cancel.is_cancelled() {
+                tasks.abort_all();
+                break;
+            }
+            let Ok(Some((address, result))) = joined else {
+                continue;
+            };
+            match result {
+                Ok(session) => {
+                    sessions.push(session);
+                    if sessions.len() >= limit {
+                        tasks.abort_all();
+                        break;
+                    }
+                }
+                Err(error) => {
+                    self.record_failure(address, &error).await;
+                }
+            }
+        }
+        sessions
+    }
+
+    /// Try a verified piece against ranked peers one at a time. This avoids
+    /// downloading the same piece from several peers while still giving the
+    /// caller automatic failover and reputation updates.
+    pub async fn download_piece_from_candidates(
+        &self,
+        candidates: &[SocketAddr],
+        metainfo: &TorrentMetainfo,
+        piece_index: u32,
+        local_peer_id: [u8; 20],
+        cancel: &CancellationToken,
+    ) -> Result<PeerPieceResult, String> {
+        let ranked = self.ranked_candidates(candidates).await;
+        if ranked.is_empty() {
+            return Err("No eligible torrent peers are available".to_owned());
+        }
+
+        let piece_count = u32::try_from(metainfo.piece_count())
+            .map_err(|_| "Torrent piece count exceeds peer protocol range".to_owned())?;
+        let mut failures = Vec::new();
+
+        for address in ranked {
+            if cancel.is_cancelled() {
+                return Err("Torrent peer selection cancelled".to_owned());
+            }
+
+            let mut session = match PeerSession::connect(
+                address,
+                metainfo.info_hash,
+                local_peer_id,
+                piece_count,
+                self.config.session.clone(),
+                cancel,
+            )
+            .await
+            {
+                Ok(session) => session,
+                Err(error) => {
+                    self.record_failure(address, &error).await;
+                    failures.push(format!("{address}: {}", limit_peer_error(&error)));
+                    continue;
+                }
+            };
+
+            match session.download_piece(metainfo, piece_index, cancel).await {
+                Ok(result) => {
+                    self.reputation
+                        .lock()
+                        .await
+                        .get_mut(address)
+                        .record_success(result.bytes.len() as u64);
+                    return Ok(result);
+                }
+                Err(error) => {
+                    self.record_failure(address, &error).await;
+                    failures.push(format!("{address}: {}", limit_peer_error(&error)));
+                }
+            }
+        }
+
+        Err(format!(
+            "All eligible peers failed for piece {piece_index}: {}",
+            failures.join("; ")
+        ))
+    }
+
+    async fn record_failure(&self, address: SocketAddr, error: &str) {
+        let mut book = self.reputation.lock().await;
+        let reputation = book.get_mut(address);
+        if error.contains("SHA-1 verification") {
+            reputation.record_hash_failure();
+        } else if error.contains("timed out")
+            || error.contains("too long")
+            || error.contains("exhausted retries")
+        {
+            reputation.record_timeout();
+        } else if error.contains("protocol")
+            || error.contains("unsolicited")
+            || error.contains("wrong torrent info hash")
+            || error.contains("invalid handshake")
+            || error.contains("out of range")
+        {
+            reputation.record_protocol_error();
+        } else {
+            reputation.record_connect_failure();
+        }
+    }
+}
+
+pub fn generate_peer_id() -> [u8; 20] {
+    let mut peer_id = [0u8; 20];
+    peer_id[..8].copy_from_slice(b"-NV0001-");
+    let random = uuid::Uuid::new_v4().simple().to_string();
+    peer_id[8..].copy_from_slice(&random.as_bytes()[..12]);
+    peer_id
+}
+
+fn limit_peer_error(error: &str) -> String {
+    const LIMIT: usize = 256;
+    let mut output = error.chars().take(LIMIT).collect::<String>();
+    if error.chars().count() > LIMIT {
+        output.push_str("...");
+    }
+    output
 }
 
 #[derive(Debug)]
@@ -852,6 +1061,28 @@ mod tests {
             .expect_err("unsolicited block");
         assert!(error.contains("unsolicited block"));
         server.await.unwrap();
+    }
+
+    #[test]
+    fn generated_peer_id_uses_nova_prefix_and_exact_wire_length() {
+        let peer_id = generate_peer_id();
+        assert_eq!(peer_id.len(), 20);
+        assert_eq!(&peer_id[..8], b"-NV0001-");
+        assert!(peer_id[8..].iter().all(u8::is_ascii_hexdigit));
+    }
+
+    #[tokio::test]
+    async fn peer_engine_filters_evicted_candidates() {
+        let good: SocketAddr = "1.1.1.1:6881".parse().unwrap();
+        let bad: SocketAddr = "8.8.8.8:6881".parse().unwrap();
+        let engine = PeerEngine::production_default();
+        engine
+            .reputation
+            .lock()
+            .await
+            .get_mut(bad)
+            .record_hash_failure();
+        assert_eq!(engine.ranked_candidates(&[bad, good]).await, vec![good]);
     }
 
     #[test]
