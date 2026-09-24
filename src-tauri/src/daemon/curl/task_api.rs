@@ -322,44 +322,55 @@ pub async fn resume_task(state: &SharedState, id: &str) -> Result<Task, String> 
     }
 
     {
-        // A native worker may still be unwinding after pause. Wait for the
-        // worker to commit Paused before starting a fresh generation.
+        // A native worker may commit Paused just before its thread releases
+        // staging-file ownership. Wait for both lifecycle state and ownership
+        // to settle before starting the next generation.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         loop {
-            let state_now = lock_or_err!(state.native_media_jobs)
-                .get(id)
-                .map(|j| j.task.status.clone());
-            match state_now.as_deref().and_then(TaskState::from_status) {
-                None if state_now.is_none() => break,
-                None => {
-                    return Err(format!(
-                        "Cannot resume task {id}: unknown native-media state '{}'.",
-                        state_now.as_deref().unwrap_or_default()
-                    ));
-                }
-                Some(
-                    TaskState::Paused
-                    | TaskState::Queued
-                    | TaskState::Failed
-                    | TaskState::Interrupted
-                    | TaskState::Completed,
-                ) => break,
-                Some(TaskState::Pausing) => {
-                    if std::time::Instant::now() >= deadline {
-                        return Err(format!(
-                            "Cannot resume task {id}: native media worker did not stop within 10s."
-                        ));
-                    }
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                }
-                Some(active) if active.is_active() => {
-                    return Err(format!(
-                        "Cannot resume: native media task is still active in state '{}'.",
-                        active.as_status()
-                    ));
-                }
-                Some(_) => break,
+            let snapshot = {
+                let jobs = lock_or_err!(state.native_media_jobs);
+                jobs.get(id).map(|job| {
+                    (
+                        job.task.status.clone(),
+                        job.worker_active.load(Ordering::Acquire),
+                    )
+                })
+            };
+            let Some((status, worker_active)) = snapshot else {
+                break;
+            };
+            let current = TaskState::from_status(&status)
+                .ok_or_else(|| format!("Cannot resume task {id}: unknown native-media state '{status}'."))?;
+
+            if current == TaskState::Completed {
+                break;
             }
+
+            if current.is_active() && current != TaskState::Pausing {
+                return Err(format!(
+                    "Cannot resume: native media task is still active in state '{}'.",
+                    current.as_status()
+                ));
+            }
+
+            if !worker_active
+                && matches!(
+                    current,
+                    TaskState::Paused
+                        | TaskState::Queued
+                        | TaskState::Failed
+                        | TaskState::Interrupted
+                )
+            {
+                break;
+            }
+
+            if std::time::Instant::now() >= deadline {
+                return Err(format!(
+                    "Cannot resume task {id}: native media worker did not stop within 10s."
+                ));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
 
         let mut jobs = lock_or_err!(state.native_media_jobs);
@@ -367,6 +378,12 @@ pub async fn resume_task(state: &SharedState, id: &str) -> Result<Task, String> 
             if TaskState::from_status(&job.task.status) == Some(TaskState::Completed) {
                 return Err(format!(
                     "Cannot resume '{}': download is already completed.",
+                    job.task.name
+                ));
+            }
+            if job.worker_active.load(Ordering::Acquire) {
+                return Err(format!(
+                    "Cannot resume '{}': previous native media worker still owns the task.",
                     job.task.name
                 ));
             }
