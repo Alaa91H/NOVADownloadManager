@@ -83,7 +83,7 @@ pub const fn native_media_core_capabilities() -> NativeMediaCoreCapabilities {
         ordered_assembly: true,
         youtube_extraction: true,
         youtube_signature_transform: true,
-        youtube_throttling_transform: false,
+        youtube_throttling_transform: true,
         separate_track_staging: true,
     }
 }
@@ -403,7 +403,7 @@ mod tests {
         assert!(capabilities.dash_staging);
         assert!(capabilities.separate_track_staging);
         assert!(capabilities.youtube_signature_transform);
-        assert!(!capabilities.youtube_throttling_transform);
+        assert!(capabilities.youtube_throttling_transform);
     }
 
     struct TestExtractor {
