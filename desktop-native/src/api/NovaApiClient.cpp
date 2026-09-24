@@ -2,7 +2,7 @@
 
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QJsonValue>
+#include <QJsonValue>\n#include <QHash>\n#include <QSet>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QScopeGuard>
