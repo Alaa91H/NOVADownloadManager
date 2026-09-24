@@ -102,7 +102,33 @@ Remaining before Stage 4 is considered complete:
 - Final desktop menu/shortcut behavior validation across Windows, macOS and Linux.
 
 ### Stage 5 — Localization and platform polish
-Full translation import, RTL, themes, accessibility and platform-specific refinement.
+
+Status: **in progress — localization/theme/accessibility foundation implemented**.
+
+Implemented in the first Stage 5 slice:
+
+- Central native localization manager with live language switching.
+- Initial English, Arabic and German dictionaries, including automatic system-language resolution.
+- Application-wide RTL mirroring when Arabic is active.
+- Persistent language preference through `QSettings`.
+- System / Light / Dark appearance modes with live system color-scheme tracking.
+- High-contrast mode.
+- Reduced-motion preference and shared animation-duration tokens.
+- Adjustable text scale and shared typography tokens.
+- Dynamic light/dark semantic color palette.
+- Localized main menus, navigation rail, command bar, status bar and primary Settings headings.
+- Keyboard focus rings and accessibility names for the primary navigation and command actions.
+
+Remaining before Stage 5 is complete:
+
+- Migrate every page/dialog string into the localization catalog.
+- Import the full language set supported by the legacy UI.
+- Complete per-page RTL layout review, especially tables, inspectors and mixed URL/path content.
+- Extend typography scaling to every legacy-sized text declaration.
+- Accessibility labels/descriptions and tab order for all dialogs, lists, tables and form controls.
+- Screen-reader validation and color-contrast validation.
+- High-DPI and multi-monitor validation.
+- macOS-specific visual/accessibility refinement and cross-platform platform polish.
 
 ### Stage 6 — Parity freeze
 No new legacy-UI-only features. Run automated parity tests and release native preview builds.
