@@ -143,9 +143,10 @@ pub async fn analyze_magnet(
     MagnetLink::parse(magnet_uri).map_err(|error| format!("Invalid magnet URI: {error}"))?;
 
     let cancel = CancellationToken::new();
+    let resolver = MagnetResolver::production_default();
     let resolution = tokio::time::timeout(
         Duration::from_secs(90),
-        MagnetResolver::production_default().resolve_uri(magnet_uri, &cancel),
+        resolver.resolve_uri(magnet_uri, &cancel),
     )
     .await
     .map_err(|_| "Torrent metadata analysis timed out after 90 seconds".to_owned())??;
@@ -210,9 +211,8 @@ pub async fn create_torrent_task(
     .await
     .map_err(|error| format!("Could not prepare torrent storage: {error}"))?;
 
-    let (persisted_source, source_requires_reauth) =
+    let (persisted_source, _source_requires_reauth) =
         persistable_magnet_source(&analysis.source_uri)?;
-    let _persist_requires_reauth = metainfo.private && source_requires_reauth;
     let id = uuid::Uuid::new_v4().simple().to_string();
     let connections = body
         .connections
@@ -704,12 +704,13 @@ async fn run_torrent_worker(
     );
 
     let progress_cancel = CancellationToken::new();
+    let progress_worker_cancel = progress_cancel.clone();
     let progress_state = state.clone();
     let progress_id = id.clone();
     let progress_storage = storage.clone();
     let progress_task = tokio::spawn(async move {
         let mut previous = None;
-        while !progress_cancel.is_cancelled() {
+        while !progress_worker_cancel.is_cancelled() {
             update_torrent_progress_once(
                 &progress_state,
                 &progress_id,
