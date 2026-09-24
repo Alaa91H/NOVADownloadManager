@@ -3066,6 +3066,7 @@ dependencies = [
 name = "nova-stream-core"
 version = "0.1.0"
 dependencies = [
+ "quick-xml",
  "serde",
  "thiserror 2.0.20",
  "url",
