@@ -576,7 +576,7 @@ Item {
                                 id: rowMenu
 
                                 MenuItem {
-                                    text: "Open file"
+                                    text: root.t("downloads.openFile")
                                     enabled: status === "completed" && savePath.length > 0
                                     onTriggered: {
                                         root.selectRow(index)
@@ -585,7 +585,7 @@ Item {
                                 }
 
                                 MenuItem {
-                                    text: "Show in folder"
+                                    text: root.t("downloads.showFolder")
                                     enabled: savePath.length > 0
                                     onTriggered: {
                                         root.selectRow(index)
@@ -594,7 +594,7 @@ Item {
                                 }
 
                                 MenuItem {
-                                    text: "Properties"
+                                    text: root.t("action.properties")
                                     onTriggered: {
                                         root.selectRow(index)
                                         root.showSelectedProperties()
@@ -604,7 +604,7 @@ Item {
                                 MenuSeparator {}
 
                                 MenuItem {
-                                    text: "Resume"
+                                    text: root.t("action.resume")
                                     enabled: root.api.connected && root.canResumeStatus(status)
                                     onTriggered: {
                                         root.selectRow(index)
@@ -613,7 +613,7 @@ Item {
                                 }
 
                                 MenuItem {
-                                    text: "Pause"
+                                    text: root.t("action.pause")
                                     enabled: root.api.connected && root.canPauseStatus(status)
                                     onTriggered: {
                                         root.selectRow(index)
@@ -633,7 +633,7 @@ Item {
                                 MenuSeparator {}
 
                                 MenuItem {
-                                    text: "Delete"
+                                    text: root.t("action.delete")
                                     enabled: root.api.connected
                                     onTriggered: {
                                         root.selectRow(index)
@@ -684,10 +684,10 @@ Item {
                     Text {
                         Layout.alignment: Qt.AlignHCenter
                         text: root.query.length > 0
-                            ? "Try a different search."
+                            ? root.t("downloads.trySearch")
                             : root.api.connected
-                                ? "Start a new download or switch to another category."
-                                : "Start the NOVA engine to load your downloads."
+                                ? root.t("downloads.startOrSwitch")
+                                : root.t("downloads.startEngine")
                         color: Theme.textMuted
                         font.pixelSize: Math.round(11 * Theme.fontScale)
                     }
@@ -695,7 +695,7 @@ Item {
                     Button {
                         Layout.alignment: Qt.AlignHCenter
                         visible: root.query.length === 0 && root.api.connected
-                        text: "+ New download"
+                        text: "+ " + root.t("action.newDownload")
                         onClicked: addDownloadDialog.openNew()
                     }
                 }

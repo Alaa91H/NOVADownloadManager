@@ -313,7 +313,7 @@ ApplicationWindow {
 
                 Text {
                     Layout.alignment: Qt.AlignHCenter
-                    text: "This workspace will be migrated independently from the legacy UI."
+                    text: window.t("placeholder.migrating")
                     color: Theme.textMuted
                     font.pixelSize: 11
                 }

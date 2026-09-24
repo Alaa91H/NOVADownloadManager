@@ -34,7 +34,7 @@ Item {
 
     function rebuildQualityModel() {
         qualityModel.clear()
-        qualityModel.append({ label: "Best available", value: "best", size: 0 })
+        qualityModel.append({ label: root.t("media.bestAvailable"), value: "best", size: 0 })
 
         const seen = ({})
         for (let i = 0; i < api.mediaFormats.length; ++i) {
@@ -56,7 +56,7 @@ Item {
     function analyze() {
         const url = urlField.text.trim()
         if (url.length === 0) {
-            errorText = "Enter a media URL."
+            errorText = root.t("media.enterUrl")
             return
         }
 
@@ -71,7 +71,7 @@ Item {
     function startDownload() {
         const url = urlField.text.trim()
         if (url.length === 0) {
-            errorText = "Enter a media URL."
+            errorText = root.t("media.enterUrl")
             return
         }
 
@@ -108,7 +108,7 @@ Item {
             displayName = api.mediaProbe.title || ""
 
         errorText = ""
-        statusText = "Creating media task…"
+        statusText = root.t("media.creating")
         api.createMediaDownload(
             url,
             displayName,
@@ -144,7 +144,7 @@ Item {
         }
 
         function onMediaDownloadCreated(taskId) {
-            root.statusText = "Media task created · " + taskId
+            root.statusText = root.t("media.created") + " · " + taskId
             root.errorText = ""
         }
 
@@ -197,7 +197,7 @@ Item {
                 Text {
                     id: ffmpegLabel
                     anchors.centerIn: parent
-                    text: api.ffmpegAvailable ? "FFmpeg ready" : "FFmpeg unavailable"
+                    text: api.ffmpegAvailable ? root.t("media.ffmpegReady") : root.t("media.ffmpegUnavailable")
                     color: api.ffmpegAvailable ? Theme.success : Theme.textMuted
                     font.pixelSize: Theme.fontTiny
                     font.weight: Font.DemiBold
@@ -272,7 +272,7 @@ Item {
                         spacing: 12
 
                         Text {
-                            text: "Download options"
+                            text: root.t("media.downloadOptions")
                             color: Theme.textPrimary
                             font.pixelSize: Theme.fontBody
                             font.weight: Font.DemiBold
@@ -288,11 +288,12 @@ Item {
                                 Layout.fillWidth: true
                                 spacing: 4
 
-                                Text { text: "Mode"; color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
+                                Text { text: root.t("media.mode"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
                                 ComboBox {
                                     id: modeBox
                                     Layout.fillWidth: true
-                                    model: ["Video + audio", "Audio only"]
+                                    Accessible.name: root.t("media.mode")
+                                    model: [root.t("media.videoAudio"), root.t("media.audioOnly")]
                                 }
                             }
 
@@ -300,10 +301,11 @@ Item {
                                 Layout.fillWidth: true
                                 spacing: 4
 
-                                Text { text: "Quality"; color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
+                                Text { text: root.t("media.quality"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
                                 ComboBox {
                                     id: qualityBox
                                     Layout.fillWidth: true
+                                    Accessible.name: root.t("media.quality")
                                     enabled: modeBox.currentIndex === 0
                                     model: qualityModel
                                     textRole: "label"
@@ -316,10 +318,11 @@ Item {
                                 spacing: 4
                                 visible: modeBox.currentIndex === 1
 
-                                Text { text: "Audio format"; color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
+                                Text { text: root.t("media.audioFormat"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
                                 ComboBox {
                                     id: audioFormatBox
                                     Layout.fillWidth: true
+                                    Accessible.name: root.t("media.audioFormat")
                                     model: [
                                         { label: "M4A", value: "m4a" },
                                         { label: "MP3", value: "mp3" },
@@ -337,10 +340,11 @@ Item {
                                 spacing: 4
                                 visible: modeBox.currentIndex === 1
 
-                                Text { text: "Audio quality"; color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
+                                Text { text: root.t("media.audioQuality"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
                                 ComboBox {
                                     id: bitrateBox
                                     Layout.fillWidth: true
+                                    Accessible.name: root.t("media.audioQuality")
                                     model: [
                                         { label: "Best", value: "0" },
                                         { label: "320K", value: "320K" },
@@ -358,7 +362,7 @@ Item {
                             Layout.fillWidth: true
                             spacing: 4
 
-                            Text { text: "Destination folder"; color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
+                            Text { text: root.t("media.destinationFolder"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 6
@@ -388,7 +392,7 @@ Item {
                             Layout.fillWidth: true
                             spacing: 4
 
-                            Text { text: "Output template"; color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
+                            Text { text: root.t("media.outputTemplate"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
                             TextField {
                                 id: outputTemplate
                                 Layout.fillWidth: true
@@ -405,7 +409,7 @@ Item {
                             spacing: 4
                             visible: root.playlistMode
 
-                            Text { text: "Playlist items"; color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
+                            Text { text: root.t("media.playlistItems"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
                             TextField {
                                 id: playlistItems
                                 Layout.fillWidth: true
@@ -422,40 +426,47 @@ Item {
 
                             CheckBox {
                                 id: ffmpegCheck
-                                text: "Use FFmpeg"
+                                text: root.t("media.useFfmpeg")
+                                Accessible.name: text
                                 checked: true
                             }
 
                             CheckBox {
                                 id: subtitlesCheck
-                                text: "Subtitles"
+                                text: root.t("media.subtitles")
+                                Accessible.name: text
                             }
 
                             CheckBox {
                                 id: embedSubtitlesCheck
-                                text: "Embed subtitles"
+                                text: root.t("media.embedSubtitles")
+                                Accessible.name: text
                                 enabled: subtitlesCheck.checked && ffmpegCheck.checked
                             }
 
                             CheckBox {
                                 id: thumbnailCheck
-                                text: "Thumbnail"
+                                text: root.t("media.thumbnail")
+                                Accessible.name: text
                             }
 
                             CheckBox {
                                 id: embedThumbnailCheck
-                                text: "Embed thumbnail"
+                                text: root.t("media.embedThumbnail")
+                                Accessible.name: text
                                 enabled: thumbnailCheck.checked && ffmpegCheck.checked
                             }
 
                             CheckBox {
                                 id: infoJsonCheck
-                                text: "Info JSON"
+                                text: root.t("media.infoJson")
+                                Accessible.name: text
                             }
 
                             CheckBox {
                                 id: descriptionCheck
-                                text: "Description"
+                                text: root.t("media.description")
+                                Accessible.name: text
                             }
                         }
 
@@ -463,7 +474,7 @@ Item {
                             id: subtitleLanguages
                             Layout.fillWidth: true
                             visible: subtitlesCheck.checked
-                            placeholderText: "Subtitle languages, e.g. en,ar"
+                            placeholderText: root.t("media.subtitleLanguages")
                             selectByMouse: true
                             LayoutMirroring.enabled: false
                             horizontalAlignment: Text.AlignLeft
@@ -500,7 +511,7 @@ Item {
                         spacing: 10
 
                         Text {
-                            text: root.playlistMode ? "Playlist preview" : "Media preview"
+                            text: root.playlistMode ? root.t("media.playlistPreview") : root.t("media.mediaPreview")
                             color: Theme.textPrimary
                             font.pixelSize: Theme.fontBody
                             font.weight: Font.DemiBold
@@ -537,8 +548,8 @@ Item {
                                     Text {
                                         Layout.fillWidth: true
                                         text: root.playlistMode
-                                            ? (api.mediaPlaylistTitle || "Analyze a playlist to inspect entries")
-                                            : (api.mediaProbe.title || "Analyze a media URL to inspect formats")
+                                            ? (api.mediaPlaylistTitle || root.t("media.inspectPlaylist"))
+                                            : (api.mediaProbe.title || root.t("media.inspectMedia"))
                                         color: Theme.textPrimary
                                         font.pixelSize: Theme.fontBody
                                         font.weight: Font.DemiBold
@@ -551,15 +562,15 @@ Item {
                                         visible: !root.playlistMode
                                         text: api.mediaProbe.durationString
                                             ? api.mediaProbe.durationString + " · "
-                                                + api.mediaFormats.length + " video qualities"
-                                            : api.mediaFormats.length + " video qualities"
+                                                + api.mediaFormats.length + " " + root.t("media.videoQualities")
+                                            : api.mediaFormats.length + " " + root.t("media.videoQualities")
                                         color: Theme.textMuted
                                         font.pixelSize: Theme.fontTiny
                                     }
 
                                     Text {
                                         visible: root.playlistMode
-                                        text: api.mediaPlaylistEntries.length + " item(s)"
+                                        text: api.mediaPlaylistEntries.length + " " + root.t("media.items")
                                         color: Theme.textMuted
                                         font.pixelSize: Theme.fontTiny
                                     }
@@ -597,7 +608,7 @@ Item {
                                         Text {
                                             Layout.fillWidth: true
                                             text: root.playlistMode
-                                                ? (modelData.title || modelData.id || "Playlist item")
+                                                ? (modelData.title || modelData.id || root.t("media.playlistItem"))
                                                 : (modelData.height + "p · "
                                                     + String(modelData.ext || "").toUpperCase())
                                             color: Theme.textPrimary
@@ -656,8 +667,8 @@ Item {
 
             Text {
                 text: api.mediaProbeBusy || api.mediaPlaylistBusy
-                    ? "The daemon is analyzing the source…"
-                    : "Analysis and download execution remain inside the Rust daemon."
+                    ? root.t("media.daemonAnalyzing")
+                    : root.t("media.daemonExecution")
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontTiny
             }
