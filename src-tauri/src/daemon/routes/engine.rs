@@ -116,6 +116,8 @@ pub(super) fn extension_capabilities_from_status(status: &serde_json::Value) -> 
         "mediaOptionKeys": status.pointer("/engines/media/supportedMediaOptionKeys").cloned().unwrap_or_else(|| serde_json::json!([])),
         "directProtocols": direct_protocols,
         "streamResolverReady": stream_resolver_ready,
+        "mediaAnalyzeReady": media_ready,
+        "postProcessingReady": post_ready,
         "unsupportedCandidateMediaTypes": ["torrent", "magnet"],
         "sourceOfTruth": "daemon-runtime-linked-libcurl-and-engine-probes"
     })
