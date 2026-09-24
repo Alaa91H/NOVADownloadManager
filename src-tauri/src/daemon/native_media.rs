@@ -2629,7 +2629,13 @@ fn safe_descriptor_info_json(descriptor: &MediaDescriptor) -> Value {
         "schemaVersion": 1,
         "sourceKind": descriptor.source_kind,
         "isLive": descriptor.is_live,
-        "metadata": descriptor.metadata,
+        "metadata": {
+            "title": descriptor.metadata.title,
+            "description": descriptor.metadata.description,
+            "durationMillis": descriptor.metadata.duration_millis,
+            "uploader": descriptor.metadata.uploader,
+            "webpageUrl": descriptor.metadata.webpage_url,
+        },
         "streams": streams,
         "subtitles": subtitles,
     })
@@ -3007,18 +3013,81 @@ mod tests {
     }
 
     #[test]
-    fn advanced_media_option_is_rejected_by_native_engine() {
+    fn unsupported_embed_option_is_rejected_by_native_engine() {
         let mut body = body("https://cdn.test/video.mp4");
-        body.media_options.as_mut().expect("media").subtitles = Some(true);
+        body.media_options.as_mut().expect("media").embed_subtitles = Some(true);
         assert!(NativeMediaExtractor.validate(&body).is_err());
     }
 
     #[test]
     fn unimplemented_execution_option_is_not_advertised_or_accepted() {
-        assert!(!NATIVE_MEDIA_OPTION_KEYS.contains(&"audioFormat"));
+        assert!(!NATIVE_MEDIA_OPTION_KEYS.contains(&"splitChapters"));
         let mut body = body("https://cdn.test/video.mp4");
-        body.media_options.as_mut().expect("media").audio_format = Some("m4a".to_owned());
+        body.media_options.as_mut().expect("media").split_chapters = Some(true);
         assert!(NativeMediaExtractor.validate(&body).is_err());
+    }
+
+    #[test]
+    fn metadata_sidecar_excludes_transport_secrets_and_stream_urls() {
+        let mut request_headers = BTreeMap::new();
+        request_headers.insert("Cookie".to_owned(), "session=secret-cookie".to_owned());
+        let mut stream_headers = BTreeMap::new();
+        stream_headers.insert("Authorization".to_owned(), "Bearer secret-header".to_owned());
+        let descriptor = MediaDescriptor {
+            source_kind: nova_media_core::MediaSourceKind::Site,
+            metadata: nova_media_core::MediaMetadata {
+                title: "Safe metadata".to_owned(),
+                description: Some("description".to_owned()),
+                duration_millis: Some(1_000),
+                uploader: Some("uploader".to_owned()),
+                webpage_url: "https://media.test/watch".to_owned(),
+                thumbnail_url: Some(
+                    "https://cdn.test/thumb.jpg?token=secret-thumbnail".to_owned(),
+                ),
+            },
+            streams: vec![MediaStream {
+                id: "stream".to_owned(),
+                kind: nova_media_core::MediaTrackKind::AudioVideo,
+                protocol: MediaProtocol::Https,
+                url: "https://cdn.test/video.mp4?token=secret-stream".to_owned(),
+                container: Some("mp4".to_owned()),
+                video_codec: Some("avc1".to_owned()),
+                audio_codec: Some("mp4a".to_owned()),
+                width: Some(1920),
+                height: Some(1080),
+                fps: Some(30.0),
+                bitrate_bps: Some(4_000_000),
+                audio_bitrate_bps: Some(128_000),
+                content_length: Some(10),
+                language: None,
+                headers: stream_headers,
+            }],
+            subtitles: vec![nova_media_core::SubtitleTrack {
+                language: "en".to_owned(),
+                name: Some("English".to_owned()),
+                url: "https://cdn.test/subtitle?token=secret-subtitle".to_owned(),
+                format: Some("vtt".to_owned()),
+                automatic: false,
+            }],
+            request_headers,
+            is_live: false,
+        };
+
+        let serialized =
+            serde_json::to_string(&safe_descriptor_info_json(&descriptor)).expect("metadata json");
+        assert!(serialized.contains("Safe metadata"));
+        assert!(!serialized.contains("secret-cookie"));
+        assert!(!serialized.contains("secret-header"));
+        assert!(!serialized.contains("secret-stream"));
+        assert!(!serialized.contains("secret-subtitle"));
+        assert!(!serialized.contains("secret-thumbnail"));
+    }
+
+    #[test]
+    fn subtitle_language_filter_supports_exact_prefix_and_all() {
+        assert!(subtitle_language_matches("en-US", &["en".to_owned()]));
+        assert!(!subtitle_language_matches("ar", &["en".to_owned()]));
+        assert!(subtitle_language_matches("ar", &["all".to_owned()]));
     }
 
     #[test]
