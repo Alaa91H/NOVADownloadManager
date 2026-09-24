@@ -153,6 +153,7 @@ QVariantMap advancedDefaults() {
         {QStringLiteral("dynamicAllocation"), true},
         {QStringLiteral("bufferSizeKb"), 256},
         {QStringLiteral("loggingEnabled"), false},
+        {QStringLiteral("logLevel"), QStringLiteral("info")},
         {QStringLiteral("browserInterceptKeys"), QStringLiteral("Alt")},
         {QStringLiteral("telegramEnabled"), false},
         {QStringLiteral("telegramToken"), QString()},
@@ -222,6 +223,13 @@ QVariant normalizedAdvancedValue(const QString &key, const QVariant &candidate) 
             QStringLiteral("best"), QStringLiteral("good"), QStringLiteral("worst")
         };
         if (!allowed.contains(value.toLower())) value = QStringLiteral("best");
+        else value = value.toLower();
+    } else if (key == QStringLiteral("logLevel")) {
+        static const QSet<QString> allowed{
+            QStringLiteral("debug"), QStringLiteral("info"),
+            QStringLiteral("warn"), QStringLiteral("error")
+        };
+        if (!allowed.contains(value.toLower())) value = QStringLiteral("info");
         else value = value.toLower();
     } else if (key == QStringLiteral("vpnMode")) {
         static const QSet<QString> allowed{
@@ -447,6 +455,7 @@ void NativeSettings::migrateLegacySettingsIfNeeded() {
             QStringLiteral("dynamicAllocation"),
             QStringLiteral("bufferSizeKb"),
             QStringLiteral("loggingEnabled"),
+            QStringLiteral("logLevel"),
             QStringLiteral("browserInterceptKeys")
         };
         for (const QString &key : advancedKeys) {
