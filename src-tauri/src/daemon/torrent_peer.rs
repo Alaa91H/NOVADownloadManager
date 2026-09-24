@@ -33,6 +33,7 @@ pub struct PeerSessionConfig {
     pub max_block_retries: u32,
     pub max_metadata_retries: u32,
     pub max_control_frames_without_progress: u32,
+    pub enable_pex: bool,
 }
 
 impl Default for PeerSessionConfig {
@@ -48,6 +49,7 @@ impl Default for PeerSessionConfig {
             max_block_retries: 2,
             max_metadata_retries: 2,
             max_control_frames_without_progress: 128,
+            enable_pex: true,
         }
     }
 }
@@ -302,12 +304,16 @@ impl PeerEngine {
                 }
             };
 
+            let mut session_config = self.config.session.clone();
+            if metainfo.private {
+                session_config.enable_pex = false;
+            }
             let mut session = match PeerSession::connect_with_policy(
                 address,
                 metainfo.info_hash,
                 local_peer_id,
                 piece_count,
-                self.config.session.clone(),
+                session_config,
                 self.allow_private_network,
                 cancel,
             )
@@ -378,12 +384,16 @@ impl PeerEngine {
                 }
             };
 
+            let mut session_config = self.config.session.clone();
+            if !trackers.is_empty() {
+                session_config.enable_pex = false;
+            }
             let mut session = match PeerSession::connect_with_policy(
                 address,
                 info_hash,
                 local_peer_id,
                 0,
-                self.config.session.clone(),
+                session_config,
                 self.allow_private_network,
                 cancel,
             )
@@ -607,7 +617,11 @@ impl PeerSession {
         };
 
         if remote_supports_extensions {
-            let payload = ExtendedHandshake::local(None)
+            let mut local_extensions = ExtendedHandshake::local(None);
+            if !session.config.enable_pex {
+                local_extensions.ut_pex = None;
+            }
+            let payload = local_extensions
                 .encode()
                 .map_err(|error| format!("Could not encode local extended handshake: {error}"))?;
             session
@@ -1369,6 +1383,7 @@ mod tests {
             max_block_retries: 1,
             max_metadata_retries: 1,
             max_control_frames_without_progress: 32,
+            enable_pex: true,
         }
     }
 
