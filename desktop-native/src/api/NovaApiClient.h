@@ -17,6 +17,7 @@ class NovaApiClient final : public QObject {
     Q_PROPERTY(bool connected READ connected NOTIFY connectionChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY connectionChanged)
     Q_PROPERTY(QVariantList queueEntries READ queueEntries NOTIFY queueChanged)
+    Q_PROPERTY(QStringList knownQueueIds READ knownQueueIds NOTIFY queueCatalogChanged)
     Q_PROPERTY(int queueActiveCount READ queueActiveCount NOTIFY queueChanged)
     Q_PROPERTY(qint64 queueTotalBandwidthKbps READ queueTotalBandwidthKbps NOTIFY queueChanged)
     Q_PROPERTY(QString nextQueuedTask READ nextQueuedTask NOTIFY queueChanged)
@@ -52,6 +53,7 @@ public:
     bool connected() const noexcept { return m_connected; }
     QString statusText() const { return m_statusText; }
     QVariantList queueEntries() const { return m_queueEntries; }
+    QStringList knownQueueIds() const { return m_knownQueueIds; }
     int queueActiveCount() const noexcept { return m_queueActiveCount; }
     qint64 queueTotalBandwidthKbps() const noexcept { return m_queueTotalBandwidthKbps; }
     QString nextQueuedTask() const { return m_nextQueuedTask; }
@@ -108,6 +110,7 @@ public:
 
     Q_INVOKABLE void refreshQueue();
     Q_INVOKABLE void setQueuePriority(const QString &taskId, int priority);
+    Q_INVOKABLE bool directOptionSupported(const QString &key) const;
 
     Q_INVOKABLE void refreshScheduler();
     Q_INVOKABLE void addSchedulerRule(const QVariantMap &rule);
@@ -168,6 +171,7 @@ signals:
     void downloadUpdateFailed(const QString &message);
 
     void queueChanged();
+    void queueCatalogChanged();
     void queueActionCompleted(const QString &taskId);
     void schedulerChanged();
     void schedulerActionCompleted(const QString &action, const QString &ruleId);
@@ -215,6 +219,7 @@ private:
     void sendSchedulerRule(const QJsonObject &rule, const QString &path, const QString &action);
     void pumpBatchRequests();
     void sendNextBatchRequest();
+    void recomputeKnownQueueIds();
 
     QNetworkAccessManager m_network;
     QUrl m_baseUrl{QStringLiteral("http://127.0.0.1:3199")};
@@ -230,6 +235,7 @@ private:
     bool m_liveUpdatesConnected{false};
 
     QVariantList m_queueEntries;
+    QStringList m_knownQueueIds{QStringLiteral("main")};
     int m_queueActiveCount{0};
     qint64 m_queueTotalBandwidthKbps{0};
     QString m_nextQueuedTask;
