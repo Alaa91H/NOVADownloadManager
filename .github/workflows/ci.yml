@@ -144,6 +144,11 @@ jobs:
       - name: Cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml
 
+      - name: Test native media cores
+        run: |
+          cargo test --manifest-path crates/nova-stream-core/Cargo.toml
+          cargo test --manifest-path crates/nova-media-core/Cargo.toml
+
       - name: Clippy (lib + bin, zero warnings)
         id: clippy
         env:
