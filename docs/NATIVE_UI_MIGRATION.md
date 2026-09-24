@@ -137,7 +137,37 @@ Remaining before Stage 5 is complete:
 - macOS-specific visual/accessibility refinement and cross-platform platform polish.
 
 ### Stage 6 — Parity freeze
-No new legacy-UI-only features. Run automated parity tests and release native preview builds.
+
+Status: **in progress — executable parity gate and native preview pipeline added**.
+
+Stage 6 freezes the feature surface: existing legacy-only capabilities must be tracked as explicit parity gaps, and newly covered native capabilities must carry verifiable implementation evidence.
+
+Implemented:
+
+- Machine-readable parity manifest at `desktop-native/parity/parity-manifest.json`.
+- Automated parity validation that checks every merge/removal gate has a tracked status.
+- Covered capabilities must reference real evidence files and required implementation/API tokens.
+- Partial, gap and externally blocked capabilities must carry an explicit blocker instead of being silently treated as complete.
+- CI now runs both localization and Stage 6 parity gates before installing Qt/building the native application.
+- Native UI workflow also runs when legacy `src/**`, daemon `src-tauri/**` or migration-plan changes can affect parity.
+- Every successful Windows/Linux CI build installs a versioned native preview bundle.
+- Windows preview bundles deploy the required Qt runtime through `windeployqt`.
+- Linux preview bundles include the installed native binary, desktop entry and an `ldd` runtime dependency report.
+- Every preview bundle carries `PARITY_REPORT.md` and `BUILD_INFO.txt` for QA traceability.
+- Preview artifacts are retained by GitHub Actions for 14 days.
+
+Current parity blockers tracked by the executable manifest:
+
+- Native browser integration pairing/status.
+- Clipboard URL monitoring.
+- Configurable download columns and user-controlled sorting.
+- Full legacy language catalog beyond the current English/Arabic/German native baseline.
+- Production signed automatic updater installation.
+- macOS and ARM64 native validation.
+- Dedicated large-list/reconnect/crash-recovery stress validation.
+- Final screen-reader, multi-monitor and platform accessibility validation.
+
+Stage 6 does **not** authorize removing the legacy UI while any merge/removal blocker remains.
 
 ### Stage 7 — Replacement
 Merge the native frontend into the primary release pipeline, remove the old React/Tauri UI, and keep the Rust daemon/core unchanged unless separately justified.

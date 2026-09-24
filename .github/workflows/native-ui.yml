@@ -6,10 +6,16 @@ on:
       - "feature/qt6-native-desktop-ui"
     paths:
       - "desktop-native/**"
+      - "src/**"
+      - "src-tauri/**"
+      - "docs/NATIVE_UI_MIGRATION.md"
       - ".github/workflows/native-ui.yml"
   pull_request:
     paths:
       - "desktop-native/**"
+      - "src/**"
+      - "src-tauri/**"
+      - "docs/NATIVE_UI_MIGRATION.md"
       - ".github/workflows/native-ui.yml"
   workflow_dispatch:
 
@@ -35,6 +41,9 @@ jobs:
       - name: Check localization gate
         run: node desktop-native/scripts/check-localization.mjs
 
+      - name: Check Stage 6 parity
+        run: node desktop-native/scripts/check-parity.mjs
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -46,3 +55,47 @@ jobs:
 
       - name: Build
         run: cmake --build build/native --config Release --parallel
+
+      - name: Install preview bundle
+        run: cmake --install build/native --config Release --prefix "preview/NOVA-Native-${{ runner.os }}"
+
+      - name: Deploy Qt runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bundle = "preview/NOVA-Native-Windows"
+          $exe = Join-Path $bundle "bin/nova-native.exe"
+          windeployqt --release --qmldir desktop-native/qml --dir (Join-Path $bundle "bin") $exe
+          Copy-Item build/native-parity-report.md (Join-Path $bundle "PARITY_REPORT.md")
+          @"
+          NOVA Native Preview
+          Commit: ${{ github.sha }}
+          Branch: ${{ github.ref_name }}
+          Platform: Windows
+          Qt: 6.8.3
+          Stage: 6 parity freeze
+          "@ | Set-Content (Join-Path $bundle "BUILD_INFO.txt")
+
+      - name: Prepare Linux preview metadata
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          bundle="preview/NOVA-Native-Linux"
+          cp build/native-parity-report.md "$bundle/PARITY_REPORT.md"
+          {
+            echo "NOVA Native Preview"
+            echo "Commit: ${GITHUB_SHA}"
+            echo "Branch: ${GITHUB_REF_NAME}"
+            echo "Platform: Linux"
+            echo "Qt: 6.8.3"
+            echo "Stage: 6 parity freeze"
+          } > "$bundle/BUILD_INFO.txt"
+          ldd "$bundle/bin/nova-native" > "$bundle/LINUX_RUNTIME_DEPENDENCIES.txt" || true
+
+      - name: Upload native preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: NOVA-Native-Preview-${{ runner.os }}-${{ github.sha }}
+          path: preview/NOVA-Native-${{ runner.os }}/
+          if-no-files-found: error
+          retention-days: 14

@@ -48,27 +48,41 @@ The production native bootstrap will replace manual token injection with the sam
 
 ## Current milestone
 
-Implemented:
+The branch is now in **Stage 6 — Parity Freeze**.
 
-- Native application/window bootstrap
-- Native navigation rail
-- Desktop command bar
-- Live engine health state
-- Download model backed by `/api/downloads`
-- Native list/progress/status presentation
-- Bottom status bar
-- Independent CMake build
-- Windows and Linux native-UI CI validation
+Implemented native surfaces include:
 
-Next:
+- Live downloads and event-stream updates
+- Add/edit/pause/resume/retry/delete/redownload workflows
+- File/folder actions and native file dialogs
+- Queue manager, scheduler and batch import
+- Media downloader and Link Grabber
+- Engine settings, diagnostics and runtime logs
+- System tray, notifications and Windows/Linux desktop progress
+- Stable/Preview release checks with automatic install intentionally disabled until updater signing is production-ready
+- English/Arabic/German live localization, RTL, System/Light/Dark themes, High Contrast, Reduced Motion and text scaling
+- Keyboard shortcuts, focus/accessibility metadata and High-DPI policy
+- Windows and Linux Qt 6.8.3 CI validation
 
-1. Trusted local authentication/bootstrap
-2. Complete and harden live download event handling
-3. Selection model and real task commands
-4. Add Download workflow
-5. Details/Inspector pane
-6. Native context menus and shortcuts
-7. Queue/Scheduler workspace
-8. Media and Link Grabber workspaces
-9. Settings
-10. Full i18n/RTL migration
+## Stage 6 parity and preview builds
+
+`desktop-native/parity/parity-manifest.json` is the machine-readable parity source of truth.
+
+Run the local gates with:
+
+```bash
+node desktop-native/scripts/check-localization.mjs
+node desktop-native/scripts/check-parity.mjs
+```
+
+The parity command writes `build/native-parity-report.md`.
+
+On the feature branch, GitHub Actions builds native preview artifacts for Windows and Linux. Each bundle contains:
+
+- the installed native executable/application files;
+- `BUILD_INFO.txt` with commit/platform metadata;
+- `PARITY_REPORT.md` showing covered, partial, gap and blocked migration gates;
+- Windows: Qt runtime deployment via `windeployqt`;
+- Linux: runtime dependency report for QA environments.
+
+Known blockers remain explicit in the parity manifest and must be resolved before Stage 7 replacement.

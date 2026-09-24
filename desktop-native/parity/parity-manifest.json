@@ -1,0 +1,363 @@
+{
+  "schemaVersion": 1,
+  "stage": "6-parity-freeze",
+  "nativePreviewVersion": "2.4.48-alpha",
+  "statuses": [
+    "covered",
+    "partial",
+    "gap",
+    "blocked"
+  ],
+  "capabilities": [
+    {
+      "id": "downloads-live",
+      "label": "Downloads list and live progress",
+      "status": "covered",
+      "evidence": [
+        "desktop-native/src/api/NovaApiClient.cpp",
+        "desktop-native/src/models/DownloadListModel.cpp",
+        "desktop-native/qml/pages/DownloadsPage.qml"
+      ],
+      "contains": [
+        {
+          "file": "desktop-native/src/api/NovaApiClient.cpp",
+          "allOf": [
+            "/api/downloads",
+            "/api/downloads/events"
+          ]
+        },
+        {
+          "file": "desktop-native/qml/pages/DownloadsPage.qml",
+          "allOf": [
+            "required property var downloads",
+            "downloads.search"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "single-download",
+      "label": "Add single download",
+      "status": "covered",
+      "evidence": [
+        "desktop-native/qml/components/AddDownloadDialog.qml",
+        "desktop-native/src/api/NovaApiClient.cpp"
+      ],
+      "contains": [
+        {
+          "file": "desktop-native/src/api/NovaApiClient.cpp",
+          "allOf": [
+            "createDownload",
+            "/api/downloads"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "download-actions",
+      "label": "Pause/resume/retry/delete/redownload",
+      "status": "covered",
+      "evidence": [
+        "desktop-native/src/api/NovaApiClient.cpp",
+        "desktop-native/qml/components/CommandBar.qml"
+      ],
+      "contains": [
+        {
+          "file": "desktop-native/src/api/NovaApiClient.cpp",
+          "allOf": [
+            "pauseDownload",
+            "resumeDownload",
+            "redownloadDownload",
+            "deleteDownload"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "file-actions",
+      "label": "Open file/folder and native dialogs",
+      "status": "covered",
+      "evidence": [
+        "desktop-native/src/platform/DesktopIntegration.cpp",
+        "desktop-native/qml/components/DownloadDetailsPanel.qml"
+      ],
+      "contains": [
+        {
+          "file": "desktop-native/src/platform/DesktopIntegration.cpp",
+          "allOf": [
+            "openFile",
+            "revealInFolder",
+            "chooseDirectory",
+            "chooseSaveFile"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "queue",
+      "label": "Queue management",
+      "status": "covered",
+      "evidence": [
+        "desktop-native/qml/pages/QueuePage.qml",
+        "desktop-native/src/api/NovaApiClient.cpp"
+      ],
+      "contains": [
+        {
+          "file": "desktop-native/src/api/NovaApiClient.cpp",
+          "allOf": [
+            "refreshQueue",
+            "setQueuePriority"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scheduler",
+      "label": "Scheduler",
+      "status": "covered",
+      "evidence": [
+        "desktop-native/qml/pages/SchedulerPage.qml",
+        "desktop-native/src/api/NovaApiClient.cpp"
+      ],
+      "contains": [
+        {
+          "file": "desktop-native/src/api/NovaApiClient.cpp",
+          "allOf": [
+            "refreshScheduler",
+            "addSchedulerRule",
+            "setSchedulerRuleEnabled",
+            "deleteSchedulerRule"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "batch-import",
+      "label": "Batch import",
+      "status": "covered",
+      "evidence": [
+        "desktop-native/qml/pages/BatchImportPage.qml",
+        "desktop-native/src/api/NovaApiClient.cpp"
+      ],
+      "contains": [
+        {
+          "file": "desktop-native/src/api/NovaApiClient.cpp",
+          "allOf": [
+            "importBatch",
+            "pumpBatchRequests"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "media",
+      "label": "Media downloader",
+      "status": "covered",
+      "evidence": [
+        "desktop-native/qml/pages/MediaDownloaderPage.qml",
+        "desktop-native/src/api/NovaApiClient.cpp"
+      ],
+      "contains": [
+        {
+          "file": "desktop-native/src/api/NovaApiClient.cpp",
+          "allOf": [
+            "probeMedia",
+            "probeMediaPlaylist",
+            "createMediaDownload"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "link-grabber",
+      "label": "Web/Link Grabber",
+      "status": "covered",
+      "evidence": [
+        "desktop-native/qml/pages/LinkGrabberPage.qml",
+        "desktop-native/src/api/NovaApiClient.cpp"
+      ],
+      "contains": [
+        {
+          "file": "desktop-native/src/api/NovaApiClient.cpp",
+          "allOf": [
+            "probeDirectLink",
+            "createDirectFromProbe"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "settings-diagnostics",
+      "label": "Settings and diagnostics",
+      "status": "covered",
+      "evidence": [
+        "desktop-native/qml/pages/SettingsPage.qml",
+        "desktop-native/src/settings/NativeSettings.cpp",
+        "desktop-native/src/api/NovaApiClient.cpp"
+      ],
+      "contains": [
+        {
+          "file": "desktop-native/src/api/NovaApiClient.cpp",
+          "allOf": [
+            "runDiagnostics",
+            "refreshLogs",
+            "setLogLevel",
+            "refreshEngineManagement"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "desktop-integration",
+      "label": "Tray, notifications and taskbar/launcher progress",
+      "status": "partial",
+      "evidence": [
+        "desktop-native/src/platform/TrayManager.cpp",
+        "desktop-native/src/platform/DesktopIntegration.cpp"
+      ],
+      "contains": [
+        {
+          "file": "desktop-native/src/platform/TrayManager.cpp",
+          "allOf": [
+            "QSystemTrayIcon",
+            "showNotification"
+          ]
+        },
+        {
+          "file": "desktop-native/src/platform/DesktopIntegration.cpp",
+          "allOf": [
+            "ITaskbarList3",
+            "LauncherEntry"
+          ]
+        }
+      ],
+      "blocker": "macOS Dock progress and macOS platform validation are not yet implemented."
+    },
+    {
+      "id": "keyboard-rtl-theme",
+      "label": "Keyboard, RTL and appearance",
+      "status": "covered",
+      "evidence": [
+        "desktop-native/qml/Main.qml",
+        "desktop-native/qml/Theme.qml",
+        "desktop-native/src/localization/I18nManager.cpp"
+      ],
+      "contains": [
+        {
+          "file": "desktop-native/qml/Main.qml",
+          "allOf": [
+            "LayoutMirroring.enabled",
+            "StandardKey.New",
+            "Ctrl+,"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "native-localization",
+      "label": "Translation migration",
+      "status": "partial",
+      "evidence": [
+        "desktop-native/src/localization/I18nManager.cpp",
+        "desktop-native/scripts/check-localization.mjs"
+      ],
+      "blocker": "Native catalog currently starts with English, Arabic and German; the legacy UI ships a much larger language set."
+    },
+    {
+      "id": "search-filter",
+      "label": "Search/filter",
+      "status": "covered",
+      "evidence": [
+        "desktop-native/qml/pages/DownloadsPage.qml",
+        "desktop-native/src/models/DownloadListModel.cpp"
+      ],
+      "contains": [
+        {
+          "file": "desktop-native/qml/pages/DownloadsPage.qml",
+          "allOf": [
+            "query",
+            "downloads.search"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "columns-sorting",
+      "label": "Column configuration and sorting",
+      "status": "gap",
+      "legacyEvidence": [
+        "src/components/ColumnConfigPanel.tsx",
+        "src/hooks/useColumnState.ts",
+        "src/hooks/useTaskSortFilter.ts"
+      ],
+      "blocker": "Native downloads table still needs configurable columns and user-controlled sorting."
+    },
+    {
+      "id": "browser-integration",
+      "label": "Browser integration status and pairing",
+      "status": "gap",
+      "legacyEvidence": [
+        "src/dialogs/integration/BrowserIntegrationDialog.tsx",
+        "src/store/bridgeStore.ts"
+      ],
+      "blocker": "Native UI does not yet expose browser extension pairing/status."
+    },
+    {
+      "id": "clipboard-monitoring",
+      "label": "Clipboard monitoring",
+      "status": "gap",
+      "legacyEvidence": [
+        "src/utils/clipboard.ts"
+      ],
+      "blocker": "Native UI does not yet monitor clipboard download URLs."
+    },
+    {
+      "id": "signed-updater",
+      "label": "Signed updater installation",
+      "status": "blocked",
+      "evidence": [
+        "desktop-native/src/platform/UpdaterManager.cpp",
+        "docs/verification/SIGNED_UPDATER_READINESS_2026-08-21.md"
+      ],
+      "blocker": "Production updater endpoint/public verification key are not configured, so automatic install remains intentionally disabled."
+    },
+    {
+      "id": "platform-validation",
+      "label": "Windows/macOS/Linux architecture validation",
+      "status": "partial",
+      "evidence": [
+        ".github/workflows/native-ui.yml"
+      ],
+      "blocker": "Native CI currently validates Windows and Ubuntu x64; ARM64 and macOS validation remain."
+    },
+    {
+      "id": "accessibility-hidpi",
+      "label": "Accessibility and High-DPI",
+      "status": "partial",
+      "evidence": [
+        "desktop-native/qml/Main.qml",
+        "desktop-native/src/main.cpp"
+      ],
+      "contains": [
+        {
+          "file": "desktop-native/src/main.cpp",
+          "allOf": [
+            "HighDpiScaleFactorRoundingPolicy",
+            "PassThrough"
+          ]
+        }
+      ],
+      "blocker": "Automated build coverage exists, but screen-reader, multi-monitor and full accessibility validation still require dedicated validation."
+    },
+    {
+      "id": "large-list-recovery",
+      "label": "Large-list performance and crash/error recovery",
+      "status": "partial",
+      "evidence": [
+        "desktop-native/src/models/DownloadListModel.cpp",
+        "desktop-native/src/api/NovaApiClient.cpp"
+      ],
+      "blocker": "Stage 6 still needs explicit stress/recovery test fixtures for large lists and daemon disconnect/reconnect."
+    }
+  ]
+}
