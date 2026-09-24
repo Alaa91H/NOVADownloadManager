@@ -29,10 +29,7 @@ pub fn transition_task_state(
 /// Apply an explicit restart/redownload transition. Completed tasks can only
 /// leave their terminal state through this API, never via ordinary lifecycle
 /// progression.
-pub fn restart_task_state(
-    task: &mut Task,
-    engine_status: impl Into<String>,
-) -> Result<(), String> {
+pub fn restart_task_state(task: &mut Task, engine_status: impl Into<String>) -> Result<(), String> {
     let current = TaskState::from_status(&task.status).ok_or_else(|| {
         format!(
             "Task {} has unknown lifecycle state '{}'",
@@ -273,7 +270,6 @@ pub struct CurlJob {
     pub args: Vec<String>,
 }
 
-
 #[cfg(test)]
 mod lifecycle_tests {
     use super::{restart_task_state, transition_task_state, Task, TaskState};
@@ -331,9 +327,6 @@ mod lifecycle_tests {
         assert!(transition_task_state(&mut task, TaskState::Queued, "queued").is_err());
         restart_task_state(&mut task, "redownload-requested").unwrap();
         assert_eq!(task.status, "queued");
-        assert_eq!(
-            task.engine_status.as_deref(),
-            Some("redownload-requested")
-        );
+        assert_eq!(task.engine_status.as_deref(), Some("redownload-requested"));
     }
 }
