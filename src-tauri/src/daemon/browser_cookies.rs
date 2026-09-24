@@ -11,7 +11,7 @@ pub const NATIVE_BROWSER_COOKIE_SOURCES: &[&str] = &["firefox"];
 
 pub fn validate_browser_cookie_source(spec: &str) -> Result<(), String> {
     let (browser, profile) = parse_browser_cookie_source(spec)?;
-    if browser != "firefox" {
+    if !browser.eq_ignore_ascii_case("firefox") {
         return Err(format!(
             "Native browser-cookie import currently supports Firefox only; '{browser}' is not migrated yet"
         ));
@@ -407,6 +407,7 @@ mod tests {
     #[test]
     fn browser_source_rejects_unmigrated_browsers_and_arbitrary_profile_paths() {
         validate_browser_cookie_source("firefox").expect("Firefox source");
+        validate_browser_cookie_source("Firefox").expect("case-insensitive Firefox source");
         validate_browser_cookie_source("firefox:default-release").expect("Firefox profile");
         assert!(validate_browser_cookie_source("chrome").is_err());
         assert!(validate_browser_cookie_source("edge").is_err());
