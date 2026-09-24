@@ -109,6 +109,7 @@ Implemented in the first Stage 5 slice:
 
 - Central native localization manager with live language switching.
 - Initial English, Arabic and German dictionaries, including automatic system-language resolution.
+- Full legacy language metadata is now exposed in the native selector, with resource-backed reuse of matching legacy locale entries and English fallback while native-key coverage is expanded.
 - Application-wide RTL mirroring when Arabic is active.
 - Persistent language preference through `QSettings`.
 - System / Light / Dark appearance modes with live system color-scheme tracking.
@@ -128,7 +129,7 @@ Implemented in the first Stage 5 slice:
 
 Remaining before Stage 5 is complete:
 
-- Import the full language set supported by the legacy UI beyond the current English, Arabic and German baseline.
+- Complete native-key translation coverage for the full legacy language set; language selection and reusable legacy-string bridging are implemented, but unmatched native copy still falls back to English.
 - Complete per-page RTL layout review, especially tables, inspectors and mixed URL/path content.
 - Extend typography scaling to every legacy-sized text declaration.
 - Accessibility labels/descriptions and tab order for all dialogs, lists, tables and form controls.
