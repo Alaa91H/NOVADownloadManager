@@ -131,6 +131,7 @@ request URL + authorized headers/cookies
 - native YouTube chapter normalization with start/end timestamps included in metadata sidecars;
 - native remux policy that permits same-container/direct output and compatible copy-mux containers while failing closed when additional post-processing is required;
 - native YouTube playlist probing with continuation pagination, bounded page/entry limits and a first-party `/api/media/probe-playlist` endpoint;
+- native Netscape cookie-file loading with bounded file size and URL-scoped domain, path, secure and expiry filtering;
 - sensitive native request context is kept in memory and omitted from restart snapshots, forcing reauthorization when needed;
 - `/api/media/native/resolve` GET and POST migration API.
 
@@ -146,7 +147,7 @@ Still isolated behind typed interfaces:
 - chapter splitting and time-based partial-section extraction;
 - audio transcoding targets such as MP3/FLAC/WAV when no matching source representation exists;
 - advanced live crash recovery beyond the persisted cursor/committed-part checkpoint implemented by the task path;
-- browser-cookie import and cookie-file loading;
+- browser-cookie import;
 - additional site adapters;
 - final migration of all legacy media jobs onto the native execution path.
 
