@@ -776,7 +776,10 @@ void NovaApiClient::importBatch(
 
     const QString requestedQueueId =
         batchOptions.value(QStringLiteral("queueId")).toString().trimmed();
-    m_batchQueueId = m_knownQueueIds.contains(requestedQueueId)
+    static const QRegularExpression queueIdPattern(
+        QStringLiteral(R"(^[A-Za-z0-9._:-]{1,128}$)")
+    );
+    m_batchQueueId = queueIdPattern.match(requestedQueueId).hasMatch()
         ? requestedQueueId
         : QStringLiteral("main");
 
