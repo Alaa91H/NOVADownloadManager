@@ -64,7 +64,7 @@ ApplicationWindow {
                 engineConnected: novaApi.connected
                 engineStatus: novaApi.statusText
                 activeCount: downloadsModel.activeCount
-                totalCount: downloadsModel.rowCount()
+                totalCount: downloadsModel.count
                 totalSpeed: downloadsModel.totalSpeed
             }
         }
