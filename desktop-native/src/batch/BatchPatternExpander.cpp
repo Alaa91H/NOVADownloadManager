@@ -147,6 +147,36 @@ bool parsePattern(
     return true;
 }
 
+CountResult countLine(const QString &line) {
+    if (!line.contains(QLatin1Char('['))) {
+        return CountResult{1, {}};
+    }
+
+    QList<Group> groups;
+    QString trailing;
+    QString error;
+    if (!parsePattern(line, &groups, &trailing, &error)) {
+        return CountResult{0, error};
+    }
+    if (groups.isEmpty()) {
+        return CountResult{1, {}};
+    }
+
+    qint64 total = 1;
+    for (const Group &group : std::as_const(groups)) {
+        const qint64 count = bracketCount(group.bracket);
+        if (count <= 0 || count > MaxExpandedUrls || total > MaxExpandedUrls / count) {
+            return CountResult{
+                0,
+                QStringLiteral("Pattern expands to too many URLs (max %1).")
+                    .arg(MaxExpandedUrls)
+            };
+        }
+        total *= count;
+    }
+    return CountResult{total, {}};
+}
+
 ExpansionResult expandLine(const QString &line) {
     if (!line.contains(QLatin1Char('['))) {
         return ExpansionResult{{line}, {}};
@@ -189,6 +219,36 @@ ExpansionResult expandLine(const QString &line) {
 }
 
 } // namespace
+
+CountResult countInput(const QString &input) {
+    qint64 total = 0;
+    const QStringList lines = input.split(
+        QRegularExpression(QStringLiteral("[\\r\\n]+")),
+        Qt::SkipEmptyParts
+    );
+
+    for (const QString &raw : lines) {
+        const QString line = raw.trimmed();
+        if (line.isEmpty()) {
+            continue;
+        }
+
+        const CountResult lineCount = countLine(line);
+        if (!lineCount.ok()) {
+            return lineCount;
+        }
+        if (lineCount.count > MaxExpandedUrls
+            || total > MaxExpandedUrls - lineCount.count) {
+            return CountResult{
+                0,
+                QStringLiteral("Pattern expands to too many URLs (max %1).")
+                    .arg(MaxExpandedUrls)
+            };
+        }
+        total += lineCount.count;
+    }
+    return CountResult{total, {}};
+}
 
 ExpansionResult expandInput(const QString &input) {
     QStringList output;
