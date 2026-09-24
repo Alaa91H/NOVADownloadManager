@@ -260,8 +260,10 @@ fn validate_metainfo(meta: &TorrentMetainfo) -> Result<(), ManifestError> {
     }
 
     let mut expected_offset = 0u64;
+    let mut normalized_paths = Vec::with_capacity(meta.files.len());
     for file in &meta.files {
         validate_relative_path(&file.path)?;
+        normalized_paths.push(file.path.to_lowercase());
         if file.offset != expected_offset {
             return Err(ManifestError::InvalidGeometry);
         }
@@ -271,6 +273,21 @@ fn validate_metainfo(meta: &TorrentMetainfo) -> Result<(), ManifestError> {
     }
     if expected_offset != meta.total_length {
         return Err(ManifestError::InvalidGeometry);
+    }
+
+    normalized_paths.sort();
+    for pair in normalized_paths.windows(2) {
+        let previous = &pair[0];
+        let current = &pair[1];
+        if current == previous
+            || current
+                .strip_prefix(previous)
+                .is_some_and(|suffix| suffix.starts_with('/'))
+        {
+            return Err(ManifestError::UnsafePath(format!(
+                "colliding manifest output paths: {previous} and {current}"
+            )));
+        }
     }
     Ok(())
 }
@@ -294,6 +311,7 @@ fn validate_relative_path(path: &str) -> Result<(), ManifestError> {
         if component.is_empty()
             || component == "."
             || component == ".."
+            || is_windows_reserved_component(component)
             || component.contains(':')
             || component.contains('/')
             || component.contains('\\')
@@ -314,6 +332,20 @@ fn validate_relative_path(path: &str) -> Result<(), ManifestError> {
         return Err(ManifestError::UnsafePath(path.to_owned()));
     }
     Ok(())
+}
+
+fn is_windows_reserved_component(value: &str) -> bool {
+    let stem = value
+        .split('.')
+        .next()
+        .unwrap_or(value)
+        .to_ascii_uppercase();
+    matches!(
+        stem.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$" | "CONIN$" | "CONOUT$"
+    ) || (stem.len() == 4
+        && (stem.starts_with("COM") || stem.starts_with("LPT"))
+        && matches!(stem.as_bytes()[3], b'1'..=b'9'))
 }
 
 fn put_u32(output: &mut Vec<u8>, value: u32) {
@@ -509,6 +541,23 @@ mod tests {
         let recovered = load_storage_manifest_recovering(&path).unwrap();
         assert_eq!(recovered.metainfo.info_hash, manifest.metainfo.info_hash);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn manifest_rejects_windows_device_and_case_colliding_paths() {
+        let mut manifest = TorrentStorageManifest::from_metainfo(&meta());
+        manifest.metainfo.files[0].path = "bundle/CON.txt".to_owned();
+        assert!(matches!(
+            manifest.encode(),
+            Err(ManifestError::UnsafePath(_))
+        ));
+
+        let mut manifest = TorrentStorageManifest::from_metainfo(&meta());
+        manifest.metainfo.files[1].path = "BUNDLE/A.BIN".to_owned();
+        assert!(matches!(
+            manifest.encode(),
+            Err(ManifestError::UnsafePath(_))
+        ));
     }
 
     #[test]
