@@ -231,7 +231,9 @@ impl TorrentMetainfo {
         }
 
         let digest = Sha1::digest(bytes);
-        Ok(digest.as_ref() == expected_hash)
+        let mut actual_hash = [0u8; 20];
+        actual_hash.copy_from_slice(&digest);
+        Ok(&actual_hash == expected_hash)
     }
 
     /// Map a contiguous payload range onto one or more physical torrent files.
