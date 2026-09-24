@@ -91,6 +91,10 @@ pub enum PeerMessage {
         length: u32,
     },
     Port(u16),
+    Extended {
+        extension_id: u8,
+        payload: Vec<u8>,
+    },
 }
 
 impl PeerMessage {
@@ -149,6 +153,20 @@ impl PeerMessage {
                 output.extend_from_slice(&3u32.to_be_bytes());
                 output.push(9);
                 output.extend_from_slice(&port.to_be_bytes());
+            }
+            Self::Extended {
+                extension_id,
+                payload,
+            } => {
+                let frame_length = payload
+                    .len()
+                    .checked_add(2)
+                    .ok_or(PeerWireError::FrameTooLarge(usize::MAX))?;
+                ensure_frame_size(frame_length)?;
+                output.extend_from_slice(&(frame_length as u32).to_be_bytes());
+                output.push(20);
+                output.push(*extension_id);
+                output.extend_from_slice(payload);
             }
         }
         Ok(output)
@@ -239,6 +257,19 @@ impl PeerMessage {
             9 => {
                 ensure_payload_len(id, payload, 2)?;
                 Self::Port(u16::from_be_bytes([payload[0], payload[1]]))
+            }
+            20 => {
+                if payload.is_empty() {
+                    return Err(PeerWireError::InvalidPayloadLength {
+                        id,
+                        expected: 1,
+                        actual: 0,
+                    });
+                }
+                Self::Extended {
+                    extension_id: payload[0],
+                    payload: payload[1..].to_vec(),
+                }
             }
             other => return Err(PeerWireError::UnsupportedMessage(other)),
         };
@@ -373,7 +404,8 @@ impl PeerState {
             | PeerMessage::Request { .. }
             | PeerMessage::Piece { .. }
             | PeerMessage::Cancel { .. }
-            | PeerMessage::Port(_) => {}
+            | PeerMessage::Port(_)
+            | PeerMessage::Extended { .. } => {}
         }
         Ok(())
     }
@@ -500,6 +532,18 @@ mod tests {
             }
         );
         assert_eq!(consumed, piece.len());
+    }
+
+    #[test]
+    fn extended_message_round_trip() {
+        let message = PeerMessage::Extended {
+            extension_id: 3,
+            payload: b"d1:ai1ee".to_vec(),
+        };
+        let encoded = message.encode().expect("encode extended");
+        let (decoded, consumed) = PeerMessage::decode_frame(&encoded).expect("decode extended");
+        assert_eq!(decoded, message);
+        assert_eq!(consumed, encoded.len());
     }
 
     #[test]
