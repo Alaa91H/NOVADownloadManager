@@ -81,7 +81,9 @@ ApplicationWindow {
     Action {
         id: newDownloadAction
         text: window.t("action.newDownload")
-        shortcut: StandardKey.New
+        shortcut: nativeSettings.shortcutsEnabled
+            ? String(nativeSettings.shortcutBindings.addDownload || "Ctrl+N")
+            : ""
         enabled: novaApi.connected
         onTriggered: window.openNewDownload()
     }
@@ -103,7 +105,9 @@ ApplicationWindow {
     Action {
         id: settingsAction
         text: window.t("nav.settings")
-        shortcut: "Ctrl+,"
+        shortcut: nativeSettings.shortcutsEnabled
+            ? String(nativeSettings.shortcutBindings.openSettings || "Ctrl+,")
+            : ""
         onTriggered: window.currentPage = "settings"
     }
 
@@ -122,7 +126,9 @@ ApplicationWindow {
             MenuItem { action: newDownloadAction }
             MenuItem {
                 text: window.t("nav.batch")
-                shortcut: "Ctrl+Shift+B"
+                shortcut: nativeSettings.shortcutsEnabled
+                    ? String(nativeSettings.shortcutBindings.batchDownload || "Ctrl+Shift+N")
+                    : ""
                 onTriggered: window.currentPage = "batch"
             }
             MenuSeparator {}
@@ -147,7 +153,13 @@ ApplicationWindow {
         Menu {
             title: window.t("menu.tools")
             MenuItem { text: window.t("nav.queue"); onTriggered: window.currentPage = "queue" }
-            MenuItem { text: window.t("nav.scheduler"); onTriggered: window.currentPage = "scheduler" }
+            MenuItem {
+                text: window.t("nav.scheduler")
+                shortcut: nativeSettings.shortcutsEnabled
+                    ? String(nativeSettings.shortcutBindings.openScheduler || "Ctrl+L")
+                    : ""
+                onTriggered: window.currentPage = "scheduler"
+            }
             MenuItem { text: window.t("nav.media"); shortcut: "Ctrl+Shift+M"; onTriggered: window.currentPage = "media" }
             MenuItem { text: window.t("nav.grabber"); shortcut: "Ctrl+L"; onTriggered: window.currentPage = "grabber" }
             MenuSeparator {}
