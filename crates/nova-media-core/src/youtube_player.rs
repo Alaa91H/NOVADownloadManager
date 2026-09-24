@@ -692,9 +692,25 @@ fn classify_operation_body(body: &str, amount: usize) -> Option<TransformOperati
     if body.contains("[0]") && body.contains(".length") && body.contains('%') {
         return Some(TransformOperation::Swap(amount));
     }
-    if body.contains(".splice(0,") || body.contains(".slice(") {
+
+    let splice_drop = Regex::new(
+        r#"\.splice\(\s*0\s*,\s*(?:[A-Za-z_$][A-Za-z0-9_$]*|\d+)\s*\)"#,
+    )
+    .ok()
+    .is_some_and(|pattern| pattern.is_match(body));
+    if splice_drop {
         return Some(TransformOperation::Drop(amount));
     }
+
+    let returned_slice = Regex::new(
+        r#"return\s+[A-Za-z_$][A-Za-z0-9_$]*\.slice\(\s*(?:[A-Za-z_$][A-Za-z0-9_$]*|\d+)\s*\)"#,
+    )
+    .ok()
+    .is_some_and(|pattern| pattern.is_match(body));
+    if returned_slice {
+        return Some(TransformOperation::Drop(amount));
+    }
+
     None
 }
 
@@ -717,7 +733,7 @@ fn classify_helper_operation(
         .ok_or_else(|| format!("YouTube signature helper object {object} is malformed"))?;
 
     let method_pattern = Regex::new(&format!(
-        r#"(?:"|')?{}(?:"|')?\s*:\s*function\([^)]*\)\s*\{{"#,
+        r#"(?:"|')?{}(?:"|')?\s*(?::\s*function\([^)]*\)\s*|:\s*\([^)]*\)\s*=>\s*|:\s*[A-Za-z_$][A-Za-z0-9_$]*\s*=>\s*|\([^)]*\)\s*)\{{"#,
         regex::escape(method)
     ))
     .map_err(|error| error.to_string())?;
@@ -923,6 +939,22 @@ function apply(p){var x=p.get("n");x&&(x=NX[0](x),p.set("n",x))}
                 .transform_throttling_parameter(player, "abcdef")
                 .expect("indexed n transform"),
             "cdefab"
+        );
+    }
+
+    #[test]
+    fn n_transform_supports_arrow_function_and_concise_helper() {
+        let player = r#"
+var HH={Rv(a){a.reverse()}};
+NT=(a)=>{a=a.split("");HH.Rv(a);return a.join("")};
+function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert_eq!(
+            solver
+                .transform_throttling_parameter(player, "abcdef")
+                .expect("arrow n transform"),
+            "fedcba"
         );
     }
 
