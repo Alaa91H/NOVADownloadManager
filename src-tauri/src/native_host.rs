@@ -256,6 +256,14 @@ fn pairing_secret_for_base_url(base_url: &str) -> Option<String> {
 fn port_file_paths() -> Vec<std::path::PathBuf> {
     let mut paths = Vec::new();
 
+    if let Some(override_dir) = std::env::var_os("NOVA_NATIVE_DATA_DIR")
+        .filter(|value| !value.is_empty())
+    {
+        paths.push(
+            std::path::PathBuf::from(override_dir).join("nova-daemon.port"),
+        );
+    }
+
     // Windows — Tauri app_data_dir: %APPDATA%\com.nova.downloadmanager
     if let Ok(app_data) = std::env::var("APPDATA") {
         let base = std::path::PathBuf::from(app_data);
