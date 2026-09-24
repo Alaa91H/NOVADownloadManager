@@ -1466,3 +1466,42 @@ void NovaApiClient::setLogLevel(const QString &levelText) {
         refreshLogs(QString(), 300);
     });
 }
+
+
+void NovaApiClient::refreshBrowserIntegration() {
+    if (!m_connected || m_browserIntegrationBusy) {
+        return;
+    }
+
+    m_browserIntegrationBusy = true;
+    emit browserIntegrationChanged();
+
+    auto *reply = m_network.get(
+        makeRequest(QStringLiteral("/api/browser-extension/health"))
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+
+        m_browserIntegrationBusy = false;
+
+        if (reply->error() != QNetworkReply::NoError) {
+            emit browserIntegrationChanged();
+            emit browserIntegrationFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit browserIntegrationChanged();
+            emit browserIntegrationFailed(
+                QStringLiteral("Unexpected browser integration response.")
+            );
+            return;
+        }
+
+        m_browserIntegrationHealth = document.object().toVariantMap();
+        emit browserIntegrationChanged();
+    });
+}

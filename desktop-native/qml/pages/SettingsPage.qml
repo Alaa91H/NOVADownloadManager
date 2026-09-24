@@ -432,6 +432,11 @@ Item {
                         }
                     }
 
+                    BrowserIntegrationPanel {
+                        api: root.api
+                        desktop: root.desktop
+                    }
+
                     Rectangle {
                         Layout.fillWidth: true
                         implicitHeight: notificationColumn.implicitHeight + 28

@@ -112,8 +112,30 @@ int main(int argc, char *argv[]) {
     QObject::connect(&healthTimer, &QTimer::timeout, &apiClient, &NovaApiClient::checkHealth);
     healthTimer.start();
 
+    QTimer browserIntegrationTimer;
+    browserIntegrationTimer.setInterval(15000);
+    QObject::connect(
+        &browserIntegrationTimer,
+        &QTimer::timeout,
+        &apiClient,
+        &NovaApiClient::refreshBrowserIntegration
+    );
+    browserIntegrationTimer.start();
+
+    QObject::connect(
+        &apiClient,
+        &NovaApiClient::connectionChanged,
+        &app,
+        [&apiClient]() {
+            if (apiClient.connected()) {
+                apiClient.refreshBrowserIntegration();
+            }
+        }
+    );
+
     apiClient.checkHealth();
     apiClient.refreshDownloads();
+    apiClient.refreshBrowserIntegration();
     apiClient.startDownloadStream();
 
     return app.exec();

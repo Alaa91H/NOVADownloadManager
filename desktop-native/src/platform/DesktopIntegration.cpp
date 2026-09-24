@@ -68,6 +68,29 @@ bool DesktopIntegration::openLocalUrl(const QString &action, const QString &path
     return true;
 }
 
+bool DesktopIntegration::openExternalUrl(const QString &url) {
+    const QUrl target = QUrl::fromUserInput(url.trimmed());
+    if (!target.isValid() || target.scheme().isEmpty()) {
+        fail(QStringLiteral("open-url"), QStringLiteral("The external URL is invalid."));
+        return false;
+    }
+
+    const QString scheme = target.scheme().toLower();
+    if (scheme != QStringLiteral("http") && scheme != QStringLiteral("https")) {
+        fail(QStringLiteral("open-url"), QStringLiteral("Only HTTP and HTTPS links can be opened externally."));
+        return false;
+    }
+
+    const bool opened = QDesktopServices::openUrl(target);
+    if (!opened) {
+        fail(QStringLiteral("open-url"), QStringLiteral("The operating system could not open this link."));
+        return false;
+    }
+
+    emit operationSucceeded(QStringLiteral("open-url"));
+    return true;
+}
+
 bool DesktopIntegration::openFile(const QString &path) {
     const QString trimmedPath = path.trimmed();
     if (trimmedPath.isEmpty()) {

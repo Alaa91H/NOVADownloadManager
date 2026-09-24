@@ -153,6 +153,8 @@ Implemented:
 - Every successful Windows/Linux CI build installs a versioned native preview bundle.
 - Core Downloads columns now support persistent show/hide configuration and persistent ascending/descending sorting through the native model/QSettings path.
 - Clipboard URL monitoring now matches the legacy 1.5-second detection behavior: it ignores pre-existing clipboard content, extracts new HTTP/HTTPS links and opens the native Add Download dialog only after the engine is connected.
+- Browser integration now exposes live daemon-backed status, enabled/paired state, bridge version, capture endpoint and direct/media/post-processing capabilities in the native Settings workspace.
+- Native browser integration follows the project's zero-click pairing security model: pairing credentials are never displayed or copied by the Qt UI; setup links route users to the extension release and pairing documentation.
 - Windows preview bundles deploy the required Qt runtime through `windeployqt`.
 - Linux preview bundles include the installed native binary, desktop entry and an `ldd` runtime dependency report.
 - Every preview bundle carries `PARITY_REPORT.md` and `BUILD_INFO.txt` for QA traceability.
@@ -160,7 +162,7 @@ Implemented:
 
 Current parity blockers tracked by the executable manifest:
 
-- Native browser integration pairing/status.
+- Complete the trusted native browser-integration repair/configuration path: verify native-host registration and support capture enable/disable without exposing pairing credentials.
 - Legacy-only advanced download columns beyond the native core set (for example retries, CRC32, priority, completed date and smart category metadata).
 - Full legacy language catalog beyond the current English/Arabic/German native baseline.
 - Production signed automatic updater installation.

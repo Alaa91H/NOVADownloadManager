@@ -326,12 +326,42 @@
     {
       "id": "browser-integration",
       "label": "Browser integration status and pairing",
-      "status": "gap",
-      "legacyEvidence": [
-        "src/dialogs/integration/BrowserIntegrationDialog.tsx",
-        "src/store/bridgeStore.ts"
+      "status": "partial",
+      "blocker": "Native Qt now exposes live browser bridge status, pairing state, capabilities and secure zero-click setup links. Full parity still requires a trusted desktop repair/configuration path that can validate native-host registration and enable/disable capture without exposing pairing credentials.",
+      "evidence": [
+        "desktop-native/src/api/NovaApiClient.cpp",
+        "desktop-native/qml/components/BrowserIntegrationPanel.qml",
+        "desktop-native/src/platform/DesktopIntegration.cpp",
+        "src-tauri/src/daemon/routes/extension.rs",
+        "docs/extension/ZERO_CLICK_PAIRING.md",
+        "src/dialogs/integration/BrowserIntegrationDialog.tsx"
       ],
-      "blocker": "Native UI does not yet expose browser extension pairing/status."
+      "contains": [
+        {
+          "file": "desktop-native/src/api/NovaApiClient.cpp",
+          "allOf": [
+            "refreshBrowserIntegration",
+            "/api/browser-extension/health",
+            "browserIntegrationChanged"
+          ]
+        },
+        {
+          "file": "desktop-native/qml/components/BrowserIntegrationPanel.qml",
+          "allOf": [
+            "browserIntegrationHealth",
+            "browser.zeroClickHelp",
+            "browser.tokenProtected"
+          ]
+        },
+        {
+          "file": "src-tauri/src/daemon/routes/extension.rs",
+          "allOf": [
+            "handle_v1_pair_auto",
+            "pairToken",
+            "trusted_auto_pair_caller"
+          ]
+        }
+      ]
     },
     {
       "id": "clipboard-monitoring",

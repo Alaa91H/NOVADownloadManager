@@ -16,6 +16,7 @@ public:
     Q_INVOKABLE bool openFile(const QString &path);
     Q_INVOKABLE bool openFolder(const QString &path);
     Q_INVOKABLE bool revealInFolder(const QString &path);
+    Q_INVOKABLE bool openExternalUrl(const QString &url);
     Q_INVOKABLE QString chooseDirectory(const QString &initialDirectory = QString());
     Q_INVOKABLE QString chooseSaveFile(
         const QString &suggestedPath = QString(),

@@ -41,6 +41,8 @@ class NovaApiClient final : public QObject {
     Q_PROPERTY(QVariantList logEntries READ logEntries NOTIFY logsChanged)
     Q_PROPERTY(QString logLevel READ logLevel NOTIFY logsChanged)
     Q_PROPERTY(QString logDirectory READ logDirectory NOTIFY logsChanged)
+    Q_PROPERTY(bool browserIntegrationBusy READ browserIntegrationBusy NOTIFY browserIntegrationChanged)
+    Q_PROPERTY(QVariantMap browserIntegrationHealth READ browserIntegrationHealth NOTIFY browserIntegrationChanged)
 
 public:
     explicit NovaApiClient(QObject *parent = nullptr);
@@ -73,6 +75,8 @@ public:
     QVariantList logEntries() const { return m_logEntries; }
     QString logLevel() const { return m_logLevel; }
     QString logDirectory() const { return m_logDirectory; }
+    bool browserIntegrationBusy() const noexcept { return m_browserIntegrationBusy; }
+    QVariantMap browserIntegrationHealth() const { return m_browserIntegrationHealth; }
 
     void setBaseUrl(const QUrl &baseUrl);
     void setBearerToken(const QString &token);
@@ -143,6 +147,8 @@ public:
     Q_INVOKABLE void refreshLogs(const QString &minimumLevel = QString(), int limit = 300);
     Q_INVOKABLE void setLogLevel(const QString &level);
 
+    Q_INVOKABLE void refreshBrowserIntegration();
+
 signals:
     void connectionChanged();
     void downloadsLoaded(const QJsonArray &downloads);
@@ -181,6 +187,9 @@ signals:
     void diagnosticsSaved(const QString &path);
     void logsChanged();
     void logsFailed(const QString &message);
+
+    void browserIntegrationChanged();
+    void browserIntegrationFailed(const QString &message);
 
 private:
     QNetworkRequest makeRequest(const QString &path) const;
@@ -246,4 +255,7 @@ private:
     QVariantList m_logEntries;
     QString m_logLevel{QStringLiteral("info")};
     QString m_logDirectory;
+
+    bool m_browserIntegrationBusy{false};
+    QVariantMap m_browserIntegrationHealth;
 };
