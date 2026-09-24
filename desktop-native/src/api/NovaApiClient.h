@@ -25,6 +25,7 @@ class NovaApiClient final : public QObject {
     Q_PROPERTY(QString nextQueuedTask READ nextQueuedTask NOTIFY queueChanged)
     Q_PROPERTY(QVariantList schedulerRules READ schedulerRules NOTIFY schedulerChanged)
     Q_PROPERTY(QVariantList activeSchedulerRuleIds READ activeSchedulerRuleIds NOTIFY schedulerChanged)
+    Q_PROPERTY(bool schedulerPowerCommandsEnabled READ schedulerPowerCommandsEnabled NOTIFY schedulerChanged)
     Q_PROPERTY(bool batchRunning READ batchRunning NOTIFY batchStateChanged)
     Q_PROPERTY(bool mediaProbeBusy READ mediaProbeBusy NOTIFY mediaProbeChanged)
     Q_PROPERTY(QVariantMap mediaProbe READ mediaProbe NOTIFY mediaProbeChanged)
@@ -63,6 +64,7 @@ public:
     QString nextQueuedTask() const { return m_nextQueuedTask; }
     QVariantList schedulerRules() const { return m_schedulerRules; }
     QVariantList activeSchedulerRuleIds() const { return m_activeSchedulerRuleIds; }
+    bool schedulerPowerCommandsEnabled() const noexcept { return m_schedulerPowerCommandsEnabled; }
     bool batchRunning() const noexcept { return m_batchRunning; }
     bool mediaProbeBusy() const noexcept { return m_mediaProbeBusy; }
     QVariantMap mediaProbe() const { return m_mediaProbe; }
@@ -127,6 +129,7 @@ public:
     Q_INVOKABLE bool mediaOptionSupported(const QString &key) const;
 
     Q_INVOKABLE void refreshScheduler();
+    Q_INVOKABLE void setSchedulerPowerCommandsEnabled(bool enabled);
     Q_INVOKABLE void addSchedulerRule(const QVariantMap &rule);
     Q_INVOKABLE void setSchedulerRuleEnabled(const QString &ruleId, bool enabled);
     Q_INVOKABLE void deleteSchedulerRule(const QString &ruleId);
@@ -191,6 +194,7 @@ signals:
     void queueCatalogActionCompleted(const QString &action, const QString &queueId);
     void schedulerChanged();
     void schedulerActionCompleted(const QString &action, const QString &ruleId);
+    void schedulerExitRequested();
 
     void batchStateChanged();
     void batchImportStarted(int total, int duplicateCount);
@@ -269,6 +273,8 @@ private:
 
     QVariantList m_schedulerRules;
     QVariantList m_activeSchedulerRuleIds;
+    bool m_schedulerPowerCommandsEnabled{false};
+    bool m_schedulerExitRequested{false};
 
     bool m_batchRunning{false};
     QStringList m_batchUrls;
