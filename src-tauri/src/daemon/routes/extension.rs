@@ -1214,7 +1214,7 @@ pub async fn handle_v1_stream_add(
 //
 // The extension sends a URL plus optional context. The daemon runs:
 //   1. HTTP HEAD probe (size, type, range support)
-//   2. media-bridge probe (full format catalog, title, duration)
+//   2. NOVA Media Engine probe (native format catalog, title, duration)
 //   3. RIE analysis (strategy, retry, connections)
 // and returns a unified analysis result with all the data the extension
 // needs to present a rich format catalog to the user.
@@ -1375,7 +1375,7 @@ pub async fn handle_v1_analyze_progress(
         .unwrap_or("")
         .trim()
         .to_owned();
-    let _context = body.get("context").cloned().unwrap_or_else(|| json!({}));
+    let context = body.get("context").cloned().unwrap_or_else(|| json!({}));
     let cancel = CancellationToken::new();
 
     let stream = async_stream::stream! {
@@ -1406,7 +1406,7 @@ pub async fn handle_v1_analyze_progress(
         yield_event!(json!({"stage": "http.probing", "url": &url}));
 
         let http_meta = tokio::select! {
-            result = http_probe_for_analyze(&state, &url, &_context) => result,
+            result = http_probe_for_analyze(&state, &url, &context) => result,
             () = cancel.cancelled() => None,
         };
         if let Some(ref meta) = http_meta {
@@ -1419,15 +1419,23 @@ pub async fn handle_v1_analyze_progress(
 
         yield_event!(json!({"stage": "media.probing", "url": &url}));
 
-        let media_bridge_result = tokio::select! {
-            result = media_bridge_probe_for_analyze(&state, &url) => result.ok(),
+        let native_media_result = tokio::select! {
+            result = native_media_probe_for_extension(&url, &context) => result.ok(),
             () = cancel.cancelled() => None,
         };
-        if let Some(ref info) = media_bridge_result {
-            let format_count = info.get("formats").and_then(|v| v.as_array()).map_or(0, std::vec::Vec::len);
-            yield_event!(json!({"stage": "media.done", "formatCount": format_count, "title": info.get("title")}));
+        if let Some(ref info) = native_media_result {
+            let format_count = info
+                .get("formats")
+                .and_then(serde_json::Value::as_array)
+                .map_or(0, std::vec::Vec::len);
+            yield_event!(json!({
+                "stage": "media.done",
+                "formatCount": format_count,
+                "title": info.get("title"),
+                "engine": "nova-media-engine"
+            }));
         } else {
-            yield_event!(json!({"stage": "media.done", "formatCount": 0}));
+            yield_event!(json!({"stage": "media.done", "formatCount": 0, "engine": "nova-media-engine"}));
         }
 
         if cancel.is_cancelled() {
@@ -1487,52 +1495,6 @@ async fn http_probe_for_analyze(
     }
 }
 
-async fn media_bridge_probe_for_analyze(
-    state: &SharedState,
-    url: &str,
-) -> Result<serde_json::Value, &'static str> {
-    let media_bridge_bin = state.media_bridge_binary();
-    let url2 = url.to_owned();
-    let output = tokio::task::spawn_blocking(move || {
-        hidden_output_timed(
-            &media_bridge_bin,
-            &[
-                "--dump-json",
-                "--no-playlist",
-                "--no-warnings",
-                "--skip-download",
-                "--",
-                &url2,
-            ],
-            Duration::from_secs(30),
-        )
-    })
-    .await
-    .map_err(|_| "process_failed")?;
-
-    // Preserve a bounded category only. Raw stderr can contain unstable
-    // platform text and URL context, so it never crosses the loopback API.
-    let process_output = match output {
-        Ok(value) => value,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Err("tool_unavailable")
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::TimedOut => return Err("timed_out"),
-        Err(_) => return Err("process_failed"),
-    };
-    if !process_output.status.success() {
-        return Err("process_failed");
-    }
-    let stdout = String::from_utf8_lossy(&process_output.stdout);
-    if stdout.len() > 1_048_576 {
-        log::warn!(
-            "media-bridge output exceeded 1 MB size limit ({} bytes)",
-            stdout.len()
-        );
-        return Err("output_too_large");
-    }
-    serde_json::from_str(&stdout).map_err(|_| "invalid_output")
-}
 
 fn content_type_to_ext(content_type: &str) -> &str {
     let ct = content_type.split(';').next().unwrap_or("").trim();
