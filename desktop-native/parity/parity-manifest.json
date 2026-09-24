@@ -96,21 +96,100 @@
     {
       "id": "queue",
       "label": "Queue management",
-      "status": "partial",
+      "status": "covered",
       "evidence": [
         "desktop-native/qml/pages/QueuePage.qml",
-        "desktop-native/src/api/NovaApiClient.cpp"
+        "desktop-native/qml/components/QueueSettingsPanel.qml",
+        "desktop-native/src/api/NovaApiClient.cpp",
+        "desktop-native/tests/NativeParityTests.cpp",
+        "src-tauri/src/daemon/routes/engine.rs",
+        "src-tauri/src/daemon/curl/task_api.rs",
+        "src/store/queueStore.ts",
+        "src/components/AppShell.tsx"
       ],
       "contains": [
         {
           "file": "desktop-native/src/api/NovaApiClient.cpp",
           "allOf": [
-            "refreshQueue",
+            "refreshQueueCatalog",
+            "createQueue",
+            "updateQueue",
+            "deleteQueue",
+            "moveQueue",
+            "moveTaskToQueue",
+            "moveQueueTask",
+            "startQueue",
+            "stopQueue",
             "setQueuePriority"
           ]
+        },
+        {
+          "file": "desktop-native/qml/pages/QueuePage.qml",
+          "allOf": [
+            "api.queueCatalog",
+            "api.moveQueue",
+            "api.moveTaskToQueue",
+            "api.moveQueueTask",
+            "api.startQueue",
+            "api.stopQueue",
+            "QueueSettingsPanel"
+          ]
+        },
+        {
+          "file": "desktop-native/qml/components/QueueSettingsPanel.qml",
+          "allOf": [
+            "scheduleType",
+            "maxActive",
+            "limitSpeed",
+            "speedLimitKbs",
+            "oneTimeLimit",
+            "retryCount",
+            "retryDelay",
+            "shutdownOnComplete",
+            "hangupOnComplete",
+            "exitOnComplete"
+          ]
+        },
+        {
+          "file": "src-tauri/src/daemon/routes/engine.rs",
+          "allOf": [
+            "handle_queue_create",
+            "handle_queue_update",
+            "handle_queue_delete",
+            "handle_queue_reorder",
+            "handle_queue_move_task",
+            "handle_queue_reorder_tasks",
+            "reconcile_queue_catalog",
+            "apply_queue_bandwidth_policy"
+          ]
+        },
+        {
+          "file": "src-tauri/src/daemon/curl/task_api.rs",
+          "allOf": [
+            "move_task_to_queue"
+          ]
+        },
+        {
+          "file": "desktop-native/tests/NativeParityTests.cpp",
+          "allOf": [
+            "queueCatalogManagementIsDaemonBacked",
+            "queueStartStopHonorsMaxActive",
+            "retryCount",
+            "speedLimitKbs",
+            "taskIds",
+            "queueIds"
+          ]
+        },
+        {
+          "file": "src/store/queueStore.ts",
+          "allOf": [
+            "createQueueAndMoveTask",
+            "moveTaskToQueue",
+            "removeTaskFromQueue",
+            "reorderQueues"
+          ]
         }
-      ],
-      "blocker": "Native queue page currently exposes queue state and task priority, but legacy parity is incomplete for queue creation/deletion/reordering, moving tasks between queues, per-queue ordering and advanced queue controls."
+      ]
     },
     {
       "id": "scheduler",
