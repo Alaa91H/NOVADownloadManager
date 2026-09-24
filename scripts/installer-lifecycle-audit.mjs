@@ -19,6 +19,42 @@ requireFile('src-tauri/windows/hooks.nsi');
 requireFile('src-tauri/windows/installer-header.bmp');
 requireFile('src-tauri/windows/installer-sidebar.bmp');
 requireContains('src-tauri/tauri.conf.json', 'installerHooks', 'NSIS hooks');
+requireContains(
+  'src-tauri/tauri.conf.json',
+  '"installMode": "currentUser"',
+  'non-elevated current-user installer default',
+);
+requireFile('scripts/build-windows-installers.mjs');
+requireContains(
+  'scripts/run-tauri-with-native-curl.mjs',
+  'process.argv.slice(2)',
+  'Tauri CLI argument forwarding',
+);
+requireContains(
+  'scripts/build-windows-installers.mjs',
+  "runScope('user', 'currentUser')",
+  'current-user NSIS build',
+);
+requireContains(
+  'scripts/build-windows-installers.mjs',
+  "runScope('machine', 'perMachine')",
+  'per-machine NSIS build',
+);
+requireContains(
+  '.github/workflows/ci.yml',
+  'node scripts/build-windows-installers.mjs',
+  'dual-scope Windows release packaging',
+);
+requireContains(
+  'scripts/generate-package-manifests.mjs',
+  "scope: 'user'",
+  'WinGet user-scope installer',
+);
+requireContains(
+  'scripts/generate-package-manifests.mjs',
+  "scope: 'machine'",
+  'WinGet machine-scope installer',
+);
 requireContains('src-tauri/tauri.conf.json', '"allowDowngrades": false', 'real downgrade protection');
 requireContains('src-tauri/tauri.conf.json', 'headerImage', 'branded NSIS header');
 requireContains('src-tauri/tauri.conf.json', 'sidebarImage', 'branded NSIS sidebar');
