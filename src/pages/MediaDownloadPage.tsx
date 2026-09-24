@@ -250,7 +250,7 @@ export const MediaDownloadPage: React.FC = () => {
 
   /* -- computed values -- */
   const isProbingAny = isProbing || isProbingPlaylist;
-  const mediaEngineReady = engineCapabilities.mediaReady;
+  const mediaEngineReady = engineCapabilities.mediaExtractionReady;
 
   const requiresFfmpeg = (() => {
     if (!probeResult || saveMode === 'audio') return true;
@@ -469,7 +469,7 @@ export const MediaDownloadPage: React.FC = () => {
       return;
     }
 
-    if (!engineCapabilities.mediaReady) {
+    if (!engineCapabilities.mediaExtractionReady) {
       addToast(
         'error',
         t('media_engine_unavailable'),
@@ -693,7 +693,7 @@ export const MediaDownloadPage: React.FC = () => {
         <div className="ml-auto flex items-center gap-2 shrink-0">
           <span
             className={`flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full border ${
-              engineCapabilities.mediaReady
+              engineCapabilities.mediaExtractionReady
                 ? 'text-[var(--success)] bg-[var(--success-bg)] border-[var(--success-border)]'
                 : 'text-[var(--danger)] bg-[var(--danger-bg)] border-[var(--danger-border)]'
             }`}
@@ -715,15 +715,15 @@ export const MediaDownloadPage: React.FC = () => {
       </div>
 
       {/* --------------------- ENGINE WARNINGS --------------------- */}
-      {(!engineCapabilities.mediaReady || !engineCapabilities.postProcessingReady) && (
+      {(!engineCapabilities.mediaExtractionReady || !engineCapabilities.postProcessingReady) && (
         <div className="shrink-0 px-4 pt-2.5 space-y-1.5">
-          {!engineCapabilities.mediaReady && (
+          {!engineCapabilities.mediaExtractionReady && (
             <div className="flex items-center gap-2 rounded-lg border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2 text-[11px] text-[var(--text-primary)]">
               <AlertCircle className="w-3.5 h-3.5 shrink-0" />
               {t('media_engine_not_ready')}
             </div>
           )}
-          {engineCapabilities.mediaReady && !engineCapabilities.postProcessingReady && (
+          {engineCapabilities.mediaExtractionReady && !engineCapabilities.postProcessingReady && (
             <div className="flex items-center gap-2 rounded-lg border border-[var(--warning)]/30 bg-[var(--warning-bg)] px-3 py-2 text-[11px] text-[var(--text-primary)]">
               <Info className="w-3.5 h-3.5 shrink-0" />
               {t('media_ffmpeg_not_ready')}
@@ -908,7 +908,7 @@ export const MediaDownloadPage: React.FC = () => {
                           selectedFormatSize={selectedFormatSize}
                           requiresFfmpeg={requiresFfmpeg}
                           ffmpegAvailable={ffmpegAvailable}
-                          mediaReady={engineCapabilities.mediaReady}
+                          mediaReady={engineCapabilities.mediaExtractionReady}
                           onOpenEnginesSettings={() => {
                             openDialog('settings');
                           }}
@@ -1166,7 +1166,7 @@ export const MediaDownloadPage: React.FC = () => {
           <button
             type="button"
             onClick={() => void handleStartDownload()}
-            disabled={!engineCapabilities.mediaReady || isProbingAny}
+            disabled={!engineCapabilities.mediaExtractionReady || isProbingAny}
             className="flex items-center gap-2 px-5 py-2 text-xs font-extrabold text-white bg-[var(--danger)] hover:bg-[var(--danger)] active:bg-[var(--danger-hover)] disabled:opacity-40 disabled:cursor-not-allowed border border-[var(--danger-border)] rounded-xl shadow-[0_0_20px_-6px_var(--danger)] hover:shadow-[0_0_24px_-4px_var(--danger)] transition-all cursor-pointer"
           >
             {isProbingAny ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
