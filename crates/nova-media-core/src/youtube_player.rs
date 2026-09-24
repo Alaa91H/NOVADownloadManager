@@ -424,7 +424,29 @@ fn extract_signature_operations(script: &str) -> Result<Vec<TransformOperation>,
     )
     .map_err(|error| error.to_string())?;
 
-    for captures in assignment.captures_iter(script).chain(declaration.captures_iter(script)) {
+    let throttling_body_ptr = match throttling_target.as_ref() {
+        Some(ThrottlingTarget::ArrayElement { array, index }) => {
+            array_transform_function(script, array, *index)
+                .ok()
+                .map(|(_, body)| body.as_ptr() as usize)
+        }
+        _ => None,
+    };
+    let arrow_parenthesized = Regex::new(
+        r#"(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*\(\s*(?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)\s*\)\s*=>\s*\{"#,
+    )
+    .map_err(|error| error.to_string())?;
+    let arrow_single = Regex::new(
+        r#"(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)\s*=>\s*\{"#,
+    )
+    .map_err(|error| error.to_string())?;
+
+    for captures in assignment
+        .captures_iter(script)
+        .chain(declaration.captures_iter(script))
+        .chain(arrow_parenthesized.captures_iter(script))
+        .chain(arrow_single.captures_iter(script))
+    {
         let whole = captures
             .get(0)
             .ok_or_else(|| "signature function match is incomplete".to_owned())?;
@@ -446,6 +468,9 @@ fn extract_signature_operations(script: &str) -> Result<Vec<TransformOperation>,
         let Some(body) = balanced_block(script, brace, b'{', b'}') else {
             continue;
         };
+        if throttling_body_ptr == Some(body.as_ptr() as usize) {
+            continue;
+        }
 
         let Some(working) = transform_working_variable(body, arg)? else {
             continue;
@@ -491,6 +516,19 @@ fn parse_transform_body(
     .map_err(|error| error.to_string())?;
     let rotate_left_spread = Regex::new(&format!(
         r#"{}\.push\(\s*\.\.\.{}\.splice\(0,\s*(\d+)\)\s*\)"#,
+        regex::escape(argument),
+        regex::escape(argument)
+    ))
+    .map_err(|error| error.to_string())?;
+    let rotate_right_apply = Regex::new(&format!(
+        r#"{}\.unshift\.apply\(\s*{},\s*{}\.splice\(\s*-\s*(\d+)\s*,\s*\d+\s*\)\s*\)"#,
+        regex::escape(argument),
+        regex::escape(argument),
+        regex::escape(argument)
+    ))
+    .map_err(|error| error.to_string())?;
+    let rotate_right_spread = Regex::new(&format!(
+        r#"{}\.unshift\(\s*\.\.\.{}\.splice\(\s*-\s*(\d+)\s*,\s*\d+\s*\)\s*\)"#,
         regex::escape(argument),
         regex::escape(argument)
     ))
@@ -543,6 +581,22 @@ fn parse_transform_body(
                 .and_then(|value| value.as_str().parse::<usize>().ok())
                 .ok_or_else(|| "invalid YouTube rotate-left amount".to_owned())?;
             operations.push(TransformOperation::RotateLeft(amount));
+            continue;
+        }
+        if let Some(captures) = rotate_right_apply.captures(statement) {
+            let amount = captures
+                .get(1)
+                .and_then(|value| value.as_str().parse::<usize>().ok())
+                .ok_or_else(|| "invalid YouTube rotate-right amount".to_owned())?;
+            operations.push(TransformOperation::RotateRight(amount));
+            continue;
+        }
+        if let Some(captures) = rotate_right_spread.captures(statement) {
+            let amount = captures
+                .get(1)
+                .and_then(|value| value.as_str().parse::<usize>().ok())
+                .ok_or_else(|| "invalid YouTube rotate-right amount".to_owned())?;
+            operations.push(TransformOperation::RotateRight(amount));
             continue;
         }
         if let Some(captures) = direct_splice.captures(statement) {
@@ -660,8 +714,10 @@ fn classify_array_helper_operation(
         .get(index)
         .map(|value| value.trim())
         .ok_or_else(|| format!("YouTube transform helper {array}[{index}] is missing"))?;
-    let function = Regex::new(r#"^function\([^)]*\)\s*\{"#)
-        .map_err(|error| error.to_string())?;
+    let function = Regex::new(
+        r#"^(?:function\([^)]*\)|\([^)]*\)\s*=>|[A-Za-z_$][A-Za-z0-9_$]*\s*=>)\s*\{"#,
+    )
+    .map_err(|error| error.to_string())?;
     let function_match = function
         .find(entry)
         .ok_or_else(|| format!("YouTube transform helper {array}[{index}] is not a function"))?;
@@ -673,7 +729,32 @@ fn classify_array_helper_operation(
     })
 }
 
+fn operation_amount(body: &str, fallback: usize) -> usize {
+    if fallback != 0 {
+        return fallback;
+    }
+    for pattern in [
+        r#"\.splice\(\s*0\s*,\s*(\d+)"#,
+        r#"\.slice\(\s*(\d+)"#,
+        r#"\.splice\(\s*-\s*(\d+)"#,
+        r#"\[\s*(\d+)\s*%"#,
+    ] {
+        if let Ok(regex) = Regex::new(pattern) {
+            if let Some(amount) = regex
+                .captures(body)
+                .and_then(|captures| captures.get(1))
+                .and_then(|value| value.as_str().parse::<usize>().ok())
+            {
+                return amount;
+            }
+        }
+    }
+    fallback
+}
+
 fn classify_operation_body(body: &str, amount: usize) -> Option<TransformOperation> {
+    let amount = operation_amount(body, amount);
+
     if body.contains(".reverse(") {
         return Some(TransformOperation::Reverse);
     }
@@ -683,10 +764,22 @@ fn classify_operation_body(body: &str, amount: usize) -> Option<TransformOperati
     if body.contains(".push(...") && body.contains(".splice(0,") {
         return Some(TransformOperation::RotateLeft(amount));
     }
+    if body.contains(".unshift.apply(") && body.contains(".splice(-") {
+        return Some(TransformOperation::RotateRight(amount));
+    }
+    if body.contains(".unshift(...") && body.contains(".splice(-") {
+        return Some(TransformOperation::RotateRight(amount));
+    }
     if body.contains(".push(") && body.contains(".shift()") {
         return Some(TransformOperation::RotateLeft(1));
     }
+    if body.contains(".push(") && body.contains(".splice(0,1)") {
+        return Some(TransformOperation::RotateLeft(1));
+    }
     if body.contains(".unshift(") && body.contains(".pop()") {
+        return Some(TransformOperation::RotateRight(1));
+    }
+    if body.contains(".unshift(") && body.contains(".splice(-1,1)") {
         return Some(TransformOperation::RotateRight(1));
     }
     if body.contains("[0]") && body.contains(".length") && body.contains('%') {
@@ -882,6 +975,41 @@ AB=function(a){a=a.split("");ZZ.XX(a,2);return a.join("")};
     }
 
     #[test]
+    fn signature_parser_skips_n_transform_hidden_behind_array_alias() {
+        let player = r#"
+NT=function(a){a=a.split("");a.reverse();return a.join("")};
+var NX=[NT];
+SG=function(a){a=a.split("");a=a.slice(2);return a.join("")};
+function apply(p){var x=p.get("n");x&&(x=NX[0](x),p.set("n",x))}
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert_eq!(
+            solver
+                .decipher_signature(player, "abcdef")
+                .expect("signature transform"),
+            "cdef"
+        );
+        assert_eq!(
+            solver
+                .transform_throttling_parameter(player, "abcdef")
+                .expect("n transform"),
+            "fedcba"
+        );
+    }
+
+    #[test]
+    fn signature_parser_supports_arrow_transform() {
+        let player = r#"SG=(a)=>{a=a.split("");a.reverse();return a.join("")};"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert_eq!(
+            solver
+                .decipher_signature(player, "abcdef")
+                .expect("arrow signature"),
+            "fedcba"
+        );
+    }
+
+    #[test]
     fn signature_parser_does_not_select_verified_n_transform() {
         let player = r#"
 NT=function(a){a=a.split("");a.reverse();return a.join("")};
@@ -939,6 +1067,37 @@ function apply(p){var x=p.get("n");x&&(x=NX[0](x),p.set("n",x))}
                 .transform_throttling_parameter(player, "abcdef")
                 .expect("indexed n transform"),
             "cdefab"
+        );
+    }
+
+    #[test]
+    fn n_transform_resolves_nn_dispatch_indexed_target() {
+        let player = r#"
+var NX=[function(a){a=a.split("");a.reverse();return a.join("")}];
+function apply(p){var b="nn"[+p.D],c=p.j[b]||null;c&&(c=NX[0](c),p.set(b,c))}
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert_eq!(
+            solver
+                .transform_throttling_parameter(player, "abcdef")
+                .expect("nn dispatch n transform"),
+            "fedcba"
+        );
+    }
+
+    #[test]
+    fn n_transform_supports_arrow_helper_arrays() {
+        let player = r#"
+var HH=[a=>{a.reverse()}];
+NT=function(a){a=a.split("");HH[0](a);return a.join("")};
+function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert_eq!(
+            solver
+                .transform_throttling_parameter(player, "abcdef")
+                .expect("arrow helper-array n transform"),
+            "fedcba"
         );
     }
 
