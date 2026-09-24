@@ -658,7 +658,8 @@ void NovaApiClient::importBatch(
     const QString &input,
     const QString &saveDirectory,
     int connections,
-    bool startImmediately
+    bool startImmediately,
+    const QVariantMap &batchOptions
 ) {
     if (m_batchRunning) {
         emit requestFailed(QStringLiteral("A batch import is already running."));
@@ -737,7 +738,39 @@ void NovaApiClient::importBatch(
     m_batchRunning = true;
     m_batchUrls = uniqueUrls;
     m_batchSaveDirectory = saveDirectory.trimmed();
+    m_batchQueueId = batchOptions.value(QStringLiteral("queueId")).toString().trimmed();
+    if (m_batchQueueId.isEmpty()) {
+        m_batchQueueId = QStringLiteral("main");
+    }
+
+    m_batchAdvancedOptions.clear();
+    const QVariantMap requestedOptions =
+        batchOptions.value(QStringLiteral("advanced")).toMap();
+
+    const QString referer = requestedOptions.value(QStringLiteral("referer")).toString().trimmed();
+    if (!referer.isEmpty()) {
+        m_batchAdvancedOptions.insert(QStringLiteral("referer"), referer);
+    }
+
+    const QString userAgent = requestedOptions.value(QStringLiteral("userAgent")).toString().trimmed();
+    if (!userAgent.isEmpty()) {
+        m_batchAdvancedOptions.insert(QStringLiteral("userAgent"), userAgent);
+    }
+
+    const int retryCount = requestedOptions.value(QStringLiteral("retryCount")).toInt();
+    if (retryCount > 0) {
+        m_batchAdvancedOptions.insert(QStringLiteral("retryCount"), qBound(1, retryCount, 100));
+    }
+
+    const int timeoutSec = requestedOptions.value(QStringLiteral("timeoutSec")).toInt();
+    if (timeoutSec > 0) {
+        m_batchAdvancedOptions.insert(QStringLiteral("timeoutSec"), qBound(1, timeoutSec, 3600));
+    }
+
     m_batchConnections = qMax(0, connections);
+    if (m_batchConnections > 1) {
+        m_batchAdvancedOptions.insert(QStringLiteral("segmented"), true);
+    }
     m_batchStartImmediately = startImmediately;
     m_batchDuplicateCount = duplicates;
     m_batchNextIndex = 0;
@@ -791,7 +824,7 @@ void NovaApiClient::sendNextBatchRequest() {
     body.insert(QStringLiteral("name"), fileName);
     body.insert(QStringLiteral("fileType"), QStringLiteral("other"));
     body.insert(QStringLiteral("category"), QStringLiteral("other"));
-    body.insert(QStringLiteral("queueId"), QStringLiteral("main"));
+    body.insert(QStringLiteral("queueId"), m_batchQueueId);
     body.insert(QStringLiteral("connections"), m_batchConnections);
     body.insert(QStringLiteral("resumable"), true);
     body.insert(QStringLiteral("description"), QStringLiteral("Native batch import"));
@@ -801,6 +834,13 @@ void NovaApiClient::sendNextBatchRequest() {
         body.insert(
             QStringLiteral("savePath"),
             QDir(m_batchSaveDirectory).filePath(fileName)
+        );
+    }
+
+    if (!m_batchAdvancedOptions.isEmpty()) {
+        body.insert(
+            QStringLiteral("directOptions"),
+            QJsonObject::fromVariantMap(m_batchAdvancedOptions)
         );
     }
 
