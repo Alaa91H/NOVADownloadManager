@@ -11,7 +11,6 @@ use crate::daemon::state::SharedState;
 use crate::daemon::types::{
     restart_task_state, transition_task_state, CreateDownloadBody, Task, TaskState,
 };
-use crate::daemon::utils::kill_process;
 use crate::lock_or_err;
 
 const MAX_TASKS: usize = 10_000;
@@ -103,21 +102,13 @@ pub async fn list_all_tasks(state: &SharedState) -> Vec<Task> {
         }
     }
 
-    // Merge is eventually consistent by design: live jobs are read from
-    // media_jobs/curl_jobs under separate short-lived read locks, then joined
-    // with any completed/retained tasks from the task_snapshot write lock.
-    // A job created (or removed) concurrently between the two reads may be
-    // missed for this call and observed on the next one; callers treat the
-    // result as a point-in-time view, so no stronger lock is taken.
-    let mut tasks: Vec<Task> = lock_or_err!(state.media_jobs)
+    // Merge is eventually consistent by design: native media and libcurl jobs
+    // are read under separate short-lived locks, then joined with completed or
+    // retained tasks from the task snapshot.
+    let mut tasks: Vec<Task> = lock_or_err!(state.native_media_jobs)
         .values()
         .map(|j| j.task.clone())
         .collect();
-    tasks.extend(
-        lock_or_err!(state.native_media_jobs)
-            .values()
-            .map(|j| j.task.clone()),
-    );
     tasks.extend(
         lock_or_err!(state.curl_jobs)
             .values()
@@ -161,9 +152,6 @@ pub async fn list_all_tasks(state: &SharedState) -> Vec<Task> {
 }
 
 pub fn get_task(state: &SharedState, id: &str) -> Option<Task> {
-    if let Some(job) = lock_or_err!(state.media_jobs).get(id) {
-        return Some(job.task.clone());
-    }
     if let Some(job) = lock_or_err!(state.native_media_jobs).get(id) {
         return Some(job.task.clone());
     }
@@ -175,24 +163,6 @@ pub fn get_task(state: &SharedState, id: &str) -> Option<Task> {
 
 pub async fn pause_task(state: &SharedState, id: &str) -> Result<Task, String> {
     log::debug!("pause_task requested for {id}");
-    {
-        let mut jobs = lock_or_err!(state.media_jobs);
-        if let Some(job) = jobs.get_mut(id) {
-            transition_task_state(&mut job.task, TaskState::Paused, "paused")?;
-            if let Some(pid) = job.child {
-                kill_process(pid);
-                job.child = None;
-            }
-            job.task.speed_bytes_per_sec = 0;
-            let task = job.task.clone();
-            drop(jobs);
-            lock_or_err!(state.task_snapshot).insert(id.to_owned(), task.clone());
-            state.mark_dirty();
-            log::info!("Task {id} paused (media-bridge)");
-            return Ok(task);
-        }
-    }
-
     {
         let mut jobs = lock_or_err!(state.native_media_jobs);
         if let Some(job) = jobs.get_mut(id) {
@@ -262,37 +232,6 @@ pub async fn pause_task(state: &SharedState, id: &str) -> Result<Task, String> {
 
 pub async fn resume_task(state: &SharedState, id: &str) -> Result<Task, String> {
     log::debug!("resume_task requested for {id}");
-    {
-        let mut jobs = lock_or_err!(state.media_jobs);
-        if let Some(job) = jobs.get_mut(id) {
-            if TaskState::from_status(&job.task.status) == Some(TaskState::Completed) {
-                return Err(format!(
-                    "Cannot resume '{}': download is already completed.",
-                    job.task.name
-                ));
-            }
-            if TaskState::from_status(&job.task.status).is_some_and(TaskState::is_active) {
-                return Err(format!(
-                    "Cannot resume '{}': media task is still active.",
-                    job.task.name
-                ));
-            }
-            transition_task_state(&mut job.task, TaskState::Queued, "resume-requested")?;
-            job.task.error_message = None;
-            let queued = job.task.clone();
-            drop(jobs);
-            lock_or_err!(state.task_snapshot).insert(id.to_owned(), queued);
-            state.mark_dirty();
-            crate::daemon::media_bridge::start_media_bridge_process(state, id);
-            log::info!("Task {id} resuming (media-bridge)");
-            let jobs = lock_or_err!(state.media_jobs);
-            return jobs
-                .get(id)
-                .map(|j| j.task.clone())
-                .ok_or_else(|| "Task not found after resume".to_owned());
-        }
-    }
-
     {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         loop {
@@ -534,35 +473,6 @@ pub async fn update_task_metadata(
         return Err("Nothing to update".to_owned());
     }
 
-    // Media (media-bridge) tasks.
-    {
-        let mut jobs = lock_or_err!(state.media_jobs);
-        if let Some(job) = jobs.get_mut(id) {
-            if TaskState::from_status(&job.task.status).is_some_and(TaskState::is_active) {
-                return Err("Stop the download before editing it".to_owned());
-            }
-            if let Some(ref u) = new_url {
-                if !(u.starts_with("http://") || u.starts_with("https://")) {
-                    return Err("Only http(s) URLs are supported for media tasks".to_owned());
-                }
-                job.task.url = u.clone();
-            }
-            if let Some(ref n) = new_name {
-                job.task.name = n.clone();
-                if let Some(new_path) =
-                    rename_destination_on_disk(std::path::Path::new(&job.task.save_path), n)
-                {
-                    job.task.save_path = new_path.to_string_lossy().to_string();
-                }
-            }
-            let task = job.task.clone();
-            drop(jobs);
-            lock_or_err!(state.task_snapshot).insert(id.to_owned(), task.clone());
-            state.mark_dirty();
-            return Ok(task);
-        }
-    }
-
     // Native HLS/DASH/separate-track tasks.
     {
         let out = {
@@ -667,42 +577,6 @@ pub async fn update_task_metadata(
 /// Re-download a task from scratch: removes the existing output (and any
 /// segment parts), resets progress, clears stale validators, and restarts.
 pub async fn redownload_task(state: &SharedState, id: &str) -> Result<Task, String> {
-    {
-        let out = {
-            let mut jobs = lock_or_err!(state.media_jobs);
-            if let Some(job) = jobs.get_mut(id) {
-                if let Some(pid) = job.child.take() {
-                    kill_process(pid);
-                }
-                let path = std::path::PathBuf::from(&job.task.save_path);
-                let save_path_empty = job.task.save_path.is_empty();
-                restart_task_state(&mut job.task, "redownload-requested")?;
-                job.task.downloaded_bytes = 0;
-                job.task.speed_bytes_per_sec = 0;
-                job.task.time_left_seconds = 0;
-                job.task.error_message = None;
-                Some((job.task.clone(), path, save_path_empty))
-            } else {
-                None
-            }
-        };
-        if let Some((task, path, save_path_empty)) = out {
-            if !save_path_empty {
-                for attempt in 0..10 {
-                    if std::fs::remove_file(&path).is_ok() {
-                        break;
-                    }
-                    tokio::time::sleep(std::time::Duration::from_millis(200 * (1 << attempt)))
-                        .await;
-                }
-            }
-            lock_or_err!(state.task_snapshot).insert(id.to_owned(), task.clone());
-            state.mark_dirty();
-            crate::daemon::media_bridge::start_media_bridge_process(state, id);
-            return Ok(task);
-        }
-    }
-
     {
         let out = {
             let mut jobs = lock_or_err!(state.native_media_jobs);
@@ -813,43 +687,6 @@ pub async fn redownload_task(state: &SharedState, id: &str) -> Result<Task, Stri
 
 pub async fn delete_task(state: &SharedState, id: &str, delete_files: bool) -> Result<(), String> {
     log::debug!("delete_task requested for {id} (delete_files={delete_files})");
-    {
-        let entry = {
-            let mut jobs = lock_or_err!(state.media_jobs);
-            if let Some(job) = jobs.remove(id) {
-                if let Some(pid) = job.child {
-                    kill_process(pid);
-                }
-                Some((std::path::PathBuf::from(&job.task.save_path), job.task.url))
-            } else {
-                None
-            }
-        };
-        if let Some((path, url)) = entry {
-            state.priority_queue.remove(id);
-            state.bandwidth_manager.remove_task_limit(id);
-            if !url.is_empty() {
-                state.metadata_cache.remove(&url);
-            }
-            if delete_files {
-                for attempt in 0..10 {
-                    if std::fs::remove_file(&path).is_ok() {
-                        break;
-                    }
-                    tokio::time::sleep(std::time::Duration::from_millis(200 * (1 << attempt)))
-                        .await;
-                }
-            }
-            if let Ok(mut trackers) = state.engine_trackers.write() {
-                trackers.remove(id);
-            }
-            lock_or_err!(state.task_snapshot).remove(id);
-            state.mark_dirty();
-            log::info!("Task {id} deleted (media-bridge, delete_files={delete_files})");
-            return Ok(());
-        }
-    }
-
     {
         let entry = {
             let mut jobs = lock_or_err!(state.native_media_jobs);
