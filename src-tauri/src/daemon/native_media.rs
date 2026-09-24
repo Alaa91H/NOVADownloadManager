@@ -1994,11 +1994,12 @@ fn resolve_native_media(
                     (Some(video), Some(audio)) => Some(video.saturating_add(audio)),
                     _ => None,
                 };
+                let output_container = separate_track_output_container(video, audio);
                 Ok(ResolvedNativeMedia::SeparateTracks(ResolvedSeparateTracks {
                     extraction,
                     video_stream_id,
                     audio_stream_id,
-                    output_container: separate_track_output_container(video, audio),
+                    output_container,
                     expected_bytes,
                 }))
             }
@@ -2223,6 +2224,65 @@ mod tests {
             "https://cdn.test/file.zip",
             false
         ));
+    }
+
+    #[test]
+    fn ffmpeg_toggle_is_a_supported_native_execution_option() {
+        let mut request = body("https://cdn.test/video.mp4");
+        request.media_options.as_mut().expect("media").ffmpeg_enabled = Some(true);
+        NativeMediaExtractor
+            .validate(&request)
+            .expect("ffmpeg toggle should be accepted by native task path");
+        assert!(NATIVE_MEDIA_OPTION_KEYS.contains(&"ffmpegEnabled"));
+    }
+
+    #[test]
+    fn separate_track_container_prefers_compatible_copy_mux() {
+        use nova_media_core::MediaTrackKind;
+
+        let mut video = MediaStream {
+            id: "v".to_owned(),
+            kind: MediaTrackKind::Video,
+            protocol: MediaProtocol::Https,
+            url: "https://cdn.test/v".to_owned(),
+            container: Some("mp4".to_owned()),
+            video_codec: Some("avc1".to_owned()),
+            audio_codec: None,
+            width: Some(1920),
+            height: Some(1080),
+            fps: Some(30),
+            bitrate_bps: None,
+            audio_bitrate_bps: None,
+            content_length: Some(100),
+            language: None,
+            headers: BTreeMap::new(),
+        };
+        let mut audio = MediaStream {
+            id: "a".to_owned(),
+            kind: MediaTrackKind::Audio,
+            protocol: MediaProtocol::Https,
+            url: "https://cdn.test/a".to_owned(),
+            container: Some("m4a".to_owned()),
+            video_codec: None,
+            audio_codec: Some("mp4a".to_owned()),
+            width: None,
+            height: None,
+            fps: None,
+            bitrate_bps: None,
+            audio_bitrate_bps: Some(128_000),
+            content_length: Some(20),
+            language: None,
+            headers: BTreeMap::new(),
+        };
+        assert_eq!(separate_track_output_container(&video, &audio), "mp4");
+
+        video.container = Some("webm".to_owned());
+        audio.container = Some("webm".to_owned());
+        assert_eq!(separate_track_output_container(&video, &audio), "webm");
+
+        video.container = Some("mp4".to_owned());
+        audio.container = Some("webm".to_owned());
+        assert_eq!(separate_track_output_container(&video, &audio), "mkv");
     }
 
     #[test]
