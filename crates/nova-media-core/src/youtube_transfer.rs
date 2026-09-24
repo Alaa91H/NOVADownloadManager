@@ -267,6 +267,10 @@ mod tests {
         MediaMetadata, MediaSourceKind, MediaTrackKind, YouTubePendingFormat,
     };
     use std::collections::BTreeMap;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::Mutex;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn stream(id: &str, kind: MediaTrackKind, url: &str) -> MediaStream {
         MediaStream {
@@ -325,6 +329,86 @@ mod tests {
         };
         assert_eq!(progress.downloaded_bytes(), 15);
         assert_eq!(progress.total_bytes(), Some(120));
+    }
+
+    #[test]
+    fn controlled_separate_tracks_download_in_parallel_with_progress() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind track server");
+        let address = listener.local_addr().expect("track server address");
+        let server = std::thread::spawn(move || {
+            for _ in 0..4 {
+                let (mut socket, _) = listener.accept().expect("accept track request");
+                let mut request = [0_u8; 4096];
+                let read = socket.read(&mut request).expect("read track request");
+                let request = String::from_utf8_lossy(&request[..read]);
+                let is_video = request.contains(" /video ");
+                let body: &[u8] = if is_video { b"VIDEO-DATA" } else { b"AUDIO" };
+                let head = request.starts_with("HEAD ");
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .expect("write track headers");
+                if !head {
+                    socket.write_all(body).expect("write track body");
+                }
+            }
+        });
+
+        let mut extraction = extraction();
+        extraction.descriptor.streams[0].protocol = MediaProtocol::Http;
+        extraction.descriptor.streams[0].url = format!("http://{address}/video");
+        extraction.descriptor.streams[0].content_length = Some(10);
+        extraction.descriptor.streams[1].protocol = MediaProtocol::Http;
+        extraction.descriptor.streams[1].url = format!("http://{address}/audio");
+        extraction.descriptor.streams[1].content_length = Some(5);
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("nova-youtube-tracks-{unique}"));
+        std::fs::create_dir_all(&dir).expect("create track temp dir");
+        let destination = dir.join("staged");
+        let observed = Mutex::new(Vec::<YouTubeTransferProgress>::new());
+
+        let output = download_youtube_plan_controlled(
+            &extraction,
+            &YouTubeDownloadPlan::SeparateTracks {
+                video_stream_id: "video".to_owned(),
+                audio_stream_id: "audio".to_owned(),
+            },
+            &destination,
+            2,
+            || TransferControl::Continue,
+            |progress| observed.lock().expect("progress lock").push(progress),
+        )
+        .expect("download separate tracks");
+
+        server.join().expect("track server");
+        let YouTubeTransferOutput::SeparateTracks {
+            video_path,
+            audio_path,
+            video_bytes,
+            audio_bytes,
+            ..
+        } = output
+        else {
+            panic!("expected separate-track output");
+        };
+
+        assert_eq!(video_bytes, 10);
+        assert_eq!(audio_bytes, 5);
+        assert_eq!(std::fs::read(video_path).expect("video track"), b"VIDEO-DATA");
+        assert_eq!(std::fs::read(audio_path).expect("audio track"), b"AUDIO");
+        let progress = observed.lock().expect("progress lock");
+        let last = progress.last().copied().expect("final progress");
+        assert_eq!(last.downloaded_bytes(), 15);
+        assert_eq!(last.total_bytes(), Some(15));
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
