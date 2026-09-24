@@ -159,10 +159,10 @@ async fn create_native_direct_task(
     let mut direct = body.clone();
     direct.url = Some(resolved.url);
     direct.media_options = None;
-    if direct.name.as_deref().is_none_or(|name| name.trim().is_empty()) {
+    if direct.name.as_deref().map_or(true, |name| name.trim().is_empty()) {
         direct.name = Some(resolved.title);
     }
-    if direct.file_type.as_deref().is_none_or(|kind| kind.trim().is_empty()) {
+    if direct.file_type.as_deref().map_or(true, |kind| kind.trim().is_empty()) {
         direct.file_type = resolved.container;
     }
     if direct.size_bytes.unwrap_or(0) == 0 {
@@ -223,7 +223,7 @@ fn create_native_manifest_task(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(if protocol == "dash" { "mp4" } else { "ts" });
     let mut task_body = body.clone();
-    if task_body.name.as_deref().is_none_or(|name| name.trim().is_empty()) {
+    if task_body.name.as_deref().map_or(true, |name| name.trim().is_empty()) {
         let mut title = resolved.descriptor.metadata.title.trim().to_owned();
         if title.is_empty() {
             title = format!("nova-{protocol}-media");
@@ -234,7 +234,7 @@ fn create_native_manifest_task(
         }
         task_body.name = Some(title);
     }
-    if task_body.file_type.as_deref().is_none_or(|kind| kind.trim().is_empty()) {
+    if task_body.file_type.as_deref().map_or(true, |kind| kind.trim().is_empty()) {
         task_body.file_type = Some(extension.to_owned());
     }
 
@@ -676,7 +676,7 @@ fn best_dash_representation_indices(manifest: &DashManifest) -> Option<(usize, u
                         .saturating_mul(u64::from(representation.height.unwrap_or(0))),
                     representation.bandwidth.unwrap_or(0),
                 );
-                if best.as_ref().is_none_or(|(current, _)| score > *current) {
+                if best.as_ref().map_or(true, |(current, _)| score > *current) {
                     best = Some((
                         score,
                         (period_index, adaptation_index, representation_index),
