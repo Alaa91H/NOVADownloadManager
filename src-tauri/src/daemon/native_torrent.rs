@@ -673,6 +673,66 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn http_redirect_is_revalidated_and_preserves_announce_parameters() {
+        let destination = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind redirect destination");
+        let destination_address = destination.local_addr().expect("destination address");
+        let source = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind redirect source");
+        let source_address = source.local_addr().expect("source address");
+
+        let destination_server = tokio::spawn(async move {
+            let (mut stream, _) = destination.accept().await.expect("accept destination");
+            let mut request = vec![0u8; 4096];
+            let read = stream.read(&mut request).await.expect("read destination request");
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.contains("token=secret&info_hash=%01%01%01"));
+            assert!(request.contains("peer_id=%2D%4E%56%30"));
+
+            let body = b"d8:intervali90e5:peers0:e";
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            stream.write_all(header.as_bytes()).await.expect("header");
+            stream.write_all(body).await.expect("body");
+        });
+
+        let source_server = tokio::spawn(async move {
+            let (mut stream, _) = source.accept().await.expect("accept source");
+            let mut request = [0u8; 2048];
+            let _ = stream.read(&mut request).await.expect("read source");
+            let location = format!(
+                "http://127.0.0.1:{}/moved?token=secret",
+                destination_address.port()
+            );
+            let response = format!(
+                "HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("redirect response");
+        });
+
+        let transport = TrackerTransport::for_tests(fast_test_config());
+        let result = transport
+            .announce_tracker(
+                &format!("http://127.0.0.1:{}/announce", source_address.port()),
+                &announce_request(),
+            )
+            .await
+            .expect("redirected tracker announce");
+
+        assert_eq!(result.interval_seconds, 90);
+        assert!(!result.tracker_url.contains("token=secret"));
+        source_server.await.expect("source task");
+        destination_server.await.expect("destination task");
+    }
+
+    #[tokio::test]
     async fn tier_failover_moves_to_next_tracker() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -760,6 +820,14 @@ mod tests {
         assert_eq!(result.incomplete, Some(3));
         assert_eq!(result.peers.len(), 1);
         server.await.expect("server task");
+    }
+
+    #[test]
+    fn tracker_display_url_redacts_query_credentials() {
+        let display = tracker_display_url(
+            "https://user:pass@tracker.test/announce?token=super-secret#fragment",
+        );
+        assert_eq!(display, "https://tracker.test/announce");
     }
 
     #[test]
