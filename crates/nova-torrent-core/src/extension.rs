@@ -272,6 +272,12 @@ impl MetadataAssembler {
         self.received_bytes
     }
 
+    pub fn has_piece(&self, piece: u32) -> bool {
+        self.pieces
+            .get(piece as usize)
+            .is_some_and(Option::is_some)
+    }
+
     pub fn missing_pieces(&self) -> Vec<u32> {
         self.pieces
             .iter()
