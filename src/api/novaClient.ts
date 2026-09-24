@@ -141,9 +141,12 @@ export interface MediaPlaylistEntry {
 }
 
 interface MediaPlaylistResult {
+  id?: string;
   title: string;
   webpageUrl: string;
   entries: MediaPlaylistEntry[];
+  truncated?: boolean;
+  engine?: string;
 }
 
 type CreateDownloadPayload = Omit<
