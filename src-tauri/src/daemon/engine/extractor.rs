@@ -24,6 +24,16 @@ pub trait Extractor: Send + Sync + 'static {
     fn id(&self) -> &str;
     fn can_handle(&self, url: &str, has_media_options: bool) -> bool;
     fn validate(&self, body: &CreateDownloadBody) -> Result<(), ValidateError>;
+
+    /// Whether the registry may try a lower-priority extractor after this
+    /// extractor accepts the request shape but rejects its options.
+    ///
+    /// Native first-party engines can disable this to enforce fail-closed
+    /// ownership and prevent silent delegation to compatibility executables.
+    fn allow_validation_fallback(&self) -> bool {
+        true
+    }
+
     fn engine_status(&self, state: &SharedState) -> EngineStatus;
 }
 
@@ -82,6 +92,13 @@ impl ExtractorRegistry {
             match extractor.validate(body) {
                 Ok(()) => return Ok(extractor.clone()),
                 Err(error) => {
+                    if !extractor.allow_validation_fallback() {
+                        return Err(ValidateError(format!(
+                            "{} rejected the request without fallback: {}",
+                            extractor.id(),
+                            error
+                        )));
+                    }
                     validation_errors.push(format!("{}: {}", extractor.id(), error));
                 }
             }
@@ -249,6 +266,10 @@ mod tests {
             Err(ValidateError("unsupported native option".to_owned()))
         }
 
+        fn allow_validation_fallback(&self) -> bool {
+            false
+        }
+
         fn engine_status(&self, _state: &SharedState) -> EngineStatus {
             EngineStatus {
                 id: "native-first".to_owned(),
@@ -261,7 +282,7 @@ mod tests {
     }
 
     #[test]
-    fn registry_validation_falls_through_to_next_matching_extractor() {
+    fn registry_fail_closed_extractor_blocks_compatibility_fallback() {
         let mut reg = ExtractorRegistry::new();
         reg.register(Arc::new(RejectingExtractor));
         reg.register(Arc::new(MockExtractor {
@@ -285,8 +306,12 @@ mod tests {
             media_options: Some(Default::default()),
         };
 
-        let selected = reg.validate(&body).expect("fallback extractor");
-        assert_eq!(selected.id(), "media-bridge");
+        let error = reg
+            .validate(&body)
+            .expect_err("fail-closed extractor must block fallback");
+        assert!(error
+            .to_string()
+            .contains("native-first rejected the request without fallback"));
     }
 
     #[test]
