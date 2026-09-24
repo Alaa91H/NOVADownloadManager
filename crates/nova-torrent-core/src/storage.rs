@@ -1,7 +1,7 @@
 use crate::{
     FilePriority, InfoHash, ManifestError, ResumeError, TorrentMetainfo, TorrentSelection,
     TorrentResumeCheckpoint, TorrentStorageManifest, load_checkpoint_recovering,
-    load_storage_manifest, save_checkpoint_atomic, save_storage_manifest_atomic,
+    load_storage_manifest_recovering, save_checkpoint_atomic, save_storage_manifest_atomic,
 };
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -130,7 +130,7 @@ impl TorrentStorage {
         let selection = checkpoint.selection(&meta)?;
 
         let manifest = if manifest_path.exists() {
-            let manifest = load_storage_manifest(&manifest_path)?;
+            let manifest = load_storage_manifest_recovering(&manifest_path)?;
             if manifest.metainfo.info_hash != meta.info_hash {
                 return Err(StorageError::ManifestIdentityMismatch);
             }
@@ -171,7 +171,7 @@ impl TorrentStorage {
         let control_dir = control_dir(&root, info_hash.to_hex());
         ensure_existing_safe_directory(&root, &control_dir)?;
         let manifest_path = control_dir.join(MANIFEST_FILE_NAME);
-        let manifest = load_storage_manifest(&manifest_path)?;
+        let manifest = load_storage_manifest_recovering(&manifest_path)?;
         if manifest.metainfo.info_hash != info_hash {
             return Err(StorageError::ManifestIdentityMismatch);
         }
