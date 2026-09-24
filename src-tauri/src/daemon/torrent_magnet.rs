@@ -459,6 +459,7 @@ mod tests {
                 enable_pex: true,
             },
             max_outbound_connections: 4,
+            download_rate_limit_bytes_per_sec: None,
         });
         let resolver = MagnetResolver::new(
             TrackerTransport::production_default(),
