@@ -53,21 +53,21 @@ Rectangle {
         Button {
             text: "Resume"
             flat: true
-            enabled: root.hasSelection
+            enabled: root.hasSelection && root.engineConnected
             onClicked: root.resumeRequested()
         }
 
         Button {
             text: "Pause"
             flat: true
-            enabled: root.hasSelection
+            enabled: root.hasSelection && root.engineConnected
             onClicked: root.pauseRequested()
         }
 
         Button {
             text: "Delete"
             flat: true
-            enabled: root.hasSelection
+            enabled: root.hasSelection && root.engineConnected
             onClicked: root.deleteRequested()
         }
 
