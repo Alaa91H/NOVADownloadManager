@@ -2230,6 +2230,8 @@ fn resolve_native_media(
         .as_ref()
         .and_then(|options| options.quality.as_deref())
         .and_then(parse_quality_height);
+    let selection = native_selection_preferences(body.media_options.as_ref())
+        .map_err(NativeMediaTaskError::InvalidRequest)?;
 
     if youtube_video_id(&parsed).is_some() {
         let extractor = YouTubeExtractor;
@@ -2258,16 +2260,31 @@ fn resolve_native_media(
             .as_ref()
             .and_then(|options| options.ffmpeg_enabled)
             .unwrap_or(false);
-        let plan = select_youtube_download_plan(
+        let youtube_policy = YouTubeSelectionPolicy {
+            mode: selection.mode,
+            max_height,
+            prefer_separate_tracks: postprocessing_enabled,
+            preferred_container: selection.preferred_container.clone(),
+            preferred_language: None,
+            preferred_video_codec: selection.preferred_video_codec.clone(),
+            preferred_audio_codec: selection.preferred_audio_codec.clone(),
+            sort: selection.sort.clone(),
+        };
+        let plan = explicit_youtube_plan(
             &extraction,
-            YouTubeSelectionPolicy {
-                max_height,
-                prefer_separate_tracks: postprocessing_enabled,
-            },
-        )
+            body.media_options
+                .as_ref()
+                .and_then(|options| options.format_selector.as_deref()),
+        )?
+        .or_else(|| select_youtube_download_plan(&extraction, youtube_policy))
         .ok_or_else(|| {
             NativeMediaTaskError::UnsupportedFeature(
-                "no native-ready media stream was found after challenge resolution".to_owned(),
+                if selection.mode == MediaSelectionMode::Audio {
+                    "no native-ready audio-only representation was found after challenge resolution"
+                        .to_owned()
+                } else {
+                    "no native-ready media stream was found after challenge resolution".to_owned()
+                },
             )
         })?;
 
@@ -2283,12 +2300,25 @@ fn resolve_native_media(
                             "selected native media stream disappeared".to_owned(),
                         )
                     })?;
+                if selection.mode == MediaSelectionMode::Audio
+                    && stream.kind != nova_media_core::MediaTrackKind::Audio
+                {
+                    return Err(NativeMediaTaskError::InvalidRequest(
+                        "audio mode requires an audio-only source representation".to_owned(),
+                    ));
+                }
+                ensure_requested_audio_container(stream, body.media_options.as_ref())?;
                 resolved_from_descriptor(&extraction.descriptor, stream)
             }
             YouTubeDownloadPlan::SeparateTracks {
                 video_stream_id,
                 audio_stream_id,
             } => {
+                if selection.mode == MediaSelectionMode::Audio {
+                    return Err(NativeMediaTaskError::InvalidRequest(
+                        "audio mode cannot use a video+audio format selector".to_owned(),
+                    ));
+                }
                 if !postprocessing_enabled {
                     return Err(NativeMediaTaskError::UnsupportedFeature(
                         "the selected quality requires separate audio/video tracks, but native post-processing was disabled"
@@ -2335,18 +2365,59 @@ fn resolve_native_media(
     let descriptor = registry
         .resolve(&request)
         .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
-    let stream = descriptor
-        .playable_streams()
-        .max_by_key(|stream| {
-            (
-                stream.height.unwrap_or(0),
-                stream.bitrate_bps.unwrap_or(0),
-                stream.content_length.unwrap_or(0),
-            )
-        })
-        .ok_or_else(|| NativeMediaTaskError::Resolution("native media result has no playable stream".to_owned()))?;
+    let stream = select_media_stream(
+        &descriptor,
+        &MediaSelectionPolicy {
+            mode: selection.mode,
+            max_height,
+            preferred_container: selection.preferred_container.clone(),
+            preferred_language: None,
+            preferred_video_codec: selection.preferred_video_codec.clone(),
+            preferred_audio_codec: selection.preferred_audio_codec.clone(),
+            sort: selection.sort.clone(),
+        },
+    )
+    .ok_or_else(|| {
+        NativeMediaTaskError::Resolution(
+            if selection.mode == MediaSelectionMode::Audio {
+                "native media result has no audio-only stream".to_owned()
+            } else {
+                "native media result has no playable video stream".to_owned()
+            },
+        )
+    })?;
+    ensure_requested_audio_container(stream, body.media_options.as_ref())?;
 
     resolved_from_descriptor(&descriptor, stream)
+}
+
+fn ensure_requested_audio_container(
+    stream: &MediaStream,
+    options: Option<&MediaDownloadOptions>,
+) -> Result<(), NativeMediaTaskError> {
+    let Some(requested) = options
+        .and_then(|options| options.audio_format.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(());
+    };
+    if matches!(requested.to_ascii_lowercase().as_str(), "best" | "auto") {
+        return Ok(());
+    }
+    let required = match requested.to_ascii_lowercase().as_str() {
+        "m4a" | "mp4" | "aac" => "mp4",
+        "webm" | "opus" | "ogg" => "webm",
+        _ => return Ok(()),
+    };
+    let actual = stream.container.as_deref().unwrap_or_default();
+    if actual.eq_ignore_ascii_case(required) {
+        Ok(())
+    } else {
+        Err(NativeMediaTaskError::UnsupportedFeature(format!(
+            "requested audio format '{requested}' is not available as a native source representation"
+        )))
+    }
 }
 
 fn separate_track_output_container(video: &MediaStream, audio: &MediaStream) -> String {
