@@ -186,7 +186,20 @@ pub struct MediaDescriptor {
 impl MediaDescriptor {
     pub fn request_context(&self) -> Result<HttpRequestContext, MediaError> {
         let mut context = HttpRequestContext::default();
-        merge_request_headers(&mut context, &self.request_headers);
+        merge_request_headers(&mut context, &self.request_headers, true);
+        context
+            .validate()
+            .map_err(|error| MediaError::Transport(error.to_string()))?;
+        Ok(context)
+    }
+
+    pub fn request_context_for_url(
+        &self,
+        target_url: &str,
+    ) -> Result<HttpRequestContext, MediaError> {
+        let same_origin = same_http_origin(&self.metadata.webpage_url, target_url);
+        let mut context = HttpRequestContext::default();
+        merge_request_headers(&mut context, &self.request_headers, same_origin);
         context
             .validate()
             .map_err(|error| MediaError::Transport(error.to_string()))?;
@@ -204,16 +217,16 @@ impl MediaDescriptor {
 
     /// Build the native HTTP context for a concrete stream.
     ///
-    /// Descriptor headers provide site-wide defaults while stream headers win
-    /// for representation-specific requests. Browser identity headers are
-    /// normalized into typed transport fields rather than raw header strings.
+    /// Descriptor headers belong to the source page. Sensitive descriptor-wide
+    /// authentication is inherited only by same-origin targets. Stream headers
+    /// are representation-scoped and therefore may explicitly authorize a
+    /// derived CDN request.
     pub fn request_context_for_stream(
         &self,
         stream: &MediaStream,
     ) -> Result<HttpRequestContext, MediaError> {
-        let mut context = HttpRequestContext::default();
-        merge_request_headers(&mut context, &self.request_headers);
-        merge_request_headers(&mut context, &stream.headers);
+        let mut context = self.request_context_for_url(&stream.url)?;
+        merge_request_headers(&mut context, &stream.headers, true);
         context
             .validate()
             .map_err(|error| MediaError::Transport(error.to_string()))?;
@@ -221,15 +234,32 @@ impl MediaDescriptor {
     }
 }
 
+fn same_http_origin(source: &str, target: &str) -> bool {
+    let Ok(source) = Url::parse(source) else {
+        return false;
+    };
+    let Ok(target) = Url::parse(target) else {
+        return false;
+    };
+    source.scheme().eq_ignore_ascii_case(target.scheme())
+        && source.host_str().map(str::to_ascii_lowercase)
+            == target.host_str().map(str::to_ascii_lowercase)
+        && source.port_or_known_default() == target.port_or_known_default()
+}
+
 fn merge_request_headers(
     context: &mut HttpRequestContext,
     headers: &BTreeMap<String, String>,
+    allow_sensitive: bool,
 ) {
     for (name, value) in headers {
-        match name.to_ascii_lowercase().as_str() {
+        let normalized = name.to_ascii_lowercase();
+        match normalized.as_str() {
             "referer" => context.referer = Some(value.clone()),
-            "cookie" => context.cookie_header = Some(value.clone()),
+            "cookie" if allow_sensitive => context.cookie_header = Some(value.clone()),
+            "cookie" => {}
             "user-agent" => context.user_agent = Some(value.clone()),
+            _ if !allow_sensitive && !cross_origin_header_allowed(&normalized) => {}
             _ => {
                 if let Some(existing) = context
                     .headers
@@ -243,6 +273,12 @@ fn merge_request_headers(
             }
         }
     }
+}
+
+fn cross_origin_header_allowed(name: &str) -> bool {
+    matches!(name, "accept" | "accept-language" | "origin")
+        || name.starts_with("sec-ch-")
+        || name.starts_with("sec-fetch-")
 }
 
 /// Fetch and parse an HLS/DASH manifest entirely through NOVA's native core.
@@ -411,6 +447,110 @@ impl ExtractorRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn descriptor_auth_is_scoped_to_same_origin() {
+        let mut request_headers = BTreeMap::new();
+        request_headers.insert("Cookie".to_owned(), "session=secret".to_owned());
+        request_headers.insert("Authorization".to_owned(), "Bearer secret".to_owned());
+        request_headers.insert("User-Agent".to_owned(), "NOVA-UA".to_owned());
+        request_headers.insert("Referer".to_owned(), "https://site.test/watch".to_owned());
+        request_headers.insert("Accept-Language".to_owned(), "en".to_owned());
+
+        let descriptor = MediaDescriptor {
+            source_kind: MediaSourceKind::Site,
+            metadata: MediaMetadata {
+                title: "media".to_owned(),
+                description: None,
+                duration_millis: None,
+                uploader: None,
+                webpage_url: "https://site.test/watch".to_owned(),
+                thumbnail_url: None,
+            },
+            streams: Vec::new(),
+            subtitles: Vec::new(),
+            request_headers,
+            is_live: false,
+        };
+
+        let same = descriptor
+            .request_context_for_url("https://site.test/video")
+            .expect("same-origin context");
+        assert_eq!(same.cookie_header.as_deref(), Some("session=secret"));
+        assert_eq!(
+            same.headers.get("Authorization").map(String::as_str),
+            Some("Bearer secret")
+        );
+
+        let cross = descriptor
+            .request_context_for_url("https://cdn.test/video")
+            .expect("cross-origin context");
+        assert_eq!(cross.cookie_header, None);
+        assert!(!cross
+            .headers
+            .keys()
+            .any(|name| name.eq_ignore_ascii_case("authorization")));
+        assert_eq!(cross.user_agent.as_deref(), Some("NOVA-UA"));
+        assert_eq!(
+            cross.referer.as_deref(),
+            Some("https://site.test/watch")
+        );
+        assert_eq!(
+            cross.headers.get("Accept-Language").map(String::as_str),
+            Some("en")
+        );
+    }
+
+    #[test]
+    fn stream_scoped_auth_may_authorize_cross_origin_representation() {
+        let mut request_headers = BTreeMap::new();
+        request_headers.insert("Cookie".to_owned(), "source=secret".to_owned());
+        let mut stream_headers = BTreeMap::new();
+        stream_headers.insert("Authorization".to_owned(), "Bearer stream".to_owned());
+        stream_headers.insert("Cookie".to_owned(), "stream=allowed".to_owned());
+
+        let descriptor = MediaDescriptor {
+            source_kind: MediaSourceKind::Site,
+            metadata: MediaMetadata {
+                title: "media".to_owned(),
+                description: None,
+                duration_millis: None,
+                uploader: None,
+                webpage_url: "https://site.test/watch".to_owned(),
+                thumbnail_url: None,
+            },
+            streams: Vec::new(),
+            subtitles: Vec::new(),
+            request_headers,
+            is_live: false,
+        };
+        let stream = MediaStream {
+            id: "cdn".to_owned(),
+            kind: MediaTrackKind::AudioVideo,
+            protocol: MediaProtocol::Https,
+            url: "https://cdn.test/video".to_owned(),
+            container: Some("mp4".to_owned()),
+            video_codec: None,
+            audio_codec: None,
+            width: None,
+            height: None,
+            fps: None,
+            bitrate_bps: None,
+            audio_bitrate_bps: None,
+            content_length: None,
+            language: None,
+            headers: stream_headers,
+        };
+
+        let context = descriptor
+            .request_context_for_stream(&stream)
+            .expect("stream-scoped context");
+        assert_eq!(context.cookie_header.as_deref(), Some("stream=allowed"));
+        assert_eq!(
+            context.headers.get("Authorization").map(String::as_str),
+            Some("Bearer stream")
+        );
+    }
 
     #[test]
     fn native_capability_matrix_exposes_deliberate_boundaries() {
