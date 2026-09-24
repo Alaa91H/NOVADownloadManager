@@ -126,7 +126,7 @@ export const TorrentDownloadDialog: React.FC = () => {
     setSourceLabel(file.name);
 
     try {
-      const result = await novaClient.analyzeTorrentFile(new Uint8Array(await file.arrayBuffer()));
+      const result = await novaClient.analyzeTorrentFile(await file.arrayBuffer());
       if (analysisRequestRef.current !== requestId) return;
       setAnalysis(result);
       setPriorities(result.files.map((item) => item.priority || 'normal'));

@@ -493,7 +493,7 @@ export const novaClient = {
     );
   },
 
-  async analyzeTorrentFile(bytes: Uint8Array): Promise<TorrentAnalysis> {
+  async analyzeTorrentFile(bytes: ArrayBuffer): Promise<TorrentAnalysis> {
     return request<TorrentAnalysis>(
       '/api/torrents/analyze-file',
       {
