@@ -1183,7 +1183,8 @@ jobs:
           # advertised as stable/latest releases to existing installations.
           prerelease: ${{ contains(github.ref_name, '-') }}
           make_latest: ${{ !contains(github.ref_name, '-') }}
-          generate_release_notes: true
+          # Preserve the curated release body created by the release-request workflow.
+          generate_release_notes: false
           files: release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
