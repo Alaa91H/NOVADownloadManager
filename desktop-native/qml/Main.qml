@@ -56,7 +56,13 @@ ApplicationWindow {
                                  || window.currentPage === "queued" || window.currentPage === "completed"
                                  || window.currentPage === "failed"
                                  ? downloadsPage
-                                 : placeholderPage
+                                 : window.currentPage === "queue"
+                                     ? queuePage
+                                     : window.currentPage === "batch"
+                                         ? batchImportPage
+                                         : window.currentPage === "scheduler"
+                                             ? schedulerPage
+                                             : placeholderPage
             }
 
             StatusBar {
@@ -77,6 +83,31 @@ ApplicationWindow {
             downloads: downloadsModel
             api: novaApi
             page: window.currentPage
+        }
+    }
+
+    Component {
+        id: queuePage
+
+        QueuePage {
+            api: novaApi
+            downloads: downloadsModel
+        }
+    }
+
+    Component {
+        id: batchImportPage
+
+        BatchImportPage {
+            api: novaApi
+        }
+    }
+
+    Component {
+        id: schedulerPage
+
+        SchedulerPage {
+            api: novaApi
         }
     }
 

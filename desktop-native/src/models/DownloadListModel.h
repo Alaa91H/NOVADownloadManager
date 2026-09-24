@@ -55,6 +55,7 @@ public:
 
     Q_INVOKABLE QString taskIdAt(int row) const;
     Q_INVOKABLE QVariantMap itemAt(int row) const;
+    Q_INVOKABLE QVariantMap itemById(const QString &taskId) const;
 
 public slots:
     void replaceFromJson(const QJsonArray &downloads);

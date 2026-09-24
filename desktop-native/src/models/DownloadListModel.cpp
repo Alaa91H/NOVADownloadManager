@@ -91,6 +91,36 @@ QVariantMap DownloadListModel::itemAt(int row) const {
     return result;
 }
 
+
+QVariantMap DownloadListModel::itemById(const QString &taskId) const {
+    for (const Item &item : m_allItems) {
+        if (item.id != taskId) {
+            continue;
+        }
+
+        QVariantMap result;
+        result.insert(QStringLiteral("taskId"), item.id);
+        result.insert(QStringLiteral("name"), item.name);
+        result.insert(QStringLiteral("url"), item.url);
+        result.insert(QStringLiteral("status"), item.status);
+        result.insert(QStringLiteral("sizeBytes"), item.sizeBytes);
+        result.insert(QStringLiteral("downloadedBytes"), item.downloadedBytes);
+        result.insert(QStringLiteral("progress"), item.progress);
+        result.insert(QStringLiteral("speedBytesPerSec"), item.speedBytesPerSec);
+        result.insert(QStringLiteral("etaSeconds"), item.etaSeconds);
+        result.insert(QStringLiteral("savePath"), item.savePath);
+        result.insert(QStringLiteral("engine"), item.engine);
+        result.insert(QStringLiteral("category"), item.category);
+        result.insert(QStringLiteral("connections"), item.connections);
+        result.insert(QStringLiteral("resumable"), item.resumable);
+        result.insert(QStringLiteral("dateAdded"), item.dateAdded);
+        result.insert(QStringLiteral("errorMessage"), item.errorMessage);
+        return result;
+    }
+
+    return {};
+}
+
 bool DownloadListModel::isActiveStatus(const QString &status) {
     const QString normalized = status.trimmed().toLower();
     return normalized == QStringLiteral("downloading")

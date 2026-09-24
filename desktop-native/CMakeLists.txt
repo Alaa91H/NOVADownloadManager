@@ -34,7 +34,10 @@ qt_add_qml_module(nova-native
         qml/components/DownloadPropertiesDialog.qml
         qml/components/NavigationRail.qml
         qml/components/StatusBar.qml
+        qml/pages/BatchImportPage.qml
         qml/pages/DownloadsPage.qml
+        qml/pages/QueuePage.qml
+        qml/pages/SchedulerPage.qml
 )
 
 target_include_directories(nova-native PRIVATE src)

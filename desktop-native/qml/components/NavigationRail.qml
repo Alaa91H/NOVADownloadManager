@@ -138,10 +138,11 @@ Rectangle {
 
         Repeater {
             model: [
-                { page: "media", label: "Media Downloader" },
-                { page: "grabber", label: "Link Grabber" },
+                { page: "queue", label: "Queue Manager" },
                 { page: "batch", label: "Batch Import" },
-                { page: "scheduler", label: "Scheduler" }
+                { page: "scheduler", label: "Scheduler" },
+                { page: "media", label: "Media Downloader" },
+                { page: "grabber", label: "Link Grabber" }
             ]
 
             delegate: Button {

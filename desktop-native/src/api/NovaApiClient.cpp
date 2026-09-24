@@ -1,13 +1,17 @@
 #include "api/NovaApiClient.h"
 
+#include <QDir>
+#include <QFileInfo>
 #include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QRegularExpression>
 #include <QScopeGuard>
 #include <QSet>
+#include <QStringList>
 #include <QTimer>
 #include <QUrl>
 
@@ -400,5 +404,347 @@ void NovaApiClient::deleteDownload(const QString &id) {
 
         emit taskActionCompleted(QStringLiteral("delete"), id);
         refreshDownloads();
+    });
+}
+
+
+void NovaApiClient::refreshQueue() {
+    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/engine/queue")));
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit requestFailed(QStringLiteral("Unexpected queue response."));
+            return;
+        }
+
+        const QJsonObject root = document.object();
+        m_queueEntries = root.value(QStringLiteral("entries")).toArray().toVariantList();
+        m_queueActiveCount = root.value(QStringLiteral("active_count")).toInt();
+        m_queueTotalBandwidthKbps = root.value(QStringLiteral("total_bandwidth_kbps")).toInteger();
+        m_nextQueuedTask = root.value(QStringLiteral("next_to_start")).toString();
+        emit queueChanged();
+    });
+}
+
+void NovaApiClient::setQueuePriority(const QString &taskId, int priority) {
+    const QString trimmedId = taskId.trimmed();
+    if (trimmedId.isEmpty()) {
+        return;
+    }
+
+    QJsonObject body;
+    body.insert(QStringLiteral("task_id"), trimmedId);
+    body.insert(QStringLiteral("priority"), qBound(0, priority, 4));
+
+    auto *reply = m_network.post(
+        makeRequest(QStringLiteral("/api/engine/queue")),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, trimmedId]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        emit queueActionCompleted(trimmedId);
+        refreshQueue();
+    });
+}
+
+void NovaApiClient::refreshScheduler() {
+    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/engine/scheduler")));
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit requestFailed(QStringLiteral("Unexpected scheduler response."));
+            return;
+        }
+
+        const QJsonObject root = document.object();
+        m_schedulerRules = root.value(QStringLiteral("rules")).toArray().toVariantList();
+        m_activeSchedulerRuleIds = root.value(QStringLiteral("active_rule_ids")).toArray().toVariantList();
+        emit schedulerChanged();
+    });
+}
+
+void NovaApiClient::sendSchedulerRule(
+    const QJsonObject &rule,
+    const QString &path,
+    const QString &action
+) {
+    if (rule.value(QStringLiteral("id")).toString().trimmed().isEmpty()) {
+        emit requestFailed(QStringLiteral("Scheduler rule id is required."));
+        return;
+    }
+
+    QJsonObject body;
+    body.insert(QStringLiteral("rule"), rule);
+    auto *reply = m_network.post(
+        makeRequest(path),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    const QString ruleId = rule.value(QStringLiteral("id")).toString();
+    connect(reply, &QNetworkReply::finished, this, [this, reply, action, ruleId]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        emit schedulerActionCompleted(action, ruleId);
+        refreshScheduler();
+    });
+}
+
+void NovaApiClient::addSchedulerRule(const QVariantMap &rule) {
+    sendSchedulerRule(
+        QJsonObject::fromVariantMap(rule),
+        QStringLiteral("/api/engine/scheduler"),
+        QStringLiteral("add")
+    );
+}
+
+void NovaApiClient::setSchedulerRuleEnabled(const QString &ruleId, bool enabled) {
+    for (const QVariant &value : m_schedulerRules) {
+        QVariantMap map = value.toMap();
+        if (map.value(QStringLiteral("id")).toString() != ruleId) {
+            continue;
+        }
+
+        map.insert(QStringLiteral("enabled"), enabled);
+        sendSchedulerRule(
+            QJsonObject::fromVariantMap(map),
+            QStringLiteral("/api/engine/scheduler/update"),
+            enabled ? QStringLiteral("enable") : QStringLiteral("disable")
+        );
+        return;
+    }
+
+    emit requestFailed(QStringLiteral("Scheduler rule was not found."));
+}
+
+void NovaApiClient::deleteSchedulerRule(const QString &ruleId) {
+    const QString trimmedId = ruleId.trimmed();
+    if (trimmedId.isEmpty()) {
+        return;
+    }
+
+    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(trimmedId));
+    auto *reply = m_network.deleteResource(
+        makeRequest(QStringLiteral("/api/engine/scheduler/%1").arg(encodedId))
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, trimmedId]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        emit schedulerActionCompleted(QStringLiteral("delete"), trimmedId);
+        refreshScheduler();
+    });
+}
+
+void NovaApiClient::importBatch(
+    const QString &input,
+    const QString &saveDirectory,
+    int connections,
+    bool startImmediately
+) {
+    if (m_batchRunning) {
+        emit requestFailed(QStringLiteral("A batch import is already running."));
+        return;
+    }
+
+    QStringList candidates;
+    const QRegularExpression numericPattern(QStringLiteral(R"(\[(\d+)-(\d+)\])"));
+    const QStringList rawLines = input.split(QRegularExpression(QStringLiteral("[\\r\\n]+")), Qt::SkipEmptyParts);
+
+    constexpr int maxBatchUrls = 500;
+    for (const QString &rawLine : rawLines) {
+        const QString line = rawLine.trimmed();
+        if (line.isEmpty()) {
+            continue;
+        }
+
+        const QRegularExpressionMatch match = numericPattern.match(line);
+        if (!match.hasMatch()) {
+            candidates.append(line);
+            if (candidates.size() >= maxBatchUrls) {
+                break;
+            }
+            continue;
+        }
+
+        bool startOk = false;
+        bool endOk = false;
+        const int rangeStart = match.captured(1).toInt(&startOk);
+        const int rangeEnd = match.captured(2).toInt(&endOk);
+        if (!startOk || !endOk || rangeEnd < rangeStart) {
+            candidates.append(line);
+            continue;
+        }
+
+        const int width = qMax(match.captured(1).size(), match.captured(2).size());
+        for (int value = rangeStart; value <= rangeEnd && candidates.size() < maxBatchUrls; ++value) {
+            QString expanded = line;
+            expanded.replace(
+                match.capturedStart(0),
+                match.capturedLength(0),
+                QStringLiteral("%1").arg(value, width, 10, QLatin1Char('0'))
+            );
+            candidates.append(expanded);
+        }
+
+        if (candidates.size() >= maxBatchUrls) {
+            break;
+        }
+    }
+
+    QSet<QString> seen;
+    QStringList uniqueUrls;
+    int duplicates = 0;
+    for (const QString &candidate : candidates) {
+        const QString value = candidate.trimmed();
+        const QUrl url(value);
+        if (!url.isValid() || url.scheme().isEmpty()) {
+            continue;
+        }
+
+        const QString normalized = url.toString(QUrl::FullyEncoded);
+        if (seen.contains(normalized)) {
+            ++duplicates;
+            continue;
+        }
+        seen.insert(normalized);
+        uniqueUrls.append(value);
+    }
+
+    if (uniqueUrls.isEmpty()) {
+        emit requestFailed(QStringLiteral("No valid URLs were found in the batch."));
+        return;
+    }
+
+    m_batchRunning = true;
+    m_batchUrls = uniqueUrls;
+    m_batchSaveDirectory = saveDirectory.trimmed();
+    m_batchConnections = qMax(0, connections);
+    m_batchStartImmediately = startImmediately;
+    m_batchDuplicateCount = duplicates;
+    m_batchNextIndex = 0;
+    m_batchInFlight = 0;
+    m_batchAccepted = 0;
+    m_batchFailed = 0;
+
+    emit batchStateChanged();
+    emit batchImportStarted(m_batchUrls.size(), m_batchDuplicateCount);
+    pumpBatchRequests();
+}
+
+void NovaApiClient::pumpBatchRequests() {
+    constexpr int maxConcurrentRequests = 4;
+    while (m_batchRunning
+           && m_batchInFlight < maxConcurrentRequests
+           && m_batchNextIndex < m_batchUrls.size()) {
+        sendNextBatchRequest();
+    }
+
+    if (!m_batchRunning || m_batchInFlight > 0 || m_batchNextIndex < m_batchUrls.size()) {
+        return;
+    }
+
+    const int total = m_batchUrls.size();
+    const int accepted = m_batchAccepted;
+    const int failed = m_batchFailed;
+    const int duplicates = m_batchDuplicateCount;
+
+    m_batchRunning = false;
+    emit batchStateChanged();
+    emit batchImportFinished(total, accepted, failed, duplicates);
+    refreshDownloads();
+    refreshQueue();
+}
+
+void NovaApiClient::sendNextBatchRequest() {
+    if (m_batchNextIndex >= m_batchUrls.size()) {
+        return;
+    }
+
+    const QString urlText = m_batchUrls.at(m_batchNextIndex++);
+    const QUrl url(urlText);
+    QString fileName = QFileInfo(url.path()).fileName();
+    if (fileName.isEmpty()) {
+        fileName = QStringLiteral("download");
+    }
+
+    QJsonObject body;
+    body.insert(QStringLiteral("url"), urlText);
+    body.insert(QStringLiteral("name"), fileName);
+    body.insert(QStringLiteral("fileType"), QStringLiteral("other"));
+    body.insert(QStringLiteral("category"), QStringLiteral("other"));
+    body.insert(QStringLiteral("queueId"), QStringLiteral("main"));
+    body.insert(QStringLiteral("connections"), m_batchConnections);
+    body.insert(QStringLiteral("resumable"), true);
+    body.insert(QStringLiteral("description"), QStringLiteral("Native batch import"));
+    body.insert(QStringLiteral("startImmediately"), m_batchStartImmediately);
+
+    if (!m_batchSaveDirectory.isEmpty()) {
+        body.insert(
+            QStringLiteral("savePath"),
+            QDir(m_batchSaveDirectory).filePath(fileName)
+        );
+    }
+
+    ++m_batchInFlight;
+    auto *reply = m_network.post(
+        makeRequest(QStringLiteral("/api/downloads")),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+
+        --m_batchInFlight;
+        if (reply->error() == QNetworkReply::NoError) {
+            const QJsonDocument document = QJsonDocument::fromJson(payload);
+            if (document.isObject()) {
+                ++m_batchAccepted;
+            } else {
+                ++m_batchFailed;
+            }
+        } else {
+            ++m_batchFailed;
+        }
+
+        const int completed = m_batchAccepted + m_batchFailed;
+        emit batchImportProgress(
+            completed,
+            m_batchUrls.size(),
+            m_batchAccepted,
+            m_batchFailed
+        );
+        pumpBatchRequests();
     });
 }
