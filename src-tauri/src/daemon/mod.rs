@@ -22,6 +22,7 @@ pub mod torrent_dht;
 pub mod torrent_bandwidth;
 pub mod torrent_magnet;
 pub mod torrent_storage;
+pub mod torrent_task;
 pub mod torrent_transfer;
 
 /// Stable Chromium extension origin derived from NOVA's pinned public key.
@@ -414,6 +415,8 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 let state = AppState {
                     media_jobs: Mutex::new(HashMap::new()),
                     native_media_jobs: Mutex::new(HashMap::new()),
+                    torrent_jobs: Mutex::new(HashMap::new()),
+                    torrent_analyses: Mutex::new(HashMap::new()),
                     curl_jobs: Mutex::new(HashMap::new()),
                     task_snapshot: Mutex::new(HashMap::new()),
                     capture_reviews: Mutex::new(std::collections::VecDeque::new()),
