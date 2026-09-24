@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use nova_download_core::{fetch_http_bytes_with_context, HttpRequestContext, TransferControl};
 use nova_media_core::{
@@ -60,6 +60,8 @@ pub const NATIVE_MEDIA_OPTION_KEYS: &[&str] = &[
     "headers",
 ];
 
+const NATIVE_COOKIE_FILE_MAX_BYTES: u64 = 2 * 1024 * 1024;
+
 impl Extractor for NativeMediaExtractor {
     fn id(&self) -> &'static str {
         "nova-media-engine"
@@ -115,6 +117,7 @@ impl Extractor for NativeMediaExtractor {
                 "parallel-av-staging".to_owned(),
                 "postprocess-mux".to_owned(),
                 "request-context".to_owned(),
+                "cookie-file-auth".to_owned(),
             ],
         }
     }
@@ -2229,12 +2232,6 @@ fn validate_native_options(options: &MediaDownloadOptions) -> Result<(), String>
         }
     }
 
-    if let Some(cookies) = options.cookies.as_deref().map(str::trim) {
-        if !cookies.is_empty() && (!cookies.contains('=') || cookies.ends_with(".txt")) {
-            return Err("Cookie-file loading is not migrated to the native engine yet".to_owned());
-        }
-    }
-
     let serialized = serde_json::to_value(options)
         .map_err(|error| format!("Could not inspect media options: {error}"))?;
     let object = serialized
@@ -2899,7 +2896,9 @@ fn build_extract_request(
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            request.headers.insert("Cookie".to_owned(), cookies.to_owned());
+            let cookie_header = resolve_native_cookie_option(cookies, url)
+                .map_err(NativeMediaTaskError::InvalidRequest)?;
+            request.headers.insert("Cookie".to_owned(), cookie_header);
         }
         if let Some(headers) = options
             .headers
@@ -2932,6 +2931,137 @@ fn parse_header_lines(
         target.insert(name.trim().to_owned(), value.trim().to_owned());
     }
     Ok(())
+}
+
+fn resolve_native_cookie_option(value: &str, target_url: &str) -> Result<String, String> {
+    if !looks_like_cookie_file(value) {
+        return Ok(value.to_owned());
+    }
+    load_native_cookie_file(Path::new(value), target_url)
+}
+
+fn looks_like_cookie_file(value: &str) -> bool {
+    value.trim().to_ascii_lowercase().ends_with(".txt") || !value.contains('=')
+}
+
+fn load_native_cookie_file(path: &Path, target_url: &str) -> Result<String, String> {
+    let metadata = std::fs::metadata(path)
+        .map_err(|error| format!("Could not inspect cookie file '{}': {error}", path.display()))?;
+    if !metadata.is_file() {
+        return Err(format!("Cookie path '{}' is not a regular file", path.display()));
+    }
+    if metadata.len() > NATIVE_COOKIE_FILE_MAX_BYTES {
+        return Err(format!(
+            "Cookie file '{}' exceeds the {} byte native limit",
+            path.display(),
+            NATIVE_COOKIE_FILE_MAX_BYTES
+        ));
+    }
+
+    let bytes = std::fs::read(path)
+        .map_err(|error| format!("Could not read cookie file '{}': {error}", path.display()))?;
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| format!("Cookie file '{}' is not valid UTF-8", path.display()))?;
+    let target = reqwest::Url::parse(target_url)
+        .map_err(|_| "Invalid media URL while loading cookies".to_owned())?;
+    let target_host = target
+        .host_str()
+        .ok_or_else(|| "Media URL has no host for cookie matching".to_owned())?
+        .to_ascii_lowercase();
+    let target_path = if target.path().is_empty() { "/" } else { target.path() };
+    let is_https = target.scheme().eq_ignore_ascii_case("https");
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or(0);
+
+    let mut cookies = Vec::new();
+    for (line_number, raw_line) in text.lines().enumerate() {
+        let line = raw_line.trim_end_matches('').trim();
+        if line.is_empty() || (line.starts_with('#') && !line.starts_with("#HttpOnly_")) {
+            continue;
+        }
+        let line = line.strip_prefix("#HttpOnly_").unwrap_or(line);
+        let fields = line.splitn(7, '	').collect::<Vec<_>>();
+        if fields.len() != 7 {
+            return Err(format!(
+                "Malformed Netscape cookie at {}:{}",
+                path.display(),
+                line_number + 1
+            ));
+        }
+
+        let raw_domain = fields[0].trim();
+        let include_subdomains = fields[1].trim().eq_ignore_ascii_case("TRUE");
+        let cookie_path = {
+            let value = fields[2].trim();
+            if value.is_empty() { "/" } else { value }
+        };
+        let secure = fields[3].trim().eq_ignore_ascii_case("TRUE");
+        let expires = fields[4].trim().parse::<i64>().map_err(|_| {
+            format!(
+                "Invalid cookie expiry at {}:{}",
+                path.display(),
+                line_number + 1
+            )
+        })?;
+        let name = fields[5].trim();
+        let value = fields[6].trim();
+
+        if name.is_empty()
+            || name
+                .bytes()
+                .any(|byte| byte <= b' ' || matches!(byte, b';' | b',' | b'='))
+            || value.contains(['', '
+', ';'])
+        {
+            return Err(format!(
+                "Invalid cookie name/value at {}:{}",
+                path.display(),
+                line_number + 1
+            ));
+        }
+        if expires > 0 && expires <= now {
+            continue;
+        }
+        if secure && !is_https {
+            continue;
+        }
+        if !cookie_domain_matches(&target_host, raw_domain, include_subdomains) {
+            continue;
+        }
+        if !target_path.starts_with(cookie_path) {
+            continue;
+        }
+
+        cookies.push(format!("{name}={value}"));
+    }
+
+    if cookies.is_empty() {
+        return Err(format!(
+            "Cookie file '{}' contains no cookies applicable to the media URL",
+            path.display()
+        ));
+    }
+
+    Ok(cookies.join("; "))
+}
+
+fn cookie_domain_matches(host: &str, cookie_domain: &str, include_subdomains: bool) -> bool {
+    let domain = cookie_domain
+        .trim()
+        .trim_start_matches('.')
+        .to_ascii_lowercase();
+    if domain.is_empty() {
+        return false;
+    }
+    if host == domain {
+        return true;
+    }
+    (include_subdomains || cookie_domain.trim_start().starts_with('.'))
+        && host
+            .strip_suffix(&domain)
+            .is_some_and(|prefix| prefix.ends_with('.'))
 }
 
 fn parse_quality_height(value: &str) -> Option<u32> {
@@ -3169,6 +3299,55 @@ mod tests {
         let mut body = body("https://cdn.test/video.mp4");
         body.media_options.as_mut().expect("media").split_chapters = Some(true);
         assert!(NativeMediaExtractor.validate(&body).is_err());
+    }
+
+    #[test]
+    fn native_cookie_file_scopes_entries_to_target_url() {
+        let dir = unique_temp_dir("nova-native-cookie-file");
+        std::fs::create_dir_all(&dir).expect("cookie temp dir");
+        let cookie_path = dir.join("cookies.txt");
+        std::fs::write(
+            &cookie_path,
+            concat!(
+                "# Netscape HTTP Cookie File\n",
+                ".example.test\tTRUE\t/private\tTRUE\t0\tsession\tsecret\n",
+                ".example.test\tTRUE\t/\tFALSE\t0\tpref\twide\n",
+                ".example.test\tTRUE\t/admin\tFALSE\t0\tadmin\thidden\n",
+                ".other.test\tTRUE\t/\tFALSE\t0\tother\tignored\n",
+            ),
+        )
+        .expect("write cookie file");
+
+        let mut request = body("https://media.example.test/private/video");
+        request.media_options.as_mut().expect("media").cookies =
+            Some(cookie_path.to_string_lossy().into_owned());
+        NativeMediaExtractor
+            .validate(&request)
+            .expect("cookie file option should validate");
+        let extract = build_extract_request(&request).expect("cookie-backed extract request");
+        let context = extract.request_context().expect("cookie request context");
+        assert_eq!(
+            context.cookie_header.as_deref(),
+            Some("session=secret; pref=wide")
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn native_cookie_file_rejects_malformed_netscape_rows() {
+        let dir = unique_temp_dir("nova-native-cookie-file-invalid");
+        std::fs::create_dir_all(&dir).expect("cookie temp dir");
+        let cookie_path = dir.join("cookies.txt");
+        std::fs::write(&cookie_path, "not-a-netscape-cookie-row\n").expect("write cookie file");
+
+        let mut request = body("https://media.example.test/video");
+        request.media_options.as_mut().expect("media").cookies =
+            Some(cookie_path.to_string_lossy().into_owned());
+        let error = build_extract_request(&request).expect_err("malformed cookie file must fail");
+        assert!(error.to_string().contains("Malformed Netscape cookie"));
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
