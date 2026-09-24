@@ -34,6 +34,12 @@ interface NovaHealth {
       supportedExternalDownloaders?: string[];
       error?: string;
     };
+    torrent?: {
+      available: boolean;
+      version?: string;
+      capabilities?: Record<string, unknown>;
+      error?: string;
+    };
     ffmpeg?: {
       available: boolean;
       version?: string;
@@ -71,6 +77,45 @@ interface NovaProbeResult {
   lastModified?: string;
   httpStatus?: number;
   probeMethod?: string;
+}
+
+export type TorrentFilePriority = 'skip' | 'normal' | 'high';
+
+export interface TorrentFileInfo {
+  index: number;
+  path: string;
+  length: number;
+  priority: TorrentFilePriority;
+}
+
+export interface TorrentAnalysis {
+  analysisId: string;
+  infoHash: string;
+  name: string;
+  totalLength: number;
+  pieceLength: number;
+  pieceCount: number;
+  files: TorrentFileInfo[];
+  private: boolean;
+  trackerCount: number;
+  peerCount: number;
+  usedDht: boolean;
+}
+
+export interface TorrentTaskDetails {
+  task: DownloadItem;
+  infoHash: string;
+  private: boolean;
+  files: TorrentFileInfo[];
+  pieceCount: number;
+  verifiedPieces: number;
+  selectedCompletedBytes: number;
+  selectedTotalBytes: number;
+  trackerPeerCount: number;
+  dhtPeerCount: number;
+  pexPeerCount: number;
+  candidatePeerCount: number;
+  requiresReauth: boolean;
 }
 
 export interface MediaFormat {
@@ -434,6 +479,64 @@ export const novaClient = {
       );
     }
     return request<NovaProbeResult>(`/api/probe?url=${encodeURIComponent(url)}`, undefined, 45000);
+  },
+
+  async analyzeTorrent(magnetUri: string): Promise<TorrentAnalysis> {
+    return request<TorrentAnalysis>(
+      '/api/torrents/analyze',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ magnetUri }),
+      },
+      95000,
+    );
+  },
+
+  async createTorrent(payload: {
+    analysisId: string;
+    savePath: string;
+    startImmediately?: boolean;
+    filePriorities?: TorrentFilePriority[];
+    connections?: number;
+  }): Promise<DownloadItem> {
+    return request<DownloadItem>(
+      '/api/torrents',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+      30000,
+    );
+  },
+
+  async torrentDetails(id: string): Promise<TorrentTaskDetails> {
+    return request<TorrentTaskDetails>(`/api/torrents/${encodeURIComponent(id)}`, undefined, 10000);
+  },
+
+  async updateTorrentFiles(id: string, filePriorities: TorrentFilePriority[]): Promise<TorrentTaskDetails> {
+    return request<TorrentTaskDetails>(
+      `/api/torrents/${encodeURIComponent(id)}/files`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePriorities }),
+      },
+      15000,
+    );
+  },
+
+  async reauthorizeTorrent(id: string, magnetUri: string): Promise<DownloadItem> {
+    return request<DownloadItem>(
+      `/api/torrents/${encodeURIComponent(id)}/reauthorize`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ magnetUri }),
+      },
+      10000,
+    );
   },
 
   async createDownload(payload: CreateDownloadPayload): Promise<DownloadItem> {
