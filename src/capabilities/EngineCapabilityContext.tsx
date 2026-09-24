@@ -11,11 +11,13 @@ export interface EngineCapabilitySnapshot {
   directReady: boolean;
   mediaReady: boolean;
   ffmpegReady: boolean;
+  torrentReady: boolean;
   postProcessingReady: boolean;
   streamResolverReady: boolean;
   directEngineId: string;
   mediaEngineId: string;
   postProcessorId: string;
+  torrentEngineId: string;
   directProtocols: string[];
   directOptionKeys: Set<string>;
   unsupportedDirectOptionKeys: Set<string>;
@@ -31,6 +33,7 @@ export interface EngineCapabilitySnapshot {
   sanitizeMediaOptions: (options: MediaDownloadOptions) => MediaDownloadOptions;
   directBlockedReason: (url?: string) => string | null;
   mediaBlockedReason: () => string | null;
+  torrentBlockedReason: () => string | null;
 }
 
 function asRecord(value: unknown): JsonRecord | undefined {
@@ -236,6 +239,7 @@ function buildSnapshot(
   const curl = readEngineRecord(root, 'libcurlMulti') || readEngineRecord(root, 'curl');
   const media = readEngineRecord(root, 'media');
   const ffmpeg = readEngineRecord(root, 'ffmpeg');
+  const torrent = readEngineRecord(root, 'torrent');
   const routing = asRecord(root?.routing);
 
   const directReady = asBool(root?.directReady) || asBool(asRecord(curl?.capabilities)?.directDownloads);
@@ -244,6 +248,10 @@ function buildSnapshot(
   const hlsTaskExecutionReady = asBool(mediaCapabilities?.hlsTaskExecution);
   const dashTaskExecutionReady = asBool(mediaCapabilities?.dashTaskExecution);
   const ffmpegReady = asBool(ffmpeg?.available);
+  const torrentReady =
+    asBool(torrent?.available) &&
+    typeof routing?.torrentMagnet === 'string' &&
+    routing.torrentMagnet.length > 0;
   const postProcessingReady = asBool(root?.postProcessingReady) || ffmpegReady;
 
   const directProtocols = asStringArray(root?.directProtocols).length
@@ -277,6 +285,7 @@ function buildSnapshot(
     directReady,
     mediaReady,
     ffmpegReady,
+    torrentReady,
     postProcessingReady,
     streamResolverReady: mediaReady && (hlsTaskExecutionReady || dashTaskExecutionReady),
     directEngineId:
@@ -296,6 +305,12 @@ function buildSnapshot(
         ? routing.mergeRemuxExtractSubtitles
         : postProcessingReady
           ? 'ffmpeg'
+          : 'unavailable',
+    torrentEngineId:
+      typeof routing?.torrentMagnet === 'string'
+        ? routing.torrentMagnet
+        : torrentReady
+          ? 'native-torrent'
           : 'unavailable',
     directProtocols,
     directOptionKeys,
@@ -334,6 +349,10 @@ function buildSnapshot(
     },
     mediaBlockedReason: () => {
       if (!mediaReady) return 'Media engine is not ready.';
+      return null;
+    },
+    torrentBlockedReason: () => {
+      if (!torrentReady) return 'Native torrent engine is not ready.';
       return null;
     },
   };
