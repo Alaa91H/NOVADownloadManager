@@ -41,6 +41,7 @@ import { Logo } from './Logo';
 import { extractFirstHttpUrl, readClipboardText } from '../utils/clipboard';
 import { getDialogForUrl } from '../utils/urlDetector';
 import { ErrorBoundary } from './ErrorBoundary';
+import { queueStore } from '../store/queueStore';
 
 const CONNECTION_RECOVERY_AFTER_SECONDS = 20;
 
@@ -104,6 +105,7 @@ const AppShellInner: React.FC = () => {
   const [connectTimer, setConnectTimer] = useState(0);
   const [isRecoveringConnection, setIsRecoveringConnection] = useState(false);
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
+  const [queueCatalogReady, setQueueCatalogReady] = useState(false);
   const dragCounter = useRef(0);
   const lastClipboardText = useRef('');
   const clipboardPrimed = useRef(false);
@@ -116,13 +118,49 @@ const AppShellInner: React.FC = () => {
     }
   }, [bridge.status]);
 
-  // Stage 6.1 migration bridge: while the legacy UI is still available, copy
-  // its localStorage-backed queue catalog into the daemon. The Qt frontend can
-  // then discover even empty custom queues without reading browser/WebView
-  // storage directly. Debounce task-order churn so large batches do not write
-  // the catalog once per accepted download.
+  // Stage 6.1 migration bridge. Legacy localStorage is imported exactly once;
+  // after that the daemon catalog is authoritative so opening the React UI can
+  // never overwrite queues created or edited by the native Qt frontend.
   useEffect(() => {
-    if (bridge.status !== 'connected') return;
+    if (bridge.status !== 'connected') {
+      setQueueCatalogReady(false);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const migrationKey = 'nova_queue_catalog_migrated_v1';
+        const alreadyMigrated = localStorage.getItem(migrationKey) === '1';
+
+        if (!alreadyMigrated) {
+          const migrated = await novaClient.syncQueueCatalog(queueStore.getState().queues);
+          if (cancelled) return;
+          queueStore.getState()._setQueues(migrated.queues);
+          localStorage.setItem(migrationKey, '1');
+        } else {
+          const remote = await novaClient.getQueueCatalog();
+          if (cancelled) return;
+          if (remote.queues.length > 0) {
+            queueStore.getState()._setQueues(remote.queues);
+          }
+        }
+      } catch (error) {
+        logger.warn('QueueCatalog', 'Could not hydrate the daemon queue catalog', error);
+      } finally {
+        if (!cancelled) setQueueCatalogReady(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bridge.status]);
+
+  // Keep legacy edits compatible during the transition, but only after the
+  // daemon-backed catalog has been hydrated/migrated.
+  useEffect(() => {
+    if (bridge.status !== 'connected' || !queueCatalogReady) return;
 
     const timer = window.setTimeout(() => {
       void novaClient.syncQueueCatalog(queues).catch((error: unknown) => {
@@ -133,7 +171,7 @@ const AppShellInner: React.FC = () => {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [bridge.status, queues]);
+  }, [bridge.status, queueCatalogReady, queues]);
 
   useEffect(() => {
     if (bridge.status !== 'connecting') {
