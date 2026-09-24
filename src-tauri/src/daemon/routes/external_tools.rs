@@ -407,7 +407,6 @@ fn parse_tool_id(id: &str) -> Result<ToolId, (StatusCode, Json<serde_json::Value
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::parse_tool_id;
