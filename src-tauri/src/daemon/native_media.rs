@@ -1600,16 +1600,19 @@ fn update_native_multitrack_progress(
 
         let elapsed = job.start_time.elapsed().as_secs_f64().max(0.001);
         let downloaded = progress.downloaded_bytes();
+        let speed = (downloaded as f64 / elapsed) as u64;
         if let Some(total) = progress.total_bytes() {
             job.task.size_bytes = total;
-            if job.task.speed_bytes_per_sec > 0 {
-                job.task.time_left_seconds = total
+            job.task.time_left_seconds = if speed > 0 {
+                total
                     .saturating_sub(downloaded)
-                    .saturating_div(job.task.speed_bytes_per_sec.max(1));
-            }
+                    .saturating_div(speed.max(1))
+            } else {
+                0
+            };
         }
         job.task.downloaded_bytes = downloaded;
-        job.task.speed_bytes_per_sec = (downloaded as f64 / elapsed) as u64;
+        job.task.speed_bytes_per_sec = speed;
         job.task.elapsed_seconds = elapsed as u64;
 
         if job.task.segments.len() < 2 {
@@ -1637,34 +1640,19 @@ fn update_native_multitrack_progress(
             ];
         }
 
-        for (segment, downloaded, total) in [
-            (
-                &mut job.task.segments[0],
-                progress.video_downloaded,
-                progress.video_total,
-            ),
-            (
-                &mut job.task.segments[1],
-                progress.audio_downloaded,
-                progress.audio_total,
-            ),
-        ] {
-            segment.downloaded_bytes = downloaded;
-            if let Some(total) = total {
-                segment.total_bytes = total;
-                segment.end_byte = total.saturating_sub(1);
-                segment.progress = if total == 0 {
-                    0.0
-                } else {
-                    downloaded.min(total) as f64 / total as f64
-                };
-                segment.active = downloaded < total;
-            } else {
-                segment.progress = 0.0;
-                segment.active = true;
-            }
-            segment.speed = (downloaded as f64 / elapsed) as u64;
-        }
+        let (video_segments, audio_segments) = job.task.segments.split_at_mut(1);
+        update_track_segment(
+            &mut video_segments[0],
+            progress.video_downloaded,
+            progress.video_total,
+            elapsed,
+        );
+        update_track_segment(
+            &mut audio_segments[0],
+            progress.audio_downloaded,
+            progress.audio_total,
+            elapsed,
+        );
 
         job.task.clone()
     };
@@ -1672,6 +1660,29 @@ fn update_native_multitrack_progress(
         snapshot.insert(id.to_owned(), task);
     }
     state.mark_dirty();
+}
+
+fn update_track_segment(
+    segment: &mut Segment,
+    downloaded: u64,
+    total: Option<u64>,
+    elapsed: f64,
+) {
+    segment.downloaded_bytes = downloaded;
+    if let Some(total) = total {
+        segment.total_bytes = total;
+        segment.end_byte = total.saturating_sub(1);
+        segment.progress = if total == 0 {
+            0.0
+        } else {
+            downloaded.min(total) as f64 / total as f64
+        };
+        segment.active = downloaded < total;
+    } else {
+        segment.progress = 0.0;
+        segment.active = true;
+    }
+    segment.speed = (downloaded as f64 / elapsed.max(0.001)) as u64;
 }
 
 fn set_native_track_activity(
