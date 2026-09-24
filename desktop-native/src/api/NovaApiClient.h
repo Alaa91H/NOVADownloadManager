@@ -148,6 +148,7 @@ public:
     Q_INVOKABLE void setLogLevel(const QString &level);
 
     Q_INVOKABLE void refreshBrowserIntegration();
+    Q_INVOKABLE void setBrowserCaptureEnabled(bool enabled);
 
 signals:
     void connectionChanged();

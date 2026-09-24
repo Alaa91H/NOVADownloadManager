@@ -238,17 +238,165 @@ pub(super) fn browser_ext_response(state: &SharedState) -> Json<serde_json::Valu
     }))
 }
 
+fn set_browser_capture_enabled(data_dir: &str, enabled: bool) -> Result<(), String> {
+    let data_dir = std::path::Path::new(data_dir);
+    let _config_lock = crate::CONFIG_IO_LOCK
+        .lock()
+        .map_err(|_| "Config storage lock is unavailable".to_owned())?;
+
+    let mut config = crate::read_config_from_disk(data_dir)?
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    let root = config
+        .as_object_mut()
+        .ok_or_else(|| "Config must be a JSON object".to_owned())?;
+
+    let general = root
+        .entry("general")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| "Config general section must be an object".to_owned())?;
+
+    let browsers = general
+        .entry("integrateWithBrowsers")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| "Browser integration settings must be an object".to_owned())?;
+
+    for browser in ["chrome", "edge", "firefox", "safari"] {
+        browsers.insert(browser.to_owned(), serde_json::Value::Bool(enabled));
+    }
+
+    let serialized = serde_json::to_string(&config)
+        .map_err(|error| format!("Failed to serialize browser integration config: {error}"))?;
+    crate::write_config_atomically(data_dir, &serialized)
+}
+
 pub async fn handle_browser_ext_config(
     State(state): State<SharedState>,
-    Json(_body): Json<serde_json::Value>,
+    Json(body): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
-    browser_ext_response(&state)
+    let mut config_applied = true;
+    let mut config_error: Option<String> = None;
+
+    if let Some(enabled) = body.get("enabled").and_then(serde_json::Value::as_bool) {
+        if let Err(error) = set_browser_capture_enabled(&state.data_dir, enabled) {
+            config_applied = false;
+            config_error = Some(error);
+        }
+    }
+
+    let Json(mut response) = browser_ext_response(&state);
+    if let Some(object) = response.as_object_mut() {
+        object.insert(
+            "configApplied".to_owned(),
+            serde_json::Value::Bool(config_applied),
+        );
+        if let Some(error) = config_error {
+            object.insert(
+                "configError".to_owned(),
+                serde_json::Value::String(error),
+            );
+        }
+    }
+
+    Json(response)
 }
 
 pub async fn handle_browser_ext_health(
     State(state): State<SharedState>,
 ) -> Json<serde_json::Value> {
     browser_ext_response(&state)
+}
+
+#[cfg(test)]
+mod browser_config_tests {
+    use super::{read_browser_integration_state, set_browser_capture_enabled};
+
+    fn temp_config_dir(name: &str) -> std::path::PathBuf {
+        let unique = format!(
+            "nova-browser-config-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        );
+        std::env::temp_dir().join(unique)
+    }
+
+    #[test]
+    fn capture_toggle_preserves_unrelated_config_and_pairing_secret_marker() {
+        let dir = temp_config_dir("preserve");
+        std::fs::create_dir_all(&dir).expect("create temp config dir");
+
+        let original = serde_json::json!({
+            "general": {
+                "integrateWithBrowsers": {
+                    "chrome": true,
+                    "edge": false,
+                    "firefox": true,
+                    "safari": false
+                },
+                "monitorClipboard": true
+            },
+            "extra": {
+                "browserPairingToken": "__nova_secure_store_v1__",
+                "language": "en"
+            }
+        });
+        std::fs::write(
+            dir.join("config.json"),
+            serde_json::to_vec(&original).expect("serialize config"),
+        )
+        .expect("write config");
+
+        set_browser_capture_enabled(dir.to_str().expect("temp path"), false)
+            .expect("disable browser capture");
+
+        let saved: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(dir.join("config.json")).expect("read saved config"),
+        )
+        .expect("parse saved config");
+
+        let browsers = saved["general"]["integrateWithBrowsers"]
+            .as_object()
+            .expect("browser map");
+        assert!(browsers.values().all(|value| value.as_bool() == Some(false)));
+        assert_eq!(saved["general"]["monitorClipboard"], serde_json::json!(true));
+        assert_eq!(
+            saved["extra"]["browserPairingToken"],
+            serde_json::json!("__nova_secure_store_v1__")
+        );
+
+        let state = read_browser_integration_state(dir.to_str().expect("temp path"));
+        assert_eq!(state, (false, true));
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn capture_toggle_creates_minimal_browser_settings_when_config_is_missing() {
+        let dir = temp_config_dir("missing");
+        std::fs::create_dir_all(&dir).expect("create temp config dir");
+
+        set_browser_capture_enabled(dir.to_str().expect("temp path"), true)
+            .expect("enable browser capture");
+
+        let state = read_browser_integration_state(dir.to_str().expect("temp path"));
+        assert_eq!(state, (true, false));
+
+        let saved: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(dir.join("config.json")).expect("read saved config"),
+        )
+        .expect("parse saved config");
+        let browsers = saved["general"]["integrateWithBrowsers"]
+            .as_object()
+            .expect("browser map");
+        assert!(browsers.values().all(|value| value.as_bool() == Some(true)));
+
+        std::fs::remove_dir_all(dir).ok();
+    }
 }
 
 pub async fn handle_v1_list_tasks(State(state): State<SharedState>) -> Json<serde_json::Value> {

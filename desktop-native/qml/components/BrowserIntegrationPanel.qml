@@ -108,6 +108,18 @@ Rectangle {
                 }
             }
 
+            Switch {
+                text: root.t("browser.enabled")
+                checked: Boolean(root.healthValue("enabled", false))
+                enabled: root.api.connected && !root.api.browserIntegrationBusy
+                Accessible.name: text
+                onToggled: {
+                    const current = Boolean(root.healthValue("enabled", false))
+                    if (checked !== current)
+                        root.api.setBrowserCaptureEnabled(checked)
+                }
+            }
+
             Button {
                 text: root.api.browserIntegrationBusy
                     ? root.t("browser.checking")

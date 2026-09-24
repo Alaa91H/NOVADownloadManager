@@ -1505,3 +1505,56 @@ void NovaApiClient::refreshBrowserIntegration() {
         emit browserIntegrationChanged();
     });
 }
+
+
+void NovaApiClient::setBrowserCaptureEnabled(bool enabled) {
+    if (!m_connected || m_browserIntegrationBusy) {
+        return;
+    }
+
+    m_browserIntegrationBusy = true;
+    emit browserIntegrationChanged();
+
+    QJsonObject body;
+    body.insert(QStringLiteral("enabled"), enabled);
+
+    auto *reply = m_network.post(
+        makeRequest(QStringLiteral("/api/browser-extension/config")),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+
+        m_browserIntegrationBusy = false;
+
+        if (reply->error() != QNetworkReply::NoError) {
+            emit browserIntegrationChanged();
+            emit browserIntegrationFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit browserIntegrationChanged();
+            emit browserIntegrationFailed(
+                QStringLiteral("Unexpected browser integration configuration response.")
+            );
+            return;
+        }
+
+        const QJsonObject root = document.object();
+        m_browserIntegrationHealth = root.toVariantMap();
+        emit browserIntegrationChanged();
+
+        if (root.value(QStringLiteral("configApplied")).isBool()
+            && !root.value(QStringLiteral("configApplied")).toBool()) {
+            emit browserIntegrationFailed(
+                root.value(QStringLiteral("configError")).toString(
+                    QStringLiteral("Browser integration settings could not be saved.")
+                )
+            );
+        }
+    });
+}

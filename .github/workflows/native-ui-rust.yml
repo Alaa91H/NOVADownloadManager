@@ -1,0 +1,63 @@
+name: Native UI Rust Compatibility
+
+on:
+  push:
+    branches:
+      - feature/qt6-native-desktop-ui
+    paths:
+      - "src-tauri/**"
+      - ".github/workflows/native-ui-rust.yml"
+  pull_request:
+    branches:
+      - main
+      - master
+    paths:
+      - "src-tauri/**"
+      - "desktop-native/**"
+      - ".github/workflows/native-ui-rust.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  rust-daemon-compatibility:
+    name: Rust daemon compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux build dependencies
+        run: |
+          bash scripts/install-linux-build-deps.sh \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libcurl4-openssl-dev \
+            libbrotli-dev \
+            libzstd-dev \
+            libnghttp2-dev \
+            libssh2-1-dev \
+            pkg-config
+
+      - name: Cargo check
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Browser integration config tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml browser_config_tests --lib
