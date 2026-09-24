@@ -308,6 +308,34 @@ impl TorrentStorageSession {
         .map_err(join_error)?
     }
 
+    pub async fn remove_resume_state(&self) -> Result<(), TorrentSessionError> {
+        let storage = self.storage.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut storage = storage
+                .lock()
+                .map_err(|_| TorrentSessionError::LockPoisoned("storage"))?;
+            storage
+                .remove_resume_state()
+                .map_err(TorrentSessionError::from)
+        })
+        .await
+        .map_err(join_error)?
+    }
+
+    pub async fn delete_owned_payload_and_state(&self) -> Result<(), TorrentSessionError> {
+        let storage = self.storage.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut storage = storage
+                .lock()
+                .map_err(|_| TorrentSessionError::LockPoisoned("storage"))?;
+            storage
+                .delete_owned_payload_and_state()
+                .map_err(TorrentSessionError::from)
+        })
+        .await
+        .map_err(join_error)?
+    }
+
     pub async fn finalize_selected(
         &self,
         lease: &TorrentRunLease,
