@@ -30,7 +30,7 @@ use crate::daemon::engine::rules::DownloadRuleEngine;
 use crate::daemon::engine::scheduler::SmartScheduler;
 use crate::daemon::engine::self_healing::SelfHealer;
 use crate::daemon::types::{
-    CreateDownloadBody, CurlJob, MediaJob, NativeMediaJob, Task, TelegramConfig,
+    CreateDownloadBody, CurlJob, NativeMediaJob, Task, TelegramConfig,
 };
 
 /// Browser-originated download data that has passed daemon URL validation but
@@ -59,21 +59,19 @@ pub struct TaskEngineTracker {
 const ENGINE_CACHE_TTL_SECS: u64 = 120;
 
 /// Lock ordering (acquire in this order to prevent deadlocks):
-///   1. `media_jobs`
-///   2. `native_media_jobs`
-///   3. `curl_jobs`
-///   4. `task_snapshot`
-///   5. `engine_trackers`
-///   6. `mirror_managers`
-///   7. `telegram_config` / `telegram_last_update_id`
-///   8. `download_stats`
-///   9. `watchdog_handles`
-///  10. `external_tools`
-///  11. `policy_engine` / `self_healer` / `die_orchestrator` / `resource_manager`
+///   1. `native_media_jobs`
+///   2. `curl_jobs`
+///   3. `task_snapshot`
+///   4. `engine_trackers`
+///   5. `mirror_managers`
+///   6. `telegram_config` / `telegram_last_update_id`
+///   7. `download_stats`
+///   8. `watchdog_handles`
+///   9. `external_tools`
+///  10. `policy_engine` / `self_healer` / `die_orchestrator` / `resource_manager`
 ///
 /// Never acquire a lower-numbered lock while holding a higher-numbered one.
 pub struct AppState {
-    pub media_jobs: Mutex<HashMap<String, MediaJob>>,
     pub native_media_jobs: Mutex<HashMap<String, NativeMediaJob>>,
     pub curl_jobs: Mutex<HashMap<String, CurlJob>>,
     pub task_snapshot: Mutex<HashMap<String, Task>>,
@@ -84,19 +82,15 @@ pub struct AppState {
     pub http_client: HttpClient,
     pub resource_dir: String,
     pub data_dir: String,
-    /// Active media-engine paths. These may be replaced after NOVA verifies a
-    /// managed installation, so every new media operation observes the current
-    /// binary without requiring a daemon restart.
-    pub media_bridge_bin: RwLock<String>,
+    /// Active post-processing binary path. It may be replaced after NOVA
+    /// verifies a managed FFmpeg installation without requiring a daemon restart.
     pub ffmpeg_bin: RwLock<String>,
-    /// Bundled/fallback paths resolved at daemon startup. These are restored
-    /// if a NOVA-managed binary is removed or fails a later health check.
-    pub bundled_media_bridge_bin: String,
+    /// Bundled/fallback FFmpeg path resolved at daemon startup.
     pub bundled_ffmpeg_bin: String,
     pub telegram_last_update_id: Mutex<i64>,
     pub engine_capabilities_cache: RwLock<Option<(Arc<serde_json::Value>, Instant)>>,
-    /// Serializes the subprocess probe in `engine_capabilities()` so concurrent
-    /// requests cannot each spawn redundant media-bridge/ffmpeg probes.
+    /// Serializes runtime capability probing so concurrent requests do not
+    /// repeat the same FFmpeg/native readiness checks.
     pub engine_capabilities_probe: Mutex<()>,
     pub task_generation: AtomicU64,
     pub task_list_cache: RwLock<Option<(u64, Arc<Vec<Task>>)>>,
@@ -111,7 +105,7 @@ pub struct AppState {
     pub plugin_api: PluginApi,
     pub engine_trackers: RwLock<HashMap<String, TaskEngineTracker>>,
     pub mirror_managers: Mutex<HashMap<String, MirrorManager>>,
-    /// Registry of download extractors (curl, media-bridge, etc.)
+    /// Registry of active first-party download extractors.
     pub extractor_registry: SharedExtractorRegistry,
     /// Bearer token for API authentication. Generated at daemon start.
     pub api_token: String,
@@ -139,13 +133,6 @@ impl AppState {
     pub fn mark_dirty(&self) {
         self.persist_dirty.store(true, Ordering::Release);
         self.task_generation.fetch_add(1, Ordering::Release);
-    }
-
-    pub fn media_bridge_binary(&self) -> String {
-        self.media_bridge_bin
-            .read()
-            .map(|path| path.clone())
-            .unwrap_or_else(|poison| poison.into_inner().clone())
     }
 
     pub fn ffmpeg_binary(&self) -> String {
