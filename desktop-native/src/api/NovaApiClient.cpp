@@ -567,7 +567,7 @@ void NovaApiClient::recomputeKnownQueueIds() {
 
     QStringList nextLabels;
     nextLabels.reserve(nextIds.size());
-    for (const QString &id : std::as_const(nextIds)) {
+    for (const QString &id : nextIds) {
         nextLabels.append(labels.value(id, id));
     }
 
