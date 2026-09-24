@@ -350,7 +350,7 @@ pub async fn full_diagnostics(
     ffmpeg_available: bool,
     network_interfaces: Vec<String>,
     uptime_secs: u64,
-    media_jobs: usize,
+    native_media_jobs: usize,
     curl_jobs: usize,
 ) -> serde_json::Value {
     let e2e = run_e2e_test(30).await;
@@ -400,7 +400,7 @@ pub async fn full_diagnostics(
         "jobs": {
             "total": jobs,
             "curlJobs": curl_jobs,
-            "mediaJobs": media_jobs,
+            "mediaJobs": native_media_jobs,
         },
         "e2eTests": e2e,
         "exportVersion": 2,
