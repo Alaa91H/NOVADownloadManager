@@ -30,7 +30,7 @@ pub const fn native_media_processing_capabilities() -> NativeMediaProcessingCapa
         job_planning: true,
         container_sniffing: true,
         packet_model: true,
-        mp4_demux: false,
+        mp4_demux: true,
         mp4_mux: false,
         fragmented_mp4_demux: false,
         mpeg_ts_demux: false,
@@ -55,6 +55,8 @@ mod tests {
         assert!(caps.job_planning);
         assert!(caps.container_sniffing);
         assert!(caps.packet_model);
+        assert!(caps.mp4_demux);
+        assert!(!caps.fragmented_mp4_demux);
         assert!(!caps.mp4_mux);
         assert!(!caps.native_remux);
         assert!(!caps.native_audio_transcode);
