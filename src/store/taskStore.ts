@@ -14,7 +14,11 @@ import { settingsStore } from './settingsStore';
 import { useEngineStore } from './engineStore';
 
 const isNativeEngineTask = (task: DownloadItem) =>
-  task.engine === 'curl' || task.engine === 'libcurl-multi' || task.engine === 'yt-dlp';
+  task.engine === 'curl' ||
+  task.engine === 'libcurl-multi' ||
+  task.engine === 'yt-dlp' ||
+  task.engine === 'nova-media-engine' ||
+  task.engine === 'native-torrent';
 
 // Cap concurrent createDownload calls when importing a large batch so a 10k-URL
 // batch doesn't serialize every round-trip through the daemon one at a time.
