@@ -4,9 +4,13 @@
 //! external media executables. Extractors produce typed descriptors; NOVA's
 //! native download core owns transfer scheduling and persistence.
 
+mod dash_transfer;
 mod generic;
 mod hls_transfer;
 
+pub use dash_transfer::{
+    stage_dash_representation_plan, DashStageError, DashStageFile, DashStageResult,
+};
 pub use generic::{GenericDirectMediaExtractor, GenericManifestExtractor};
 pub use hls_transfer::{stage_hls_media_plan, HlsStageError, HlsStageFile, HlsStageResult};
 
