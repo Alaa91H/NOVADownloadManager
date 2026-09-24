@@ -18,7 +18,7 @@ mod tracker;
 pub use magnet::{MagnetLink, MagnetParseError};
 pub use metainfo::{
     FileSlice, InfoHash, TorrentFile, TorrentMetainfo, TorrentMetainfoError,
-    MAX_METAINFO_BYTES,
+    MAX_METAINFO_BYTES, MAX_PIECE_LENGTH_BYTES,
 };
 pub use peer::{
     PeerHandshake, PeerMessage, PeerState, PeerWireError, MAX_PEER_FRAME_BYTES,
