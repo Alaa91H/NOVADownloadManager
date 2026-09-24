@@ -161,7 +161,7 @@ ApplicationWindow {
                 onTriggered: window.currentPage = "scheduler"
             }
             MenuItem { text: window.t("nav.media"); shortcut: "Ctrl+Shift+M"; onTriggered: window.currentPage = "media" }
-            MenuItem { text: window.t("nav.grabber"); shortcut: "Ctrl+L"; onTriggered: window.currentPage = "grabber" }
+            MenuItem { text: window.t("nav.grabber"); onTriggered: window.currentPage = "grabber" }
             MenuSeparator {}
             MenuItem { action: settingsAction }
         }
