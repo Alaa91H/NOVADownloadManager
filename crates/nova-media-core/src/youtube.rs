@@ -35,6 +35,7 @@ pub struct YouTubePendingFormat {
     pub signature_parameter: Option<String>,
     pub throttling_parameter: Option<String>,
     pub challenge: YouTubeChallengeKind,
+    pub stream_template: MediaStream,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -548,7 +549,13 @@ fn normalize_format(
         .or_else(|| format.get("cipher"))
         .and_then(Value::as_str)
     {
-        pending_formats.push(parse_pending_format(itag, mime_type, cipher));
+        pending_formats.push(parse_pending_format(
+            format,
+            request_headers,
+            itag,
+            mime_type,
+            cipher,
+        ));
         return;
     }
 
@@ -573,7 +580,9 @@ fn normalize_format(
             signature_parameter: None,
             throttling_parameter,
             challenge: YouTubeChallengeKind::ThrottlingParameter,
+            stream_template: media_stream_from_format(format, url, request_headers),
         });
+        return;
     }
 
     streams.push(media_stream_from_format(format, url, request_headers));
@@ -667,6 +676,8 @@ fn manifest_stream(
 }
 
 fn parse_pending_format(
+    format: &Value,
+    request_headers: &BTreeMap<String, String>,
     itag: Option<u64>,
     mime_type: Option<String>,
     cipher: &str,
@@ -693,6 +704,12 @@ fn parse_pending_format(
         (false, true) | (false, false) => YouTubeChallengeKind::ThrottlingParameter,
     };
 
+    let stream_template = media_stream_from_format(
+        format,
+        cipher_url.as_deref().unwrap_or_default(),
+        request_headers,
+    );
+
     YouTubePendingFormat {
         itag,
         mime_type,
@@ -701,6 +718,7 @@ fn parse_pending_format(
         signature_parameter,
         throttling_parameter,
         challenge,
+        stream_template,
     }
 }
 
@@ -1072,6 +1090,23 @@ var ytInitialPlayerResponse = {"videoDetails":{"title":"NOVA","videoId":"dQw4w9W
             signature_parameter: Some("sig".to_owned()),
             throttling_parameter: None,
             challenge: YouTubeChallengeKind::Signature,
+            stream_template: MediaStream {
+                id: "youtube-itag-137".to_owned(),
+                kind: MediaTrackKind::Video,
+                protocol: MediaProtocol::Https,
+                url: "https://video.test/1080.mp4".to_owned(),
+                container: Some("mp4".to_owned()),
+                video_codec: Some("avc1".to_owned()),
+                audio_codec: None,
+                width: Some(1920),
+                height: Some(1080),
+                fps: Some(60.0),
+                bitrate_bps: Some(4_500_000),
+                audio_bitrate_bps: None,
+                content_length: None,
+                language: None,
+                headers: BTreeMap::new(),
+            },
         });
 
         assert_eq!(
