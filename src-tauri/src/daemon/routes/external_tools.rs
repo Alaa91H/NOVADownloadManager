@@ -347,6 +347,7 @@ async fn handle_check_capability(
             | "media.format_discovery"
             | "media.platform_extraction"
             | "media.direct_url_resolution"
+            | "media.media_probe"
     ) {
         return Ok(Json(serde_json::json!({
             "capabilityId": capability_id,
