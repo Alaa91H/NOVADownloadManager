@@ -4,9 +4,8 @@ use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use crate::{
-    AudioParameters, MediaCodec, MediaDemuxer, MediaMuxResult, MediaMuxer, MediaPacket,
+    MediaCodec, MediaDemuxer, MediaMuxResult, MediaMuxer, MediaPacket,
     MediaProcessingError, MediaTimeBase, MediaTrack, MediaTrackKind, MediaTimestamp,
-    VideoParameters,
 };
 
 const MOVIE_TIMESCALE: u32 = 1000;
@@ -37,7 +36,6 @@ pub struct Mp4Muxer {
     tracks: BTreeMap<u32, OutputTrack>,
     next_track_id: u32,
     packets_written: u64,
-    media_bytes_written: u64,
     finalized: bool,
 }
 
@@ -74,7 +72,6 @@ impl Mp4Muxer {
             tracks: BTreeMap::new(),
             next_track_id: 1,
             packets_written: 0,
-            media_bytes_written: 0,
             finalized: false,
         })
     }
@@ -160,7 +157,13 @@ impl MediaMuxer for Mp4Muxer {
             let expected_dts = track
                 .samples
                 .last()
-                .map(|sample| sample.dts + i64::from(sample.duration));
+                .map(|sample| {
+                    sample
+                        .dts
+                        .checked_add(i64::from(sample.duration))
+                        .ok_or_else(|| mux_error("MP4 DTS overflow"))
+                })
+                .transpose()?;
             (track.track.time_base, track.samples.len(), expected_dts)
         };
 
@@ -205,10 +208,6 @@ impl MediaMuxer for Mp4Muxer {
             .packets_written
             .checked_add(1)
             .ok_or_else(|| mux_error("MP4 packet counter overflow"))?;
-        self.media_bytes_written = self
-            .media_bytes_written
-            .checked_add(u64::from(packet_size))
-            .ok_or_else(|| mux_error("MP4 media byte counter overflow"))?;
         Ok(())
     }
 
@@ -228,12 +227,12 @@ impl MediaMuxer for Mp4Muxer {
             .checked_sub(self.mdat_offset)
             .ok_or_else(|| mux_error("invalid MP4 mdat position"))?;
 
+        let extended_size_offset = self
+            .mdat_offset
+            .checked_add(8)
+            .ok_or_else(|| mux_error("MP4 mdat header offset overflow"))?;
         self.file_mut()?
-            .seek(SeekFrom::Start(
-                self.mdat_offset
-                    .checked_add(8)
-                    .ok_or_else(|| mux_error("MP4 mdat header offset overflow"))?,
-            ))
+            .seek(SeekFrom::Start(extended_size_offset))
             .map_err(io_error)?;
         self.file_mut()?
             .write_all(&mdat_size.to_be_bytes())
@@ -960,7 +959,8 @@ fn io_error(error: std::io::Error) -> MediaProcessingError {
 mod tests {
     use super::*;
     use crate::{
-        MediaContainer, MediaDemuxer, MediaPacketFlags, MediaProbe, VideoParameters,
+        AudioParameters, MediaContainer, MediaDemuxer, MediaPacketFlags, MediaProbe,
+        VideoParameters,
     };
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -994,7 +994,7 @@ mod tests {
         MediaTrack {
             id,
             kind: MediaTrackKind::Audio,
-            codec: MediaCodec::Mp3,
+            codec: MediaCodec::Aac,
             time_base: MediaTimeBase::new(1, 48_000).expect("time base"),
             language: Some("eng".to_owned()),
             video: None,
@@ -1003,7 +1003,7 @@ mod tests {
                 channels: 2,
                 bitrate_bps: None,
             }),
-            codec_private: Vec::new(),
+            codec_private: vec![0, 0, 0, 0],
         }
     }
 
