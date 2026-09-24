@@ -3,7 +3,6 @@ use crate::{
     TorrentResumeCheckpoint, TorrentStorageManifest, load_checkpoint_recovering,
     load_storage_manifest, save_checkpoint_atomic, save_storage_manifest_atomic,
 };
-use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
