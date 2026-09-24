@@ -152,6 +152,7 @@ pub struct PeerEngine {
     config: PeerEngineConfig,
     reputation: Arc<Mutex<PeerReputationBook>>,
     connection_slots: Arc<Semaphore>,
+    allow_private_network: bool,
 }
 
 impl PeerEngine {
@@ -161,6 +162,7 @@ impl PeerEngine {
             config,
             reputation: Arc::new(Mutex::new(PeerReputationBook::default())),
             connection_slots: Arc::new(Semaphore::new(limit)),
+            allow_private_network: private_network_allowed(),
         }
     }
 
@@ -194,15 +196,17 @@ impl PeerEngine {
         for address in ranked {
             let permit = self.connection_slots.clone();
             let config = self.config.session.clone();
+            let allow_private_network = self.allow_private_network;
             let child_cancel = cancel.child_token();
             tasks.spawn(async move {
                 let connection_permit = permit.acquire_owned().await.ok()?;
-                let result = PeerSession::connect(
+                let result = PeerSession::connect_with_policy(
                     address,
                     info_hash,
                     local_peer_id,
                     piece_count,
                     config,
+                    allow_private_network,
                     &child_cancel,
                 )
                 .await
@@ -271,12 +275,13 @@ impl PeerEngine {
                 }
             };
 
-            let mut session = match PeerSession::connect(
+            let mut session = match PeerSession::connect_with_policy(
                 address,
                 metainfo.info_hash,
                 local_peer_id,
                 piece_count,
                 self.config.session.clone(),
+                self.allow_private_network,
                 cancel,
             )
             .await
@@ -312,6 +317,17 @@ impl PeerEngine {
             "All eligible peers failed for piece {piece_index}: {}",
             failures.join("; ")
         ))
+    }
+
+    #[cfg(test)]
+    fn for_tests(config: PeerEngineConfig) -> Self {
+        let limit = config.max_outbound_connections.max(1);
+        Self {
+            config,
+            reputation: Arc::new(Mutex::new(PeerReputationBook::default())),
+            connection_slots: Arc::new(Semaphore::new(limit)),
+            allow_private_network: true,
+        }
     }
 
     async fn record_failure(&self, address: SocketAddr, error: &str) {
@@ -1083,6 +1099,104 @@ mod tests {
             .expect_err("unsolicited block");
         assert!(error.contains("unsolicited block"));
         server.await.unwrap();
+    }
+
+    async fn serve_single_piece(
+        listener: TcpListener,
+        info_hash: InfoHash,
+        payload: &'static [u8],
+    ) {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut handshake = [0u8; PEER_HANDSHAKE_LEN];
+        stream.read_exact(&mut handshake).await.unwrap();
+        let remote = PeerHandshake::new(info_hash, *b"-NVTEST-REMOTE-00001");
+        stream.write_all(&remote.encode()).await.unwrap();
+
+        let _interested = read_peer_frame(
+            &mut stream,
+            Duration::from_secs(2),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        stream
+            .write_all(&PeerMessage::Unchoke.encode().unwrap())
+            .await
+            .unwrap();
+        let request = read_peer_frame(
+            &mut stream,
+            Duration::from_secs(2),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        let PeerMessage::Request {
+            piece_index,
+            begin,
+            length,
+        } = request
+        else {
+            panic!("expected request");
+        };
+        assert_eq!(length as usize, payload.len());
+        stream
+            .write_all(
+                &PeerMessage::Piece {
+                    piece_index,
+                    begin,
+                    block: payload.to_vec(),
+                }
+                .encode()
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn peer_engine_evicts_corrupt_peer_and_fails_over_to_verified_peer() {
+        let metainfo = test_metainfo();
+        let listener_a = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let listener_b = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address_a = listener_a.local_addr().unwrap();
+        let address_b = listener_b.local_addr().unwrap();
+
+        let (bad_listener, bad_address, good_listener, good_address) =
+            if address_a < address_b {
+                (listener_a, address_a, listener_b, address_b)
+            } else {
+                (listener_b, address_b, listener_a, address_a)
+            };
+
+        let bad_hash = metainfo.info_hash;
+        let good_hash = metainfo.info_hash;
+        let bad_server =
+            tokio::spawn(serve_single_piece(bad_listener, bad_hash, b"XXXXXXXX"));
+        let good_server =
+            tokio::spawn(serve_single_piece(good_listener, good_hash, b"abcdefgh"));
+
+        let engine = PeerEngine::for_tests(PeerEngineConfig {
+            session: test_config(),
+            max_outbound_connections: 2,
+        });
+        let cancel = CancellationToken::new();
+        let result = engine
+            .download_piece_from_candidates(
+                &[bad_address, good_address],
+                &metainfo,
+                0,
+                *b"-NV0001-123456789012",
+                &cancel,
+            )
+            .await
+            .expect("fallback to verified peer");
+
+        assert_eq!(result.address, good_address);
+        assert_eq!(result.bytes, b"abcdefgh");
+        assert!(engine.reputation(bad_address).await.should_evict());
+        assert_eq!(engine.reputation(good_address).await.successful_pieces, 1);
+        bad_server.await.unwrap();
+        good_server.await.unwrap();
     }
 
     #[test]
