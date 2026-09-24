@@ -39,6 +39,10 @@ impl Extractor for NativeMediaExtractor {
         validate_native_options(options).map_err(ValidateError)
     }
 
+    fn allow_validation_fallback(&self) -> bool {
+        false
+    }
+
     fn engine_status(&self, _state: &SharedState) -> EngineStatus {
         EngineStatus {
             id: "nova-media-engine".to_owned(),
@@ -73,13 +77,9 @@ pub async fn create_native_media_task(
         .await
         .map_err(|error| format!("Native media resolver worker failed: {error}"))?;
 
-    let resolved = match resolution {
-        Ok(resolved) => resolved,
-        Err(reason) => {
-            log::debug!("Native media path deferred to Media Bridge: {reason}");
-            return crate::daemon::media_bridge::create_media_bridge_task(state, body).await;
-        }
-    };
+    let resolved = resolution.map_err(|reason| {
+        format!("NOVA Media Engine could not execute this request natively: {reason}")
+    })?;
 
     let mut direct = body.clone();
     direct.url = Some(resolved.url);
@@ -401,7 +401,7 @@ mod tests {
     }
 
     #[test]
-    fn advanced_media_option_defers_to_bridge() {
+    fn advanced_media_option_is_rejected_by_native_engine() {
         let mut body = body("https://cdn.test/video.mp4");
         body.media_options.as_mut().expect("media").subtitles = Some(true);
         assert!(NativeMediaExtractor.validate(&body).is_err());
