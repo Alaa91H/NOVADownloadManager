@@ -193,26 +193,17 @@ pub async fn create_native_media_task(
     body: &CreateDownloadBody,
 ) -> Result<Task, NativeMediaTaskError> {
     let owned = body.clone();
-    let mut resolved = tokio::task::spawn_blocking(move || resolve_native_media(&owned))
+    let resolved = tokio::task::spawn_blocking(move || resolve_native_media(&owned))
         .await
         .map_err(|error| NativeMediaTaskError::Worker(error.to_string()))??;
 
     if matches!(resolved, ResolvedNativeMedia::SeparateTracks(_)) {
         let postprocessor = FfmpegPostProcessor::new(state.ffmpeg_binary());
         if !postprocessor.is_available() {
-            let mut fallback = body.clone();
-            if let Some(options) = fallback.media_options.as_mut() {
-                options.ffmpeg_enabled = Some(false);
-            }
-            let fallback_resolved = tokio::task::spawn_blocking(move || resolve_native_media(&fallback))
-                .await
-                .map_err(|error| NativeMediaTaskError::Worker(error.to_string()))?;
-            resolved = fallback_resolved.map_err(|_| {
-                NativeMediaTaskError::UnsupportedFeature(
-                    "high-quality separate tracks require the NOVA post-processing muxer, and no usable FFmpeg installation is currently available"
-                        .to_owned(),
-                )
-            })?;
+            return Err(NativeMediaTaskError::UnsupportedFeature(
+                "the selected quality requires separate audio/video tracks, but the NOVA post-processing muxer is not available"
+                    .to_owned(),
+            ));
         }
     }
 
@@ -659,6 +650,20 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
     });
 }
 
+fn handle_native_transition_error(
+    state: &SharedState,
+    id: &str,
+    generation: u64,
+    error: String,
+    should_stop: bool,
+) {
+    if should_stop {
+        finish_native_cancelled(state, id, generation);
+    } else {
+        fail_native_task(state, id, generation, error);
+    }
+}
+
 fn run_native_media_worker(
     state: SharedState,
     id: String,
@@ -677,7 +682,13 @@ fn run_native_media_worker(
     if let Err(error) =
         transition_native_task(&state, &id, generation, TaskState::Probing, "resolving-media")
     {
-        fail_native_task(&state, &id, generation, error);
+        handle_native_transition_error(
+            &state,
+            &id,
+            generation,
+            error,
+            paused_or_stale(),
+        );
         return;
     }
 
@@ -696,7 +707,13 @@ fn run_native_media_worker(
     if let Err(error) =
         transition_native_task(&state, &id, generation, TaskState::Downloading, "downloading")
     {
-        fail_native_task(&state, &id, generation, error);
+        handle_native_transition_error(
+            &state,
+            &id,
+            generation,
+            error,
+            paused_or_stale(),
+        );
         return;
     }
 
@@ -745,7 +762,13 @@ fn run_native_media_worker(
                         TaskState::Verifying,
                         "verifying-staged-media",
                     ) {
-                        fail_native_task(&state, &id, generation, error);
+                        handle_native_transition_error(
+                            &state,
+                            &id,
+                            generation,
+                            error,
+                            paused_or_stale(),
+                        );
                         return;
                     }
                     if let Err(error) = verify_staged_parts(&staged.parts, staged.staged_bytes) {
@@ -763,13 +786,24 @@ fn run_native_media_worker(
                         TaskState::Finalizing,
                         "assembling-media",
                     ) {
-                        fail_native_task(&state, &id, generation, error);
+                        handle_native_transition_error(
+                            &state,
+                            &id,
+                            generation,
+                            error,
+                            paused_or_stale(),
+                        );
                         return;
                     }
                     match assemble_ordered_parts(&staged.parts, &output_path) {
                         Ok(assembly) => {
-                            complete_native_task(&state, &id, generation, assembly.bytes);
-                            let _ = std::fs::remove_dir_all(&staging_dir);
+                            if paused_or_stale() {
+                                finish_native_cancelled(&state, &id, generation);
+                                return;
+                            }
+                            if complete_native_task(&state, &id, generation, assembly.bytes) {
+                                let _ = std::fs::remove_dir_all(&staging_dir);
+                            }
                         }
                         Err(error) => {
                             fail_native_task(&state, &id, generation, error.to_string())
@@ -912,7 +946,13 @@ fn run_native_separate_track_execution(
         TaskState::Verifying,
         "verifying-audio-video-tracks",
     ) {
-        fail_native_task(state, id, generation, error);
+        handle_native_transition_error(
+            state,
+            id,
+            generation,
+            error,
+            should_cancel(),
+        );
         return;
     }
     if let Err(error) = verify_native_track(&output.0, output.2, "video")
@@ -934,7 +974,13 @@ fn run_native_separate_track_execution(
         TaskState::Finalizing,
         "muxing-audio-video",
     ) {
-        fail_native_task(state, id, generation, error);
+        handle_native_transition_error(
+            state,
+            id,
+            generation,
+            error,
+            should_cancel(),
+        );
         return;
     }
 
@@ -945,8 +991,9 @@ fn run_native_separate_track_execution(
     };
     match postprocessor.mux(&request, &should_cancel) {
         Ok(bytes) => {
-            complete_native_task(state, id, generation, bytes);
-            let _ = std::fs::remove_dir_all(staging_dir);
+            if complete_native_task(state, id, generation, bytes) {
+                let _ = std::fs::remove_dir_all(staging_dir);
+            }
         }
         Err(PostProcessError::Cancelled) if should_cancel() => {
             finish_native_cancelled(state, id, generation)
@@ -1801,37 +1848,73 @@ fn fail_native_task(state: &SharedState, id: &str, generation: u64, error: Strin
     state.mark_dirty();
 }
 
-fn complete_native_task(state: &SharedState, id: &str, generation: u64, bytes: u64) {
-    let task = {
+fn complete_native_task(state: &SharedState, id: &str, generation: u64, bytes: u64) -> bool {
+    enum Completion {
+        Completed(Task),
+        Paused(Task),
+        Stale,
+    }
+
+    let completion = {
         let mut jobs = match state.native_media_jobs.lock() {
             Ok(jobs) => jobs,
-            Err(_) => return,
+            Err(_) => return false,
         };
         let Some(job) = jobs.get_mut(id) else {
-            return;
+            return false;
         };
         if job.run_generation.load(Ordering::Acquire) != generation {
-            return;
+            Completion::Stale
+        } else {
+            let current = TaskState::from_status(&job.task.status);
+            if matches!(current, Some(TaskState::Pausing | TaskState::Paused)) {
+                if current == Some(TaskState::Pausing) {
+                    let _ = transition_task_state(&mut job.task, TaskState::Paused, "paused");
+                }
+                job.task.speed_bytes_per_sec = 0;
+                Completion::Paused(job.task.clone())
+            } else {
+                job.task.size_bytes = bytes;
+                job.task.downloaded_bytes = bytes;
+                job.task.speed_bytes_per_sec = 0;
+                job.task.time_left_seconds = 0;
+                job.task.error_message = None;
+                if let Err(error) =
+                    transition_task_state(&mut job.task, TaskState::Completed, "completed")
+                {
+                    log::error!("Native media task {id}: completion transition rejected: {error}");
+                    return false;
+                }
+                Completion::Completed(job.task.clone())
+            }
         }
-        job.task.size_bytes = bytes;
-        job.task.downloaded_bytes = bytes;
-        job.task.speed_bytes_per_sec = 0;
-        job.task.time_left_seconds = 0;
-        job.task.error_message = None;
-        if transition_task_state(&mut job.task, TaskState::Completed, "completed").is_err() {
-            return;
-        }
-        job.task.clone()
     };
-    if let Ok(mut snapshot) = state.task_snapshot.lock() {
-        snapshot.insert(id.to_owned(), task);
+
+    match completion {
+        Completion::Completed(task) => {
+            if let Ok(mut snapshot) = state.task_snapshot.lock() {
+                snapshot.insert(id.to_owned(), task);
+            }
+            state.priority_queue.stop_download(id);
+            if let Ok(mut stats) = state.download_stats.lock() {
+                stats.total_completed = stats.total_completed.saturating_add(1);
+                stats.total_downloaded_bytes =
+                    stats.total_downloaded_bytes.saturating_add(bytes);
+            }
+            state.mark_dirty();
+            true
+        }
+        Completion::Paused(task) => {
+            if let Ok(mut snapshot) = state.task_snapshot.lock() {
+                snapshot.insert(id.to_owned(), task);
+            }
+            state.priority_queue.release_active_slot();
+            state.mark_dirty();
+            crate::daemon::persist::save_now(state.as_ref());
+            false
+        }
+        Completion::Stale => false,
     }
-    state.priority_queue.stop_download(id);
-    if let Ok(mut stats) = state.download_stats.lock() {
-        stats.total_completed = stats.total_completed.saturating_add(1);
-        stats.total_downloaded_bytes = stats.total_downloaded_bytes.saturating_add(bytes);
-    }
-    state.mark_dirty();
 }
 
 pub(crate) fn is_native_manifest_url(url: &str) -> bool {
@@ -1932,7 +2015,7 @@ fn resolve_native_media(
             .media_options
             .as_ref()
             .and_then(|options| options.ffmpeg_enabled)
-            .unwrap_or(true);
+            .unwrap_or(false);
         let plan = select_youtube_download_plan(
             &extraction,
             YouTubeSelectionPolicy {

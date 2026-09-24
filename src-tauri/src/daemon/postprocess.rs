@@ -178,6 +178,11 @@ impl MediaPostProcessor for FfmpegPostProcessor {
             }
         }
 
+        if should_cancel() {
+            let _ = std::fs::remove_file(&temp);
+            return Err(PostProcessError::Cancelled);
+        }
+
         let bytes = std::fs::metadata(&temp)
             .map_err(|error| PostProcessError::Io(error.to_string()))?
             .len();
@@ -227,6 +232,72 @@ mod tests {
             mux_temp_path(Path::new("clip.webm")),
             PathBuf::from("clip.nova-mux.tmp.webm")
         );
+    }
+
+    #[test]
+    fn mux_command_is_copy_only_and_uses_explicit_track_mapping() {
+        let processor = FfmpegPostProcessor::new("ffmpeg");
+        let request = MediaMuxRequest {
+            video_path: PathBuf::from("video.track"),
+            audio_path: PathBuf::from("audio.track"),
+            destination: PathBuf::from("output.mp4"),
+        };
+        let command =
+            processor.build_mux_command(&request, Path::new("output.nova-mux.tmp.mp4"));
+        let args = command
+            .get_args()
+            .map(|value| value.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-i" && pair[1] == "video.track"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-i" && pair[1] == "audio.track"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-map" && pair[1] == "0:v:0"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-map" && pair[1] == "1:a:0"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-c" && pair[1] == "copy"));
+        assert!(!args.iter().any(|arg| arg == "-filter_complex"));
+        assert_eq!(
+            args.last().map(String::as_str),
+            Some("output.nova-mux.tmp.mp4")
+        );
+    }
+
+    #[test]
+    fn mux_honors_cancellation_before_process_spawn() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("nova-postprocess-cancel-{unique}"));
+        std::fs::create_dir_all(&dir).expect("create postprocess dir");
+        let video = dir.join("video.part");
+        let audio = dir.join("audio.part");
+        std::fs::write(&video, b"video").expect("video input");
+        std::fs::write(&audio, b"audio").expect("audio input");
+
+        let processor = FfmpegPostProcessor::new("__must_not_spawn__");
+        let error = processor
+            .mux(
+                &MediaMuxRequest {
+                    video_path: video,
+                    audio_path: audio,
+                    destination: dir.join("output.mp4"),
+                },
+                &|| true,
+            )
+            .expect_err("cancelled mux");
+        assert!(matches!(error, PostProcessError::Cancelled));
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

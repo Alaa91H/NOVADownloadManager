@@ -482,7 +482,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind track server");
         let address = listener.local_addr().expect("track server address");
         let server = std::thread::spawn(move || {
-            for _ in 0..4 {
+            for _ in 0..6 {
                 let (mut socket, _) = listener.accept().expect("accept track request");
                 let mut request = [0_u8; 4096];
                 let read = socket.read(&mut request).expect("read track request");
@@ -562,7 +562,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind audio resume server");
         let address = listener.local_addr().expect("audio resume address");
         let server = std::thread::spawn(move || {
-            for _ in 0..2 {
+            for _ in 0..3 {
                 let (mut socket, _) = listener.accept().expect("accept audio resume request");
                 let mut request = [0_u8; 4096];
                 let read = socket.read(&mut request).expect("read audio resume request");

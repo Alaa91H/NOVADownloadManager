@@ -120,6 +120,10 @@ request URL + authorized headers/cookies
 - end-to-end static DASH single-representation task execution with native staging and atomic assembly;
 - dynamic DASH recording with incremental timeline cursors, pause/resume checkpoints and committed-part recovery;
 - native manifest tasks integrated with the shared task lifecycle, cancellation generation, queue accounting and persisted snapshots;
+- native separate audio/video task execution with parallel track staging, per-track progress and durable completed-track checkpoints;
+- 1080p/1440p/2160p quality selection can choose separate native video/audio tracks when post-processing is explicitly enabled;
+- lossless copy-mux is isolated behind the `NOVA Post-Processing` host interface; the temporary FFmpeg adapter receives local files only and never participates in URL resolution, extraction or authentication;
+- pause/resume during separate-track transfer preserves native partial artifacts, while completed tracks are reused after restart without unnecessary re-download;
 - sensitive native request context is kept in memory and omitted from restart snapshots, forcing reauthorization when needed;
 - `/api/media/native/resolve` GET and POST migration API.
 
@@ -128,7 +132,8 @@ request URL + authorized headers/cookies
 Still isolated behind typed interfaces:
 
 - newly observed throttling/challenge transform families that fall outside the verified native parser subset;
-- multi-track container muxing and HLS/DASH manifests that require separate audio/video representation composition;
+- a fully in-process Rust container muxer that can replace the temporary host post-processing adapter;
+- HLS/DASH manifests that require composing separate audio/video representations into one output;
 - advanced live crash recovery beyond the persisted cursor/committed-part checkpoint implemented by the task path;
 - browser-cookie import and cookie-file loading;
 - codec transcoding;
@@ -137,6 +142,10 @@ Still isolated behind typed interfaces:
 
 Unknown transforms and unsupported protected-media modes fail closed. They are never silently delegated to an unrelated external executable.
 
+### Post-processing boundary
+
+The temporary FFmpeg adapter is **not** a media resolver. NOVA resolves and downloads every selected track first. The adapter receives only local staged file paths and a destination path, uses explicit stream mapping with copy-only muxing, accepts no user-supplied command fragments, and can be cancelled by the task lifecycle. If post-processing is disabled or unavailable, a request that explicitly requires separate tracks fails closed rather than silently delegating extraction or lowering the selected quality.
+
 ## Removal gate for Media Bridge
 
 The temporary bridge can be deleted after native acceptance tests pass for:
@@ -144,7 +153,7 @@ The temporary bridge can be deleted after native acceptance tests pass for:
 - direct media;
 - HLS VOD and live — task path implemented, final cross-platform acceptance still required;
 - DASH VOD and dynamic manifests — task path implemented, final cross-platform acceptance still required;
-- separate audio/video tracks;
+- separate audio/video tracks — native staging/resume/task execution and copy-mux path implemented, final cross-platform acceptance still required;
 - subtitles;
 - byte-range manifests;
 - interrupted-transfer recovery;
