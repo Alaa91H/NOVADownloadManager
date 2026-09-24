@@ -113,6 +113,8 @@ QVariantMap advancedDefaults() {
         {QStringLiteral("proxyPassword"), QString()},
         {QStringLiteral("proxyType"), QStringLiteral("http")},
         {QStringLiteral("proxyTunnel"), false},
+        {QStringLiteral("speedLimiterEnabled"), false},
+        {QStringLiteral("speedLimitKbs"), 0},
         {QStringLiteral("timeoutSec"), 60},
         {QStringLiteral("connectTimeoutSec"), 30},
         {QStringLiteral("retryCount"), 3},
@@ -142,7 +144,12 @@ QVariantMap advancedDefaults() {
         {QStringLiteral("dynamicAllocation"), true},
         {QStringLiteral("bufferSizeKb"), 256},
         {QStringLiteral("loggingEnabled"), false},
-        {QStringLiteral("browserInterceptKeys"), QStringLiteral("Alt")}
+        {QStringLiteral("browserInterceptKeys"), QStringLiteral("Alt")},
+        {QStringLiteral("telegramEnabled"), false},
+        {QStringLiteral("telegramToken"), QString()},
+        {QStringLiteral("telegramChatId"), QString()},
+        {QStringLiteral("telegramApiBase"), QStringLiteral("https://api.telegram.org")},
+        {QStringLiteral("telegramFileUploadLimitMb"), 50}
     };
 }
 
@@ -184,6 +191,8 @@ QVariant normalizedAdvancedValue(const QString &key, const QVariant &candidate) 
         else if (key == QStringLiteral("maxRedirs")) value = qBound(0, value, 1000);
         else if (key == QStringLiteral("dnsCacheTimeoutSec")) value = qBound(0, value, 86400);
         else if (key == QStringLiteral("bufferSizeKb")) value = qBound(16, value, 1024 * 1024);
+        else if (key == QStringLiteral("speedLimitKbs")) value = qBound(0, value, 100000000);
+        else if (key == QStringLiteral("telegramFileUploadLimitMb")) value = qBound(1, value, 2000);
         return value;
     }
 
@@ -355,6 +364,17 @@ void NativeSettings::migrateLegacySettingsIfNeeded() {
             connection.value(QStringLiteral("proxyTunnel"))
         );
 
+        const QJsonObject speedLimiter =
+            connection.value(QStringLiteral("speedLimiter")).toObject();
+        importAdvanced(
+            QStringLiteral("speedLimiterEnabled"),
+            speedLimiter.value(QStringLiteral("enabled"))
+        );
+        importAdvanced(
+            QStringLiteral("speedLimitKbs"),
+            speedLimiter.value(QStringLiteral("maxSpeedKbs"))
+        );
+
         for (auto it = connectionDefaults.begin();
              it != connectionDefaults.end();
              ++it) {
@@ -386,6 +406,27 @@ void NativeSettings::migrateLegacySettingsIfNeeded() {
         for (const QString &key : extraKeys) {
             importAdvanced(key, extra.value(key));
         }
+
+        importAdvanced(
+            QStringLiteral("telegramEnabled"),
+            extra.value(QStringLiteral("tgEnabled"))
+        );
+        importAdvanced(
+            QStringLiteral("telegramToken"),
+            extra.value(QStringLiteral("tgBotToken"))
+        );
+        importAdvanced(
+            QStringLiteral("telegramChatId"),
+            extra.value(QStringLiteral("tgChatId"))
+        );
+        importAdvanced(
+            QStringLiteral("telegramApiBase"),
+            extra.value(QStringLiteral("tgApiBase"))
+        );
+        importAdvanced(
+            QStringLiteral("telegramFileUploadLimitMb"),
+            extra.value(QStringLiteral("tgFileUploadLimitMb"))
+        );
 
         importAdvanced(
             QStringLiteral("tempFolder"),
@@ -642,6 +683,7 @@ bool NativeSettings::exportBackup(const QString &path) const {
 
     QVariantMap advanced = advancedSettings();
     advanced.remove(QStringLiteral("proxyPassword"));
+    advanced.remove(QStringLiteral("telegramToken"));
 
     QJsonObject settings;
     settings.insert(QStringLiteral("defaultSaveDirectory"), defaultSaveDirectory());
@@ -784,7 +826,9 @@ bool NativeSettings::importBackup(const QString &path) {
     const QJsonObject advanced = settings.value(QStringLiteral("advanced")).toObject();
     for (auto it = advanced.begin(); it != advanced.end(); ++it) {
         const QVariant normalized = normalizedAdvancedValue(it.key(), it.value().toVariant());
-        if (normalized.isValid() && it.key() != QStringLiteral("proxyPassword")) {
+        if (normalized.isValid()
+            && it.key() != QStringLiteral("proxyPassword")
+            && it.key() != QStringLiteral("telegramToken")) {
             m_settings.setValue(QStringLiteral("advanced/") + it.key(), normalized);
         }
     }
@@ -955,6 +999,35 @@ void NativeSettings::setDownloadSortKey(const QString &value) {
 
 void NativeSettings::setDownloadSortAscending(bool value) {
     store(QStringLiteral("downloads/sortAscending"), value);
+}
+
+bool NativeSettings::daemonMigrationPending(const QString &area) const {
+    const QString normalized = area.trimmed().toLower();
+    if (normalized != QStringLiteral("telegram")
+        && normalized != QStringLiteral("external-tools")) {
+        return false;
+    }
+    return !m_settings.value(
+        QStringLiteral("migration/daemon/") + normalized,
+        false
+    ).toBool();
+}
+
+void NativeSettings::completeDaemonMigration(const QString &area) {
+    const QString normalized = area.trimmed().toLower();
+    if (normalized != QStringLiteral("telegram")
+        && normalized != QStringLiteral("external-tools")) {
+        return;
+    }
+    m_settings.setValue(
+        QStringLiteral("migration/daemon/") + normalized,
+        true
+    );
+    if (normalized == QStringLiteral("telegram")) {
+        m_settings.remove(QStringLiteral("advanced/telegramToken"));
+    }
+    m_settings.sync();
+    emit settingsChanged();
 }
 
 void NativeSettings::resetToDefaults() {
