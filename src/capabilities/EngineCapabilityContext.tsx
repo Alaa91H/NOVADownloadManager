@@ -293,17 +293,21 @@ function buildSnapshot(
           ? 'libcurl-multi'
           : 'unavailable',
     mediaEngineId:
-      typeof routing?.webMediaAndPlaylists === 'string'
-        ? routing.webMediaAndPlaylists
-        : mediaExtractionReady
-          ? 'nova-media-engine'
-          : 'unavailable',
+      typeof routing?.mediaExtraction === 'string'
+        ? routing.mediaExtraction
+        : typeof routing?.webMediaAndPlaylists === 'string'
+          ? routing.webMediaAndPlaylists
+          : mediaExtractionReady
+            ? 'nova-media-engine'
+            : 'unavailable',
     postProcessorId:
-      typeof routing?.mergeRemuxExtractSubtitles === 'string'
-        ? routing.mergeRemuxExtractSubtitles
-        : postProcessingReady
-          ? 'ffmpeg'
-          : 'unavailable',
+      typeof routing?.postProcessing === 'string'
+        ? routing.postProcessing
+        : typeof routing?.mergeRemuxExtractSubtitles === 'string'
+          ? routing.mergeRemuxExtractSubtitles
+          : postProcessingReady
+            ? 'nova-media-postprocess'
+            : 'unavailable',
     directProtocols,
     directOptionKeys,
     unsupportedDirectOptionKeys,
