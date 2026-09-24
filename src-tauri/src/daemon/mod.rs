@@ -40,7 +40,8 @@ use crate::daemon::state::{AppState, SharedState};
 use crate::daemon::static_files::{serve_asset, serve_index, serve_spa_fallback};
 use crate::daemon::telegram::start_telegram_bot;
 use crate::daemon::types::{
-    transition_task_state, CreateDownloadBody, CurlJob, MediaJob, TaskState, TelegramConfig,
+    transition_task_state, CreateDownloadBody, CurlJob, MediaJob, NativeMediaJob, TaskState,
+    TelegramConfig,
 };
 use crate::lock_or_err;
 
@@ -403,6 +404,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
 
                 let state = AppState {
                     media_jobs: Mutex::new(HashMap::new()),
+                    native_media_jobs: Mutex::new(HashMap::new()),
                     curl_jobs: Mutex::new(HashMap::new()),
                     task_snapshot: Mutex::new(HashMap::new()),
                     capture_reviews: Mutex::new(std::collections::VecDeque::new()),

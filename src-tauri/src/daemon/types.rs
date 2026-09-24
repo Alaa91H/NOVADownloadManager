@@ -191,7 +191,7 @@ pub struct MediaDownloadOptions {
     pub extra_args: Option<String>,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct CreateDownloadBody {
     pub url: Option<String>,
     pub name: Option<String>,
@@ -252,6 +252,15 @@ pub struct MediaJob {
     pub task: Task,
     pub child: Option<u32>,
     pub args: Vec<String>,
+    pub start_time: Instant,
+}
+
+#[derive(Clone)]
+pub struct NativeMediaJob {
+    pub task: Task,
+    pub request: CreateDownloadBody,
+    pub cancel_token: Arc<AtomicBool>,
+    pub run_generation: Arc<AtomicU64>,
     pub start_time: Instant,
 }
 

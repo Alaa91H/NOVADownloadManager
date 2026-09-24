@@ -29,7 +29,9 @@ use crate::daemon::engine::retry::RetryState;
 use crate::daemon::engine::rules::DownloadRuleEngine;
 use crate::daemon::engine::scheduler::SmartScheduler;
 use crate::daemon::engine::self_healing::SelfHealer;
-use crate::daemon::types::{CreateDownloadBody, CurlJob, MediaJob, Task, TelegramConfig};
+use crate::daemon::types::{
+    CreateDownloadBody, CurlJob, MediaJob, NativeMediaJob, Task, TelegramConfig,
+};
 
 /// Browser-originated download data that has passed daemon URL validation but
 /// still requires an explicit user decision in the desktop confirmation dialog.
@@ -58,19 +60,21 @@ const ENGINE_CACHE_TTL_SECS: u64 = 120;
 
 /// Lock ordering (acquire in this order to prevent deadlocks):
 ///   1. `media_jobs`
-///   2. `curl_jobs`
-///   3. `task_snapshot`
-///   4. `engine_trackers`
-///   5. `mirror_managers`
-///   6. `telegram_config` / `telegram_last_update_id`
-///   7. `download_stats`
-///   8. `watchdog_handles`
-///   9. `external_tools`
-///  10. `policy_engine` / `self_healer` / `die_orchestrator` / `resource_manager`
+///   2. `native_media_jobs`
+///   3. `curl_jobs`
+///   4. `task_snapshot`
+///   5. `engine_trackers`
+///   6. `mirror_managers`
+///   7. `telegram_config` / `telegram_last_update_id`
+///   8. `download_stats`
+///   9. `watchdog_handles`
+///  10. `external_tools`
+///  11. `policy_engine` / `self_healer` / `die_orchestrator` / `resource_manager`
 ///
 /// Never acquire a lower-numbered lock while holding a higher-numbered one.
 pub struct AppState {
     pub media_jobs: Mutex<HashMap<String, MediaJob>>,
+    pub native_media_jobs: Mutex<HashMap<String, NativeMediaJob>>,
     pub curl_jobs: Mutex<HashMap<String, CurlJob>>,
     pub task_snapshot: Mutex<HashMap<String, Task>>,
     /// Bounded, ephemeral browser captures awaiting explicit desktop approval.

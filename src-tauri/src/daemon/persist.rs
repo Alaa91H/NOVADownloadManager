@@ -448,6 +448,7 @@ pub(crate) mod tests {
     pub(crate) fn test_state(data_dir: &str) -> AppState {
         AppState {
             media_jobs: Mutex::new(HashMap::new()),
+            native_media_jobs: Mutex::new(HashMap::new()),
             curl_jobs: Mutex::new(HashMap::new()),
             task_snapshot: Mutex::new(HashMap::new()),
             capture_reviews: Mutex::new(std::collections::VecDeque::new()),
