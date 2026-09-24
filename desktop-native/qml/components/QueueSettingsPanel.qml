@@ -128,6 +128,13 @@ Rectangle {
     onQueueChanged: load()
     Component.onCompleted: load()
 
+    Connections {
+        target: api
+        function onEngineManagementChanged() {
+            root.load()
+        }
+    }
+
     GridLayout {
         id: form
         anchors.fill: parent
