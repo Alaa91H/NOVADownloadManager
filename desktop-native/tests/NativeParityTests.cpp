@@ -34,6 +34,7 @@ private slots:
     void mediaDownloadHonorsRuntimeCapabilities();
     void queueCatalogManagementIsDaemonBacked();
     void queueStartStopHonorsMaxActive();
+    void schedulerStatusCarriesCompletionControls();
 };
 
 void NativeParityTests::largeListRemainsResponsive() {
@@ -1205,6 +1206,88 @@ void NativeParityTests::queueStartStopHonorsMaxActive() {
         ),
         3000
     );
+}
+
+
+void NativeParityTests::schedulerStatusCarriesCompletionControls() {
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+    bool powerEnabled = true;
+    bool exitRequested = true;
+    QList<QByteArray> requestBodies;
+
+    connect(&server, &QTcpServer::newConnection, &server, [&]() {
+        while (server.hasPendingConnections()) {
+            QTcpSocket *socket = server.nextPendingConnection();
+            auto *buffer = new QByteArray();
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, [buffer]() { delete buffer; });
+            QObject::connect(socket, &QTcpSocket::readyRead, socket, [&, socket, buffer]() {
+                buffer->append(socket->readAll());
+                const int headerEnd = buffer->indexOf("\r\n\r\n");
+                if (headerEnd < 0) return;
+
+                const QByteArray headers = buffer->left(headerEnd);
+                const QByteArray requestLine = headers.left(headers.indexOf("\r\n"));
+                const QRegularExpression lengthPattern(
+                    QStringLiteral("Content-Length:\\s*(\\d+)"),
+                    QRegularExpression::CaseInsensitiveOption
+                );
+                const auto match = lengthPattern.match(QString::fromLatin1(headers));
+                const int contentLength = match.hasMatch() ? match.captured(1).toInt() : 0;
+                const int bodyStart = headerEnd + 4;
+                if (buffer->size() < bodyStart + contentLength) return;
+
+                const QByteArray body = buffer->mid(bodyStart, contentLength);
+                QByteArray responseBody;
+                if (requestLine.startsWith("GET /api/engine/scheduler ")) {
+                    responseBody = QByteArray(
+                        "{\"ok\":true,\"rules\":[],\"active_rule_ids\":[],"
+                        "\"powerCommandsEnabled\":"
+                    ) + (powerEnabled ? "true" : "false")
+                        + ",\"exitRequested\":"
+                        + (exitRequested ? "true" : "false") + "}";
+                } else if (requestLine.startsWith("POST /api/engine/scheduler/power-commands ")) {
+                    requestBodies.append(body);
+                    const QJsonObject request = QJsonDocument::fromJson(body).object();
+                    powerEnabled = request.value(QStringLiteral("enabled")).toBool();
+                    responseBody = QByteArray(
+                        "{\"ok\":true,\"powerCommandsEnabled\":"
+                    ) + (powerEnabled ? "true}" : "false}");
+                } else {
+                    responseBody = "{\"ok\":true}";
+                }
+
+                socket->write(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
+                    + QByteArray::number(responseBody.size()) + "\r\n\r\n" + responseBody
+                );
+                socket->disconnectFromHost();
+            });
+        }
+    });
+
+    NovaApiClient client;
+    client.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())));
+    QSignalSpy schedulerSpy(&client, &NovaApiClient::schedulerChanged);
+    QSignalSpy exitSpy(&client, &NovaApiClient::schedulerExitRequested);
+
+    client.refreshScheduler();
+    QTRY_VERIFY_WITH_TIMEOUT(schedulerSpy.count() >= 1, 3000);
+    QCOMPARE(client.schedulerPowerCommandsEnabled(), true);
+    QCOMPARE(exitSpy.count(), 1);
+
+    client.refreshScheduler();
+    QTRY_VERIFY_WITH_TIMEOUT(schedulerSpy.count() >= 2, 3000);
+    QCOMPARE(exitSpy.count(), 1);
+
+    exitRequested = false;
+    client.setSchedulerPowerCommandsEnabled(false);
+    QTRY_VERIFY_WITH_TIMEOUT(schedulerSpy.count() >= 3, 3000);
+    QCOMPARE(client.schedulerPowerCommandsEnabled(), false);
+    QVERIFY(!requestBodies.isEmpty());
+    QVERIFY(requestBodies.constLast().contains("\"enabled\":false"));
 }
 
 QTEST_GUILESS_MAIN(NativeParityTests)
