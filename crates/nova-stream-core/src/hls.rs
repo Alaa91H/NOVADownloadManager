@@ -486,7 +486,7 @@ pub fn build_hls_media_plan(manifest: &HlsManifest) -> Result<HlsMediaPlan, HlsP
                     byte_range: init_map.byte_range.clone(),
                     sequence: None,
                     discontinuity: false,
-                    key: None,
+                    key: segment.key.clone(),
                 });
                 order += 1;
             }
