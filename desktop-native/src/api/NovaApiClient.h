@@ -30,8 +30,14 @@ public:
         const QString &savePath,
         bool startImmediately
     );
+    Q_INVOKABLE void updateDownloadMetadata(
+        const QString &id,
+        const QString &name,
+        const QString &url
+    );
     Q_INVOKABLE void pauseDownload(const QString &id);
     Q_INVOKABLE void resumeDownload(const QString &id);
+    Q_INVOKABLE void redownloadDownload(const QString &id);
     Q_INVOKABLE void deleteDownload(const QString &id);
 
 signals:
@@ -41,6 +47,8 @@ signals:
     void taskActionCompleted(const QString &action, const QString &taskId);
     void downloadCreated(const QString &taskId);
     void downloadCreationFailed(const QString &message);
+    void downloadUpdated(const QString &taskId);
+    void downloadUpdateFailed(const QString &message);
 
 private:
     QNetworkRequest makeRequest(const QString &path) const;

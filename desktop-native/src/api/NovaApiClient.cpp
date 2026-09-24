@@ -11,6 +11,22 @@
 #include <QTimer>
 #include <QUrl>
 
+namespace {
+
+QString responseErrorMessage(QNetworkReply *reply, const QByteArray &payload) {
+    const QJsonDocument document = QJsonDocument::fromJson(payload);
+    if (document.isObject()) {
+        const QString serverMessage = document.object().value(QStringLiteral("error")).toString();
+        if (!serverMessage.isEmpty()) {
+            return serverMessage;
+        }
+    }
+
+    return reply->errorString();
+}
+
+} // namespace
+
 NovaApiClient::NovaApiClient(QObject *parent)
     : QObject(parent) {}
 
@@ -126,20 +142,13 @@ void NovaApiClient::createDownload(
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
         const QByteArray payload = reply->readAll();
-        const QJsonDocument document = QJsonDocument::fromJson(payload);
 
         if (reply->error() != QNetworkReply::NoError) {
-            QString message = reply->errorString();
-            if (document.isObject()) {
-                const QString serverMessage = document.object().value(QStringLiteral("error")).toString();
-                if (!serverMessage.isEmpty()) {
-                    message = serverMessage;
-                }
-            }
-            emit downloadCreationFailed(message);
+            emit downloadCreationFailed(responseErrorMessage(reply, payload));
             return;
         }
 
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
         if (!document.isObject()) {
             emit downloadCreationFailed(QStringLiteral("Unexpected create-download response."));
             return;
@@ -147,6 +156,59 @@ void NovaApiClient::createDownload(
 
         const QString taskId = document.object().value(QStringLiteral("id")).toString();
         emit downloadCreated(taskId);
+        refreshDownloads();
+    });
+}
+
+void NovaApiClient::updateDownloadMetadata(
+    const QString &id,
+    const QString &name,
+    const QString &url
+) {
+    const QString trimmedId = id.trimmed();
+    const QString trimmedName = name.trimmed();
+    const QString trimmedUrl = url.trimmed();
+
+    if (trimmedId.isEmpty()) {
+        emit downloadUpdateFailed(QStringLiteral("No download is selected."));
+        return;
+    }
+    if (trimmedName.isEmpty()) {
+        emit downloadUpdateFailed(QStringLiteral("The file name cannot be empty."));
+        return;
+    }
+    if (trimmedUrl.isEmpty()) {
+        emit downloadUpdateFailed(QStringLiteral("The source URL cannot be empty."));
+        return;
+    }
+
+    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(trimmedId));
+    QJsonObject body;
+    body.insert(QStringLiteral("name"), trimmedName);
+    body.insert(QStringLiteral("url"), trimmedUrl);
+
+    auto *reply = m_network.sendCustomRequest(
+        makeRequest(QStringLiteral("/api/downloads/%1").arg(encodedId)),
+        QByteArrayLiteral("PATCH"),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, trimmedId]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+
+        if (reply->error() != QNetworkReply::NoError) {
+            emit downloadUpdateFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit downloadUpdateFailed(QStringLiteral("Unexpected update response."));
+            return;
+        }
+
+        emit downloadUpdated(trimmedId);
         refreshDownloads();
     });
 }
@@ -295,10 +357,13 @@ void NovaApiClient::runTaskAction(const QString &id, const QString &action) {
 
     connect(reply, &QNetworkReply::finished, this, [this, reply, id, action]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+
         if (reply->error() != QNetworkReply::NoError) {
-            emit requestFailed(reply->errorString());
+            emit requestFailed(responseErrorMessage(reply, payload));
             return;
         }
+
         emit taskActionCompleted(action, id);
         refreshDownloads();
     });
@@ -312,6 +377,10 @@ void NovaApiClient::resumeDownload(const QString &id) {
     runTaskAction(id, QStringLiteral("resume"));
 }
 
+void NovaApiClient::redownloadDownload(const QString &id) {
+    runTaskAction(id, QStringLiteral("redownload"));
+}
+
 void NovaApiClient::deleteDownload(const QString &id) {
     if (id.isEmpty()) {
         return;
@@ -322,10 +391,13 @@ void NovaApiClient::deleteDownload(const QString &id) {
 
     connect(reply, &QNetworkReply::finished, this, [this, reply, id]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+
         if (reply->error() != QNetworkReply::NoError) {
-            emit requestFailed(reply->errorString());
+            emit requestFailed(responseErrorMessage(reply, payload));
             return;
         }
+
         emit taskActionCompleted(QStringLiteral("delete"), id);
         refreshDownloads();
     });

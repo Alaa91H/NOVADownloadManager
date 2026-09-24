@@ -9,11 +9,25 @@ Rectangle {
     signal newDownloadRequested()
     signal resumeRequested()
     signal pauseRequested()
+    signal redownloadRequested()
+    signal openFileRequested()
+    signal openFolderRequested()
+    signal propertiesRequested()
     signal deleteRequested()
     signal refreshRequested()
 
     property bool hasSelection: false
     property bool engineConnected: false
+    property string selectedStatus: ""
+    property bool hasSavePath: false
+
+    readonly property string normalizedStatus: selectedStatus.toLowerCase()
+    readonly property bool canOpenFile: hasSelection
+        && hasSavePath
+        && normalizedStatus === "completed"
+    readonly property bool failedSelection: normalizedStatus === "failed"
+        || normalizedStatus === "error"
+        || normalizedStatus === "interrupted"
 
     implicitHeight: Theme.commandHeight
     color: Theme.window
@@ -22,7 +36,7 @@ Rectangle {
         anchors.fill: parent
         anchors.leftMargin: 14
         anchors.rightMargin: 14
-        spacing: 6
+        spacing: 4
 
         Button {
             text: "+  New download"
@@ -62,6 +76,36 @@ Rectangle {
             flat: true
             enabled: root.hasSelection && root.engineConnected
             onClicked: root.pauseRequested()
+        }
+
+        Button {
+            text: root.failedSelection ? "Retry" : "Redownload"
+            flat: true
+            enabled: root.hasSelection && root.engineConnected
+            onClicked: root.redownloadRequested()
+        }
+
+        ToolSeparator {}
+
+        Button {
+            text: "Open"
+            flat: true
+            enabled: root.canOpenFile
+            onClicked: root.openFileRequested()
+        }
+
+        Button {
+            text: "Folder"
+            flat: true
+            enabled: root.hasSelection && root.hasSavePath
+            onClicked: root.openFolderRequested()
+        }
+
+        Button {
+            text: "Properties"
+            flat: true
+            enabled: root.hasSelection
+            onClicked: root.propertiesRequested()
         }
 
         Button {

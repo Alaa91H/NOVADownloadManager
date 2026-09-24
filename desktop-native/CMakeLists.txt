@@ -14,6 +14,8 @@ qt_add_executable(nova-native
     src/api/NovaApiClient.h
     src/models/DownloadListModel.cpp
     src/models/DownloadListModel.h
+    src/platform/DesktopIntegration.cpp
+    src/platform/DesktopIntegration.h
 )
 
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
@@ -27,7 +29,9 @@ qt_add_qml_module(nova-native
         qml/components/AddDownloadDialog.qml
         qml/components/CommandBar.qml
         qml/components/ConfirmDeleteDialog.qml
+        qml/components/ConfirmRedownloadDialog.qml
         qml/components/DownloadDetailsPanel.qml
+        qml/components/DownloadPropertiesDialog.qml
         qml/components/NavigationRail.qml
         qml/components/StatusBar.qml
         qml/pages/DownloadsPage.qml

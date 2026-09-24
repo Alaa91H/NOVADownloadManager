@@ -15,6 +15,11 @@ Item {
     property string query: ""
     property string pendingDeleteId: ""
     property string pendingDeleteName: ""
+    property string pendingRedownloadId: ""
+    property string pendingRedownloadName: ""
+    property bool pendingRedownloadRetryMode: false
+    property string noticeText: ""
+    property bool noticeIsError: false
 
     function pageTitle() {
         if (page === "active") return "Active downloads"
@@ -72,9 +77,31 @@ Item {
         selectedItem = downloads.itemAt(selectedIndex)
     }
 
+    function selectRow(index) {
+        selectedIndex = index
+        updateSelection()
+    }
+
     function applyPageFilter() {
         clearSelection()
         downloads.filterState = page
+    }
+
+    function showNotice(message, isError) {
+        noticeText = message
+        noticeIsError = isError
+        noticeTimer.restart()
+    }
+
+    function selectedTaskId() {
+        return selectedIndex >= 0 ? downloads.taskIdAt(selectedIndex) : ""
+    }
+
+    function isRetryStatus(status) {
+        const normalized = (status || "").toLowerCase()
+        return normalized === "failed"
+            || normalized === "error"
+            || normalized === "interrupted"
     }
 
     function requestDelete() {
@@ -82,10 +109,40 @@ Item {
             return
 
         updateSelection()
-        pendingDeleteId = downloads.taskIdAt(selectedIndex)
+        pendingDeleteId = selectedTaskId()
         pendingDeleteName = selectedItem.name || "Selected download"
         if (pendingDeleteId.length > 0)
             deleteDialog.open()
+    }
+
+    function requestRedownload() {
+        if (selectedIndex < 0 || !api.connected)
+            return
+
+        updateSelection()
+        pendingRedownloadId = selectedTaskId()
+        pendingRedownloadName = selectedItem.name || "Selected download"
+        pendingRedownloadRetryMode = isRetryStatus(selectedItem.status)
+        if (pendingRedownloadId.length > 0)
+            redownloadDialog.open()
+    }
+
+    function openSelectedFile() {
+        updateSelection()
+        if ((selectedItem.savePath || "").length > 0)
+            desktopIntegration.openFile(selectedItem.savePath)
+    }
+
+    function revealSelectedFile() {
+        updateSelection()
+        if ((selectedItem.savePath || "").length > 0)
+            desktopIntegration.revealInFolder(selectedItem.savePath)
+    }
+
+    function showSelectedProperties() {
+        updateSelection()
+        if (selectedIndex >= 0)
+            propertiesDialog.openFor(selectedItem)
     }
 
     Component.onCompleted: {
@@ -107,6 +164,43 @@ Item {
         }
     }
 
+    Connections {
+        target: root.api
+
+        function onRequestFailed(message) {
+            root.showNotice(message, true)
+        }
+
+        function onTaskActionCompleted(action, taskId) {
+            if (action === "redownload")
+                root.showNotice("Download restarted from the beginning.", false)
+            else if (action === "pause")
+                root.showNotice("Download paused.", false)
+            else if (action === "resume")
+                root.showNotice("Download resumed.", false)
+            else if (action === "delete")
+                root.showNotice("Download removed.", false)
+        }
+
+        function onDownloadUpdated(taskId) {
+            root.showNotice("Download properties updated.", false)
+        }
+    }
+
+    Connections {
+        target: desktopIntegration
+
+        function onOperationFailed(action, message) {
+            root.showNotice(message, true)
+        }
+    }
+
+    Timer {
+        id: noticeTimer
+        interval: 4500
+        onTriggered: root.noticeText = ""
+    }
+
     Shortcut {
         sequence: StandardKey.New
         enabled: root.api.connected && !addDownloadDialog.visible
@@ -125,8 +219,21 @@ Item {
     }
 
     Shortcut {
+        sequence: "Delete"
+        enabled: root.selectedIndex >= 0
+            && root.api.connected
+            && !deleteDialog.visible
+            && !redownloadDialog.visible
+        onActivated: root.requestDelete()
+    }
+
+    Shortcut {
         sequence: "Escape"
-        enabled: root.selectedIndex >= 0 && !addDownloadDialog.visible && !deleteDialog.visible
+        enabled: root.selectedIndex >= 0
+            && !addDownloadDialog.visible
+            && !deleteDialog.visible
+            && !redownloadDialog.visible
+            && !propertiesDialog.visible
         onActivated: root.clearSelection()
     }
 
@@ -210,7 +317,7 @@ Item {
                 }
 
                 Button {
-                    text: "Retry"
+                    text: "Retry connection"
                     flat: true
                     onClicked: {
                         root.api.checkHealth()
@@ -220,20 +327,61 @@ Item {
             }
         }
 
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 34
+            Layout.leftMargin: 14
+            Layout.rightMargin: 14
+            visible: root.noticeText.length > 0
+            radius: Theme.radiusMedium
+            color: root.noticeIsError
+                ? Qt.rgba(0.97, 0.32, 0.29, 0.10)
+                : Qt.rgba(0.25, 0.73, 0.31, 0.10)
+            border.color: root.noticeIsError ? Theme.danger : Theme.success
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 10
+                anchors.rightMargin: 8
+
+                Text {
+                    Layout.fillWidth: true
+                    text: root.noticeText
+                    color: root.noticeIsError ? Theme.danger : Theme.success
+                    font.pixelSize: 10
+                    elide: Text.ElideRight
+                }
+
+                ToolButton {
+                    text: "×"
+                    onClicked: root.noticeText = ""
+                }
+            }
+        }
+
         CommandBar {
             Layout.fillWidth: true
             hasSelection: root.selectedIndex >= 0
             engineConnected: root.api.connected
+            selectedStatus: root.selectedItem.status || ""
+            hasSavePath: (root.selectedItem.savePath || "").length > 0
+
             onNewDownloadRequested: addDownloadDialog.openNew()
             onRefreshRequested: root.api.refreshDownloads()
             onPauseRequested: {
-                if (root.selectedIndex >= 0)
-                    root.api.pauseDownload(root.downloads.taskIdAt(root.selectedIndex))
+                const id = root.selectedTaskId()
+                if (id.length > 0)
+                    root.api.pauseDownload(id)
             }
             onResumeRequested: {
-                if (root.selectedIndex >= 0)
-                    root.api.resumeDownload(root.downloads.taskIdAt(root.selectedIndex))
+                const id = root.selectedTaskId()
+                if (id.length > 0)
+                    root.api.resumeDownload(id)
             }
+            onRedownloadRequested: root.requestRedownload()
+            onOpenFileRequested: root.openSelectedFile()
+            onOpenFolderRequested: root.revealSelectedFile()
+            onPropertiesRequested: root.showSelectedProperties()
             onDeleteRequested: root.requestDelete()
         }
 
@@ -295,6 +443,7 @@ Item {
                             required property double progress
                             required property double speedBytesPerSec
                             required property int etaSeconds
+                            required property string savePath
 
                             width: list.width
                             height: Theme.rowHeight
@@ -397,14 +546,92 @@ Item {
                                 }
                             }
 
+                            Menu {
+                                id: rowMenu
+
+                                MenuItem {
+                                    text: "Open file"
+                                    enabled: status === "completed" && savePath.length > 0
+                                    onTriggered: {
+                                        root.selectRow(index)
+                                        root.openSelectedFile()
+                                    }
+                                }
+
+                                MenuItem {
+                                    text: "Show in folder"
+                                    enabled: savePath.length > 0
+                                    onTriggered: {
+                                        root.selectRow(index)
+                                        root.revealSelectedFile()
+                                    }
+                                }
+
+                                MenuItem {
+                                    text: "Properties"
+                                    onTriggered: {
+                                        root.selectRow(index)
+                                        root.showSelectedProperties()
+                                    }
+                                }
+
+                                MenuSeparator {}
+
+                                MenuItem {
+                                    text: "Resume"
+                                    enabled: root.api.connected
+                                    onTriggered: {
+                                        root.selectRow(index)
+                                        root.api.resumeDownload(taskId)
+                                    }
+                                }
+
+                                MenuItem {
+                                    text: "Pause"
+                                    enabled: root.api.connected
+                                    onTriggered: {
+                                        root.selectRow(index)
+                                        root.api.pauseDownload(taskId)
+                                    }
+                                }
+
+                                MenuItem {
+                                    text: root.isRetryStatus(status) ? "Retry from beginning" : "Redownload from beginning"
+                                    enabled: root.api.connected
+                                    onTriggered: {
+                                        root.selectRow(index)
+                                        root.requestRedownload()
+                                    }
+                                }
+
+                                MenuSeparator {}
+
+                                MenuItem {
+                                    text: "Delete"
+                                    enabled: root.api.connected
+                                    onTriggered: {
+                                        root.selectRow(index)
+                                        root.requestDelete()
+                                    }
+                                }
+                            }
+
                             MouseArea {
                                 id: mouse
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 acceptedButtons: Qt.LeftButton | Qt.RightButton
-                                onClicked: {
-                                    root.selectedIndex = index
-                                    root.updateSelection()
+
+                                onClicked: mouseEvent => {
+                                    root.selectRow(index)
+                                    if (mouseEvent.button === Qt.RightButton)
+                                        rowMenu.popup()
+                                }
+
+                                onDoubleClicked: {
+                                    root.selectRow(index)
+                                    if (status === "completed" && savePath.length > 0)
+                                        root.openSelectedFile()
                                 }
                             }
                         }
@@ -454,12 +681,23 @@ Item {
                 visible: root.selectedIndex >= 0
                 item: root.selectedItem
                 onCloseRequested: root.clearSelection()
+                onOpenFileRequested: root.openSelectedFile()
+                onOpenFolderRequested: root.revealSelectedFile()
+                onPropertiesRequested: root.showSelectedProperties()
             }
         }
     }
 
     AddDownloadDialog {
         id: addDownloadDialog
+        api: root.api
+        parent: Overlay.overlay
+        x: parent ? Math.round((parent.width - width) / 2) : 0
+        y: parent ? Math.round((parent.height - height) / 2) : 0
+    }
+
+    DownloadPropertiesDialog {
+        id: propertiesDialog
         api: root.api
         parent: Overlay.overlay
         x: parent ? Math.round((parent.width - width) / 2) : 0
@@ -479,6 +717,23 @@ Item {
             root.pendingDeleteId = ""
             root.pendingDeleteName = ""
             root.clearSelection()
+        }
+    }
+
+    ConfirmRedownloadDialog {
+        id: redownloadDialog
+        downloadName: root.pendingRedownloadName
+        retryMode: root.pendingRedownloadRetryMode
+        parent: Overlay.overlay
+        x: parent ? Math.round((parent.width - width) / 2) : 0
+        y: parent ? Math.round((parent.height - height) / 2) : 0
+
+        onConfirmed: {
+            if (root.pendingRedownloadId.length > 0)
+                root.api.redownloadDownload(root.pendingRedownloadId)
+            root.pendingRedownloadId = ""
+            root.pendingRedownloadName = ""
+            root.pendingRedownloadRetryMode = false
         }
     }
 }

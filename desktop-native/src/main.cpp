@@ -6,6 +6,7 @@
 
 #include "api/NovaApiClient.h"
 #include "models/DownloadListModel.h"
+#include "platform/DesktopIntegration.h"
 
 int main(int argc, char *argv[]) {
     QGuiApplication app(argc, argv);
@@ -14,6 +15,7 @@ int main(int argc, char *argv[]) {
 
     NovaApiClient apiClient;
     DownloadListModel downloadsModel;
+    DesktopIntegration desktopIntegration;
 
     const QByteArray apiBase = qgetenv("NOVA_API_BASE");
     const QByteArray apiToken = qgetenv("NOVA_API_TOKEN");
@@ -30,6 +32,7 @@ int main(int argc, char *argv[]) {
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("novaApi"), &apiClient);
     engine.rootContext()->setContextProperty(QStringLiteral("downloadsModel"), &downloadsModel);
+    engine.rootContext()->setContextProperty(QStringLiteral("desktopIntegration"), &desktopIntegration);
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
                      &app, []() { QCoreApplication::exit(-1); },

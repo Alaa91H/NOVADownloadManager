@@ -8,8 +8,13 @@ Rectangle {
 
     property var item: ({})
     signal closeRequested()
+    signal openFileRequested()
+    signal openFolderRequested()
+    signal propertiesRequested()
 
     readonly property bool hasItem: item && item.taskId !== undefined && item.taskId !== ""
+    readonly property bool completed: (item.status || "").toLowerCase() === "completed"
+    readonly property bool hasSavePath: (item.savePath || "").length > 0
 
     color: Theme.surface
     border.color: Theme.border
@@ -55,7 +60,7 @@ Rectangle {
 
             Text {
                 Layout.fillWidth: true
-                text: "Details"
+                text: "Task inspector"
                 color: Theme.textPrimary
                 font.pixelSize: 13
                 font.weight: Font.DemiBold
@@ -252,6 +257,33 @@ Rectangle {
                         font.pixelSize: 10
                         wrapMode: Text.WordWrap
                     }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 14
+                    Layout.rightMargin: 14
+                    spacing: 6
+
+                    Button {
+                        text: "Open file"
+                        enabled: root.completed && root.hasSavePath
+                        onClicked: root.openFileRequested()
+                    }
+
+                    Button {
+                        text: "Show in folder"
+                        enabled: root.hasSavePath
+                        onClicked: root.openFolderRequested()
+                    }
+                }
+
+                Button {
+                    Layout.leftMargin: 14
+                    Layout.rightMargin: 14
+                    text: "Properties"
+                    enabled: root.hasItem
+                    onClicked: root.propertiesRequested()
                 }
 
                 Item { Layout.preferredHeight: 12 }
