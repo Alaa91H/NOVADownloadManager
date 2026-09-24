@@ -118,7 +118,8 @@ public:
         const QString &input,
         const QString &saveDirectory,
         int connections,
-        bool startImmediately
+        bool startImmediately,
+        const QVariantMap &batchOptions
     );
 
     Q_INVOKABLE void probeMedia(const QString &url);
@@ -239,6 +240,8 @@ private:
     bool m_batchRunning{false};
     QStringList m_batchUrls;
     QString m_batchSaveDirectory;
+    QString m_batchQueueId{QStringLiteral("main")};
+    QVariantMap m_batchAdvancedOptions;
     int m_batchConnections{0};
     bool m_batchStartImmediately{false};
     int m_batchDuplicateCount{0};
