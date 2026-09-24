@@ -132,6 +132,7 @@ request URL + authorized headers/cookies
 - native remux policy that permits same-container/direct output and compatible copy-mux containers while failing closed when additional post-processing is required;
 - native YouTube playlist probing with continuation pagination, bounded page/entry limits and a first-party `/api/media/probe-playlist` endpoint;
 - native Netscape cookie-file loading with bounded file size and URL-scoped domain, path, secure and expiry filtering;
+- native Firefox `cookies.sqlite` import with profile discovery, read-only SQLite access and URL-scoped domain/path/secure/expiry filtering;
 - sensitive native request context is kept in memory and omitted from restart snapshots, forcing reauthorization when needed;
 - `/api/media/native/resolve` GET and POST migration API.
 
@@ -147,7 +148,7 @@ Still isolated behind typed interfaces:
 - chapter splitting and time-based partial-section extraction;
 - audio transcoding targets such as MP3/FLAC/WAV when no matching source representation exists;
 - advanced live crash recovery beyond the persisted cursor/committed-part checkpoint implemented by the task path;
-- browser-cookie import;
+- Chromium-family browser-cookie import (Chrome/Edge) pending native OS credential decryption; Firefox import is native;
 - additional site adapters;
 - final migration of all legacy media jobs onto the native execution path.
 
