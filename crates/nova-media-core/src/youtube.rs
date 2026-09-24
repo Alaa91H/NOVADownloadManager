@@ -38,10 +38,19 @@ pub struct YouTubePendingFormat {
     pub stream_template: MediaStream,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct MediaChapter {
+    pub title: String,
+    pub start_millis: u64,
+    pub end_millis: Option<u64>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct YouTubeExtraction {
     pub video_id: String,
     pub descriptor: MediaDescriptor,
+    #[serde(default)]
+    pub chapters: Vec<MediaChapter>,
     pub pending_formats: Vec<YouTubePendingFormat>,
     pub player_js_url: Option<String>,
     pub visitor_data: Option<String>,
@@ -736,6 +745,7 @@ fn normalize_player_response(
     }
 
     let subtitles = normalize_captions(player);
+    let chapters = normalize_chapters(player, duration_millis);
     if streams.is_empty() && pending_formats.is_empty() {
         return Err(MediaError::ExtractorFailed {
             extractor: "youtube-native",
@@ -767,6 +777,7 @@ fn normalize_player_response(
             request_headers: request_headers.clone(),
             is_live,
         },
+        chapters,
         pending_formats,
         player_js_url: bootstrap.and_then(|value| value.player_js_url.clone()),
         visitor_data: bootstrap.and_then(|value| value.visitor_data.clone()),
@@ -961,6 +972,57 @@ fn parse_pending_format(
         challenge,
         stream_template,
     }
+}
+
+fn normalize_chapters(player: &Value, duration_millis: Option<u64>) -> Vec<MediaChapter> {
+    let mut chapters = player
+        .pointer(
+            "/playerOverlays/playerOverlayRenderer/decoratedPlayerBarRenderer/decoratedPlayerBarRenderer/playerBar/multiMarkersPlayerBarRenderer/markersMap",
+        )
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|entry| {
+            entry
+                .get("key")
+                .and_then(Value::as_str)
+                .is_some_and(|key| key == "DESCRIPTION_CHAPTERS")
+        })
+        .filter_map(|entry| entry.get("value"))
+        .filter_map(|value| value.get("chapters"))
+        .filter_map(Value::as_array)
+        .flatten()
+        .filter_map(|chapter| {
+            let renderer = chapter.get("chapterRenderer")?;
+            let start_millis = renderer.get("timeRangeStartMillis")?.as_u64()?;
+            let title = renderer
+                .pointer("/title/simpleText")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or_else(|| {
+                    renderer
+                        .pointer("/title/runs/0/text")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                })?;
+            Some(MediaChapter {
+                title,
+                start_millis,
+                end_millis: None,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    chapters.sort_by_key(|chapter| chapter.start_millis);
+    chapters.dedup_by(|left, right| left.start_millis == right.start_millis);
+    for index in 0..chapters.len() {
+        chapters[index].end_millis = chapters
+            .get(index + 1)
+            .map(|next| next.start_millis)
+            .or(duration_millis)
+            .filter(|end| *end >= chapters[index].start_millis);
+    }
+    chapters
 }
 
 fn normalize_captions(player: &Value) -> Vec<SubtitleTrack> {
@@ -1499,6 +1561,7 @@ function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
                 request_headers: BTreeMap::new(),
                 is_live: false,
             },
+            chapters: Vec::new(),
             pending_formats: Vec::new(),
             player_js_url: None,
             visitor_data: None,
@@ -1624,6 +1687,7 @@ function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
                 request_headers: BTreeMap::new(),
                 is_live: false,
             },
+            chapters: Vec::new(),
             pending_formats: Vec::new(),
             player_js_url: None,
             visitor_data: None,
@@ -1745,6 +1809,7 @@ function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
                 request_headers: BTreeMap::new(),
                 is_live: false,
             },
+            chapters: Vec::new(),
             pending_formats: Vec::new(),
             player_js_url: None,
             visitor_data: None,
