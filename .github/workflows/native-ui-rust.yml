@@ -95,6 +95,9 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml browser_config_tests --lib
           cargo test --manifest-path src-tauri/Cargo.toml queue_catalog_preserves_empty_custom_queues --lib
           cargo test --manifest-path src-tauri/Cargo.toml queue_catalog_preserves_legacy_advanced_limits --lib
+          cargo test --manifest-path src-tauri/Cargo.toml queue_schedule_supports_custom_days_and_overnight_windows --lib
+          cargo test --manifest-path src-tauri/Cargo.toml once_queue_stays_disabled_after_completion --lib
+          cargo test --manifest-path src-tauri/Cargo.toml queue_runtime_edges_and_retry_delay_are_stateful --lib
           cargo test --manifest-path src-tauri/Cargo.toml queue_catalog_rejects_invalid_or_duplicate_ids --lib
           cargo test --manifest-path src-tauri/Cargo.toml queue_catalog_round_trips_on_disk --lib
 
