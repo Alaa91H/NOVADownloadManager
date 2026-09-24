@@ -200,6 +200,40 @@ impl TorrentMetainfo {
         Some(self.total_length.saturating_sub(start).min(self.piece_length))
     }
 
+    /// Verify one completed piece against the SHA-1 digest from the metainfo.
+    ///
+    /// The byte length is checked before hashing so truncated or overlong peer
+    /// responses cannot accidentally be accepted as a valid piece.
+    pub fn verify_piece(
+        &self,
+        index: usize,
+        bytes: &[u8],
+    ) -> Result<bool, TorrentMetainfoError> {
+        let expected_hash = self
+            .piece_hashes
+            .get(index)
+            .ok_or(TorrentMetainfoError::PieceOutOfRange {
+                index,
+                count: self.piece_hashes.len(),
+            })?;
+        let expected_length = self
+            .piece_size(index)
+            .ok_or(TorrentMetainfoError::PieceOutOfRange {
+                index,
+                count: self.piece_hashes.len(),
+            })?;
+        if bytes.len() as u64 != expected_length {
+            return Err(TorrentMetainfoError::PieceLengthMismatch {
+                index,
+                expected: expected_length,
+                actual: bytes.len(),
+            });
+        }
+
+        let digest = Sha1::digest(bytes);
+        Ok(digest.as_ref() == expected_hash)
+    }
+
     /// Map a contiguous payload range onto one or more physical torrent files.
     ///
     /// This is the boundary used by the future peer transfer worker so a piece
@@ -450,6 +484,14 @@ pub enum TorrentMetainfoError {
     LengthOverflow,
     #[error("torrent piece count mismatch: expected {expected}, got {actual}")]
     PieceCountMismatch { expected: u64, actual: usize },
+    #[error("torrent piece index {index} is outside piece count {count}")]
+    PieceOutOfRange { index: usize, count: usize },
+    #[error("torrent piece {index} has invalid length: expected {expected}, got {actual}")]
+    PieceLengthMismatch {
+        index: usize,
+        expected: u64,
+        actual: usize,
+    },
     #[error("torrent range {offset}+{length} exceeds payload length {total}")]
     RangeOutsidePayload {
         offset: u64,
@@ -791,6 +833,16 @@ mod tests {
     }
 
     #[test]
+    fn verifies_piece_digest_and_length() {
+        let torrent = TorrentMetainfo::parse(&single_file_torrent()).expect("parse torrent");
+        assert!(!torrent.verify_piece(0, &[0, 0, 0, 0]).expect("verify"));
+        assert!(matches!(
+            torrent.verify_piece(1, &[0, 0]),
+            Err(TorrentMetainfoError::PieceLengthMismatch { .. })
+        ));
+    }
+
+    #[test]
     fn info_hash_is_computed_from_exact_raw_info_bytes() {
         let bytes = single_file_torrent();
         let torrent = TorrentMetainfo::parse(&bytes).expect("parse torrent");
@@ -802,6 +854,8 @@ mod tests {
         let info_start = marker_pos + marker.len();
         let info_end = bytes.len() - 1;
         let digest = Sha1::digest(&bytes[info_start..info_end]);
-        assert_eq!(torrent.info_hash.as_bytes().as_slice(), digest.as_slice());
+        let mut expected = [0u8; 20];
+        expected.copy_from_slice(&digest);
+        assert_eq!(torrent.info_hash.as_bytes(), &expected);
     }
 }
