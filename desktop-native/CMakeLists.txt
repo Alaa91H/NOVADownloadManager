@@ -19,6 +19,8 @@ qt_add_executable(nova-native
     src/main.cpp
     src/api/NovaApiClient.cpp
     src/api/NovaApiClient.h
+    src/batch/BatchPatternExpander.cpp
+    src/batch/BatchPatternExpander.h
     src/models/DownloadListModel.cpp
     src/models/DownloadListModel.h
     src/localization/I18nManager.cpp
@@ -115,6 +117,8 @@ if(NOVA_BUILD_TESTS)
         tests/NativeParityTests.cpp
         src/api/NovaApiClient.cpp
         src/api/NovaApiClient.h
+        src/batch/BatchPatternExpander.cpp
+        src/batch/BatchPatternExpander.h
         src/models/DownloadListModel.cpp
         src/models/DownloadListModel.h
         src/settings/NativeSettings.cpp
