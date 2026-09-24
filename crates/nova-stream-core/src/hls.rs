@@ -512,6 +512,77 @@ pub fn build_hls_media_plan(manifest: &HlsManifest) -> Result<HlsMediaPlan, HlsP
     })
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct HlsLiveCursor {
+    pub next_sequence: Option<u64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct HlsLiveRefresh {
+    pub plan: Option<HlsMediaPlan>,
+    pub next_cursor: HlsLiveCursor,
+    pub reload_after_millis: u64,
+    pub ended: bool,
+}
+
+/// Build one incremental live-HLS refresh from a newly fetched media playlist.
+///
+/// Already-consumed sequence numbers are filtered out. The cursor advances only
+/// to the first sequence not yet consumed, so callers can persist it safely
+/// across process restarts.
+pub fn build_hls_live_refresh(
+    manifest: &HlsManifest,
+    cursor: HlsLiveCursor,
+) -> Result<HlsLiveRefresh, HlsPlanError> {
+    if manifest.kind != HlsPlaylistKind::Media {
+        return Err(HlsPlanError::MasterPlaylist);
+    }
+
+    let next_sequence = cursor.next_sequence.unwrap_or(manifest.media_sequence);
+    let selected: Vec<HlsSegment> = manifest
+        .segments
+        .iter()
+        .filter(|segment| segment.sequence >= next_sequence)
+        .cloned()
+        .collect();
+
+    let plan = if selected.is_empty() {
+        None
+    } else {
+        let selected_manifest = HlsManifest {
+            kind: HlsPlaylistKind::Media,
+            variants: Vec::new(),
+            renditions: Vec::new(),
+            segments: selected,
+            media_sequence: next_sequence,
+            target_duration_seconds: manifest.target_duration_seconds,
+            end_list: manifest.end_list,
+        };
+        Some(build_hls_media_plan(&selected_manifest)?)
+    };
+
+    let next_cursor = manifest
+        .segments
+        .last()
+        .map(|segment| HlsLiveCursor {
+            next_sequence: Some(segment.sequence.saturating_add(1)),
+        })
+        .unwrap_or(cursor);
+
+    let reload_after_millis = manifest
+        .target_duration_seconds
+        .unwrap_or(6)
+        .saturating_mul(1000)
+        .max(1000);
+
+    Ok(HlsLiveRefresh {
+        plan,
+        next_cursor,
+        reload_after_millis,
+        ended: manifest.end_list,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -578,6 +649,53 @@ mod tests {
         assert_eq!(
             parse_byte_range("abc"),
             Err(HlsError::InvalidByteRange("abc".to_owned()))
+        );
+    }
+
+    #[test]
+    fn live_refresh_only_emits_unseen_sequences() {
+        let first = parse_hls(
+            "https://cdn.test/live/index.m3u8",
+            "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:10\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\n10.ts\n#EXTINF:4,\n11.ts\n",
+        )
+        .expect("first live manifest");
+        let refresh = build_hls_live_refresh(&first, HlsLiveCursor::default())
+            .expect("first refresh");
+
+        assert_eq!(refresh.reload_after_millis, 4000);
+        assert_eq!(refresh.next_cursor.next_sequence, Some(12));
+        assert_eq!(
+            refresh
+                .plan
+                .as_ref()
+                .expect("initial plan")
+                .units
+                .iter()
+                .filter_map(|unit| unit.sequence)
+                .collect::<Vec<_>>(),
+            vec![10, 11]
+        );
+
+        let second = parse_hls(
+            "https://cdn.test/live/index.m3u8",
+            "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:11\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\n11.ts\n#EXTINF:4,\n12.ts\n#EXT-X-ENDLIST\n",
+        )
+        .expect("second live manifest");
+        let refresh = build_hls_live_refresh(&second, refresh.next_cursor)
+            .expect("second refresh");
+
+        assert!(refresh.ended);
+        assert_eq!(refresh.next_cursor.next_sequence, Some(13));
+        assert_eq!(
+            refresh
+                .plan
+                .as_ref()
+                .expect("incremental plan")
+                .units
+                .iter()
+                .filter_map(|unit| unit.sequence)
+                .collect::<Vec<_>>(),
+            vec![12]
         );
     }
 
