@@ -22,7 +22,7 @@ use crate::daemon::state::SharedState;
 use crate::daemon::telegram::telegram_notify;
 use crate::daemon::types::{transition_task_state, CreateDownloadBody, Task, TaskState};
 use crate::daemon::media_bridge::create_media_bridge_task;
-use crate::daemon::native_media::create_native_media_task;
+use crate::daemon::native_media::{create_native_media_task, start_native_media_process};
 use crate::lock_or_err;
 
 use super::common::{daemon_error, fallback_file_name};
@@ -421,6 +421,16 @@ pub async fn handle_create_download(
                 }
             }
             register_task_with_engine(&state, &task, rule_priority, all_mirrors, rule_rate_limit);
+
+            // Native multi-track workers must start only after queue/bandwidth
+            // registration so even very fast failure/completion paths cannot
+            // leave a stale queue entry behind.
+            if task.engine == "nova-media-engine"
+                && body.start_immediately.unwrap_or(true)
+                && !task_id.is_empty()
+            {
+                start_native_media_process(&state, &task_id);
+            }
 
             // ── Spawn background resolution for slow-path tasks ────────────
             if needs_background_resolve && !task_id.is_empty() {
