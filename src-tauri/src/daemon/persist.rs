@@ -464,7 +464,9 @@ pub fn start_persistence_loop(state: SharedState) {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::daemon::types::{CurlJob, MediaJob, Segment, TelegramConfig};
+    use crate::daemon::types::{
+        CurlJob, MediaDownloadOptions, MediaJob, NativeMediaJob, Segment, TelegramConfig,
+    };
     use std::sync::atomic::{AtomicBool, AtomicU64};
     use std::sync::{Arc, Mutex, RwLock};
     use std::time::Instant;
@@ -597,6 +599,14 @@ pub(crate) mod tests {
             .lock()
             .unwrap()
             .insert("c1".to_string(), sample_task("c1", "curl", "downloading"));
+        state
+            .task_snapshot
+            .lock()
+            .unwrap()
+            .insert(
+                "n1".to_string(),
+                sample_task("n1", "nova-media-engine", "downloading"),
+            );
         state.media_jobs.lock().unwrap().insert(
             "m1".to_string(),
             MediaJob {
@@ -614,6 +624,42 @@ pub(crate) mod tests {
                 start_time: Instant::now(),
             },
         );
+        let mut native_options = MediaDownloadOptions::default();
+        native_options.mode = Some("video".to_owned());
+        native_options.quality = Some("1080p".to_owned());
+        native_options.cookies = Some("session=native-cookie-secret".to_owned());
+        native_options.user_agent = Some("NOVA-Native-Test/1".to_owned());
+        native_options.referer = Some("https://private.test/native-referer-secret".to_owned());
+        native_options.headers =
+            Some("Authorization: Bearer native-header-secret".to_owned());
+        state.native_media_jobs.lock().unwrap().insert(
+            "n1".to_string(),
+            NativeMediaJob {
+                task: sample_task("n1", "nova-media-engine", "downloading"),
+                request: CreateDownloadBody {
+                    url: Some("https://www.youtube.com/watch?v=dQw4w9WgXcQ".to_owned()),
+                    name: Some("native.mp4".to_owned()),
+                    file_type: Some("video".to_owned()),
+                    size_bytes: None,
+                    category: Some("video".to_owned()),
+                    queue_id: Some("main".to_owned()),
+                    connections: Some(4),
+                    resumable: Some(true),
+                    save_path: Some("C:/downloads/native.mp4".to_owned()),
+                    description: None,
+                    referer: None,
+                    start_immediately: Some(false),
+                    direct_options: None,
+                    media_options: Some(native_options),
+                },
+                cancel_token: Arc::new(AtomicBool::new(false)),
+                run_generation: Arc::new(AtomicU64::new(1)),
+                worker_active: Arc::new(AtomicBool::new(false)),
+                run_start_downloaded_bytes: 500,
+                start_time: Instant::now(),
+            },
+        );
+
         state.curl_jobs.lock().unwrap().insert(
             "c1".to_string(),
             CurlJob {
@@ -649,8 +695,8 @@ pub(crate) mod tests {
         save(&state);
         let loaded = load(&dir_str);
 
-        assert_eq!(loaded.tasks.len(), 3);
-        assert_eq!(loaded.version, 2);
+        assert_eq!(loaded.tasks.len(), 4);
+        assert_eq!(loaded.version, 3);
         let checkpoint = loaded
             .recovery_checkpoints
             .get("c1")
@@ -676,8 +722,23 @@ pub(crate) mod tests {
         );
         assert_eq!(
             loaded.resume_requires_reauth,
-            vec!["c1".to_string(), "m1".to_string()]
+            vec!["c1".to_string(), "m1".to_string(), "n1".to_string()]
         );
+        let native_request = loaded
+            .native_media_requests
+            .get("n1")
+            .expect("sanitized native media request");
+        let native_options = native_request
+            .media_options
+            .as_ref()
+            .expect("native media options");
+        assert_eq!(
+            native_options.user_agent.as_deref(),
+            Some("NOVA-Native-Test/1")
+        );
+        assert!(native_options.cookies.is_none());
+        assert!(native_options.referer.is_none());
+        assert!(native_options.headers.is_none());
         let direct_options = loaded.curl_direct_options.get("c1").unwrap();
         assert_eq!(
             direct_options.get("retries"),
@@ -691,6 +752,9 @@ pub(crate) mod tests {
             "private-password",
             "private-cookie",
             "private-token",
+            "native-cookie-secret",
+            "native-header-secret",
+            "native-referer-secret",
         ] {
             assert!(
                 !persisted.contains(secret),
