@@ -13,6 +13,8 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const RUNNER = join(ROOT, 'scripts', 'run-tauri-with-native-curl.mjs');
 const NSIS_DIR = join(ROOT, 'src-tauri', 'target', 'release', 'bundle', 'nsis');
 const STAGE_DIR = join(ROOT, 'src-tauri', 'target', 'release', 'bundle', 'nsis-scoped');
+const USER_CONFIG = join(ROOT, 'src-tauri', 'tauri.user.conf.json');
+const MACHINE_CONFIG = join(ROOT, 'src-tauri', 'tauri.machine.conf.json');
 const passthroughArgs = process.argv.slice(2);
 
 if (process.platform !== 'win32') {
@@ -27,24 +29,14 @@ function scopedInstallerName(fileName, scope) {
   return fileName.replace(/\.exe$/i, `-${scope}.exe`);
 }
 
-function runScope(scope, installMode) {
+function runScope(scope, installMode, configPath) {
   rmSync(NSIS_DIR, { recursive: true, force: true });
   mkdirSync(NSIS_DIR, { recursive: true });
-
-  const config = JSON.stringify({
-    bundle: {
-      windows: {
-        nsis: {
-          installMode,
-        },
-      },
-    },
-  });
 
   console.log(`[windows-installers] Building ${scope} installer (${installMode})...`);
   const result = spawnSync(
     process.execPath,
-    [RUNNER, '--bundles', 'nsis', '--config', config, ...passthroughArgs],
+    [RUNNER, '--bundles', 'nsis', '--config', configPath, ...passthroughArgs],
     {
       cwd: ROOT,
       env: process.env,
@@ -88,8 +80,8 @@ function runScope(scope, installMode) {
 rmSync(STAGE_DIR, { recursive: true, force: true });
 mkdirSync(STAGE_DIR, { recursive: true });
 
-runScope('user', 'currentUser');
-runScope('machine', 'perMachine');
+runScope('user', 'currentUser', USER_CONFIG);
+runScope('machine', 'perMachine', MACHINE_CONFIG);
 
 rmSync(NSIS_DIR, { recursive: true, force: true });
 mkdirSync(NSIS_DIR, { recursive: true });
