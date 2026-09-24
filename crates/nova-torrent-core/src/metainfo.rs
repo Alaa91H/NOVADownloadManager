@@ -844,7 +844,7 @@ mod tests {
 
     #[test]
     fn preserves_announce_list_tiers_for_failover() {
-        let mut bytes = b"d8:announce25:https://primary.test/a13:announce-listll24:https://tier-a.test/a24:https://tier-b.test/ael24:udp://tracker.test:6969/announceee4:info".to_vec();
+        let mut bytes = b"d8:announce22:https://primary.test/a13:announce-listll21:https://tier-a.test/a21:https://tier-b.test/ael32:udp://tracker.test:6969/announceee4:info".to_vec();
         bytes.extend_from_slice(b"d6:lengthi1e4:name1:x12:piece lengthi1e6:pieces20:");
         bytes.extend_from_slice(&[3u8; 20]);
         bytes.extend_from_slice(b"ee");
