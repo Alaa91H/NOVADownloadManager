@@ -708,7 +708,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 let shutdown_signal = async move {
                     wait_for_daemon_shutdown(shutdown_rx).await;
                     log::info!("Shutdown signal received; pausing active downloads...");
-                    // Lock in documented order: media_jobs, curl_jobs, task_snapshot
+                    // Pause engine-owned work without holding locks across async I/O.
                     {
                         let mut media = lock_or_err!(shutdown_state.media_jobs);
                         for job in media.values_mut() {
@@ -719,6 +719,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                             job.task.engine_status = Some("shutdown".to_owned());
                         }
                     }
+                    crate::daemon::torrent_task::shutdown_torrent_tasks(&shutdown_state).await;
                     let curl_shutdown_snapshots = {
                         let mut curl = lock_or_err!(shutdown_state.curl_jobs);
                         let mut snapshots = Vec::with_capacity(curl.len());
