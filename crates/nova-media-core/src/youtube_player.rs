@@ -3,10 +3,12 @@ use regex::Regex;
 use crate::youtube::YouTubeChallengeSolver;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum SignatureOperation {
+enum TransformOperation {
     Reverse,
     Drop(usize),
     Swap(usize),
+    RotateLeft(usize),
+    RotateRight(usize),
 }
 
 /// Pure-Rust parser/executor for the compact signature transform used by the
@@ -23,19 +25,285 @@ impl YouTubeChallengeSolver for YouTubePlayerScriptSolver {
         encrypted_signature: &str,
     ) -> Result<String, String> {
         let operations = extract_signature_operations(player_javascript)?;
-        apply_signature_operations(encrypted_signature, &operations)
+        apply_transform_operations(encrypted_signature, &operations)
     }
 
     fn transform_throttling_parameter(
         &self,
-        _player_javascript: &str,
-        _value: &str,
+        player_javascript: &str,
+        value: &str,
     ) -> Result<String, String> {
-        Err("native YouTube n-transform parser is not implemented yet".to_owned())
+        let operations = extract_throttling_operations(player_javascript)?;
+        apply_transform_operations(value, &operations)
     }
 }
 
-fn extract_signature_operations(script: &str) -> Result<Vec<SignatureOperation>, String> {
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ThrottlingTarget {
+    Named(String),
+    ArrayElement { array: String, index: usize },
+}
+
+fn extract_throttling_operations(script: &str) -> Result<Vec<TransformOperation>, String> {
+    let target = locate_throttling_target(script)?;
+    match target {
+        ThrottlingTarget::Named(name) => {
+            let (argument, body) = named_transform_function(script, &name)?
+                .ok_or_else(|| format!("YouTube n-transform function {name} was not found"))?;
+            let operations = parse_transform_body(script, body, &argument)?;
+            if operations.is_empty() {
+                return Err("YouTube n-transform contained no recognized transforms".to_owned());
+            }
+            Ok(operations)
+        }
+        ThrottlingTarget::ArrayElement { array, index } => {
+            let (argument, body) = array_transform_function(script, &array, index)?;
+            let operations = parse_transform_body(script, body, &argument)?;
+            if operations.is_empty() {
+                return Err("YouTube indexed n-transform contained no recognized transforms".to_owned());
+            }
+            Ok(operations)
+        }
+    }
+}
+
+fn locate_throttling_target(script: &str) -> Result<ThrottlingTarget, String> {
+    let marker = Regex::new(
+        r#"(?:\.get\(\s*["']n["']\s*\)|\.set\(\s*["']n["']\s*,|["']nn["']\s*\[)"#,
+    )
+    .map_err(|error| error.to_string())?;
+    let named_call = Regex::new(
+        r#"(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*\(\s*(?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)\s*\)"#,
+    )
+    .map_err(|error| error.to_string())?;
+    let indexed_call = Regex::new(
+        r#"(?P<array>[A-Za-z_$][A-Za-z0-9_$]*)\s*\[\s*(?P<index>\d+)\s*\]\s*\(\s*(?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)\s*\)"#,
+    )
+    .map_err(|error| error.to_string())?;
+
+    let mut candidates: Vec<(usize, ThrottlingTarget)> = Vec::new();
+    for marker_match in marker.find_iter(script) {
+        let start = marker_match.start().saturating_sub(512);
+        let end = (marker_match.end() + 768).min(script.len());
+        let Some(window) = script.get(start..end) else {
+            continue;
+        };
+
+        for captures in indexed_call.captures_iter(window) {
+            let Some(whole) = captures.get(0) else {
+                continue;
+            };
+            let Some(array) = captures.name("array").map(|value| value.as_str()) else {
+                continue;
+            };
+            let Some(index) = captures
+                .name("index")
+                .and_then(|value| value.as_str().parse::<usize>().ok())
+            else {
+                continue;
+            };
+            if array_transform_function(script, array, index).is_ok() {
+                let absolute = start + whole.start();
+                let distance = absolute.abs_diff(marker_match.start());
+                candidates.push((
+                    distance,
+                    ThrottlingTarget::ArrayElement {
+                        array: array.to_owned(),
+                        index,
+                    },
+                ));
+            }
+        }
+
+        for captures in named_call.captures_iter(window) {
+            let Some(whole) = captures.get(0) else {
+                continue;
+            };
+            let Some(name) = captures.name("name").map(|value| value.as_str()) else {
+                continue;
+            };
+            if matches!(name, "get" | "set" | "encodeURIComponent" | "decodeURIComponent") {
+                continue;
+            }
+            if named_transform_function(script, name)?.is_some() {
+                let absolute = start + whole.start();
+                let distance = absolute.abs_diff(marker_match.start());
+                candidates.push((distance, ThrottlingTarget::Named(name.to_owned())));
+            }
+        }
+    }
+
+    candidates.sort_by_key(|(distance, _)| *distance);
+    candidates.dedup_by(|left, right| left.1 == right.1);
+    let Some((best_distance, best)) = candidates.first().cloned() else {
+        return Err("unable to locate YouTube n-transform call site".to_owned());
+    };
+    if candidates
+        .iter()
+        .skip(1)
+        .any(|(distance, target)| *distance == best_distance && *target != best)
+    {
+        return Err("ambiguous YouTube n-transform call site".to_owned());
+    }
+    Ok(best)
+}
+
+fn named_transform_function<'a>(
+    script: &'a str,
+    expected_name: &str,
+) -> Result<Option<(String, &'a str)>, String> {
+    let assignment = Regex::new(&format!(
+        r#"{}\s*=\s*function\((?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)\)\s*\{{"#,
+        regex::escape(expected_name)
+    ))
+    .map_err(|error| error.to_string())?;
+    let declaration = Regex::new(&format!(
+        r#"function\s+{}\((?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)\)\s*\{{"#,
+        regex::escape(expected_name)
+    ))
+    .map_err(|error| error.to_string())?;
+
+    for captures in assignment
+        .captures_iter(script)
+        .chain(declaration.captures_iter(script))
+    {
+        let Some(whole) = captures.get(0) else {
+            continue;
+        };
+        let Some(argument) = captures.name("arg").map(|value| value.as_str().to_owned()) else {
+            continue;
+        };
+        let brace = whole.end().saturating_sub(1);
+        let Some(body) = balanced_block(script, brace, b'{', b'}') else {
+            continue;
+        };
+        if transform_body_has_split_join(body, &argument) {
+            return Ok(Some((argument, body)));
+        }
+    }
+    Ok(None)
+}
+
+fn array_transform_function<'a>(
+    script: &'a str,
+    array: &str,
+    index: usize,
+) -> Result<(String, &'a str), String> {
+    let pattern = Regex::new(&format!(
+        r#"(?:(?:var|let|const)\s+)?{}\s*=\s*\["#,
+        regex::escape(array)
+    ))
+    .map_err(|error| error.to_string())?;
+    let array_match = pattern
+        .find(script)
+        .ok_or_else(|| format!("YouTube n-transform array {array} was not found"))?;
+    let bracket = array_match.end().saturating_sub(1);
+    let body = balanced_block(script, bracket, b'[', b']')
+        .ok_or_else(|| format!("YouTube n-transform array {array} is malformed"))?;
+    let entries = split_top_level(body, b',');
+    let entry = entries
+        .get(index)
+        .map(|value| value.trim())
+        .ok_or_else(|| format!("YouTube n-transform array index {array}[{index}] is missing"))?;
+
+    let inline = Regex::new(
+        r#"^function\((?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)\)\s*\{"#,
+    )
+    .map_err(|error| error.to_string())?;
+    if let Some(captures) = inline.captures(entry) {
+        let whole = captures
+            .get(0)
+            .ok_or_else(|| "inline n-transform function match is incomplete".to_owned())?;
+        let argument = captures
+            .name("arg")
+            .map(|value| value.as_str().to_owned())
+            .ok_or_else(|| "inline n-transform argument is missing".to_owned())?;
+        let brace = whole.end().saturating_sub(1);
+        let function_body = balanced_block(entry, brace, b'{', b'}')
+            .ok_or_else(|| "inline n-transform function is malformed".to_owned())?;
+        if !transform_body_has_split_join(function_body, &argument) {
+            return Err("indexed n-transform does not split and join its input".to_owned());
+        }
+        let offset = entry.as_ptr() as usize - script.as_ptr() as usize;
+        let body_offset = function_body.as_ptr() as usize - entry.as_ptr() as usize;
+        let start = offset + body_offset;
+        let end = start + function_body.len();
+        let borrowed = script
+            .get(start..end)
+            .ok_or_else(|| "indexed n-transform source range is invalid".to_owned())?;
+        return Ok((argument, borrowed));
+    }
+
+    if Regex::new(r#"^[A-Za-z_$][A-Za-z0-9_$]*$"#)
+        .map_err(|error| error.to_string())?
+        .is_match(entry)
+    {
+        return named_transform_function(script, entry)?
+            .ok_or_else(|| format!("YouTube n-transform array target {entry} was not found"));
+    }
+
+    Err(format!(
+        "unsupported YouTube n-transform array entry {array}[{index}]"
+    ))
+}
+
+fn transform_body_has_split_join(body: &str, argument: &str) -> bool {
+    (body.contains(&format!("{argument}.split(\"\")"))
+        || body.contains(&format!("{argument}.split('')")))
+        && (body.contains(&format!("{argument}.join(\"\")"))
+            || body.contains(&format!("{argument}.join('')")))
+}
+
+fn split_top_level(source: &str, delimiter: u8) -> Vec<&str> {
+    let bytes = source.as_bytes();
+    let mut output = Vec::new();
+    let mut start = 0usize;
+    let mut braces = 0u32;
+    let mut brackets = 0u32;
+    let mut parentheses = 0u32;
+    let mut in_string: Option<u8> = None;
+    let mut escaped = false;
+
+    for (index, byte) in bytes.iter().copied().enumerate() {
+        if let Some(quote) = in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == quote {
+                in_string = None;
+            }
+            continue;
+        }
+        if matches!(byte, b'"' | b'\'') || byte == 96 {
+            in_string = Some(byte);
+            continue;
+        }
+        match byte {
+            b'{' => braces = braces.saturating_add(1),
+            b'}' => braces = braces.saturating_sub(1),
+            b'[' => brackets = brackets.saturating_add(1),
+            b']' => brackets = brackets.saturating_sub(1),
+            b'(' => parentheses = parentheses.saturating_add(1),
+            b')' => parentheses = parentheses.saturating_sub(1),
+            _ => {}
+        }
+        if byte == delimiter && braces == 0 && brackets == 0 && parentheses == 0 {
+            if let Some(piece) = source.get(start..index) {
+                output.push(piece);
+            }
+            start = index + 1;
+        }
+    }
+    if let Some(piece) = source.get(start..) {
+        output.push(piece);
+    }
+    output
+}
+
+
+fn extract_signature_operations(script: &str) -> Result<Vec<TransformOperation>, String> {
     let assignment = Regex::new(
         r#"(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*function\((?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)\)\s*\{"#,
     )
@@ -83,7 +351,7 @@ fn parse_transform_body(
     script: &str,
     body: &str,
     argument: &str,
-) -> Result<Vec<SignatureOperation>, String> {
+) -> Result<Vec<TransformOperation>, String> {
     let helper_call = Regex::new(
         r#"(?P<object>[A-Za-z_$][A-Za-z0-9_$]*)\.(?P<method>[A-Za-z_$][A-Za-z0-9_$]*)\((?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)(?:,(?P<value>\d+))?\)"#,
     )
@@ -107,7 +375,7 @@ fn parse_transform_body(
         }
 
         if statement.contains(&format!("{argument}.reverse()")) {
-            operations.push(SignatureOperation::Reverse);
+            operations.push(TransformOperation::Reverse);
             continue;
         }
         if let Some(captures) = direct_splice.captures(statement) {
@@ -115,7 +383,7 @@ fn parse_transform_body(
                 .get(1)
                 .and_then(|value| value.as_str().parse::<usize>().ok())
                 .ok_or_else(|| "invalid direct YouTube splice amount".to_owned())?;
-            operations.push(SignatureOperation::Drop(amount));
+            operations.push(TransformOperation::Drop(amount));
             continue;
         }
         if let Some(captures) = direct_slice.captures(statement) {
@@ -123,7 +391,7 @@ fn parse_transform_body(
                 .get(1)
                 .and_then(|value| value.as_str().parse::<usize>().ok())
                 .ok_or_else(|| "invalid direct YouTube slice amount".to_owned())?;
-            operations.push(SignatureOperation::Drop(amount));
+            operations.push(TransformOperation::Drop(amount));
             continue;
         }
 
@@ -167,7 +435,7 @@ fn classify_helper_operation(
     object: &str,
     method: &str,
     amount: usize,
-) -> Result<SignatureOperation, String> {
+) -> Result<TransformOperation, String> {
     let object_pattern = Regex::new(&format!(
         r#"(?:(?:var|let|const)\s+)?{}\s*=\s*\{{"#,
         regex::escape(object)
@@ -193,16 +461,16 @@ fn classify_helper_operation(
         .ok_or_else(|| format!("YouTube signature helper method {object}.{method} is malformed"))?;
 
     if method_body.contains(".reverse(") {
-        return Ok(SignatureOperation::Reverse);
+        return Ok(TransformOperation::Reverse);
     }
     if method_body.contains(".splice(0,") || method_body.contains(".slice(") {
-        return Ok(SignatureOperation::Drop(amount));
+        return Ok(TransformOperation::Drop(amount));
     }
     if method_body.contains("[0]")
         && method_body.contains(".length")
         && method_body.contains('%')
     {
-        return Ok(SignatureOperation::Swap(amount));
+        return Ok(TransformOperation::Swap(amount));
     }
 
     Err(format!(
@@ -210,31 +478,43 @@ fn classify_helper_operation(
     ))
 }
 
-fn apply_signature_operations(
-    signature: &str,
-    operations: &[SignatureOperation],
+fn apply_transform_operations(
+    input: &str,
+    operations: &[TransformOperation],
 ) -> Result<String, String> {
-    let mut bytes = signature.as_bytes().to_vec();
+    let mut bytes = input.as_bytes().to_vec();
 
     for operation in operations {
         match *operation {
-            SignatureOperation::Reverse => bytes.reverse(),
-            SignatureOperation::Drop(amount) => {
+            TransformOperation::Reverse => bytes.reverse(),
+            TransformOperation::Drop(amount) => {
                 let amount = amount.min(bytes.len());
                 bytes.drain(..amount);
             }
-            SignatureOperation::Swap(amount) => {
+            TransformOperation::Swap(amount) => {
                 if bytes.is_empty() {
-                    return Err("cannot swap an empty YouTube signature".to_owned());
+                    return Err("cannot swap an empty YouTube transform input".to_owned());
                 }
                 let index = amount % bytes.len();
                 bytes.swap(0, index);
+            }
+            TransformOperation::RotateLeft(amount) => {
+                if !bytes.is_empty() {
+                    let len = bytes.len();
+                    bytes.rotate_left(amount % len);
+                }
+            }
+            TransformOperation::RotateRight(amount) => {
+                if !bytes.is_empty() {
+                    let len = bytes.len();
+                    bytes.rotate_right(amount % len);
+                }
             }
         }
     }
 
     String::from_utf8(bytes)
-        .map_err(|_| "YouTube signature transform produced invalid UTF-8".to_owned())
+        .map_err(|_| "YouTube transform produced invalid UTF-8".to_owned())
 }
 
 fn balanced_block(
