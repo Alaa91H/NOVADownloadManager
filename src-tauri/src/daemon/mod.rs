@@ -749,16 +749,24 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                                 .store(true, std::sync::atomic::Ordering::Release);
                             let current = TaskState::from_status(&job.task.status);
                             if current != Some(TaskState::Completed) {
-                                if let Err(error) = transition_task_state(
+                                if matches!(
+                                    current,
+                                    Some(TaskState::Verifying | TaskState::Finalizing)
+                                ) {
+                                    // The libcurl final commit path is not
+                                    // cooperatively pausable. Preserve its
+                                    // active state; restart recovery will mark
+                                    // it interrupted if process exit wins.
+                                    log::info!(
+                                        "Task {} kept in state '{}' during shutdown while final output is committed",
+                                        job.task.id,
+                                        job.task.status
+                                    );
+                                } else if let Err(error) = transition_task_state(
                                     &mut job.task,
                                     TaskState::Paused,
                                     "shutdown",
                                 ) {
-                                    // Verifying/finalizing deliberately cannot
-                                    // be paused mid-commit. Leave that active
-                                    // state intact; restart recovery will mark
-                                    // it interrupted if the worker does not
-                                    // finish during the shutdown grace period.
                                     log::info!(
                                         "Task {} kept in state '{}' during shutdown: {error}",
                                         job.task.id,
