@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use serde::{Deserialize, Serialize};
+
 use nova_download_core::{
     download_http_to_path_segmented_controlled_with_context, TransferControl, TransportError,
 };
@@ -47,6 +49,16 @@ impl YouTubeTransferProgress {
         }
     }
 }
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+struct YouTubeTrackCheckpoint {
+    schema_version: u32,
+    stream_id: String,
+    content_length: Option<u64>,
+    completed_bytes: u64,
+}
+
+const YOUTUBE_TRACK_CHECKPOINT_VERSION: u32 = 1;
 
 #[derive(Debug, Error, Eq, PartialEq)]
 pub enum YouTubeTransferError {
@@ -174,8 +186,8 @@ pub fn download_youtube_plan_controlled<
             emit_progress();
             let (video_result, audio_result) = std::thread::scope(|scope| {
                 let video_worker = scope.spawn(|| {
-                    let result = download_http_to_path_segmented_controlled_with_context(
-                        &video.url,
+                    let result = download_track_with_checkpoint(
+                        video,
                         &video_path,
                         per_track_connections,
                         &video_context,
@@ -206,8 +218,8 @@ pub fn download_youtube_plan_controlled<
                     result
                 });
                 let audio_worker = scope.spawn(|| {
-                    let result = download_http_to_path_segmented_controlled_with_context(
-                        &audio.url,
+                    let result = download_track_with_checkpoint(
+                        audio,
                         &audio_path,
                         per_track_connections,
                         &audio_context,
@@ -251,13 +263,114 @@ pub fn download_youtube_plan_controlled<
             Ok(YouTubeTransferOutput::SeparateTracks {
                 video_path,
                 audio_path,
-                video_bytes: video_transfer.final_bytes,
-                audio_bytes: audio_transfer.final_bytes,
+                video_bytes: video_transfer,
+                audio_bytes: audio_transfer,
                 video_stream_id: video_stream_id.clone(),
                 audio_stream_id: audio_stream_id.clone(),
             })
         }
     }
+}
+
+fn download_track_with_checkpoint<
+    F: Fn() -> TransferControl + Sync,
+    P: Fn(u64, Option<u64>) + Sync,
+>(
+    stream: &MediaStream,
+    destination: &Path,
+    requested_connections: u32,
+    context: &nova_download_core::HttpRequestContext,
+    control: F,
+    progress: P,
+) -> Result<u64, TransportError> {
+    if let Some(bytes) = reusable_completed_track(stream, destination) {
+        progress(bytes, stream.content_length.or(Some(bytes)));
+        return Ok(bytes);
+    }
+
+    let transfer = download_http_to_path_segmented_controlled_with_context(
+        &stream.url,
+        destination,
+        requested_connections,
+        context,
+        control,
+        progress,
+    )?;
+    write_track_checkpoint(
+        destination,
+        &YouTubeTrackCheckpoint {
+            schema_version: YOUTUBE_TRACK_CHECKPOINT_VERSION,
+            stream_id: stream.id.clone(),
+            content_length: stream.content_length.or(transfer.total_bytes),
+            completed_bytes: transfer.final_bytes,
+        },
+    )?;
+    Ok(transfer.final_bytes)
+}
+
+fn reusable_completed_track(stream: &MediaStream, destination: &Path) -> Option<u64> {
+    let checkpoint = read_track_checkpoint(destination)?;
+    if checkpoint.schema_version != YOUTUBE_TRACK_CHECKPOINT_VERSION
+        || checkpoint.stream_id != stream.id
+    {
+        return None;
+    }
+    if let (Some(expected), Some(recorded)) =
+        (stream.content_length, checkpoint.content_length)
+    {
+        if expected != recorded {
+            return None;
+        }
+    }
+    let bytes = std::fs::metadata(destination).ok()?.len();
+    if bytes == 0 || bytes != checkpoint.completed_bytes {
+        return None;
+    }
+    if let Some(expected) = stream.content_length {
+        if bytes != expected {
+            return None;
+        }
+    }
+    Some(bytes)
+}
+
+fn track_checkpoint_path(destination: &Path) -> PathBuf {
+    append_suffix(destination, ".nova-track.json")
+}
+
+fn read_track_checkpoint(destination: &Path) -> Option<YouTubeTrackCheckpoint> {
+    let payload = std::fs::read(track_checkpoint_path(destination)).ok()?;
+    serde_json::from_slice(&payload).ok()
+}
+
+fn write_track_checkpoint(
+    destination: &Path,
+    checkpoint: &YouTubeTrackCheckpoint,
+) -> Result<(), TransportError> {
+    let path = track_checkpoint_path(destination);
+    let temp = append_suffix(&path, ".tmp");
+    let payload = serde_json::to_vec(checkpoint).map_err(|error| TransportError::RequestFailed {
+        message: format!("failed to serialize native track checkpoint: {error}"),
+    })?;
+    std::fs::write(&temp, payload).map_err(|error| TransportError::RequestFailed {
+        message: format!("failed to write native track checkpoint: {error}"),
+    })?;
+    let file = std::fs::File::open(&temp).map_err(|error| TransportError::RequestFailed {
+        message: format!("failed to open native track checkpoint: {error}"),
+    })?;
+    file.sync_all().map_err(|error| TransportError::RequestFailed {
+        message: format!("failed to sync native track checkpoint: {error}"),
+    })?;
+    drop(file);
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(|error| TransportError::RequestFailed {
+            message: format!("failed to replace native track checkpoint: {error}"),
+        })?;
+    }
+    std::fs::rename(&temp, &path).map_err(|error| TransportError::RequestFailed {
+        message: format!("failed to commit native track checkpoint: {error}"),
+    })?;
+    Ok(())
 }
 
 fn map_transport_error(error: TransportError) -> YouTubeTransferError {
