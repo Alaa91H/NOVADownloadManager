@@ -21,7 +21,7 @@ pub use metainfo::{
     MAX_METAINFO_BYTES,
 };
 pub use peer::{
-    PeerHandshake, PeerMessage, PeerWireError, MAX_PEER_FRAME_BYTES,
+    PeerHandshake, PeerMessage, PeerState, PeerWireError, MAX_PEER_FRAME_BYTES,
     PEER_HANDSHAKE_LEN,
 };
 pub use scheduler::{
