@@ -1580,6 +1580,133 @@ fn update_native_progress(state: &SharedState, id: &str, generation: u64, bytes:
     state.mark_dirty();
 }
 
+fn update_native_multitrack_progress(
+    state: &SharedState,
+    id: &str,
+    generation: u64,
+    progress: YouTubeTransferProgress,
+) {
+    let task = {
+        let mut jobs = match state.native_media_jobs.lock() {
+            Ok(jobs) => jobs,
+            Err(_) => return,
+        };
+        let Some(job) = jobs.get_mut(id) else {
+            return;
+        };
+        if job.run_generation.load(Ordering::Acquire) != generation {
+            return;
+        }
+
+        let elapsed = job.start_time.elapsed().as_secs_f64().max(0.001);
+        let downloaded = progress.downloaded_bytes();
+        if let Some(total) = progress.total_bytes() {
+            job.task.size_bytes = total;
+            if job.task.speed_bytes_per_sec > 0 {
+                job.task.time_left_seconds = total
+                    .saturating_sub(downloaded)
+                    .saturating_div(job.task.speed_bytes_per_sec.max(1));
+            }
+        }
+        job.task.downloaded_bytes = downloaded;
+        job.task.speed_bytes_per_sec = (downloaded as f64 / elapsed) as u64;
+        job.task.elapsed_seconds = elapsed as u64;
+
+        if job.task.segments.len() < 2 {
+            job.task.segments = vec![
+                Segment {
+                    id: 0,
+                    progress: 0.0,
+                    downloaded_bytes: 0,
+                    total_bytes: 0,
+                    active: true,
+                    speed: 0,
+                    start_byte: 0,
+                    end_byte: 0,
+                },
+                Segment {
+                    id: 1,
+                    progress: 0.0,
+                    downloaded_bytes: 0,
+                    total_bytes: 0,
+                    active: true,
+                    speed: 0,
+                    start_byte: 0,
+                    end_byte: 0,
+                },
+            ];
+        }
+
+        for (segment, downloaded, total) in [
+            (
+                &mut job.task.segments[0],
+                progress.video_downloaded,
+                progress.video_total,
+            ),
+            (
+                &mut job.task.segments[1],
+                progress.audio_downloaded,
+                progress.audio_total,
+            ),
+        ] {
+            segment.downloaded_bytes = downloaded;
+            if let Some(total) = total {
+                segment.total_bytes = total;
+                segment.end_byte = total.saturating_sub(1);
+                segment.progress = if total == 0 {
+                    0.0
+                } else {
+                    downloaded.min(total) as f64 / total as f64
+                };
+                segment.active = downloaded < total;
+            } else {
+                segment.progress = 0.0;
+                segment.active = true;
+            }
+            segment.speed = (downloaded as f64 / elapsed) as u64;
+        }
+
+        job.task.clone()
+    };
+    if let Ok(mut snapshot) = state.task_snapshot.lock() {
+        snapshot.insert(id.to_owned(), task);
+    }
+    state.mark_dirty();
+}
+
+fn set_native_track_activity(
+    state: &SharedState,
+    id: &str,
+    generation: u64,
+    active: bool,
+) {
+    let task = {
+        let mut jobs = match state.native_media_jobs.lock() {
+            Ok(jobs) => jobs,
+            Err(_) => return,
+        };
+        let Some(job) = jobs.get_mut(id) else {
+            return;
+        };
+        if job.run_generation.load(Ordering::Acquire) != generation {
+            return;
+        }
+        for segment in &mut job.task.segments {
+            segment.active = active;
+            if !active && segment.total_bytes > 0 {
+                segment.progress =
+                    segment.downloaded_bytes.min(segment.total_bytes) as f64
+                        / segment.total_bytes as f64;
+            }
+        }
+        job.task.clone()
+    };
+    if let Ok(mut snapshot) = state.task_snapshot.lock() {
+        snapshot.insert(id.to_owned(), task);
+    }
+    state.mark_dirty();
+}
+
 fn assemble_live_preview(state: &SharedState, id: &str, generation: u64) {
     let (output, valid_generation) = match state.native_media_jobs.lock() {
         Ok(jobs) => jobs.get(id).map_or((PathBuf::new(), false), |job| {
