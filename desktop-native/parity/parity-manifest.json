@@ -655,9 +655,37 @@
         "desktop-native/src/localization/I18nManager.cpp",
         "desktop-native/scripts/check-localization.mjs",
         "desktop-native/src/localization/LegacyI18nCatalog.cpp",
-        "src/lib/i18n/languageMetadata.ts"
+        "src/lib/i18n/languageMetadata.ts",
+        "desktop-native/scripts/check-native-i18n-coverage.mjs",
+        "desktop-native/tests/NativeParityTests.cpp"
       ],
-      "blocker": "Native language selection now mirrors the full legacy language metadata and reuses matching legacy locale entries through a resource-backed bridge with English fallback. Remaining parity work is completing native-key translation coverage beyond the reusable legacy keys and validating RTL/typography per language."
+      "blocker": "The native selector exposes the full legacy language set, RTL metadata is shared, and curated aliases plus direct/exact reuse now cover at least 40% of native English keys through existing legacy translations. CI enforces the 40% floor. Remaining parity work is translating or safely mapping the unmatched native-only copy and completing per-language RTL/typography validation.",
+      "contains": [
+        {
+          "file": "desktop-native/src/localization/LegacyI18nCatalog.cpp",
+          "allOf": [
+            "nativeLegacyAliases",
+            "settings_interface_language",
+            "media_adv_format_selector",
+            "shortcut_toggle_speed_limiter"
+          ]
+        },
+        {
+          "file": "desktop-native/scripts/check-native-i18n-coverage.mjs",
+          "allOf": [
+            "requiredCoverage = 40",
+            "Native localization bridge coverage gate passed"
+          ]
+        },
+        {
+          "file": "desktop-native/tests/NativeParityTests.cpp",
+          "allOf": [
+            "legacyLocalizationCatalogCoversFullLanguageSet",
+            "Tous les téléchargements",
+            "settings.language"
+          ]
+        }
+      ]
     },
     {
       "id": "search-filter",
