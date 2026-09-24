@@ -2,16 +2,18 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initialSettings } from '../../../initialData';
 
-const { dialogPayload, probeDownload, taskItems, addTask } = vi.hoisted(() => ({
+const { dialogPayload, probeDownload, taskItems, addTask, openDialog, torrentReady } = vi.hoisted(() => ({
   dialogPayload: { current: { url: '' } },
   probeDownload: vi.fn(),
   taskItems: { current: [] as Array<{ url: string }> },
   addTask: vi.fn(),
+  openDialog: vi.fn(),
+  torrentReady: { current: true },
 }));
 
 vi.mock('../../../store/selectors', () => ({
   useDialogData: () => ({ active: 'addDownload', payload: dialogPayload.current }),
-  useDialogActions: () => ({ closeDialog: vi.fn(), openDialog: vi.fn() }),
+  useDialogActions: () => ({ closeDialog: vi.fn(), openDialog }),
   useSettingsData: () => initialSettings,
   useTaskActions: () => ({ addTask }),
   useTaskData: () => taskItems.current,
@@ -34,8 +36,10 @@ vi.mock('../../../api/novaClient', () => ({
 vi.mock('../../../capabilities/EngineCapabilityContext', () => ({
   useEngineCapabilities: () => ({
     directReady: true,
+    torrentReady: torrentReady.current,
     supportsDirectOption: () => true,
     directBlockedReason: () => null,
+    torrentBlockedReason: () => (torrentReady.current ? null : 'Native torrent engine is not ready.'),
     sanitizeDirectOptions: <T,>(value: T) => value,
   }),
 }));
@@ -48,6 +52,8 @@ describe('AddDownloadDialog probe inspection', () => {
     dialogPayload.current = { url: 'https://landing.example.test/download?tracking=private' };
     probeDownload.mockReset();
     addTask.mockReset();
+    openDialog.mockReset();
+    torrentReady.current = true;
     taskItems.current = [];
     probeDownload.mockResolvedValue({
       url: 'https://landing.example.test/download?tracking=private',
@@ -115,6 +121,27 @@ describe('AddDownloadDialog probe inspection', () => {
     });
 
     expect(screen.queryByTestId('exact-url-duplicate-warning')).not.toBeInTheDocument();
+  });
+
+  it('routes a magnet link to the native torrent dialog instead of the direct engine', async () => {
+    const magnet = 'magnet:?xt=urn:btih:1111111111111111111111111111111111111111&dn=test';
+    dialogPayload.current = { url: magnet };
+
+    await act(async () => {
+      render(<AddDownloadDialog />);
+      await Promise.resolve();
+    });
+
+    const queueButton = screen.getByRole('button', { name: 'add_dl_queue_only' });
+    expect(queueButton).toBeEnabled();
+
+    await act(async () => {
+      fireEvent.click(queueButton);
+      await Promise.resolve();
+    });
+
+    expect(openDialog).toHaveBeenCalledWith('torrentDownload', magnet);
+    expect(addTask).not.toHaveBeenCalled();
   });
 
   it('keeps intentional exact repeats available for queueing', async () => {
