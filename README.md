@@ -444,7 +444,7 @@ On Windows, build both release installer scopes from the same application binary
 pnpm run windows:installers
 ```
 
-The Windows release pipeline publishes a `*-user-setup.exe` installer that installs under the current user's local app data without Administrator privileges, plus a `*-machine-setup.exe` installer for system-wide installation with elevation.
+The Windows release pipeline publishes a `*-user-setup.exe` installer that installs under the current user's local app data without Administrator privileges. The historical `*-setup.exe` filename is retained for the per-machine installer so existing release links and machine-wide update paths remain compatible.
 
 The CI pipeline (`ci.yml`) runs on `windows-latest` with pnpm 11.6.0, Node 24, and Rust stable 1.97.0. It produces:
 
