@@ -312,6 +312,9 @@ pub fn discard_native_media_staging(destination: &Path) {
     let (video, audio) = native_staging_paths(destination);
     discard_http_download_artifacts(&video);
     discard_http_download_artifacts(&audio);
+    // A resumed native task may re-resolve to a single direct stream; clean
+    // its resumable sidecars through the same native transfer contract.
+    discard_http_download_artifacts(destination);
     let _ = std::fs::remove_file(append_suffix(destination, ".nova-mp4.tmp"));
 }
 
