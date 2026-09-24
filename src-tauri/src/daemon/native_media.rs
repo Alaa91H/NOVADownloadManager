@@ -2201,6 +2201,7 @@ fn normalized_stream_id(value: &str) -> String {
 fn explicit_youtube_plan(
     extraction: &YouTubeExtraction,
     selector: Option<&str>,
+    policy: &YouTubeSelectionPolicy,
 ) -> Result<Option<YouTubeDownloadPlan>, NativeMediaTaskError> {
     let Some(selector) = selector.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(None);
@@ -2238,9 +2239,56 @@ fn explicit_youtube_plan(
     }
 
     match ids.as_slice() {
-        [stream_id] => Ok(Some(YouTubeDownloadPlan::SingleStream {
-            stream_id: stream_id.clone(),
-        })),
+        [stream_id] => {
+            let stream = extraction
+                .descriptor
+                .streams
+                .iter()
+                .find(|stream| stream.id == *stream_id)
+                .expect("validated selected stream");
+            if policy.mode == MediaSelectionMode::Audio
+                && stream.kind != nova_media_core::MediaTrackKind::Audio
+            {
+                return Err(NativeMediaTaskError::InvalidRequest(
+                    "audio mode requires an audio-only selected representation".to_owned(),
+                ));
+            }
+
+            if policy.prefer_separate_tracks
+                && stream.kind == nova_media_core::MediaTrackKind::Video
+            {
+                let mut ready_descriptor = extraction.descriptor.clone();
+                ready_descriptor
+                    .streams
+                    .retain(|candidate| !pending.contains(&candidate.id));
+                let audio = select_media_stream(
+                    &ready_descriptor,
+                    &MediaSelectionPolicy {
+                        mode: MediaSelectionMode::Audio,
+                        max_height: None,
+                        preferred_container: policy.preferred_container.clone(),
+                        preferred_language: policy.preferred_language.clone(),
+                        preferred_video_codec: None,
+                        preferred_audio_codec: policy.preferred_audio_codec.clone(),
+                        sort: policy.sort.clone(),
+                    },
+                )
+                .ok_or_else(|| {
+                    NativeMediaTaskError::UnsupportedFeature(
+                        "the selected video-only representation has no native-ready audio track"
+                            .to_owned(),
+                    )
+                })?;
+                return Ok(Some(YouTubeDownloadPlan::SeparateTracks {
+                    video_stream_id: stream_id.clone(),
+                    audio_stream_id: audio.id.clone(),
+                }));
+            }
+
+            Ok(Some(YouTubeDownloadPlan::SingleStream {
+                stream_id: stream_id.clone(),
+            }))
+        }
         [first, second] => {
             let first_stream = extraction
                 .descriptor
@@ -2409,6 +2457,7 @@ fn resolve_native_media(
             body.media_options
                 .as_ref()
                 .and_then(|options| options.format_selector.as_deref()),
+            &youtube_policy,
         )?
         .or_else(|| select_youtube_download_plan(&extraction, youtube_policy))
         .ok_or_else(|| {
