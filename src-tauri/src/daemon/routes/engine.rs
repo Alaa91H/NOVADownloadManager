@@ -786,10 +786,12 @@ pub async fn handle_queue_reorder(
         return Err(queue_error(StatusCode::BAD_REQUEST, "Queue order does not match catalog"));
     }
 
-    let by_id: HashMap<String, serde_json::Value> = queues
-        .into_iter()
-        .filter_map(|queue| queue_value_id(&queue).map(|id| (id.to_owned(), queue)))
-        .collect();
+    let mut by_id: HashMap<String, serde_json::Value> = HashMap::new();
+    for queue in queues {
+        if let Some(id) = queue_value_id(&queue).map(str::to_owned) {
+            by_id.insert(id, queue);
+        }
+    }
     let reordered: Vec<serde_json::Value> = body
         .queue_ids
         .iter()
@@ -817,12 +819,13 @@ pub async fn handle_queue_move_task(
         .map_err(|error| queue_error(StatusCode::NOT_FOUND, error))?;
 
     for queue in &mut queues {
+        let is_target = queue_value_id(queue) == Some(queue_id.as_str());
         if let Some(order) = queue
             .get_mut("downloadOrder")
             .and_then(serde_json::Value::as_array_mut)
         {
             order.retain(|value| value.as_str() != Some(task_id.as_str()));
-            if queue_value_id(queue) == Some(queue_id.as_str()) {
+            if is_target {
                 order.push(serde_json::Value::String(task_id.clone()));
             }
         }
@@ -2338,11 +2341,39 @@ mod tests {
 
         let normalized = normalize_queue_catalog(queues).expect("normalize queue catalog");
         assert_eq!(normalized.len(), 3);
-        assert_eq!(normalized[0]["id"], "main");
-        assert_eq!(normalized[1]["id"], "night");
-        assert_eq!(normalized[2]["id"], "archive");
-        assert_eq!(normalized[1]["name"], "Night Queue");
-        assert_eq!(normalized[1]["downloadOrder"].as_array().map(Vec::len), Some(0));
+        assert_eq!(normalized[0]["id"], "night");
+        assert_eq!(normalized[1]["id"], "archive");
+        assert_eq!(normalized[2]["id"], "main");
+        assert_eq!(normalized[0]["name"], "Night Queue");
+        assert_eq!(normalized[0]["downloadOrder"].as_array().map(Vec::len), Some(0));
+    }
+
+    #[test]
+    fn queue_catalog_preserves_legacy_advanced_limits() {
+        let normalized = normalize_queue_catalog(vec![serde_json::json!({
+            "id": "main",
+            "name": "Main Queue",
+            "maxActive": 10,
+            "limitSpeed": true,
+            "speedLimitKbs": 8192,
+            "oneTimeLimit": true,
+            "shutdownOnComplete": true,
+            "hangupOnComplete": true,
+            "exitOnComplete": true,
+            "retryCount": 9999,
+            "retryDelay": 120,
+            "downloadOrder": []
+        })])
+        .expect("normalize advanced queue settings");
+
+        assert_eq!(normalized[0]["maxActive"], 10);
+        assert_eq!(normalized[0]["speedLimitKbs"], 8192);
+        assert_eq!(normalized[0]["retryCount"], 9999);
+        assert_eq!(normalized[0]["retryDelay"], 120);
+        assert_eq!(normalized[0]["oneTimeLimit"], true);
+        assert_eq!(normalized[0]["shutdownOnComplete"], true);
+        assert_eq!(normalized[0]["hangupOnComplete"], true);
+        assert_eq!(normalized[0]["exitOnComplete"], true);
     }
 
     #[test]
