@@ -432,7 +432,7 @@ impl PeerEngine {
     }
 
     #[cfg(test)]
-    fn for_tests(config: PeerEngineConfig) -> Self {
+    pub(crate) fn for_tests(config: PeerEngineConfig) -> Self {
         let limit = config.max_outbound_connections.max(1);
         Self {
             config,
