@@ -713,6 +713,17 @@ void NovaApiClient::deleteSchedulerRule(const QString &ruleId) {
     });
 }
 
+QVariantMap NovaApiClient::batchExpansionPreview(const QString &input) const {
+    const Nova::BatchPattern::CountResult result =
+        Nova::BatchPattern::countInput(input);
+
+    QVariantMap preview;
+    preview.insert(QStringLiteral("count"), result.count);
+    preview.insert(QStringLiteral("overflow"), !result.ok());
+    preview.insert(QStringLiteral("error"), result.error);
+    return preview;
+}
+
 void NovaApiClient::importBatch(
     const QString &input,
     const QString &saveDirectory,
