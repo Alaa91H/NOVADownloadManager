@@ -1511,6 +1511,31 @@ function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
             })
         );
 
+        // A higher-ranked WebM pair must not displace the best pair that the
+        // native MP4 muxer can actually finalize.
+        let mut webm_video = extraction.descriptor.streams[1].clone();
+        webm_video.id = "youtube-itag-248".to_owned();
+        webm_video.container = Some("webm".to_owned());
+        webm_video.video_codec = Some("vp9".to_owned());
+        webm_video.height = Some(2160);
+        webm_video.bitrate_bps = Some(12_000_000);
+        let mut webm_audio = extraction.descriptor.streams[2].clone();
+        webm_audio.id = "youtube-itag-251".to_owned();
+        webm_audio.container = Some("webm".to_owned());
+        webm_audio.audio_codec = Some("opus".to_owned());
+        webm_audio.audio_bitrate_bps = Some(160_000);
+        extraction.descriptor.streams.push(webm_video);
+        extraction.descriptor.streams.push(webm_audio);
+
+        assert_eq!(
+            select_youtube_mp4_download_plan(&extraction, None),
+            Some(YouTubeDownloadPlan::SeparateTracks {
+                video_stream_id: "youtube-itag-137".to_owned(),
+                audio_stream_id: "youtube-itag-140".to_owned(),
+            })
+        );
+        extraction.descriptor.streams.truncate(3);
+
         extraction.pending_formats.push(YouTubePendingFormat {
             itag: Some(137),
             mime_type: None,
