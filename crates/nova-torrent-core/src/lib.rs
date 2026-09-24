@@ -29,7 +29,7 @@ pub use scheduler::{
     DEFAULT_BLOCK_SIZE,
 };
 pub use tracker::{
-    HttpTrackerResponse, TrackerAnnounceRequest, TrackerEvent, TrackerPeer,
+    udp_connect_packet, HttpTrackerResponse, TrackerAnnounceRequest, TrackerEvent, TrackerPeer,
     TrackerProtocolError, UdpAnnounceResponse, UdpConnectResponse,
     MAX_TRACKER_PEERS, MAX_TRACKER_RESPONSE_BYTES,
 };
