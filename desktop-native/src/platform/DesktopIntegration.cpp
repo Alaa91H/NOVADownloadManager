@@ -639,6 +639,18 @@ QString DesktopIntegration::chooseDirectory(const QString &initialDirectory) {
     );
 }
 
+QString DesktopIntegration::chooseOpenFile(
+    const QString &initialPath,
+    const QString &filter
+) {
+    return QFileDialog::getOpenFileName(
+        nullptr,
+        QStringLiteral("Open file"),
+        initialPath,
+        filter
+    );
+}
+
 QString DesktopIntegration::chooseSaveFile(
     const QString &suggestedPath,
     const QString &filter
