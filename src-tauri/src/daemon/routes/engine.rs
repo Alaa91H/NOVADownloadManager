@@ -1257,28 +1257,20 @@ async fn handle_engine_download(
                 }
             }
 
-            // For FFmpeg, extract the binary from the zip archive.
-            if engine == "ffmpeg" {
-                match extract_ffmpeg_from_zip(&bytes, &dest, &bin_dir) {
-                    Ok(true) => {}
-                    Ok(false) => {
-                        return Json(serde_json::json!({
-                            "ok": false,
-                            "error": "ffmpeg binary not found in the downloaded archive"
-                        }));
-                    }
-                    Err(e) => {
-                        return Json(serde_json::json!({
-                            "ok": false,
-                            "error": e,
-                        }));
-                    }
+            match extract_ffmpeg_from_zip(&bytes, &dest, &bin_dir) {
+                Ok(true) => {}
+                Ok(false) => {
+                    return Json(serde_json::json!({
+                        "ok": false,
+                        "error": "ffmpeg binary not found in the downloaded archive"
+                    }));
                 }
-            } else if let Err(e) = std::fs::write(&dest, &bytes) {
-                return Json(serde_json::json!({
-                    "ok": false,
-                    "error": format!("Failed to write binary: {e}")
-                }));
+                Err(error) => {
+                    return Json(serde_json::json!({
+                        "ok": false,
+                        "error": error,
+                    }));
+                }
             }
             let mut version_cmd = std::process::Command::new(&dest);
             hide_command_window(&mut version_cmd);
