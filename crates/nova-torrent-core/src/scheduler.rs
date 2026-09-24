@@ -202,9 +202,11 @@ impl PieceScheduler {
             .iter()
             .enumerate()
             .filter_map(|(index, complete)| {
-                complete
-                    .then(|| self.layout.piece_size(index as u32).ok())
-                    .flatten()
+                if *complete {
+                    self.layout.piece_size(index as u32).ok()
+                } else {
+                    None
+                }
             })
             .map(u64::from)
             .sum()
