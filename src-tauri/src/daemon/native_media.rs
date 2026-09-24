@@ -252,7 +252,15 @@ fn create_native_manifest_task(
         if title.is_empty() {
             title = format!("nova-{protocol}-media");
         }
-        if Path::new(&title).extension().is_none() {
+        let manifest_suffix = Path::new(&title)
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "m3u8" | "mpd"));
+        if manifest_suffix {
+            let mut path = PathBuf::from(&title);
+            path.set_extension(extension);
+            title = path.to_string_lossy().to_string();
+        } else if Path::new(&title).extension().is_none() {
             title.push('.');
             title.push_str(extension);
         }
@@ -907,9 +915,13 @@ where
         };
 
         if !manifest.is_dynamic {
-            return Err(NativeMediaTaskError::UnsupportedFeature(
-                "DASH live source changed to a static manifest during recording".to_owned(),
-            ));
+            let parts = committed_live_parts(staging_dir)?;
+            if parts.is_empty() {
+                return Err(NativeMediaTaskError::Resolution(
+                    "DASH live source ended before any media was committed".to_owned(),
+                ));
+            }
+            return Ok((parts, checkpoint.total_bytes));
         }
 
         let refresh = build_dash_live_refresh(
@@ -1615,6 +1627,17 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn manifest_default_name_replaces_manifest_extension() {
+        let mut path = PathBuf::from("master.m3u8");
+        path.set_extension("ts");
+        assert_eq!(path.to_string_lossy(), "master.ts");
+
+        let mut path = PathBuf::from("stream.mpd");
+        path.set_extension("mp4");
+        assert_eq!(path.to_string_lossy(), "stream.mp4");
     }
 
     #[test]
