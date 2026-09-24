@@ -156,9 +156,6 @@ export const tauriClient = {
   async readOpenedTorrentFile(path: string): Promise<ArrayBuffer> {
     const value = await invoke('read_opened_torrent_file', { path });
     if (value instanceof ArrayBuffer) return value;
-    if (value instanceof Uint8Array) {
-      return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
-    }
     throw new Error('NOVA returned an invalid torrent file payload.');
   },
 

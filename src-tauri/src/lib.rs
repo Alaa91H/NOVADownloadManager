@@ -150,7 +150,10 @@ fn torrent_open_request_from_argument(
         return Ok(None);
     }
 
-    if value.len() >= 7 && value[..7].eq_ignore_ascii_case("magnet:") {
+    if value
+        .get(..7)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("magnet:"))
+    {
         nova_torrent_core::MagnetLink::parse(value)
             .map_err(|error| format!("Invalid magnet link from system open: {error}"))?;
         return Ok(Some(TorrentOpenRequest::Magnet(value.to_owned())));
@@ -1395,7 +1398,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            let startup_args = std::env::args().collect::<Vec<_>>();
+            let startup_args = std::env::args_os()
+                .map(|value| value.to_string_lossy().into_owned())
+                .collect::<Vec<_>>();
             let startup_cwd = std::env::current_dir().ok();
             dispatch_torrent_arguments(app.handle(), &startup_args, startup_cwd.as_deref());
 
