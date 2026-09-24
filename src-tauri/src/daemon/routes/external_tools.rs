@@ -387,7 +387,7 @@ async fn handle_health_all(
 fn parse_tool_id(id: &str) -> Result<ToolId, (StatusCode, Json<serde_json::Value>)> {
     match id {
         "ffmpeg" | "FFmpeg" => Ok(ToolId::Ffmpeg),
-        "yt-dlp" | "ytdlp" | "yt_dlp" => Ok(ToolId::YtDlp),
+        "media-bridge" | "media_bridge" => Ok(ToolId::MediaBridge),
         _ => Err((
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": format!("Unknown tool: {}", id)})),
