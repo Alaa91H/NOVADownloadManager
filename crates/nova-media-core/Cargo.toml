@@ -9,6 +9,7 @@ edition = "2021"
 rust-version = "1.77"
 
 [dependencies]
+nova-download-core = { path = "../nova-download-core" }
 nova-stream-core = { path = "../nova-stream-core" }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
