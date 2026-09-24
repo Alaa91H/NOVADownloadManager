@@ -138,6 +138,8 @@ request URL + authorized headers/cookies
 - native auth/request-context precedence is deterministic: explicit media fields override body-level referer and raw header fallbacks;
 - transport-owned headers such as Host, Range and Content-Length are rejected before extraction;
 - descriptor-wide Cookie/Authorization context is same-origin scoped; cross-origin derived media and sidecar URLs receive only safe browser identity headers unless an extractor explicitly supplies stream-scoped authorization;
+- the same origin-scoping policy is enforced for HLS variants/segments/AES keys, DASH units, YouTube player/control requests, thumbnails and subtitle sidecars;
+- Chromium-family App-Bound cookie encryption is not bypassed; unsupported Chrome/Edge sources fail closed while Firefox remains the currently supported browser-cookie adapter;
 - sensitive native request context, including browser-cookie profile selection, is kept in memory and omitted from restart snapshots, forcing reauthorization when needed;
 - `/api/media/native/resolve` GET and POST migration API.
 
