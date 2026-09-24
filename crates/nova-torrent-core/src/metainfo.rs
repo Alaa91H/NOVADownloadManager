@@ -63,6 +63,8 @@ pub struct TorrentMetainfo {
     pub files: Vec<TorrentFile>,
     pub total_length: u64,
     pub trackers: Vec<String>,
+    #[serde(default)]
+    pub tracker_tiers: Vec<Vec<String>>,
     pub private: bool,
 }
 
@@ -164,7 +166,7 @@ impl TorrentMetainfo {
             });
         }
 
-        let trackers = parse_trackers(root)?;
+        let (trackers, tracker_tiers) = parse_trackers(root)?;
         let private = match dict_get(info, b"private").and_then(BValue::as_int) {
             None | Some(0) => false,
             Some(1) => true,
@@ -184,6 +186,7 @@ impl TorrentMetainfo {
             files,
             total_length,
             trackers,
+            tracker_tiers,
             private,
         })
     }
@@ -417,50 +420,74 @@ fn decode_component(bytes: &[u8], field: &'static str) -> Result<String, Torrent
     Ok(value.to_owned())
 }
 
-fn parse_trackers(root: &[(&[u8], BValue<'_>)]) -> Result<Vec<String>, TorrentMetainfoError> {
-    let mut trackers = Vec::new();
+fn parse_trackers(
+    root: &[(&[u8], BValue<'_>)],
+) -> Result<(Vec<String>, Vec<Vec<String>>), TorrentMetainfoError> {
+    let announce = dict_get(root, b"announce")
+        .and_then(BValue::as_bytes)
+        .map(parse_tracker_url)
+        .transpose()?;
 
-    if let Some(announce) = dict_get(root, b"announce").and_then(BValue::as_bytes) {
-        push_tracker(&mut trackers, announce)?;
-    }
-    if let Some(tiers) = dict_get(root, b"announce-list").and_then(BValue::as_list) {
-        for tier in tiers {
-            match tier {
+    let mut tiers = Vec::<Vec<String>>::new();
+    if let Some(raw_tiers) = dict_get(root, b"announce-list").and_then(BValue::as_list) {
+        for raw_tier in raw_tiers {
+            let mut tier = Vec::new();
+            match raw_tier {
                 BValue::List(values) => {
                     for value in values {
                         if let Some(bytes) = value.as_bytes() {
-                            push_tracker(&mut trackers, bytes)?;
+                            let tracker = parse_tracker_url(bytes)?;
+                            if !tier.iter().any(|existing| existing == &tracker) {
+                                tier.push(tracker);
+                            }
                         }
                     }
                 }
-                BValue::Bytes(bytes) => push_tracker(&mut trackers, bytes)?,
+                BValue::Bytes(bytes) => {
+                    tier.push(parse_tracker_url(bytes)?);
+                }
                 _ => {}
+            }
+            if !tier.is_empty() {
+                tiers.push(tier);
             }
         }
     }
 
-    Ok(trackers)
+    if let Some(announce) = announce {
+        let already_present = tiers
+            .iter()
+            .flatten()
+            .any(|tracker| tracker == &announce);
+        if tiers.is_empty() {
+            tiers.push(vec![announce]);
+        } else if !already_present {
+            tiers.insert(0, vec![announce]);
+        }
+    }
+
+    let mut trackers = Vec::new();
+    for tracker in tiers.iter().flatten() {
+        if !trackers.iter().any(|existing| existing == tracker) {
+            trackers.push(tracker.clone());
+        }
+    }
+
+    Ok((trackers, tiers))
 }
 
-fn push_tracker(
-    trackers: &mut Vec<String>,
-    raw: &[u8],
-) -> Result<(), TorrentMetainfoError> {
+fn parse_tracker_url(raw: &[u8]) -> Result<String, TorrentMetainfoError> {
     let tracker =
         std::str::from_utf8(raw).map_err(|_| TorrentMetainfoError::InvalidField {
             field: "announce",
             message: "tracker URL must be valid UTF-8".to_owned(),
         })?;
-    let parsed = Url::parse(tracker).map_err(|_| TorrentMetainfoError::InvalidTracker(
-        tracker.to_owned(),
-    ))?;
+    let parsed =
+        Url::parse(tracker).map_err(|_| TorrentMetainfoError::InvalidTracker(tracker.to_owned()))?;
     if !matches!(parsed.scheme(), "http" | "https" | "udp") || parsed.host_str().is_none() {
         return Err(TorrentMetainfoError::InvalidTracker(tracker.to_owned()));
     }
-    if !trackers.iter().any(|existing| existing == tracker) {
-        trackers.push(tracker.to_owned());
-    }
-    Ok(())
+    Ok(tracker.to_owned())
 }
 
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
@@ -801,6 +828,10 @@ mod tests {
         assert_eq!(torrent.piece_size(1), Some(1));
         assert_eq!(torrent.trackers, vec!["https://tracker.test/a.php"]);
         assert_eq!(
+            torrent.tracker_tiers,
+            vec![vec!["https://tracker.test/a.php".to_owned()]]
+        );
+        assert_eq!(
             torrent.map_range(1, 4).expect("map range"),
             vec![FileSlice {
                 file_index: 0,
@@ -808,6 +839,26 @@ mod tests {
                 data_offset: 1,
                 length: 4,
             }]
+        );
+    }
+
+    #[test]
+    fn preserves_announce_list_tiers_for_failover() {
+        let mut bytes = b"d8:announce25:https://primary.test/a13:announce-listll24:https://tier-a.test/a24:https://tier-b.test/ael24:udp://tracker.test:6969/announceee4:info".to_vec();
+        bytes.extend_from_slice(b"d6:lengthi1e4:name1:x12:piece lengthi1e6:pieces20:");
+        bytes.extend_from_slice(&[3u8; 20]);
+        bytes.extend_from_slice(b"ee");
+
+        let torrent = TorrentMetainfo::parse(&bytes).expect("parse tiered torrent");
+        assert_eq!(torrent.tracker_tiers.len(), 3);
+        assert_eq!(
+            torrent.tracker_tiers[0],
+            vec!["https://primary.test/a".to_owned()]
+        );
+        assert_eq!(torrent.tracker_tiers[1].len(), 2);
+        assert_eq!(
+            torrent.tracker_tiers[2],
+            vec!["udp://tracker.test:6969/announce".to_owned()]
         );
     }
 
