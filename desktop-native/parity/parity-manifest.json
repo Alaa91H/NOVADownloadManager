@@ -327,12 +327,13 @@
       "id": "browser-integration",
       "label": "Browser integration status and pairing",
       "status": "partial",
-      "blocker": "Native Qt now exposes live browser bridge status/capabilities and can safely enable or disable capture through the daemon while preserving zero-click pairing credentials. Full parity still requires native-host registration diagnostics and a trusted repair action that can verify/recover the registered browser native host without exposing pairing credentials.",
+      "blocker": "Browser integration now has live status/capabilities, secure capture configuration, cross-platform registration diagnostics and a trusted Windows per-user registration repair path. Full cross-platform parity still requires automated native-host repair/registration on macOS and Linux plus validation against packaged native releases.",
       "evidence": [
         "desktop-native/src/api/NovaApiClient.cpp",
         "desktop-native/qml/components/BrowserIntegrationPanel.qml",
         "desktop-native/src/platform/DesktopIntegration.cpp",
         "src-tauri/src/daemon/routes/extension.rs",
+        "src-tauri/windows/hooks.nsi",
         "docs/extension/ZERO_CLICK_PAIRING.md",
         "src/dialogs/integration/BrowserIntegrationDialog.tsx"
       ],
@@ -351,8 +352,18 @@
           "allOf": [
             "browserIntegrationHealth",
             "setBrowserCaptureEnabled",
-            "browser.zeroClickHelp",
+            "browserNativeHostStatus",
+            "repairBrowserNativeHost",
             "browser.tokenProtected"
+          ]
+        },
+        {
+          "file": "desktop-native/src/platform/DesktopIntegration.cpp",
+          "allOf": [
+            "browserNativeHostStatus",
+            "repairBrowserNativeHost",
+            "NativeMessagingHosts",
+            "trustedWindowsRepairSource"
           ]
         },
         {

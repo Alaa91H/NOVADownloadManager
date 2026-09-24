@@ -10,6 +10,7 @@ Rectangle {
     required property var desktop
     property string languageToken: i18n.language
     property string errorText: ""
+    property var nativeHostState: ({})
 
     Layout.fillWidth: true
     implicitHeight: contentColumn.implicitHeight + 28
@@ -57,7 +58,28 @@ Rectangle {
         return value ? root.t("common.yes") : root.t("common.no")
     }
 
-    Component.onCompleted: api.refreshBrowserIntegration()
+    function refreshNativeHost() {
+        nativeHostState = desktop.browserNativeHostStatus()
+    }
+
+    Component.onCompleted: {
+        api.refreshBrowserIntegration()
+        refreshNativeHost()
+    }
+
+    Connections {
+        target: root.desktop
+
+        function onOperationSucceeded(action) {
+            if (action === "browser-host-repair")
+                root.refreshNativeHost()
+        }
+
+        function onOperationFailed(action, message) {
+            if (action === "browser-host-repair")
+                root.errorText = message
+        }
+    }
 
     Connections {
         target: root.api
@@ -65,6 +87,7 @@ Rectangle {
         function onBrowserIntegrationChanged() {
             if (Object.keys(root.api.browserIntegrationHealth || ({})).length > 0)
                 root.errorText = ""
+            root.refreshNativeHost()
         }
 
         function onBrowserIntegrationFailed(message) {
@@ -245,6 +268,93 @@ Rectangle {
                             ? Theme.success : Theme.textMuted
                         font.pixelSize: Theme.fontTiny
                         font.weight: Font.Bold
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: hostColumn.implicitHeight + 18
+            radius: Theme.radiusSmall
+            color: Theme.surfaceRaised
+            border.color: Theme.border
+
+            ColumnLayout {
+                id: hostColumn
+                anchors.fill: parent
+                anchors.margins: 9
+                spacing: 7
+
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.t("browser.nativeHost")
+                        color: Theme.textPrimary
+                        font.pixelSize: Theme.fontSmall
+                        font.weight: Font.DemiBold
+                    }
+
+                    Text {
+                        text: Boolean(root.nativeHostState.allRegistered)
+                            ? root.t("browser.hostReady")
+                            : root.t("browser.hostNeedsRepair")
+                        color: Boolean(root.nativeHostState.allRegistered)
+                            ? Theme.success : Theme.warning
+                        font.pixelSize: Theme.fontTiny
+                        font.weight: Font.Bold
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 14
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.t("browser.chrome") + ": "
+                            + root.yesNo(Boolean(root.nativeHostState.chromeRegistered))
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontTiny
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.t("browser.edge") + ": "
+                            + root.yesNo(Boolean(root.nativeHostState.edgeRegistered))
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontTiny
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.t("browser.firefox") + ": "
+                            + root.yesNo(Boolean(root.nativeHostState.firefoxRegistered))
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontTiny
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.t("browser.hostDiagnosticHint")
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.fontTiny
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Button {
+                        visible: Boolean(root.nativeHostState.repairAvailable)
+                            && !Boolean(root.nativeHostState.allRegistered)
+                        text: root.t("browser.repairHost")
+                        Accessible.name: text
+                        onClicked: {
+                            if (root.desktop.repairBrowserNativeHost())
+                                root.refreshNativeHost()
+                        }
                     }
                 }
             }

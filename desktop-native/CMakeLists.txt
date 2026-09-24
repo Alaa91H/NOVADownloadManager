@@ -77,7 +77,7 @@ if(UNIX AND NOT APPLE)
 endif()
 
 if(WIN32)
-    target_link_libraries(nova-native PRIVATE ole32 uuid)
+    target_link_libraries(nova-native PRIVATE ole32 uuid advapi32)
 endif()
 
 install(TARGETS nova-native

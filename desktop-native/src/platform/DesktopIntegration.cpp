@@ -2,12 +2,16 @@
 
 #include <QDesktopServices>
 #include <QDir>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QProcess>
+#include <QSet>
 #include <QUrl>
 #include <QVariantMap>
+#include <QVector>
 #include <QWindow>
 
 #if defined(Q_OS_WIN)
@@ -19,6 +23,215 @@
 #include <QDBusConnection>
 #include <QDBusMessage>
 #endif
+
+
+namespace {
+
+QVariantMap inspectNativeHostManifest(const QString &path) {
+    QVariantMap result;
+    result.insert(QStringLiteral("path"), path);
+
+    const QFileInfo info(path);
+    const bool manifestExists = info.exists() && info.isFile();
+    result.insert(QStringLiteral("manifestExists"), manifestExists);
+    if (!manifestExists) {
+        result.insert(QStringLiteral("valid"), false);
+        result.insert(QStringLiteral("hostExecutableExists"), false);
+        return result;
+    }
+
+    QFile file(info.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly)) {
+        result.insert(QStringLiteral("valid"), false);
+        result.insert(QStringLiteral("hostExecutableExists"), false);
+        return result;
+    }
+
+    QJsonParseError error;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &error);
+    if (error.error != QJsonParseError::NoError || !document.isObject()) {
+        result.insert(QStringLiteral("valid"), false);
+        result.insert(QStringLiteral("hostExecutableExists"), false);
+        return result;
+    }
+
+    const QJsonObject object = document.object();
+    const QString name = object.value(QStringLiteral("name")).toString();
+    const QString hostPath = object.value(QStringLiteral("path")).toString();
+    const QFileInfo hostInfo(hostPath);
+
+    result.insert(QStringLiteral("name"), name);
+    result.insert(QStringLiteral("hostExecutable"), hostPath);
+    result.insert(
+        QStringLiteral("hostExecutableExists"),
+        !hostPath.isEmpty() && hostInfo.exists() && hostInfo.isFile()
+    );
+    result.insert(
+        QStringLiteral("valid"),
+        name == QStringLiteral("com.nova.downloadmanager")
+            && !hostPath.isEmpty()
+            && hostInfo.exists()
+            && hostInfo.isFile()
+    );
+    return result;
+}
+
+#if defined(Q_OS_WIN)
+QString readRegistryString(
+    HKEY root,
+    const QString &subKey,
+    const wchar_t *valueName
+) {
+    const REGSAM views[] = {
+        KEY_READ,
+        KEY_READ | KEY_WOW64_64KEY,
+        KEY_READ | KEY_WOW64_32KEY
+    };
+
+    for (REGSAM access : views) {
+        HKEY key = nullptr;
+        if (RegOpenKeyExW(
+                root,
+                reinterpret_cast<LPCWSTR>(subKey.utf16()),
+                0,
+                access,
+                &key
+            ) != ERROR_SUCCESS) {
+            continue;
+        }
+
+        DWORD type = 0;
+        DWORD bytes = 0;
+        const LONG sizeResult = RegQueryValueExW(
+            key,
+            valueName,
+            nullptr,
+            &type,
+            nullptr,
+            &bytes
+        );
+        if (sizeResult != ERROR_SUCCESS
+            || (type != REG_SZ && type != REG_EXPAND_SZ)
+            || bytes < sizeof(wchar_t)) {
+            RegCloseKey(key);
+            continue;
+        }
+
+        QVector<wchar_t> buffer(
+            static_cast<qsizetype>(bytes / sizeof(wchar_t)) + 1,
+            L'\0'
+        );
+        DWORD readBytes = bytes;
+        const LONG readResult = RegQueryValueExW(
+            key,
+            valueName,
+            nullptr,
+            &type,
+            reinterpret_cast<LPBYTE>(buffer.data()),
+            &readBytes
+        );
+        RegCloseKey(key);
+
+        if (readResult == ERROR_SUCCESS) {
+            QString value = QString::fromWCharArray(buffer.constData()).trimmed();
+            if (type == REG_EXPAND_SZ) {
+                wchar_t expanded[32768]{};
+                const DWORD expandedLength = ExpandEnvironmentStringsW(
+                    reinterpret_cast<LPCWSTR>(value.utf16()),
+                    expanded,
+                    32768
+                );
+                if (expandedLength > 0 && expandedLength < 32768) {
+                    value = QString::fromWCharArray(expanded).trimmed();
+                }
+            }
+            if (!value.isEmpty()) {
+                return value;
+            }
+        }
+    }
+
+    return {};
+}
+
+QString readBrowserRegistration(const QString &subKey) {
+    QString value = readRegistryString(HKEY_CURRENT_USER, subKey, nullptr);
+    if (!value.isEmpty()) {
+        return value;
+    }
+    return readRegistryString(HKEY_LOCAL_MACHINE, subKey, nullptr);
+}
+
+bool writeUserBrowserRegistration(const QString &subKey, const QString &manifestPath) {
+    HKEY key = nullptr;
+    DWORD disposition = 0;
+    if (RegCreateKeyExW(
+            HKEY_CURRENT_USER,
+            reinterpret_cast<LPCWSTR>(subKey.utf16()),
+            0,
+            nullptr,
+            REG_OPTION_NON_VOLATILE,
+            KEY_SET_VALUE,
+            nullptr,
+            &key,
+            &disposition
+        ) != ERROR_SUCCESS) {
+        return false;
+    }
+
+    Q_UNUSED(disposition)
+    const std::wstring native = QDir::toNativeSeparators(manifestPath).toStdWString();
+    const DWORD bytes = static_cast<DWORD>((native.size() + 1) * sizeof(wchar_t));
+    const LONG result = RegSetValueExW(
+        key,
+        nullptr,
+        0,
+        REG_SZ,
+        reinterpret_cast<const BYTE *>(native.c_str()),
+        bytes
+    );
+    RegCloseKey(key);
+    return result == ERROR_SUCCESS;
+}
+
+QVariantMap trustedWindowsRepairSource() {
+    const QString appKey = QStringLiteral("Software\\NOVA\\Nova Download Manager");
+    const QString installDir = readRegistryString(
+        HKEY_LOCAL_MACHINE,
+        appKey,
+        L"InstallLocation"
+    );
+    const QString manifestPath = readRegistryString(
+        HKEY_LOCAL_MACHINE,
+        appKey,
+        L"NativeMessagingManifest"
+    );
+
+    QVariantMap result = inspectNativeHostManifest(manifestPath);
+    result.insert(QStringLiteral("installDir"), installDir);
+
+    bool trusted = false;
+    if (!installDir.isEmpty() && !manifestPath.isEmpty()) {
+        const QString canonicalInstall = QFileInfo(installDir).canonicalFilePath();
+        const QString canonicalManifest = QFileInfo(manifestPath).canonicalFilePath();
+        const QString canonicalHost = QFileInfo(
+            result.value(QStringLiteral("hostExecutable")).toString()
+        ).canonicalFilePath();
+
+        const QString installPrefix = QDir::cleanPath(canonicalInstall) + QDir::separator();
+        trusted = !canonicalInstall.isEmpty()
+            && !canonicalManifest.isEmpty()
+            && !canonicalHost.isEmpty()
+            && canonicalManifest.startsWith(installPrefix, Qt::CaseInsensitive)
+            && canonicalHost.startsWith(installPrefix, Qt::CaseInsensitive)
+            && result.value(QStringLiteral("valid")).toBool();
+    }
+    result.insert(QStringLiteral("trusted"), trusted);
+    return result;
+}
+#endif
+
+} // namespace
 
 DesktopIntegration::DesktopIntegration(QObject *parent)
     : QObject(parent) {
@@ -89,6 +302,180 @@ bool DesktopIntegration::openExternalUrl(const QString &url) {
 
     emit operationSucceeded(QStringLiteral("open-url"));
     return true;
+}
+
+
+QVariantMap DesktopIntegration::browserNativeHostStatus() const {
+    QVariantMap result;
+    result.insert(QStringLiteral("hostName"), QStringLiteral("com.nova.downloadmanager"));
+
+#if defined(Q_OS_WIN)
+    result.insert(QStringLiteral("platform"), QStringLiteral("windows"));
+    result.insert(QStringLiteral("supported"), true);
+
+    const QString suffix = QStringLiteral(
+        "NativeMessagingHosts\\com.nova.downloadmanager"
+    );
+    const QString chromeKey = QStringLiteral("Software\\Google\\Chrome\\") + suffix;
+    const QString edgeKey = QStringLiteral("Software\\Microsoft\\Edge\\") + suffix;
+    const QString firefoxKey = QStringLiteral("Software\\Mozilla\\") + suffix;
+
+    const QString chromePath = readBrowserRegistration(chromeKey);
+    const QString edgePath = readBrowserRegistration(edgeKey);
+    const QString firefoxPath = readBrowserRegistration(firefoxKey);
+
+    const QVariantMap chrome = inspectNativeHostManifest(chromePath);
+    const QVariantMap edge = inspectNativeHostManifest(edgePath);
+    const QVariantMap firefox = inspectNativeHostManifest(firefoxPath);
+
+    const bool chromeRegistered = chrome.value(QStringLiteral("valid")).toBool();
+    const bool edgeRegistered = edge.value(QStringLiteral("valid")).toBool();
+    const bool firefoxRegistered = firefox.value(QStringLiteral("valid")).toBool();
+
+    result.insert(QStringLiteral("chromeRegistered"), chromeRegistered);
+    result.insert(QStringLiteral("edgeRegistered"), edgeRegistered);
+    result.insert(QStringLiteral("firefoxRegistered"), firefoxRegistered);
+    result.insert(
+        QStringLiteral("allRegistered"),
+        chromeRegistered && edgeRegistered && firefoxRegistered
+    );
+
+    const QVariantMap repairSource = trustedWindowsRepairSource();
+    result.insert(
+        QStringLiteral("manifestPath"),
+        repairSource.value(QStringLiteral("path"))
+    );
+    result.insert(
+        QStringLiteral("manifestValid"),
+        repairSource.value(QStringLiteral("valid"))
+    );
+    result.insert(
+        QStringLiteral("hostExecutable"),
+        repairSource.value(QStringLiteral("hostExecutable"))
+    );
+    result.insert(
+        QStringLiteral("hostExecutableExists"),
+        repairSource.value(QStringLiteral("hostExecutableExists"))
+    );
+    result.insert(
+        QStringLiteral("repairAvailable"),
+        repairSource.value(QStringLiteral("trusted"))
+    );
+#elif defined(Q_OS_MACOS)
+    result.insert(QStringLiteral("platform"), QStringLiteral("macos"));
+    result.insert(QStringLiteral("supported"), true);
+
+    const QString home = QDir::homePath();
+    const QString chromePath = QDir(home).filePath(
+        QStringLiteral("Library/Application Support/Google/Chrome/NativeMessagingHosts/com.nova.downloadmanager.json")
+    );
+    const QString edgePath = QDir(home).filePath(
+        QStringLiteral("Library/Application Support/Microsoft Edge/NativeMessagingHosts/com.nova.downloadmanager.json")
+    );
+    const QString firefoxPath = QDir(home).filePath(
+        QStringLiteral("Library/Application Support/Mozilla/NativeMessagingHosts/com.nova.downloadmanager.json")
+    );
+
+    const bool chromeRegistered = inspectNativeHostManifest(chromePath)
+        .value(QStringLiteral("valid")).toBool();
+    const bool edgeRegistered = inspectNativeHostManifest(edgePath)
+        .value(QStringLiteral("valid")).toBool();
+    const bool firefoxRegistered = inspectNativeHostManifest(firefoxPath)
+        .value(QStringLiteral("valid")).toBool();
+
+    result.insert(QStringLiteral("chromeRegistered"), chromeRegistered);
+    result.insert(QStringLiteral("edgeRegistered"), edgeRegistered);
+    result.insert(QStringLiteral("firefoxRegistered"), firefoxRegistered);
+    result.insert(
+        QStringLiteral("allRegistered"),
+        chromeRegistered && edgeRegistered && firefoxRegistered
+    );
+    result.insert(QStringLiteral("repairAvailable"), false);
+#else
+    result.insert(QStringLiteral("platform"), QStringLiteral("linux"));
+    result.insert(QStringLiteral("supported"), true);
+
+    const QString home = QDir::homePath();
+    const QString chromePath = QDir(home).filePath(
+        QStringLiteral(".config/google-chrome/NativeMessagingHosts/com.nova.downloadmanager.json")
+    );
+    const QString chromiumPath = QDir(home).filePath(
+        QStringLiteral(".config/chromium/NativeMessagingHosts/com.nova.downloadmanager.json")
+    );
+    const QString edgePath = QDir(home).filePath(
+        QStringLiteral(".config/microsoft-edge/NativeMessagingHosts/com.nova.downloadmanager.json")
+    );
+    const QString firefoxPath = QDir(home).filePath(
+        QStringLiteral(".mozilla/native-messaging-hosts/com.nova.downloadmanager.json")
+    );
+
+    const bool chromeRegistered =
+        inspectNativeHostManifest(chromePath).value(QStringLiteral("valid")).toBool()
+        || inspectNativeHostManifest(chromiumPath).value(QStringLiteral("valid")).toBool();
+    const bool edgeRegistered = inspectNativeHostManifest(edgePath)
+        .value(QStringLiteral("valid")).toBool();
+    const bool firefoxRegistered = inspectNativeHostManifest(firefoxPath)
+        .value(QStringLiteral("valid")).toBool();
+
+    result.insert(QStringLiteral("chromeRegistered"), chromeRegistered);
+    result.insert(QStringLiteral("edgeRegistered"), edgeRegistered);
+    result.insert(QStringLiteral("firefoxRegistered"), firefoxRegistered);
+    result.insert(
+        QStringLiteral("allRegistered"),
+        chromeRegistered && edgeRegistered && firefoxRegistered
+    );
+    result.insert(QStringLiteral("repairAvailable"), false);
+#endif
+
+    return result;
+}
+
+bool DesktopIntegration::repairBrowserNativeHost() {
+#if defined(Q_OS_WIN)
+    const QVariantMap source = trustedWindowsRepairSource();
+    if (!source.value(QStringLiteral("trusted")).toBool()) {
+        fail(
+            QStringLiteral("browser-host-repair"),
+            QStringLiteral("A trusted installed NOVA native-host manifest was not found.")
+        );
+        return false;
+    }
+
+    const QString manifestPath = source.value(QStringLiteral("path")).toString();
+    const QString suffix = QStringLiteral(
+        "NativeMessagingHosts\\com.nova.downloadmanager"
+    );
+
+    const bool chrome = writeUserBrowserRegistration(
+        QStringLiteral("Software\\Google\\Chrome\\") + suffix,
+        manifestPath
+    );
+    const bool edge = writeUserBrowserRegistration(
+        QStringLiteral("Software\\Microsoft\\Edge\\") + suffix,
+        manifestPath
+    );
+    const bool firefox = writeUserBrowserRegistration(
+        QStringLiteral("Software\\Mozilla\\") + suffix,
+        manifestPath
+    );
+
+    if (!(chrome && edge && firefox)) {
+        fail(
+            QStringLiteral("browser-host-repair"),
+            QStringLiteral("NOVA could not repair every browser native-host registration.")
+        );
+        return false;
+    }
+
+    emit operationSucceeded(QStringLiteral("browser-host-repair"));
+    return true;
+#else
+    fail(
+        QStringLiteral("browser-host-repair"),
+        QStringLiteral("Automatic native-host repair is not available on this platform yet.")
+    );
+    return false;
+#endif
 }
 
 bool DesktopIntegration::openFile(const QString &path) {

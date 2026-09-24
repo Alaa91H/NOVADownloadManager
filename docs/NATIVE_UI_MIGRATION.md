@@ -155,6 +155,7 @@ Implemented:
 - Clipboard URL monitoring now matches the legacy 1.5-second detection behavior: it ignores pre-existing clipboard content, extracts new HTTP/HTTPS links and opens the native Add Download dialog only after the engine is connected.
 - Browser integration now exposes live daemon-backed status, enabled/paired state, bridge version, capture endpoint and direct/media/post-processing capabilities in the native Settings workspace.
 - Native Qt can now enable or disable browser capture through the daemon's existing `/api/browser-extension/config` endpoint. The daemon applies only the browser-enable patch atomically and preserves unrelated settings and protected pairing credential markers.
+- Native browser diagnostics validate Chrome/Chromium, Edge and Firefox Native Messaging registration plus the manifest/host executable. Windows can repair missing per-user registrations only from a manifest verified inside the trusted machine-wide NOVA installation.
 - Native browser integration follows the project's zero-click pairing security model: pairing credentials are never displayed or copied by the Qt UI; setup links route users to the extension release and pairing documentation.
 - Windows preview bundles deploy the required Qt runtime through `windeployqt`.
 - Linux preview bundles include the installed native binary, desktop entry and an `ldd` runtime dependency report.
@@ -163,7 +164,7 @@ Implemented:
 
 Current parity blockers tracked by the executable manifest:
 
-- Complete native-host registration diagnostics and a trusted repair action that can verify/recover the registered browser native host without exposing pairing credentials.
+- Complete automatic Native Messaging registration/repair for packaged macOS and Linux native releases, then validate browser capture end to end on all desktop platforms.
 - Legacy-only advanced download columns beyond the native core set (for example retries, CRC32, priority, completed date and smart category metadata).
 - Full legacy language catalog beyond the current English/Arabic/German native baseline.
 - Production signed automatic updater installation.
