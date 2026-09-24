@@ -278,7 +278,7 @@
           ]
         }
       ],
-      "blocker": "Native settings covers core preferences, engine controls, browser integration, updater checks, diagnostics and logs, but legacy parity is incomplete for network/performance, media, external tools, backup/restore, Telegram and shortcut settings; legacy UI preference migration is also not implemented."
+      "blocker": "Native settings covers core preferences, engine controls, browser integration, updater checks, diagnostics and logs. Core legacy UI preferences now migrate once into native settings, but parity remains incomplete for network/performance, media, external tools, backup/restore, Telegram, shortcut settings and migration of those advanced preferences."
     },
     {
       "id": "desktop-integration",
