@@ -723,6 +723,111 @@ fn parse_iso8601_duration_millis(value: &str) -> Option<u64> {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct DashLiveCursor {
+    pub initialized: bool,
+    pub last_number: Option<u64>,
+    pub last_time: Option<u64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct DashLiveRefresh {
+    pub plan: Option<DashRepresentationPlan>,
+    pub next_cursor: DashLiveCursor,
+    pub reload_after_millis: u64,
+}
+
+/// Build one incremental refresh from a dynamic MPD snapshot.
+///
+/// Explicit SegmentTimeline entries are used as the source of truth. Already
+/// consumed media units are filtered using Time when available, then Number.
+pub fn build_dash_live_refresh(
+    manifest: &DashManifest,
+    manifest_url: &str,
+    period_index: usize,
+    adaptation_index: usize,
+    representation_index: usize,
+    cursor: DashLiveCursor,
+) -> Result<DashLiveRefresh, DashPlanError> {
+    if !manifest.is_dynamic {
+        return Err(DashPlanError::DynamicManifest);
+    }
+
+    let snapshot = build_dash_representation_plan(
+        manifest,
+        manifest_url,
+        period_index,
+        adaptation_index,
+        representation_index,
+    )?;
+
+    let mut selected = Vec::new();
+    for unit in &snapshot.units {
+        if unit.initialization {
+            if !cursor.initialized {
+                selected.push(unit.clone());
+            }
+            continue;
+        }
+
+        let unseen = match (unit.time, cursor.last_time) {
+            (Some(time), Some(last_time)) => time > last_time,
+            (Some(_), None) => true,
+            (None, _) => match (unit.number, cursor.last_number) {
+                (Some(number), Some(last_number)) => number > last_number,
+                (Some(_), None) => true,
+                _ => false,
+            },
+        };
+        if unseen {
+            selected.push(unit.clone());
+        }
+    }
+
+    let next_cursor = snapshot
+        .units
+        .iter()
+        .filter(|unit| !unit.initialization)
+        .fold(cursor, |mut state, unit| {
+            state.initialized = state.initialized || !snapshot.units.is_empty();
+            if let Some(number) = unit.number {
+                state.last_number = Some(
+                    state
+                        .last_number
+                        .map_or(number, |current| current.max(number)),
+                );
+            }
+            if let Some(time) = unit.time {
+                state.last_time = Some(
+                    state
+                        .last_time
+                        .map_or(time, |current| current.max(time)),
+                );
+            }
+            state
+        });
+
+    let plan = (!selected.is_empty()).then(|| DashRepresentationPlan {
+        representation_id: snapshot.representation_id.clone(),
+        track_kind: snapshot.track_kind,
+        bandwidth: snapshot.bandwidth,
+        units: selected,
+    });
+
+    let reload_after_millis = manifest
+        .minimum_update_period
+        .as_deref()
+        .and_then(parse_iso8601_duration_millis)
+        .unwrap_or(5000)
+        .max(1000);
+
+    Ok(DashLiveRefresh {
+        plan,
+        next_cursor,
+        reload_after_millis,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -923,6 +1028,58 @@ mod tests {
             .filter_map(|unit| unit.time)
             .collect();
         assert_eq!(times, vec![10, 12, 14, 16]);
+    }
+
+    #[test]
+    fn dynamic_refresh_filters_already_consumed_timeline_units() {
+        let first = parse_dash(
+            r#"<MPD type="dynamic" minimumUpdatePeriod="PT2S">
+<Period><AdaptationSet contentType="video">
+<SegmentTemplate timescale="1" media="$Time$.m4s" initialization="init.mp4">
+<SegmentTimeline><S t="10" d="2" r="1"/></SegmentTimeline>
+</SegmentTemplate>
+<Representation id="v1" bandwidth="1000"/>
+</AdaptationSet></Period></MPD>"#,
+        )
+        .expect("first dynamic MPD");
+
+        let refresh = build_dash_live_refresh(
+            &first,
+            "https://cdn.test/live.mpd",
+            0,
+            0,
+            0,
+            DashLiveCursor::default(),
+        )
+        .expect("first refresh");
+        assert_eq!(refresh.reload_after_millis, 2000);
+        assert_eq!(refresh.next_cursor.last_time, Some(12));
+        assert_eq!(refresh.plan.as_ref().expect("plan").units.len(), 3);
+
+        let second = parse_dash(
+            r#"<MPD type="dynamic" minimumUpdatePeriod="PT2S">
+<Period><AdaptationSet contentType="video">
+<SegmentTemplate timescale="1" media="$Time$.m4s" initialization="init.mp4">
+<SegmentTimeline><S t="12" d="2" r="1"/></SegmentTimeline>
+</SegmentTemplate>
+<Representation id="v1" bandwidth="1000"/>
+</AdaptationSet></Period></MPD>"#,
+        )
+        .expect("second dynamic MPD");
+
+        let refresh = build_dash_live_refresh(
+            &second,
+            "https://cdn.test/live.mpd",
+            0,
+            0,
+            0,
+            refresh.next_cursor,
+        )
+        .expect("second refresh");
+        let units = &refresh.plan.as_ref().expect("incremental plan").units;
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].time, Some(14));
+        assert!(!units[0].initialization);
     }
 
     #[test]
