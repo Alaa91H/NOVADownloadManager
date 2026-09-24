@@ -87,9 +87,11 @@ Item {
             root.acceptedCount = accepted
             root.failedCount = failed
             root.duplicateCount = duplicates
-            root.resultText = accepted + " accepted"
-                + (failed > 0 ? " · " + failed + " failed" : "")
-                + (duplicates > 0 ? " · " + duplicates + " duplicate(s) skipped" : "")
+            root.resultText = accepted + " " + root.t("batch.accepted")
+                + (failed > 0 ? " · " + failed + " " + root.t("batch.failed") : "")
+                + (duplicates > 0
+                    ? " · " + duplicates + " " + root.t("batch.duplicatesSkipped")
+                    : "")
         }
     }
 
@@ -214,12 +216,12 @@ Item {
                 id: connections
                 Layout.preferredWidth: 150
                 model: [
-                    { label: "Automatic", value: 0 },
-                    { label: "1 connection", value: 1 },
-                    { label: "8 connections", value: 8 },
-                    { label: "16 connections", value: 16 },
-                    { label: "24 connections", value: 24 },
-                    { label: "32 connections", value: 32 }
+                    { label: root.t("batch.automatic"), value: 0 },
+                    { label: "1 " + root.t("batch.connection"), value: 1 },
+                    { label: "8 " + root.t("batch.connections"), value: 8 },
+                    { label: "16 " + root.t("batch.connections"), value: 16 },
+                    { label: "24 " + root.t("batch.connections"), value: 24 },
+                    { label: "32 " + root.t("batch.connections"), value: 32 }
                 ]
                 textRole: "label"
                 valueRole: "value"
@@ -433,7 +435,8 @@ Item {
                     Text {
                         text: root.resultText.length > 0
                             ? root.resultText
-                            : root.acceptedCount + " accepted · " + root.failedCount + " failed"
+                            : root.acceptedCount + " " + root.t("batch.accepted")
+                                + " · " + root.failedCount + " " + root.t("batch.failed")
                         color: root.failedCount > 0 ? Theme.warning : Theme.textSecondary
                         font.pixelSize: Theme.fontSmall
                     }
