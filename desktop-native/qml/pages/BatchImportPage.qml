@@ -17,6 +17,7 @@ Item {
     property int duplicateCount: 0
     property string resultText: ""
     property bool advancedExpanded: false
+    property string defaultQueueId: "main"
     property string languageToken: i18n.language
 
     function t(key) {
@@ -221,7 +222,7 @@ Item {
                 TextField {
                     id: queueIdField
                     Layout.fillWidth: true
-                    text: "main"
+                    text: root.defaultQueueId
                     enabled: !api.batchRunning
                     LayoutMirroring.enabled: false
                     horizontalAlignment: Text.AlignLeft
@@ -383,7 +384,7 @@ Item {
                         {
                             queueId: queueIdField.text.trim().length > 0
                                 ? queueIdField.text.trim()
-                                : "main",
+                                : root.defaultQueueId,
                             advanced: advanced
                         }
                     )
