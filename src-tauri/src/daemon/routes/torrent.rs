@@ -1,4 +1,5 @@
-use axum::extract::{Path, State};
+use axum::body::Bytes;
+use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::StatusCode;
 use axum::response::Json;
 use axum::routing::{get, patch, post};
@@ -6,8 +7,8 @@ use axum::Router;
 
 use crate::daemon::state::SharedState;
 use crate::daemon::torrent_task::{
-    analyze_magnet, create_torrent_task, reauthorize_torrent_task, torrent_task_details,
-    update_torrent_file_priorities, AnalyzeTorrentBody, CreateTorrentBody,
+    analyze_magnet, analyze_metainfo, create_torrent_task, reauthorize_torrent_task,
+    torrent_task_details, update_torrent_file_priorities, AnalyzeTorrentBody, CreateTorrentBody,
     ReauthorizeTorrentBody, TorrentAnalysisView, TorrentTaskDetails, UpdateTorrentFilesBody,
 };
 use crate::daemon::types::Task;
@@ -31,6 +32,16 @@ async fn handle_analyze_torrent(
     Json(body): Json<AnalyzeTorrentBody>,
 ) -> Result<Json<TorrentAnalysisView>, ApiError> {
     analyze_magnet(&state, &body.magnet_uri)
+        .await
+        .map(Json)
+        .map_err(torrent_error)
+}
+
+async fn handle_analyze_torrent_file(
+    State(state): State<SharedState>,
+    body: Bytes,
+) -> Result<Json<TorrentAnalysisView>, ApiError> {
+    analyze_metainfo(&state, &body)
         .await
         .map(Json)
         .map_err(torrent_error)
@@ -81,6 +92,11 @@ async fn handle_reauthorize_torrent(
 pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
     router
         .route("/api/torrents/analyze", post(handle_analyze_torrent))
+        .route(
+            "/api/torrents/analyze-file",
+            post(handle_analyze_torrent_file)
+                .layer(DefaultBodyLimit::max(nova_torrent_core::MAX_METAINFO_BYTES)),
+        )
         .route("/api/torrents", post(handle_create_torrent))
         .route("/api/torrents/{id}", get(handle_torrent_details))
         .route(

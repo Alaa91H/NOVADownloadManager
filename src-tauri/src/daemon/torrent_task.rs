@@ -175,6 +175,47 @@ pub async fn analyze_magnet(
     Ok(view)
 }
 
+pub async fn analyze_metainfo(
+    state: &SharedState,
+    bytes: &[u8],
+) -> Result<TorrentAnalysisView, String> {
+    let metainfo = TorrentMetainfo::parse(bytes)
+        .map_err(|error| format!("Invalid torrent metadata file: {error}"))?;
+    let source_uri = discovery_source_from_metainfo(&metainfo);
+
+    let cancel = CancellationToken::new();
+    let resolver = MagnetResolver::production_default();
+    let resolution = tokio::time::timeout(
+        Duration::from_secs(45),
+        resolver.discover_metainfo(metainfo, &cancel),
+    )
+    .await
+    .map_err(|_| "Torrent peer discovery timed out after 45 seconds".to_owned())??;
+
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    let view = analysis_view(&id, &resolution);
+    let pending = PendingTorrentAnalysis {
+        id: id.clone(),
+        source_uri,
+        resolution,
+        created_at: Instant::now(),
+    };
+
+    let mut analyses = lock_or_err!(state.torrent_analyses);
+    analyses.retain(|_, item| item.created_at.elapsed() <= TORRENT_ANALYSIS_TTL);
+    if analyses.len() >= MAX_PENDING_TORRENT_ANALYSES {
+        if let Some(oldest) = analyses
+            .iter()
+            .min_by_key(|(_, item)| item.created_at)
+            .map(|(key, _)| key.clone())
+        {
+            analyses.remove(&oldest);
+        }
+    }
+    analyses.insert(id, pending);
+    Ok(view)
+}
+
 pub async fn create_torrent_task(
     state: &SharedState,
     body: CreateTorrentBody,
@@ -623,31 +664,72 @@ async fn run_torrent_worker(
     }
 
     if candidates.is_empty() {
-        let Some(source) = source_uri.as_deref() else {
-            fail_torrent_task(
-                &state,
-                &id,
-                generation,
-                "Torrent peer discovery source is unavailable; re-authorize the magnet link"
-                    .to_owned(),
-                &active_slot,
-            );
-            return;
+        let mut metainfo = match storage.transfer_plan().await {
+            Ok(plan) => plan.metainfo,
+            Err(error) => {
+                fail_torrent_task(
+                    &state,
+                    &id,
+                    generation,
+                    format!("Could not read torrent metadata for peer discovery: {error}"),
+                    &active_slot,
+                );
+                return;
+            }
         };
 
-        match MagnetResolver::production_default().resolve_uri(source, &cancel).await {
-            Ok(resolution) => {
-                let expected = storage.transfer_plan().await.ok().map(|plan| plan.metainfo.info_hash);
-                if expected.is_some_and(|hash| hash != resolution.metainfo.info_hash) {
+        if let Some(source) = source_uri.as_deref() {
+            let magnet = match MagnetLink::parse(source) {
+                Ok(magnet) => magnet,
+                Err(error) => {
                     fail_torrent_task(
                         &state,
                         &id,
                         generation,
-                        "Resolved magnet metadata does not match persisted torrent".to_owned(),
+                        format!("Persisted torrent discovery source is invalid: {error}"),
                         &active_slot,
                     );
                     return;
                 }
+            };
+            if magnet.info_hash != metainfo.info_hash {
+                fail_torrent_task(
+                    &state,
+                    &id,
+                    generation,
+                    "Persisted torrent discovery source does not match storage metadata".to_owned(),
+                    &active_slot,
+                );
+                return;
+            }
+            // Storage manifests deliberately redact tracker URLs. Rehydrate
+            // only the in-memory discovery copy from the sanitized/full source.
+            metainfo.trackers = magnet.trackers.clone();
+            metainfo.tracker_tiers = magnet
+                .trackers
+                .iter()
+                .cloned()
+                .map(|tracker| vec![tracker])
+                .collect();
+        }
+
+        if metainfo.private && metainfo.trackers.is_empty() {
+            fail_torrent_task(
+                &state,
+                &id,
+                generation,
+                "Private torrent tracker authorization is unavailable; re-authorize the torrent source"
+                    .to_owned(),
+                &active_slot,
+            );
+            return;
+        }
+
+        match MagnetResolver::production_default()
+            .discover_metainfo(metainfo, &cancel)
+            .await
+        {
+            Ok(resolution) => {
                 candidates = resolution_candidates(&resolution);
                 local_peer_id = resolution.local_peer_id;
                 let mut jobs = lock_or_err!(state.torrent_jobs);
@@ -672,6 +754,17 @@ async fn run_torrent_worker(
                 );
                 return;
             }
+        }
+
+        if candidates.is_empty() {
+            fail_torrent_task(
+                &state,
+                &id,
+                generation,
+                "Torrent peer discovery returned no usable peers".to_owned(),
+                &active_slot,
+            );
+            return;
         }
     }
 
@@ -1349,7 +1442,10 @@ fn analysis_view(id: &str, resolution: &MagnetResolution) -> TorrentAnalysisView
 fn resolution_candidates(resolution: &MagnetResolution) -> Vec<SocketAddr> {
     let mut seen = HashSet::new();
     let mut output = Vec::new();
-    for peer in std::iter::once(resolution.metadata_peer)
+    for peer in resolution
+        .metadata_peer
+        .iter()
+        .copied()
         .chain(resolution.tracker_peers.iter().copied())
         .chain(resolution.dht_peers.iter().copied())
         .chain(resolution.pex_peers.iter().copied())
@@ -1360,6 +1456,17 @@ fn resolution_candidates(resolution: &MagnetResolution) -> Vec<SocketAddr> {
     }
     output.truncate(2048);
     output
+}
+
+fn discovery_source_from_metainfo(metainfo: &TorrentMetainfo) -> String {
+    let mut query = url::form_urlencoded::Serializer::new(String::new());
+    query.append_pair("xt", &format!("urn:btih:{}", metainfo.info_hash.to_hex()));
+    query.append_pair("dn", &metainfo.name);
+    query.append_pair("xl", &metainfo.total_length.to_string());
+    for tracker in &metainfo.trackers {
+        query.append_pair("tr", tracker);
+    }
+    format!("magnet:?{}", query.finish())
 }
 
 pub fn persistable_magnet_source(input: &str) -> Result<(String, bool), String> {
@@ -1427,6 +1534,46 @@ fn limit_error(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn metainfo_import_builds_secret_safe_restart_source() {
+        use nova_torrent_core::TorrentFile;
+
+        let metainfo = TorrentMetainfo {
+            info_hash: InfoHash::new([0x21; 20]),
+            name: "imported.bin".to_owned(),
+            piece_length: 4,
+            piece_hashes: vec![[0x11; 20]],
+            files: vec![TorrentFile {
+                path: "imported.bin".to_owned(),
+                length: 4,
+                offset: 0,
+            }],
+            total_length: 4,
+            trackers: vec![
+                "https://tracker.example/announce".to_owned(),
+                "https://tracker.example/private?passkey=secret".to_owned(),
+            ],
+            tracker_tiers: Vec::new(),
+            private: true,
+        };
+
+        let full = discovery_source_from_metainfo(&metainfo);
+        let parsed = MagnetLink::parse(&full).unwrap();
+        assert_eq!(parsed.info_hash, metainfo.info_hash);
+        assert_eq!(parsed.trackers.len(), 2);
+
+        let (persisted, requires_reauth) = persistable_magnet_source(&full).unwrap();
+        assert!(requires_reauth);
+        assert!(!persisted.contains("passkey"));
+        assert!(!persisted.contains("secret"));
+        let sanitized = MagnetLink::parse(&persisted).unwrap();
+        assert_eq!(sanitized.info_hash, metainfo.info_hash);
+        assert_eq!(
+            sanitized.trackers,
+            vec!["https://tracker.example/announce".to_owned()]
+        );
+    }
 
     #[tokio::test]
     async fn completed_torrent_recheck_invalidates_changed_payload() {

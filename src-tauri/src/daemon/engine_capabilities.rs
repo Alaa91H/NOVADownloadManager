@@ -2057,6 +2057,7 @@ pub fn native_torrent_status() -> Value {
             "daemonTaskRouting": true,
             "torrentTaskLifecycleApi": true,
             "torrentAnalysisApi": true,
+            "torrentMetainfoFileImport": true,
             "torrentFilePriorityApi": true,
             "torrentReauthorizationApi": true,
             "genericMagnetCreateRouting": true
@@ -2154,6 +2155,7 @@ mod tests {
         assert_eq!(status["capabilities"]["daemonTaskRouting"], true);
         assert_eq!(status["capabilities"]["torrentTaskLifecycleApi"], true);
         assert_eq!(status["capabilities"]["torrentAnalysisApi"], true);
+        assert_eq!(status["capabilities"]["torrentMetainfoFileImport"], true);
         assert_eq!(status["capabilities"]["torrentFilePriorityApi"], true);
         assert_eq!(status["capabilities"]["torrentReauthorizationApi"], true);
     }

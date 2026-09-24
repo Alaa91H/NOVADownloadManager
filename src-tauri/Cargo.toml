@@ -35,6 +35,7 @@ tokio = { version = "1", features = ["rt", "macros", "time", "net", "sync", "io-
 axum = { version = "0.8", features = ["macros", "query"] }
 tower-http = { version = "0.7", features = ["cors", "fs", "compression-gzip", "limit"] }
 reqwest = { version = ">=0.12.0, <0.14", features = ["json", "blocking", "multipart", "stream", "gzip", "brotli", "deflate"] }
+url = "2"
 tokio-util = { version = "0.7", features = ["codec", "rt"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

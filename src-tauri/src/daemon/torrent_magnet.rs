@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::net::SocketAddr;
 
 use nova_torrent_core::{
-    MagnetLink, TorrentMetainfo, TrackerAnnounceRequest, TrackerEvent,
+    InfoHash, MagnetLink, TorrentMetainfo, TrackerAnnounceRequest, TrackerEvent,
 };
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -38,7 +38,7 @@ impl Default for MagnetResolverConfig {
 pub struct MagnetResolution {
     pub metainfo: TorrentMetainfo,
     pub local_peer_id: [u8; 20],
-    pub metadata_peer: SocketAddr,
+    pub metadata_peer: Option<SocketAddr>,
     pub tracker_peers: Vec<SocketAddr>,
     pub dht_peers: Vec<SocketAddr>,
     pub pex_peers: Vec<SocketAddr>,
@@ -98,7 +98,13 @@ impl MagnetResolver {
 
         let local_peer_id = generate_peer_id();
         let tracker_peers = self
-            .discover_tracker_peers(magnet, local_peer_id, cancel)
+            .discover_tracker_peers(
+                magnet.info_hash,
+                &magnet.trackers,
+                magnet.exact_length.unwrap_or(0),
+                local_peer_id,
+                cancel,
+            )
             .await;
 
         if !tracker_peers.is_empty() {
@@ -179,34 +185,79 @@ impl MagnetResolver {
         ))
     }
 
+    /// Discover peers for metainfo that is already trusted locally (for
+    /// example, a user-selected .torrent file or a restored storage manifest).
+    ///
+    /// Unlike magnet resolution this path never asks a peer to supply metadata:
+    /// the exact info dictionary and piece hashes are already known. That keeps
+    /// .torrent imports usable with peers that do not implement BEP 9 and also
+    /// lets restart recovery reuse NOVA's durable metainfo safely.
+    pub async fn discover_metainfo(
+        &self,
+        metainfo: TorrentMetainfo,
+        cancel: &CancellationToken,
+    ) -> Result<MagnetResolution, String> {
+        if self.config.announce_port == 0 {
+            return Err("Torrent resolver announce port cannot be zero".to_owned());
+        }
+
+        let local_peer_id = generate_peer_id();
+        let tracker_peers = self
+            .discover_tracker_peers(
+                metainfo.info_hash,
+                &metainfo.trackers,
+                metainfo.total_length,
+                local_peer_id,
+                cancel,
+            )
+            .await;
+
+        let mut dht_peers = Vec::new();
+        let mut used_dht = false;
+        if tracker_peers.is_empty() && !metainfo.private && self.config.enable_dht {
+            if let Ok(discovery) = self.dht.discover_peers(metainfo.info_hash, cancel).await {
+                dht_peers = bounded_unique(discovery.peers, self.config.max_candidate_peers);
+                used_dht = !dht_peers.is_empty();
+            }
+        }
+
+        Ok(MagnetResolution {
+            metainfo,
+            local_peer_id,
+            metadata_peer: None,
+            tracker_peers,
+            dht_peers,
+            pex_peers: Vec::new(),
+            used_dht,
+        })
+    }
+
     async fn discover_tracker_peers(
         &self,
-        magnet: &MagnetLink,
+        info_hash: InfoHash,
+        trackers: &[String],
+        left: u64,
         local_peer_id: [u8; 20],
         cancel: &CancellationToken,
     ) -> Vec<SocketAddr> {
-        if magnet.trackers.is_empty() || self.config.max_tracker_queries == 0 {
+        if trackers.is_empty() || self.config.max_tracker_queries == 0 {
             return Vec::new();
         }
 
         let request = TrackerAnnounceRequest {
-            info_hash: magnet.info_hash,
+            info_hash,
             peer_id: local_peer_id,
             port: self.config.announce_port,
             uploaded: 0,
             downloaded: 0,
-            // Before BEP 9 metadata is available, exact remaining bytes are
-            // unknown. xl is used when the magnet provides it; otherwise zero
-            // is used only for peer discovery and not persisted as task state.
-            left: magnet.exact_length.unwrap_or(0),
+            left,
             event: TrackerEvent::None,
             key: tracker_key(),
             num_want: Some(200),
         };
 
         let mut tasks = JoinSet::new();
-        for tracker_url in magnet
-            .trackers
+        for tracker_url in trackers
             .iter()
             .take(self.config.max_tracker_queries.min(32))
         {
@@ -258,7 +309,7 @@ fn build_resolution(
     MagnetResolution {
         metainfo: metadata.metainfo,
         local_peer_id,
-        metadata_peer: metadata.address,
+        metadata_peer: Some(metadata.address),
         tracker_peers,
         dht_peers: if private { Vec::new() } else { dht_peers },
         pex_peers: if private {
@@ -483,7 +534,7 @@ mod tests {
         assert!(result.used_dht);
         assert_eq!(result.metainfo.info_hash, info_hash);
         assert_eq!(result.metainfo.name, "piece.bin");
-        assert_eq!(result.metadata_peer, peer_address);
+        assert_eq!(result.metadata_peer, Some(peer_address));
         assert_eq!(result.dht_peers, vec![peer_address]);
         dht_task.await.unwrap();
         peer_task.await.unwrap();
