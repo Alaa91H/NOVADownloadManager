@@ -5,8 +5,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use nova_download_core::{
-    discard_http_download_artifacts, download_http_to_path_segmented_controlled_with_context,
-    HttpRequestContext, TransferControl,
+    discard_http_download_artifacts, discard_http_resume_artifacts,
+    download_http_to_path_segmented_controlled_with_context, HttpRequestContext, TransferControl,
 };
 use nova_media_core::{
     processing::{
@@ -312,9 +312,9 @@ pub fn discard_native_media_staging(destination: &Path) {
     let (video, audio) = native_staging_paths(destination);
     discard_http_download_artifacts(&video);
     discard_http_download_artifacts(&audio);
-    // A resumed native task may re-resolve to a single direct stream; clean
-    // its resumable sidecars through the same native transfer contract.
-    discard_http_download_artifacts(destination);
+    // A resumed native task may re-resolve to a single direct stream. Remove
+    // its hidden resume state without deleting the user-visible destination.
+    discard_http_resume_artifacts(destination);
     let _ = std::fs::remove_file(append_suffix(destination, ".nova-mp4.tmp"));
 }
 
