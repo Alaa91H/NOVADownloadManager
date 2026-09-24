@@ -133,7 +133,7 @@ const CURL_DIRECT_OPTION_KEYS: &[&str] = &[
     "bufferSize",
 ];
 
-const YTDLP_MEDIA_OPTION_KEYS: &[&str] = &[
+const MEDIA_BRIDGE_MEDIA_OPTION_KEYS: &[&str] = &[
     "mode",
     "quality",
     "formatSelector",
@@ -1269,25 +1269,25 @@ pub fn validate_curl_direct_options(
     Ok(())
 }
 
-fn collect_ytdlp_help(command: &str) -> String {
+fn collect_media_bridge_help(command: &str) -> String {
     hidden_output_any(command, &["--help"]).unwrap_or_default()
 }
 
-fn ytdlp_model(ytdlp_bin: &str) -> (bool, String, HashSet<String>) {
-    let version = hidden_output(ytdlp_bin, &["--version"])
+fn media_bridge_model(media_bridge_bin: &str) -> (bool, String, HashSet<String>) {
+    let version = hidden_output(media_bridge_bin, &["--version"])
         .map(|v| v.trim().to_owned())
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| "unknown".to_owned());
-    let available = version != "unknown" || executable_available(ytdlp_bin);
+    let available = version != "unknown" || executable_available(media_bridge_bin);
     let flags = if available {
-        parse_long_flags(&collect_ytdlp_help(ytdlp_bin))
+        parse_long_flags(&collect_media_bridge_help(media_bridge_bin))
     } else {
         HashSet::new()
     };
     (available, version, flags)
 }
 
-fn ytdlp_key_supported(
+fn media_bridge_key_supported(
     key: &str,
     available: bool,
     flags: &HashSet<String>,
@@ -1384,14 +1384,14 @@ fn ytdlp_key_supported(
     }
 }
 
-pub fn ytdlp_status_with_context(ytdlp_bin: &str, ffmpeg_available: bool) -> Value {
-    let (available, version, flags) = ytdlp_model(ytdlp_bin);
-    let supported_keys: HashSet<String> = YTDLP_MEDIA_OPTION_KEYS
+pub fn media_bridge_status_with_context(media_bridge_bin: &str, ffmpeg_available: bool) -> Value {
+    let (available, version, flags) = media_bridge_model(media_bridge_bin);
+    let supported_keys: HashSet<String> = MEDIA_BRIDGE_MEDIA_OPTION_KEYS
         .iter()
-        .filter(|key| ytdlp_key_supported(key, available, &flags, ffmpeg_available))
+        .filter(|key| media_bridge_key_supported(key, available, &flags, ffmpeg_available))
         .map(|key| (*key).to_owned())
         .collect();
-    let all_keys: HashSet<String> = YTDLP_MEDIA_OPTION_KEYS
+    let all_keys: HashSet<String> = MEDIA_BRIDGE_MEDIA_OPTION_KEYS
         .iter()
         .map(|key| (*key).to_owned())
         .collect();
@@ -1415,38 +1415,38 @@ pub fn ytdlp_status_with_context(ytdlp_bin: &str, ffmpeg_available: bool) -> Val
     external_downloaders.dedup();
 
     json!({
-        "id": "yt-dlp",
-        "name": "yt-dlp",
+        "id": "nova-media-engine",
+        "name": "NOVA Media Engine",
         "role": "media-extraction-engine",
         "available": available,
-        "binary": ytdlp_bin,
+        "binary": media_bridge_bin,
         "version": version,
-        "source": "https://github.com/yt-dlp/yt-dlp",
-        "verifiedBy": ["yt-dlp --version", "yt-dlp --help"],
+        "source": "NOVA managed media compatibility layer",
+        "verifiedBy": ["managed resolver version probe", "managed resolver capability probe"],
         "availableFlags": sorted_vec(flags.clone()),
         "capabilities": {
             "siteExtraction": available,
-            "playlists": ytdlp_key_supported("playlist", available, &flags, ffmpeg_available),
-            "formatSelection": ytdlp_key_supported("formatSelector", available, &flags, ffmpeg_available),
-            "formatSorting": ytdlp_key_supported("formatSort", available, &flags, ffmpeg_available),
-            "audioExtraction": ffmpeg_available && ytdlp_key_supported("audioFormat", available, &flags, ffmpeg_available),
-            "subtitles": ytdlp_key_supported("subtitles", available, &flags, ffmpeg_available),
-            "autoSubtitles": ytdlp_key_supported("autoSubtitles", available, &flags, ffmpeg_available),
-            "thumbnailWriteEmbed": ytdlp_key_supported("writeThumbnail", available, &flags, ffmpeg_available) || ytdlp_key_supported("embedThumbnail", available, &flags, ffmpeg_available),
-            "metadataWriteEmbed": ytdlp_key_supported("embedMetadata", available, &flags, ffmpeg_available),
-            "chapterSplit": ytdlp_key_supported("splitChapters", available, &flags, ffmpeg_available),
-            "sponsorBlock": ytdlp_key_supported("sponsorBlock", available, &flags, ffmpeg_available),
-            "partialSections": ytdlp_key_supported("downloadSections", available, &flags, ffmpeg_available),
-            "concurrentFragments": ytdlp_key_supported("concurrentFragments", available, &flags, ffmpeg_available),
-            "externalDownloader": ytdlp_key_supported("externalDownloader", available, &flags, ffmpeg_available),
-            "cookies": ytdlp_key_supported("cookies", available, &flags, ffmpeg_available),
-            "cookiesFromBrowser": ytdlp_key_supported("cookiesFromBrowser", available, &flags, ffmpeg_available),
-            "proxy": ytdlp_key_supported("proxy", available, &flags, ffmpeg_available),
-            "sourceAddress": ytdlp_key_supported("sourceAddress", available, &flags, ffmpeg_available),
-            "retry": ytdlp_key_supported("retries", available, &flags, ffmpeg_available),
-            "retrySleep": ytdlp_key_supported("retrySleep", available, &flags, ffmpeg_available),
-            "downloadArchive": ytdlp_key_supported("downloadArchive", available, &flags, ffmpeg_available),
-            "liveFromStart": ytdlp_key_supported("liveFromStart", available, &flags, ffmpeg_available),
+            "playlists": media_bridge_key_supported("playlist", available, &flags, ffmpeg_available),
+            "formatSelection": media_bridge_key_supported("formatSelector", available, &flags, ffmpeg_available),
+            "formatSorting": media_bridge_key_supported("formatSort", available, &flags, ffmpeg_available),
+            "audioExtraction": ffmpeg_available && media_bridge_key_supported("audioFormat", available, &flags, ffmpeg_available),
+            "subtitles": media_bridge_key_supported("subtitles", available, &flags, ffmpeg_available),
+            "autoSubtitles": media_bridge_key_supported("autoSubtitles", available, &flags, ffmpeg_available),
+            "thumbnailWriteEmbed": media_bridge_key_supported("writeThumbnail", available, &flags, ffmpeg_available) || media_bridge_key_supported("embedThumbnail", available, &flags, ffmpeg_available),
+            "metadataWriteEmbed": media_bridge_key_supported("embedMetadata", available, &flags, ffmpeg_available),
+            "chapterSplit": media_bridge_key_supported("splitChapters", available, &flags, ffmpeg_available),
+            "sponsorBlock": media_bridge_key_supported("sponsorBlock", available, &flags, ffmpeg_available),
+            "partialSections": media_bridge_key_supported("downloadSections", available, &flags, ffmpeg_available),
+            "concurrentFragments": media_bridge_key_supported("concurrentFragments", available, &flags, ffmpeg_available),
+            "externalDownloader": media_bridge_key_supported("externalDownloader", available, &flags, ffmpeg_available),
+            "cookies": media_bridge_key_supported("cookies", available, &flags, ffmpeg_available),
+            "cookiesFromBrowser": media_bridge_key_supported("cookiesFromBrowser", available, &flags, ffmpeg_available),
+            "proxy": media_bridge_key_supported("proxy", available, &flags, ffmpeg_available),
+            "sourceAddress": media_bridge_key_supported("sourceAddress", available, &flags, ffmpeg_available),
+            "retry": media_bridge_key_supported("retries", available, &flags, ffmpeg_available),
+            "retrySleep": media_bridge_key_supported("retrySleep", available, &flags, ffmpeg_available),
+            "downloadArchive": media_bridge_key_supported("downloadArchive", available, &flags, ffmpeg_available),
+            "liveFromStart": media_bridge_key_supported("liveFromStart", available, &flags, ffmpeg_available),
             "postProcessing": ffmpeg_available,
             "plugins": false
         },
@@ -1805,15 +1805,15 @@ fn media_option_requested(media: &MediaDownloadOptions, key: &str) -> bool {
     }
 }
 
-pub fn validate_ytdlp_media_options(
-    ytdlp_bin: &str,
+pub fn validate_media_bridge_media_options(
+    media_bridge_bin: &str,
     ffmpeg_bin: &str,
     media: &MediaDownloadOptions,
 ) -> Result<(), String> {
-    let (available, _, flags) = ytdlp_model(ytdlp_bin);
+    let (available, _, flags) = media_bridge_model(media_bridge_bin);
     if !available {
         return Err(
-            "yt-dlp is not available. The media extraction engine cannot start.".to_owned(),
+            "NOVA Media Engine compatibility bridge is not available.".to_owned(),
         );
     }
     let ffmpeg_ok = media
@@ -1822,9 +1822,9 @@ pub fn validate_ytdlp_media_options(
         .is_some_and(|path| Path::new(path).exists())
         || ffmpeg_available(ffmpeg_bin);
     let mut unsupported = Vec::new();
-    for key in YTDLP_MEDIA_OPTION_KEYS {
+    for key in MEDIA_BRIDGE_MEDIA_OPTION_KEYS {
         if media_option_requested(media, key)
-            && !ytdlp_key_supported(key, available, &flags, ffmpeg_ok)
+            && !media_bridge_key_supported(key, available, &flags, ffmpeg_ok)
         {
             unsupported.push((*key).to_owned());
         }
@@ -1843,14 +1843,14 @@ pub fn validate_ytdlp_media_options(
         match downloader {
             "auto" | "native" => {}
             "curl" => unsupported
-                .push("The curl external downloader binary is no longer bundled. Use 'native' for yt-dlp's built-in HTTP client.".to_owned()),
+                .push("The curl external downloader binary is no longer bundled. Use the NOVA native transfer engine.".to_owned()),
             "ffmpeg" if ffmpeg_ok => {}
             "ffmpeg" => unsupported
                 .push("externalDownloader=ffmpeg requires an available ffmpeg binary".to_owned()),
             "httpie" => {
                 if !(flags.contains("--downloader") || flags.contains("--external-downloader")) {
                     unsupported.push(
-                        "externalDownloader=httpie is not supported by this yt-dlp build".to_owned(),
+                        "externalDownloader=httpie is not supported by the current media compatibility bridge".to_owned(),
                     );
                 } else if !(executable_available("http") || executable_available("httpie")) {
                     unsupported.push(
@@ -1861,7 +1861,7 @@ pub fn validate_ytdlp_media_options(
             "wget" => {
                 if !(flags.contains("--downloader") || flags.contains("--external-downloader")) {
                     unsupported.push(
-                        "externalDownloader=wget is not supported by this yt-dlp build".to_owned(),
+                        "externalDownloader=wget is not supported by the current media compatibility bridge".to_owned(),
                     );
                 } else if !executable_available("wget") {
                     unsupported
@@ -1871,7 +1871,7 @@ pub fn validate_ytdlp_media_options(
             "axel" => {
                 if !(flags.contains("--downloader") || flags.contains("--external-downloader")) {
                     unsupported.push(
-                        "externalDownloader=axel is not supported by this yt-dlp build".to_owned(),
+                        "externalDownloader=axel is not supported by the current media compatibility bridge".to_owned(),
                     );
                 } else if !executable_available("axel") {
                     unsupported
@@ -1885,22 +1885,22 @@ pub fn validate_ytdlp_media_options(
         unsupported.sort();
         unsupported.dedup();
         return Err(format!(
-            "Unsupported media option(s) for this installed yt-dlp/ffmpeg/curl combination: {}",
+            "Unsupported media option(s) for this installed NOVA media compatibility stack: {}",
             unsupported.join(", ")
         ));
     }
     Ok(())
 }
 
-pub fn all_engine_status(ytdlp_bin: &str, ffmpeg_bin: &str) -> Value {
+pub fn all_engine_status(media_bridge_bin: &str, ffmpeg_bin: &str) -> Value {
     let curl = curl_status();
     let ffmpeg = ffmpeg_status(ffmpeg_bin);
     let ffmpeg_available = ffmpeg
         .get("available")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let ytdlp = ytdlp_status_with_context(ytdlp_bin, ffmpeg_available);
-    let ytdlp_available = ytdlp
+    let media_bridge = media_bridge_status_with_context(media_bridge_bin, ffmpeg_available);
+    let media_bridge_available = media_bridge
         .get("available")
         .and_then(Value::as_bool)
         .unwrap_or(false);
@@ -1916,22 +1916,22 @@ pub fn all_engine_status(ytdlp_bin: &str, ffmpeg_bin: &str) -> Value {
         .unwrap_or_default();
     json!({
         "status": if direct_ready { "connected" } else { "degraded" },
-        "allReady": direct_ready && ytdlp_available && post_processing_ready,
+        "allReady": direct_ready && media_bridge_available && post_processing_ready,
         "directReady": direct_ready,
-        "mediaReady": ytdlp_available,
+        "mediaReady": media_bridge_available,
         "postProcessingReady": post_processing_ready,
         "directProtocols": direct_protocols,
         "compatibilityMode": "runtime-verified-capabilities",
         "routing": {
             "directHttpHttpsFtp": if direct_ready { json!("libcurl-multi") } else { Value::Null },
-            "webMediaAndPlaylists": if ytdlp_available { json!("yt-dlp") } else { Value::Null },
-            "mergeRemuxExtractSubtitles": if post_processing_ready { json!("ffmpeg via yt-dlp") } else { Value::Null },
+            "webMediaAndPlaylists": if media_bridge_available { json!("nova-media-engine") } else { Value::Null },
+            "mergeRemuxExtractSubtitles": if post_processing_ready { json!("nova-media-postprocess") } else { Value::Null },
             "torrentMagnet": Value::Null
         },
         "engines": {
             "curl": curl,
             "libcurlMulti": curl,
-            "ytdlp": ytdlp,
+            "media_bridge": media_bridge,
             "ffmpeg": ffmpeg
         }
     })

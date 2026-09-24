@@ -145,8 +145,8 @@ pub async fn handle_diagnostics(State(state): State<SharedState>) -> Json<serde_
         .pointer("/engines/curl/available")
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
-    let ytdlp_available = engine_caps
-        .pointer("/engines/ytdlp/available")
+    let media_available = engine_caps
+        .pointer("/engines/media/available")
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
     let ffmpeg_available = engine_caps
@@ -163,7 +163,7 @@ pub async fn handle_diagnostics(State(state): State<SharedState>) -> Json<serde_
             media_jobs_count + curl_jobs_count,
             curl_available,
             curl_version(),
-            ytdlp_available,
+            media_available,
             ffmpeg_available,
             network_interfaces(),
             uptime_secs,

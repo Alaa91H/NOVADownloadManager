@@ -346,7 +346,7 @@ pub async fn full_diagnostics(
     jobs: usize,
     curl_available: bool,
     curl_version: String,
-    ytdlp_available: bool,
+    media_available: bool,
     ffmpeg_available: bool,
     network_interfaces: Vec<String>,
     uptime_secs: u64,
@@ -394,7 +394,7 @@ pub async fn full_diagnostics(
         },
         "engines": {
             "libcurl": { "available": curl_available, "version": curl_version },
-            "yt-dlp": { "available": ytdlp_available },
+            "media": { "available": media_available },
             "ffmpeg": { "available": ffmpeg_available },
         },
         "jobs": {

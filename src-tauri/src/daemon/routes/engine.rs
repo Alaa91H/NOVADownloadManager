@@ -103,7 +103,7 @@ pub(super) fn extension_capabilities_from_status(status: &serde_json::Value) -> 
         "items": items,
         "engineCapabilities": status,
         "directOptionKeys": status.pointer("/engines/libcurlMulti/supportedDirectOptionKeys").cloned().unwrap_or_else(|| serde_json::json!([])),
-        "mediaOptionKeys": status.pointer("/engines/ytdlp/supportedMediaOptionKeys").cloned().unwrap_or_else(|| serde_json::json!([])),
+        "mediaOptionKeys": status.pointer("/engines/media/supportedMediaOptionKeys").cloned().unwrap_or_else(|| serde_json::json!([])),
         "directProtocols": direct_protocols,
         "streamResolverReady": stream_resolver_ready,
         "unsupportedCandidateMediaTypes": ["torrent", "magnet"],
@@ -1189,7 +1189,7 @@ async fn handle_engine_download(
     }
 
     let (url, dest): (String, std::path::PathBuf) = match engine {
-        "ytdlp" | "yt-dlp" => {
+        "media-bridge" | "media_bridge" => {
             let url = if cfg!(windows) {
                 "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
             } else {
@@ -1320,7 +1320,7 @@ async fn handle_engine_verify(
     let engine = body.get("engine").and_then(|v| v.as_str()).unwrap_or("");
 
     let bin_path = match engine {
-        "ytdlp" | "yt-dlp" => state.ytdlp_binary(),
+        "media-bridge" | "media_bridge" => state.media_bridge_binary(),
         "ffmpeg" => state.ffmpeg_binary(),
         _ => {
             return Json(serde_json::json!({
@@ -1365,7 +1365,7 @@ async fn handle_engine_latest_version(
     let engine = body.get("engine").and_then(|v| v.as_str()).unwrap_or("");
 
     let api_url = match engine {
-        "ytdlp" | "yt-dlp" => "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest",
+        "media-bridge" | "media_bridge" => "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest",
         "ffmpeg" => {
             return Json(serde_json::json!({
                 "ok": true,
@@ -1398,8 +1398,8 @@ async fn handle_engine_latest_version(
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown")
                 .to_owned();
-            let ytdlp_bin = state.ytdlp_binary();
-            let mut current_cmd = std::process::Command::new(&ytdlp_bin);
+            let media_bridge_bin = state.media_bridge_binary();
+            let mut current_cmd = std::process::Command::new(&media_bridge_bin);
             hide_command_window(&mut current_cmd);
             let current = current_cmd
                 .arg("--version")
