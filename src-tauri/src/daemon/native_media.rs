@@ -9,7 +9,8 @@ use nova_media_core::{
     assemble_ordered_parts, download_youtube_plan_controlled, resolve_youtube_pending_formats,
     select_youtube_download_plan, stage_dash_representation_plan_controlled_with_progress,
     stage_hls_media_plan_controlled_with_progress, youtube_video_id, ExtractRequest,
-    MediaDescriptor, MediaProtocol, MediaStream, YouTubeDownloadPlan, YouTubeExtraction,
+    select_media_stream, MediaDescriptor, MediaProtocol, MediaSelectionMode,
+    MediaSelectionPolicy, MediaSortKey, MediaStream, YouTubeDownloadPlan, YouTubeExtraction,
     YouTubeExtractor, YouTubePlayerScriptSolver, YouTubeSelectionPolicy, YouTubeTransferOutput,
     YouTubeTransferProgress, DEFAULT_MANIFEST_MAX_BYTES,
 };
@@ -41,6 +42,9 @@ pub struct NativeMediaExtractor;
 pub const NATIVE_MEDIA_OPTION_KEYS: &[&str] = &[
     "mode",
     "quality",
+    "formatSelector",
+    "formatSort",
+    "audioFormat",
     "ffmpegEnabled",
     "outputTemplate",
     "cookies",
@@ -1929,9 +1933,247 @@ pub(crate) fn is_native_manifest_url(url: &str) -> bool {
     path.ends_with(".m3u8") || path.ends_with(".mpd")
 }
 
+#[derive(Clone, Debug)]
+struct NativeSelectionPreferences {
+    mode: MediaSelectionMode,
+    preferred_container: Option<String>,
+    preferred_video_codec: Option<String>,
+    preferred_audio_codec: Option<String>,
+    sort: Vec<MediaSortKey>,
+}
+
+fn native_selection_preferences(
+    options: Option<&MediaDownloadOptions>,
+) -> Result<NativeSelectionPreferences, String> {
+    let mode = options
+        .and_then(|options| options.mode.as_deref())
+        .unwrap_or("video")
+        .trim()
+        .to_ascii_lowercase();
+    let mode = match mode.as_str() {
+        "video" | "best" | "auto" => MediaSelectionMode::Video,
+        "audio" => MediaSelectionMode::Audio,
+        other => return Err(format!("Native media mode '{other}' is not supported")),
+    };
+
+    let mut preferred_container = None;
+    if mode == MediaSelectionMode::Audio {
+        if let Some(format) = options
+            .and_then(|options| options.audio_format.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            preferred_container = match format.to_ascii_lowercase().as_str() {
+                "best" | "auto" => None,
+                "m4a" | "mp4" | "aac" => Some("mp4".to_owned()),
+                "webm" | "opus" | "ogg" => Some("webm".to_owned()),
+                "mp3" | "flac" | "wav" | "alac" => {
+                    return Err(format!(
+                        "Audio format '{format}' requires transcoding; native extraction only selects an existing audio representation"
+                    ));
+                }
+                other => {
+                    return Err(format!(
+                        "Native audio container preference '{other}' is not supported"
+                    ));
+                }
+            };
+        }
+    }
+
+    let mut preferred_video_codec = None;
+    let mut preferred_audio_codec = None;
+    let mut sort = Vec::new();
+    if let Some(expression) = options
+        .and_then(|options| options.format_sort.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        for raw in expression.split(',').map(str::trim).filter(|value| !value.is_empty()) {
+            let lower = raw.to_ascii_lowercase();
+            match lower.as_str() {
+                "res" | "height" | "quality" => push_sort_key(&mut sort, MediaSortKey::Quality),
+                "br" | "bitrate" | "abr" | "vbr" => {
+                    push_sort_key(&mut sort, MediaSortKey::Bitrate)
+                }
+                "size" | "filesize" | "filesize_approx" => {
+                    push_sort_key(&mut sort, MediaSortKey::Size)
+                }
+                _ if lower.starts_with("codec:") => {
+                    let mut parts = lower.split(':');
+                    let _ = parts.next();
+                    if let Some(video) = parts.next().filter(|value| !value.is_empty()) {
+                        preferred_video_codec = Some(normalize_codec_preference(video));
+                    }
+                    if let Some(audio) = parts.next().filter(|value| !value.is_empty()) {
+                        preferred_audio_codec = Some(normalize_codec_preference(audio));
+                    }
+                    if parts.next().is_some() {
+                        return Err(format!("Unsupported native format sort token '{raw}'"));
+                    }
+                }
+                _ if lower.starts_with("ext:") || lower.starts_with("container:") => {
+                    let value = lower
+                        .split_once(':')
+                        .map(|(_, value)| value)
+                        .unwrap_or_default()
+                        .trim();
+                    if value.is_empty() {
+                        return Err(format!("Unsupported native format sort token '{raw}'"));
+                    }
+                    preferred_container = Some(normalize_container_preference(value)?);
+                }
+                _ => return Err(format!("Unsupported native format sort token '{raw}'")),
+            }
+        }
+    }
+    if sort.is_empty() {
+        sort = vec![
+            MediaSortKey::Quality,
+            MediaSortKey::Bitrate,
+            MediaSortKey::Size,
+        ];
+    }
+
+    Ok(NativeSelectionPreferences {
+        mode,
+        preferred_container,
+        preferred_video_codec,
+        preferred_audio_codec,
+        sort,
+    })
+}
+
+fn push_sort_key(sort: &mut Vec<MediaSortKey>, key: MediaSortKey) {
+    if !sort.contains(&key) {
+        sort.push(key);
+    }
+}
+
+fn normalize_codec_preference(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "m4a" | "aac" => "mp4a".to_owned(),
+        "h264" => "avc".to_owned(),
+        "h265" | "hevc" => "hev".to_owned(),
+        other => other.to_owned(),
+    }
+}
+
+fn normalize_container_preference(value: &str) -> Result<String, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "mp4" | "m4a" | "aac" => Ok("mp4".to_owned()),
+        "webm" | "opus" | "ogg" => Ok("webm".to_owned()),
+        "mkv" | "matroska" => Ok("mkv".to_owned()),
+        other => Err(format!("Native container preference '{other}' is not supported")),
+    }
+}
+
+fn normalized_stream_id(value: &str) -> String {
+    let value = value.trim();
+    if value.starts_with("youtube-itag-") {
+        value.to_owned()
+    } else if value.chars().all(|character| character.is_ascii_digit()) {
+        format!("youtube-itag-{value}")
+    } else {
+        value.to_owned()
+    }
+}
+
+fn explicit_youtube_plan(
+    extraction: &YouTubeExtraction,
+    selector: Option<&str>,
+) -> Result<Option<YouTubeDownloadPlan>, NativeMediaTaskError> {
+    let Some(selector) = selector.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    if matches!(selector.to_ascii_lowercase().as_str(), "best" | "auto") {
+        return Ok(None);
+    }
+
+    let ids = selector
+        .split('+')
+        .map(normalized_stream_id)
+        .collect::<Vec<_>>();
+    if ids.len() > 2 {
+        return Err(NativeMediaTaskError::UnsupportedFeature(format!(
+            "native format selector '{selector}' is not supported"
+        )));
+    }
+    let pending: std::collections::BTreeSet<String> = extraction
+        .pending_formats
+        .iter()
+        .filter_map(|format| format.itag)
+        .map(|itag| format!("youtube-itag-{itag}"))
+        .collect();
+    for id in &ids {
+        if pending.contains(id) {
+            return Err(NativeMediaTaskError::UnsupportedFeature(format!(
+                "selected format '{id}' still requires an unresolved media challenge"
+            )));
+        }
+        if !extraction.descriptor.streams.iter().any(|stream| stream.id == *id) {
+            return Err(NativeMediaTaskError::InvalidRequest(format!(
+                "native format selector references unknown stream '{id}'"
+            )));
+        }
+    }
+
+    match ids.as_slice() {
+        [stream_id] => Ok(Some(YouTubeDownloadPlan::SingleStream {
+            stream_id: stream_id.clone(),
+        })),
+        [first, second] => {
+            let first_stream = extraction
+                .descriptor
+                .streams
+                .iter()
+                .find(|stream| stream.id == *first)
+                .expect("validated first stream");
+            let second_stream = extraction
+                .descriptor
+                .streams
+                .iter()
+                .find(|stream| stream.id == *second)
+                .expect("validated second stream");
+            let (video, audio) = match (first_stream.kind, second_stream.kind) {
+                (nova_media_core::MediaTrackKind::Video, nova_media_core::MediaTrackKind::Audio) => {
+                    (first, second)
+                }
+                (nova_media_core::MediaTrackKind::Audio, nova_media_core::MediaTrackKind::Video) => {
+                    (second, first)
+                }
+                _ => {
+                    return Err(NativeMediaTaskError::InvalidRequest(
+                        "a two-stream native format selector must contain one video-only and one audio-only representation"
+                            .to_owned(),
+                    ))
+                }
+            };
+            Ok(Some(YouTubeDownloadPlan::SeparateTracks {
+                video_stream_id: video.clone(),
+                audio_stream_id: audio.clone(),
+            }))
+        }
+        _ => Ok(None),
+    }
+}
+
 fn validate_native_options(options: &MediaDownloadOptions) -> Result<(), String> {
+    let _ = native_selection_preferences(Some(options))?;
+    if let Some(selector) = options
+        .format_selector
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if selector.split('+').count() > 2 {
+            return Err(format!(
+                "Native format selector '{selector}' is not supported"
+            ));
+        }
+    }
     let mode = options.mode.as_deref().unwrap_or("video").trim().to_ascii_lowercase();
-    if !matches!(mode.as_str(), "video" | "best" | "auto") {
+    if !matches!(mode.as_str(), "video" | "best" | "auto" | "audio") {
         return Err(format!(
             "Native media mode '{mode}' is not migrated yet"
         ));
