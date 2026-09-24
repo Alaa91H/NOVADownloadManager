@@ -114,6 +114,14 @@ public:
 
     Q_INVOKABLE void refreshQueue();
     Q_INVOKABLE void refreshQueueCatalog();
+    Q_INVOKABLE void createQueue(const QString &name, const QString &taskId = QString());
+    Q_INVOKABLE void updateQueue(const QVariantMap &queue);
+    Q_INVOKABLE void deleteQueue(const QString &queueId);
+    Q_INVOKABLE void moveQueue(const QString &queueId, int offset);
+    Q_INVOKABLE void moveTaskToQueue(const QString &taskId, const QString &queueId);
+    Q_INVOKABLE void moveQueueTask(const QString &queueId, const QString &taskId, int offset);
+    Q_INVOKABLE void startQueue(const QString &queueId);
+    Q_INVOKABLE void stopQueue(const QString &queueId);
     Q_INVOKABLE void setQueuePriority(const QString &taskId, int priority);
     Q_INVOKABLE bool directOptionSupported(const QString &key) const;
     Q_INVOKABLE bool mediaOptionSupported(const QString &key) const;
@@ -180,6 +188,7 @@ signals:
     void queueChanged();
     void queueCatalogChanged();
     void queueActionCompleted(const QString &taskId);
+    void queueCatalogActionCompleted(const QString &action, const QString &queueId);
     void schedulerChanged();
     void schedulerActionCompleted(const QString &action, const QString &ruleId);
 
@@ -227,6 +236,9 @@ private:
     void pumpBatchRequests();
     void sendNextBatchRequest();
     void recomputeKnownQueueIds();
+    void applyQueueCatalog(const QJsonArray &queues);
+    QVariantMap queueById(const QString &queueId) const;
+    QStringList orderedQueueTaskIds(const QString &queueId) const;
     QVariantMap sanitizeMediaOptions(const QVariantMap &options) const;
 
     QNetworkAccessManager m_network;
