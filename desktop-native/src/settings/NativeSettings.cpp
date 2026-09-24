@@ -230,6 +230,7 @@ void NativeSettings::migrateLegacySettingsIfNeeded() {
     static const QString markerKey = QStringLiteral("migration/legacyUiImported");
     static const QString advancedMarkerKey =
         QStringLiteral("migration/legacyAdvancedImported");
+
     const bool coreImported = m_settings.value(markerKey, false).toBool();
     const bool advancedImported = m_settings.value(advancedMarkerKey, false).toBool();
     if (coreImported && advancedImported) {
@@ -261,7 +262,8 @@ void NativeSettings::migrateLegacySettingsIfNeeded() {
         root.value(QStringLiteral("saveAndCategories")).toObject();
     const QJsonObject extra = root.value(QStringLiteral("extra")).toObject();
     const QJsonObject advanced = root.value(QStringLiteral("advanced")).toObject();
-    const QJsonObject shortcuts = root.value(QStringLiteral("keyboardShortcuts")).toObject();
+    const QJsonObject shortcuts =
+        root.value(QStringLiteral("keyboardShortcuts")).toObject();
     const QJsonObject shortcutBindings =
         shortcuts.value(QStringLiteral("bindings")).toObject();
 
@@ -272,39 +274,155 @@ void NativeSettings::migrateLegacySettingsIfNeeded() {
         m_settings.setValue(key, value);
     };
 
-    const QString defaultFolder =
-        saveAndCategories.value(QStringLiteral("defaultFolder")).toString().trimmed();
-    if (!defaultFolder.isEmpty()) {
-        importIfMissing(
-            QStringLiteral("downloads/defaultDirectory"),
-            defaultFolder
+    if (!coreImported) {
+        const QString defaultFolder =
+            saveAndCategories.value(QStringLiteral("defaultFolder")).toString().trimmed();
+        if (!defaultFolder.isEmpty()) {
+            importIfMissing(
+                QStringLiteral("downloads/defaultDirectory"),
+                defaultFolder
+            );
+        }
+
+        if (general.value(QStringLiteral("monitorClipboard")).isBool()) {
+            importIfMissing(
+                QStringLiteral("downloads/monitorClipboard"),
+                general.value(QStringLiteral("monitorClipboard")).toBool()
+            );
+        }
+
+        const int maxConnections =
+            connection.value(QStringLiteral("maxConnections")).toInt(0);
+        if (maxConnections > 0) {
+            importIfMissing(
+                QStringLiteral("downloads/defaultConnections"),
+                qBound(1, maxConnections, 64)
+            );
+        }
+
+        const QString language = nativeLanguageFromLegacy(
+            extra.value(QStringLiteral("language")).toString()
         );
+        if (!language.isEmpty()) {
+            importIfMissing(QStringLiteral("appearance/language"), language);
+        }
     }
 
-    if (general.value(QStringLiteral("monitorClipboard")).isBool()) {
-        importIfMissing(
-            QStringLiteral("downloads/monitorClipboard"),
-            general.value(QStringLiteral("monitorClipboard")).toBool()
-        );
-    }
+    if (!advancedImported) {
+        const QVariantMap defaults = advancedDefaults();
+        const auto importAdvanced =
+            [&](const QString &nativeKey, const QJsonValue &legacyValue) {
+                if (legacyValue.isUndefined() || legacyValue.isNull()) {
+                    return;
+                }
+                const QVariant normalized =
+                    normalizedAdvancedValue(nativeKey, legacyValue.toVariant());
+                if (normalized.isValid()) {
+                    importIfMissing(
+                        QStringLiteral("advanced/") + nativeKey,
+                        normalized
+                    );
+                }
+            };
 
-    const int maxConnections =
-        connection.value(QStringLiteral("maxConnections")).toInt(0);
-    if (maxConnections > 0) {
-        importIfMissing(
-            QStringLiteral("downloads/defaultConnections"),
-            qBound(1, maxConnections, 64)
+        importAdvanced(
+            QStringLiteral("proxyEnabled"),
+            connection.value(QStringLiteral("enableProxy"))
         );
-    }
+        importAdvanced(
+            QStringLiteral("proxyHost"),
+            connection.value(QStringLiteral("proxyHost"))
+        );
+        importAdvanced(
+            QStringLiteral("proxyPort"),
+            connection.value(QStringLiteral("proxyPort"))
+        );
+        importAdvanced(
+            QStringLiteral("proxyUser"),
+            connection.value(QStringLiteral("proxyUser"))
+        );
+        importAdvanced(
+            QStringLiteral("proxyPassword"),
+            connection.value(QStringLiteral("proxyPass"))
+        );
+        importAdvanced(
+            QStringLiteral("proxyType"),
+            connection.value(QStringLiteral("proxyType"))
+        );
+        importAdvanced(
+            QStringLiteral("proxyTunnel"),
+            connection.value(QStringLiteral("proxyTunnel"))
+        );
 
-    const QString language = nativeLanguageFromLegacy(
-        extra.value(QStringLiteral("language")).toString()
-    );
-    if (!language.isEmpty()) {
-        importIfMissing(
-            QStringLiteral("appearance/language"),
-            language
+        for (auto it = connectionDefaults.begin();
+             it != connectionDefaults.end();
+             ++it) {
+            if (defaults.contains(it.key())) {
+                importAdvanced(it.key(), it.value());
+            }
+        }
+
+        const QStringList extraKeys{
+            QStringLiteral("dnsResolver"),
+            QStringLiteral("dnsCustomResolver"),
+            QStringLiteral("dnsCacheTimeoutSec"),
+            QStringLiteral("userAgent"),
+            QStringLiteral("vpnEnabled"),
+            QStringLiteral("vpnMode"),
+            QStringLiteral("vpnProxyUrl"),
+            QStringLiteral("vpnBindAddress"),
+            QStringLiteral("vpnKillSwitch"),
+            QStringLiteral("videoQuality"),
+            QStringLiteral("downloadSubtitles"),
+            QStringLiteral("subtitleLanguage"),
+            QStringLiteral("ffmpegPath"),
+            QStringLiteral("ffmpegAutoMerge"),
+            QStringLiteral("duplicateAction"),
+            QStringLiteral("warnBeforeDuplicateDownload"),
+            QStringLiteral("openOnComplete"),
+            QStringLiteral("openFolderOnComplete")
+        };
+        for (const QString &key : extraKeys) {
+            importAdvanced(key, extra.value(key));
+        }
+
+        importAdvanced(
+            QStringLiteral("tempFolder"),
+            saveAndCategories.value(QStringLiteral("tempFolder"))
         );
+
+        const QStringList advancedKeys{
+            QStringLiteral("dynamicAllocation"),
+            QStringLiteral("bufferSizeKb"),
+            QStringLiteral("loggingEnabled"),
+            QStringLiteral("browserInterceptKeys")
+        };
+        for (const QString &key : advancedKeys) {
+            importAdvanced(key, advanced.value(key));
+        }
+
+        if (shortcuts.value(QStringLiteral("enabled")).isBool()) {
+            importIfMissing(
+                QStringLiteral("shortcuts/enabled"),
+                shortcuts.value(QStringLiteral("enabled")).toBool()
+            );
+        }
+        const QVariantMap shortcutDefaultValues = shortcutDefaults();
+        for (auto it = shortcutBindings.begin();
+             it != shortcutBindings.end();
+             ++it) {
+            if (shortcutDefaultValues.contains(it.key()) && it.value().isString()) {
+                const QString sequence = it.value().toString().trimmed();
+                if (!sequence.isEmpty() && sequence.size() <= 128) {
+                    importIfMissing(
+                        QStringLiteral("shortcuts/") + it.key(),
+                        sequence
+                    );
+                }
+            }
+        }
+
+        m_settings.setValue(advancedMarkerKey, true);
     }
 
     m_settings.setValue(markerKey, true);
