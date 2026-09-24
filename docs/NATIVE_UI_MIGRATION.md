@@ -161,7 +161,7 @@ Implemented:
 - Native browser integration follows the project's zero-click pairing security model: pairing credentials are never displayed or copied by the Qt UI; setup links route users to the extension release and pairing documentation.
 - Windows preview bundles deploy the required Qt runtime through `windeployqt`.
 - Linux preview bundles include the Qt UI, Rust backend/native host, desktop entry, an `ldd` runtime dependency report and a live backend auto-pair smoke test.
-- macOS preview builds are now part of the native CI matrix and package the Rust backend/native host beside the Qt application executable.
+- macOS 15 ARM64 (Apple Silicon) preview builds are part of the native CI matrix and package the Rust backend/native host beside the Qt application executable. The runner is pinned to macOS 15 because Qt 6.8 LTS is the project baseline.
 - Every preview bundle carries `PARITY_REPORT.md` and `BUILD_INFO.txt` for QA traceability.
 - Preview artifacts are retained by GitHub Actions for 14 days.
 
@@ -171,7 +171,7 @@ Current parity blockers tracked by the executable manifest:
 - Legacy-only advanced download columns beyond the native core set (for example retries, CRC32, priority, completed date and smart category metadata).
 - Full legacy language catalog beyond the current English/Arabic/German native baseline.
 - Production signed automatic updater installation.
-- Explicit ARM64 native validation beyond the hosted desktop matrix.
+- Windows ARM64, Linux ARM64 and macOS Intel validation beyond the current Windows/Linux x64 + macOS ARM64 matrix.
 - Dedicated large-list/reconnect/crash-recovery stress validation.
 - Final screen-reader, multi-monitor and platform accessibility validation.
 
