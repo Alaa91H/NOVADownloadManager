@@ -16,6 +16,7 @@ Item {
     property var capabilitySnapshot: api.engineCapabilities
     property bool ffmpegTouched: false
     property bool selectAllPlaylist: true
+    property bool defaultsApplied: false
     property var selectedPlaylistIndexes: ({})
     property string languageToken: i18n.language
 
@@ -108,6 +109,26 @@ Item {
 
         if (qualityBox.currentIndex < 0)
             qualityBox.currentIndex = 0
+    }
+
+    function applyNativeDefaults() {
+        if (defaultsApplied)
+            return
+
+        const a = settings.advancedSettings || ({})
+        const quality = String(a.videoQuality || "best")
+        const wanted = quality === "good" ? "720p" : quality === "worst" ? "480p" : "best"
+        for (let i = 0; i < qualityModel.count; ++i) {
+            if (String(qualityModel.get(i).value) === wanted) {
+                qualityBox.currentIndex = i
+                break
+            }
+        }
+
+        subtitlesCheck.checked = Boolean(a.downloadSubtitles)
+        subtitleLanguages.text = String(a.subtitleLanguage || "")
+        ffmpegCheck.checked = api.ffmpegAvailable && Boolean(a.ffmpegAutoMerge !== false)
+        defaultsApplied = true
     }
 
     function analyze() {
@@ -210,6 +231,7 @@ Item {
         rebuildQualityModel()
         saveDirectory.text = settings.defaultSaveDirectory
         startImmediately.checked = settings.startImmediately
+        Qt.callLater(root.applyNativeDefaults)
     }
 
     Connections {
@@ -223,8 +245,10 @@ Item {
         }
 
         function onFfmpegChanged() {
-            if (!root.ffmpegTouched)
-                ffmpegCheck.checked = api.ffmpegAvailable
+            if (!root.ffmpegTouched) {
+                const a = settings.advancedSettings || ({})
+                ffmpegCheck.checked = api.ffmpegAvailable && Boolean(a.ffmpegAutoMerge !== false)
+            }
             if (!api.ffmpegAvailable)
                 ffmpegCheck.checked = false
         }
