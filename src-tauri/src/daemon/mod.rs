@@ -942,7 +942,17 @@ fn restore_persisted_tasks(
                             NativeMediaJob {
                                 task: task.clone(),
                                 request,
-                                protocol: "manifest".to_owned(),
+                                protocol: restored
+                                    .native_media_protocols
+                                    .get(&task.id)
+                                    .cloned()
+                                    .unwrap_or_else(|| {
+                                        if task.segments.len() == 2 {
+                                            "separate-tracks".to_owned()
+                                        } else {
+                                            "manifest".to_owned()
+                                        }
+                                    }),
                                 cancel_token: Arc::new(AtomicBool::new(false)),
                                 run_generation: Arc::new(AtomicU64::new(0)),
                                 start_time: Instant::now(),
