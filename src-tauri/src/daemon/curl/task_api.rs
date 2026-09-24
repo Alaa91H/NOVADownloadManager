@@ -555,8 +555,8 @@ pub async fn redownload_task(state: &SharedState, id: &str) -> Result<Task, Stri
                 // A generation-bumped worker intentionally skips its stale
                 // completion cleanup. Capture its active slot now so this
                 // restart can release it before starting the new generation.
-                let was_active = TaskState::from_status(&job.task.status)
-                    .is_some_and(TaskState::is_active);
+                let was_active =
+                    TaskState::from_status(&job.task.status).is_some_and(TaskState::is_active);
                 restart_task_state(&mut job.task, "redownload-requested")?;
                 job.cancel_token.store(true, Ordering::Release);
                 job.run_generation.fetch_add(1, Ordering::Release);
