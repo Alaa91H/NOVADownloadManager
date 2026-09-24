@@ -2,6 +2,10 @@ use crate::InfoHash;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+pub const MAX_MAGNET_URI_BYTES: usize = 64 * 1024;
+pub const MAX_MAGNET_TRACKERS: usize = 128;
+pub const MAX_MAGNET_WEB_SEEDS: usize = 64;
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MagnetLink {
     pub info_hash: InfoHash,
@@ -13,6 +17,9 @@ pub struct MagnetLink {
 
 impl MagnetLink {
     pub fn parse(input: &str) -> Result<Self, MagnetParseError> {
+        if input.len() > MAX_MAGNET_URI_BYTES {
+            return Err(MagnetParseError::UriTooLarge(input.len()));
+        }
         let url = Url::parse(input).map_err(|_| MagnetParseError::InvalidUri)?;
         if url.scheme() != "magnet" {
             return Err(MagnetParseError::InvalidScheme(url.scheme().to_owned()));
@@ -42,8 +49,22 @@ impl MagnetLink {
                         display_name = Some(value.to_owned());
                     }
                 }
-                "tr" => push_unique_url(&mut trackers, &value, true)?,
-                "ws" | "as" => push_unique_url(&mut web_seeds, &value, false)?,
+                "tr" => {
+                    if trackers.len() >= MAX_MAGNET_TRACKERS
+                        && !trackers.iter().any(|existing| existing == value.as_ref())
+                    {
+                        return Err(MagnetParseError::TooManyTrackers);
+                    }
+                    push_unique_url(&mut trackers, &value, true)?;
+                }
+                "ws" | "as" => {
+                    if web_seeds.len() >= MAX_MAGNET_WEB_SEEDS
+                        && !web_seeds.iter().any(|existing| existing == value.as_ref())
+                    {
+                        return Err(MagnetParseError::TooManyWebSeeds);
+                    }
+                    push_unique_url(&mut web_seeds, &value, false)?;
+                }
                 "xl" if exact_length.is_none() => {
                     exact_length = Some(
                         value
@@ -151,6 +172,12 @@ fn push_unique_url(
 pub enum MagnetParseError {
     #[error("invalid magnet URI")]
     InvalidUri,
+    #[error("magnet URI exceeds safe size: {0} bytes")]
+    UriTooLarge(usize),
+    #[error("magnet URI contains too many trackers")]
+    TooManyTrackers,
+    #[error("magnet URI contains too many web seeds")]
+    TooManyWebSeeds,
     #[error("unsupported magnet URI scheme: {0}")]
     InvalidScheme(String),
     #[error("magnet URI is missing an exact topic urn:btih")]
@@ -204,6 +231,15 @@ mod tests {
         )
         .expect_err("conflicting hashes");
         assert_eq!(error, MagnetParseError::ConflictingBtih);
+    }
+
+    #[test]
+    fn rejects_oversized_magnet_uri() {
+        let value = format!("magnet:?xt=urn:btih:{}&dn={}", "0".repeat(40), "x".repeat(MAX_MAGNET_URI_BYTES));
+        assert!(matches!(
+            MagnetLink::parse(&value),
+            Err(MagnetParseError::UriTooLarge(_))
+        ));
     }
 
     #[test]
