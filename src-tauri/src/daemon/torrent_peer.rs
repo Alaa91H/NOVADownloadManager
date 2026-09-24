@@ -471,10 +471,16 @@ impl PeerEngine {
     #[cfg(test)]
     pub(crate) fn for_tests(config: PeerEngineConfig) -> Self {
         let limit = config.max_outbound_connections.max(1);
+        let download_limiter = config
+            .download_rate_limit_bytes_per_sec
+            .filter(|rate| *rate > 0)
+            .and_then(|rate| TorrentBandwidthLimiter::new(rate).ok())
+            .map(Arc::new);
         Self {
             config,
             reputation: Arc::new(Mutex::new(PeerReputationBook::default())),
             connection_slots: Arc::new(Semaphore::new(limit)),
+            download_limiter,
             allow_private_network: true,
         }
     }
