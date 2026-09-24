@@ -1557,7 +1557,7 @@ fn update_native_progress(state: &SharedState, id: &str, generation: u64, bytes:
     let task = {
         let mut jobs = match state.native_media_jobs.lock() {
             Ok(jobs) => jobs,
-            Err(_) => return false,
+            Err(_) => return,
         };
         let Some(job) = jobs.get_mut(id) else {
             return;
@@ -1808,10 +1808,10 @@ fn complete_native_task(state: &SharedState, id: &str, generation: u64, bytes: u
     let completion = {
         let mut jobs = match state.native_media_jobs.lock() {
             Ok(jobs) => jobs,
-            Err(_) => return,
+            Err(_) => return false,
         };
         let Some(job) = jobs.get_mut(id) else {
-            return;
+            return false;
         };
         if job.run_generation.load(Ordering::Acquire) != generation {
             Completion::Stale
@@ -1833,7 +1833,7 @@ fn complete_native_task(state: &SharedState, id: &str, generation: u64, bytes: u
                     transition_task_state(&mut job.task, TaskState::Completed, "completed")
                 {
                     log::error!("Native media task {id}: completion transition rejected: {error}");
-                    return;
+                    return false;
                 }
                 Completion::Completed(job.task.clone())
             }
