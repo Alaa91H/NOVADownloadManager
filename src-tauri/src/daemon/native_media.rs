@@ -1738,6 +1738,170 @@ mod tests {
     }
 
     #[test]
+    fn native_hls_live_refresh_records_only_new_segments_and_finishes() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind live HLS task server");
+        let address = listener.local_addr().expect("live HLS task address");
+        let manifest_hits = Arc::new(AtomicU64::new(0));
+        let server_hits = manifest_hits.clone();
+
+        let server = std::thread::spawn(move || {
+            for _ in 0..4 {
+                let (mut stream, _) = listener.accept().expect("accept live HLS task request");
+                let mut request = [0_u8; 4096];
+                let read = stream.read(&mut request).expect("read live HLS task request");
+                let request = String::from_utf8_lossy(&request[..read]);
+
+                let body: Vec<u8> = if request.contains("GET /live.m3u8 ") {
+                    let hit = server_hits.fetch_add(1, Ordering::AcqRel);
+                    if hit == 0 {
+                        format!(
+                            "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:7\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\nhttp://{address}/7.ts\n"
+                        )
+                        .into_bytes()
+                    } else {
+                        format!(
+                            "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:7\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\nhttp://{address}/7.ts\n#EXTINF:1,\nhttp://{address}/8.ts\n#EXT-X-ENDLIST\n"
+                        )
+                        .into_bytes()
+                    }
+                } else if request.contains("GET /7.ts ") {
+                    b"SEVEN".to_vec()
+                } else if request.contains("GET /8.ts ") {
+                    b"EIGHT".to_vec()
+                } else {
+                    panic!("unexpected live HLS task request: {request}");
+                };
+
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .and_then(|_| stream.write_all(&body))
+                    .expect("write live HLS task response");
+            }
+        });
+
+        let first = fetch_http_bytes_with_context(
+            &format!("http://{address}/live.m3u8"),
+            &HttpRequestContext::default(),
+            DEFAULT_MANIFEST_MAX_BYTES,
+        )
+        .expect("initial live HLS manifest");
+        let first_body = String::from_utf8(first.body).expect("live HLS UTF-8");
+        let first_manifest = parse_hls(&first.effective_url, &first_body).expect("live HLS parse");
+        let dir = unique_temp_dir("nova-native-hls-live-task");
+        let progress = std::sync::Mutex::new(Vec::new());
+
+        let (parts, bytes) = stage_hls_live_stream(
+            &first.effective_url,
+            first_manifest,
+            &HttpRequestContext::default(),
+            &dir,
+            2,
+            &|| false,
+            &|value| progress.lock().expect("progress").push(value),
+        )
+        .expect("record live HLS");
+        server.join().expect("live HLS server");
+
+        assert_eq!(bytes, 10);
+        assert_eq!(parts.len(), 2);
+        assert_eq!(
+            progress.lock().expect("progress").last().copied(),
+            Some(10)
+        );
+        let checkpoint: HlsLiveTaskCheckpoint =
+            read_live_checkpoint(&dir.join("hls-live-checkpoint.json"))
+                .expect("live HLS checkpoint");
+        assert_eq!(checkpoint.cursor.next_sequence, Some(9));
+        assert_eq!(checkpoint.next_order, 2);
+
+        let output = dir.join("live.ts");
+        assemble_ordered_parts(&parts, &output).expect("assemble live HLS");
+        assert_eq!(std::fs::read(&output).expect("live HLS output"), b"SEVENEIGHT");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn native_dynamic_dash_keeps_committed_snapshot_when_cancelled() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind dynamic DASH task server");
+        let address = listener.local_addr().expect("dynamic DASH task address");
+
+        let server = std::thread::spawn(move || {
+            for _ in 0..3 {
+                let (mut stream, _) = listener.accept().expect("accept dynamic DASH task request");
+                let mut request = [0_u8; 4096];
+                let read = stream.read(&mut request).expect("read dynamic DASH task request");
+                let request = String::from_utf8_lossy(&request[..read]);
+                let body: Vec<u8> = if request.contains("GET /live.mpd ") {
+                    b"<MPD type=\"dynamic\" minimumUpdatePeriod=\"PT1S\"><Period><AdaptationSet contentType=\"video\"><SegmentTemplate timescale=\"1\" initialization=\"init.mp4\" media=\"$Time$.m4s\"><SegmentTimeline><S t=\"10\" d=\"2\"/></SegmentTimeline></SegmentTemplate><Representation id=\"v1\" bandwidth=\"1000\" width=\"640\" height=\"360\"/></AdaptationSet></Period></MPD>".to_vec()
+                } else if request.contains("GET /init.mp4 ") {
+                    b"INIT".to_vec()
+                } else if request.contains("GET /10.m4s ") {
+                    b"MEDIA".to_vec()
+                } else {
+                    panic!("unexpected dynamic DASH task request: {request}");
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .and_then(|_| stream.write_all(&body))
+                    .expect("write dynamic DASH task response");
+            }
+        });
+
+        let first = fetch_http_bytes_with_context(
+            &format!("http://{address}/live.mpd"),
+            &HttpRequestContext::default(),
+            DEFAULT_MANIFEST_MAX_BYTES,
+        )
+        .expect("initial dynamic DASH manifest");
+        let body = String::from_utf8(first.body).expect("dynamic DASH UTF-8");
+        let manifest = parse_dash(&body).expect("dynamic DASH parse");
+        let (period, adaptation, representation) =
+            best_dash_representation_indices(&manifest).expect("DASH representation");
+        let dir = unique_temp_dir("nova-native-dash-live-task");
+        let cancelled = AtomicBool::new(false);
+
+        let result = stage_dash_live_stream(
+            &first.effective_url,
+            manifest,
+            period,
+            adaptation,
+            representation,
+            &HttpRequestContext::default(),
+            &dir,
+            2,
+            &|| cancelled.load(Ordering::Acquire),
+            &|bytes| {
+                if bytes >= 9 {
+                    cancelled.store(true, Ordering::Release);
+                }
+            },
+        );
+        server.join().expect("dynamic DASH server");
+        assert!(matches!(result, Err(NativeMediaTaskError::Transfer(_))));
+
+        let checkpoint: DashLiveTaskCheckpoint =
+            read_live_checkpoint(&dir.join("dash-live-checkpoint.json"))
+                .expect("dynamic DASH checkpoint");
+        assert_eq!(checkpoint.cursor.last_time, Some(10));
+        assert_eq!(checkpoint.total_bytes, 9);
+
+        let parts = committed_live_parts(&dir).expect("committed dynamic DASH parts");
+        assert_eq!(parts.len(), 2);
+        let output = dir.join("live.mp4");
+        assemble_ordered_parts(&parts, &output).expect("assemble dynamic DASH snapshot");
+        assert_eq!(std::fs::read(&output).expect("dynamic DASH output"), b"INITMEDIA");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn parses_common_quality_limits() {
         assert_eq!(parse_quality_height("1080p"), Some(1080));
         assert_eq!(parse_quality_height("4k"), Some(2160));
