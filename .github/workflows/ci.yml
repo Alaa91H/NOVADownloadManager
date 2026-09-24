@@ -20,7 +20,7 @@ on:
         default: ''
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  group: nova-branch-${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 permissions: {}
