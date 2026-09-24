@@ -30,6 +30,21 @@ Rectangle {
         return Number.isFinite(value) ? value : fallback
     }
 
+    function profileIndex(profileId) {
+        const wanted = String(profileId || "")
+        for (let i = 0; i < api.engineProfiles.length; ++i) {
+            if (String(api.engineProfiles[i].id || "") === wanted)
+                return i
+        }
+        if (wanted.length === 0) {
+            for (let j = 0; j < api.engineProfiles.length; ++j) {
+                if (String(api.engineProfiles[j].id || "") === String(api.activeEngineProfile || ""))
+                    return j
+            }
+        }
+        return api.engineProfiles.length > 0 ? 0 : -1
+    }
+
     function load() {
         nameField.text = String(queue.name || "")
         scheduledCheck.checked = boolValue("scheduled", false)
@@ -48,6 +63,7 @@ Rectangle {
         exitCheck.checked = boolValue("exitOnComplete", false)
         retryCount.value = Math.max(0, numberValue("retryCount", 3))
         retryDelay.value = Math.max(1, numberValue("retryDelay", 10))
+        profileBox.currentIndex = profileIndex(queue.profileId)
 
         const days = Array.isArray(queue.days) ? queue.days : [0,1,2,3,4,5,6]
         day0.checked = days.indexOf(0) >= 0
@@ -101,7 +117,10 @@ Rectangle {
             hangupOnComplete: sleepCheck.checked,
             exitOnComplete: exitCheck.checked,
             retryCount: retryCount.value,
-            retryDelay: retryDelay.value
+            retryDelay: retryDelay.value,
+            profileId: profileBox.currentIndex >= 0
+                ? String(profileBox.currentValue || "")
+                : ""
         }
         api.updateQueue(updated)
     }
@@ -208,6 +227,17 @@ Rectangle {
         CheckBox {
             id: oneTimeLimit
             text: root.t("queue.oneTimeLimitHint")
+        }
+
+        Text { text: root.t("queue.engineProfile"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
+        ComboBox {
+            id: profileBox
+            Layout.fillWidth: true
+            model: api.engineProfiles
+            textRole: "name"
+            valueRole: "id"
+            enabled: api.engineProfiles.length > 0
+            Accessible.name: root.t("queue.engineProfile")
         }
 
         Text { text: root.t("queue.retries"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
