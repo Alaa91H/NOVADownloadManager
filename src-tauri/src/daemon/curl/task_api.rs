@@ -1087,6 +1087,23 @@ mod tests {
     }
 
     #[test]
+    fn destination_appends_name_when_save_path_is_a_directory() {
+        let mut body = base_body();
+        body.name = Some("video.mp4".to_owned());
+        let temp = std::env::temp_dir().join(format!(
+            "nova-destination-dir-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&temp).expect("temp dir");
+        body.save_path = Some(temp.to_string_lossy().into_owned());
+
+        let (_name, path) = destination_from_body(&body, "https://example.com/watch");
+        assert_eq!(path, temp.join("video.mp4"));
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[test]
     fn destination_preserves_user_save_dir_but_sanitizes_name() {
         // The user picks the folder; the file-name component (server-derived)
         // is forced to a bare name while the directory is preserved.
