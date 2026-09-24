@@ -170,7 +170,7 @@ jobs:
             src-tauri/src/daemon/routes/extension.rs \
             src-tauri/src/native_host.rs \
             crates/nova-mobile-ffi \
-            android/app/src/main/java/com/nova/downloadmanager/core/NovaNativeCore.kt; then
+            android/app/src/main; then
             echo "::error::Desktop, browser extension and Android media paths must remain native-only."
             exit 1
           fi
