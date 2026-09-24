@@ -240,6 +240,9 @@ function buildSnapshot(
 
   const directReady = asBool(root?.directReady) || asBool(asRecord(curl?.capabilities)?.directDownloads);
   const mediaReady = asBool(root?.mediaReady) || asBool(media?.available);
+  const mediaCapabilities = asRecord(media?.capabilities);
+  const hlsTaskExecutionReady = asBool(mediaCapabilities?.hlsTaskExecution);
+  const dashTaskExecutionReady = asBool(mediaCapabilities?.dashTaskExecution);
   const ffmpegReady = asBool(ffmpeg?.available);
   const postProcessingReady = asBool(root?.postProcessingReady) || ffmpegReady;
 
@@ -275,7 +278,7 @@ function buildSnapshot(
     mediaReady,
     ffmpegReady,
     postProcessingReady,
-    streamResolverReady: mediaReady && postProcessingReady,
+    streamResolverReady: mediaReady && (hlsTaskExecutionReady || dashTaskExecutionReady),
     directEngineId:
       typeof routing?.directHttpHttpsFtp === 'string'
         ? routing.directHttpHttpsFtp
@@ -309,15 +312,13 @@ function buildSnapshot(
       return Boolean(protocol && directProtocolSet.has(protocol));
     },
     supportsStreamCandidate: (mediaType?: string, source?: string, candidateUrl?: string) => {
-      if (!mediaReady || !postProcessingReady) return false;
+      if (!mediaReady) return false;
       const marker = `${mediaType || ''} ${source || ''} ${candidateUrl || ''}`.toLowerCase();
-      return (
-        marker.includes('hls') ||
-        marker.includes('dash') ||
-        marker.includes('m3u8') ||
-        marker.includes('mpd') ||
-        marker.includes('manifest')
-      );
+      const looksHls = marker.includes('hls') || marker.includes('m3u8');
+      const looksDash = marker.includes('dash') || marker.includes('mpd');
+      if (looksHls) return hlsTaskExecutionReady;
+      if (looksDash) return dashTaskExecutionReady;
+      return false;
     },
     sanitizeDirectOptions: (options: DirectDownloadOptions) => filterOptions(options, enabledDirectOptionKeys),
     sanitizeMediaOptions: (options: MediaDownloadOptions) => filterOptions(options, enabledMediaOptionKeys),
@@ -333,7 +334,6 @@ function buildSnapshot(
     },
     mediaBlockedReason: () => {
       if (!mediaReady) return 'Media engine is not ready.';
-      if (!postProcessingReady) return 'FFmpeg is required for complete media stream handling and post-processing.';
       return null;
     },
   };
