@@ -226,6 +226,8 @@ Item {
                 textRole: "label"
                 valueRole: "value"
                 enabled: !api.batchRunning
+                    && root.supportsDirect("segmented")
+                    && root.supportsDirect("range")
             }
 
             CheckBox {
@@ -461,6 +463,7 @@ Item {
             Button {
                 text: api.batchRunning ? root.t("batch.importing") : root.t("batch.import")
                 enabled: api.connected
+                    && api.engineCapabilities.directReady === true
                     && !api.batchRunning
                     && linksInput.text.trim().length > 0
                     && !batchPreview.preview.overflow
