@@ -1415,6 +1415,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn peer_session_does_not_advertise_or_accept_pex_when_disabled() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let info_hash = InfoHash::new([6u8; 20]);
+
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut handshake = [0u8; PEER_HANDSHAKE_LEN];
+            stream.read_exact(&mut handshake).await.unwrap();
+
+            let mut remote =
+                PeerHandshake::new(info_hash, *b"-NVTEST-REMOTE-00001");
+            remote.reserved[5] |= 0x10;
+            stream.write_all(&remote.encode()).await.unwrap();
+
+            let local_extended = read_peer_frame(
+                &mut stream,
+                Duration::from_secs(2),
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+            let PeerMessage::Extended {
+                extension_id: EXTENSION_HANDSHAKE_ID,
+                payload,
+            } = local_extended
+            else {
+                panic!("expected extended handshake");
+            };
+            let local = ExtendedHandshake::parse(&payload).unwrap();
+            assert_eq!(local.ut_pex, None);
+
+            let mut pex = b"d5:added6:".to_vec();
+            pex.extend_from_slice(&[8, 8, 8, 8, 0x1a, 0xe1]);
+            pex.push(b'e');
+            stream
+                .write_all(
+                    &PeerMessage::Extended {
+                        extension_id: LOCAL_UT_PEX_ID,
+                        payload: pex,
+                    }
+                    .encode()
+                    .unwrap(),
+                )
+                .await
+                .unwrap();
+        });
+
+        let cancel = CancellationToken::new();
+        let mut config = test_config();
+        config.enable_pex = false;
+        let mut session = PeerSession::connect_with_policy(
+            address,
+            info_hash,
+            *b"-NV0001-123456789012",
+            0,
+            config,
+            true,
+            &cancel,
+        )
+        .await
+        .unwrap();
+
+        let _ = session.receive(&cancel).await.unwrap();
+        assert!(session.take_discovered_pex_peers().is_empty());
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn peer_session_fetches_verified_bep9_metadata_and_collects_pex() {
         let mut info = b"d6:lengthi8e4:name9:piece.bin12:piece lengthi8e6:pieces20:".to_vec();
         info.extend_from_slice(&[
