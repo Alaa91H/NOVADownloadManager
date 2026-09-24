@@ -9,6 +9,8 @@ use crate::youtube::YouTubeChallengeSolver;
 const PLAYER_SCRIPT_PARSE_CACHE_SIZE: usize = 8;
 const PLAYER_SCRIPT_MAX_BYTES: usize = 8 * 1024 * 1024;
 
+static SIGNATURE_PLAN_CACHE: OnceLock<Mutex<VecDeque<(u64, Vec<TransformOperation>)>>> =
+    OnceLock::new();
 static THROTTLING_PLAN_CACHE: OnceLock<Mutex<VecDeque<(u64, Vec<TransformOperation>)>>> =
     OnceLock::new();
 
@@ -34,8 +36,14 @@ impl YouTubeChallengeSolver for YouTubePlayerScriptSolver {
         player_javascript: &str,
         encrypted_signature: &str,
     ) -> Result<String, String> {
-        let operations = extract_signature_operations(player_javascript)?;
-        apply_transform_operations(encrypted_signature, &operations)
+        let operations = cached_signature_operations(player_javascript)?;
+        match apply_transform_operations(encrypted_signature, &operations) {
+            Ok(transformed) => Ok(transformed),
+            Err(error) => {
+                invalidate_plan(&SIGNATURE_PLAN_CACHE, player_javascript);
+                Err(error)
+            }
+        }
     }
 
     fn transform_throttling_parameter(
@@ -47,7 +55,7 @@ impl YouTubeChallengeSolver for YouTubePlayerScriptSolver {
         match apply_transform_operations(value, &operations) {
             Ok(transformed) => Ok(transformed),
             Err(error) => {
-                invalidate_throttling_plan(player_javascript);
+                invalidate_plan(&THROTTLING_PLAN_CACHE, player_javascript);
                 Err(error)
             }
         }
@@ -62,7 +70,15 @@ enum ThrottlingTarget {
 }
 
 
-fn cached_throttling_operations(script: &str) -> Result<Vec<TransformOperation>, String> {
+fn cached_signature_operations(script: &str) -> Result<Vec<TransformOperation>, String> {
+    cached_operations(&SIGNATURE_PLAN_CACHE, script, extract_signature_operations)
+}
+
+fn cached_operations(
+    cache: &'static OnceLock<Mutex<VecDeque<(u64, Vec<TransformOperation>)>>>,
+    script: &str,
+    extractor: fn(&str) -> Result<Vec<TransformOperation>, String>,
+) -> Result<Vec<TransformOperation>, String> {
     if script.len() > PLAYER_SCRIPT_MAX_BYTES {
         return Err(format!(
             "YouTube player script exceeds native parser limit of {PLAYER_SCRIPT_MAX_BYTES} bytes"
@@ -70,15 +86,14 @@ fn cached_throttling_operations(script: &str) -> Result<Vec<TransformOperation>,
     }
 
     let key = player_script_cache_key(script);
-    let cache = THROTTLING_PLAN_CACHE.get_or_init(|| Mutex::new(VecDeque::new()));
-
+    let cache = cache.get_or_init(|| Mutex::new(VecDeque::new()));
     if let Ok(cache) = cache.lock() {
         if let Some((_, operations)) = cache.iter().find(|(cached, _)| *cached == key) {
             return Ok(operations.clone());
         }
     }
 
-    let operations = extract_throttling_operations(script)?;
+    let operations = extractor(script)?;
     if let Ok(mut cache) = cache.lock() {
         if cache.len() >= PLAYER_SCRIPT_PARSE_CACHE_SIZE {
             cache.pop_front();
@@ -88,6 +103,13 @@ fn cached_throttling_operations(script: &str) -> Result<Vec<TransformOperation>,
     Ok(operations)
 }
 
+fn cached_throttling_operations(script: &str) -> Result<Vec<TransformOperation>, String> {
+    cached_operations(
+        &THROTTLING_PLAN_CACHE,
+        script,
+        extract_throttling_operations,
+    )
+}
 
 fn player_script_cache_key(script: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
@@ -95,9 +117,12 @@ fn player_script_cache_key(script: &str) -> u64 {
     hasher.finish()
 }
 
-fn invalidate_throttling_plan(script: &str) {
+fn invalidate_plan(
+    cache: &'static OnceLock<Mutex<VecDeque<(u64, Vec<TransformOperation>)>>>,
+    script: &str,
+) {
     let key = player_script_cache_key(script);
-    let Some(cache) = THROTTLING_PLAN_CACHE.get() else {
+    let Some(cache) = cache.get() else {
         return;
     };
     if let Ok(mut cache) = cache.lock() {
