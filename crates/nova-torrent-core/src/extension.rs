@@ -499,7 +499,7 @@ fn bint(out: &mut Vec<u8>, value: i64) {
 enum BValue<'a> {
     Int(i64),
     Bytes(&'a [u8]),
-    List(Vec<BValue<'a>>),
+    List,
     Dict(BTreeMap<&'a [u8], BValue<'a>>),
 }
 
@@ -553,7 +553,7 @@ impl<'a> Parser<'a> {
         }
         match self.input.get(self.position).copied() {
             Some(b'i') => self.parse_int().map(BValue::Int),
-            Some(b'l') => self.parse_list(depth).map(BValue::List),
+            Some(b'l') => self.parse_list(depth).map(|_| BValue::List),
             Some(b'd') => self.parse_dict(depth).map(BValue::Dict),
             Some(byte) if byte.is_ascii_digit() => self.parse_bytes().map(BValue::Bytes),
             Some(byte) => Err(ExtensionError::InvalidBencode(format!(
@@ -629,19 +629,20 @@ impl<'a> Parser<'a> {
         Ok(value)
     }
 
-    fn parse_list(&mut self, depth: usize) -> Result<Vec<BValue<'a>>, ExtensionError> {
+    fn parse_list(&mut self, depth: usize) -> Result<(), ExtensionError> {
         self.expect(b'l')?;
-        let mut values = Vec::new();
+        let mut count = 0usize;
         while self.input.get(self.position).copied() != Some(b'e') {
-            if values.len() >= 256 {
+            if count >= 256 {
                 return Err(ExtensionError::InvalidBencode(
                     "extension list too large".to_owned(),
                 ));
             }
-            values.push(self.parse_value(depth + 1)?);
+            let _ = self.parse_value(depth + 1)?;
+            count += 1;
         }
         self.expect(b'e')?;
-        Ok(values)
+        Ok(())
     }
 
     fn parse_dict(
