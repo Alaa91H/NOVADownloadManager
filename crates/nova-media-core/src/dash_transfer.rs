@@ -200,12 +200,14 @@ mod tests {
                     url: format!("http://{address}/init.mp4"),
                     initialization: true,
                     number: None,
+                    time: None,
                 },
                 DashTransferUnit {
                     order: 1,
                     url: format!("http://{address}/1.m4s"),
                     initialization: false,
                     number: Some(1),
+                    time: None,
                 },
             ],
         };
