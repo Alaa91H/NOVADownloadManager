@@ -15,6 +15,7 @@ mod magnet;
 mod metainfo;
 mod peer;
 mod scheduler;
+mod selection;
 mod tracker;
 
 pub use dht::{
@@ -42,6 +43,7 @@ pub use scheduler::{
     BlockRequest, PieceLayout, PieceScheduler, SchedulerError,
     DEFAULT_BLOCK_SIZE,
 };
+pub use selection::{FilePriority, SelectionError, TorrentSelection};
 pub use tracker::{
     udp_connect_packet, HttpTrackerResponse, TrackerAnnounceRequest, TrackerEvent, TrackerPeer,
     TrackerProtocolError, UdpAnnounceResponse, UdpConnectResponse,
