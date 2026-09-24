@@ -97,7 +97,15 @@ export const queueStore = create<QueueState>()((set, get) => ({
       retryDelay: 10,
       downloadOrder: [],
     };
-    set((p) => ({ queues: [...p.queues, newQueue] }));
+    set((p) => ({
+      queues: [
+        ...p.queues.map((q) => ({
+          ...q,
+          downloadOrder: q.downloadOrder.filter((id) => id !== taskId),
+        })),
+        newQueue,
+      ],
+    }));
     uiStore.getState().addToast('success', 'Queue Created', `Download queue "${name}" was added successfully.`);
   },
 
@@ -134,9 +142,20 @@ export const queueStore = create<QueueState>()((set, get) => ({
   },
 
   removeTaskFromQueue: (taskId) => {
-    set((p) => ({
-      queues: p.queues.map((q) => ({ ...q, downloadOrder: q.downloadOrder.filter((id) => id !== taskId) })),
-    }));
+    set((p) => {
+      const source = p.queues.find((q) => q.downloadOrder.includes(taskId));
+      if (!source || source.id === 'main') return p;
+
+      return {
+        queues: p.queues.map((q) => {
+          const order = q.downloadOrder.filter((id) => id !== taskId);
+          if (q.id === 'main' && !order.includes(taskId)) {
+            return { ...q, downloadOrder: [...order, taskId] };
+          }
+          return { ...q, downloadOrder: order };
+        }),
+      };
+    });
   },
 
   moveTaskToQueue: (taskId, targetQueueId) => {
