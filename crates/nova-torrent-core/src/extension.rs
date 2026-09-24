@@ -106,14 +106,16 @@ impl ExtendedHandshake {
             if let Some(value) = dict_get(map, b"ut_metadata").and_then(BValue::as_int) {
                 let id = u8::try_from(value)
                     .map_err(|_| ExtensionError::InvalidExtensionId("ut_metadata"))?;
-                validate_extension_id("ut_metadata", id)?;
-                handshake.ut_metadata = Some(id);
+                if id != 0 {
+                    handshake.ut_metadata = Some(id);
+                }
             }
             if let Some(value) = dict_get(map, b"ut_pex").and_then(BValue::as_int) {
                 let id = u8::try_from(value)
                     .map_err(|_| ExtensionError::InvalidExtensionId("ut_pex"))?;
-                validate_extension_id("ut_pex", id)?;
-                handshake.ut_pex = Some(id);
+                if id != 0 {
+                    handshake.ut_pex = Some(id);
+                }
             }
         }
 
@@ -757,6 +759,16 @@ mod tests {
         assert_eq!(decoded.ut_pex, Some(LOCAL_UT_PEX_ID));
         assert_eq!(decoded.metadata_size, Some(32_000));
         assert_eq!(decoded.request_queue, Some(32));
+    }
+
+    #[test]
+    fn remote_extension_zero_disables_mapping() {
+        let handshake = ExtendedHandshake::parse(
+            b"d1:md11:ut_metadatai0e6:ut_pexi0eee",
+        )
+        .expect("parse disabled extensions");
+        assert_eq!(handshake.ut_metadata, None);
+        assert_eq!(handshake.ut_pex, None);
     }
 
     #[test]
