@@ -155,6 +155,7 @@ Implemented:
 - Clipboard URL monitoring matches the legacy 1.5-second detection behavior and ignores pre-existing clipboard content.
 - Browser integration exposes daemon-backed status and user-scoped Native Messaging registration repair on Windows, macOS and Linux.
 - The native runtime remains split into `nova-native` (Qt UI), `nova-native-backend` (headless Rust daemon) and `nova-native-host` (browser Native Messaging transport).
+- Native pairing now uses a random per-daemon proof stored beside the port file. The daemon issues a full local Desktop token only to Qt and a separate route-scoped Browser token only to the Native Messaging host; direct browser HTTP token minting is rejected.
 - Windows preview bundles deploy Qt through `windeployqt`; macOS uses `macdeployqt`; Linux preview builds include explicit runtime dependency reporting.
 - CI targets Windows x64/ARM64, Linux x64/ARM64 and macOS ARM64/x64 with architecture assertions.
 - Native CTest coverage stress-loads 20,000 downloads and validates SSE disconnect/reconnect with bounded backoff.
