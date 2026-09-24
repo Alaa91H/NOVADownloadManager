@@ -1985,8 +1985,11 @@ pub fn native_torrent_status() -> Value {
             "udpTrackerProtocol": capabilities.udp_tracker_protocol,
             "pieceHashVerification": true,
             "safeMultiFileLayout": true,
-            "httpTrackers": false,
-            "udpTrackers": false,
+            "httpTrackers": true,
+            "udpTrackers": true,
+            "trackerTierFailover": true,
+            "trackerRetryBackoff": true,
+            "trackerSsrfProtection": true,
             "dht": false,
             "pex": false,
             "metadataExchange": false,
@@ -2057,6 +2060,9 @@ mod tests {
         assert_eq!(status["capabilities"]["magnetBtih"], true);
         assert_eq!(status["capabilities"]["httpTrackerProtocol"], true);
         assert_eq!(status["capabilities"]["udpTrackerProtocol"], true);
+        assert_eq!(status["capabilities"]["httpTrackers"], true);
+        assert_eq!(status["capabilities"]["udpTrackers"], true);
+        assert_eq!(status["capabilities"]["trackerSsrfProtection"], true);
         assert_eq!(status["capabilities"]["peerTransferExecution"], false);
     }
 
