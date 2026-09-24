@@ -158,6 +158,7 @@ pub fn download_youtube_plan_controlled<
             let audio_downloaded = AtomicU64::new(0);
             let video_total = AtomicU64::new(video.content_length.unwrap_or(0));
             let audio_total = AtomicU64::new(audio.content_length.unwrap_or(0));
+            let transfer_abort = std::sync::atomic::AtomicBool::new(false);
 
             let emit_progress = || {
                 let video_total_value = video_total.load(Ordering::Acquire);
@@ -173,12 +174,22 @@ pub fn download_youtube_plan_controlled<
             emit_progress();
             let (video_result, audio_result) = std::thread::scope(|scope| {
                 let video_worker = scope.spawn(|| {
-                    download_http_to_path_segmented_controlled_with_context(
+                    let result = download_http_to_path_segmented_controlled_with_context(
                         &video.url,
                         &video_path,
                         per_track_connections,
                         &video_context,
-                        || control(),
+                        || {
+                            let command = control();
+                            if command != TransferControl::Continue {
+                                return command;
+                            }
+                            if transfer_abort.load(Ordering::Acquire) {
+                                TransferControl::Cancel
+                            } else {
+                                TransferControl::Continue
+                            }
+                        },
                         |downloaded, total| {
                             video_downloaded.store(downloaded, Ordering::Release);
                             if let Some(total) = total {
@@ -186,15 +197,31 @@ pub fn download_youtube_plan_controlled<
                             }
                             emit_progress();
                         },
-                    )
+                    );
+                    if let Err(error) = &result {
+                        if !matches!(error, TransportError::Paused | TransportError::Cancelled) {
+                            transfer_abort.store(true, Ordering::Release);
+                        }
+                    }
+                    result
                 });
                 let audio_worker = scope.spawn(|| {
-                    download_http_to_path_segmented_controlled_with_context(
+                    let result = download_http_to_path_segmented_controlled_with_context(
                         &audio.url,
                         &audio_path,
                         per_track_connections,
                         &audio_context,
-                        || control(),
+                        || {
+                            let command = control();
+                            if command != TransferControl::Continue {
+                                return command;
+                            }
+                            if transfer_abort.load(Ordering::Acquire) {
+                                TransferControl::Cancel
+                            } else {
+                                TransferControl::Continue
+                            }
+                        },
                         |downloaded, total| {
                             audio_downloaded.store(downloaded, Ordering::Release);
                             if let Some(total) = total {
@@ -202,7 +229,13 @@ pub fn download_youtube_plan_controlled<
                             }
                             emit_progress();
                         },
-                    )
+                    );
+                    if let Err(error) = &result {
+                        if !matches!(error, TransportError::Paused | TransportError::Cancelled) {
+                            transfer_abort.store(true, Ordering::Release);
+                        }
+                    }
+                    result
                 });
                 (video_worker.join(), audio_worker.join())
             });
