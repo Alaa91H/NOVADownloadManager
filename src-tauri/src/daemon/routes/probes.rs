@@ -987,6 +987,108 @@ pub async fn handle_native_media_resolve_post(
 }
 
 
+pub async fn handle_native_media_probe(
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let url = params.get("url").map_or("", String::as_str).trim();
+    if url.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Missing url"})),
+        ));
+    }
+    if let Err(error) = crate::daemon::utils::is_safe_target_url(url) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": error})),
+        ));
+    }
+
+    let request = nova_media_core::ExtractRequest::new(url);
+    let resolved = tokio::task::spawn_blocking(move || resolve_native_media_request(request))
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Native media probe worker failed: {error}")})),
+            )
+        })?
+        .map_err(|error| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({"error": error})),
+            )
+        })?;
+
+    let descriptor = resolved
+        .get("descriptor")
+        .ok_or_else(|| (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "Native media descriptor missing"})),
+        ))?;
+    let metadata = descriptor.get("metadata").unwrap_or(&serde_json::Value::Null);
+    let duration_millis = metadata
+        .get("duration_millis")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let duration = duration_millis as f64 / 1000.0;
+    let hours = (duration / 3600.0).floor() as u64;
+    let minutes = ((duration % 3600.0) / 60.0).floor() as u64;
+    let seconds = (duration % 60.0).floor() as u64;
+    let duration_string = if hours > 0 {
+        format!("{hours:02}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes:02}:{seconds:02}")
+    };
+
+    let formats = descriptor
+        .get("streams")
+        .and_then(serde_json::Value::as_array)
+        .map(|streams| {
+            streams
+                .iter()
+                .map(|stream| {
+                    let bitrate = stream.get("bitrate_bps").and_then(serde_json::Value::as_u64);
+                    let audio_bitrate = stream
+                        .get("audio_bitrate_bps")
+                        .and_then(serde_json::Value::as_u64);
+                    serde_json::json!({
+                        "formatId": stream.get("id").and_then(serde_json::Value::as_str).unwrap_or("native"),
+                        "height": stream.get("height").cloned().unwrap_or(serde_json::Value::Null),
+                        "width": stream.get("width").cloned().unwrap_or(serde_json::Value::Null),
+                        "ext": stream.get("container").and_then(serde_json::Value::as_str).unwrap_or(""),
+                        "filesize": stream.get("content_length").and_then(serde_json::Value::as_u64).unwrap_or(0),
+                        "filesizeApprox": stream.get("content_length").and_then(serde_json::Value::as_u64).unwrap_or(0),
+                        "vcodec": stream.get("video_codec").and_then(serde_json::Value::as_str).unwrap_or("none"),
+                        "acodec": stream.get("audio_codec").and_then(serde_json::Value::as_str).unwrap_or("none"),
+                        "formatNote": stream.get("language").cloned().unwrap_or(serde_json::Value::Null),
+                        "tbr": bitrate.map(|value| value as f64 / 1000.0),
+                        "abr": audio_bitrate.map(|value| value as f64 / 1000.0),
+                        "vbr": bitrate.map(|value| value as f64 / 1000.0),
+                        "fps": stream.get("fps").cloned().unwrap_or(serde_json::Value::Null),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let id = resolved
+        .pointer("/youtube/videoId")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("native");
+
+    Ok(Json(serde_json::json!({
+        "id": id,
+        "title": metadata.get("title").and_then(serde_json::Value::as_str).unwrap_or("Media"),
+        "duration": duration,
+        "durationString": duration_string,
+        "thumbnail": metadata.get("thumbnail_url").and_then(serde_json::Value::as_str).unwrap_or(""),
+        "webpageUrl": metadata.get("webpage_url").and_then(serde_json::Value::as_str).unwrap_or(url),
+        "formats": formats,
+        "engine": "nova-media-engine"
+    })))
+}
+
 pub async fn handle_media_bridge_probe(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<SharedState>,
@@ -1238,12 +1340,13 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
             "/api/media/native/resolve",
             get(handle_native_media_resolve).post(handle_native_media_resolve_post),
         )
-        .route("/api/media_bridge/probe", get(handle_media_bridge_probe))
+        .route("/api/media/probe", get(handle_native_media_probe))
+        .route("/api/media/bridge/probe", get(handle_media_bridge_probe))
         .route(
-            "/api/media_bridge/probe-playlist",
+            "/api/media/bridge/probe-playlist",
             get(handle_media_bridge_probe_playlist),
         )
-        .route("/api/media_bridge/ffmpeg", get(handle_media_bridge_ffmpeg))
+        .route("/api/media/postprocess/status", get(handle_media_bridge_ffmpeg))
 }
 
 #[cfg(test)]
