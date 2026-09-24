@@ -64,18 +64,30 @@ The tracker execution layer is now implemented with:
 
 The torrent engine still remains unavailable for task routing because peer-session transfer, metadata exchange, and durable resume are not complete.
 
-### Stage 3 — Peer session engine — next
+### Stage 3 — Peer session engine — implemented foundation
 
-Add async peer connection orchestration:
+The peer-session execution layer now includes:
 
-- outbound peer connection limits;
-- handshake/info-hash validation;
-- choke/interested state machine;
-- request pipelining;
-- block timeout/retry;
-- piece assembly and hash verification;
-- peer quality scoring and eviction;
-- IPv4/IPv6 support.
+- native outbound TCP connections for IPv4/IPv6 peers;
+- a global outbound connection limit shared by torrent peer work;
+- cancellable connect, handshake, read, write, and piece-transfer operations;
+- strict BitTorrent handshake parsing and info-hash validation;
+- self-peer rejection;
+- validated choke/interested/bitfield/have state tracking;
+- bitfield length and padding validation;
+- request pipelining with bounded block size;
+- block timeout and bounded retry handling;
+- requeue of outstanding requests after peer choke;
+- unsolicited block and wrong-piece rejection;
+- deterministic piece assembly;
+- SHA-1 verification before a piece is accepted;
+- peer reputation accounting for success, timeout, protocol error, connection failure, and hash failure;
+- automatic eviction of peers that repeatedly fail or return corrupt data;
+- ranked peer failover;
+- NOVA peer-id generation;
+- local TCP acceptance tests covering handshake, verified piece transfer, wrong info-hash rejection, and unsolicited data.
+
+`peerTransferExecution` remains false at the daemon capability level because this peer engine is not yet wired to durable torrent task storage/resume. This is intentionally fail-closed.
 
 ### Stage 4 — Magnet metadata and peer discovery
 
