@@ -224,9 +224,19 @@ void NovaApiClient::createDownloadAdvanced(
     }
 
     QVariantMap filteredOptions;
-    const QVariant supportedRaw =
-        m_engineCapabilities.value(QStringLiteral("supportedDirectOptionKeys"));
-    const QStringList supported = supportedRaw.toStringList();
+    const QVariantMap engines =
+        m_engineCapabilities.value(QStringLiteral("engines")).toMap();
+    const QVariantMap curl = engines.value(QStringLiteral("curl")).toMap();
+    const QVariantList supportedValues =
+        curl.value(QStringLiteral("supportedDirectOptionKeys")).toList();
+    QStringList supported;
+    supported.reserve(supportedValues.size());
+    for (const QVariant &value : supportedValues) {
+        const QString key = value.toString();
+        if (!key.isEmpty()) {
+            supported.append(key);
+        }
+    }
     for (auto it = directOptions.constBegin(); it != directOptions.constEnd(); ++it) {
         if (!it.value().isValid() || it.value().isNull()) {
             continue;
