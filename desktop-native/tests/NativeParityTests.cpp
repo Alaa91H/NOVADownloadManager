@@ -275,6 +275,15 @@ void NativeParityTests::legacyUiPreferencesMigrateOnce() {
         QCOMPARE(settings.defaultConnections(), 8);
         QVERIFY(!settings.monitorClipboard());
         QCOMPARE(settings.uiLanguage(), QStringLiteral("de"));
+        settings.resetToDefaults();
+    }
+
+    {
+        NativeSettings settings(settingsFile, nullptr);
+        QCOMPARE(settings.defaultConnections(), 8);
+        QVERIFY(!settings.monitorClipboard());
+        QCOMPARE(settings.uiLanguage(), QStringLiteral("system"));
+        QVERIFY(settings.defaultSaveDirectory() != QStringLiteral("/changed/legacy"));
     }
 
     if (previousDataDir.isEmpty()) {
