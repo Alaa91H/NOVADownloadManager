@@ -87,7 +87,7 @@ impl TrackerTransport {
                     Ok(success) => return Ok(success),
                     Err(error) => failures.push(format!(
                         "{}: {}",
-                        tracker,
+                        tracker_display_url(tracker),
                         limit_error_detail(&error)
                     )),
                 }
@@ -267,7 +267,7 @@ impl TrackerTransport {
             let parsed = HttpTrackerResponse::parse(&body)
                 .map_err(|error| TrackerAttemptError::hard(error.to_string()))?;
             return Ok(TrackerAnnounceSuccess {
-                tracker_url: current.to_string(),
+                tracker_url: tracker_display_url(current.as_str()),
                 interval_seconds: parsed.interval_seconds,
                 min_interval_seconds: parsed.min_interval_seconds,
                 complete: parsed.complete,
@@ -342,7 +342,7 @@ impl TrackerTransport {
                 .map_err(|error| TrackerAttemptError::hard(error.to_string()))?;
 
         Ok(TrackerAnnounceSuccess {
-            tracker_url: tracker_url.to_owned(),
+            tracker_url: tracker_display_url(tracker_url),
             interval_seconds: parsed.interval_seconds,
             min_interval_seconds: None,
             complete: Some(parsed.seeders),
@@ -433,6 +433,19 @@ impl TrackerTransport {
             config,
             allow_private_network: true,
         }
+    }
+}
+
+fn tracker_display_url(raw: &str) -> String {
+    match reqwest::Url::parse(raw) {
+        Ok(mut url) => {
+            let _ = url.set_username("");
+            let _ = url.set_password(None);
+            url.set_query(None);
+            url.set_fragment(None);
+            url.to_string()
+        }
+        Err(_) => "<invalid-tracker-url>".to_owned(),
     }
 }
 
