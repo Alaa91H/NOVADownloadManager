@@ -996,6 +996,56 @@ mod tests {
     }
 
     #[test]
+    fn mobile_media_projection_uses_shared_descriptor_without_transport_secrets() {
+        let mut request_headers = std::collections::BTreeMap::new();
+        request_headers.insert("Cookie".to_owned(), "session=secret".to_owned());
+        let mut stream_headers = std::collections::BTreeMap::new();
+        stream_headers.insert("Authorization".to_owned(), "Bearer secret".to_owned());
+
+        let descriptor = nova_media_core::MediaDescriptor {
+            source_kind: nova_media_core::MediaSourceKind::Site,
+            metadata: nova_media_core::MediaMetadata {
+                title: "Mobile media".to_owned(),
+                description: Some("description".to_owned()),
+                duration_millis: Some(42_000),
+                uploader: Some("NOVA".to_owned()),
+                webpage_url: "https://site.test/watch".to_owned(),
+                thumbnail_url: Some("https://img.test/thumb.jpg".to_owned()),
+            },
+            streams: vec![nova_media_core::MediaStream {
+                id: "video".to_owned(),
+                kind: nova_media_core::MediaTrackKind::AudioVideo,
+                protocol: nova_media_core::MediaProtocol::Https,
+                url: "https://cdn.test/video.mp4".to_owned(),
+                container: Some("mp4".to_owned()),
+                video_codec: Some("avc1".to_owned()),
+                audio_codec: Some("mp4a".to_owned()),
+                width: Some(1920),
+                height: Some(1080),
+                fps: Some(30.0),
+                bitrate_bps: Some(4_000_000),
+                audio_bitrate_bps: Some(128_000),
+                content_length: Some(123),
+                language: None,
+                headers: stream_headers,
+            }],
+            subtitles: Vec::new(),
+            request_headers,
+            is_live: false,
+        };
+
+        let mobile = mobile_media_descriptor(descriptor);
+        assert_eq!(mobile.title, "Mobile media");
+        assert_eq!(mobile.streams.len(), 1);
+        assert_eq!(mobile.streams[0].kind, MobileMediaTrackKind::AudioVideo);
+
+        let json = mobile_media_descriptor_json(&mobile);
+        assert!(json.contains("\"engine\":\"nova-media-engine\""));
+        assert!(!json.contains("session=secret"));
+        assert!(!json.contains("Bearer secret"));
+    }
+
+    #[test]
     fn native_probe_uses_libcurl_head_and_reports_metadata() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind probe server");
         let address = listener.local_addr().expect("probe server address");
