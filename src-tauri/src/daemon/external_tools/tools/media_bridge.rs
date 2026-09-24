@@ -31,24 +31,20 @@ impl ExternalTool for MediaBridgeTool {
         let mut paths = Vec::new();
 
         if cfg!(windows) {
-            if let Ok(appdata) = std::env::var("APPDATA") {
-                paths.push(PathBuf::from(appdata).join("Python").join("Scripts"));
-            }
             if let Ok(local) = std::env::var("LOCALAPPDATA") {
-                paths.push(PathBuf::from(local).join("Programs").join("NOVA").join("MediaBridge"));
+                paths.push(PathBuf::from(local).join("NOVA").join("MediaBridge"));
             }
-            paths.push(PathBuf::from("C:\\ProgramData\\NOVA\\MediaBridge"));
-        } else if cfg!(target_os = "macos") {
-            paths.push(PathBuf::from("/usr/local/bin"));
-            paths.push(PathBuf::from("/opt/homebrew/bin"));
-            paths.push(PathBuf::from("/opt/local/bin"));
-        } else {
-            paths.push(PathBuf::from("/usr/bin"));
-            paths.push(PathBuf::from("/usr/local/bin"));
-            paths.push(PathBuf::from("/snap/bin"));
-            if let Ok(home) = std::env::var("HOME") {
-                paths.push(PathBuf::from(home).join(".local").join("bin"));
+            if let Ok(program_data) = std::env::var("PROGRAMDATA") {
+                paths.push(PathBuf::from(program_data).join("NOVA").join("MediaBridge"));
             }
+        } else if let Ok(home) = std::env::var("HOME") {
+            paths.push(
+                PathBuf::from(home)
+                    .join(".local")
+                    .join("share")
+                    .join("nova")
+                    .join("media-bridge"),
+            );
         }
 
         paths

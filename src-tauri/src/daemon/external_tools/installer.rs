@@ -580,7 +580,7 @@ mod tests {
             "https://github.com/example/media/releases/download/v1/media-bridge"
         ));
         assert!(!is_trusted_release_asset_url(
-            "http://github.com/yt-dlp/yt-dlp/releases/download/v1/yt-dlp"
+            "http://github.com/example/media/releases/download/v1/media-bridge"
         ));
         assert!(!is_trusted_release_asset_url("https://example.test/tool"));
     }

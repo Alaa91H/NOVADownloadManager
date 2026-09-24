@@ -1350,81 +1350,34 @@ async fn handle_engine_verify(
 }
 
 async fn handle_engine_latest_version(
-    State(state): State<SharedState>,
+    State(_state): State<SharedState>,
     Json(body): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
-    let engine = body.get("engine").and_then(|v| v.as_str()).unwrap_or("");
+    let engine = body
+        .get("engine")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
 
-    let api_url = match engine {
-        "media-bridge" | "media_bridge" => {
-            return Json(serde_json::json!({
-                "ok": true,
-                "engine": "media-bridge",
-                "latestVersion": "bundled",
-                "note": "NOVA Media Bridge follows the NOVA application release."
-            }));
-        }
-        "ffmpeg" => {
-            return Json(serde_json::json!({
-                "ok": true,
-                "engine": "ffmpeg",
-                "latestVersion": "system",
-                "note": "FFmpeg version depends on your system installation. Use your package manager to update."
-            }));
-        }
-        _ => {
-            return Json(serde_json::json!({
-                "ok": false,
-                "error": format!("Unknown engine: {engine}")
-            }));
-        }
-    };
-
-    match state.http_client.get(api_url).send().await {
-        Ok(resp) if resp.status().is_success() => {
-            let json: serde_json::Value = match resp.json().await {
-                Ok(v) => v,
-                Err(e) => {
-                    return Json(serde_json::json!({
-                        "ok": false,
-                        "error": format!("Failed to parse response: {e}")
-                    }));
-                }
-            };
-            let latest = json
-                .get("tag_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown")
-                .to_owned();
-            let media_bridge_bin = state.media_bridge_binary();
-            let mut current_cmd = std::process::Command::new(&media_bridge_bin);
-            hide_command_window(&mut current_cmd);
-            let current = current_cmd
-                .arg("--version")
-                .output()
-                .ok()
-                .and_then(|o| String::from_utf8(o.stdout).ok())
-                .map(|s| s.trim().to_owned())
-                .unwrap_or_default();
-
-            Json(serde_json::json!({
-                "ok": true,
-                "engine": engine,
-                "latestVersion": latest,
-                "currentVersion": current,
-                "updateAvailable": latest != current && !current.is_empty(),
-            }))
-        }
-        Ok(resp) => Json(serde_json::json!({
-            "ok": false,
-            "error": format!("HTTP {} from GitHub API", resp.status())
+    match engine {
+        "media-bridge" | "media_bridge" => Json(serde_json::json!({
+            "ok": true,
+            "engine": "media-bridge",
+            "latestVersion": "bundled",
+            "note": "NOVA Media Bridge follows the NOVA application release."
         })),
-        Err(e) => Json(serde_json::json!({
+        "ffmpeg" => Json(serde_json::json!({
+            "ok": true,
+            "engine": "ffmpeg",
+            "latestVersion": "system",
+            "note": "Post-processing engine version follows the configured system or NOVA package."
+        })),
+        _ => Json(serde_json::json!({
             "ok": false,
-            "error": format!("Request failed: {e}")
+            "error": format!("Unknown engine: {engine}")
         })),
     }
 }
+
 
 pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
     router
