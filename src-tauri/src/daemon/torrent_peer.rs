@@ -432,10 +432,10 @@ impl PeerSession {
         };
         let _ = stream.set_nodelay(true);
 
-        let mut local_handshake = PeerHandshake::new(info_hash, local_peer_id);
-        // Advertise BEP 10 extension support now so BEP 9 metadata exchange can
-        // be enabled in the following stage without changing the handshake path.
-        local_handshake.reserved[5] |= 0x10;
+        // Do not advertise BEP 10 until extended messaging is implemented.
+        // Advertising an unsupported extension invites message id 20 before
+        // this session engine can parse it.
+        let local_handshake = PeerHandshake::new(info_hash, local_peer_id);
 
         write_all_cancellable(
             &mut stream,
