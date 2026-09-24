@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use url::Url;
 
 use crate::{
