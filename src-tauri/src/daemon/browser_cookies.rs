@@ -7,6 +7,8 @@ use rusqlite::{Connection, OpenFlags};
 
 const FIREFOX_COOKIE_DB_MAX_BYTES: u64 = 128 * 1024 * 1024;
 
+pub const NATIVE_BROWSER_COOKIE_SOURCES: &[&str] = &["firefox"];
+
 pub fn validate_browser_cookie_source(spec: &str) -> Result<(), String> {
     let (browser, profile) = parse_browser_cookie_source(spec)?;
     if browser != "firefox" {
