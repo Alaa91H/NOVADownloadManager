@@ -47,6 +47,10 @@ interface NovaHealth {
     };
   };
   allEnginesReady?: boolean;
+  directReady?: boolean;
+  mediaExtractionReady?: boolean;
+  streamingReady?: boolean;
+  postProcessingReady?: boolean;
   routing?: Record<string, unknown>;
   compatibilityMode?: string;
 }
