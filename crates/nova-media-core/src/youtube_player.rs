@@ -378,6 +378,30 @@ fn parse_transform_body(
             operations.push(TransformOperation::Reverse);
             continue;
         }
+        if statement.contains(&format!("{argument}.push({argument}.shift())")) {
+            operations.push(TransformOperation::RotateLeft(1));
+            continue;
+        }
+        if statement.contains(&format!("{argument}.unshift({argument}.pop())")) {
+            operations.push(TransformOperation::RotateRight(1));
+            continue;
+        }
+        if let Some(captures) = rotate_left_apply.captures(statement) {
+            let amount = captures
+                .get(1)
+                .and_then(|value| value.as_str().parse::<usize>().ok())
+                .ok_or_else(|| "invalid YouTube rotate-left amount".to_owned())?;
+            operations.push(TransformOperation::RotateLeft(amount));
+            continue;
+        }
+        if let Some(captures) = rotate_left_spread.captures(statement) {
+            let amount = captures
+                .get(1)
+                .and_then(|value| value.as_str().parse::<usize>().ok())
+                .ok_or_else(|| "invalid YouTube rotate-left amount".to_owned())?;
+            operations.push(TransformOperation::RotateLeft(amount));
+            continue;
+        }
         if let Some(captures) = direct_splice.captures(statement) {
             let amount = captures
                 .get(1)
@@ -392,6 +416,26 @@ fn parse_transform_body(
                 .and_then(|value| value.as_str().parse::<usize>().ok())
                 .ok_or_else(|| "invalid direct YouTube slice amount".to_owned())?;
             operations.push(TransformOperation::Drop(amount));
+            continue;
+        }
+
+        if let Some(captures) = indexed_helper_call.captures(statement) {
+            if captures.name("arg").map(|value| value.as_str()) != Some(argument) {
+                continue;
+            }
+            let array = captures
+                .name("array")
+                .map(|value| value.as_str())
+                .ok_or_else(|| "YouTube transform helper array is missing".to_owned())?;
+            let index = captures
+                .name("index")
+                .and_then(|value| value.as_str().parse::<usize>().ok())
+                .ok_or_else(|| "YouTube transform helper array index is invalid".to_owned())?;
+            let amount = captures
+                .name("value")
+                .and_then(|value| value.as_str().parse::<usize>().ok())
+                .unwrap_or(0);
+            operations.push(classify_array_helper_operation(script, array, index, amount)?);
             continue;
         }
 
@@ -423,11 +467,72 @@ fn parse_transform_body(
         }
 
         return Err(format!(
-            "unsupported statement in YouTube signature function: {statement}"
+            "unsupported statement in YouTube transform function: {statement}"
         ));
     }
 
     Ok(operations)
+}
+
+
+fn classify_array_helper_operation(
+    script: &str,
+    array: &str,
+    index: usize,
+    amount: usize,
+) -> Result<TransformOperation, String> {
+    let pattern = Regex::new(&format!(
+        r#"(?:(?:var|let|const)\s+)?{}\s*=\s*\["#,
+        regex::escape(array)
+    ))
+    .map_err(|error| error.to_string())?;
+    let array_match = pattern
+        .find(script)
+        .ok_or_else(|| format!("YouTube transform helper array {array} was not found"))?;
+    let bracket = array_match.end().saturating_sub(1);
+    let array_body = balanced_block(script, bracket, b'[', b']')
+        .ok_or_else(|| format!("YouTube transform helper array {array} is malformed"))?;
+    let entries = split_top_level(array_body, b',');
+    let entry = entries
+        .get(index)
+        .map(|value| value.trim())
+        .ok_or_else(|| format!("YouTube transform helper {array}[{index}] is missing"))?;
+    let function = Regex::new(r#"^function\([^)]*\)\s*\{"#)
+        .map_err(|error| error.to_string())?;
+    let function_match = function
+        .find(entry)
+        .ok_or_else(|| format!("YouTube transform helper {array}[{index}] is not a function"))?;
+    let brace = function_match.end().saturating_sub(1);
+    let method_body = balanced_block(entry, brace, b'{', b'}')
+        .ok_or_else(|| format!("YouTube transform helper {array}[{index}] is malformed"))?;
+    classify_operation_body(method_body, amount).ok_or_else(|| {
+        format!("unsupported YouTube transform helper {array}[{index}]")
+    })
+}
+
+fn classify_operation_body(body: &str, amount: usize) -> Option<TransformOperation> {
+    if body.contains(".reverse(") {
+        return Some(TransformOperation::Reverse);
+    }
+    if body.contains(".push.apply(") && body.contains(".splice(0,") {
+        return Some(TransformOperation::RotateLeft(amount));
+    }
+    if body.contains(".push(...") && body.contains(".splice(0,") {
+        return Some(TransformOperation::RotateLeft(amount));
+    }
+    if body.contains(".push(") && body.contains(".shift()") {
+        return Some(TransformOperation::RotateLeft(1));
+    }
+    if body.contains(".unshift(") && body.contains(".pop()") {
+        return Some(TransformOperation::RotateRight(1));
+    }
+    if body.contains("[0]") && body.contains(".length") && body.contains('%') {
+        return Some(TransformOperation::Swap(amount));
+    }
+    if body.contains(".splice(0,") || body.contains(".slice(") {
+        return Some(TransformOperation::Drop(amount));
+    }
+    None
 }
 
 fn classify_helper_operation(
@@ -460,22 +565,9 @@ fn classify_helper_operation(
     let method_body = balanced_block(object_body, relative_brace, b'{', b'}')
         .ok_or_else(|| format!("YouTube signature helper method {object}.{method} is malformed"))?;
 
-    if method_body.contains(".reverse(") {
-        return Ok(TransformOperation::Reverse);
-    }
-    if method_body.contains(".splice(0,") || method_body.contains(".slice(") {
-        return Ok(TransformOperation::Drop(amount));
-    }
-    if method_body.contains("[0]")
-        && method_body.contains(".length")
-        && method_body.contains('%')
-    {
-        return Ok(TransformOperation::Swap(amount));
-    }
-
-    Err(format!(
-        "unsupported YouTube signature helper method {object}.{method}"
-    ))
+    classify_operation_body(method_body, amount).ok_or_else(|| {
+        format!("unsupported YouTube transform helper method {object}.{method}")
+    })
 }
 
 fn apply_transform_operations(
