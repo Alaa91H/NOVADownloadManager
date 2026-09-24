@@ -104,6 +104,28 @@ Item {
             || normalized === "interrupted"
     }
 
+    function canPauseStatus(status) {
+        const normalized = (status || "").toLowerCase()
+        return normalized === "queued"
+            || normalized === "preparing"
+            || normalized === "probing"
+            || normalized === "downloading"
+            || normalized === "retrying"
+            || normalized === "recovering"
+            || normalized === "failed"
+            || normalized === "error"
+            || normalized === "interrupted"
+    }
+
+    function canResumeStatus(status) {
+        const normalized = (status || "").toLowerCase()
+        return normalized === "paused"
+            || normalized === "queued"
+            || normalized === "failed"
+            || normalized === "error"
+            || normalized === "interrupted"
+    }
+
     function requestDelete() {
         if (selectedIndex < 0)
             return
@@ -364,6 +386,8 @@ Item {
             hasSelection: root.selectedIndex >= 0
             engineConnected: root.api.connected
             selectedStatus: root.selectedItem.status || ""
+            canPauseSelection: root.canPauseStatus(root.selectedItem.status)
+            canResumeSelection: root.canResumeStatus(root.selectedItem.status)
             hasSavePath: (root.selectedItem.savePath || "").length > 0
 
             onNewDownloadRequested: addDownloadDialog.openNew()
@@ -579,7 +603,7 @@ Item {
 
                                 MenuItem {
                                     text: "Resume"
-                                    enabled: root.api.connected
+                                    enabled: root.api.connected && root.canResumeStatus(status)
                                     onTriggered: {
                                         root.selectRow(index)
                                         root.api.resumeDownload(taskId)
@@ -588,7 +612,7 @@ Item {
 
                                 MenuItem {
                                     text: "Pause"
-                                    enabled: root.api.connected
+                                    enabled: root.api.connected && root.canPauseStatus(status)
                                     onTriggered: {
                                         root.selectRow(index)
                                         root.api.pauseDownload(taskId)

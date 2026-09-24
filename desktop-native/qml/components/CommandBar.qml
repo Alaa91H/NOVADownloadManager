@@ -18,6 +18,8 @@ Rectangle {
 
     property bool hasSelection: false
     property bool engineConnected: false
+    property bool canPauseSelection: false
+    property bool canResumeSelection: false
     property string selectedStatus: ""
     property bool hasSavePath: false
 
@@ -67,14 +69,18 @@ Rectangle {
         Button {
             text: "Resume"
             flat: true
-            enabled: root.hasSelection && root.engineConnected
+            enabled: root.hasSelection
+                && root.engineConnected
+                && root.canResumeSelection
             onClicked: root.resumeRequested()
         }
 
         Button {
             text: "Pause"
             flat: true
-            enabled: root.hasSelection && root.engineConnected
+            enabled: root.hasSelection
+                && root.engineConnected
+                && root.canPauseSelection
             onClicked: root.pauseRequested()
         }
 
