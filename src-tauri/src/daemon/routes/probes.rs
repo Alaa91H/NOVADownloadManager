@@ -1037,9 +1037,9 @@ pub(super) fn native_media_probe_payload(
                         .and_then(serde_json::Value::as_str)
                         .unwrap_or("");
                     let has_video =
-                        video_codec != "none" || matches!(kind, "video" | "audio_video");
+                        video_codec != "none" || matches!(kind, "video" | "audio-video");
                     let has_audio =
-                        audio_codec != "none" || matches!(kind, "audio" | "audio_video");
+                        audio_codec != "none" || matches!(kind, "audio" | "audio-video");
                     let height = stream.get("height").and_then(serde_json::Value::as_u64);
                     let language = stream
                         .get("language")
