@@ -7,7 +7,10 @@ use nova_torrent_core::{FilePriority, TorrentMetainfo};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
+use crate::daemon::engine::bandwidth::BandwidthManager;
+use crate::daemon::engine::priority_queue::{DownloadPriority, PriorityBandwidthQueue};
 use crate::daemon::torrent_peer::PeerEngine;
+use crate::daemon::torrent_policy::TorrentNovaPolicyLease;
 use crate::daemon::torrent_storage::{
     TorrentRunLease, TorrentSessionError, TorrentStorageProgress, TorrentStorageSession,
 };
@@ -49,6 +52,50 @@ impl TorrentTransferCoordinator {
 
     pub fn production_default() -> Self {
         Self::new(PeerEngine::production_default(), TorrentTransferConfig::default())
+    }
+
+    pub async fn download_selected_with_nova_policy(
+        &self,
+        storage: &TorrentStorageSession,
+        candidates: &[SocketAddr],
+        local_peer_id: [u8; 20],
+        task_id: String,
+        priority: DownloadPriority,
+        priority_queue: PriorityBandwidthQueue,
+        bandwidth_manager: BandwidthManager,
+        external_cancel: &CancellationToken,
+    ) -> Result<TorrentTransferReport, TorrentTransferError> {
+        let plan = storage.transfer_plan().await?;
+        let selected_size = plan
+            .priorities
+            .iter()
+            .enumerate()
+            .filter(|(_, priority)| priority.is_selected())
+            .try_fold(0u64, |total, (piece_index, _)| {
+                let piece_size = plan
+                    .metainfo
+                    .piece_size(piece_index)
+                    .ok_or(TorrentTransferError::InvalidPlan)?;
+                total
+                    .checked_add(piece_size)
+                    .ok_or(TorrentTransferError::LengthOverflow)
+            })?;
+
+        let policy = TorrentNovaPolicyLease::start(
+            task_id,
+            priority,
+            selected_size,
+            priority_queue,
+            bandwidth_manager,
+        )
+        .map_err(TorrentTransferError::Policy)?;
+        let policy_peers = self.peers.with_download_limiter(policy.limiter());
+        let coordinator = Self::new(policy_peers, self.config.clone());
+        let result = coordinator
+            .download_selected(storage, candidates, local_peer_id, external_cancel)
+            .await;
+        drop(policy);
+        result
     }
 
     pub async fn download_selected(
@@ -280,6 +327,8 @@ pub enum TorrentTransferError {
     Peer(String),
     #[error("torrent transfer worker failed: {0}")]
     Worker(String),
+    #[error("torrent NOVA runtime policy failed: {0}")]
+    Policy(String),
     #[error("torrent transfer byte accounting overflow")]
     LengthOverflow,
 }
