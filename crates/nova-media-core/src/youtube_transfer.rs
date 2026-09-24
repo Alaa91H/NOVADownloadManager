@@ -158,8 +158,7 @@ fn append_suffix(path: &Path, suffix: &str) -> PathBuf {
 mod tests {
     use super::*;
     use crate::{
-        MediaMetadata, MediaSourceKind, MediaTrackKind, YouTubeChallengeKind,
-        YouTubePendingFormat,
+        MediaMetadata, MediaSourceKind, MediaTrackKind, YouTubePendingFormat,
     };
     use std::collections::BTreeMap;
 
