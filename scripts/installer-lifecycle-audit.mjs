@@ -19,6 +19,64 @@ requireFile('src-tauri/windows/hooks.nsi');
 requireFile('src-tauri/windows/installer-header.bmp');
 requireFile('src-tauri/windows/installer-sidebar.bmp');
 requireContains('src-tauri/tauri.conf.json', 'installerHooks', 'NSIS hooks');
+requireContains(
+  'src-tauri/tauri.conf.json',
+  '"installMode": "currentUser"',
+  'non-elevated current-user installer default',
+);
+requireContains(
+  'src-tauri/windows/installer-template.nsi',
+  '$LOCALAPPDATA\\Programs\\${PRODUCTNAME}',
+  'current-user LocalAppData Programs install path',
+);
+requireFile('scripts/build-windows-installers.mjs');
+requireFile('src-tauri/tauri.user.conf.json');
+requireFile('src-tauri/tauri.machine.conf.json');
+requireContains(
+  'scripts/run-tauri-with-native-curl.mjs',
+  'process.argv.slice(2)',
+  'Tauri CLI argument forwarding',
+);
+requireContains(
+  'src-tauri/tauri.user.conf.json',
+  '"installMode": "currentUser"',
+  'current-user Tauri build flavor',
+);
+requireContains(
+  'src-tauri/tauri.machine.conf.json',
+  '"installMode": "perMachine"',
+  'per-machine Tauri build flavor',
+);
+requireContains(
+  'scripts/build-windows-installers.mjs',
+  "runScope('user', 'currentUser', USER_CONFIG)",
+  'current-user NSIS build',
+);
+requireContains(
+  'scripts/build-windows-installers.mjs',
+  "runScope('machine', 'perMachine', MACHINE_CONFIG)",
+  'per-machine NSIS build',
+);
+requireContains(
+  'scripts/build-windows-installers.mjs',
+  "if (scope === 'machine') return fileName",
+  'backward-compatible per-machine installer filename',
+);
+requireContains(
+  '.github/workflows/ci.yml',
+  'node scripts/build-windows-installers.mjs',
+  'dual-scope Windows release packaging',
+);
+requireContains(
+  'scripts/generate-package-manifests.mjs',
+  "scope: 'user'",
+  'WinGet user-scope installer',
+);
+requireContains(
+  'scripts/generate-package-manifests.mjs',
+  "scope: 'machine'",
+  'WinGet machine-scope installer',
+);
 requireContains('src-tauri/tauri.conf.json', '"allowDowngrades": false', 'real downgrade protection');
 requireContains('src-tauri/tauri.conf.json', 'headerImage', 'branded NSIS header');
 requireContains('src-tauri/tauri.conf.json', 'sidebarImage', 'branded NSIS sidebar');

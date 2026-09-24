@@ -104,7 +104,7 @@
         "installerHooks": "./windows/hooks.nsi",
         "installerIcon": "icons/icon.ico",
         "uninstallerIcon": "icons/icon.ico",
-        "installMode": "perMachine",
+        "installMode": "currentUser",
         "languages": [
           "English",
           "Arabic",
