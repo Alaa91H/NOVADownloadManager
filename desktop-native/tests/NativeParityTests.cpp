@@ -308,6 +308,12 @@ void NativeParityTests::batchPatternsMatchLegacySyntax() {
         QCOMPARE(expanded.urls.at(1), QStringLiteral("https://example.test/file01_b.zip"));
         QCOMPARE(expanded.urls.at(3), QStringLiteral("https://example.test/file03_a.zip"));
         QCOMPARE(expanded.urls.last(), QStringLiteral("https://example.test/file05_c.zip"));
+
+        const auto preview = Nova::BatchPattern::countInput(
+            QStringLiteral("https://example.test/file[01-05:2]_[a-c].zip")
+        );
+        QVERIFY(preview.ok());
+        QCOMPARE(preview.count, 9);
     }
 
     {
@@ -344,6 +350,13 @@ void NativeParityTests::batchPatternsMatchLegacySyntax() {
         QVERIFY(!expanded.ok());
         QVERIFY(expanded.urls.isEmpty());
         QVERIFY(expanded.error.contains(QStringLiteral("10,000")));
+
+        const auto preview = Nova::BatchPattern::countInput(
+            QStringLiteral("https://example.test/file[1-10001].bin")
+        );
+        QVERIFY(!preview.ok());
+        QCOMPARE(preview.count, 0);
+        QVERIFY(preview.error.contains(QStringLiteral("10,000")));
     }
 }
 
