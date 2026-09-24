@@ -591,7 +591,7 @@ fn append_timeline_units(
                 number: Some(number),
                 time: Some(current_time),
             });
-            *order = order.saturating_add(1);
+            *order = (*order).saturating_add(1);
             number = number.saturating_add(1);
             current_time = current_time.saturating_add(entry.duration);
         }
