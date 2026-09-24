@@ -1227,6 +1227,53 @@ var ytInitialPlayerResponse = {"videoDetails":{"title":"NOVA","videoId":"dQw4w9W
         assert!(extraction.descriptor.subtitles[0].automatic);
     }
 
+    #[test]
+    fn native_player_solver_rebuilds_throttling_parameter() {
+        let pending = YouTubePendingFormat {
+            itag: Some(18),
+            mime_type: Some("video/mp4".to_owned()),
+            cipher_url: Some("https://video.test/v.mp4?n=abcdef&x=1".to_owned()),
+            encrypted_signature: None,
+            signature_parameter: None,
+            throttling_parameter: Some("abcdef".to_owned()),
+            challenge: YouTubeChallengeKind::ThrottlingParameter,
+            stream_template: MediaStream {
+                id: "youtube-itag-18".to_owned(),
+                kind: MediaTrackKind::AudioVideo,
+                protocol: MediaProtocol::Https,
+                url: "https://video.test/v.mp4?n=abcdef&x=1".to_owned(),
+                container: Some("mp4".to_owned()),
+                video_codec: Some("avc1".to_owned()),
+                audio_codec: Some("mp4a".to_owned()),
+                width: Some(640),
+                height: Some(360),
+                fps: Some(30.0),
+                bitrate_bps: Some(700_000),
+                audio_bitrate_bps: Some(128_000),
+                content_length: None,
+                language: None,
+                headers: BTreeMap::new(),
+            },
+        };
+        let player = r#"
+NT=function(a){a=a.split("");a.reverse();a=a.slice(1);return a.join("")};
+function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
+"#;
+        let stream = resolve_one_pending_format(
+            &pending,
+            player,
+            &crate::youtube_player::YouTubePlayerScriptSolver,
+        )
+        .expect("native throttling challenge");
+        let url = Url::parse(&stream.url).expect("resolved URL");
+        assert_eq!(
+            url.query_pairs()
+                .find_map(|(key, value)| (key == "n").then(|| value.into_owned()))
+                .as_deref(),
+            Some("edcba")
+        );
+    }
+
     struct FakeChallengeSolver;
 
     impl YouTubeChallengeSolver for FakeChallengeSolver {
