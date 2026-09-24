@@ -14,8 +14,10 @@ mod extension;
 mod magnet;
 mod metainfo;
 mod peer;
+mod resume;
 mod scheduler;
 mod selection;
+mod storage;
 mod tracker;
 
 pub use dht::{
@@ -39,11 +41,18 @@ pub use peer::{
     PeerHandshake, PeerMessage, PeerState, PeerWireError, MAX_PEER_FRAME_BYTES,
     PEER_HANDSHAKE_LEN,
 };
+pub use resume::{
+    load_checkpoint_recovering, save_checkpoint_atomic, PieceBitmap, ResumeError,
+    TorrentResumeCheckpoint, RESUME_FORMAT_VERSION,
+};
 pub use scheduler::{
     BlockRequest, PieceLayout, PieceScheduler, SchedulerError,
     DEFAULT_BLOCK_SIZE,
 };
 pub use selection::{FilePriority, SelectionError, TorrentSelection};
+pub use storage::{
+    AllocationMode, PieceCommit, RecheckMode, RecheckReport, StorageError, TorrentStorage,
+};
 pub use tracker::{
     udp_connect_packet, HttpTrackerResponse, TrackerAnnounceRequest, TrackerEvent, TrackerPeer,
     TrackerProtocolError, UdpAnnounceResponse, UdpConnectResponse,
