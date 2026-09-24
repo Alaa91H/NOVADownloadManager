@@ -291,21 +291,12 @@ export class BridgeManager implements BridgeGateway {
   async probeMedia(url: string): Promise<MediaProbeResponse> {
     await this.ensureReadyToSend();
     const encoded = encodeURIComponent(url);
-    try {
-      return await this.authenticatedHttp<MediaProbeResponse>(
-        `/api/media/probe?url=${encoded}`,
-        undefined,
-        MediaProbeResponseSchema,
-        'GET',
-      );
-    } catch {
-      return this.authenticatedHttp<MediaProbeResponse>(
-        `/api/media/bridge/probe?url=${encoded}`,
-        undefined,
-        MediaProbeResponseSchema,
-        'GET',
-      );
-    }
+    return this.authenticatedHttp<MediaProbeResponse>(
+      `/api/media/probe?url=${encoded}`,
+      undefined,
+      MediaProbeResponseSchema,
+      'GET',
+    );
   }
 
   async addMedia(request: MediaAddRequest): Promise<AddTaskResponse> {
