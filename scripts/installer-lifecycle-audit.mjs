@@ -24,6 +24,11 @@ requireContains(
   '"installMode": "currentUser"',
   'non-elevated current-user installer default',
 );
+requireContains(
+  'src-tauri/windows/installer-template.nsi',
+  '$LOCALAPPDATA\\Programs\\${PRODUCTNAME}',
+  'current-user LocalAppData Programs install path',
+);
 requireFile('scripts/build-windows-installers.mjs');
 requireFile('src-tauri/tauri.user.conf.json');
 requireFile('src-tauri/tauri.machine.conf.json');
