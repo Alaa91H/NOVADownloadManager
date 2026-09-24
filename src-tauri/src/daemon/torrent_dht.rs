@@ -354,6 +354,14 @@ impl DhtEngine {
                 }
             };
 
+            if !self.allow_private_network
+                && lookup
+                    .iter()
+                    .any(|address| is_internal_ip(address.ip()) || is_unspecified_or_broadcast(address.ip()))
+            {
+                continue;
+            }
+
             for address in lookup {
                 if self.address_allowed(address) && !resolved.contains(&address) {
                     resolved.push(address);
