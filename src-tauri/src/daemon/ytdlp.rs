@@ -174,7 +174,10 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
             return;
         };
         let Some(current) = TaskState::from_status(&job.task.status) else {
-            log::error!("Task {id}: yt-dlp has unknown lifecycle state '{}'", job.task.status);
+            log::error!(
+                "Task {id}: yt-dlp has unknown lifecycle state '{}'",
+                job.task.status
+            );
             return;
         };
         if current == TaskState::Queued {
@@ -352,10 +355,14 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                                         "yt-dlp exited 0 but produced no output file for task {} (save_path: {})",
                                         id2, current.task.save_path
                                     );
-                                    if let Err(error) =
-                                        transition_task_state(&mut current.task, TaskState::Failed, "no-output")
-                                    {
-                                        log::error!("Task {id2}: failure transition rejected: {error}");
+                                    if let Err(error) = transition_task_state(
+                                        &mut current.task,
+                                        TaskState::Failed,
+                                        "no-output",
+                                    ) {
+                                        log::error!(
+                                            "Task {id2}: failure transition rejected: {error}"
+                                        );
                                     }
                                     current.task.speed_bytes_per_sec = 0;
                                     current.task.error_message = Some(
@@ -375,7 +382,9 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                                         TaskState::Failed,
                                         exit_status,
                                     ) {
-                                        log::error!("Task {id2}: failure transition rejected: {error}");
+                                        log::error!(
+                                            "Task {id2}: failure transition rejected: {error}"
+                                        );
                                     } else {
                                         current.task.speed_bytes_per_sec = 0;
                                         notif = format!("Download failed: {task_name}");
@@ -425,7 +434,9 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                         let panic_task = {
                             let mut jobs = lock_or_err!(state2.media_jobs);
                             if let Some(current) = jobs.get_mut(&id2) {
-                                if TaskState::from_status(&current.task.status) != Some(TaskState::Paused) {
+                                if TaskState::from_status(&current.task.status)
+                                    != Some(TaskState::Paused)
+                                {
                                     if let Err(error) = transition_task_state(
                                         &mut current.task,
                                         TaskState::Failed,
@@ -477,7 +488,9 @@ pub fn start_ytdlp_process(state: &SharedState, id: &str) {
                         if let Err(error) =
                             transition_task_state(&mut j.task, TaskState::Failed, "spawn-failed")
                         {
-                            log::error!("Task {id}: yt-dlp spawn failure transition rejected: {error}");
+                            log::error!(
+                                "Task {id}: yt-dlp spawn failure transition rejected: {error}"
+                            );
                         }
                         j.task.error_message = Some(format!("Failed to start: {e}"));
                         Some(j.task.clone())
