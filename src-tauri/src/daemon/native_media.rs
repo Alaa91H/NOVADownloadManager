@@ -650,6 +650,20 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
     });
 }
 
+fn handle_native_transition_error(
+    state: &SharedState,
+    id: &str,
+    generation: u64,
+    error: String,
+    should_stop: bool,
+) {
+    if should_stop {
+        finish_native_cancelled(state, id, generation);
+    } else {
+        fail_native_task(state, id, generation, error);
+    }
+}
+
 fn run_native_media_worker(
     state: SharedState,
     id: String,
@@ -668,7 +682,13 @@ fn run_native_media_worker(
     if let Err(error) =
         transition_native_task(&state, &id, generation, TaskState::Probing, "resolving-media")
     {
-        fail_native_task(&state, &id, generation, error);
+        handle_native_transition_error(
+            &state,
+            &id,
+            generation,
+            error,
+            paused_or_stale(),
+        );
         return;
     }
 
@@ -687,7 +707,13 @@ fn run_native_media_worker(
     if let Err(error) =
         transition_native_task(&state, &id, generation, TaskState::Downloading, "downloading")
     {
-        fail_native_task(&state, &id, generation, error);
+        handle_native_transition_error(
+            &state,
+            &id,
+            generation,
+            error,
+            paused_or_stale(),
+        );
         return;
     }
 
@@ -736,7 +762,13 @@ fn run_native_media_worker(
                         TaskState::Verifying,
                         "verifying-staged-media",
                     ) {
-                        fail_native_task(&state, &id, generation, error);
+                        handle_native_transition_error(
+                            &state,
+                            &id,
+                            generation,
+                            error,
+                            paused_or_stale(),
+                        );
                         return;
                     }
                     if let Err(error) = verify_staged_parts(&staged.parts, staged.staged_bytes) {
@@ -754,7 +786,13 @@ fn run_native_media_worker(
                         TaskState::Finalizing,
                         "assembling-media",
                     ) {
-                        fail_native_task(&state, &id, generation, error);
+                        handle_native_transition_error(
+                            &state,
+                            &id,
+                            generation,
+                            error,
+                            paused_or_stale(),
+                        );
                         return;
                     }
                     match assemble_ordered_parts(&staged.parts, &output_path) {
@@ -908,7 +946,13 @@ fn run_native_separate_track_execution(
         TaskState::Verifying,
         "verifying-audio-video-tracks",
     ) {
-        fail_native_task(state, id, generation, error);
+        handle_native_transition_error(
+            state,
+            id,
+            generation,
+            error,
+            should_cancel(),
+        );
         return;
     }
     if let Err(error) = verify_native_track(&output.0, output.2, "video")
@@ -930,7 +974,13 @@ fn run_native_separate_track_execution(
         TaskState::Finalizing,
         "muxing-audio-video",
     ) {
-        fail_native_task(state, id, generation, error);
+        handle_native_transition_error(
+            state,
+            id,
+            generation,
+            error,
+            should_cancel(),
+        );
         return;
     }
 
