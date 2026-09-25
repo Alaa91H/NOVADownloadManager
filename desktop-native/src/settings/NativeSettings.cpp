@@ -920,7 +920,10 @@ void NativeSettings::setUpdateChannel(const QString &value) {
 }
 
 void NativeSettings::setUiLanguage(const QString &value) {
-    const QString normalized = value.trimmed().toLower() == QStringLiteral("ar")
+    QString candidate = value.trimmed().toLower();
+    candidate.replace(QLatin1Char('_'), QLatin1Char('-'));
+    const QString primary = candidate.section(QLatin1Char('-'), 0, 0);
+    const QString normalized = primary == QStringLiteral("ar")
         ? QStringLiteral("ar")
         : QStringLiteral("en");
     store(QStringLiteral("appearance/language"), normalized);
