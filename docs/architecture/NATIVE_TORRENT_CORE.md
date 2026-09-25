@@ -183,9 +183,12 @@ The upload path now has a fail-closed session foundation:
 - metadata serving, PEX serving, and DHT-port advertising are not exposed by the upload-only session;
 - local TCP tests verify exact block serving and rejection of unverified pieces.
 
-The daemon capability surface reports this foundation separately. `inboundPeerListener`,
-`seeding`, and `uploadBandwidthPolicy` remain false until a process-wide listener,
-connection limiter, tracker lifecycle, and upload accounting are wired end-to-end.
+The daemon now starts a bounded process-wide IPv4 listener on port 6881 by default
+(or `NOVA_TORRENT_SEED_PORT`), shares that port with tracker announces, limits
+concurrent inbound sessions, rejects non-seed-eligible jobs, and cancels sessions
+during daemon shutdown. `inboundPeerListener` and `seeding` are therefore exposed
+as supported. Upload bandwidth policy and persistent upload accounting remain
+disabled until they are wired into NOVA's bandwidth/statistics layer.
 
 ### Remaining advanced swarm work
 

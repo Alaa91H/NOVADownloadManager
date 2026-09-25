@@ -2047,8 +2047,8 @@ pub fn native_torrent_status() -> Value {
             "peerTransferExecution": true,
             "verifiedUploadBlockRead": true,
             "inboundPeerSession": true,
-            "inboundPeerListener": false,
-            "seeding": false,
+            "inboundPeerListener": true,
+            "seeding": true,
             "uploadBandwidthPolicy": false,
             "selectedFileTransfer": true,
             "sparseStorage": true,
@@ -2147,8 +2147,8 @@ mod tests {
         assert_eq!(status["capabilities"]["peerTransferExecution"], true);
         assert_eq!(status["capabilities"]["verifiedUploadBlockRead"], true);
         assert_eq!(status["capabilities"]["inboundPeerSession"], true);
-        assert_eq!(status["capabilities"]["inboundPeerListener"], false);
-        assert_eq!(status["capabilities"]["seeding"], false);
+        assert_eq!(status["capabilities"]["inboundPeerListener"], true);
+        assert_eq!(status["capabilities"]["seeding"], true);
         assert_eq!(status["capabilities"]["uploadBandwidthPolicy"], false);
         assert_eq!(status["capabilities"]["fileSelection"], true);
         assert_eq!(status["capabilities"]["priorityScheduler"], true);

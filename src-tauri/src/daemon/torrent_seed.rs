@@ -1,16 +1,144 @@
+use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use nova_torrent_core::{
     InfoHash, PeerHandshake, PeerMessage, MAX_PEER_FRAME_BYTES, PEER_HANDSHAKE_LEN,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Semaphore;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
+use crate::daemon::state::SharedState;
 use crate::daemon::torrent_storage::TorrentStorageSession;
+use crate::daemon::torrent_task::ensure_storage_session;
+use crate::daemon::utils::{is_internal_ip, private_network_allowed};
+use crate::lock_or_err;
 
+pub const DEFAULT_TORRENT_SEED_PORT: u16 = 6881;
 const MAX_SEED_CONTROL_FRAME_BYTES: usize = 64 * 1024;
+const MAX_INBOUND_SEED_CONNECTIONS: usize = 64;
+
+pub fn configured_seed_port() -> u16 {
+    std::env::var("NOVA_TORRENT_SEED_PORT")
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .filter(|port| *port >= 1024)
+        .unwrap_or(DEFAULT_TORRENT_SEED_PORT)
+}
+
+fn seed_listener_disabled() -> bool {
+    std::env::var("NOVA_DISABLE_TORRENT_SEED")
+        .ok()
+        .is_some_and(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+}
+
+pub async fn run_inbound_seed_listener(
+    state: SharedState,
+    cancel: CancellationToken,
+) -> Result<u16, String> {
+    if seed_listener_disabled() {
+        log::info!("Native torrent inbound seeding listener is disabled by environment.");
+        return Ok(0);
+    }
+
+    let port = configured_seed_port();
+    let listener = TcpListener::bind(("0.0.0.0", port))
+        .await
+        .map_err(|error| format!("Could not bind native torrent seed listener on port {port}: {error}"))?;
+    let local = listener
+        .local_addr()
+        .map_err(|error| format!("Could not read native torrent seed listener address: {error}"))?;
+    log::info!("Native torrent inbound seeding listener started on {local}");
+
+    let slots = Arc::new(Semaphore::new(MAX_INBOUND_SEED_CONNECTIONS));
+    loop {
+        let accepted = tokio::select! {
+            _ = cancel.cancelled() => break,
+            result = listener.accept() => result,
+        };
+        let (stream, address) = match accepted {
+            Ok(value) => value,
+            Err(error) => {
+                log::warn!("Native torrent seed listener accept failed: {error}");
+                continue;
+            }
+        };
+
+        if is_internal_ip(address.ip()) && !private_network_allowed() {
+            log::debug!("Rejected inbound torrent peer on internal address {address}");
+            continue;
+        }
+
+        let permit = match slots.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                log::debug!("Rejected inbound torrent peer {address}: connection limit reached");
+                continue;
+            }
+        };
+
+        let child_state = state.clone();
+        let child_cancel = cancel.child_token();
+        tokio::spawn(async move {
+            let _permit = permit;
+            let result = serve_state_peer(stream, address, child_state, &child_cancel).await;
+            if let Err(error) = result {
+                if !child_cancel.is_cancelled() {
+                    log::debug!("Inbound torrent peer {address} ended: {error}");
+                }
+            }
+        });
+    }
+
+    Ok(port)
+}
+
+async fn serve_state_peer(
+    mut stream: TcpStream,
+    _address: SocketAddr,
+    state: SharedState,
+    cancel: &CancellationToken,
+) -> Result<SeedSessionStats, String> {
+    let _ = stream.set_nodelay(true);
+    let remote = read_inbound_handshake(
+        &mut stream,
+        SeedSessionConfig::default().handshake_timeout,
+        cancel,
+    )
+    .await?;
+
+    let info_hash_hex = remote.info_hash.to_hex();
+    let job = {
+        let jobs = lock_or_err!(state.torrent_jobs);
+        jobs.values()
+            .find(|job| {
+                job.task.engine_id.eq_ignore_ascii_case(&info_hash_hex)
+                    && job.task.status != "error"
+                    && !job.requires_reauth
+            })
+            .cloned()
+    }
+    .ok_or_else(|| "Inbound peer requested a torrent that is not seed-eligible".to_owned())?;
+
+    let storage = ensure_storage_session(&job, job.storage.clone()).await?;
+    serve_inbound_seed_session_after_handshake(
+        stream,
+        remote,
+        storage,
+        job.local_peer_id,
+        SeedSessionConfig::default(),
+        cancel,
+    )
+    .await
+}
 
 #[derive(Clone, Debug)]
 pub struct SeedSessionConfig {
@@ -45,23 +173,33 @@ pub async fn serve_inbound_seed_session(
     config: SeedSessionConfig,
     cancel: &CancellationToken,
 ) -> Result<SeedSessionStats, String> {
-    let mut remote_bytes = [0u8; PEER_HANDSHAKE_LEN];
-    read_exact_cancellable(
-        &mut stream,
-        &mut remote_bytes,
-        config.handshake_timeout,
-        cancel,
-        "inbound peer handshake",
-    )
-    .await?;
-    let remote = PeerHandshake::decode(&remote_bytes)
-        .map_err(|error| format!("Inbound peer sent an invalid handshake: {error}"))?;
+    let remote = read_inbound_handshake(&mut stream, config.handshake_timeout, cancel).await?;
     if remote.info_hash != expected_info_hash {
         return Err("Inbound peer requested a different torrent info hash".to_owned());
     }
+    serve_inbound_seed_session_after_handshake(
+        stream,
+        remote,
+        storage,
+        local_peer_id,
+        config,
+        cancel,
+    )
+    .await
+}
+
+async fn serve_inbound_seed_session_after_handshake(
+    mut stream: TcpStream,
+    remote: PeerHandshake,
+    storage: TorrentStorageSession,
+    local_peer_id: [u8; 20],
+    config: SeedSessionConfig,
+    cancel: &CancellationToken,
+) -> Result<SeedSessionStats, String> {
     if remote.peer_id == local_peer_id {
         return Err("Inbound peer used NOVA's own peer id".to_owned());
     }
+    let expected_info_hash = remote.info_hash;
 
     let local = PeerHandshake::new(expected_info_hash, local_peer_id);
     write_message_bytes(
@@ -192,6 +330,24 @@ pub async fn serve_inbound_seed_session(
             }
         }
     }
+}
+
+async fn read_inbound_handshake(
+    stream: &mut TcpStream,
+    operation_timeout: Duration,
+    cancel: &CancellationToken,
+) -> Result<PeerHandshake, String> {
+    let mut remote_bytes = [0u8; PEER_HANDSHAKE_LEN];
+    read_exact_cancellable(
+        stream,
+        &mut remote_bytes,
+        operation_timeout,
+        cancel,
+        "inbound peer handshake",
+    )
+    .await?;
+    PeerHandshake::decode(&remote_bytes)
+        .map_err(|error| format!("Inbound peer sent an invalid handshake: {error}"))
 }
 
 fn verified_bitfield(completed: &[bool]) -> Vec<u8> {
@@ -360,6 +516,13 @@ mod tests {
         )
         .await
         .unwrap()
+    }
+
+    #[test]
+    fn configured_seed_port_defaults_to_standard_bittorrent_port() {
+        if std::env::var_os("NOVA_TORRENT_SEED_PORT").is_none() {
+            assert_eq!(configured_seed_port(), DEFAULT_TORRENT_SEED_PORT);
+        }
     }
 
     #[tokio::test]

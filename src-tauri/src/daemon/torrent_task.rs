@@ -1264,7 +1264,7 @@ pub async fn redownload_torrent_task(state: &SharedState, id: &str) -> Result<Ta
     get_torrent_task(state, id).ok_or_else(|| "Torrent task not found".to_owned())
 }
 
-async fn ensure_storage_session(
+pub(crate) async fn ensure_storage_session(
     job: &TorrentJob,
     slot: Arc<tokio::sync::Mutex<Option<TorrentStorageSession>>>,
 ) -> Result<TorrentStorageSession, String> {

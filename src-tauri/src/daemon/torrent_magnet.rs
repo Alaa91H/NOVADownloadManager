@@ -25,7 +25,7 @@ pub struct MagnetResolverConfig {
 impl Default for MagnetResolverConfig {
     fn default() -> Self {
         Self {
-            announce_port: 6881,
+            announce_port: crate::daemon::torrent_seed::configured_seed_port(),
             max_tracker_queries: 8,
             max_candidate_peers: 512,
             enable_dht: true,

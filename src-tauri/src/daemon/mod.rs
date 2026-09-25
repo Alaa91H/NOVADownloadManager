@@ -636,6 +636,23 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 });
                 persist::start_persistence_loop(state.clone());
 
+                let torrent_seed_cancel = tokio_util::sync::CancellationToken::new();
+                {
+                    let seed_state = state.clone();
+                    let seed_cancel = torrent_seed_cancel.clone();
+                    tokio::spawn(async move {
+                        if let Err(error) =
+                            crate::daemon::torrent_seed::run_inbound_seed_listener(
+                                seed_state,
+                                seed_cancel,
+                            )
+                            .await
+                        {
+                            log::warn!("Native torrent seeding listener is unavailable: {error}");
+                        }
+                    });
+                }
+
                 start_telegram_bot(state.clone(), rt.handle().clone());
 
                 let app = crate::daemon::routes::register_routes(Router::new())
@@ -713,8 +730,10 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 let (shutdown_tx, shutdown_rx) = oneshot::channel();
                 *SHUTDOWN_TX.lock().unwrap() = Some(shutdown_tx);
                 let shutdown_state = state.clone();
+                let shutdown_seed_cancel = torrent_seed_cancel.clone();
                 let shutdown_signal = async move {
                     wait_for_daemon_shutdown(shutdown_rx).await;
+                    shutdown_seed_cancel.cancel();
                     log::info!("Shutdown signal received; pausing active downloads...");
                     // Pause engine-owned work without holding locks across async I/O.
                     {
