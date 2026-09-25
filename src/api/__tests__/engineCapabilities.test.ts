@@ -57,6 +57,16 @@ describe('engine capabilities contract', () => {
     expect(capabilities.routing.torrentMagnet).toBeNull();
   });
 
+  it('treats native mux readiness as an additive optional capability', () => {
+    const response = validCapabilities();
+    delete (response as Partial<typeof response>).nativeMuxReady;
+    delete response.routing.nativeMp4Mux;
+
+    const capabilities = parseEngineCapabilitiesResponse(response);
+    expect(capabilities.nativeMuxReady).toBe(false);
+    expect(capabilities.routing.nativeMp4Mux).toBeUndefined();
+  });
+
   it('rejects capability responses without required readiness flags', () => {
     const response = validCapabilities();
     delete (response as Partial<typeof response>).mediaExtractionReady;
