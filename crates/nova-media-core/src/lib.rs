@@ -47,8 +47,9 @@ pub use youtube::{
 };
 pub use youtube_player::YouTubePlayerScriptSolver;
 pub use youtube_transfer::{
-    download_youtube_plan, download_youtube_plan_controlled, YouTubeTransferError,
-    YouTubeTransferOutput, YouTubeTransferProgress,
+    download_and_finalize_youtube_plan, download_youtube_plan, download_youtube_plan_controlled,
+    mux_youtube_separate_tracks_to_mp4, youtube_stream_is_native_mp4_remuxable,
+    YouTubeFinalizedOutput, YouTubeTransferError, YouTubeTransferOutput, YouTubeTransferProgress,
 };
 
 use std::collections::BTreeMap;
@@ -57,6 +58,9 @@ use nova_download_core::{fetch_http_bytes_with_context, HttpRequestContext};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
+
+/// Native in-process container and codec processing surface.
+pub use nova_media_processing_core as processing;
 
 pub use nova_stream_core::{
     detect_manifest_kind, parse_dash, parse_hls, DashManifest, HlsManifest, StreamManifestKind,
@@ -85,6 +89,7 @@ pub struct NativeMediaCoreCapabilities {
     pub youtube_throttling_transform: bool,
     pub separate_track_staging: bool,
     pub native_mp4_multitrack_mux: bool,
+    pub native_remux: bool,
 }
 
 pub const fn native_media_core_capabilities() -> NativeMediaCoreCapabilities {
@@ -103,6 +108,7 @@ pub const fn native_media_core_capabilities() -> NativeMediaCoreCapabilities {
         youtube_throttling_transform: true,
         separate_track_staging: true,
         native_mp4_multitrack_mux: true,
+        native_remux: true,
     }
 }
 
