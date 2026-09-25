@@ -89,6 +89,9 @@ jobs:
       - name: Check localization bridge coverage
         run: node desktop-native/scripts/check-native-i18n-coverage.mjs
 
+      - name: Check accessibility and typography
+        run: node desktop-native/scripts/check-native-accessibility.mjs
+
       - name: Check product-copy branding
         run: node desktop-native/scripts/check-product-copy.mjs
 
