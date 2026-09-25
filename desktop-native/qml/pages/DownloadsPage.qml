@@ -23,6 +23,7 @@ Item {
     property bool pendingRedownloadRetryMode: false
     property string noticeText: ""
     property bool noticeIsError: false
+    signal focusSearchRequested()
     property string languageToken: i18n.language
 
     function t(key) {
@@ -91,6 +92,29 @@ Item {
 
     function openNewDownload() {
         addDownloadDialog.openNew()
+    }
+
+    function setSearchQuery(value) {
+        query = value
+        downloads.searchQuery = value
+    }
+
+    function fileGlyph(fileName, fileType, category) {
+        const type = String(fileType || category || "").toLowerCase()
+        const nameValue = String(fileName || "").toLowerCase()
+        if (type.indexOf("video") >= 0 || /\.(mp4|mkv|webm|avi|mov)$/.test(nameValue))
+            return "▶"
+        if (type.indexOf("audio") >= 0 || /\.(mp3|flac|wav|m4a|ogg)$/.test(nameValue))
+            return "♪"
+        if (type.indexOf("image") >= 0 || /\.(png|jpe?g|webp|gif|bmp)$/.test(nameValue))
+            return "▧"
+        if (/\.pdf$/.test(nameValue))
+            return "PDF"
+        if (/\.(zip|rar|7z|tar|gz)$/.test(nameValue))
+            return "ZIP"
+        if (/\.(exe|msi|dmg|pkg|appimage|iso)$/.test(nameValue))
+            return "◆"
+        return "□"
     }
 
     function openClipboardUrl(url) {
@@ -428,7 +452,7 @@ Item {
             ? String(nativeSettings.shortcutBindings.focusSearch || "Ctrl+F")
             : ""
         enabled: !addDownloadDialog.visible
-        onActivated: searchField.forceActiveFocus()
+        onActivated: root.focusSearchRequested()
     }
 
     Shortcut {
@@ -503,58 +527,6 @@ Item {
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
-
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 68
-            Layout.leftMargin: 16
-            Layout.rightMargin: 16
-            spacing: 12
-
-            ColumnLayout {
-                spacing: 2
-
-                Text {
-                    text: root.pageTitle()
-                    color: Theme.textPrimary
-                    font.pixelSize: Theme.fontTitle
-                    font.weight: Font.DemiBold
-                }
-
-                Text {
-                    text: root.pageSubtitle()
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSmall
-                }
-            }
-
-            Item { Layout.fillWidth: true }
-
-            Text {
-                text: root.downloads.count + " " + (root.downloads.count === 1 ? root.t("downloads.item") : root.t("downloads.items"))
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontSmall
-            }
-
-            TextField {
-                id: searchField
-                Layout.preferredWidth: 280
-                placeholderText: root.t("downloads.search")
-                selectByMouse: true
-                Accessible.name: root.t("downloads.search")
-                onTextChanged: {
-                    root.query = text
-                    root.downloads.searchQuery = text
-                }
-            }
-
-            ToolButton {
-                id: columnsButton
-                text: root.t("downloads.columns")
-                Accessible.name: text
-                onClicked: columnsMenu.popup()
-            }
-        }
 
         Rectangle {
             Layout.fillWidth: true
@@ -640,6 +612,7 @@ Item {
             hasSavePath: (root.selectedItem.savePath || "").length > 0
 
             onNewDownloadRequested: addDownloadDialog.openNew()
+            onColumnsRequested: columnsMenu.popup()
             onRefreshRequested: root.api.refreshDownloads()
             onPauseRequested: {
                 const id = root.selectedTaskId()
@@ -882,8 +855,10 @@ Item {
                             color: root.allVisibleSelected || root.selectedIndex === index
                                 ? Theme.surfaceSelected
                                 : mouse.containsMouse ? Theme.surfaceHover : "transparent"
-                            border.width: list.activeFocus && list.currentIndex === index ? 2 : 0
-                            border.color: Theme.focusRing
+                            border.width: list.activeFocus && list.currentIndex === index
+                                ? 2
+                                : (root.allVisibleSelected || root.selectedIndex === index ? 1 : 0)
+                            border.color: Theme.accent
 
                             Rectangle {
                                 anchors.bottom: parent.bottom
@@ -898,6 +873,26 @@ Item {
                                 anchors.leftMargin: 12
                                 anchors.rightMargin: 12
                                 spacing: 10
+
+                                Rectangle {
+                                    Layout.preferredWidth: 38
+                                    Layout.preferredHeight: 38
+                                    radius: Theme.radiusSmall
+                                    color: root.selectedIndex === index
+                                        ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.18)
+                                        : Theme.surfaceRaised
+                                    border.color: Theme.border
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: root.fileGlyph(name, fileType, category)
+                                        color: root.selectedIndex === index
+                                            ? Theme.accent : Theme.textSecondary
+                                        font.pixelSize: text.length > 1
+                                            ? Theme.fontTiny : Theme.fontMedium
+                                        font.weight: Font.DemiBold
+                                    }
+                                }
 
                                 ColumnLayout {
                                     Layout.fillWidth: true
@@ -1209,8 +1204,9 @@ Item {
 
             DownloadDetailsPanel {
                 Layout.fillHeight: true
-                Layout.preferredWidth: root.selectedIndex >= 0 ? Theme.detailsWidth : 0
-                visible: root.selectedIndex >= 0
+                Layout.preferredWidth: root.selectedIndex >= 0
+                    && nativeSettings.detailsPanelVisible ? Theme.detailsWidth : 0
+                visible: root.selectedIndex >= 0 && nativeSettings.detailsPanelVisible
                 item: root.selectedItem
                 onCloseRequested: root.clearSelection()
                 onOpenFileRequested: root.openSelectedFile()
