@@ -4,6 +4,14 @@ import process from "node:process";
 
 const themePath = path.resolve(process.cwd(), "desktop-native", "qml", "Theme.qml");
 const source = fs.readFileSync(themePath, "utf8");
+const customizationPath = path.resolve(
+  process.cwd(),
+  "desktop-native",
+  "qml",
+  "components",
+  "CustomizationPanel.qml"
+);
+const customizationSource = fs.readFileSync(customizationPath, "utf8");
 
 function propertyBlock(name) {
   const marker = `readonly property color ${name}:`;
@@ -61,19 +69,55 @@ for (const foregroundName of textColors) {
   }
 }
 
-const accent = singleNormal("accent");
-for (const backgroundName of surfaces) {
-  const background = normalDarkLight(backgroundName);
-  for (const mode of ["dark", "light"]) {
-    const ratio = contrast(accent, background[mode]);
-    if (ratio < 3.0) {
-      violations.push(
-        `focus accent/${backgroundName} ${mode}: ${ratio.toFixed(2)}:1 < 3.0:1`
-      );
+const accentPresets = [
+  ...new Set(
+    [...customizationSource.matchAll(/#[0-9a-fA-F]{6}/g)].map(match =>
+      match[0].toLowerCase()
+    )
+  ),
+];
+
+if (accentPresets.length < 6) {
+  violations.push("approved customization palette must expose six accent presets");
+}
+
+for (const accent of accentPresets) {
+  for (const backgroundName of surfaces) {
+    const background = normalDarkLight(backgroundName);
+    for (const mode of ["dark", "light"]) {
+      const ratio = contrast(accent, background[mode]);
+      if (ratio < 3.0) {
+        violations.push(
+          `focus accent ${accent}/${backgroundName} ${mode}: ${ratio.toFixed(2)}:1 < 3.0:1`
+        );
+      }
     }
   }
 }
 
+const highContrastAccents = [
+  ...propertyBlock("accent").matchAll(/#[0-9a-fA-F]{6}/g),
+].map(match => match[0]);
+
+if (highContrastAccents.length < 2) {
+  violations.push("high-contrast accent colors are missing");
+} else {
+  const highContrast = {
+    dark: highContrastAccents[0],
+    light: highContrastAccents[1],
+  };
+  for (const backgroundName of surfaces) {
+    const background = normalDarkLight(backgroundName);
+    for (const mode of ["dark", "light"]) {
+      const ratio = contrast(highContrast[mode], background[mode]);
+      if (ratio < 3.0) {
+        violations.push(
+          `high-contrast focus accent/${backgroundName} ${mode}: ${ratio.toFixed(2)}:1 < 3.0:1`
+        );
+      }
+    }
+  }
+}
 if (!/readonly property color focusRing:\s*accent\b/.test(source)) {
   violations.push("focusRing must use the validated opaque accent color");
 }
@@ -85,6 +129,6 @@ if (violations.length > 0) {
 }
 
 console.log(
-  "Native WCAG contrast gate passed: text colors meet 4.5:1 and keyboard focus " +
-    "meets 3:1 across normal light/dark window, surface and raised-surface backgrounds."
+  "Native WCAG contrast gate passed: text colors meet 4.5:1 and every approved " +
+    "accent preset meets 3:1 focus contrast across normal light/dark surfaces."
 );
