@@ -288,7 +288,12 @@ pub fn youtube_stream_is_native_mp4_remuxable(stream: &MediaStream) -> bool {
             .video_codec
             .as_deref()
             .map(|codec| codec.trim().to_ascii_lowercase())
-            .is_some_and(|codec| codec.starts_with("vp9") || codec.starts_with("vp8")),
+            .is_some_and(|codec| {
+                codec.starts_with("vp9")
+                    || codec.starts_with("vp8")
+                    || codec.starts_with("av01")
+                    || codec.starts_with("av1")
+            }),
         crate::MediaTrackKind::Audio => stream
             .audio_codec
             .as_deref()
@@ -513,7 +518,7 @@ mod tests {
         assert!(youtube_stream_is_native_mp4_remuxable(&audio));
 
         video.video_codec = Some("av01.0.08M.08".to_owned());
-        assert!(!youtube_stream_is_native_mp4_remuxable(&video));
+        assert!(youtube_stream_is_native_mp4_remuxable(&video));
     }
 
     #[test]

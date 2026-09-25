@@ -964,6 +964,7 @@ pub fn prepare_webm_track_for_mp4(
     converted.codec_private = match track.codec {
         MediaCodec::Vp8 => make_vpcc(0, 0, 8, 1, false)?,
         MediaCodec::Vp9 => vp9_webm_private_to_vpcc(&track.codec_private)?,
+        MediaCodec::Av1 => validate_webm_av1c(&track.codec_private)?.to_vec(),
         MediaCodec::Opus => {
             if let Some(audio) = converted.audio.as_mut() {
                 audio.sample_rate_hz = 48_000;
@@ -979,6 +980,35 @@ pub fn prepare_webm_track_for_mp4(
         }
     };
     Ok(converted)
+}
+
+fn validate_webm_av1c(data: &[u8]) -> Result<&[u8], MediaProcessingError> {
+    if data.len() < 4 {
+        return Err(demux_error(
+            "WebM AV1 CodecPrivate is shorter than AV1CodecConfigurationRecord",
+        ));
+    }
+    if data[0] != 0x81 {
+        return Err(demux_error(
+            "WebM AV1 CodecPrivate must use marker=1 and version=1",
+        ));
+    }
+    let seq_profile = data[1] >> 5;
+    if seq_profile > 2 {
+        return Err(demux_error("WebM AV1 CodecPrivate has invalid sequence profile"));
+    }
+    if data[3] & 0xe0 != 0 {
+        return Err(demux_error(
+            "WebM AV1 CodecPrivate has non-zero reserved configuration bits",
+        ));
+    }
+    let initial_delay_present = data[3] & 0x10 != 0;
+    if !initial_delay_present && data[3] & 0x0f != 0 {
+        return Err(demux_error(
+            "WebM AV1 CodecPrivate has non-zero reserved presentation-delay bits",
+        ));
+    }
+    Ok(data)
 }
 
 fn vp9_webm_private_to_vpcc(data: &[u8]) -> Result<Vec<u8>, MediaProcessingError> {
@@ -1582,6 +1612,28 @@ mod tests {
             converted.codec_private,
             vec![1, 0, 0, 0, 0, 41, 0x82, 1, 1, 1, 0, 0]
         );
+    }
+
+    #[test]
+    fn preserves_valid_webm_av1_configuration_for_av1c() {
+        let av1c = vec![0x81, 0x08, 0x0c, 0x00];
+        let track = MediaTrack {
+            id: 3,
+            kind: MediaTrackKind::Video,
+            codec: MediaCodec::Av1,
+            time_base: NANOSECOND_TIME_BASE,
+            language: None,
+            video: Some(VideoParameters {
+                width: 1920,
+                height: 1080,
+                frame_rate: Some(30.0),
+                bitrate_bps: None,
+            }),
+            audio: None,
+            codec_private: av1c.clone(),
+        };
+        let converted = prepare_webm_track_for_mp4(&track).expect("AV1 bridge");
+        assert_eq!(converted.codec_private, av1c);
     }
 
     #[test]
