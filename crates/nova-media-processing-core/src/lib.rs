@@ -8,6 +8,7 @@
 
 mod capabilities;
 mod demux;
+mod ebml_muxer;
 mod error;
 mod job;
 mod mux;
@@ -20,6 +21,10 @@ mod types;
 mod webm;
 
 pub use demux::MediaDemuxer;
+pub use ebml_muxer::{
+    mux_demuxers_to_matroska, mux_demuxers_to_matroska_controlled,
+    mux_demuxers_to_webm, mux_demuxers_to_webm_controlled, MatroskaMuxer, WebmMuxer,
+};
 pub use mux::{MediaMuxResult, MediaMuxer};
 pub use mp4::{
     mux_demuxers_to_mp4, mux_demuxers_to_mp4_controlled, probe_mp4_file, Mp4Demuxer, Mp4Muxer,
