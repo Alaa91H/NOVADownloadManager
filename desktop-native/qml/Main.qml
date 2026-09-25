@@ -390,6 +390,9 @@ ApplicationWindow {
                         engineConnected: novaApi.connected
                         engineStatus: novaApi.statusText
                         activeCount: downloadsModel.activeCount
+                        queuedCount: downloadsModel.queuedCount
+                        completedCount: downloadsModel.completedCount
+                        failedCount: downloadsModel.failedCount
                         totalCount: downloadsModel.totalCount
                         totalSpeed: downloadsModel.totalSpeed
                     }
