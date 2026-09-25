@@ -121,6 +121,7 @@ impl Default for SegmentInfo {
     }
 }
 
+#[derive(Debug)]
 pub struct WebmDemuxer {
     file: File,
     probe: MediaProbe,
