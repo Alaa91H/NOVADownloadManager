@@ -20,6 +20,7 @@ nova-core-model = { path = "../crates/nova-core-model" }
 nova-download-core = { path = "../crates/nova-download-core" }
 nova-media-core = { path = "../crates/nova-media-core" }
 nova-stream-core = { path = "../crates/nova-stream-core" }
+nova-torrent-core = { path = "../crates/nova-torrent-core" }
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 log = "0.4"
