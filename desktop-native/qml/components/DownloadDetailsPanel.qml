@@ -74,6 +74,7 @@ Rectangle {
 
             ToolButton {
                 text: "×"
+                Accessible.name: root.t("common.close")
                 onClicked: root.closeRequested()
             }
         }
@@ -277,12 +278,14 @@ Rectangle {
 
                     Button {
                         text: root.t("details.openFile")
+                        Accessible.name: text
                         enabled: root.completed && root.hasSavePath
                         onClicked: root.openFileRequested()
                     }
 
                     Button {
                         text: root.t("details.showFolder")
+                        Accessible.name: text
                         enabled: root.hasSavePath
                         onClicked: root.openFolderRequested()
                     }
@@ -292,6 +295,7 @@ Rectangle {
                     Layout.leftMargin: 14
                     Layout.rightMargin: 14
                     text: root.t("action.properties")
+                    Accessible.name: text
                     enabled: root.hasItem
                     onClicked: root.propertiesRequested()
                 }
