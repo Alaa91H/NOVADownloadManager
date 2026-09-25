@@ -613,7 +613,41 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
 
                 crate::daemon::routes::record_daemon_start();
                 restore_persisted_tasks(&state, restored);
+                let torrent_recheck_state = state.clone();
+                tokio::spawn(async move {
+                    crate::daemon::torrent_task::recheck_restored_completed_torrents(
+                        &torrent_recheck_state,
+                    )
+                    .await;
+                });
                 persist::start_persistence_loop(state.clone());
+
+                let torrent_network_cancel = tokio_util::sync::CancellationToken::new();
+                {
+                    let seed_state = state.clone();
+                    let seed_cancel = torrent_network_cancel.clone();
+                    tokio::spawn(async move {
+                        if let Err(error) =
+                            crate::daemon::torrent_seed::run_inbound_seed_listener(
+                                seed_state,
+                                seed_cancel,
+                            )
+                            .await
+                        {
+                            log::warn!("Native torrent seeding listener is unavailable: {error}");
+                        }
+                    });
+                }
+                {
+                    let dht_state = state.clone();
+                    let dht_service = state.torrent_dht.clone();
+                    let dht_cancel = torrent_network_cancel.clone();
+                    tokio::spawn(async move {
+                        if let Err(error) = dht_service.run_server(dht_state, dht_cancel).await {
+                            log::warn!("Native torrent DHT server is unavailable: {error}");
+                        }
+                    });
+                }
 
                 start_telegram_bot(state.clone(), rt.handle().clone());
 
@@ -692,8 +726,10 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 let (shutdown_tx, shutdown_rx) = oneshot::channel();
                 *SHUTDOWN_TX.lock().unwrap() = Some(shutdown_tx);
                 let shutdown_state = state.clone();
+                let shutdown_torrent_network = torrent_network_cancel.clone();
                 let shutdown_signal = async move {
                     wait_for_daemon_shutdown(shutdown_rx).await;
+                    shutdown_torrent_network.cancel();
                     log::info!("Shutdown signal received; pausing active downloads...");
                     crate::daemon::torrent_task::shutdown_torrent_tasks(&shutdown_state).await;
                     // Snapshot first-party libcurl jobs before persisting shutdown state.
