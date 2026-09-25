@@ -4,7 +4,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use nova_torrent_core::{
-    InfoHash, PeerHandshake, PeerMessage, MAX_PEER_FRAME_BYTES, PEER_HANDSHAKE_LEN,
+    ExtendedHandshake, InfoHash, MetadataMessage, PeerExchange, PeerHandshake, PeerMessage,
+    EXTENSION_HANDSHAKE_ID, LOCAL_UT_METADATA_ID, LOCAL_UT_PEX_ID, MAX_PEER_FRAME_BYTES,
+    METADATA_PIECE_SIZE, PEER_HANDSHAKE_LEN,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -24,6 +26,8 @@ use crate::lock_or_err;
 pub const DEFAULT_TORRENT_SEED_PORT: u16 = 6881;
 const MAX_SEED_CONTROL_FRAME_BYTES: usize = 64 * 1024;
 const MAX_INBOUND_SEED_CONNECTIONS: usize = 64;
+const MAX_METADATA_REQUESTS_PER_SESSION: u64 = 1_024;
+const MAX_PEX_PEERS_PER_MESSAGE: usize = 50;
 static ACTIVE_TORRENT_SEED_PORT: AtomicU16 = AtomicU16::new(0);
 
 pub fn active_seed_port() -> Option<u16> {
@@ -115,7 +119,7 @@ pub async fn run_inbound_seed_listener(
 
 async fn serve_state_peer(
     mut stream: TcpStream,
-    _address: SocketAddr,
+    address: SocketAddr,
     state: SharedState,
     cancel: &CancellationToken,
 ) -> Result<SeedSessionStats, String> {
@@ -145,6 +149,15 @@ async fn serve_state_peer(
     .ok_or_else(|| "Inbound peer requested a torrent that is not seed-eligible".to_owned())?;
 
     let storage = ensure_storage_session(&job, job.storage.clone()).await?;
+    let extension_service = SeedExtensionService {
+        metadata_info: storage.metadata_info_bytes(),
+        pex_peers: if job.private {
+            Vec::new()
+        } else {
+            build_pex_peers(&job.candidates, address)
+        },
+        allow_pex: !job.private,
+    };
     let progress = storage
         .progress()
         .await
@@ -185,6 +198,7 @@ async fn serve_state_peer(
         Some(state.clone()),
         completed,
         progress.selected_total_bytes,
+        extension_service,
         SeedSessionConfig::default(),
         &session_cancel,
     )
@@ -193,6 +207,32 @@ async fn serve_state_peer(
     job.active_seed_connections
         .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     result
+}
+
+#[derive(Clone, Debug, Default)]
+struct SeedExtensionService {
+    metadata_info: Option<Arc<Vec<u8>>>,
+    pex_peers: Vec<SocketAddr>,
+    allow_pex: bool,
+}
+
+impl SeedExtensionService {
+    fn enabled(&self) -> bool {
+        self.metadata_info.is_some() || self.allow_pex
+    }
+
+    fn local_handshake(&self) -> ExtendedHandshake {
+        let mut handshake = ExtendedHandshake::local(
+            self.metadata_info.as_ref().map(|bytes| bytes.len()),
+        );
+        if self.metadata_info.is_none() {
+            handshake.ut_metadata = None;
+        }
+        if !self.allow_pex {
+            handshake.ut_pex = None;
+        }
+        handshake
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -218,6 +258,10 @@ impl Default for SeedSessionConfig {
 pub struct SeedSessionStats {
     pub requests_served: u64,
     pub uploaded_bytes: u64,
+    pub metadata_requests_served: u64,
+    pub metadata_bytes_served: u64,
+    pub pex_messages_sent: u64,
+    pub pex_peers_sent: u64,
 }
 
 pub async fn serve_inbound_seed_session(
@@ -243,6 +287,7 @@ pub async fn serve_inbound_seed_session(
         None,
         false,
         0,
+        SeedExtensionService::default(),
         config,
         cancel,
     )
@@ -260,6 +305,7 @@ async fn serve_inbound_seed_session_after_handshake(
     dirty_state: Option<SharedState>,
     completed: bool,
     downloaded_bytes: u64,
+    extensions: SeedExtensionService,
     config: SeedSessionConfig,
     cancel: &CancellationToken,
 ) -> Result<SeedSessionStats, String> {
@@ -273,7 +319,10 @@ async fn serve_inbound_seed_session_after_handshake(
         }
     }
 
-    let local = PeerHandshake::new(expected_info_hash, local_peer_id);
+    let mut local = PeerHandshake::new(expected_info_hash, local_peer_id);
+    if extensions.enabled() {
+        local.reserved[5] |= 0x10;
+    }
     write_message_bytes(
         &mut stream,
         &local.encode(),
@@ -291,6 +340,23 @@ async fn serve_inbound_seed_session_after_handshake(
         return Err("Torrent storage identity changed before seed session".to_owned());
     }
 
+    if extensions.enabled() && remote.supports_extension_protocol() {
+        let payload = extensions
+            .local_handshake()
+            .encode()
+            .map_err(|error| format!("Could not encode inbound extended handshake: {error}"))?;
+        send_message(
+            &mut stream,
+            &PeerMessage::Extended {
+                extension_id: EXTENSION_HANDSHAKE_ID,
+                payload,
+            },
+            config.frame_timeout,
+            cancel,
+        )
+        .await?;
+    }
+
     let bitfield = verified_bitfield(&plan.completed);
     if !bitfield.is_empty() {
         send_message(
@@ -304,6 +370,9 @@ async fn serve_inbound_seed_session_after_handshake(
 
     let mut interested = false;
     let mut unchoked = false;
+    let mut remote_extensions: Option<ExtendedHandshake> = None;
+    let mut pex_sent = false;
+    let mut metadata_requests = 0u64;
     let mut stats = SeedSessionStats::default();
 
     loop {
@@ -412,19 +481,147 @@ async fn serve_inbound_seed_session_after_handshake(
                 // Requests are serviced synchronously and each block is capped at
                 // 16 KiB by storage, so a cancel cannot race a queued large read.
             }
-            PeerMessage::Choke
+            PeerMessage::Extended {
+                extension_id: EXTENSION_HANDSHAKE_ID,
+                payload,
+            } if extensions.enabled() && remote.supports_extension_protocol() => {
+                let handshake = ExtendedHandshake::parse(&payload)
+                    .map_err(|error| format!("Inbound peer sent invalid extended handshake: {error}"))?;
+                remote_extensions = Some(handshake.clone());
+
+                if !pex_sent && extensions.allow_pex {
+                    if let Some(remote_pex_id) = handshake.ut_pex {
+                        let payload = PeerExchange {
+                            added: extensions.pex_peers.clone(),
+                            dropped: Vec::new(),
+                        }
+                        .encode()
+                        .map_err(|error| format!("Could not encode inbound ut_pex response: {error}"))?;
+                        if let Some(limiter) = upload_limiter.as_ref() {
+                            limiter.acquire(payload.len() as u64, cancel).await?;
+                        }
+                        send_message(
+                            &mut stream,
+                            &PeerMessage::Extended {
+                                extension_id: remote_pex_id,
+                                payload,
+                            },
+                            config.frame_timeout,
+                            cancel,
+                        )
+                        .await?;
+                        pex_sent = true;
+                        stats.pex_messages_sent = stats.pex_messages_sent.saturating_add(1);
+                        stats.pex_peers_sent = stats
+                            .pex_peers_sent
+                            .saturating_add(extensions.pex_peers.len() as u64);
+                    }
+                }
+            }
+            PeerMessage::Extended {
+                extension_id: LOCAL_UT_METADATA_ID,
+                payload,
+            } if extensions.metadata_info.is_some() && remote.supports_extension_protocol() => {
+                let Some(remote) = remote_extensions.as_ref() else {
+                    return Err(
+                        "Inbound peer requested ut_metadata before extended handshake".to_owned(),
+                    );
+                };
+                let Some(remote_metadata_id) = remote.ut_metadata else {
+                    return Err(
+                        "Inbound peer requested ut_metadata without advertising a response id"
+                            .to_owned(),
+                    );
+                };
+                metadata_requests = metadata_requests.saturating_add(1);
+                if metadata_requests > MAX_METADATA_REQUESTS_PER_SESSION {
+                    return Err("Inbound peer exceeded the metadata request limit".to_owned());
+                }
+
+                match MetadataMessage::parse(&payload)
+                    .map_err(|error| format!("Inbound peer sent invalid ut_metadata payload: {error}"))?
+                {
+                    MetadataMessage::Request { piece } => {
+                        let info = extensions
+                            .metadata_info
+                            .as_ref()
+                            .expect("guarded metadata info");
+                        let start = (piece as usize)
+                            .checked_mul(METADATA_PIECE_SIZE)
+                            .ok_or_else(|| "Inbound metadata piece offset overflow".to_owned())?;
+                        let response = if start >= info.len() {
+                            MetadataMessage::Reject { piece }
+                        } else {
+                            let end = start.saturating_add(METADATA_PIECE_SIZE).min(info.len());
+                            MetadataMessage::Data {
+                                piece,
+                                total_size: info.len(),
+                                data: info[start..end].to_vec(),
+                            }
+                        };
+                        let response_payload = response
+                            .encode()
+                            .map_err(|error| format!("Could not encode ut_metadata response: {error}"))?;
+                        if let Some(limiter) = upload_limiter.as_ref() {
+                            limiter.acquire(response_payload.len() as u64, cancel).await?;
+                        }
+                        send_message(
+                            &mut stream,
+                            &PeerMessage::Extended {
+                                extension_id: remote_metadata_id,
+                                payload: response_payload,
+                            },
+                            config.frame_timeout,
+                            cancel,
+                        )
+                        .await?;
+                        stats.metadata_requests_served =
+                            stats.metadata_requests_served.saturating_add(1);
+                        if start < info.len() {
+                            stats.metadata_bytes_served = stats.metadata_bytes_served.saturating_add(
+                                info.len()
+                                    .saturating_sub(start)
+                                    .min(METADATA_PIECE_SIZE) as u64,
+                            );
+                        }
+                    }
+                    MetadataMessage::Data { .. } | MetadataMessage::Reject { .. } => {
+                        return Err(
+                            "Inbound upload session received unsolicited ut_metadata response"
+                                .to_owned(),
+                        );
+                    }
+                }
+            }
+            PeerMessage::Extended { .. }
+            | PeerMessage::Choke
             | PeerMessage::Unchoke
             | PeerMessage::Have(_)
             | PeerMessage::Bitfield(_)
             | PeerMessage::Port(_)
-            | PeerMessage::Extended { .. }
             | PeerMessage::Piece { .. } => {
-                // NOVA does not advertise extension, DHT-port, or download
-                // interests from this upload-only session. Ignore unrelated
-                // legal control frames instead of expanding the attack surface.
+                // Ignore unrelated legal control frames. DHT-port advertising
+                // remains disabled until the long-lived DHT server stage.
             }
         }
     }
+}
+
+fn build_pex_peers(candidates: &[SocketAddr], remote: SocketAddr) -> Vec<SocketAddr> {
+    let allow_private = private_network_allowed();
+    let mut peers = candidates
+        .iter()
+        .copied()
+        .filter(|peer| {
+            peer.port() != 0
+                && *peer != remote
+                && (allow_private || !is_internal_ip(peer.ip()))
+        })
+        .collect::<Vec<_>>();
+    peers.sort_unstable();
+    peers.dedup();
+    peers.truncate(MAX_PEX_PEERS_PER_MESSAGE);
+    peers
 }
 
 async fn read_inbound_handshake(
@@ -764,6 +961,179 @@ mod tests {
         let error = server.await.unwrap().unwrap_err();
         assert!(error.contains("not verified"));
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn inbound_seed_session_serves_bep9_metadata_and_bep11_pex() {
+        let root = temp_root("extensions");
+        let piece_digest = Sha1::digest(b"abcdefgh");
+        let mut info = b"d6:lengthi8e4:name8:seed.bin12:piece lengthi8e6:pieces20:".to_vec();
+        info.extend_from_slice(&piece_digest);
+        info.push(b'e');
+        let meta = TorrentMetainfo::from_info_bytes(&info, &[]).unwrap();
+        let storage = TorrentStorageSession::create_with_info_bytes(
+            root.clone(),
+            meta.clone(),
+            TorrentSelection::all(&meta),
+            AllocationMode::Sparse,
+            Some(info.clone()),
+        )
+        .await
+        .unwrap();
+        let lease = storage.begin_run().await.unwrap();
+        storage
+            .commit_piece(&lease, 0, b"abcdefgh".to_vec())
+            .await
+            .unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let info_hash = meta.info_hash;
+        let server_storage = storage.clone();
+        let server_info = storage.metadata_info_bytes().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, remote_addr) = listener.accept().await.unwrap();
+            let remote = read_inbound_handshake(
+                &mut stream,
+                Duration::from_secs(2),
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+            serve_inbound_seed_session_after_handshake(
+                stream,
+                remote,
+                server_storage,
+                *b"-NV0001-SEEDSERVER01",
+                None,
+                None,
+                None,
+                None,
+                false,
+                8,
+                SeedExtensionService {
+                    metadata_info: Some(server_info),
+                    pex_peers: vec![
+                        "8.8.8.8:6881".parse().unwrap(),
+                        remote_addr,
+                    ],
+                    allow_pex: true,
+                },
+                test_config(),
+                &CancellationToken::new(),
+            )
+            .await
+        });
+
+        let mut client = TcpStream::connect(address).await.unwrap();
+        let mut handshake = PeerHandshake::new(info_hash, *b"-NVTEST-SEEDCLIENT01");
+        handshake.reserved[5] |= 0x10;
+        client.write_all(&handshake.encode()).await.unwrap();
+
+        let mut response_bytes = [0u8; PEER_HANDSHAKE_LEN];
+        client.read_exact(&mut response_bytes).await.unwrap();
+        let response = PeerHandshake::decode(&response_bytes).unwrap();
+        assert!(response.supports_extension_protocol());
+
+        let local_extensions = read_test_message(&mut client).await;
+        let PeerMessage::Extended {
+            extension_id: EXTENSION_HANDSHAKE_ID,
+            payload,
+        } = local_extensions
+        else {
+            panic!("expected local extended handshake");
+        };
+        let local = ExtendedHandshake::parse(&payload).unwrap();
+        assert_eq!(local.ut_metadata, Some(LOCAL_UT_METADATA_ID));
+        assert_eq!(local.ut_pex, Some(LOCAL_UT_PEX_ID));
+        assert_eq!(local.metadata_size, Some(info.len()));
+
+        assert!(matches!(
+            read_test_message(&mut client).await,
+            PeerMessage::Bitfield(_)
+        ));
+
+        client
+            .write_all(
+                &PeerMessage::Extended {
+                    extension_id: EXTENSION_HANDSHAKE_ID,
+                    payload: ExtendedHandshake {
+                        ut_metadata: Some(7),
+                        ut_pex: Some(9),
+                        metadata_size: None,
+                        request_queue: Some(8),
+                        client_name: Some("test-client".to_owned()),
+                    }
+                    .encode()
+                    .unwrap(),
+                }
+                .encode()
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let pex = read_test_message(&mut client).await;
+        let PeerMessage::Extended {
+            extension_id: 9,
+            payload,
+        } = pex
+        else {
+            panic!("expected ut_pex snapshot");
+        };
+        let pex = PeerExchange::parse(&payload).unwrap();
+        assert_eq!(pex.added, vec!["8.8.8.8:6881".parse().unwrap()]);
+
+        client
+            .write_all(
+                &PeerMessage::Extended {
+                    extension_id: LOCAL_UT_METADATA_ID,
+                    payload: MetadataMessage::Request { piece: 0 }.encode().unwrap(),
+                }
+                .encode()
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let metadata = read_test_message(&mut client).await;
+        let PeerMessage::Extended {
+            extension_id: 7,
+            payload,
+        } = metadata
+        else {
+            panic!("expected ut_metadata response");
+        };
+        assert_eq!(
+            MetadataMessage::parse(&payload).unwrap(),
+            MetadataMessage::Data {
+                piece: 0,
+                total_size: info.len(),
+                data: info.clone(),
+            }
+        );
+
+        drop(client);
+        let result = server.await.unwrap();
+        assert!(result.is_err());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn pex_builder_filters_remote_and_private_addresses_by_default() {
+        if private_network_allowed() {
+            return;
+        }
+        let remote: SocketAddr = "8.8.8.8:6881".parse().unwrap();
+        let peers = build_pex_peers(
+            &[
+                remote,
+                "1.1.1.1:6882".parse().unwrap(),
+                "127.0.0.1:6883".parse().unwrap(),
+            ],
+            remote,
+        );
+        assert_eq!(peers, vec!["1.1.1.1:6882".parse().unwrap()]);
     }
 
     #[test]
