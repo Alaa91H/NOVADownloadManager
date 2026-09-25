@@ -126,19 +126,8 @@ fn resolve_desktop_executable() -> Result<std::path::PathBuf, String> {
         return Ok(sibling);
     }
 
-    // Backward compatibility for the legacy combined Tauri executable: when
-    // Native Messaging is still registered directly to that binary, relaunch
-    // the same executable without the browser arguments to open the UI/daemon.
-    let stem = current
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default();
-    if stem != "nova-native-host" {
-        return Ok(current);
-    }
-
     Err(format!(
-        "native desktop executable was not found next to {}",
+        "Qt native desktop executable was not found next to {}",
         current.display()
     ))
 }
