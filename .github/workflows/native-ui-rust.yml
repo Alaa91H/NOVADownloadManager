@@ -7,6 +7,8 @@ on:
     paths:
       - "src-tauri/**"
       - "browser-extension/**"
+      - "desktop-native/src/platform/DesktopIntegration.cpp"
+      - "desktop-native/scripts/check-browser-native-contract.mjs"
       - "src/api/novaClient.ts"
       - "src/api/__tests__/novaClient.request.test.ts"
       - "src/components/AppShell.tsx"
@@ -119,6 +121,9 @@ jobs:
         run: |
           pnpm exec vitest run src/api/__tests__/novaClient.request.test.ts
           pnpm exec vitest run src/store/__tests__/queueStore.test.ts
+
+      - name: Browser Native Messaging identity contract
+        run: node desktop-native/scripts/check-browser-native-contract.mjs
 
       - name: Browser pairing typecheck
         run: pnpm --filter nova-browser-extension typecheck
