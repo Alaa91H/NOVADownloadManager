@@ -65,6 +65,7 @@ Implemented native surfaces include:
 - Windows, Linux and macOS Qt 6.8.3 CI validation
 - Bundled headless Rust backend and dedicated browser Native Messaging host
 - Rotating-proof trusted-local backend discovery/pairing, scoped browser credentials and cross-platform browser-host registration repair
+- Packaged Native Messaging protocol smoke on the six preview targets plus a cross-source identity contract that derives the Chromium ID from the extension public key and locks Qt/Rust/browser host identity
 
 ## Stage 6.1 parity and preview builds
 
@@ -77,6 +78,7 @@ node desktop-native/scripts/check-localization.mjs
 node desktop-native/scripts/check-native-i18n-coverage.mjs
 node desktop-native/scripts/check-native-accessibility.mjs
 node desktop-native/scripts/check-native-contrast.mjs
+node desktop-native/scripts/check-browser-native-contract.mjs
 node desktop-native/scripts/check-product-copy.mjs
 node desktop-native/scripts/check-parity.mjs
 cmake -S desktop-native -B build/native-tests -DNOVA_BUILD_TESTS=ON
