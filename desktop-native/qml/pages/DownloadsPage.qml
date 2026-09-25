@@ -186,6 +186,23 @@ Item {
         return root.t("downloads.priorityNormal")
     }
 
+    function statusLabel(value) {
+        const normalized = String(value || "").toLowerCase()
+        if (normalized === "downloading") return root.t("status.downloading")
+        if (normalized === "paused") return root.t("status.paused")
+        if (normalized === "queued") return root.t("status.queued")
+        if (normalized === "completed") return root.t("status.completed")
+        if (normalized === "failed" || normalized === "error" || normalized === "interrupted")
+            return root.t("status.failed")
+        if (normalized === "preparing" || normalized === "probing")
+            return root.t("status.preparing")
+        if (normalized === "retrying" || normalized === "recovering")
+            return root.t("status.retrying")
+        if (normalized === "verifying" || normalized === "finalizing")
+            return root.t("status.verifying")
+        return value || root.t("common.unknown")
+    }
+
     function smartCategoryLabel(fileType, category) {
         const value = (fileType || category || "").trim()
         return value.length > 0 ? value : "—"
@@ -1005,7 +1022,7 @@ Item {
                                 Text {
                                     Layout.preferredWidth: 100
                                     visible: root.columnVisible("status")
-                                    text: status
+                                    text: root.statusLabel(status)
                                     color: status === "completed"
                                         ? Theme.success
                                         : status === "error" || status === "failed" ? Theme.danger
