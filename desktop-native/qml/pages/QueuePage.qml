@@ -71,6 +71,15 @@ Item {
         return 0
     }
 
+    function selectQueueIndex(index) {
+        if (index < 0 || index >= api.queueCatalog.length)
+            return
+        const queue = api.queueCatalog[index]
+        selectedQueueId = String(queue.id || "")
+        refreshSelectedQueue()
+        pendingDeleteQueueId = ""
+    }
+
     function refreshSelectedQueue() {
         let queue = queueById(selectedQueueId)
         if (!queue.id) {
@@ -281,9 +290,31 @@ Item {
                         model: api.queueCatalog
                         spacing: 4
                         clip: true
+                        activeFocusOnTab: true
+                        keyNavigationWraps: false
+                        Accessible.name: root.t("queue.queues")
+                        onActiveFocusChanged: {
+                            if (activeFocus && count > 0) {
+                                const selected = root.queueIndex(root.selectedQueueId)
+                                currentIndex = selected >= 0 ? selected : 0
+                            }
+                        }
+                        onCurrentIndexChanged: {
+                            if (activeFocus)
+                                root.selectQueueIndex(currentIndex)
+                        }
+                        Keys.onSpacePressed: event => {
+                            root.selectQueueIndex(currentIndex)
+                            event.accepted = true
+                        }
+                        Keys.onReturnPressed: event => {
+                            root.selectQueueIndex(currentIndex)
+                            event.accepted = true
+                        }
                         ScrollBar.vertical: ScrollBar {}
 
                         delegate: Rectangle {
+                            required property int index
                             required property var modelData
                             width: queueCatalogList.width
                             height: 58
@@ -291,16 +322,24 @@ Item {
                             color: root.selectedQueueId === String(modelData.id)
                                 ? Theme.accentMuted
                                 : Theme.surfaceRaised
-                            border.color: root.selectedQueueId === String(modelData.id)
-                                ? Theme.accent
-                                : Theme.border
+                            border.width: queueCatalogList.activeFocus
+                                && queueCatalogList.currentIndex === index ? 2 : 1
+                            border.color: queueCatalogList.activeFocus
+                                && queueCatalogList.currentIndex === index
+                                ? Theme.focusRing
+                                : root.selectedQueueId === String(modelData.id)
+                                    ? Theme.accent
+                                    : Theme.border
+                            Accessible.name: modelData.name || modelData.id
+                            Accessible.description: (modelData.downloadOrder
+                                ? modelData.downloadOrder.length : 0)
+                                + " " + root.t("queue.tasks")
 
                             MouseArea {
                                 anchors.fill: parent
                                 onClicked: {
-                                    root.selectedQueueId = String(modelData.id)
-                                    root.refreshSelectedQueue()
-                                    root.pendingDeleteQueueId = ""
+                                    queueCatalogList.currentIndex = index
+                                    root.selectQueueIndex(index)
                                 }
                             }
 
@@ -486,6 +525,13 @@ Item {
                                     model: root.selectedQueue.downloadOrder || []
                                     clip: true
                                     spacing: 1
+                                    activeFocusOnTab: true
+                                    keyNavigationWraps: false
+                                    Accessible.name: root.t("queue.tasks")
+                                    onActiveFocusChanged: {
+                                        if (activeFocus && count > 0 && currentIndex < 0)
+                                            currentIndex = 0
+                                    }
                                     ScrollBar.vertical: ScrollBar {}
 
                                     delegate: Rectangle {
@@ -499,6 +545,12 @@ Item {
                                         height: matches ? 60 : 0
                                         visible: matches
                                         color: rowMouse.containsMouse ? Theme.surfaceHover : "transparent"
+                                        border.width: taskList.activeFocus
+                                            && taskList.currentIndex === index ? 2 : 0
+                                        border.color: Theme.focusRing
+                                        Accessible.name: taskRow.info.name || String(modelData)
+                                        Accessible.description: (taskRow.info.status || root.t("common.unknown"))
+                                            + " · " + root.formatBytes(taskRow.info.sizeBytes)
 
                                         RowLayout {
                                             anchors.fill: parent
