@@ -10,6 +10,7 @@ mod dash_transfer;
 mod generic;
 mod hls_live;
 mod hls_transfer;
+mod native_mux;
 mod selection;
 mod youtube;
 mod youtube_player;
@@ -25,6 +26,9 @@ pub use dash_transfer::{
 };
 pub use generic::{GenericDirectMediaExtractor, GenericManifestExtractor};
 pub use hls_live::{refresh_and_stage_hls_live_once, HlsLiveError, HlsLiveStageRefresh};
+pub use native_mux::{
+    mux_mp4_tracks, mux_mp4_tracks_controlled, NativeMuxError, NativeMuxResult,
+};
 pub use hls_transfer::{
     stage_hls_media_plan, stage_hls_media_plan_controlled,
     stage_hls_media_plan_controlled_with_progress,
@@ -80,6 +84,7 @@ pub struct NativeMediaCoreCapabilities {
     pub youtube_signature_transform: bool,
     pub youtube_throttling_transform: bool,
     pub separate_track_staging: bool,
+    pub native_mp4_multitrack_mux: bool,
 }
 
 pub const fn native_media_core_capabilities() -> NativeMediaCoreCapabilities {
@@ -97,6 +102,7 @@ pub const fn native_media_core_capabilities() -> NativeMediaCoreCapabilities {
         youtube_signature_transform: true,
         youtube_throttling_transform: true,
         separate_track_staging: true,
+        native_mp4_multitrack_mux: true,
     }
 }
 
