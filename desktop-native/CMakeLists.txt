@@ -58,6 +58,7 @@ qt_add_qml_module(nova-native
         qml/components/AddDownloadDialog.qml
         qml/components/BrowserIntegrationPanel.qml
         qml/components/CommandBar.qml
+        qml/components/CustomizationPanel.qml
         qml/components/ConfirmDeleteDialog.qml
         qml/components/ConfirmRedownloadDialog.qml
         qml/components/DownloadDetailsPanel.qml
