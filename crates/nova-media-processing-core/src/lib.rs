@@ -15,6 +15,7 @@ mod mp4;
 mod pipeline;
 mod probe;
 mod progress;
+mod remux;
 mod types;
 mod webm;
 
@@ -33,6 +34,7 @@ pub use job::{
 };
 pub use pipeline::{plan_media_pipeline, MediaPipelinePlan, MediaPipelineStage};
 pub use probe::{probe_file_container, sniff_media_container};
+pub use remux::open_mp4_remux_demuxer;
 pub use progress::{
     MediaProcessingControl, MediaProcessingPhase, MediaProcessingProgress, MediaProgressSink,
 };
@@ -40,7 +42,7 @@ pub use types::{
     AudioParameters, MediaCodec, MediaContainer, MediaPacket, MediaPacketFlags, MediaProbe,
     MediaTimeBase, MediaTimestamp, MediaTrack, MediaTrackKind, VideoParameters,
 };
-pub use webm::{probe_webm_file, WebmDemuxer};
+pub use webm::{prepare_webm_track_for_mp4, probe_webm_file, WebmDemuxer};
 
 /// Stable version for the internal processing contract. Increment only when
 /// serialized job/packet semantics change incompatibly.

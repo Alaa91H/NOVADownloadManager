@@ -149,6 +149,23 @@ impl WebmDemuxer {
     pub fn packet_count(&self) -> usize {
         self.packets.len()
     }
+
+    /// Open WebM for packet-preserving remux into NOVA's MP4 muxer.
+    ///
+    /// WebM codec initialization data is converted to the ISO-BMFF form
+    /// expected by `Mp4Muxer`. Unsupported codec/profile combinations remain
+    /// explicitly gated instead of producing a structurally valid but
+    /// undecodable MP4.
+    pub fn open_for_mp4_remux(path: &Path) -> Result<Self, MediaProcessingError> {
+        let mut demuxer = Self::open(path)?;
+        demuxer.probe.tracks = demuxer
+            .probe
+            .tracks
+            .iter()
+            .map(prepare_webm_track_for_mp4)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(demuxer)
+    }
 }
 
 impl MediaDemuxer for WebmDemuxer {
@@ -852,9 +869,11 @@ fn finalize_packet_timing(
     }
 
     let mut next_block_time = BTreeMap::<(u32, u64), i64>::new();
+    let mut previous_block_time = BTreeMap::<(u32, u64), i64>::new();
     for (track_id, blocks) in &blocks_by_track {
         for pair in blocks.windows(2) {
             next_block_time.insert((*track_id, pair[0].0), pair[1].1);
+            previous_block_time.insert((*track_id, pair[1].0), pair[0].1);
         }
     }
 
@@ -874,13 +893,22 @@ fn finalize_packet_timing(
                         .ok_or_else(|| demux_error("WebM default duration overflow"))?,
                 )
             } else {
-                next_block_time
+                let inferred_units = next_block_time
                     .get(&(packet.track_id, packet.block_id))
                     .copied()
                     .filter(|next| *next > packet.block_timecode_units)
-                    .map(|next| {
+                    .map(|next| next - packet.block_timecode_units)
+                    .or_else(|| {
+                        previous_block_time
+                            .get(&(packet.track_id, packet.block_id))
+                            .copied()
+                            .filter(|previous| *previous < packet.block_timecode_units)
+                            .map(|previous| packet.block_timecode_units - previous)
+                    });
+                inferred_units
+                    .map(|duration| {
                         scale_unsigned_units(
-                            u64::try_from(next - packet.block_timecode_units)
+                            u64::try_from(duration)
                                 .map_err(|_| demux_error("WebM block duration conversion failed"))?,
                             timecode_scale_ns,
                         )
@@ -920,6 +948,232 @@ fn finalize_packet_timing(
             })
         })
         .collect()
+}
+
+/// Convert WebM codec initialization metadata into the canonical payload
+/// expected by NOVA's ISO-BMFF/MP4 muxer.
+///
+/// The conversion is lossless for Opus identification headers. VP8 uses its
+/// defined profile-0 defaults. VP9 consumes the WebM CodecPrivate feature list.
+/// VP9 profiles other than profile 0 remain gated until WebM colour metadata is
+/// carried through the generic track model.
+pub fn prepare_webm_track_for_mp4(
+    track: &MediaTrack,
+) -> Result<MediaTrack, MediaProcessingError> {
+    let mut converted = track.clone();
+    converted.codec_private = match track.codec {
+        MediaCodec::Vp8 => make_vpcc(0, 0, 8, 1, false)?,
+        MediaCodec::Vp9 => vp9_webm_private_to_vpcc(&track.codec_private)?,
+        MediaCodec::Opus => {
+            if let Some(audio) = converted.audio.as_mut() {
+                audio.sample_rate_hz = 48_000;
+            }
+            opus_head_to_dops(&track.codec_private, converted.audio.as_ref())?
+        }
+        MediaCodec::Mp3 => Vec::new(),
+        _ => {
+            return Err(MediaProcessingError::UnsupportedCodec(format!(
+                "{:?} WebM-to-MP4 remux",
+                track.codec
+            )))
+        }
+    };
+    Ok(converted)
+}
+
+fn vp9_webm_private_to_vpcc(data: &[u8]) -> Result<Vec<u8>, MediaProcessingError> {
+    if data.is_empty() {
+        return Err(MediaProcessingError::UnsupportedOperation(
+            "VP9 WebM remux requires CodecPrivate profile metadata".to_owned(),
+        ));
+    }
+
+    let mut profile = None;
+    let mut level = None;
+    let mut bit_depth = None;
+    let mut chroma_subsampling = None;
+    let mut cursor = 0_usize;
+
+    while cursor < data.len() {
+        if data.len() - cursor < 2 {
+            return Err(demux_error("truncated VP9 WebM CodecPrivate feature header"));
+        }
+        let raw_id = data[cursor];
+        let length = usize::from(data[cursor + 1]);
+        cursor += 2;
+        if raw_id & 0x80 != 0 {
+            return Err(demux_error(
+                "extended VP9 WebM CodecPrivate feature ids are not supported",
+            ));
+        }
+        let end = cursor
+            .checked_add(length)
+            .filter(|end| *end <= data.len())
+            .ok_or_else(|| demux_error("truncated VP9 WebM CodecPrivate feature"))?;
+        let id = raw_id & 0x7f;
+        if matches!(id, 1..=4) && length != 1 {
+            return Err(demux_error(
+                "VP9 WebM profile/level/bit-depth/chroma features must be one byte",
+            ));
+        }
+        if length == 1 {
+            let value = data[cursor];
+            match id {
+                1 => set_unique_feature(&mut profile, value, "profile")?,
+                2 => set_unique_feature(&mut level, value, "level")?,
+                3 => set_unique_feature(&mut bit_depth, value, "bit depth")?,
+                4 => set_unique_feature(&mut chroma_subsampling, value, "chroma subsampling")?,
+                _ => {}
+            }
+        }
+        cursor = end;
+    }
+
+    let profile = profile.ok_or_else(|| {
+        MediaProcessingError::UnsupportedOperation(
+            "VP9 WebM remux requires CodecPrivate profile".to_owned(),
+        )
+    })?;
+    if profile != 0 {
+        return Err(MediaProcessingError::UnsupportedOperation(format!(
+            "VP9 WebM profile {profile} remux is gated until colour metadata is preserved"
+        )));
+    }
+    let bit_depth = bit_depth.ok_or_else(|| {
+        MediaProcessingError::UnsupportedOperation(
+            "VP9 WebM remux requires CodecPrivate bit depth".to_owned(),
+        )
+    })?;
+    let chroma = chroma_subsampling.ok_or_else(|| {
+        MediaProcessingError::UnsupportedOperation(
+            "VP9 WebM remux requires CodecPrivate chroma subsampling".to_owned(),
+        )
+    })?;
+    if bit_depth != 8 || !matches!(chroma, 0 | 1) {
+        return Err(MediaProcessingError::UnsupportedOperation(format!(
+            "VP9 profile 0 requires 8-bit 4:2:0; got bit depth {bit_depth}, chroma {chroma}"
+        )));
+    }
+
+    make_vpcc(profile, level.unwrap_or(0), bit_depth, chroma, false)
+}
+
+fn set_unique_feature(
+    slot: &mut Option<u8>,
+    value: u8,
+    name: &str,
+) -> Result<(), MediaProcessingError> {
+    if slot.replace(value).is_some() {
+        return Err(demux_error(format!(
+            "duplicate VP9 WebM CodecPrivate {name} feature"
+        )));
+    }
+    Ok(())
+}
+
+fn make_vpcc(
+    profile: u8,
+    level: u8,
+    bit_depth: u8,
+    chroma_subsampling: u8,
+    full_range: bool,
+) -> Result<Vec<u8>, MediaProcessingError> {
+    if profile > 3
+        || !matches!(bit_depth, 8 | 10 | 12)
+        || chroma_subsampling > 3
+        || !matches!(level, 0 | 10 | 11 | 20 | 21 | 30 | 31 | 40 | 41 | 50 | 51 | 52 | 60 | 61 | 62)
+    {
+        return Err(demux_error("invalid VP codec configuration for MP4"));
+    }
+
+    // vpcC is a FullBox(version=1, flags=0), followed by the
+    // VPCodecConfigurationRecord. BT.709/legal-range defaults are used only
+    // for the currently-enabled SDR profile-0 bridge.
+    Ok(vec![
+        1,
+        0,
+        0,
+        0,
+        profile,
+        level,
+        (bit_depth << 4) | (chroma_subsampling << 1) | u8::from(full_range),
+        1,
+        1,
+        1,
+        0,
+        0,
+    ])
+}
+
+fn opus_head_to_dops(
+    data: &[u8],
+    audio: Option<&AudioParameters>,
+) -> Result<Vec<u8>, MediaProcessingError> {
+    if data.len() < 19 || data.get(..8) != Some(b"OpusHead") {
+        return Err(demux_error(
+            "WebM Opus CodecPrivate must contain an OpusHead identification header",
+        ));
+    }
+    if data[8] > 15 {
+        return Err(MediaProcessingError::UnsupportedOperation(format!(
+            "unsupported OpusHead major version {}",
+            data[8]
+        )));
+    }
+
+    let channels = data[9];
+    if channels == 0 {
+        return Err(demux_error("OpusHead output channel count must be positive"));
+    }
+    if let Some(audio) = audio {
+        if audio.channels != u16::from(channels) {
+            return Err(demux_error(
+                "WebM Channels does not match OpusHead output channel count",
+            ));
+        }
+    }
+
+    let pre_skip = u16::from_le_bytes([data[10], data[11]]);
+    let input_sample_rate = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
+    let output_gain = i16::from_le_bytes([data[16], data[17]]);
+    let mapping_family = data[18];
+
+    let mut dops = Vec::with_capacity(data.len().saturating_sub(8));
+    dops.push(0); // OpusSpecificBox version
+    dops.push(channels);
+    dops.extend_from_slice(&pre_skip.to_be_bytes());
+    dops.extend_from_slice(&input_sample_rate.to_be_bytes());
+    dops.extend_from_slice(&output_gain.to_be_bytes());
+    dops.push(mapping_family);
+
+    if mapping_family == 0 {
+        if !matches!(channels, 1 | 2) {
+            return Err(demux_error(
+                "Opus channel mapping family 0 only supports mono or stereo",
+            ));
+        }
+    } else {
+        let mapping_len = usize::from(channels);
+        let required = 21_usize
+            .checked_add(mapping_len)
+            .ok_or_else(|| demux_error("Opus channel mapping length overflow"))?;
+        if data.len() < required {
+            return Err(demux_error("truncated OpusHead channel mapping table"));
+        }
+        let stream_count = data[19];
+        let coupled_count = data[20];
+        if stream_count == 0
+            || coupled_count > stream_count
+            || u16::from(stream_count) + u16::from(coupled_count) != u16::from(channels)
+        {
+            return Err(demux_error("invalid OpusHead stream/coupled channel counts"));
+        }
+        dops.push(stream_count);
+        dops.push(coupled_count);
+        dops.extend_from_slice(&data[21..required]);
+    }
+
+    Ok(dops)
 }
 
 fn codec_from_webm_id(value: &str) -> MediaCodec {
@@ -1299,6 +1553,70 @@ mod tests {
         assert_eq!(second.duration.expect("second duration").value, 10_000_000);
 
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn converts_webm_vp9_codec_features_to_vpcc() {
+        let track = MediaTrack {
+            id: 1,
+            kind: MediaTrackKind::Video,
+            codec: MediaCodec::Vp9,
+            time_base: NANOSECOND_TIME_BASE,
+            language: None,
+            video: Some(VideoParameters {
+                width: 1920,
+                height: 1080,
+                frame_rate: Some(30.0),
+                bitrate_bps: None,
+            }),
+            audio: None,
+            codec_private: vec![
+                1, 1, 0, // profile 0
+                2, 1, 41, // level 4.1
+                3, 1, 8, // 8-bit
+                4, 1, 1, // 4:2:0 colocated
+            ],
+        };
+        let converted = prepare_webm_track_for_mp4(&track).expect("VP9 bridge");
+        assert_eq!(
+            converted.codec_private,
+            vec![1, 0, 0, 0, 0, 41, 0x82, 1, 1, 1, 0, 0]
+        );
+    }
+
+    #[test]
+    fn converts_opus_head_to_big_endian_dops() {
+        let mut opus_head = b"OpusHead".to_vec();
+        opus_head.push(1);
+        opus_head.push(2);
+        opus_head.extend_from_slice(&312_u16.to_le_bytes());
+        opus_head.extend_from_slice(&48_000_u32.to_le_bytes());
+        opus_head.extend_from_slice(&(-256_i16).to_le_bytes());
+        opus_head.push(0);
+
+        let track = MediaTrack {
+            id: 2,
+            kind: MediaTrackKind::Audio,
+            codec: MediaCodec::Opus,
+            time_base: NANOSECOND_TIME_BASE,
+            language: None,
+            video: None,
+            audio: Some(AudioParameters {
+                sample_rate_hz: 48_000,
+                channels: 2,
+                bitrate_bps: None,
+            }),
+            codec_private: opus_head,
+        };
+        let converted = prepare_webm_track_for_mp4(&track).expect("Opus bridge");
+        assert_eq!(
+            converted.codec_private,
+            vec![0, 2, 0x01, 0x38, 0x00, 0x00, 0xbb, 0x80, 0xff, 0x00, 0]
+        );
+        assert_eq!(
+            converted.audio.expect("audio").sample_rate_hz,
+            48_000
+        );
     }
 
     #[test]
