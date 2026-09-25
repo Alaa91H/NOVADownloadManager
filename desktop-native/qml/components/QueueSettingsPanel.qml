@@ -177,6 +177,7 @@ Rectangle {
                 id: startTime
                 Layout.fillWidth: true
                 placeholderText: "02:00"
+                Accessible.name: root.t("queue.timeWindow") + " — " + root.t("scheduler.start")
                 enabled: scheduledCheck.checked
                 LayoutMirroring.enabled: false
                 horizontalAlignment: Text.AlignLeft
@@ -186,6 +187,7 @@ Rectangle {
                 id: endTime
                 Layout.fillWidth: true
                 placeholderText: "08:00"
+                Accessible.name: root.t("queue.timeWindow") + " — " + root.t("scheduler.end")
                 enabled: scheduledCheck.checked
                 LayoutMirroring.enabled: false
                 horizontalAlignment: Text.AlignLeft
