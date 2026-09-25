@@ -267,16 +267,18 @@ try {
   }
 } finally {
   child.stdin.end();
-  const exitCode = await new Promise(resolve => {
-    const timer = setTimeout(() => {
-      child.kill();
-      resolve(-1);
-    }, 5000);
-    child.once("exit", code => {
-      clearTimeout(timer);
-      resolve(code ?? -1);
-    });
-  });
+  const exitCode = child.exitCode !== null
+    ? child.exitCode
+    : await new Promise(resolve => {
+        const timer = setTimeout(() => {
+          child.kill();
+          resolve(-1);
+        }, 5000);
+        child.once("exit", code => {
+          clearTimeout(timer);
+          resolve(code ?? -1);
+        });
+      });
 
   await new Promise(resolve => server.close(resolve));
   fs.rmSync(dataDir, { recursive: true, force: true });
