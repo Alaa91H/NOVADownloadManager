@@ -264,7 +264,12 @@ impl MagnetResolver {
             return;
         };
         let mut tasks = JoinSet::new();
-        for target in targets.iter().take(8).cloned() {
+        for target in targets
+            .iter()
+            .filter(|target| target.address.is_ipv4())
+            .take(8)
+            .cloned()
+        {
             let dht = self.dht.clone();
             let child = cancel.child_token();
             tasks.spawn(async move {

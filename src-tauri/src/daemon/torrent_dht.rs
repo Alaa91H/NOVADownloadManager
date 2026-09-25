@@ -474,11 +474,12 @@ impl DhtService {
             log::info!("Native torrent DHT server started on IPv4 {ipv4_local}");
         }
 
+        let socket_cancel = cancel.child_token();
         let mut workers = JoinSet::new();
         {
             let service = self.clone();
             let worker_state = state.clone();
-            let worker_cancel = cancel.child_token();
+            let worker_cancel = socket_cancel.child_token();
             let socket = ipv4_socket.clone();
             workers.spawn(async move {
                 service
@@ -489,7 +490,7 @@ impl DhtService {
         if let Some(socket) = ipv6_socket {
             let service = self.clone();
             let worker_state = state.clone();
-            let worker_cancel = cancel.child_token();
+            let worker_cancel = socket_cancel.child_token();
             workers.spawn(async move {
                 service
                     .serve_socket(worker_state, socket, worker_cancel)
@@ -530,7 +531,7 @@ impl DhtService {
             }
         }
 
-        cancel.cancel();
+        socket_cancel.cancel();
         workers.abort_all();
         while workers.join_next().await.is_some() {}
         self.engine.detach_sockets().await;
@@ -879,7 +880,12 @@ pub async fn run_dht_announce_lifecycle(
         merge_discovered_dht_peers(&state, &task_id, &discovery.peers);
 
         let mut announces = JoinSet::new();
-        for target in discovery.announce_targets.into_iter().take(8) {
+        for target in discovery
+            .announce_targets
+            .into_iter()
+            .filter(|target| target.address.is_ipv4())
+            .take(8)
+        {
             let engine = engine.clone();
             let child = cancel.child_token();
             announces.spawn(async move {
