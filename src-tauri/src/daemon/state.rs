@@ -29,7 +29,10 @@ use crate::daemon::engine::retry::RetryState;
 use crate::daemon::engine::rules::DownloadRuleEngine;
 use crate::daemon::engine::scheduler::SmartScheduler;
 use crate::daemon::engine::self_healing::SelfHealer;
-use crate::daemon::types::{CreateDownloadBody, CurlJob, MediaJob, Task, TelegramConfig};
+use crate::daemon::types::{
+    CreateDownloadBody, CurlJob, NativeMediaJob, Task, TelegramConfig,
+};
+use crate::daemon::torrent_task::{PendingTorrentAnalysis, TorrentJob};
 
 /// Browser-originated download data that has passed daemon URL validation but
 /// still requires an explicit user decision in the desktop confirmation dialog.
@@ -57,20 +60,24 @@ pub struct TaskEngineTracker {
 const ENGINE_CACHE_TTL_SECS: u64 = 120;
 
 /// Lock ordering (acquire in this order to prevent deadlocks):
-///   1. `media_jobs`
-///   2. `curl_jobs`
-///   3. `task_snapshot`
-///   4. `engine_trackers`
-///   5. `mirror_managers`
-///   6. `telegram_config` / `telegram_last_update_id`
-///   7. `download_stats`
-///   8. `watchdog_handles`
-///   9. `external_tools`
-///  10. `policy_engine` / `self_healer` / `die_orchestrator` / `resource_manager`
+///   1. `native_media_jobs`
+///   2. `torrent_jobs`
+///   3. `torrent_analyses`
+///   4. `curl_jobs`
+///   5. `task_snapshot`
+///   6. `engine_trackers`
+///   7. `mirror_managers`
+///   8. `telegram_config` / `telegram_last_update_id`
+///   9. `download_stats`
+///  10. `watchdog_handles`
+///  11. `external_tools`
+///  12. `policy_engine` / `self_healer` / `die_orchestrator` / `resource_manager`
 ///
 /// Never acquire a lower-numbered lock while holding a higher-numbered one.
 pub struct AppState {
-    pub media_jobs: Mutex<HashMap<String, MediaJob>>,
+    pub native_media_jobs: Mutex<HashMap<String, NativeMediaJob>>,
+    pub torrent_jobs: Mutex<HashMap<String, TorrentJob>>,
+    pub torrent_analyses: Mutex<HashMap<String, PendingTorrentAnalysis>>,
     pub curl_jobs: Mutex<HashMap<String, CurlJob>>,
     pub task_snapshot: Mutex<HashMap<String, Task>>,
     /// Bounded, ephemeral browser captures awaiting explicit desktop approval.
@@ -80,25 +87,23 @@ pub struct AppState {
     pub http_client: HttpClient,
     pub resource_dir: String,
     pub data_dir: String,
-    /// Active media-engine paths. These may be replaced after NOVA verifies a
-    /// managed installation, so every new media operation observes the current
-    /// binary without requiring a daemon restart.
-    pub ytdlp_bin: RwLock<String>,
+    /// Active post-processing binary path. It may be replaced after NOVA
+    /// verifies a managed FFmpeg installation without requiring a daemon restart.
     pub ffmpeg_bin: RwLock<String>,
-    /// Bundled/fallback paths resolved at daemon startup. These are restored
-    /// if a NOVA-managed binary is removed or fails a later health check.
-    pub bundled_ytdlp_bin: String,
+    /// Bundled/fallback FFmpeg path resolved at daemon startup.
     pub bundled_ffmpeg_bin: String,
     pub telegram_last_update_id: Mutex<i64>,
     pub engine_capabilities_cache: RwLock<Option<(Arc<serde_json::Value>, Instant)>>,
-    /// Serializes the subprocess probe in `engine_capabilities()` so concurrent
-    /// requests cannot each spawn redundant yt-dlp/ffmpeg probes.
+    /// Serializes runtime capability probing so concurrent requests do not
+    /// repeat the same FFmpeg/native readiness checks.
     pub engine_capabilities_probe: Mutex<()>,
     pub task_generation: AtomicU64,
     pub task_list_cache: RwLock<Option<(u64, Arc<Vec<Task>>)>>,
     pub event_bus: EventBus,
     pub priority_queue: PriorityBandwidthQueue,
     pub bandwidth_manager: BandwidthManager,
+    /// Process-wide BEP 5 runtime: stable node id, shared routing table and UDP server state.
+    pub torrent_dht: crate::daemon::torrent_dht::DhtService,
     pub profile_manager: ProfileManager,
     pub rule_engine: DownloadRuleEngine,
     pub scheduler: SmartScheduler,
@@ -107,7 +112,7 @@ pub struct AppState {
     pub plugin_api: PluginApi,
     pub engine_trackers: RwLock<HashMap<String, TaskEngineTracker>>,
     pub mirror_managers: Mutex<HashMap<String, MirrorManager>>,
-    /// Registry of download extractors (curl, yt-dlp, etc.)
+    /// Registry of active first-party download extractors.
     pub extractor_registry: SharedExtractorRegistry,
     /// Bearer token for API authentication. Generated at daemon start.
     pub api_token: String,
@@ -115,7 +120,7 @@ pub struct AppState {
     pub download_stats: Mutex<DownloadStats>,
     /// Resource Intelligence Engine — analyzes URLs and selects download strategies.
     pub rie: ResourceIntelligenceEngine,
-    /// External Tool Manager — manages `FFmpeg`, yt-dlp, and other external tools.
+    /// External Tool Manager — manages the optional FFmpeg post-processing tool.
     pub external_tools: Arc<Mutex<ExternalToolManager>>,
     /// Policy Engine — central decision layer for all runtime decisions.
     pub policy_engine: Arc<Mutex<PolicyEngine>>,
@@ -137,13 +142,6 @@ impl AppState {
         self.task_generation.fetch_add(1, Ordering::Release);
     }
 
-    pub fn ytdlp_binary(&self) -> String {
-        self.ytdlp_bin
-            .read()
-            .map(|path| path.clone())
-            .unwrap_or_else(|poison| poison.into_inner().clone())
-    }
-
     pub fn ffmpeg_binary(&self) -> String {
         self.ffmpeg_bin
             .read()
@@ -156,25 +154,6 @@ impl AppState {
     /// analyses and downloads use the replacement immediately.
     pub fn activate_external_tool(&self, tool_id: ToolId, path: String) -> Result<(), String> {
         match tool_id {
-            ToolId::YtDlp => {
-                let mut ytdlp = self
-                    .ytdlp_bin
-                    .write()
-                    .map_err(|e| format!("yt-dlp path lock poisoned: {e}"))?;
-                *ytdlp = path;
-                drop(ytdlp);
-                let replacement = std::sync::Arc::new(crate::daemon::ytdlp::YtDlpExtractor::new(
-                    self.ytdlp_binary(),
-                    self.ffmpeg_binary(),
-                ));
-                if !self
-                    .extractor_registry
-                    .replace("yt-dlp", replacement)
-                    .map_err(|e| e.to_string())?
-                {
-                    return Err("yt-dlp extractor was not registered".to_owned());
-                }
-            }
             ToolId::Ffmpeg => {
                 let mut ffmpeg = self
                     .ffmpeg_bin
@@ -191,25 +170,6 @@ impl AppState {
 
     pub fn deactivate_external_tool(&self, tool_id: ToolId) -> Result<(), String> {
         match tool_id {
-            ToolId::YtDlp => {
-                let mut ytdlp = self
-                    .ytdlp_bin
-                    .write()
-                    .map_err(|e| format!("yt-dlp path lock poisoned: {e}"))?;
-                *ytdlp = self.bundled_ytdlp_bin.clone();
-                drop(ytdlp);
-                let replacement = std::sync::Arc::new(crate::daemon::ytdlp::YtDlpExtractor::new(
-                    self.ytdlp_binary(),
-                    self.ffmpeg_binary(),
-                ));
-                if !self
-                    .extractor_registry
-                    .replace("yt-dlp", replacement)
-                    .map_err(|e| e.to_string())?
-                {
-                    return Err("yt-dlp extractor was not registered".to_owned());
-                }
-            }
             ToolId::Ffmpeg => {
                 let mut ffmpeg = self
                     .ffmpeg_bin
@@ -235,7 +195,7 @@ impl AppState {
             }
         }
         // Serialize the read-check-probe-write sequence so concurrent callers
-        // do not each spawn redundant subprocess probes (TOC/TOU race).
+        // do not each repeat runtime capability probes (TOC/TOU race).
         let _guard = match self.engine_capabilities_probe.lock() {
             Ok(guard) => guard,
             Err(poison) => {
@@ -252,10 +212,7 @@ impl AppState {
                 }
             }
         }
-        let result = crate::daemon::engine_capabilities::all_engine_status(
-            &self.ytdlp_binary(),
-            &self.ffmpeg_binary(),
-        );
+        let result = crate::daemon::engine_capabilities::all_engine_status(&self.ffmpeg_binary());
         let arc_result = Arc::new(result);
         if let Ok(mut cache) = self.engine_capabilities_cache.write() {
             *cache = Some((arc_result.clone(), Instant::now()));

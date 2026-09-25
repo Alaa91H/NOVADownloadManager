@@ -1,0 +1,22 @@
+[package]
+name = "nova-media-core"
+version = "0.1.0"
+description = "Native media extraction and orchestration core for NOVA Download Manager"
+authors = ["NOVA"]
+license = "MIT"
+repository = "https://github.com/Alaa91H/NOVADownloadManager"
+edition = "2021"
+rust-version = "1.81"
+
+[dependencies]
+cbc = { version = "0.1.2", features = ["std"] }
+aes = "0.8.4"
+nova-download-core = { path = "../nova-download-core" }
+nova-media-processing-core = { path = "../nova-media-processing-core" }
+nova-stream-core = { path = "../nova-stream-core" }
+mp4-track = "0.1.0"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+url = "2"

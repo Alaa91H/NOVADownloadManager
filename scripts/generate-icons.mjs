@@ -243,13 +243,11 @@ console.log(`Using source: ${sourceName}`);
 const icoSizes = [16, 24, 32, 48, 64, 128, 256];
 
 console.log('Generating ICO files...');
-writeFile('public/favicon.ico', createICO(icoSizes.map((size) => ({ size, png: resizePNG(sourceBuf, size, size) }))));
-writeFile('public/icon.ico', createICO(icoSizes.map((size) => ({ size, png: resizePNG(sourceBuf, size, size) }))));
-writeFile('src-tauri/icons/icon.ico', createICO(icoSizes.map((size) => ({ size, png: resizePNG(sourceBuf, size, size) }))));
+writeFile('desktop-native/resources/icons/icon.ico', createICO(icoSizes.map((size) => ({ size, png: resizePNG(sourceBuf, size, size) }))));
 writeFile('browser-extension/public/icons/icon.ico', createICO([16, 32, 48, 128].map((size) => ({ size, png: resizePNG(sourceBuf, size, size) }))));
 
 console.log('Generating ICNS...');
-writeFile('src-tauri/icons/icon.icns', createICNS([
+writeFile('desktop-native/resources/icons/icon.icns', createICNS([
   { type: 'icp4', data: resizePNG(sourceBuf, 16, 16) },
   { type: 'icp5', data: resizePNG(sourceBuf, 32, 32) },
   { type: 'icp6', data: resizePNG(sourceBuf, 64, 64) },
@@ -259,19 +257,12 @@ writeFile('src-tauri/icons/icon.icns', createICNS([
   { type: 'ic10', data: resizePNG(sourceBuf, 1024, 1024) },
 ]));
 
-console.log('Generating public PNG icons...');
-writeFile('public/favicon-16x16.png', resizePNG(sourceBuf, 16, 16));
-writeFile('public/favicon-32x32.png', resizePNG(sourceBuf, 32, 32));
-writeFile('public/apple-touch-icon.png', resizePNG(sourceBuf, 180, 180));
-writeFile('public/android-chrome-192x192.png', resizePNG(sourceBuf, 192, 192));
-writeFile('public/android-chrome-512x512.png', resizePNG(sourceBuf, 512, 512));
-
-console.log('Generating Tauri size icons...');
-writeFile('src-tauri/icons/32x32.png', resizePNG(sourceBuf, 32, 32));
-writeFile('src-tauri/icons/64x64.png', resizePNG(sourceBuf, 64, 64));
-writeFile('src-tauri/icons/128x128.png', resizePNG(sourceBuf, 128, 128));
-writeFile('src-tauri/icons/128x128@2x.png', resizePNG(sourceBuf, 256, 256));
-writeFile('src-tauri/icons/icon.png', resizePNG(sourceBuf, 1024, 1024));
+console.log('Generating Qt desktop icons...');
+writeFile('desktop-native/resources/icons/32x32.png', resizePNG(sourceBuf, 32, 32));
+writeFile('desktop-native/resources/icons/64x64.png', resizePNG(sourceBuf, 64, 64));
+writeFile('desktop-native/resources/icons/128x128.png', resizePNG(sourceBuf, 128, 128));
+writeFile('desktop-native/resources/icons/128x128@2x.png', resizePNG(sourceBuf, 256, 256));
+writeFile('desktop-native/resources/icons/icon.png', resizePNG(sourceBuf, 1024, 1024));
 
 console.log('Generating browser extension icons...');
 writeFile('browser-extension/public/icons/icon-16.png', resizePNG(sourceBuf, 16, 16));
@@ -280,9 +271,6 @@ writeFile('browser-extension/public/icons/icon-48.png', resizePNG(sourceBuf, 48,
 writeFile('browser-extension/public/icons/icon-128.png', resizePNG(sourceBuf, 128, 128));
 writeFile('browser-extension/public/icons/icon.png', resizePNG(sourceBuf, 512, 512));
 writeFile('browser-extension/public/icons/logo.png', resizePNG(sourceBuf, 512, 512));
-
-console.log('Generating src/assets logo...');
-writeFile('src/assets/logo.png', resizePNG(sourceBuf, 512, 512));
 
 console.log('Generating Android launcher icons...');
 for (const [density, size] of [

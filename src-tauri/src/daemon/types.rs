@@ -54,7 +54,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
 use std::time::Instant;
 
-#[derive(Clone, Default, Deserialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct MediaDownloadOptions {
     pub mode: Option<String>,
@@ -191,7 +191,7 @@ pub struct MediaDownloadOptions {
     pub extra_args: Option<String>,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct CreateDownloadBody {
     pub url: Option<String>,
     pub name: Option<String>,
@@ -248,10 +248,12 @@ impl Default for TelegramConfig {
 }
 
 #[derive(Clone)]
-pub struct MediaJob {
+pub struct NativeMediaJob {
     pub task: Task,
-    pub child: Option<u32>,
-    pub args: Vec<String>,
+    pub request: CreateDownloadBody,
+    pub protocol: String,
+    pub cancel_token: Arc<AtomicBool>,
+    pub run_generation: Arc<AtomicU64>,
     pub start_time: Instant,
 }
 

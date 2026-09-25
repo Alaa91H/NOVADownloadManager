@@ -30,7 +30,6 @@ struct CachedUpdateInfo {
 
 pub struct ExternalToolManager {
     ffmpeg: tools::ffmpeg::FfmpegTool,
-    yt_dlp: tools::yt_dlp::YtDlpTool,
     pub registry: Mutex<ToolRegistry>,
     pub resolver: Mutex<CapabilityResolver>,
     update_cache: Mutex<HashMap<ToolId, CachedUpdateInfo>>,
@@ -43,7 +42,6 @@ impl ExternalToolManager {
         let registry = registry::load_registry(data_dir);
         Self {
             ffmpeg: tools::ffmpeg::FfmpegTool,
-            yt_dlp: tools::yt_dlp::YtDlpTool,
             registry: Mutex::new(registry),
             resolver: Mutex::new(CapabilityResolver::new()),
             update_cache: Mutex::new(HashMap::new()),
@@ -55,7 +53,6 @@ impl ExternalToolManager {
     fn tool_for_id(&self, tool_id: ToolId) -> &dyn ExternalTool {
         match tool_id {
             ToolId::Ffmpeg => &self.ffmpeg,
-            ToolId::YtDlp => &self.yt_dlp,
         }
     }
 
@@ -156,7 +153,7 @@ impl ExternalToolManager {
     }
 
     pub fn discover_all(&self) -> Vec<ToolInstallation> {
-        let all_tools: Vec<ToolId> = vec![ToolId::Ffmpeg, ToolId::YtDlp];
+        let all_tools: Vec<ToolId> = vec![ToolId::Ffmpeg];
         all_tools.into_iter().map(|id| self.discover(id)).collect()
     }
 
@@ -345,7 +342,6 @@ impl ExternalToolManager {
     pub fn get_install_dir(&self, tool_id: ToolId, scope: InstallScope) -> Result<PathBuf, String> {
         let tool_dir = match tool_id {
             ToolId::Ffmpeg => "FFmpeg",
-            ToolId::YtDlp => "YT-DLP",
         };
         match scope {
             InstallScope::User => Ok(PathBuf::from(&self.data_dir)
@@ -417,21 +413,12 @@ impl ExternalToolManager {
     }
 
     pub fn all_tool_states(&self) -> Vec<ToolState> {
-        vec![
-            self.tool_state(ToolId::Ffmpeg),
-            self.tool_state(ToolId::YtDlp),
-        ]
+        vec![self.tool_state(ToolId::Ffmpeg)]
     }
 
     pub fn resolve_capability(&self, capability_id: &str) -> capabilities::CapabilityAvailability {
         let resolver = lock_or_err!(self.resolver);
         resolver.resolve_capability(capability_id)
-    }
-
-    #[allow(dead_code)]
-    pub fn ytdlp_path(&self) -> Option<String> {
-        let resolver = lock_or_err!(self.resolver);
-        resolver.tool_path(ToolId::YtDlp)
     }
 
     #[allow(dead_code)]
@@ -471,24 +458,28 @@ mod tests {
                 .to_string(),
             reqwest::Client::new(),
         );
-        let mut cache = manager.update_cache.lock().expect("lock update cache");
-        cache.insert(
-            ToolId::YtDlp,
-            CachedUpdateInfo {
-                checked_at: Instant::now() - FAILED_UPDATE_CHECK_TTL,
-                value: update_info(Some("provider unavailable")),
-            },
-        );
-        cache.insert(
-            ToolId::Ffmpeg,
-            CachedUpdateInfo {
-                checked_at: Instant::now() - SUCCESSFUL_UPDATE_CHECK_TTL,
-                value: update_info(None),
-            },
-        );
-        drop(cache);
+        {
+            let mut cache = manager.update_cache.lock().expect("lock update cache");
+            cache.insert(
+                ToolId::Ffmpeg,
+                CachedUpdateInfo {
+                    checked_at: Instant::now() - FAILED_UPDATE_CHECK_TTL,
+                    value: update_info(Some("provider unavailable")),
+                },
+            );
+        }
+        assert!(manager.cached_update_info(ToolId::Ffmpeg).is_none());
 
-        assert!(manager.cached_update_info(ToolId::YtDlp).is_none());
+        {
+            let mut cache = manager.update_cache.lock().expect("lock update cache");
+            cache.insert(
+                ToolId::Ffmpeg,
+                CachedUpdateInfo {
+                    checked_at: Instant::now() - SUCCESSFUL_UPDATE_CHECK_TTL,
+                    value: update_info(None),
+                },
+            );
+        }
         assert!(manager.cached_update_info(ToolId::Ffmpeg).is_none());
     }
 }

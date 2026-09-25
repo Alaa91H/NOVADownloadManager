@@ -1,131 +1,111 @@
 # Contributing to NOVA Download Manager
 
-Thanks for your interest in improving NOVA. This document covers the development
-setup, the quality gates every change must pass, and the conventions this
-repository follows.
+Thanks for contributing to NOVA. The desktop application is native Qt/QML; the Rust runtime and browser extension are separate runtime surfaces in the same repository.
 
 ## Project layout
 
-NOVA is a single product in one repository. See
-[docs/architecture/PROJECT_STRUCTURE.md](docs/architecture/PROJECT_STRUCTURE.md)
-for the full map. In short:
+- `desktop-native/` — Qt 6/QML/C++ desktop application and native UI tests.
+- `src-tauri/` — headless Rust daemon/runtime and Native Messaging host. Despite the historical directory name, this crate no longer uses Tauri.
+- `browser-extension/` — Manifest V3 companion extension.
+- `android/` and `crates/` — Android foundation and shared Rust cores.
+- `scripts/` — build, security, branding and release helpers.
+- `docs/` — architecture, verification and release documentation.
 
-- `src/` — desktop React interface.
-- `src-tauri/` — Rust daemon, linked `libcurl` engine, Native Messaging host,
-  and NSIS installer configuration.
-- `browser-extension/` — Manifest V3 browser companion (source layout only;
-  policy and docs are centralized at the root and under `docs/`).
-- `scripts/` — build, audit, native-curl, and release helpers.
-- `docs/` — all documentation except the root `README.md`.
+Do not reintroduce the retired React/Vite/Tauri desktop shell.
 
 ## Requirements
 
-- **Node.js 24** (pinned by `.node-version`).
-- **pnpm 11.x** (pinned by `packageManager` in `package.json`).
-- **Rust stable** toolchain.
-- CMake and native C/C++ build tools for production `libcurl` builds.
-- FFmpeg for complete media post-processing.
-- Windows is required to build the final NSIS installer.
+- Qt 6.8+
+- CMake 3.24+
+- C++20 compiler
+- Rust stable
+- Node.js 24 + pnpm 11 for repository tooling/browser extension
 
-## Getting started
+## Native desktop setup
 
 ```bash
-pnpm install
-cp .env.example .env        # optional: adjust local overrides
-pnpm run tauri:dev          # run the desktop app
-# or
-pnpm run dev                # frontend only, against an existing daemon
+cargo build --manifest-path src-tauri/Cargo.toml --release \
+  --bin nova-native-backend --bin nova-native-host
+
+pnpm run native:configure
+pnpm run native:build
+pnpm run native:test
+pnpm run native:check
 ```
 
-For extension development:
+For browser-extension development:
 
 ```bash
+pnpm install --frozen-lockfile
 pnpm --filter nova-browser-extension dev
 ```
 
 ## Quality gates
 
-Run these before opening a pull request. CI (`.github/workflows/ci.yml`)
-enforces the same gates.
+Before opening a pull request, run the gates relevant to your change.
 
-**Root / desktop:**
+Desktop:
 
 ```bash
-pnpm run lint            # tsc --noEmit
-pnpm run lint:eslint
-pnpm test
-pnpm run i18n:validate
-pnpm run audit:final     # capability gating + installer lifecycle + extension sync/release audits
+pnpm run native:check
+pnpm run native:configure
+pnpm run native:build
+pnpm run native:test
 ```
 
-**Browser extension:**
+Rust runtime:
+
+```bash
+pnpm run runtime:check
+pnpm run runtime:test
+```
+
+Browser extension:
 
 ```bash
 pnpm --filter nova-browser-extension typecheck
+pnpm --filter nova-browser-extension test:unit
 pnpm --filter nova-browser-extension verify:offline
 pnpm --filter nova-browser-extension build:zip
 ```
 
-**Rust:**
+Repository checks:
 
 ```bash
-cargo check --manifest-path src-tauri/Cargo.toml
-cargo test  --manifest-path src-tauri/Cargo.toml
+pnpm run security:check
+pnpm run branding:verify
+pnpm run facts:verify
 ```
 
 ## Conventions
 
-- **Formatting** is handled by Prettier (`.prettierrc`) and EditorConfig
-  (`.editorconfig`). Run `pnpm run format` before committing.
-- **No fake capabilities.** User-facing controls must be derived from runtime
-  engine capabilities. Do not surface a protocol, media option, or feature that
-  the linked engine does not actually support — the capability-gating audit will
-  reject it. See
-  [docs/architecture/CAPABILITY_GATING.md](docs/architecture/CAPABILITY_GATING.md).
-- **Single control plane.** Do not reintroduce nested CI, Dependabot, lockfiles,
-  or duplicated repository-policy files inside `browser-extension/`; the
-  `audit:final` gate enforces centralization at the root.
-- **Internationalization.** UI strings go through the i18n system; run
-  `pnpm run i18n:sync` and `pnpm run i18n:validate` after touching translation
-  keys.
-- **Commit messages** should be clear and imperative. Group a logical change
-  into a coherent commit.
+- UI copy belongs in the native English/Arabic localization dictionaries.
+- New native controls must remain keyboard accessible and expose useful accessibility metadata.
+- Engine-dependent controls must be gated by daemon capabilities.
+- Download/task state remains daemon-owned; do not create a second execution source of truth in QML.
+- Keep browser-extension repository policy centralized at the root.
+- Use clear, imperative commit messages and keep a commit focused on one logical change.
 
 ## Pull requests
 
 1. Branch from `main`.
-2. Make the change and ensure all quality gates above pass locally.
-3. Update relevant docs under `docs/` and add a `CHANGELOG.md` entry under
-   `[Unreleased]`.
-4. Open the PR against `main` with a clear description of the change and its
-   motivation.
+2. Run the relevant native/runtime/extension checks.
+3. Update tests and documentation with behavior changes.
+4. Add an `[Unreleased]` CHANGELOG entry for user-visible changes.
+5. Open the pull request against `main`.
 
-### PR Checklist
+Production release tagging additionally requires:
 
-Before requesting review, confirm all of the following:
+```bash
+node desktop-native/scripts/check-parity.mjs --require-complete
+```
 
-- [ ] `pnpm run lint` passes (TypeScript type-check, zero errors)
-- [ ] `pnpm run lint:eslint` passes (zero warnings — `--max-warnings 0`)
-- [ ] `pnpm run format:check` passes (Prettier)
-- [ ] `pnpm test` passes
-- [ ] `pnpm run i18n:validate` passes if translation keys were touched
-- [ ] `pnpm run audit:final` passes
-- [ ] `cargo check --manifest-path src-tauri/Cargo.toml` passes if Rust was touched
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml` passes if Rust was touched
-- [ ] New user-visible features include unit tests
-- [ ] No `console.log` left in production code paths
-- [ ] No hardcoded secrets, credentials, or tokens
-- [ ] `CHANGELOG.md` updated under `[Unreleased]`
-- [ ] `docs/` updated if architectural decisions changed (see [DECISION_LOG.md](docs/architecture/DECISION_LOG.md))
-
-See [docs/quality/CODE_STYLE.md](docs/quality/CODE_STYLE.md) for naming conventions, import order, commit message format, and component guidelines.
+This release gate is stricter than ordinary mainline development.
 
 ## Security
 
-Do not report security vulnerabilities through public issues or pull requests.
-Follow the process in [SECURITY.md](SECURITY.md).
+Do not disclose vulnerabilities in public issues. Follow [SECURITY.md](SECURITY.md).
 
 ## License
 
-By contributing, you agree that your contributions are licensed under the MIT
-License in [LICENSE](LICENSE).
+Contributions are licensed under the repository's [MIT License](LICENSE).

@@ -14,7 +14,7 @@ use crate::daemon::utils::infer_file_type;
 
 use super::common::{
     content_disposition_filename, extract_best_size, extract_sha256_digest, fallback_file_name,
-    header_string, hidden_output, hidden_output_timed, is_cloudflare_challenge,
+    header_string, hidden_output, is_cloudflare_challenge,
     PROBE_HEAD_TIMEOUT_SECS, PROBE_RANGE_TIMEOUT_SECS, PROBE_USER_AGENT,
 };
 use crate::daemon::utils::{parse_meta_refresh_url, refreshed_url};
@@ -774,235 +774,537 @@ pub async fn handle_probe_post(
     probe_url_with_options(&state, url, Some(&body)).await
 }
 
-pub async fn handle_ytdlp_probe(
-    Query(params): Query<HashMap<String, String>>,
-    State(state): State<SharedState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let url = params.get("url").map_or("", |s| s.as_str());
+fn parse_native_media_header_lines(
+    request: &mut nova_media_core::ExtractRequest,
+    headers: &str,
+) -> Result<(), String> {
+    for line in headers.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        let (name, value) = line
+            .split_once(':')
+            .ok_or_else(|| format!("Invalid media header line: {line}"))?;
+        let name = name.trim();
+        let value = value.trim();
+        if name.is_empty() || value.is_empty() {
+            return Err(format!("Invalid media header line: {line}"));
+        }
+        request.headers.insert(name.to_owned(), value.to_owned());
+    }
+    Ok(())
+}
+
+fn native_extract_request_from_body(
+    body: &CreateDownloadBody,
+) -> Result<nova_media_core::ExtractRequest, String> {
+    let url = body.url.as_deref().unwrap_or_default().trim();
     if url.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "Missing url"})),
-        ));
-    }
-    if url.starts_with('-') {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "Invalid url"})),
-        ));
-    }
-    if let Err(e) = crate::daemon::utils::is_safe_target_url(url) {
-        log::warn!("Blocked yt-dlp probe of unsafe URL {url}: {e}");
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": e})),
-        ));
+        return Err("Missing url".to_owned());
     }
 
-    let ytdlp_bin = state.ytdlp_binary();
-    let url2 = url.to_owned();
-    let output = tokio::task::spawn_blocking(move || {
-        hidden_output_timed(
-            &ytdlp_bin,
-            &["--dump-json", "--no-playlist", "--no-warnings", "--", &url2],
-            Duration::from_secs(30),
-        )
-    })
-    .await
-    .map_err(|e| {
-        log::error!("yt-dlp spawn failed: {e}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "Probe failed"})),
-        )
-    })?
-    .map_err(|e| {
-        if e.kind() == std::io::ErrorKind::TimedOut {
-            log::warn!("yt-dlp probe timed out for {url}");
-            return (
-                StatusCode::GATEWAY_TIMEOUT,
-                Json(serde_json::json!({"error": "Probe timed out"})),
+    let mut request = nova_media_core::ExtractRequest::new(url);
+    if let Some(referer) = body.referer.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        request.headers.insert("Referer".to_owned(), referer.to_owned());
+    }
+
+    if let Some(media) = body.media_options.as_ref() {
+        if media.cookies_from_browser.as_deref().is_some_and(|value| !value.trim().is_empty()) {
+            return Err(
+                "Native media resolver does not import browser cookies yet; provide an explicit Cookie header instead"
+                    .to_owned(),
             );
         }
-        log::error!("yt-dlp probe failed: {e}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "Probe failed"})),
-        )
-    })?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        log::error!("yt-dlp probe stderr: {stderr}");
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "Probe failed"})),
-        ));
+        if let Some(cookies) = media.cookies.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+            let looks_like_cookie_header =
+                cookies.contains('=') && !cookies.ends_with(".txt") && !cookies.contains('\\');
+            if !looks_like_cookie_header {
+                return Err(
+                    "Native media resolver does not read cookie files yet; provide cookies as a Cookie header"
+                        .to_owned(),
+                );
+            }
+            request.headers.insert("Cookie".to_owned(), cookies.to_owned());
+        }
+
+        if let Some(user_agent) = media
+            .user_agent
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            request
+                .headers
+                .insert("User-Agent".to_owned(), user_agent.to_owned());
+        }
+        if let Some(referer) = media
+            .referer
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            request
+                .headers
+                .insert("Referer".to_owned(), referer.to_owned());
+        }
+        if let Some(headers) = media
+            .headers
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            parse_native_media_header_lines(&mut request, headers)?;
+        }
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let info: serde_json::Value = serde_json::from_str(&stdout).map_err(|e| {
-        log::error!("yt-dlp probe parse failed: {e}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "Probe failed"})),
-        )
-    })?;
+    request
+        .request_context()
+        .map_err(|error| error.to_string())?;
+    Ok(request)
+}
 
-    let duration = info
-        .get("duration")
-        .and_then(serde_json::Value::as_f64)
-        .unwrap_or(0.0);
-    let hours = (duration / 3600.0).floor();
-    let minutes = ((duration % 3600.0) / 60.0).floor();
-    let seconds = (duration % 60.0).floor();
-    let duration_str = if hours > 0.0 {
-        format!(
-            "{:02}:{:02}:{:02}",
-            hours as u64, minutes as u64, seconds as u64
-        )
-    } else {
-        format!("{:02}:{:02}", minutes as u64, seconds as u64)
+pub(super) fn resolve_native_media_request(
+    request: nova_media_core::ExtractRequest,
+) -> Result<serde_json::Value, String> {
+    use nova_media_core::{
+        resolve_youtube_pending_formats, select_youtube_download_plan, youtube_video_id,
+        ExtractorRegistry, YouTubeExtractor, YouTubePlayerScriptSolver, YouTubeSelectionPolicy,
     };
 
-    Ok(Json(serde_json::json!({
-        "id": info.get("id"),
-        "title": info.get("title"),
-        "duration": duration,
-        "durationString": duration_str,
-        "thumbnail": info.get("thumbnail"),
-        "webpageUrl": info.get("webpage_url"),
-        "formats": info.get("formats"),
-    })))
+    let parsed = request.parsed_url().map_err(|error| error.to_string())?;
+
+    if youtube_video_id(&parsed).is_some() {
+        let extractor = YouTubeExtractor;
+        let mut extraction = extractor
+            .extract_native(&request)
+            .map_err(|error| error.to_string())?;
+
+        let challenge_resolution = if extraction.pending_formats.is_empty() {
+            serde_json::Value::Null
+        } else {
+            let context = request.request_context().map_err(|error| error.to_string())?;
+            let solver = YouTubePlayerScriptSolver;
+            match resolve_youtube_pending_formats(&mut extraction, &context, &solver) {
+                Ok(resolution) => serde_json::json!({
+                    "resolved": resolution,
+                }),
+                Err(error) => serde_json::json!({
+                    "error": error.to_string(),
+                }),
+            }
+        };
+
+        let selection = select_youtube_download_plan(
+            &extraction,
+            YouTubeSelectionPolicy::default(),
+        );
+
+        return Ok(serde_json::json!({
+            "engine": "nova-native",
+            "extractor": "youtube-native",
+            "descriptor": extraction.descriptor,
+            "selection": selection,
+            "challengeResolution": challenge_resolution,
+            "youtube": {
+                "videoId": extraction.video_id,
+                "pendingFormats": extraction.pending_formats,
+                "playerJsUrl": extraction.player_js_url,
+                "visitorData": extraction.visitor_data,
+            }
+        }));
+    }
+
+    let registry = ExtractorRegistry::with_native_defaults();
+    let descriptor = registry.resolve(&request).map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({
+        "engine": "nova-native",
+        "extractor": "registry",
+        "descriptor": descriptor,
+        "selection": serde_json::Value::Null,
+    }))
 }
 
-pub async fn handle_ytdlp_probe_playlist(
-    Query(params): Query<HashMap<String, String>>,
-    State(state): State<SharedState>,
+async fn run_native_media_resolve(
+    request: nova_media_core::ExtractRequest,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let url = params.get("url").map_or("", |s| s.as_str());
+    let url = request.url.clone();
+    if let Err(error) = crate::daemon::utils::is_safe_target_url(&url) {
+        log::warn!("Blocked native media resolve of unsafe URL {url}: {error}");
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": error})),
+        ));
+    }
+
+    let resolve = tokio::task::spawn_blocking(move || resolve_native_media_request(request));
+    let result = tokio::time::timeout(Duration::from_secs(35), resolve)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::GATEWAY_TIMEOUT,
+                Json(serde_json::json!({"error": "Native media resolve timed out"})),
+            )
+        })?
+        .map_err(|error| {
+            log::error!("Native media resolve worker failed: {error}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Native media resolve worker failed"})),
+            )
+        })?
+        .map_err(|error| {
+            log::warn!("Native media resolve failed: {error}");
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({"error": error})),
+            )
+        })?;
+
+    Ok(Json(result))
+}
+
+pub async fn handle_native_media_resolve(
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let url = params.get("url").map_or("", String::as_str).trim();
     if url.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": "Missing url"})),
         ));
     }
-    if url.starts_with('-') {
+    run_native_media_resolve(nova_media_core::ExtractRequest::new(url)).await
+}
+
+pub async fn handle_native_media_resolve_post(
+    Json(body): Json<CreateDownloadBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let request = native_extract_request_from_body(&body).map_err(|error| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": error})),
+        )
+    })?;
+    run_native_media_resolve(request).await
+}
+
+
+pub(super) fn native_media_probe_payload(
+    resolved: &serde_json::Value,
+    url: &str,
+) -> Result<serde_json::Value, String> {
+    let descriptor = resolved
+        .get("descriptor")
+        .ok_or_else(|| "Native media descriptor missing".to_owned())?;
+    let metadata = descriptor.get("metadata").unwrap_or(&serde_json::Value::Null);
+    let duration_millis = metadata
+        .get("duration_millis")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let duration = duration_millis as f64 / 1000.0;
+    let hours = (duration / 3600.0).floor() as u64;
+    let minutes = ((duration % 3600.0) / 60.0).floor() as u64;
+    let seconds = (duration % 60.0).floor() as u64;
+    let duration_string = if hours > 0 {
+        format!("{hours:02}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes:02}:{seconds:02}")
+    };
+
+    let stable_page_url = metadata
+        .get("webpage_url")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(url);
+    let formats = descriptor
+        .get("streams")
+        .and_then(serde_json::Value::as_array)
+        .map(|streams| {
+            streams
+                .iter()
+                .map(|stream| {
+                    let bitrate = stream.get("bitrate_bps").and_then(serde_json::Value::as_u64);
+                    let audio_bitrate = stream
+                        .get("audio_bitrate_bps")
+                        .and_then(serde_json::Value::as_u64);
+                    let video_codec = stream
+                        .get("video_codec")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("none");
+                    let audio_codec = stream
+                        .get("audio_codec")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("none");
+                    let kind = stream
+                        .get("kind")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("");
+                    let has_video =
+                        video_codec != "none" || matches!(kind, "video" | "audio-video");
+                    let has_audio =
+                        audio_codec != "none" || matches!(kind, "audio" | "audio-video");
+                    let height = stream.get("height").and_then(serde_json::Value::as_u64);
+                    let language = stream
+                        .get("language")
+                        .and_then(serde_json::Value::as_str);
+                    let label = height
+                        .map(|value| format!("{value}p"))
+                        .or_else(|| language.map(str::to_owned))
+                        .unwrap_or_else(|| {
+                            if has_video {
+                                "Video".to_owned()
+                            } else if has_audio {
+                                "Audio".to_owned()
+                            } else {
+                                "Media".to_owned()
+                            }
+                        });
+                    let codecs = [video_codec, audio_codec]
+                        .into_iter()
+                        .filter(|codec| *codec != "none" && !codec.is_empty())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let mut format = serde_json::Map::new();
+                    format.insert("url".to_owned(), serde_json::json!(stable_page_url));
+                    format.insert(
+                        "formatId".to_owned(),
+                        serde_json::json!(
+                            stream
+                                .get("id")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or("native")
+                        ),
+                    );
+                    format.insert("label".to_owned(), serde_json::json!(label));
+                    format.insert(
+                        "ext".to_owned(),
+                        serde_json::json!(
+                            stream
+                                .get("container")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or("")
+                        ),
+                    );
+                    format.insert(
+                        "container".to_owned(),
+                        serde_json::json!(
+                            stream
+                                .get("container")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or("")
+                        ),
+                    );
+                    format.insert(
+                        "filesize".to_owned(),
+                        serde_json::json!(
+                            stream
+                                .get("content_length")
+                                .and_then(serde_json::Value::as_u64)
+                                .unwrap_or(0)
+                        ),
+                    );
+                    format.insert(
+                        "filesizeApprox".to_owned(),
+                        serde_json::json!(
+                            stream
+                                .get("content_length")
+                                .and_then(serde_json::Value::as_u64)
+                                .unwrap_or(0)
+                        ),
+                    );
+                    format.insert(
+                        "estimatedSizeBytes".to_owned(),
+                        serde_json::json!(
+                            stream
+                                .get("content_length")
+                                .and_then(serde_json::Value::as_u64)
+                                .unwrap_or(0)
+                        ),
+                    );
+                    format.insert("vcodec".to_owned(), serde_json::json!(video_codec));
+                    format.insert("acodec".to_owned(), serde_json::json!(audio_codec));
+                    format.insert("codecs".to_owned(), serde_json::json!(codecs));
+                    format.insert("hasVideo".to_owned(), serde_json::json!(has_video));
+                    format.insert("hasAudio".to_owned(), serde_json::json!(has_audio));
+
+                    if let Some(value) = stream.get("height").and_then(serde_json::Value::as_u64) {
+                        format.insert("height".to_owned(), serde_json::json!(value));
+                    }
+                    if let Some(value) = stream.get("width").and_then(serde_json::Value::as_u64) {
+                        format.insert("width".to_owned(), serde_json::json!(value));
+                    }
+                    if let Some(value) = language {
+                        format.insert("formatNote".to_owned(), serde_json::json!(value));
+                    }
+                    if let Some(value) = bitrate {
+                        format.insert("tbr".to_owned(), serde_json::json!(value as f64 / 1000.0));
+                        format.insert("vbr".to_owned(), serde_json::json!(value as f64 / 1000.0));
+                    }
+                    if let Some(value) = audio_bitrate {
+                        format.insert("abr".to_owned(), serde_json::json!(value as f64 / 1000.0));
+                    }
+                    if let Some(value) = bitrate.or(audio_bitrate) {
+                        format.insert("bandwidth".to_owned(), serde_json::json!(value));
+                    }
+                    if let Some(value) = stream.get("fps").and_then(serde_json::Value::as_f64) {
+                        format.insert("fps".to_owned(), serde_json::json!(value));
+                    }
+
+                    serde_json::Value::Object(format)
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let id = resolved
+        .pointer("/youtube/videoId")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("native");
+
+    Ok(serde_json::json!({
+        "id": id,
+        "title": metadata.get("title").and_then(serde_json::Value::as_str).unwrap_or("Media"),
+        "duration": duration,
+        "durationString": duration_string,
+        "thumbnail": metadata.get("thumbnail_url").and_then(serde_json::Value::as_str).unwrap_or(""),
+        "webpageUrl": metadata.get("webpage_url").and_then(serde_json::Value::as_str).unwrap_or(url),
+        "uploader": metadata.get("uploader").and_then(serde_json::Value::as_str).unwrap_or(""),
+        "description": metadata.get("description").and_then(serde_json::Value::as_str).unwrap_or(""),
+        "isLive": descriptor.get("is_live").and_then(serde_json::Value::as_bool).unwrap_or(false),
+        "formats": formats,
+        "engine": "nova-media-engine"
+    }))
+}
+
+pub async fn handle_native_media_probe(
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let url = params.get("url").map_or("", String::as_str).trim();
+    if url.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "Invalid url"})),
+            Json(serde_json::json!({"error": "Missing url"})),
         ));
     }
-    if let Err(e) = crate::daemon::utils::is_safe_target_url(url) {
-        log::warn!("Blocked yt-dlp playlist probe of unsafe URL {url}: {e}");
+    if let Err(error) = crate::daemon::utils::is_safe_target_url(url) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": e})),
+            Json(serde_json::json!({"error": error})),
         ));
     }
 
-    let ytdlp_bin = state.ytdlp_binary();
-    let url2 = url.to_owned();
-    let output = tokio::task::spawn_blocking(move || {
-        hidden_output_timed(
-            &ytdlp_bin,
-            &[
-                "--flat-playlist",
-                "--dump-json",
-                "--no-warnings",
-                "--",
-                &url2,
-            ],
-            Duration::from_secs(30),
+    let request = nova_media_core::ExtractRequest::new(url);
+    let resolved = tokio::task::spawn_blocking(move || resolve_native_media_request(request))
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Native media probe worker failed: {error}")})),
+            )
+        })?
+        .map_err(|error| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({"error": error})),
+            )
+        })?;
+
+    let payload = native_media_probe_payload(&resolved, url).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": error})),
         )
+    })?;
+    Ok(Json(payload))
+}
+
+pub async fn handle_native_media_probe_playlist(
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let url = params.get("url").map_or("", String::as_str).trim();
+    if url.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Missing url"})),
+        ));
+    }
+    if let Err(error) = crate::daemon::utils::is_safe_target_url(url) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": error})),
+        ));
+    }
+
+    let request = nova_media_core::ExtractRequest::new(url);
+    let playlist = tokio::task::spawn_blocking(move || {
+        nova_media_core::resolve_youtube_playlist(&request)
+            .map_err(|error| error.to_string())
     })
     .await
-    .map_err(|e| {
-        log::error!("yt-dlp spawn failed: {e}");
+    .map_err(|error| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "Probe failed"})),
+            Json(serde_json::json!({
+                "error": format!("Native playlist worker failed: {error}")
+            })),
         )
     })?
-    .map_err(|e| {
-        if e.kind() == std::io::ErrorKind::TimedOut {
-            log::warn!("yt-dlp playlist probe timed out for {url}");
-            return (
-                StatusCode::GATEWAY_TIMEOUT,
-                Json(serde_json::json!({"error": "Probe timed out"})),
-            );
-        }
-        log::error!("yt-dlp probe failed: {e}");
+    .map_err(|error| {
         (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "Probe failed"})),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({"error": error})),
         )
     })?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        log::error!("yt-dlp probe playlist stderr: {stderr}");
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "Probe failed"})),
-        ));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut entries = Vec::new();
-    let mut playlist_title = "Playlist".to_owned();
-
-    for line in stdout.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        if let Ok(info) = serde_json::from_str::<serde_json::Value>(line) {
-            if playlist_title == "Playlist" {
-                playlist_title = info
-                    .get("playlist_title")
-                    .or(info.get("title"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Playlist")
-                    .to_owned();
-            }
-            let dur = info
-                .get("duration")
-                .and_then(serde_json::Value::as_f64)
-                .unwrap_or(0.0);
-            let hours = (dur / 3600.0).floor();
-            let minutes = ((dur % 3600.0) / 60.0).floor();
-            let seconds = (dur % 60.0).floor();
-            let dur_str = if hours > 0.0 {
-                format!(
-                    "{:02}:{:02}:{:02}",
-                    hours as u64, minutes as u64, seconds as u64
-                )
+    let entries = playlist
+        .entries
+        .into_iter()
+        .map(|entry| {
+            let duration = entry.duration_millis.unwrap_or(0) as f64 / 1000.0;
+            let hours = (duration / 3600.0).floor() as u64;
+            let minutes = ((duration % 3600.0) / 60.0).floor() as u64;
+            let seconds = (duration % 60.0).floor() as u64;
+            let duration_string = if hours > 0 {
+                format!("{hours:02}:{minutes:02}:{seconds:02}")
             } else {
-                format!("{:02}:{:02}", minutes as u64, seconds as u64)
+                format!("{minutes:02}:{seconds:02}")
             };
-            entries.push(serde_json::json!({
-                "id": info.get("id"),
-                "title": info.get("title"),
-                "url": info.get("url").or(info.get("webpage_url")),
-                "duration": dur,
-                "durationString": dur_str,
-                "thumbnail": info.get("thumbnail"),
-                "index": info.get("playlist_index"),
-            }));
-        }
-    }
+            serde_json::json!({
+                "id": entry.id,
+                "title": entry.title,
+                "url": entry.url,
+                "duration": duration,
+                "durationString": duration_string,
+                "thumbnail": entry.thumbnail_url.unwrap_or_default(),
+                "index": entry.index,
+            })
+        })
+        .collect::<Vec<_>>();
 
     Ok(Json(serde_json::json!({
-        "title": playlist_title,
-        "webpageUrl": url,
+        "id": playlist.id,
+        "title": playlist.title,
+        "webpageUrl": playlist.webpage_url,
         "entries": entries,
+        "truncated": playlist.truncated,
+        "engine": "nova-media-engine",
     })))
 }
 
-pub async fn handle_ytdlp_ffmpeg(State(state): State<SharedState>) -> Json<serde_json::Value> {
+pub async fn handle_media_postprocess_status(
+    State(state): State<SharedState>,
+) -> Json<serde_json::Value> {
     let ffmpeg_bin = state.ffmpeg_binary();
-    let available = hidden_output(&ffmpeg_bin, &["-version"]).is_ok_and(|o| o.status.success());
-    Json(serde_json::json!({"available": available, "binary": ffmpeg_bin}))
+    let legacy_host_available =
+        hidden_output(&ffmpeg_bin, &["-version"]).is_ok_and(|output| output.status.success());
+    let native_mp4_mux_available =
+        nova_media_core::native_media_core_capabilities().native_mp4_multitrack_mux;
+    Json(serde_json::json!({
+        "available": legacy_host_available,
+        "engine": "nova-media-postprocess",
+        "backend": "ffmpeg",
+        "nativeMp4MuxAvailable": native_mp4_mux_available,
+        "nativeMp4MuxBackend": "nova-media-core",
+        "legacyHostAvailable": legacy_host_available,
+        "legacyHostBackend": "ffmpeg"
+    }))
 }
 
 #[cfg(test)]
@@ -1021,12 +1323,23 @@ mod bounded_body_tests {
 pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
     router
         .route("/api/probe", get(handle_probe).post(handle_probe_post))
-        .route("/api/ytdlp/probe", get(handle_ytdlp_probe))
         .route(
-            "/api/ytdlp/probe-playlist",
-            get(handle_ytdlp_probe_playlist),
+            "/api/media/resolve",
+            get(handle_native_media_resolve).post(handle_native_media_resolve_post),
         )
-        .route("/api/ytdlp/ffmpeg", get(handle_ytdlp_ffmpeg))
+        .route(
+            "/api/media/native/resolve",
+            get(handle_native_media_resolve).post(handle_native_media_resolve_post),
+        )
+        .route("/api/media/probe", get(handle_native_media_probe))
+        .route(
+            "/api/media/probe-playlist",
+            get(handle_native_media_probe_playlist),
+        )
+        .route(
+            "/api/media/postprocess/status",
+            get(handle_media_postprocess_status),
+        )
 }
 
 #[cfg(test)]

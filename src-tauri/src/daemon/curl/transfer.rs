@@ -21,6 +21,10 @@ use crate::daemon::direct::{FileWriter, RetryPolicy, SegmentPlanner, SegmentRang
 
 use crate::daemon::engine::config::global_config;
 use crate::daemon::engine::policy_engine::{DecisionCategory, DecisionContext};
+use crate::daemon::postprocess::{
+    FfmpegPostProcessor, MediaPostProcessor, MediaSubtitleEmbedRequest, PostProcessError,
+    MEDIA_SUBTITLE_EMBED_OPTION,
+};
 use crate::daemon::state::SharedState;
 use crate::daemon::types::{transition_task_state, CurlJob, Segment, TaskState};
 use crate::daemon::utils::{build_segments, now_str};
@@ -2980,12 +2984,61 @@ fn run_libcurl_download(
     Err(last_error)
 }
 
+fn decode_media_subtitle_embed_plan(
+    value: serde_json::Value,
+    output_path: &Path,
+) -> Result<MediaSubtitleEmbedRequest, String> {
+    let request: MediaSubtitleEmbedRequest = serde_json::from_value(value)
+        .map_err(|error| format!("Invalid native subtitle embedding plan: {error}"))?;
+    if request.source_path != output_path {
+        return Err("Native subtitle embedding plan does not target this task output".to_owned());
+    }
+    if request.subtitles.is_empty() {
+        return Err("Native subtitle embedding plan contains no subtitle inputs".to_owned());
+    }
+
+    let output_parent = output_path.parent().unwrap_or_else(|| Path::new(""));
+    let output_stem = output_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "Native media output has no safe filename stem".to_owned())?;
+    let expected_prefix = format!("{output_stem}.");
+
+    for subtitle in &request.subtitles {
+        if subtitle.path.parent().unwrap_or_else(|| Path::new("")) != output_parent {
+            return Err(
+                "Native subtitle embedding input must stay beside the task output".to_owned(),
+            );
+        }
+        let name = subtitle
+            .path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| "Native subtitle embedding input has no filename".to_owned())?;
+        if !name.starts_with(&expected_prefix) {
+            return Err(
+                "Native subtitle embedding input is not a sidecar of the task output".to_owned(),
+            );
+        }
+    }
+
+    Ok(request)
+}
+
 pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, generation: u64) {
     // C-3 + lifecycle gate: verify generation and enter Verifying BEFORE any
     // terminal side effects. A worker can no longer jump directly from
     // Downloading to Completed, even if a future success path calls this
     // function without running transport-specific checks first.
-    let (output_path, expected_digest, verifying_task) = {
+    let (
+        output_path,
+        expected_digest,
+        subtitle_embed_value,
+        cancel_token,
+        run_generation,
+        verifying_task,
+    ) = {
         let mut jobs = lock_or_err!(state.curl_jobs);
         let Some(job) = jobs.get_mut(id) else {
             return;
@@ -3006,6 +3059,9 @@ pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, g
                 .get("digestSha256")
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_owned),
+            job.direct_options.get(MEDIA_SUBTITLE_EMBED_OPTION).cloned(),
+            job.cancel_token.clone(),
+            job.run_generation.clone(),
             job.task.clone(),
         )
     };
@@ -3056,6 +3112,74 @@ pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, g
     lock_or_err!(state.task_snapshot).insert(id.to_owned(), finalizing_task);
     state.mark_dirty();
 
+    let mut committed_size = final_size;
+    if let Some(value) = subtitle_embed_value {
+        let request = match decode_media_subtitle_embed_plan(value, &output_path) {
+            Ok(request) => request,
+            Err(error) => {
+                log::error!("Task {id}: invalid native subtitle finalization plan: {error}");
+                mark_curl_task_failed(state, id, error, false, generation);
+                return;
+            }
+        };
+
+        let should_cancel = || {
+            run_generation.load(Ordering::Acquire) != generation
+                || cancel_token.load(Ordering::Acquire)
+        };
+        if should_cancel() {
+            if run_generation.load(Ordering::Acquire) == generation {
+                mark_curl_task_failed(
+                    state,
+                    id,
+                    "Native subtitle embedding paused before finalization".to_owned(),
+                    true,
+                    generation,
+                );
+            }
+            return;
+        }
+
+        let postprocessor = FfmpegPostProcessor::new(state.ffmpeg_binary());
+        if !postprocessor.is_available() {
+            mark_curl_task_failed(
+                state,
+                id,
+                "NOVA subtitle post-processor became unavailable during finalization".to_owned(),
+                false,
+                generation,
+            );
+            return;
+        }
+
+        match postprocessor.embed_subtitles(&request, &should_cancel) {
+            Ok(bytes) => {
+                if let Err(error) = validate_completed_output(&output_path, bytes) {
+                    log::error!("Task {id}: embedded output failed completion validation: {error}");
+                    mark_curl_task_failed(state, id, error, false, generation);
+                    return;
+                }
+                committed_size = bytes;
+            }
+            Err(PostProcessError::Cancelled) => {
+                if run_generation.load(Ordering::Acquire) == generation {
+                    mark_curl_task_failed(
+                        state,
+                        id,
+                        "Native subtitle embedding paused during finalization".to_owned(),
+                        true,
+                        generation,
+                    );
+                }
+                return;
+            }
+            Err(error) => {
+                mark_curl_task_failed(state, id, error.to_string(), false, generation);
+                return;
+            }
+        }
+    }
+
     // Validate the terminal transition and build its complete snapshot BEFORE
     // releasing the active slot or incrementing success statistics. If the
     // lifecycle guard ever rejects Finalizing -> Completed, no terminal side
@@ -3074,29 +3198,28 @@ pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, g
             log::error!("Task {id}: final Completed transition rejected: {error}");
             return;
         }
-        job.task.downloaded_bytes = final_size;
-        // A Content-Encoding transfer (gzip/br/deflate) decompresses the body
-        // before writing it, so the real on-disk size may differ from the
-        // probed Content-Length (which describes the compressed wire size).
-        if job.task.size_bytes != final_size {
-            job.task.size_bytes = final_size;
+        job.task.downloaded_bytes = committed_size;
+        // A Content-Encoding transfer or local finalization can change the
+        // durable on-disk size relative to the probed transport representation.
+        if job.task.size_bytes != committed_size {
+            job.task.size_bytes = committed_size;
         }
         job.task.speed_bytes_per_sec = 0;
         job.task.time_left_seconds = 0;
         job.task.error_message = None;
         job.task.segments =
-            build_segments(job.task.connections, job.task.size_bytes, final_size, 0);
+            build_segments(job.task.connections, job.task.size_bytes, committed_size, 0);
         job.task.clone()
     };
 
     log::info!(
-        "Task {id}: completion gate passed (final_size={final_size}, generation={generation})"
+        "Task {id}: completion gate passed (transport_size={final_size}, committed_size={committed_size}, generation={generation})"
     );
     state.priority_queue.stop_download(id);
     {
         if let Ok(mut stats) = state.download_stats.lock() {
             stats.total_completed += 1;
-            stats.total_downloaded_bytes += final_size;
+            stats.total_downloaded_bytes += committed_size;
         }
     }
     lock_or_err!(state.task_snapshot).insert(id.to_owned(), completed_task);
@@ -3651,6 +3774,43 @@ mod tests {
         assert_eq!(std::fs::metadata(&first).unwrap().len(), 0);
         assert_eq!(std::fs::metadata(&second).unwrap().len(), 0);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn subtitle_embed_plan_is_scoped_to_the_task_output_sidecars() {
+        let output = Path::new("/tmp/example.mp4");
+        let plan = crate::daemon::postprocess::MediaSubtitleEmbedRequest {
+            source_path: output.to_path_buf(),
+            subtitles: vec![crate::daemon::postprocess::MediaSubtitleInput {
+                path: Path::new("/tmp/example.en.vtt").to_path_buf(),
+                language: "en".to_owned(),
+            }],
+            cleanup_sidecars: true,
+        };
+        let value = serde_json::to_value(plan).expect("serialize plan");
+        decode_media_subtitle_embed_plan(value, output).expect("valid scoped plan");
+
+        let escaped = crate::daemon::postprocess::MediaSubtitleEmbedRequest {
+            source_path: output.to_path_buf(),
+            subtitles: vec![crate::daemon::postprocess::MediaSubtitleInput {
+                path: Path::new("/tmp/unrelated.en.vtt").to_path_buf(),
+                language: "en".to_owned(),
+            }],
+            cleanup_sidecars: true,
+        };
+        let value = serde_json::to_value(escaped).expect("serialize escaped plan");
+        assert!(decode_media_subtitle_embed_plan(value, output).is_err());
+
+        let wrong_output = crate::daemon::postprocess::MediaSubtitleEmbedRequest {
+            source_path: Path::new("/tmp/other.mp4").to_path_buf(),
+            subtitles: vec![crate::daemon::postprocess::MediaSubtitleInput {
+                path: Path::new("/tmp/example.en.vtt").to_path_buf(),
+                language: "en".to_owned(),
+            }],
+            cleanup_sidecars: true,
+        };
+        let value = serde_json::to_value(wrong_output).expect("serialize wrong-output plan");
+        assert!(decode_media_subtitle_embed_plan(value, output).is_err());
     }
 
     #[test]

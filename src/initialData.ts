@@ -86,6 +86,7 @@ export const initialSettings: AppSettings = {
       compressed: '',
       video: '',
       audio: '',
+      torrent: '',
       other: '',
     },
   },

@@ -1,44 +1,66 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { LANGUAGES } from './i18n-catalog.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
-const read = (relativePath) => readFileSync(resolve(ROOT, relativePath), 'utf8');
 const failures = [];
 
+function read(relativePath) {
+  return readFileSync(resolve(ROOT, relativePath), 'utf8');
+}
+function requireExists(relativePath, label) {
+  if (!existsSync(resolve(ROOT, relativePath))) failures.push(`${label}: missing ${relativePath}`);
+}
+function requireMissing(relativePath, label) {
+  if (existsSync(resolve(ROOT, relativePath))) failures.push(`${label}: retired path still exists: ${relativePath}`);
+}
 function requireContains(relativePath, expected, label) {
-  if (!read(relativePath).includes(expected)) {
-    failures.push(`${label}: expected ${relativePath} to contain ${JSON.stringify(expected)}`);
+  requireExists(relativePath, label);
+  if (existsSync(resolve(ROOT, relativePath)) && !read(relativePath).includes(expected)) {
+    failures.push(`${label}: ${relativePath} missing ${JSON.stringify(expected)}`);
   }
 }
 
-function requireNotContains(relativePath, stale, label) {
-  if (read(relativePath).includes(stale)) {
-    failures.push(`${label}: ${relativePath} must not contain ${JSON.stringify(stale)}`);
+requireExists('desktop-native/CMakeLists.txt', 'Qt desktop project');
+requireExists('desktop-native/qml/Main.qml', 'Qt desktop shell');
+requireExists('src-tauri/src/bin/nova-native-backend.rs', 'Rust daemon binary');
+requireExists('src-tauri/src/bin/nova-native-host.rs', 'Native Messaging host');
+requireExists('browser-extension/src/manifest.json', 'browser extension');
+
+for (const retired of [
+  'src',
+  'index.html',
+  'vite.config.ts',
+  'vitest.config.ts',
+  'playwright.config.ts',
+  'src-tauri/tauri.conf.json',
+  'src-tauri/src/main.rs',
+  'src-tauri/capabilities',
+  'src-tauri/windows',
+]) {
+  requireMissing(retired, 'legacy desktop removal');
+}
+
+requireContains('desktop-native/CMakeLists.txt', 'find_package(Qt6 6.8', 'Qt 6.8 baseline');
+requireContains('desktop-native/qml/Main.qml', 'Qt.FramelessWindowHint', 'approved Qt shell');
+requireContains('src-tauri/Cargo.toml', 'panic = "unwind"', 'Rust release panic strategy');
+requireContains('src-tauri/Cargo.toml', 'overflow-checks = true', 'Rust release overflow checks');
+
+const cargo = read('src-tauri/Cargo.toml');
+for (const retiredDependency of ['tauri =', 'tauri-build', 'tauri-plugin-']) {
+  if (cargo.includes(retiredDependency)) {
+    failures.push(`Rust runtime still contains retired Tauri dependency: ${retiredDependency}`);
   }
 }
 
-const languageCount = LANGUAGES.length;
-const readme = 'README.md';
-
-requireContains(readme, `**${languageCount} interface languages**`, 'README language claim');
-requireContains(readme, `(${languageCount} languages, 6 themes)`, 'README source-tree language claim');
-requireContains(readme, `${languageCount} languages, loaded on demand`, 'README performance language claim');
-requireNotContains(readme, '35 supported interface languages', 'stale README language claim');
-requireNotContains(readme, 'Desktop React interface (35 languages', 'stale README source-tree language claim');
-requireNotContains(readme, 'translation chunks (35 languages', 'stale README performance language claim');
-
-requireContains('src-tauri/Cargo.toml', 'panic = "unwind"', 'Cargo release panic strategy');
-requireContains('src-tauri/Cargo.toml', 'overflow-checks = true', 'Cargo release overflow setting');
-requireContains(readme, 'panic = "unwind"', 'README release panic strategy');
-requireContains(readme, 'overflow-checks = true', 'README release overflow setting');
-requireNotContains(readme, 'panic = "abort"', 'stale README panic strategy');
-requireNotContains(readme, 'overflow-checks = false', 'stale README overflow setting');
+const packageJson = JSON.parse(read('package.json'));
+if (Object.keys(packageJson.dependencies ?? {}).length !== 0) {
+  failures.push('Root package must not contain desktop web runtime dependencies.');
+}
 
 if (failures.length > 0) {
-  console.error('[facts:verify] Project documentation facts are inconsistent:');
-  for (const failure of failures) console.error(`- ${failure}`);
+  console.error('[facts:verify] Native desktop facts are inconsistent:');
+  for (const failure of failures) console.error('- ' + failure);
   process.exit(1);
 }
 
-console.log(`[facts:verify] README matches ${languageCount} catalog languages and the Rust release profile.`);
+console.log('[facts:verify] Qt/QML is the sole desktop UI; Tauri/React desktop paths are absent.');

@@ -24,6 +24,16 @@ pub trait Extractor: Send + Sync + 'static {
     fn id(&self) -> &str;
     fn can_handle(&self, url: &str, has_media_options: bool) -> bool;
     fn validate(&self, body: &CreateDownloadBody) -> Result<(), ValidateError>;
+
+    /// Whether the registry may try a lower-priority extractor after this
+    /// extractor accepts the request shape but rejects its options.
+    ///
+    /// Native first-party engines can disable this to enforce fail-closed
+    /// ownership and prevent silent delegation to compatibility executables.
+    fn allow_validation_fallback(&self) -> bool {
+        true
+    }
+
     fn engine_status(&self, state: &SharedState) -> EngineStatus;
 }
 
@@ -53,9 +63,9 @@ impl ExtractorRegistry {
         self.extractors.clone()
     }
 
-    /// Replaces an extractor in place, preserving the registry order used for
-    /// selection. Managed external-tool installation uses this to activate a
-    /// newly verified yt-dlp binary without a daemon restart.
+    /// Replaces an extractor in place while preserving deterministic
+    /// selection order. This is a generic registry operation and does not
+    /// imply any external media resolver fallback.
     pub fn replace(&mut self, id: &str, replacement: Arc<dyn Extractor>) -> bool {
         if let Some(existing) = self
             .extractors
@@ -72,11 +82,36 @@ impl ExtractorRegistry {
     pub fn validate(&self, body: &CreateDownloadBody) -> Result<Arc<dyn Extractor>, ValidateError> {
         let has_media = body.media_options.is_some();
         let url = body.url.as_deref().unwrap_or("");
-        let extractor = self
-            .select(url, has_media)
-            .ok_or_else(|| ValidateError(format!("No extractor found for URL: {url}")))?;
-        extractor.validate(body)?;
-        Ok(extractor)
+        let mut validation_errors = Vec::new();
+
+        for extractor in self
+            .extractors
+            .iter()
+            .filter(|extractor| extractor.can_handle(url, has_media))
+        {
+            match extractor.validate(body) {
+                Ok(()) => return Ok(extractor.clone()),
+                Err(error) => {
+                    if !extractor.allow_validation_fallback() {
+                        return Err(ValidateError(format!(
+                            "{} rejected the request without fallback: {}",
+                            extractor.id(),
+                            error
+                        )));
+                    }
+                    validation_errors.push(format!("{}: {}", extractor.id(), error));
+                }
+            }
+        }
+
+        if validation_errors.is_empty() {
+            Err(ValidateError(format!("No extractor found for URL: {url}")))
+        } else {
+            Err(ValidateError(format!(
+                "No compatible extractor accepted the request: {}",
+                validation_errors.join("; ")
+            )))
+        }
     }
 }
 
@@ -155,7 +190,7 @@ mod tests {
             media: false,
         }));
         reg.register(Arc::new(MockExtractor {
-            id: "yt-dlp".into(),
+            id: "nova-media-engine".into(),
             media: true,
         }));
 
@@ -174,7 +209,7 @@ mod tests {
             reg.select("https://youtube.com/watch?v=123", true)
                 .unwrap()
                 .id(),
-            "yt-dlp"
+            "nova-media-engine"
         );
     }
 
@@ -214,6 +249,73 @@ mod tests {
         let result = reg.validate(&body);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().id(), "curl");
+    }
+
+    struct RejectingExtractor;
+
+    impl Extractor for RejectingExtractor {
+        fn id(&self) -> &str {
+            "native-first"
+        }
+
+        fn can_handle(&self, _url: &str, has_media: bool) -> bool {
+            has_media
+        }
+
+        fn validate(&self, _body: &CreateDownloadBody) -> Result<(), ValidateError> {
+            Err(ValidateError("unsupported native option".to_owned()))
+        }
+
+        fn allow_validation_fallback(&self) -> bool {
+            false
+        }
+
+        fn engine_status(&self, _state: &SharedState) -> EngineStatus {
+            EngineStatus {
+                id: "native-first".to_owned(),
+                name: "NOVA Media Engine".to_owned(),
+                available: true,
+                version: None,
+                features: Vec::new(),
+            }
+        }
+    }
+
+    #[test]
+    fn registry_fail_closed_extractor_blocks_compatibility_fallback() {
+        let mut reg = ExtractorRegistry::new();
+        reg.register(Arc::new(RejectingExtractor));
+        reg.register(Arc::new(MockExtractor {
+            id: "compatibility-fallback".into(),
+            media: true,
+        }));
+        let body = CreateDownloadBody {
+            url: Some("https://example.com/video".into()),
+            name: None,
+            file_type: None,
+            size_bytes: None,
+            category: None,
+            queue_id: None,
+            connections: None,
+            resumable: None,
+            save_path: None,
+            description: None,
+            referer: None,
+            start_immediately: None,
+            direct_options: None,
+            media_options: Some(Default::default()),
+        };
+
+        let error = match reg.validate(&body) {
+            Ok(selected) => panic!(
+                "fail-closed extractor unexpectedly fell through to {}",
+                selected.id()
+            ),
+            Err(error) => error,
+        };
+        assert!(error
+            .to_string()
+            .contains("native-first rejected the request without fallback"));
     }
 
     #[test]

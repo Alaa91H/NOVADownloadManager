@@ -158,7 +158,7 @@ export const StreamAddRequestSchema = z.object({
   source: z.literal('nova-extension'),
 });
 
-export const YtdlpFormatSchema = z.object({
+export const MediaCatalogFormatSchema = z.object({
   url: z.string().url(),
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
@@ -182,44 +182,44 @@ export const YtdlpFormatSchema = z.object({
   vcodec: z.string().optional(),
   acodec: z.string().optional(),
 });
-export type YtdlpFormat = z.infer<typeof YtdlpFormatSchema>;
+export type MediaCatalogFormat = z.infer<typeof MediaCatalogFormatSchema>;
 
-export const YtdlpProbeResponseSchema = z.object({
+export const MediaProbeResponseSchema = z.object({
   id: z.string().optional(),
   title: z.string().optional(),
   duration: z.number().optional(),
   durationString: z.string().optional(),
   thumbnail: z.string().optional(),
   webpageUrl: z.string().optional(),
-  formats: z.array(YtdlpFormatSchema).default([]),
+  formats: z.array(MediaCatalogFormatSchema).default([]),
   uploader: z.string().optional(),
   uploadDate: z.string().optional(),
   description: z.string().optional(),
   viewCount: z.number().optional(),
   likeCount: z.number().optional(),
 }).passthrough();
-export type YtdlpProbeResponse = z.infer<typeof YtdlpProbeResponseSchema>;
+export type MediaProbeResponse = z.infer<typeof MediaProbeResponseSchema>;
 
-// An explicit user selection from a yt-dlp catalog. The desktop receives the
+// An explicit user selection from a NOVA media catalog. The desktop receives the
 // stable webpage URL and selects the format itself, so expiring CDN URLs never
 // leak from the extension into the download engine.
-export const YtdlpAddRequestSchema = z.object({
+export const MediaAddRequestSchema = z.object({
   idempotencyKey: z.string().min(16),
   url: z.string().url(),
   title: z.string().trim().min(1).max(512).optional(),
   pageUrl: z.string().url().optional(),
   referrer: z.string().url().optional(),
-  selectedFormat: YtdlpFormatSchema,
+  selectedFormat: MediaCatalogFormatSchema,
   // An explicit protected-media signal from a prior managed analysis. The
   // daemon rejects it rather than letting a client present a bypass path.
   drmProtected: z.boolean().default(false),
   source: z.literal('nova-extension'),
 });
-export type YtdlpAddRequest = z.infer<typeof YtdlpAddRequestSchema>;
+export type MediaAddRequest = z.infer<typeof MediaAddRequestSchema>;
 
 // ---------------------------------------------------------------------------
 // Unified Media Analysis (v1/analyze)
-// The extension sends a URL; the daemon probes HTTP + yt-dlp and returns a
+// The extension sends a URL; the daemon probes HTTP + NOVA Media Engine and returns a
 // rich format catalog with metadata for the popup to display.
 // ---------------------------------------------------------------------------
 

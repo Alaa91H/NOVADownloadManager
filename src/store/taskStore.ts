@@ -14,7 +14,9 @@ import { settingsStore } from './settingsStore';
 import { useEngineStore } from './engineStore';
 
 const isNativeEngineTask = (task: DownloadItem) =>
-  task.engine === 'curl' || task.engine === 'libcurl-multi' || task.engine === 'yt-dlp';
+  task.engine === 'curl'
+  || task.engine === 'libcurl-multi'
+  || task.engine === 'nova-media-engine';
 
 // Cap concurrent createDownload calls when importing a large batch so a 10k-URL
 // batch doesn't serialize every round-trip through the daemon one at a time.
@@ -167,9 +169,11 @@ export const taskStore = create<TaskState>()((set, get) => ({
   addTask: async (newItem, downloadImmediately, silent = false, captureReviewId) => {
     const { status: bridgeStatus } = bridgeStore.getState();
     if (bridgeStatus === 'connecting' || bridgeStatus === 'disconnected') {
-      uiStore
-        .getState()
-        .addToast('error', 'NOVA daemon unavailable', 'Start the local NOVA daemon before creating downloads.');
+      if (!silent) {
+        uiStore
+          .getState()
+          .addToast('error', 'NOVA daemon unavailable', 'Start the local NOVA daemon before creating downloads.');
+      }
       return null;
     }
     try {
@@ -181,7 +185,9 @@ export const taskStore = create<TaskState>()((set, get) => ({
       const normalizedTask = {
         ...(captureReviewId
           ? await novaClient.createDownloadFromCaptureReview(captureReviewId, payload)
-          : await novaClient.createDownload(payload)),
+          : newItem.mediaOptions
+            ? await novaClient.createMediaDownload(payload)
+            : await novaClient.createDownload(payload)),
       };
       set((p) => ({ tasks: [normalizedTask, ...p.tasks.filter((item) => item.id !== normalizedTask.id)] }));
       uiStore.getState().setSelectedTaskId(normalizedTask.id);
@@ -194,7 +200,7 @@ export const taskStore = create<TaskState>()((set, get) => ({
           .getState()
           .addToast('success', 'Download added', `"${normalizedTask.name}" was added to the download queue.`);
       }
-      if (downloadImmediately) {
+      if (downloadImmediately && !silent) {
         playAppSound(settingsStore.getState().settings, 'start');
         uiStore.getState().openDialog('activeProgress', normalizedTask);
       }
@@ -203,9 +209,11 @@ export const taskStore = create<TaskState>()((set, get) => ({
       const errorMessage = extractErrorMessage(error, 'Unknown error');
       logger.error('TaskStore', `Failed to create download for ${logSafeUrlOrigin(newItem.url)}: ${errorMessage}`);
       bridgeStore.getState().setIsDegradedMode(true);
-      uiStore
-        .getState()
-        .addToast('error', 'NOVA daemon', extractErrorMessage(error, 'The local download engine rejected the task.'));
+      if (!silent) {
+        uiStore
+          .getState()
+          .addToast('error', 'NOVA daemon', extractErrorMessage(error, 'The local download engine rejected the task.'));
+      }
       return null;
     }
   },

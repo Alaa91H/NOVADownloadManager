@@ -4,7 +4,6 @@ use std::process::{Command, Stdio};
 
 use serde_json::{json, Value};
 
-use crate::daemon::types::MediaDownloadOptions;
 use crate::daemon::utils::hide_command_window;
 
 /// High-level direct-option keys the UI can set. Several overlap semantically
@@ -133,7 +132,7 @@ const CURL_DIRECT_OPTION_KEYS: &[&str] = &[
     "bufferSize",
 ];
 
-const YTDLP_MEDIA_OPTION_KEYS: &[&str] = &[
+const MEDIA_OPTION_KEYS: &[&str] = &[
     "mode",
     "quality",
     "formatSelector",
@@ -373,32 +372,6 @@ fn sorted_vec(set: HashSet<String>) -> Vec<String> {
     let mut values: Vec<String> = set.into_iter().collect();
     values.sort();
     values
-}
-
-fn parse_long_flags(help: &str) -> HashSet<String> {
-    let mut flags = HashSet::new();
-    for token in help.split_whitespace() {
-        for part in token.split(',') {
-            let cleaned = part.trim().trim_matches(|c: char| {
-                matches!(
-                    c,
-                    ',' | ';' | ':' | ')' | '(' | '[' | ']' | '{' | '}' | '<' | '>' | '='
-                )
-            });
-            if cleaned.starts_with("--") && cleaned.len() > 2 {
-                let flag = cleaned
-                    .split(['=', '[', '<', '|', ','])
-                    .next()
-                    .unwrap_or(cleaned)
-                    .trim()
-                    .to_owned();
-                if flag.starts_with("--") {
-                    flags.insert(flag);
-                }
-            }
-        }
-    }
-    flags
 }
 
 fn linked_libcurl_features(version: &::curl::Version) -> Vec<String> {
@@ -1269,188 +1242,107 @@ pub fn validate_curl_direct_options(
     Ok(())
 }
 
-fn collect_ytdlp_help(command: &str) -> String {
-    hidden_output_any(command, &["--help"]).unwrap_or_default()
-}
-
-fn ytdlp_model(ytdlp_bin: &str) -> (bool, String, HashSet<String>) {
-    let version = hidden_output(ytdlp_bin, &["--version"])
-        .map(|v| v.trim().to_owned())
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| "unknown".to_owned());
-    let available = version != "unknown" || executable_available(ytdlp_bin);
-    let flags = if available {
-        parse_long_flags(&collect_ytdlp_help(ytdlp_bin))
-    } else {
-        HashSet::new()
-    };
-    (available, version, flags)
-}
-
-fn ytdlp_key_supported(
-    key: &str,
-    available: bool,
-    flags: &HashSet<String>,
-    ffmpeg_available: bool,
-) -> bool {
-    if !available {
-        return false;
-    }
-    match key {
-        "mode" => true,
-        "quality" | "formatSelector" => flags.contains("--format") || flags.contains("-f"),
-        "formatSort" => flags.contains("--format-sort"),
-        "audioFormat" | "bitrate" => {
-            ffmpeg_available
-                && (flags.contains("--audio-format") || flags.contains("--audio-quality"))
-        }
-        "outputTemplate" => flags.contains("--output") || flags.contains("-o"),
-        "playlist" => flags.contains("--no-playlist") || flags.contains("--yes-playlist"),
-        "playlistItems" => flags.contains("--playlist-items"),
-        "subtitles" => flags.contains("--write-subs"),
-        "subtitleLanguages" => flags.contains("--sub-langs"),
-        "autoSubtitles" => flags.contains("--write-auto-subs"),
-        "embedSubtitles" => ffmpeg_available && flags.contains("--embed-subs"),
-        "writeThumbnail" => flags.contains("--write-thumbnail"),
-        "embedThumbnail" => ffmpeg_available && flags.contains("--embed-thumbnail"),
-        "writeInfoJson" => flags.contains("--write-info-json"),
-        "writeDescription" => flags.contains("--write-description"),
-        "splitChapters" => ffmpeg_available && flags.contains("--split-chapters"),
-        "sponsorBlock" => flags.contains("--sponsorblock-remove"),
-        "proxy" => flags.contains("--proxy"),
-        "sourceAddress" => flags.contains("--source-address"),
-        "cookies" => flags.contains("--cookies") || flags.contains("--add-header"),
-        "cookiesFromBrowser" => flags.contains("--cookies-from-browser"),
-        "userAgent" => flags.contains("--user-agent"),
-        "referer" => flags.contains("--referer"),
-        "headers" => flags.contains("--add-header"),
-        "rateLimitKbs" => flags.contains("--limit-rate"),
-        "retries" => flags.contains("--retries"),
-        "fragmentRetries" => flags.contains("--fragment-retries"),
-        "fileAccessRetries" => flags.contains("--file-access-retries"),
-        "retrySleep" => flags.contains("--retry-sleep"),
-        "concurrentFragments" => flags.contains("--concurrent-fragments"),
-        "sleepIntervalSec" => flags.contains("--sleep-interval"),
-        "maxSleepIntervalSec" => flags.contains("--max-sleep-interval"),
-        "sleepRequestsSec" => flags.contains("--sleep-requests"),
-        "sleepSubtitlesSec" => flags.contains("--sleep-subtitles"),
-        "downloadSections" => flags.contains("--download-sections"),
-        "matchFilter" => flags.contains("--match-filter"),
-        "remuxFormat" => ffmpeg_available && flags.contains("--remux-video"),
-        "ffmpegEnabled" => true,
-        "ffmpegLocation" => flags.contains("--ffmpeg-location"),
-        "externalDownloader" => {
-            flags.contains("--downloader") || flags.contains("--external-downloader")
-        }
-        "externalDownloaderArgs" => {
-            flags.contains("--downloader-args") || flags.contains("--external-downloader-args")
-        }
-        "throttledRateKbs" => flags.contains("--throttled-rate"),
-        "bufferSizeKbs" => flags.contains("--buffer-size"),
-        "httpChunkSize" => flags.contains("--http-chunk-size"),
-        "downloadArchive" => flags.contains("--download-archive"),
-        "breakOnExisting" => flags.contains("--break-on-existing"),
-        "forceOverwrites" => {
-            flags.contains("--force-overwrites") || flags.contains("--no-force-overwrites")
-        }
-        "noOverwrites" => flags.contains("--no-overwrites"),
-        "restrictFilenames" => {
-            flags.contains("--restrict-filenames") || flags.contains("--no-restrict-filenames")
-        }
-        "windowsFilenames" => {
-            flags.contains("--windows-filenames") || flags.contains("--no-windows-filenames")
-        }
-        "trimFilenames" => flags.contains("--trim-filenames"),
-        "writeComments" => flags.contains("--write-comments"),
-        "embedMetadata" => ffmpeg_available && flags.contains("--embed-metadata"),
-        "embedChapters" => ffmpeg_available && flags.contains("--embed-chapters"),
-        "convertThumbnails" => ffmpeg_available && flags.contains("--convert-thumbnails"),
-        "postprocessorArgs" => ffmpeg_available && flags.contains("--postprocessor-args"),
-        "extractorArgs" => flags.contains("--extractor-args"),
-        "compatOptions" => flags.contains("--compat-options"),
-        "liveFromStart" => flags.contains("--live-from-start"),
-        "waitForVideo" => flags.contains("--wait-for-video"),
-        "socketTimeoutSec" => flags.contains("--socket-timeout"),
-        "minFilesize" => flags.contains("--min-filesize"),
-        "maxFilesize" => flags.contains("--max-filesize"),
-        "maxDownloads" => flags.contains("--max-downloads"),
-        "username" => flags.contains("--username"),
-        "password" => flags.contains("--password"),
-        "twoFactor" => flags.contains("--twofactor"),
-        "netrc" => flags.contains("--netrc"),
-        "geoBypassCountry" => flags.contains("--geo-bypass-country"),
-        "extraArgs" => true,
-        _ => false,
-    }
-}
-
-pub fn ytdlp_status_with_context(ytdlp_bin: &str, ffmpeg_available: bool) -> Value {
-    let (available, version, flags) = ytdlp_model(ytdlp_bin);
-    let supported_keys: HashSet<String> = YTDLP_MEDIA_OPTION_KEYS
+pub fn native_media_status() -> Value {
+    let core = nova_media_core::native_media_core_capabilities();
+    let supported_keys: HashSet<String> = crate::daemon::native_media::NATIVE_MEDIA_OPTION_KEYS
         .iter()
-        .filter(|key| ytdlp_key_supported(key, available, &flags, ffmpeg_available))
         .map(|key| (*key).to_owned())
         .collect();
-    let all_keys: HashSet<String> = YTDLP_MEDIA_OPTION_KEYS
+    let all_keys: HashSet<String> = MEDIA_OPTION_KEYS
         .iter()
         .map(|key| (*key).to_owned())
         .collect();
     let unsupported_keys: HashSet<String> = all_keys.difference(&supported_keys).cloned().collect();
-    let mut external_downloaders = vec!["native".to_owned()];
-    if ffmpeg_available {
-        external_downloaders.push("ffmpeg".to_owned());
-    }
-    if available && flags.contains("--downloader") {
-        if executable_available("http") || executable_available("httpie") {
-            external_downloaders.push("httpie".to_owned());
-        }
-        if executable_available("wget") {
-            external_downloaders.push("wget".to_owned());
-        }
-        if executable_available("axel") {
-            external_downloaders.push("axel".to_owned());
-        }
-    }
-    external_downloaders.sort();
-    external_downloaders.dedup();
 
     json!({
-        "id": "yt-dlp",
-        "name": "yt-dlp",
+        "id": "nova-media-engine",
+        "name": "NOVA Media Engine",
         "role": "media-extraction-engine",
-        "available": available,
-        "binary": ytdlp_bin,
-        "version": version,
-        "source": "https://github.com/yt-dlp/yt-dlp",
-        "verifiedBy": ["yt-dlp --version", "yt-dlp --help"],
-        "availableFlags": sorted_vec(flags.clone()),
+        "available": true,
+        "version": env!("CARGO_PKG_VERSION"),
+        "source": "in-process Rust media core",
+        "runtimeCore": "nova-media-core",
+        "verifiedBy": ["compiled native core", "native media unit tests"],
         "capabilities": {
-            "siteExtraction": available,
-            "playlists": ytdlp_key_supported("playlist", available, &flags, ffmpeg_available),
-            "formatSelection": ytdlp_key_supported("formatSelector", available, &flags, ffmpeg_available),
-            "formatSorting": ytdlp_key_supported("formatSort", available, &flags, ffmpeg_available),
-            "audioExtraction": ffmpeg_available && ytdlp_key_supported("audioFormat", available, &flags, ffmpeg_available),
-            "subtitles": ytdlp_key_supported("subtitles", available, &flags, ffmpeg_available),
-            "autoSubtitles": ytdlp_key_supported("autoSubtitles", available, &flags, ffmpeg_available),
-            "thumbnailWriteEmbed": ytdlp_key_supported("writeThumbnail", available, &flags, ffmpeg_available) || ytdlp_key_supported("embedThumbnail", available, &flags, ffmpeg_available),
-            "metadataWriteEmbed": ytdlp_key_supported("embedMetadata", available, &flags, ffmpeg_available),
-            "chapterSplit": ytdlp_key_supported("splitChapters", available, &flags, ffmpeg_available),
-            "sponsorBlock": ytdlp_key_supported("sponsorBlock", available, &flags, ffmpeg_available),
-            "partialSections": ytdlp_key_supported("downloadSections", available, &flags, ffmpeg_available),
-            "concurrentFragments": ytdlp_key_supported("concurrentFragments", available, &flags, ffmpeg_available),
-            "externalDownloader": ytdlp_key_supported("externalDownloader", available, &flags, ffmpeg_available),
-            "cookies": ytdlp_key_supported("cookies", available, &flags, ffmpeg_available),
-            "cookiesFromBrowser": ytdlp_key_supported("cookiesFromBrowser", available, &flags, ffmpeg_available),
-            "proxy": ytdlp_key_supported("proxy", available, &flags, ffmpeg_available),
-            "sourceAddress": ytdlp_key_supported("sourceAddress", available, &flags, ffmpeg_available),
-            "retry": ytdlp_key_supported("retries", available, &flags, ffmpeg_available),
-            "retrySleep": ytdlp_key_supported("retrySleep", available, &flags, ffmpeg_available),
-            "downloadArchive": ytdlp_key_supported("downloadArchive", available, &flags, ffmpeg_available),
-            "liveFromStart": ytdlp_key_supported("liveFromStart", available, &flags, ffmpeg_available),
-            "postProcessing": ffmpeg_available,
+            "siteExtraction": core.youtube_extraction,
+            "nativeResolution": true,
+            "directMediaExecution": core.generic_direct_extraction,
+            "formatSelection": true,
+            "requestContext": true,
+            "requestContextOriginScoped": true,
+            "derivedUrlAuthScoping": ["streams", "hls-segments", "hls-keys", "dash-units", "subtitles", "thumbnails", "youtube-control"],
+            "explicitCookies": true,
+            "hlsParsing": core.hls_parsing,
+            "hlsStaging": core.hls_staging,
+            "hlsLiveRefresh": core.hls_live_refresh,
+            "hlsAes128Cbc": core.hls_aes128_cbc,
+            "dashParsing": core.dash_parsing,
+            "dashStaging": core.dash_staging,
+            "dashLiveRefresh": core.dash_live_refresh,
+            "orderedAssembly": core.ordered_assembly,
+            "youtubeSignatureTransform": core.youtube_signature_transform,
+            "youtubeThrottlingTransform": core.youtube_throttling_transform,
+            "challengeTransformCoverage": "verified-native-subset",
+            "challengeTransformFallback": "fail-closed",
+            "separateTrackStaging": core.separate_track_staging,
+            "nativeMp4MultitrackMux": core.native_mp4_multitrack_mux,
+            "hlsTaskExecution": true,
+            "hlsVodTaskExecution": true,
+            "hlsLiveTaskExecution": true,
+            "dashTaskExecution": true,
+            "dashStaticTaskExecution": true,
+            "dashDynamicTaskExecution": true,
+            "manifestTaskExecutionCoverage": "single-representation-native",
+            "manifestPauseResume": true,
+            "manifestAtomicAssembly": true,
+            "separateTrackTaskExecution": true,
+            "separateTrackMuxBackend": "container-dependent",
+            "separateTrackMuxRequiresPostProcessingReady": false,
+            "nativeMp4MuxBackend": "nova-media-core",
+            "nativeMp4MuxRequiresPostProcessingReady": false,
+            "nonMp4MuxBackend": "nova-media-postprocess",
+            "nonMp4MuxRequiresPostProcessingReady": true,
+            "playlistProbe": true,
+            "playlistPagination": true,
+            "playlists": true,
+            "playlistTaskCreation": "client-batched-native",
+            "formatSorting": true,
+            "formatSelector": "stream-id-or-itag",
+            "audioExtraction": true,
+            "audioExtractionMode": "existing-source-representation",
+            "audioTranscoding": false,
+            "subtitles": true,
+            "autoSubtitles": true,
+            "subtitleEmbed": false,
+            "thumbnailWrite": true,
+            "thumbnailEmbed": false,
+            "thumbnailWriteEmbed": false,
+            "metadataSidecar": true,
+            "descriptionSidecar": true,
+            "metadataWriteEmbed": false,
+            "remuxPolicy": true,
+            "remuxRequiresPostProcessingWhenContainerChanges": true,
+            "chapterMetadata": true,
+            "chapterSplit": false,
+            "sponsorBlock": false,
+            "partialSections": false,
+            "concurrentFragments": false,
+            "externalDownloader": false,
+            "cookies": true,
+            "cookieFile": true,
+            "cookiesFromBrowser": true,
+            "browserCookieSources": crate::daemon::browser_cookies::NATIVE_BROWSER_COOKIE_SOURCES,
+            "browserCookieImportRequiresExplicitSource": true,
+            "chromiumBrowserCookies": "fail-closed-app-bound-encryption",
+            "proxy": false,
+            "sourceAddress": false,
+            "retry": false,
+            "retrySleep": false,
+            "downloadArchive": false,
+            "liveFromStart": false,
+            "postProcessing": false,
             "plugins": false
         },
-        "supportedExternalDownloaders": external_downloaders,
         "supportedMediaOptionKeys": sorted_vec(supported_keys),
         "unsupportedMediaOptionKeys": sorted_vec(unsupported_keys)
     })
@@ -1619,293 +1511,145 @@ pub fn ffmpeg_status(ffmpeg_bin: &str) -> Value {
     })
 }
 
-fn media_option_requested(media: &MediaDownloadOptions, key: &str) -> bool {
-    match key {
-        "mode" => media.mode.as_deref().is_some_and(|v| !v.trim().is_empty()),
-        "quality" => media
-            .quality
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "formatSelector" => media
-            .format_selector
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "formatSort" => media
-            .format_sort
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "audioFormat" => media
-            .audio_format
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "bitrate" => media
-            .bitrate
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "outputTemplate" => media
-            .output_template
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "playlist" => media.playlist.is_some(),
-        "playlistItems" => media
-            .playlist_items
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "subtitles" => media.subtitles == Some(true),
-        "subtitleLanguages" => media
-            .subtitle_languages
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "autoSubtitles" => media.auto_subtitles == Some(true),
-        "embedSubtitles" => media.embed_subtitles == Some(true),
-        "writeThumbnail" => media.write_thumbnail == Some(true),
-        "embedThumbnail" => media.embed_thumbnail == Some(true),
-        "writeInfoJson" => media.write_info_json == Some(true),
-        "writeDescription" => media.write_description == Some(true),
-        "splitChapters" => media.split_chapters == Some(true),
-        "sponsorBlock" => media
-            .sponsor_block
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "proxy" => media.proxy.as_deref().is_some_and(|v| !v.trim().is_empty()),
-        "sourceAddress" => media
-            .source_address
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "cookies" => media
-            .cookies
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "cookiesFromBrowser" => media
-            .cookies_from_browser
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "userAgent" => media
-            .user_agent
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "referer" => media
-            .referer
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "headers" => media
-            .headers
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "rateLimitKbs" => media.rate_limit_kbs.is_some_and(|v| v > 0),
-        "retries" => media.retries.is_some_and(|v| v > 0),
-        "fragmentRetries" => media.fragment_retries.is_some_and(|v| v > 0),
-        "fileAccessRetries" => media.file_access_retries.is_some_and(|v| v > 0),
-        "retrySleep" => media
-            .retry_sleep
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "concurrentFragments" => media.concurrent_fragments.is_some_and(|v| v > 0),
-        "sleepIntervalSec" => media.sleep_interval_sec.is_some_and(|v| v > 0),
-        "maxSleepIntervalSec" => media.max_sleep_interval_sec.is_some_and(|v| v > 0),
-        "sleepRequestsSec" => media.sleep_requests_sec.is_some_and(|v| v > 0),
-        "sleepSubtitlesSec" => media.sleep_subtitles_sec.is_some_and(|v| v > 0),
-        "downloadSections" => media
-            .download_sections
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "matchFilter" => media
-            .match_filter
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "remuxFormat" => media
-            .remux_format
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "ffmpegEnabled" => media.ffmpeg_enabled == Some(true),
-        "ffmpegLocation" => media
-            .ffmpeg_location
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "externalDownloader" => media
-            .external_downloader
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "externalDownloaderArgs" => media
-            .external_downloader_args
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "throttledRateKbs" => media.throttled_rate_kbs.is_some_and(|v| v > 0),
-        "bufferSizeKbs" => media.buffer_size_kbs.is_some_and(|v| v > 0),
-        "httpChunkSize" => media
-            .http_chunk_size
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "downloadArchive" => media
-            .download_archive
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "breakOnExisting" => media.break_on_existing == Some(true),
-        "forceOverwrites" => media.force_overwrites.is_some(),
-        "noOverwrites" => media.no_overwrites == Some(true),
-        "restrictFilenames" => media.restrict_filenames.is_some(),
-        "windowsFilenames" => media.windows_filenames.is_some(),
-        "trimFilenames" => media.trim_filenames.is_some_and(|v| v > 0),
-        "writeComments" => media.write_comments == Some(true),
-        "embedMetadata" => media.embed_metadata.is_some(),
-        "embedChapters" => media.embed_chapters.is_some(),
-        "convertThumbnails" => media
-            .convert_thumbnails
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "postprocessorArgs" => media
-            .postprocessor_args
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "extractorArgs" => media
-            .extractor_args
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "compatOptions" => media
-            .compat_options
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "liveFromStart" => media.live_from_start == Some(true),
-        "waitForVideo" => media
-            .wait_for_video
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "socketTimeoutSec" => media.socket_timeout_sec.is_some_and(|v| v > 0),
-        "minFilesize" => media
-            .min_filesize
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "maxFilesize" => media
-            .max_filesize
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "maxDownloads" => media.max_downloads.is_some_and(|v| v > 0),
-        "username" => media
-            .username
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "password" => media
-            .password
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "twoFactor" => media
-            .two_factor
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "netrc" => media.netrc == Some(true),
-        "geoBypassCountry" => media
-            .geo_bypass_country
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        "extraArgs" => media
-            .extra_args
-            .as_deref()
-            .is_some_and(|v| !v.trim().is_empty()),
-        _ => false,
-    }
+pub fn native_torrent_status() -> Value {
+    let capabilities = nova_torrent_core::TorrentCoreCapabilities::native_foundation();
+    json!({
+        "id": nova_torrent_core::ENGINE_ID,
+        "name": "NOVA Torrent Engine",
+        "role": "torrent-download-engine",
+        // Protocol, discovery, transfer, durable storage, task lifecycle, and
+        // authenticated daemon APIs are connected end-to-end.
+        "available": true,
+        "foundationReady": true,
+        "version": env!("CARGO_PKG_VERSION"),
+        "source": "in-process Rust torrent core",
+        "runtimeCore": "nova-torrent-core",
+        "capabilities": {
+            "metainfoV1": capabilities.metainfo_v1,
+            "magnetBtih": capabilities.magnet_btih,
+            "peerWireV1": capabilities.peer_wire_v1,
+            "pieceScheduler": capabilities.piece_scheduler,
+            "httpTrackerProtocol": capabilities.http_tracker_protocol,
+            "udpTrackerProtocol": capabilities.udp_tracker_protocol,
+            "extensionProtocol": capabilities.extension_protocol,
+            "metadataExchangeProtocol": capabilities.metadata_exchange_protocol,
+            "pexProtocol": capabilities.pex_protocol,
+            "dhtKrpcProtocol": capabilities.dht_krpc_protocol,
+            "fileSelection": capabilities.file_selection,
+            "priorityScheduler": capabilities.priority_scheduler,
+            "durableStorageCore": capabilities.durable_storage,
+            "atomicResumeCheckpoint": capabilities.atomic_resume_checkpoint,
+            "verifiedPieceBitmap": capabilities.verified_piece_bitmap,
+            "startupRecheck": capabilities.startup_recheck,
+            "trackerRedactedStorageManifest": capabilities.tracker_redacted_manifest,
+            "boundaryPieceCache": capabilities.boundary_piece_cache,
+            "ownedTargetTracking": capabilities.owned_file_tracking,
+            "pieceHashVerification": true,
+            "safeMultiFileLayout": true,
+            "httpTrackers": true,
+            "udpTrackers": true,
+            "trackerTierFailover": true,
+            "trackerRetryBackoff": true,
+            "trackerSsrfProtection": true,
+            "dht": true,
+            "dhtPeerDiscovery": true,
+            "dhtAnnouncePeer": true,
+            "dhtServer": true,
+            "dhtIpv4Server": true,
+            "dhtIpv6Server": true,
+            "dhtGetPeersServe": true,
+            "dhtAnnouncePeerServe": true,
+            "dhtTokenRotation": true,
+            "dhtStableNodeId": true,
+            "dhtSharedSocketTransport": true,
+            "dhtPersistentRoutingTable": true,
+            "dhtPeriodicAnnounce": true,
+            "dhtIpv6PeerAnnounce": false,
+            "livePeerTelemetry": true,
+            "liveTrackerTelemetry": true,
+            "telemetryCredentialRedaction": true,
+            "pex": true,
+            "pexReceive": true,
+            "pexServe": true,
+            "pexServePrivateGuard": true,
+            "metadataExchange": true,
+            "metadataRetrieval": true,
+            "metadataServe": true,
+            "metadataServeExactInfoBytes": true,
+            "metadataServePersistentSidecar": true,
+            "magnetResolver": true,
+            "trackerlessMagnetDiscovery": true,
+            "privateDiscoveryGuard": true,
+            "peerTcpTransport": true,
+            "peerHandshakeValidation": true,
+            "peerStateMachine": true,
+            "peerRequestPipeline": true,
+            "peerPieceAssembly": true,
+            "peerPieceHashVerification": true,
+            "peerReputation": true,
+            "peerConnectionLimit": true,
+            "peerTransferExecution": true,
+            "verifiedUploadBlockRead": true,
+            "inboundPeerSession": true,
+            "inboundPeerListener": true,
+            "seeding": true,
+            "uploadBandwidthPolicy": true,
+            "uploadSessionAccounting": true,
+            "trackerLifecycleAnnounce": true,
+            "persistentUploadAccounting": true,
+            "persistentSeedTimeAccounting": true,
+            "seedingPolicyApi": true,
+            "seedingControlsUi": true,
+            "seedRatioLimit": true,
+            "seedTimeLimit": true,
+            "selectedFileTransfer": true,
+            "sparseStorage": true,
+            "fullPreallocation": true,
+            "generationSafePauseResume": true,
+            "sharedBandwidthLimit": true,
+            "novaPriorityQueueIntegration": true,
+            "novaBandwidthPolicyIntegration": true,
+            "restartSchedulerRestore": true,
+            "durableResume": true,
+            "daemonTaskRouting": true,
+            "torrentTaskLifecycleApi": true,
+            "torrentAnalysisApi": true,
+            "torrentMetainfoFileImport": true,
+            "torrentFilePriorityApi": true,
+            "torrentReauthorizationApi": true,
+            "genericMagnetCreateRouting": true
+        }
+    })
 }
 
-pub fn validate_ytdlp_media_options(
-    ytdlp_bin: &str,
-    ffmpeg_bin: &str,
-    media: &MediaDownloadOptions,
-) -> Result<(), String> {
-    let (available, _, flags) = ytdlp_model(ytdlp_bin);
-    if !available {
-        return Err(
-            "yt-dlp is not available. The media extraction engine cannot start.".to_owned(),
-        );
-    }
-    let ffmpeg_ok = media
-        .ffmpeg_location
-        .as_deref()
-        .is_some_and(|path| Path::new(path).exists())
-        || ffmpeg_available(ffmpeg_bin);
-    let mut unsupported = Vec::new();
-    for key in YTDLP_MEDIA_OPTION_KEYS {
-        if media_option_requested(media, key)
-            && !ytdlp_key_supported(key, available, &flags, ffmpeg_ok)
-        {
-            unsupported.push((*key).to_owned());
-        }
-    }
-    if let Some(mode) = media.mode.as_deref().map(str::trim) {
-        if mode.eq_ignore_ascii_case("audio") && !ffmpeg_ok {
-            unsupported.push("mode=audio requires ffmpeg".to_owned());
-        }
-    }
-    if let Some(downloader) = media
-        .external_downloader
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        match downloader {
-            "auto" | "native" => {}
-            "curl" => unsupported
-                .push("The curl external downloader binary is no longer bundled. Use 'native' for yt-dlp's built-in HTTP client.".to_owned()),
-            "ffmpeg" if ffmpeg_ok => {}
-            "ffmpeg" => unsupported
-                .push("externalDownloader=ffmpeg requires an available ffmpeg binary".to_owned()),
-            "httpie" => {
-                if !(flags.contains("--downloader") || flags.contains("--external-downloader")) {
-                    unsupported.push(
-                        "externalDownloader=httpie is not supported by this yt-dlp build".to_owned(),
-                    );
-                } else if !(executable_available("http") || executable_available("httpie")) {
-                    unsupported.push(
-                        "externalDownloader=httpie requires the httpie executable".to_owned(),
-                    );
-                }
-            }
-            "wget" => {
-                if !(flags.contains("--downloader") || flags.contains("--external-downloader")) {
-                    unsupported.push(
-                        "externalDownloader=wget is not supported by this yt-dlp build".to_owned(),
-                    );
-                } else if !executable_available("wget") {
-                    unsupported
-                        .push("externalDownloader=wget requires the wget executable".to_owned());
-                }
-            }
-            "axel" => {
-                if !(flags.contains("--downloader") || flags.contains("--external-downloader")) {
-                    unsupported.push(
-                        "externalDownloader=axel is not supported by this yt-dlp build".to_owned(),
-                    );
-                } else if !executable_available("axel") {
-                    unsupported
-                        .push("externalDownloader=axel requires the axel executable".to_owned());
-                }
-            }
-            other => unsupported.push(format!("externalDownloader={other} is not allowed")),
-        }
-    }
-    if !unsupported.is_empty() {
-        unsupported.sort();
-        unsupported.dedup();
-        return Err(format!(
-            "Unsupported media option(s) for this installed yt-dlp/ffmpeg/curl combination: {}",
-            unsupported.join(", ")
-        ));
-    }
-    Ok(())
-}
-
-pub fn all_engine_status(ytdlp_bin: &str, ffmpeg_bin: &str) -> Value {
+pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
     let curl = curl_status();
+    let media = native_media_status();
     let ffmpeg = ffmpeg_status(ffmpeg_bin);
-    let ffmpeg_available = ffmpeg
+    let torrent = native_torrent_status();
+    let media_extraction_ready = media
         .get("available")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let ytdlp = ytdlp_status_with_context(ytdlp_bin, ffmpeg_available);
-    let ytdlp_available = ytdlp
+    let hls_ready = media
+        .pointer("/capabilities/hlsTaskExecution")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let dash_ready = media
+        .pointer("/capabilities/dashTaskExecution")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let streaming_ready = media_extraction_ready && (hls_ready || dash_ready);
+    let ffmpeg_available = ffmpeg
         .get("available")
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let direct_ready = curl
         .pointer("/capabilities/directDownloads")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let native_mux_ready = media
+        .pointer("/capabilities/nativeMp4MultitrackMux")
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let post_processing_ready = ffmpeg_available;
@@ -1915,24 +1659,37 @@ pub fn all_engine_status(ytdlp_bin: &str, ffmpeg_bin: &str) -> Value {
         .cloned()
         .unwrap_or_default();
     json!({
-        "status": if direct_ready { "connected" } else { "degraded" },
-        "allReady": direct_ready && ytdlp_available && post_processing_ready,
+        "status": if direct_ready && media_extraction_ready && streaming_ready { "connected" } else { "degraded" },
+        "allReady": direct_ready && media_extraction_ready && streaming_ready,
         "directReady": direct_ready,
-        "mediaReady": ytdlp_available,
+        "mediaExtractionReady": media_extraction_ready,
+        "streamingReady": streaming_ready,
+        "nativeMuxReady": native_mux_ready,
         "postProcessingReady": post_processing_ready,
         "directProtocols": direct_protocols,
         "compatibilityMode": "runtime-verified-capabilities",
+        "mediaApi": {
+            "resolve": "/api/media/resolve",
+            "probe": "/api/media/probe",
+            "download": "/api/media/download",
+            "postprocessStatus": "/api/media/postprocess/status"
+        },
         "routing": {
             "directHttpHttpsFtp": if direct_ready { json!("libcurl-multi") } else { Value::Null },
-            "webMediaAndPlaylists": if ytdlp_available { json!("yt-dlp") } else { Value::Null },
-            "mergeRemuxExtractSubtitles": if post_processing_ready { json!("ffmpeg via yt-dlp") } else { Value::Null },
-            "torrentMagnet": Value::Null
+            "mediaExtraction": if media_extraction_ready { json!("nova-media-engine") } else { Value::Null },
+            "streaming": if streaming_ready { json!("nova-media-engine") } else { Value::Null },
+            "nativeMp4Mux": if native_mux_ready { json!("nova-media-engine") } else { Value::Null },
+            "postProcessing": if post_processing_ready { json!("nova-media-postprocess") } else { Value::Null },
+            "webMediaAndPlaylists": if media_extraction_ready { json!("nova-media-engine") } else { Value::Null },
+            "mergeRemuxExtractSubtitles": if post_processing_ready { json!("nova-media-postprocess") } else { Value::Null },
+            "torrentMagnet": json!(nova_torrent_core::ENGINE_ID)
         },
         "engines": {
             "curl": curl,
             "libcurlMulti": curl,
-            "ytdlp": ytdlp,
-            "ffmpeg": ffmpeg
+            "media": media,
+            "ffmpeg": ffmpeg,
+            "torrent": torrent
         }
     })
 }
@@ -1940,6 +1697,99 @@ pub fn all_engine_status(ytdlp_bin: &str, ffmpeg_bin: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_media_status_is_in_process_and_fail_closed() {
+        let status = native_media_status();
+        assert_eq!(status["available"], true);
+        assert_eq!(status["runtimeCore"], "nova-media-core");
+        assert_eq!(status["capabilities"]["directMediaExecution"], true);
+        assert_eq!(status["capabilities"]["hlsStaging"], true);
+        assert_eq!(status["capabilities"]["dashStaging"], true);
+        assert_eq!(status["capabilities"]["youtubeThrottlingTransform"], true);
+        assert_eq!(
+            status["capabilities"]["challengeTransformCoverage"],
+            "verified-native-subset"
+        );
+        assert_eq!(
+            status["capabilities"]["challengeTransformFallback"],
+            "fail-closed"
+        );
+        assert_eq!(status["capabilities"]["hlsTaskExecution"], true);
+        assert_eq!(status["capabilities"]["hlsLiveTaskExecution"], true);
+        assert_eq!(status["capabilities"]["dashTaskExecution"], true);
+        assert_eq!(status["capabilities"]["dashDynamicTaskExecution"], true);
+        assert_eq!(
+            status["capabilities"]["manifestTaskExecutionCoverage"],
+            "single-representation-native"
+        );
+        assert_eq!(status["capabilities"]["separateTrackTaskExecution"], true);
+        assert_eq!(status["capabilities"]["nativeMp4MultitrackMux"], true);
+        assert_eq!(
+            status["capabilities"]["separateTrackMuxRequiresPostProcessingReady"],
+            false
+        );
+        assert_eq!(status["capabilities"]["nativeMp4MuxBackend"], "nova-media-core");
+        assert_eq!(status["capabilities"]["formatSorting"], true);
+        assert_eq!(status["capabilities"]["requestContextOriginScoped"], true);
+        assert_eq!(status["capabilities"]["playlistProbe"], true);
+        assert_eq!(status["capabilities"]["playlistPagination"], true);
+        assert_eq!(status["capabilities"]["playlists"], true);
+        assert_eq!(
+            status["capabilities"]["playlistTaskCreation"],
+            "client-batched-native"
+        );
+        assert_eq!(status["capabilities"]["audioExtraction"], true);
+        assert_eq!(status["capabilities"]["cookiesFromBrowser"], true);
+        assert_eq!(
+            status["capabilities"]["browserCookieImportRequiresExplicitSource"],
+            true
+        );
+        assert_eq!(status["capabilities"]["subtitles"], true);
+        assert_eq!(status["capabilities"]["autoSubtitles"], true);
+        assert_eq!(status["capabilities"]["thumbnailWrite"], true);
+        assert_eq!(status["capabilities"]["metadataSidecar"], true);
+        assert_eq!(status["capabilities"]["chapterMetadata"], true);
+        assert_eq!(status["capabilities"]["remuxPolicy"], true);
+        assert_eq!(
+            status["capabilities"]["audioExtractionMode"],
+            "existing-source-representation"
+        );
+        assert_eq!(
+            status["capabilities"]["separateTrackMuxBackend"],
+            "nova-media-postprocess"
+        );
+        assert_eq!(
+            status["capabilities"]["separateTrackMuxRequiresPostProcessingReady"],
+            true
+        );
+        let supported = status["supportedMediaOptionKeys"]
+            .as_array()
+            .expect("supportedMediaOptionKeys");
+        assert!(supported.iter().any(|value| value == "quality"));
+        assert!(supported.iter().any(|value| value == "formatSelector"));
+        assert!(supported.iter().any(|value| value == "formatSort"));
+        assert!(supported.iter().any(|value| value == "audioFormat"));
+        assert!(supported.iter().any(|value| value == "ffmpegEnabled"));
+        let unsupported = status["unsupportedMediaOptionKeys"]
+            .as_array()
+            .expect("unsupportedMediaOptionKeys");
+        assert!(unsupported.iter().any(|value| value == "proxy"));
+    }
+
+    #[test]
+    fn media_readiness_does_not_depend_on_compatibility_binary() {
+        let status = all_engine_status("__nova_missing_post_processor__");
+        assert_eq!(status["mediaExtractionReady"], true);
+        assert_eq!(status["streamingReady"], true);
+        assert_eq!(status["engines"]["media"]["runtimeCore"], "nova-media-core");
+        assert_eq!(status["postProcessingReady"], false);
+        assert_eq!(status["mediaApi"]["resolve"], "/api/media/resolve");
+        assert_eq!(status["mediaApi"]["download"], "/api/media/download");
+        assert_eq!(status["routing"]["mediaExtraction"], "nova-media-engine");
+        assert_eq!(status["routing"]["streaming"], "nova-media-engine");
+        assert_eq!(status["routing"]["postProcessing"], serde_json::Value::Null);
+    }
 
     #[test]
     fn normalizes_libcurl_build_suffixes() {

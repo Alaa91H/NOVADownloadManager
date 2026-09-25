@@ -1,0 +1,15 @@
+[package]
+name = "nova-torrent-core"
+version = "0.1.0"
+description = "Native BitTorrent protocol and transfer-planning core for NOVA Download Manager"
+authors = ["NOVA"]
+license = "MIT"
+repository = "https://github.com/Alaa91H/NOVADownloadManager"
+edition = "2021"
+rust-version = "1.77"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+sha1 = "0.10"
+thiserror = "2"
+url = "2"

@@ -1,4 +1,4 @@
-export type FileType = 'document' | 'program' | 'compressed' | 'video' | 'audio' | 'other';
+export type FileType = 'document' | 'program' | 'compressed' | 'video' | 'audio' | 'torrent' | 'other';
 
 export type DownloadStatus =
   | 'queued'
@@ -16,7 +16,7 @@ export type DownloadStatus =
   | 'error'
   | 'interrupted';
 
-export type DownloadEngine = 'curl' | 'libcurl-multi' | 'yt-dlp';
+export type DownloadEngine = 'curl' | 'libcurl-multi' | 'yt-dlp' | 'nova-media-engine' | 'native-torrent';
 
 export type ToolbarButtonId = 'newDownload' | 'resume' | 'stop' | 'delete' | 'scheduler';
 export type ToolbarButtonDisplayMode = 'full' | 'iconOnly' | 'labelOnly' | 'hidden';
@@ -397,6 +397,7 @@ export interface AppSettings {
       compressed: string;
       video: string;
       audio: string;
+      torrent: string;
       other: string;
     };
   };

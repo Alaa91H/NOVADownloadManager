@@ -15,7 +15,8 @@ pub use task_api::{
 pub use transfer::start_curl_process;
 
 pub(crate) use args::proxy_resolves_to_internal;
-pub(super) use args::{destination_from_body, requested_connections, safe_value};
+pub(crate) use args::{destination_from_body, requested_connections};
+pub(super) use args::safe_value;
 pub(super) use easy_config::{apply_easy_options, create_easy_for_range_ext, HtmlHeadCapture};
 pub(super) use multi::{drive_multi_wait_perform, drive_multi_wait_perform_until, CurlMultiGuard};
 #[allow(unused_imports)]

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { CandidateSchema } from './candidate.schema';
-import { StreamQualitySchema, YtdlpFormatSchema } from './nova.protocol.v4';
+import { StreamQualitySchema, MediaCatalogFormatSchema } from './nova.protocol.v4';
 import { SettingsSchema } from './settings.schema';
 import { DrmIndicatorsSchema, DrmInfoSchema } from './drm.schema';
 import { SiteRuleSchema } from '../rules/site-rules';
@@ -45,22 +45,22 @@ export const RuntimeMessageSchema = z.discriminatedUnion('type', [
     selectedQuality: StreamQualitySchema.optional(),
   }),
   z.object({
-    type: z.literal('PROBE_YTDLP'),
+    type: z.literal('PROBE_MEDIA'),
     url: z.string().url(),
   }),
-  // Explicit quality selection from a yt-dlp catalog. The page URL, not a
+  // Explicit quality selection from a NOVA media catalog. The page URL, not a
   // short-lived CDN stream URL, is sent to NOVA for managed downloading.
   z.object({
-    type: z.literal('ADD_YTDLP_MEDIA'),
+    type: z.literal('ADD_MEDIA'),
     url: z.string().url(),
     title: z.string().trim().min(1).max(512).optional(),
     pageUrl: z.string().url().optional(),
     referrer: z.string().url().optional(),
-    selectedFormat: YtdlpFormatSchema,
+    selectedFormat: MediaCatalogFormatSchema,
   }),
   // The overlay proves the selected format against a fresh bounded analysis in
   // the background. It submits no media URL or untrusted format object.
-  z.object({ type: z.literal('OVERLAY_ADD_YTDLP_MEDIA'), formatId: z.string().trim().min(1).max(128) }),
+  z.object({ type: z.literal('OVERLAY_ADD_MEDIA'), formatId: z.string().trim().min(1).max(128) }),
   z.object({
     type: z.literal('DOWNLOAD_DIRECT'),
     url: z.string().url(),

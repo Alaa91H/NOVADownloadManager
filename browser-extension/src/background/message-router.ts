@@ -216,7 +216,7 @@ async function dispatchMessage(msg: RuntimeMessage, sender?: RuntimeMessageSende
       return sendOverlaySelected(msg.candidateIds, sender);
     case 'OVERLAY_ANALYZE_MEDIA':
       return analyzeOverlayPage(sender);
-    case 'OVERLAY_ADD_YTDLP_MEDIA':
+    case 'OVERLAY_ADD_MEDIA':
       return addOverlayAnalyzedFormat(msg.formatId, sender);
     case 'PAGE_TAP_CANDIDATES_FOUND':
       return handlePageTapCandidates(msg.events, sender);
@@ -240,10 +240,10 @@ async function dispatchMessage(msg: RuntimeMessage, sender?: RuntimeMessageSende
       return bridgeManager.resolveStream({ manifestType: msg.manifestType, url: msg.url, pageUrl: msg.pageUrl });
     case 'SEND_STREAM':
       return sendStream(msg.candidateId, msg.selectedQualityUrl, msg.selectedQuality);
-    case 'PROBE_YTDLP':
-      return bridgeManager.probeYtdlp(msg.url);
-    case 'ADD_YTDLP_MEDIA':
-      return addYtdlpMedia(msg);
+    case 'PROBE_MEDIA':
+      return bridgeManager.probeMedia(msg.url);
+    case 'ADD_MEDIA':
+      return addMedia(msg);
     case 'ANALYZE_MEDIA':
       return bridgeManager.analyzeMedia(msg.url, msg.context);
     case 'DOWNLOAD_DIRECT':
@@ -401,7 +401,7 @@ async function addOverlayAnalyzedFormat(formatId: string, sender: RuntimeMessage
     });
   }
   const seed = {
-    id: `overlay-ytdlp-${formatId}`,
+    id: `overlay-media-${formatId}`,
     url: pageUrl,
     pageUrl,
     source: 'platform' as const,
@@ -414,7 +414,7 @@ async function addOverlayAnalyzedFormat(formatId: string, sender: RuntimeMessage
     createdAt: new Date().toISOString(),
   };
   const idempotencyKey = await idempotencyKeyFor([seed]);
-  const result = await bridgeManager.addYtdlpMedia({
+  const result = await bridgeManager.addMedia({
     idempotencyKey,
     url: pageUrl,
     pageUrl,
@@ -427,12 +427,12 @@ async function addOverlayAnalyzedFormat(formatId: string, sender: RuntimeMessage
   return result;
 }
 
-async function addYtdlpMedia(message: Extract<RuntimeMessage, { type: 'ADD_YTDLP_MEDIA' }>): Promise<unknown> {
+async function addMedia(message: Extract<RuntimeMessage, { type: 'ADD_MEDIA' }>): Promise<unknown> {
   const format = message.selectedFormat;
   const mediaType: 'video' | 'audio' =
     format.hasVideo === false && format.hasAudio !== false ? 'audio' : 'video';
   const seed = {
-    id: `ytdlp-${format.formatId ?? format.url}`,
+    id: `media-${format.formatId ?? format.url}`,
     url: message.url,
     pageUrl: message.pageUrl,
     source: 'platform' as const,
@@ -445,7 +445,7 @@ async function addYtdlpMedia(message: Extract<RuntimeMessage, { type: 'ADD_YTDLP
     createdAt: new Date().toISOString(),
   };
   const idempotencyKey = await idempotencyKeyFor([seed]);
-  const result = await bridgeManager.addYtdlpMedia({
+  const result = await bridgeManager.addMedia({
     idempotencyKey,
     url: message.url,
     title: message.title,

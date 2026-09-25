@@ -1,24 +1,24 @@
 # Engine Capability Gating
 
-The desktop UI, browser popup, and browser overlay must not expose or send an option unless the active runtime engine reports support for it.
+NOVA must not expose or submit an engine option unless the active Rust runtime reports that it is supported.
 
-## Desktop UI
+## Qt desktop
 
-`src/capabilities/EngineCapabilityContext.tsx` is the single UI source of truth for engine state. It polls `/api/engines/capabilities` and exposes:
+The C++ API layer in `desktop-native/src/api/NovaApiClient.*` owns the frontend capability snapshot exposed to QML. Native workflows query helpers such as direct/media option support before enabling controls or constructing payloads.
 
-- `supportsDirectOption(key)`
-- `supportsMediaOption(key)`
-- `supportsDirectProtocol(urlOrProtocol)`
-- `supportsStreamCandidate(mediaType, source, url)`
-- `sanitizeDirectOptions(options)`
-- `sanitizeMediaOptions(options)`
+Primary UI surfaces include:
 
-All desktop dialogs that create or mutate tasks must pass options through this context before calling the daemon.
+- `AddDownloadDialog.qml`
+- `BatchImportPage.qml`
+- `MediaDownloaderPage.qml`
+- `SettingsPage.qml`
 
-## Browser Extension
+The daemon remains the final validator. UI gating improves correctness and UX but never replaces server-side validation.
 
-The extension keeps protocol and stream gating in its bridge/capability layer. Direct links are sent only when `directProtocols` confirms protocol support from linked libcurl. HLS/DASH manifests are routed to `yt-dlp + FFmpeg`, not to the direct libcurl downloader.
+## Browser extension
+
+The extension consumes daemon capability contracts before sending direct or media candidates. Direct protocols must appear in the runtime `directProtocols` set. HLS/DASH and other adaptive media candidates are routed through supported media workflows rather than treated as ordinary file downloads.
 
 ## Rule
 
-A rejected or unknown capability is not a delayed runtime error; it must be disabled in UI and removed from outbound payloads.
+Unknown, unavailable or rejected capabilities are disabled or removed from outbound payloads. NOVA does not advertise a capability merely because a control exists in QML or the extension.

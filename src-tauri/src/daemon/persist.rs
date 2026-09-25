@@ -10,8 +10,8 @@ use crate::daemon::types::{Task, TaskState};
 use crate::lock_or_err;
 
 /// On-disk snapshot of everything needed to rebuild the download list after
-/// a restart: the last known task state plus the argument vectors needed to
-/// resume interrupted curl and yt-dlp jobs.
+/// a restart: the last known task state plus first-party native/libcurl
+/// recovery context needed to resume interrupted transfers.
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 pub struct PersistedState {
     pub version: u32,
@@ -21,7 +21,17 @@ pub struct PersistedState {
     /// authority and old task snapshots remain backward compatible.
     #[serde(default)]
     pub recovery_checkpoints: HashMap<String, RecoveryCheckpoint>,
-    pub media_args: HashMap<String, Vec<String>>,
+    #[serde(default)]
+    pub native_media_requests: HashMap<String, crate::daemon::types::CreateDownloadBody>,
+    #[serde(default)]
+    pub native_media_protocols: HashMap<String, String>,
+    /// Sanitized torrent sources. Credential-bearing tracker parameters are omitted.
+    #[serde(default)]
+    pub torrent_sources: HashMap<String, String>,
+    /// Durable per-torrent seeding policy and counters.
+    #[serde(default)]
+    pub torrent_seeding:
+        HashMap<String, crate::daemon::torrent_seeding::TorrentSeedingSnapshot>,
     #[serde(default)]
     pub curl_args: HashMap<String, Vec<String>>,
     /// Per-task libcurl options are persisted separately from diagnostic CLI
@@ -183,12 +193,54 @@ pub fn load(data_dir: &str) -> PersistedState {
     }
 }
 
+fn native_request_requires_reauth(
+    request: &crate::daemon::types::CreateDownloadBody,
+) -> bool {
+    request.referer.as_deref().is_some_and(|value| !value.trim().is_empty())
+        || request.media_options.as_ref().is_some_and(|options| {
+            options
+                .cookies
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty())
+                || options
+                    .cookies_from_browser
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty())
+                || options
+                    .headers
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty())
+                || options
+                    .referer
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty())
+        })
+}
+
+fn sanitize_native_media_request(
+    request: &crate::daemon::types::CreateDownloadBody,
+) -> crate::daemon::types::CreateDownloadBody {
+    let mut sanitized = request.clone();
+    sanitized.referer = None;
+    if let Some(options) = sanitized.media_options.as_mut() {
+        options.cookies = None;
+        options.cookies_from_browser = None;
+        options.headers = None;
+        options.referer = None;
+    }
+    sanitized
+}
+
 fn build_snapshot(state: &AppState) -> PersistedState {
-    // Acquire locks in documented order (media_jobs → curl_jobs → task_snapshot)
+    // Acquire locks in documented order
+    // (native_media_jobs → torrent_jobs → curl_jobs → task_snapshot)
     // within a block scope so curl_jobs is released before download_stats,
     // preventing AB-BA deadlock with transfer.rs (which locks download_stats → curl_jobs).
     let (
-        media_args,
+        native_media_requests,
+        native_media_protocols,
+        torrent_sources,
+        torrent_seeding,
         curl_args,
         curl_direct_options,
         resume_requires_reauth,
@@ -196,13 +248,38 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         recovery_checkpoints,
         telegram_last_update_id,
     ) = {
-        let media_jobs = lock_or_err!(state.media_jobs);
+        let native_media_jobs = lock_or_err!(state.native_media_jobs);
+        let torrent_jobs = lock_or_err!(state.torrent_jobs);
         let curl_jobs = lock_or_err!(state.curl_jobs);
         let snapshot = lock_or_err!(state.task_snapshot);
 
-        let media_args: HashMap<String, Vec<String>> = media_jobs
+        let native_media_requests: HashMap<String, crate::daemon::types::CreateDownloadBody> =
+            native_media_jobs
+                .iter()
+                .map(|(id, job)| (id.clone(), sanitize_native_media_request(&job.request)))
+                .collect();
+        let native_media_protocols: HashMap<String, String> = native_media_jobs
             .iter()
-            .map(|(id, job)| (id.clone(), sanitize_resume_args(&job.args)))
+            .map(|(id, job)| (id.clone(), job.protocol.clone()))
+            .collect();
+        let torrent_sources: HashMap<String, String> = torrent_jobs
+            .iter()
+            .filter_map(|(id, job)| {
+                let source = job
+                    .source_uri
+                    .as_deref()
+                    .unwrap_or(job.task.url.as_str());
+                crate::daemon::torrent_task::persistable_magnet_source(source, job.private)
+                    .ok()
+                    .map(|(sanitized, _)| (id.clone(), sanitized))
+            })
+            .collect();
+        let torrent_seeding: HashMap<
+            String,
+            crate::daemon::torrent_seeding::TorrentSeedingSnapshot,
+        > = torrent_jobs
+            .iter()
+            .map(|(id, job)| (id.clone(), job.seeding.snapshot()))
             .collect();
         let curl_args: HashMap<String, Vec<String>> = curl_jobs
             .iter()
@@ -212,19 +289,34 @@ fn build_snapshot(state: &AppState) -> PersistedState {
             .iter()
             .map(|(id, job)| (id.clone(), sanitize_direct_options(&job.direct_options)))
             .collect();
-        let mut resume_requires_reauth: Vec<String> = media_jobs
+        let mut resume_requires_reauth: Vec<String> = curl_jobs
             .iter()
-            .filter(|(_, job)| job.args.iter().any(|arg| is_sensitive_resume_argument(arg)))
+            .filter(|(_, job)| {
+                job.args.iter().any(|arg| is_sensitive_resume_argument(arg))
+                    || direct_options_require_reauth(&job.direct_options)
+            })
             .map(|(id, _)| id.clone())
             .collect();
         resume_requires_reauth.extend(
-            curl_jobs
+            native_media_jobs
                 .iter()
-                .filter(|(_, job)| {
-                    job.args.iter().any(|arg| is_sensitive_resume_argument(arg))
-                        || direct_options_require_reauth(&job.direct_options)
-                })
+                .filter(|(_, job)| native_request_requires_reauth(&job.request))
                 .map(|(id, _)| id.clone()),
+        );
+        resume_requires_reauth.extend(
+            torrent_jobs
+                .iter()
+                .filter_map(|(id, job)| {
+                    let source = job
+                        .source_uri
+                        .as_deref()
+                        .unwrap_or(job.task.url.as_str());
+                    let removed_sensitive =
+                        crate::daemon::torrent_task::persistable_magnet_source(source, job.private)
+                            .map(|(_, removed)| removed)
+                            .unwrap_or(true);
+                    (job.requires_reauth || removed_sensitive).then_some(id.clone())
+                }),
         );
         resume_requires_reauth.sort();
         resume_requires_reauth.dedup();
@@ -250,7 +342,10 @@ fn build_snapshot(state: &AppState) -> PersistedState {
             .collect();
         let telegram_last_update_id = *lock_or_err!(state.telegram_last_update_id);
         (
-            media_args,
+            native_media_requests,
+            native_media_protocols,
+            torrent_sources,
+            torrent_seeding,
             curl_args,
             curl_direct_options,
             resume_requires_reauth,
@@ -263,10 +358,11 @@ fn build_snapshot(state: &AppState) -> PersistedState {
     let stats = lock_or_err!(state.download_stats).clone();
 
     PersistedState {
-        version: 2,
+        version: 3,
         tasks,
         recovery_checkpoints,
-        media_args,
+        native_media_requests,
+        native_media_protocols,
         curl_args,
         curl_direct_options,
         resume_requires_reauth,
@@ -403,7 +499,7 @@ pub fn start_persistence_loop(state: SharedState) {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::daemon::types::{CurlJob, MediaJob, Segment, TelegramConfig};
+    use crate::daemon::types::{CreateDownloadBody, CurlJob, Segment, TelegramConfig};
     use std::sync::atomic::{AtomicBool, AtomicU64};
     use std::sync::{Arc, Mutex, RwLock};
     use std::time::Instant;
@@ -447,7 +543,9 @@ pub(crate) mod tests {
 
     pub(crate) fn test_state(data_dir: &str) -> AppState {
         AppState {
-            media_jobs: Mutex::new(HashMap::new()),
+            native_media_jobs: Mutex::new(HashMap::new()),
+            torrent_jobs: Mutex::new(HashMap::new()),
+            torrent_analyses: Mutex::new(HashMap::new()),
             curl_jobs: Mutex::new(HashMap::new()),
             task_snapshot: Mutex::new(HashMap::new()),
             capture_reviews: Mutex::new(std::collections::VecDeque::new()),
@@ -456,9 +554,7 @@ pub(crate) mod tests {
             http_client: reqwest::Client::new(),
             resource_dir: String::new(),
             data_dir: data_dir.to_string(),
-            ytdlp_bin: RwLock::new(String::new()),
             ffmpeg_bin: RwLock::new(String::new()),
-            bundled_ytdlp_bin: String::new(),
             bundled_ffmpeg_bin: String::new(),
             telegram_last_update_id: Mutex::new(0),
             engine_capabilities_cache: RwLock::new(None),
@@ -468,6 +564,7 @@ pub(crate) mod tests {
             event_bus: crate::daemon::engine::event_bus::EventBus::new_with_capacity(100),
             priority_queue: crate::daemon::engine::priority_queue::PriorityBandwidthQueue::new(0),
             bandwidth_manager: crate::daemon::engine::bandwidth::BandwidthManager::default(),
+            torrent_dht: crate::daemon::torrent_dht::DhtService::load_or_new(data_dir),
             profile_manager: crate::daemon::engine::profiles::ProfileManager::new(),
             rule_engine: crate::daemon::engine::rules::DownloadRuleEngine::new(),
             scheduler: crate::daemon::engine::scheduler::SmartScheduler::new(),
@@ -529,29 +626,7 @@ pub(crate) mod tests {
             .task_snapshot
             .lock()
             .unwrap()
-            .insert("m1".to_string(), sample_task("m1", "yt-dlp", "downloading"));
-        state
-            .task_snapshot
-            .lock()
-            .unwrap()
             .insert("c1".to_string(), sample_task("c1", "curl", "downloading"));
-        state.media_jobs.lock().unwrap().insert(
-            "m1".to_string(),
-            MediaJob {
-                task: sample_task("m1", "yt-dlp", "downloading"),
-                child: None,
-                args: vec![
-                    "-f".to_string(),
-                    "best".to_string(),
-                    "--username".to_string(),
-                    "private-user".to_string(),
-                    "--password=private-password".to_string(),
-                    "--add-header".to_string(),
-                    "Cookie: session=private-cookie".to_string(),
-                ],
-                start_time: Instant::now(),
-            },
-        );
         state.curl_jobs.lock().unwrap().insert(
             "c1".to_string(),
             CurlJob {
@@ -587,8 +662,8 @@ pub(crate) mod tests {
         save(&state);
         let loaded = load(&dir_str);
 
-        assert_eq!(loaded.tasks.len(), 3);
-        assert_eq!(loaded.version, 2);
+        assert_eq!(loaded.tasks.len(), 2);
+        assert_eq!(loaded.version, 3);
         let checkpoint = loaded
             .recovery_checkpoints
             .get("c1")
@@ -602,20 +677,13 @@ pub(crate) mod tests {
             Some("https://example.com/c1")
         );
         assert_eq!(
-            loaded.media_args.get("m1"),
-            Some(&vec!["-f".to_string(), "best".to_string()])
-        );
-        assert_eq!(
             loaded.curl_args.get("c1"),
             Some(&vec![
                 "--location".to_string(),
                 "https://example.com/c1".to_string()
             ])
         );
-        assert_eq!(
-            loaded.resume_requires_reauth,
-            vec!["c1".to_string(), "m1".to_string()]
-        );
+        assert_eq!(loaded.resume_requires_reauth, vec!["c1".to_string()]);
         let direct_options = loaded.curl_direct_options.get("c1").unwrap();
         assert_eq!(
             direct_options.get("retries"),
@@ -636,6 +704,24 @@ pub(crate) mod tests {
             );
         }
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn browser_cookie_source_requires_reauth_and_is_not_persisted() {
+        let request: CreateDownloadBody = serde_json::from_value(serde_json::json!({
+            "url": "https://example.test/video",
+            "mediaOptions": {
+                "cookiesFromBrowser": "firefox:default-release",
+                "userAgent": "NOVA-UA"
+            }
+        }))
+        .expect("native media request");
+
+        assert!(native_request_requires_reauth(&request));
+        let sanitized = sanitize_native_media_request(&request);
+        let media = sanitized.media_options.expect("sanitized media options");
+        assert_eq!(media.cookies_from_browser, None);
+        assert_eq!(media.user_agent.as_deref(), Some("NOVA-UA"));
     }
 
     #[test]

@@ -5,6 +5,7 @@
 
 use curl::easy::{Easy, List};
 use std::cell::{Cell, RefCell};
+use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -13,6 +14,76 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub use nova_core_model::{ByteRange, ResumeAction, MAX_PARALLEL_SEGMENTS};
+
+/// Request metadata shared by direct and media transfers.
+///
+/// Security-sensitive transport headers are owned by the native core and may
+/// not be overridden through `headers`. Referer, cookies and user-agent have
+/// explicit fields so media extractors can pass browser-compatible request
+/// context without constructing raw command-line arguments.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct HttpRequestContext {
+    pub headers: BTreeMap<String, String>,
+    pub referer: Option<String>,
+    pub cookie_header: Option<String>,
+    pub user_agent: Option<String>,
+}
+
+impl HttpRequestContext {
+    pub fn validate(&self) -> Result<(), TransportError> {
+        for (name, value) in &self.headers {
+            if name.is_empty()
+                || !name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            {
+                return Err(TransportError::InvalidRequestContext {
+                    message: format!("invalid HTTP header name '{name}'"),
+                });
+            }
+
+            let normalized = name.to_ascii_lowercase();
+            if matches!(
+                normalized.as_str(),
+                "host"
+                    | "content-length"
+                    | "transfer-encoding"
+                    | "range"
+                    | "if-range"
+                    | "accept-encoding"
+                    | "connection"
+                    | "user-agent"
+                    | "referer"
+                    | "cookie"
+            ) {
+                return Err(TransportError::InvalidRequestContext {
+                    message: format!("HTTP header '{name}' is owned by the native transport"),
+                });
+            }
+            validate_request_value(value, "header value")?;
+        }
+
+        if let Some(value) = &self.referer {
+            validate_request_value(value, "referer")?;
+        }
+        if let Some(value) = &self.cookie_header {
+            validate_request_value(value, "cookie header")?;
+        }
+        if let Some(value) = &self.user_agent {
+            validate_request_value(value, "user-agent")?;
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HttpBufferResponse {
+    pub response_status: u16,
+    pub effective_url: String,
+    pub content_type: Option<String>,
+    pub body: Vec<u8>,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HttpResourceProbe {
@@ -92,6 +163,10 @@ pub enum TransportError {
     InvalidRange { start: u64, end: u64 },
     #[error("native HTTP range response rejected: {message}")]
     RangeResponseRejected { message: String },
+    #[error("invalid native HTTP request context: {message}")]
+    InvalidRequestContext { message: String },
+    #[error("native HTTP response exceeded the in-memory limit of {limit_bytes} bytes")]
+    ResponseTooLarge { limit_bytes: usize },
     #[error("native transfer paused")]
     Paused,
     #[error("native transfer cancelled")]
@@ -102,6 +177,65 @@ fn transport_error(error: curl::Error) -> TransportError {
     TransportError::RequestFailed {
         message: error.to_string(),
     }
+}
+
+fn validate_request_value(value: &str, label: &str) -> Result<(), TransportError> {
+    if value
+        .chars()
+        .any(|character| matches!(character, '\r' | '\n' | '\0'))
+    {
+        return Err(TransportError::InvalidRequestContext {
+            message: format!("{label} contains a forbidden control character"),
+        });
+    }
+    Ok(())
+}
+
+fn apply_request_context(
+    easy: &mut Easy,
+    context: &HttpRequestContext,
+    extra_headers: &[(&str, &str)],
+) -> Result<(), TransportError> {
+    context.validate()?;
+
+    easy.useragent(
+        context
+            .user_agent
+            .as_deref()
+            .unwrap_or(concat!("NOVA/", env!("CARGO_PKG_VERSION"))),
+    )
+    .map_err(transport_error)?;
+
+    let has_headers = !context.headers.is_empty()
+        || context.referer.is_some()
+        || context.cookie_header.is_some()
+        || !extra_headers.is_empty();
+    if has_headers {
+        let mut headers = List::new();
+        for (name, value) in &context.headers {
+            headers
+                .append(&format!("{name}: {value}"))
+                .map_err(transport_error)?;
+        }
+        if let Some(referer) = &context.referer {
+            headers
+                .append(&format!("Referer: {referer}"))
+                .map_err(transport_error)?;
+        }
+        if let Some(cookie) = &context.cookie_header {
+            headers
+                .append(&format!("Cookie: {cookie}"))
+                .map_err(transport_error)?;
+        }
+        for (name, value) in extra_headers {
+            headers
+                .append(&format!("{name}: {value}"))
+                .map_err(transport_error)?;
+        }
+        easy.http_headers(headers).map_err(transport_error)?;
+    }
+
+    Ok(())
 }
 
 fn ensure_http_url(url: &str) -> Result<(), TransportError> {
@@ -276,6 +410,13 @@ pub fn plan_http_resume(
 
 /// Probe HTTP metadata using NOVA's native libcurl transport.
 pub fn probe_http_resource(url: &str) -> Result<HttpResourceProbe, TransportError> {
+    probe_http_resource_with_context(url, &HttpRequestContext::default())
+}
+
+pub fn probe_http_resource_with_context(
+    url: &str,
+    context: &HttpRequestContext,
+) -> Result<HttpResourceProbe, TransportError> {
     ensure_http_url(url)?;
     let mut easy = Easy::new();
     easy.url(url).map_err(transport_error)?;
@@ -286,8 +427,7 @@ pub fn probe_http_resource(url: &str) -> Result<HttpResourceProbe, TransportErro
         .map_err(transport_error)?;
     easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
     easy.accept_encoding("identity").map_err(transport_error)?;
-    easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
-        .map_err(transport_error)?;
+    apply_request_context(&mut easy, context, &[])?;
 
     // libcurl reports headers for every redirect/auth response. Keep only the
     // validator set belonging to the final response block.
@@ -346,6 +486,213 @@ pub fn probe_http_resource(url: &str) -> Result<HttpResourceProbe, TransportErro
     })
 }
 
+/// Fetch a small HTTP(S) response into memory with the same native request
+/// context used by media transfers.
+///
+/// This is intended for manifests, metadata and small control resources. The
+/// caller must provide a hard byte ceiling; exceeding it aborts the transfer.
+pub fn fetch_http_bytes_with_context(
+    url: &str,
+    context: &HttpRequestContext,
+    max_bytes: usize,
+) -> Result<HttpBufferResponse, TransportError> {
+    ensure_http_url(url)?;
+    if max_bytes == 0 {
+        return Err(TransportError::InvalidRequestContext {
+            message: "in-memory response limit must be greater than zero".to_owned(),
+        });
+    }
+
+    let mut easy = Easy::new();
+    easy.url(url).map_err(transport_error)?;
+    easy.follow_location(true).map_err(transport_error)?;
+    easy.max_redirections(10).map_err(transport_error)?;
+    easy.connect_timeout(Duration::from_secs(15))
+        .map_err(transport_error)?;
+    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
+    easy.accept_encoding("identity").map_err(transport_error)?;
+    apply_request_context(&mut easy, context, &[])?;
+
+    let header_status = Cell::new(None::<u16>);
+    let headers_validated = Cell::new(false);
+    let content_type = RefCell::new(None::<String>);
+    let body = RefCell::new(Vec::<u8>::new());
+    let exceeded_limit = Cell::new(false);
+
+    let perform_result = {
+        let mut transfer = easy.transfer();
+        transfer
+            .header_function(|header| {
+                if let Some(status) = parse_http_status(header) {
+                    header_status.set(Some(status));
+                    headers_validated.set(false);
+                    content_type.replace(None);
+                } else if header == b"\r\n" || header == b"\n" {
+                    headers_validated.set(
+                        header_status
+                            .get()
+                            .is_some_and(|status| (200..300).contains(&status)),
+                    );
+                } else if let Some(value) = parse_header_value(header, "content-type") {
+                    content_type.replace(Some(value));
+                }
+                true
+            })
+            .map_err(transport_error)?;
+        transfer
+            .write_function(|data| {
+                if !headers_validated.get() {
+                    return Ok(data.len());
+                }
+                let mut output = body.borrow_mut();
+                if output.len().saturating_add(data.len()) > max_bytes {
+                    exceeded_limit.set(true);
+                    return Ok(0);
+                }
+                output.extend_from_slice(data);
+                Ok(data.len())
+            })
+            .map_err(transport_error)?;
+        transfer.perform()
+    };
+
+    if exceeded_limit.get() {
+        return Err(TransportError::ResponseTooLarge {
+            limit_bytes: max_bytes,
+        });
+    }
+    perform_result.map_err(transport_error)?;
+
+    let status = easy.response_code().map_err(transport_error)?;
+    let response_status =
+        u16::try_from(status).map_err(|_| TransportError::InvalidStatus { status })?;
+    if !(200..300).contains(&response_status) {
+        return Err(TransportError::RequestFailed {
+            message: format!("native HTTP fetch returned status {response_status}"),
+        });
+    }
+    let effective_url = easy
+        .effective_url()
+        .map_err(transport_error)?
+        .unwrap_or(url)
+        .to_owned();
+
+    Ok(HttpBufferResponse {
+        response_status,
+        effective_url,
+        content_type: content_type.into_inner(),
+        body: body.into_inner(),
+    })
+}
+
+/// POST a bounded request body and collect a bounded response entirely
+/// through NOVA's native libcurl transport.
+///
+/// This is intended for media metadata/control APIs such as site-native player
+/// endpoints. Large payloads belong in the streaming transfer path instead.
+pub fn post_http_bytes_with_context(
+    url: &str,
+    context: &HttpRequestContext,
+    content_type: &str,
+    request_body: &[u8],
+    max_response_bytes: usize,
+) -> Result<HttpBufferResponse, TransportError> {
+    ensure_http_url(url)?;
+    if max_response_bytes == 0 {
+        return Err(TransportError::InvalidRequestContext {
+            message: "in-memory response limit must be greater than zero".to_owned(),
+        });
+    }
+    validate_request_value(content_type, "content-type")?;
+
+    let mut easy = Easy::new();
+    easy.url(url).map_err(transport_error)?;
+    easy.follow_location(true).map_err(transport_error)?;
+    easy.max_redirections(10).map_err(transport_error)?;
+    easy.connect_timeout(Duration::from_secs(15))
+        .map_err(transport_error)?;
+    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
+    easy.accept_encoding("identity").map_err(transport_error)?;
+    easy.post(true).map_err(transport_error)?;
+    easy.post_fields_copy(request_body).map_err(transport_error)?;
+    apply_request_context(
+        &mut easy,
+        context,
+        &[("Content-Type", content_type)],
+    )?;
+
+    let header_status = Cell::new(None::<u16>);
+    let headers_validated = Cell::new(false);
+    let response_content_type = RefCell::new(None::<String>);
+    let body = RefCell::new(Vec::<u8>::new());
+    let exceeded_limit = Cell::new(false);
+
+    let perform_result = {
+        let mut transfer = easy.transfer();
+        transfer
+            .header_function(|header| {
+                if let Some(status) = parse_http_status(header) {
+                    header_status.set(Some(status));
+                    headers_validated.set(false);
+                    response_content_type.replace(None);
+                } else if header == b"\r\n" || header == b"\n" {
+                    headers_validated.set(
+                        header_status
+                            .get()
+                            .is_some_and(|status| (200..300).contains(&status)),
+                    );
+                } else if let Some(value) = parse_header_value(header, "content-type") {
+                    response_content_type.replace(Some(value));
+                }
+                true
+            })
+            .map_err(transport_error)?;
+        transfer
+            .write_function(|data| {
+                if !headers_validated.get() {
+                    return Ok(data.len());
+                }
+                let mut output = body.borrow_mut();
+                if output.len().saturating_add(data.len()) > max_response_bytes {
+                    exceeded_limit.set(true);
+                    return Ok(0);
+                }
+                output.extend_from_slice(data);
+                Ok(data.len())
+            })
+            .map_err(transport_error)?;
+        transfer.perform()
+    };
+
+    if exceeded_limit.get() {
+        return Err(TransportError::ResponseTooLarge {
+            limit_bytes: max_response_bytes,
+        });
+    }
+    perform_result.map_err(transport_error)?;
+
+    let status = easy.response_code().map_err(transport_error)?;
+    let response_status =
+        u16::try_from(status).map_err(|_| TransportError::InvalidStatus { status })?;
+    if !(200..300).contains(&response_status) {
+        return Err(TransportError::RequestFailed {
+            message: format!("native HTTP POST returned status {response_status}"),
+        });
+    }
+    let effective_url = easy
+        .effective_url()
+        .map_err(transport_error)?
+        .unwrap_or(url)
+        .to_owned();
+
+    Ok(HttpBufferResponse {
+        response_status,
+        effective_url,
+        content_type: response_content_type.into_inner(),
+        body: body.into_inner(),
+    })
+}
+
 /// Perform and validate one inclusive HTTP byte-range GET.
 ///
 /// The sink receives bytes only after the response proves HTTP 206 and the
@@ -356,7 +703,30 @@ pub fn stream_http_range<W: Write>(
     end: u64,
     sink: &mut W,
 ) -> Result<HttpRangeProbe, TransportError> {
-    stream_http_range_controlled(url, start, end, sink, || TransferControl::Continue)
+    stream_http_range_with_context(
+        url,
+        start,
+        end,
+        sink,
+        &HttpRequestContext::default(),
+    )
+}
+
+pub fn stream_http_range_with_context<W: Write>(
+    url: &str,
+    start: u64,
+    end: u64,
+    sink: &mut W,
+    context: &HttpRequestContext,
+) -> Result<HttpRangeProbe, TransportError> {
+    stream_http_range_controlled_with_context(
+        url,
+        start,
+        end,
+        sink,
+        context,
+        || TransferControl::Continue,
+    )
 }
 
 pub fn stream_http_range_controlled<W: Write, F: FnMut() -> TransferControl>(
@@ -366,7 +736,28 @@ pub fn stream_http_range_controlled<W: Write, F: FnMut() -> TransferControl>(
     sink: &mut W,
     control: F,
 ) -> Result<HttpRangeProbe, TransportError> {
-    stream_http_range_controlled_with_validator(url, start, end, sink, None, control)
+    stream_http_range_controlled_with_context(
+        url,
+        start,
+        end,
+        sink,
+        &HttpRequestContext::default(),
+        control,
+    )
+}
+
+pub fn stream_http_range_controlled_with_context<
+    W: Write,
+    F: FnMut() -> TransferControl,
+>(
+    url: &str,
+    start: u64,
+    end: u64,
+    sink: &mut W,
+    context: &HttpRequestContext,
+    control: F,
+) -> Result<HttpRangeProbe, TransportError> {
+    stream_http_range_controlled_with_validator(url, start, end, sink, context, None, control)
 }
 
 fn stream_http_range_controlled_with_validator<W: Write, F: FnMut() -> TransferControl>(
@@ -374,6 +765,7 @@ fn stream_http_range_controlled_with_validator<W: Write, F: FnMut() -> TransferC
     start: u64,
     end: u64,
     sink: &mut W,
+    context: &HttpRequestContext,
     if_range: Option<&str>,
     mut control: F,
 ) -> Result<HttpRangeProbe, TransportError> {
@@ -393,17 +785,13 @@ fn stream_http_range_controlled_with_validator<W: Write, F: FnMut() -> TransferC
     easy.connect_timeout(Duration::from_secs(15))
         .map_err(transport_error)?;
     easy.accept_encoding("identity").map_err(transport_error)?;
-    easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
-        .map_err(transport_error)?;
     easy.range(&format!("{start}-{end}"))
         .map_err(transport_error)?;
+    let mut extra_headers = Vec::new();
     if let Some(validator) = if_range {
-        let mut headers = List::new();
-        headers
-            .append(&format!("If-Range: {validator}"))
-            .map_err(transport_error)?;
-        easy.http_headers(headers).map_err(transport_error)?;
+        extra_headers.push(("If-Range", validator));
     }
+    apply_request_context(&mut easy, context, &extra_headers)?;
     easy.progress(true).map_err(transport_error)?;
 
     let header_status = Cell::new(None::<u16>);
@@ -550,9 +938,48 @@ pub struct HttpFileTransfer {
     pub effective_url: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HttpBodyTransfer {
+    pub response_status: u16,
+    pub bytes_received: u64,
+    pub effective_url: String,
+}
+
+pub fn stream_http_body_with_context<W: Write>(
+    url: &str,
+    sink: &mut W,
+    context: &HttpRequestContext,
+) -> Result<HttpBodyTransfer, TransportError> {
+    stream_http_body_controlled_with_context(
+        url,
+        sink,
+        context,
+        || TransferControl::Continue,
+    )
+}
+
+pub fn stream_http_body_controlled_with_context<
+    W: Write,
+    F: FnMut() -> TransferControl,
+>(
+    url: &str,
+    sink: &mut W,
+    context: &HttpRequestContext,
+    control: F,
+) -> Result<HttpBodyTransfer, TransportError> {
+    let (response_status, bytes_received, effective_url) =
+        stream_http_full_controlled(url, sink, context, control)?;
+    Ok(HttpBodyTransfer {
+        response_status,
+        bytes_received,
+        effective_url,
+    })
+}
+
 fn stream_http_full_controlled<W: Write, F: FnMut() -> TransferControl>(
     url: &str,
     sink: &mut W,
+    context: &HttpRequestContext,
     mut control: F,
 ) -> Result<(u16, u64, String), TransportError> {
     ensure_http_url(url)?;
@@ -563,8 +990,7 @@ fn stream_http_full_controlled<W: Write, F: FnMut() -> TransferControl>(
     easy.connect_timeout(Duration::from_secs(15))
         .map_err(transport_error)?;
     easy.accept_encoding("identity").map_err(transport_error)?;
-    easy.useragent(concat!("NOVA/", env!("CARGO_PKG_VERSION")))
-        .map_err(transport_error)?;
+    apply_request_context(&mut easy, context, &[])?;
     easy.progress(true).map_err(transport_error)?;
 
     let header_status = Cell::new(None::<u16>);
@@ -664,12 +1090,39 @@ pub fn download_http_to_path(
     url: &str,
     destination: &Path,
 ) -> Result<HttpFileTransfer, TransportError> {
-    download_http_to_path_controlled(url, destination, || TransferControl::Continue)
+    download_http_to_path_with_context(url, destination, &HttpRequestContext::default())
+}
+
+pub fn download_http_to_path_with_context(
+    url: &str,
+    destination: &Path,
+    context: &HttpRequestContext,
+) -> Result<HttpFileTransfer, TransportError> {
+    download_http_to_path_controlled_with_context(
+        url,
+        destination,
+        context,
+        || TransferControl::Continue,
+    )
 }
 
 pub fn download_http_to_path_controlled<F: FnMut() -> TransferControl>(
     url: &str,
     destination: &Path,
+    control: F,
+) -> Result<HttpFileTransfer, TransportError> {
+    download_http_to_path_controlled_with_context(
+        url,
+        destination,
+        &HttpRequestContext::default(),
+        control,
+    )
+}
+
+pub fn download_http_to_path_controlled_with_context<F: FnMut() -> TransferControl>(
+    url: &str,
+    destination: &Path,
+    context: &HttpRequestContext,
     mut control: F,
 ) -> Result<HttpFileTransfer, TransportError> {
     if let Some(parent) = destination.parent().filter(|path| !path.as_os_str().is_empty()) {
@@ -678,7 +1131,7 @@ pub fn download_http_to_path_controlled<F: FnMut() -> TransferControl>(
         })?;
     }
 
-    let probe = probe_http_resource(url)?;
+    let probe = probe_http_resource_with_context(url, context)?;
     let usable_length = if (200..300).contains(&probe.response_status) {
         probe.content_length
     } else {
@@ -769,6 +1222,7 @@ pub fn download_http_to_path_controlled<F: FnMut() -> TransferControl>(
                     existing_bytes,
                     total_bytes - 1,
                     &mut file,
+                    context,
                     Some(&identity.validator),
                     &mut control,
                 ) {
@@ -826,7 +1280,7 @@ pub fn download_http_to_path_controlled<F: FnMut() -> TransferControl>(
             message: format!("failed to open download staging file: {error}"),
         })?;
     let (response_status, final_bytes, effective_url) =
-        stream_http_full_controlled(&probe.effective_url, &mut file, &mut control)?;
+        stream_http_full_controlled(&probe.effective_url, &mut file, context, &mut control)?;
     file.flush()
         .and_then(|_| file.sync_all())
         .map_err(|error| TransportError::RequestFailed {
@@ -1038,20 +1492,41 @@ pub fn download_http_to_path_segmented_controlled<
     control: F,
     progress: P,
 ) -> Result<HttpFileTransfer, TransportError> {
+    download_http_to_path_segmented_controlled_with_context(
+        url,
+        destination,
+        requested_connections,
+        &HttpRequestContext::default(),
+        control,
+        progress,
+    )
+}
+
+pub fn download_http_to_path_segmented_controlled_with_context<
+    F: Fn() -> TransferControl + Sync,
+    P: Fn(u64, Option<u64>) + Sync,
+>(
+    url: &str,
+    destination: &Path,
+    requested_connections: u32,
+    context: &HttpRequestContext,
+    control: F,
+    progress: P,
+) -> Result<HttpFileTransfer, TransportError> {
     if let Some(parent) = destination.parent().filter(|path| !path.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(|error| TransportError::RequestFailed {
             message: format!("failed to create download staging directory: {error}"),
         })?;
     }
 
-    let probe = probe_http_resource(url)?;
+    let probe = probe_http_resource_with_context(url, context)?;
     let Some(identity) = ResumeIdentity::from_probe(&probe) else {
-        return download_http_to_path_controlled(url, destination, || control());
+        return download_http_to_path_controlled_with_context(url, destination, context, || control());
     };
     let total_bytes = identity.content_length;
     let ranges = plan_transfer_ranges(total_bytes, requested_connections);
     if ranges.len() <= 1 {
-        return download_http_to_path_controlled(url, destination, || control());
+        return download_http_to_path_controlled_with_context(url, destination, context, || control());
     }
 
     // A legacy/single-stream partial destination is allowed to finish through
@@ -1062,7 +1537,7 @@ pub fn download_http_to_path_segmented_controlled<
     let has_segments =
         segment_artifacts_exist(destination, MAX_PARALLEL_SEGMENTS as usize);
     if existing_destination > 0 && !has_segments {
-        return download_http_to_path_controlled(url, destination, || control());
+        return download_http_to_path_controlled_with_context(url, destination, context, || control());
     }
 
     let stored_identity = read_resume_identity(destination);
@@ -1137,6 +1612,7 @@ pub fn download_http_to_path_segmented_controlled<
                     start,
                     range.end,
                     &mut writer,
+                    context,
                     Some(validator),
                     || {
                         let command = control();
@@ -1210,7 +1686,7 @@ pub fn download_http_to_path_segmented_controlled<
         cleanup_segment_artifacts(destination, MAX_PARALLEL_SEGMENTS as usize);
         remove_resume_identity(destination);
         let _ = std::fs::remove_file(destination);
-        return download_http_to_path_controlled(url, destination, || control());
+        return download_http_to_path_controlled_with_context(url, destination, context, || control());
     }
 
     if let Some(error) = results.into_iter().find_map(Result::err) {
@@ -1305,10 +1781,25 @@ pub fn download_http_to_path_segmented(
     destination: &Path,
     requested_connections: u32,
 ) -> Result<HttpFileTransfer, TransportError> {
-    download_http_to_path_segmented_controlled(
+    download_http_to_path_segmented_with_context(
         url,
         destination,
         requested_connections,
+        &HttpRequestContext::default(),
+    )
+}
+
+pub fn download_http_to_path_segmented_with_context(
+    url: &str,
+    destination: &Path,
+    requested_connections: u32,
+    context: &HttpRequestContext,
+) -> Result<HttpFileTransfer, TransportError> {
+    download_http_to_path_segmented_controlled_with_context(
+        url,
+        destination,
+        requested_connections,
+        context,
         || TransferControl::Continue,
         |_, _| {},
     )
@@ -1318,10 +1809,17 @@ pub fn download_http_to_path_segmented(
 ///
 /// Hosts should call this for an explicit destructive cancel/delete operation,
 /// including when no native session is currently alive.
-pub fn discard_http_download_artifacts(destination: &Path) {
-    let _ = std::fs::remove_file(destination);
+/// Remove only NOVA's resumable HTTP sidecars while preserving the target
+/// file itself. Hosts use this when forgetting task metadata without deleting
+/// a user-visible partial/final output.
+pub fn discard_http_resume_artifacts(destination: &Path) {
     remove_resume_identity(destination);
     cleanup_segment_artifacts(destination, MAX_PARALLEL_SEGMENTS as usize);
+}
+
+pub fn discard_http_download_artifacts(destination: &Path) {
+    let _ = std::fs::remove_file(destination);
+    discard_http_resume_artifacts(destination);
 }
 
 #[cfg(test)]
@@ -1355,6 +1853,102 @@ mod tests {
                 }
             }
         })
+    }
+
+    #[test]
+    fn request_context_rejects_transport_owned_and_injected_headers() {
+        let mut context = HttpRequestContext::default();
+        context
+            .headers
+            .insert("Range".to_owned(), "bytes=0-10".to_owned());
+        assert!(matches!(
+            context.validate(),
+            Err(TransportError::InvalidRequestContext { .. })
+        ));
+
+        let mut injected = HttpRequestContext::default();
+        injected
+            .headers
+            .insert("X-Test".to_owned(), "ok\r\nInjected: yes".to_owned());
+        assert!(matches!(
+            injected.validate(),
+            Err(TransportError::InvalidRequestContext { .. })
+        ));
+    }
+
+    #[test]
+    fn bounded_post_sends_json_through_native_transport() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind POST server");
+        let address = listener.local_addr().expect("POST server address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept POST");
+            let mut request = [0_u8; 4096];
+            let read = stream.read(&mut request).expect("read POST");
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.starts_with("POST /player HTTP/1.1"));
+            assert!(request.to_ascii_lowercase().contains("content-type: application/json"));
+            assert!(request.contains("{\"videoId\":\"abc\"}"));
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}",
+                )
+                .expect("write POST response");
+        });
+
+        let response = post_http_bytes_with_context(
+            &format!("http://{address}/player"),
+            &HttpRequestContext::default(),
+            "application/json",
+            br#"{"videoId":"abc"}"#,
+            1024,
+        )
+        .expect("native POST");
+        server.join().expect("POST server");
+
+        assert_eq!(response.body, br#"{"ok":true}"#);
+    }
+
+    #[test]
+    fn bounded_fetch_forwards_typed_media_request_context() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind context server");
+        let address = listener.local_addr().expect("context server address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept context request");
+            let mut request = [0_u8; 4096];
+            let read = stream.read(&mut request).expect("read context request");
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.contains("X-Nova-Media: native"));
+            assert!(request.contains("Referer: https://example.test/watch"));
+            assert!(request.contains("Cookie: session=authorized"));
+            assert!(request.contains("User-Agent: NOVA-Media-Test/1"));
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: application/vnd.apple.mpegurl\r\nContent-Length: 8\r\nConnection: close\r\n\r\n#EXTM3U\n",
+                )
+                .expect("write context response");
+        });
+
+        let mut context = HttpRequestContext::default();
+        context
+            .headers
+            .insert("X-Nova-Media".to_owned(), "native".to_owned());
+        context.referer = Some("https://example.test/watch".to_owned());
+        context.cookie_header = Some("session=authorized".to_owned());
+        context.user_agent = Some("NOVA-Media-Test/1".to_owned());
+
+        let response = fetch_http_bytes_with_context(
+            &format!("http://{address}/master.m3u8"),
+            &context,
+            1024,
+        )
+        .expect("bounded native fetch");
+        server.join().expect("context server");
+
+        assert_eq!(response.body, b"#EXTM3U\n");
+        assert_eq!(
+            response.content_type.as_deref(),
+            Some("application/vnd.apple.mpegurl")
+        );
     }
 
     #[test]

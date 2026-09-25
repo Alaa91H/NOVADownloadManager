@@ -346,11 +346,11 @@ pub async fn full_diagnostics(
     jobs: usize,
     curl_available: bool,
     curl_version: String,
-    ytdlp_available: bool,
+    media_available: bool,
     ffmpeg_available: bool,
     network_interfaces: Vec<String>,
     uptime_secs: u64,
-    media_jobs: usize,
+    native_media_jobs: usize,
     curl_jobs: usize,
 ) -> serde_json::Value {
     let e2e = run_e2e_test(30).await;
@@ -394,13 +394,13 @@ pub async fn full_diagnostics(
         },
         "engines": {
             "libcurl": { "available": curl_available, "version": curl_version },
-            "yt-dlp": { "available": ytdlp_available },
+            "media": { "available": media_available },
             "ffmpeg": { "available": ffmpeg_available },
         },
         "jobs": {
             "total": jobs,
             "curlJobs": curl_jobs,
-            "mediaJobs": media_jobs,
+            "mediaJobs": native_media_jobs,
         },
         "e2eTests": e2e,
         "exportVersion": 2,

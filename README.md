@@ -1,633 +1,178 @@
-<p align="center">
-  <img src="src/assets/logo.png" alt="NOVA Download Manager" width="350" height="350" />
-</p>
+# NOVA Download Manager
 
-<h1 align="center">NOVA Download Manager</h1>
+NOVA is a native desktop download manager built with **Qt 6.8 / QML / C++20** and a headless **Rust** download runtime. The browser companion is a Manifest V3 extension that communicates with NOVA through a local-only API and Native Messaging.
 
-<p align="center">
-  An open-source desktop download manager built around a runtime-validated <strong>libcurl multi</strong> core, optional media tooling, and a paired Manifest V3 browser companion.
-</p>
+The former React/Vite/Tauri desktop interface has been removed. **Qt/QML is the only desktop UI in the repository and the primary mainline desktop implementation.**
 
-<p align="center">
-  <!-- Project Status, Release & Downloads -->
-  <a href="https://github.com/Alaa91H/NOVADownloadManager/releases/latest"><img alt="Latest Release" src="https://img.shields.io/github/v/release/Alaa91H/NOVADownloadManager?logo=github&label=Latest%20Release&color=238636" /></a>&nbsp;
-  <a href="https://github.com/Alaa91H/NOVADownloadManager/releases"><img alt="Total Downloads" src="https://img.shields.io/github/downloads/Alaa91H/NOVADownloadManager/total?logo=github&label=Downloads&color=0ea5e9" /></a>&nbsp;
-  <a href="https://github.com/Alaa91H/NOVADownloadManager/commits/main"><img alt="Last Commit" src="https://img.shields.io/github/last-commit/Alaa91H/NOVADownloadManager?logo=git&label=Last%20Commit&color=1f6feb" /></a>
-</p>
-<p align="center">
-  <!-- Tech Stack & Features -->
-  <img alt="Desktop" src="https://img.shields.io/badge/Desktop-Tauri%20%2B%20Rust-1f6feb?logo=tauri&logoColor=white" />
-  <img alt="Engine" src="https://img.shields.io/badge/Direct%20Engine-libcurl%20multi-238636?logo=curl&logoColor=white" />
-  <img alt="Media" src="https://img.shields.io/badge/Media-yt--dlp%20%2B%20FFmpeg-8957e5?logo=ffmpeg&logoColor=white" />
-  <img alt="Extension" src="https://img.shields.io/badge/Extension-Manifest%20V3-f97316?logo=googlechrome&logoColor=white" />
-  <img alt="Installer" src="https://img.shields.io/badge/Installer-NSIS%20Lifecycle-0ea5e9?logo=windows&logoColor=white" />
-</p>
-<p align="center">
-  <!-- Community & Support -->
-  <a href="https://github.com/Alaa91H"><img alt="Developer GitHub" src="https://img.shields.io/badge/GitHub-Alaa91H-181717?logo=github&logoColor=white" /></a>&nbsp;
-  <a href="https://t.me/Alaa91h"><img alt="Telegram" src="https://img.shields.io/badge/Telegram-Alaa91h-2CA5E0?logo=telegram&logoColor=white" /></a>&nbsp;
-  <a href="https://ko-fi.com/alaa91h"><img alt="Ko-fi" src="https://img.shields.io/badge/Support%20NOVA%20on-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white" /></a>
-</p>
-
----
-
-<p align="center">
-# Screenshots
-</p>
-
-<p align="center">
-  <img src="screenshots/001.png" alt="NOVA Download Manager Preview" width="100%">
-</p>
-
-<p align="center">
-  <strong>NOVA Desktop Interface</strong><br>
-  A quick preview of the application. Expand the gallery below to browse all screenshots.
-</p>
-
-<details>
-<summary><strong>📷 View Complete Screenshot Gallery (41 Images)</strong></summary>
-
-<br>
-
-<p align="center">
-
-<img src="screenshots/001.png" width="100%">
-<br><br>
-
-<img src="screenshots/002.png" width="100%">
-<br><br>
-
-<img src="screenshots/003.png" width="100%">
-<br><br>
-
-<img src="screenshots/004.png" width="100%">
-<br><br>
-
-<img src="screenshots/005.png" width="100%">
-<br><br>
-
-<img src="screenshots/006.png" width="100%">
-<br><br>
-
-<img src="screenshots/007.png" width="100%">
-<br><br>
-
-<img src="screenshots/008.png" width="100%">
-<br><br>
-
-<img src="screenshots/009.png" width="100%">
-<br><br>
-
-<img src="screenshots/010.png" width="100%">
-<br><br>
-
-<img src="screenshots/011.png" width="100%">
-<br><br>
-
-<img src="screenshots/012.png" width="100%">
-<br><br>
-
-<img src="screenshots/013.png" width="100%">
-<br><br>
-
-<img src="screenshots/014.png" width="100%">
-<br><br>
-
-<img src="screenshots/015.png" width="100%">
-<br><br>
-
-<img src="screenshots/016.png" width="100%">
-<br><br>
-
-<img src="screenshots/017.png" width="100%">
-<br><br>
-
-<img src="screenshots/018.png" width="100%">
-<br><br>
-
-<img src="screenshots/019.png" width="100%">
-<br><br>
-
-<img src="screenshots/020.png" width="100%">
-<br><br>
-
-<img src="screenshots/021.png" width="100%">
-<br><br>
-
-<img src="screenshots/022.png" width="100%">
-<br><br>
-
-<img src="screenshots/023.png" width="100%">
-<br><br>
-
-<img src="screenshots/024.png" width="100%">
-<br><br>
-
-<img src="screenshots/025.png" width="100%">
-<br><br>
-
-<img src="screenshots/026.png" width="100%">
-<br><br>
-
-<img src="screenshots/027.png" width="100%">
-<br><br>
-
-<img src="screenshots/028.png" width="100%">
-<br><br>
-
-<img src="screenshots/029.png" width="100%">
-<br><br>
-
-<img src="screenshots/030.png" width="100%">
-<br><br>
-
-<img src="screenshots/031.png" width="100%">
-<br><br>
-
-<img src="screenshots/032.png" width="100%">
-<br><br>
-
-<img src="screenshots/033.png" width="100%">
-<br><br>
-
-<img src="screenshots/034.png" width="100%">
-<br><br>
-
-<img src="screenshots/035.png" width="100%">
-<br><br>
-
-<img src="screenshots/036.png" width="100%">
-<br><br>
-
-<img src="screenshots/037.png" width="100%">
-<br><br>
-
-<img src="screenshots/038.png" width="100%">
-<br><br>
-
-<img src="screenshots/039.png" width="100%">
-<br><br>
-
-<img src="screenshots/040.png" width="100%">
-<br><br>
-
-<img src="screenshots/041.png" width="100%">
-
-</p>
-
-</details>
-
----
-
-## Table of contents
-
-- [Overview](#overview)
-- [Why NOVA is different](#why-nova-is-different)
-- [Product scope and limitations](#product-scope-and-limitations)
-- [Core capabilities](#core-capabilities)
-- [Architecture](#architecture)
-- [Security](#security)
-- [Repository structure](#repository-structure)
-- [Requirements](#requirements)
-- [Development](#development)
-- [Build and release](#build-and-release)
-- [Performance and optimization](#performance-and-optimization)
-- [Quality gates](#quality-gates)
-- [Browser extension](#browser-extension)
-- [Installer lifecycle](#installer-lifecycle)
-- [Internationalization](#internationalization)
-- [Documentation](#documentation)
-- [Support and community](#support-and-community)
-
-## Overview
-
-NOVA Download Manager is an integrated open-source desktop download manager for direct files, browser-captured links, and media workflows. It combines a Tauri desktop shell, a Rust daemon, an in-process `libcurl multi` direct-download engine, optional `yt-dlp + FFmpeg` media processing, and a browser companion that uses a local bridge to hand off download candidates.
-
-The project is designed as a single product rather than separate disconnected tools. The desktop UI, daemon, browser extension, Native Messaging host, NSIS installer, scripts, audits, and documentation share one repository policy and one release pipeline.
-
-## Why NOVA is different
-
-NOVA does not expose fake capabilities. The application asks the daemon which engine features are available at runtime and then gates the UI, extension, and API accordingly. If a linked `libcurl` build does not support a protocol or feature, NOVA does not show it as available. If FFmpeg is not present, media post-processing controls are disabled. If a stream manifest is detected, NOVA routes it through `yt-dlp + FFmpeg` instead of downloading it as a text file.
-
-This runtime-verified model keeps the product predictable, debuggable, and safe across release builds.
-
-## Product scope and limitations
-
-NOVA is not a cloud-storage service, torrent client, VPN, DRM bypass tool, or a substitute for website permissions. Direct-file features, segmented transfers, and resume behavior depend on both the linked runtime engine and the remote server. In particular, a server must honor HTTP Range requests for an existing partial file to continue byte-accurately; a server that always returns a full response cannot provide ordinary Range resume.
-
-Media options require `yt-dlp` and, where post-processing is requested, FFmpeg. The interface gates unavailable options and does not claim that a missing runtime dependency is active. Browser capture requires the desktop application, the appropriate browser companion, and local pairing. See the detailed [product scope and support guide](docs/PRODUCT_SCOPE_AND_SUPPORT.md) for verification guidance, security boundaries, and contact channels.
-
-## Core capabilities
-
-### Direct download engine
-
-- In-process Rust download engine using linked `libcurl multi`.
-- Segmented byte-range downloads when the server and runtime engine support ranges.
-- Pause/resume guarded by generation tokens to prevent stale workers from writing into resumed tasks, with durable partial-output and segmented-part checkpoints.
-- Safe single-connection resume for servers that do not support reliable segmentation.
-- Atomic segment merge with final-size verification.
-- Runtime validation of linked `libcurl` version, protocols, and features against the build manifest.
-- Protocol gating for direct downloads before UI submission and before browser-extension handoff.
-
-### Media engine
-
-- Media downloads routed through `yt-dlp`.
-- FFmpeg integration for merge, remux, metadata, thumbnails, subtitles, chapters, audio extraction, and post-processing workflows.
-- HLS/DASH candidates routed to the media engine instead of direct file download.
-- UI gating for media options through runtime-supported media capabilities.
-- Managed yt-dlp and FFmpeg installation from approved GitHub release assets, with SHA-256 verification, executable health validation, atomic replacement, and immediate daemon activation for new media operations.
-- Default per-user managed installation that does not require elevation; Windows additionally offers an explicit, UAC-approved `Program Files` destination. NOVA never silently substitutes another destination when system installation is declined or fails. See the [managed-tools verification record](docs/verification/MANAGED_TOOLS_AND_EXTENSION_VERIFICATION_2026-08-20.md).
-
-### Browser companion
-
-- Manifest V3 extension compatible with Chrome, Edge, and Firefox.
-- Direct link capture, context-menu capture, deep DOM scan, media-element probing, OpenGraph/JSON-LD discovery, HLS/DASH detection, and smart candidate filtering.
-- Aggressive capture support for `fetch`, XHR, `MediaSource`, WebSocket, EventSource, and object URL patterns.
-- 28 platform adapters (YouTube, Bilibili, Twitch, TikTok, Dailymotion, Vimeo, Reddit, Instagram, Facebook, Twitter, SoundCloud, LinkedIn, Telegram, and more).
-- Visual popup and overlay aligned with the desktop NOVA design system.
-- Local-only bridge using loopback HTTP and Native Messaging host `com.nova.downloadmanager`.
-- One-shot recovery protection for browser downloads that policy leaves in the browser, preventing NOVA from cancelling its own restarted download in a capture loop.
-
-### Installer and desktop integration
-
-- Branded NSIS installer header and sidebar generated from the NOVA visual identity.
-- Install, upgrade, maintenance/repair-style reinstall, uninstall, legacy cleanup, and Native Messaging registration hooks.
-- Native Messaging manifest generation for Chromium-family browsers and Firefox.
-- Safe process handling: NOVA targets only processes launched from the installed application directory.
-- Dark theme with HiDPI scaling, NOVA accent colors, and professional typography.
-
-### Desktop UI
-
-- Dark-first design system with 6 themes (Dark, Midnight, Graphite, Nord, Solar, Light) and 5 accent colors (Blue, Emerald, Amber, Crimson, Violet).
-- 3 density modes (Compact, Dense, Normal) with reduced-motion support.
-- Glassmorphism panels, custom scrollbars, and CSS containment for optimal rendering performance.
-- 132 supported interface languages with lazy-loaded translation chunks.
-- Download queues, scheduling, batch import, and smart categories.
-- Active progress dialog, task properties, diagnostics panel, and comprehensive settings.
-
-### Engine control surface
-
-NOVA exposes the full daemon engine-control API to the UI, so every capability the engine supports can be driven directly from the desktop app:
-
-- **Bandwidth & rate limiting** — global KB/s limit, pause/resume all downloads, per-task caps, and a live active-task breakdown.
-- **Priority queue** — reorder downloads and set per-task priority that the engine honors.
-- **Download profiles** — switch active profiles (presets for connections, rate limits, segmentation).
-- **Retry policy** — presets (default/aggressive/conservative/none) with a live backoff schedule preview.
-- **Download rules** — host/pattern-based rules that set category, priority, connections, save path, profile, rate limit, headers, mirrors, and required checksums.
-- **Scheduler rules** — server-side rules with triggers (time window, bandwidth-below, queue-empty, all-complete) and actions (start/pause downloads, set bandwidth limit, set priority, notify) that run even when NOVA is closed.
-- **Mirrors & failover** — add mirrors per task, trigger manual failover, enable/disable auto-failover, with health badges.
-- **Plugin system** — register/unregister/enable/disable engine plugins and update their settings.
-- **Checksum verification** — verify MD5/SHA-1/SHA-256/SHA-512 against expected digests (TOCTOU-hardened).
-- **Adaptive & segment telemetry** — per-task live connections, peak speed, retry count, segment progress.
-- **Metadata cache** — probe/metadata caching with stats and clear.
-- **Queue schedule sync** — push a front-end queue schedule to the engine so it runs server-side.
-
-All engine state is reactive: the UI subscribes via typed selectors and the engine surface auto-refreshes while the daemon is reachable.
-
-## Security
-
-NOVA treats the local daemon as a privileged trust boundary. The following hardening is enforced:
-
-- **Loopback-only API** — the daemon binds to `127.0.0.1` and rejects non-loopback origins by default.
-- **Bearer-token authentication** — every API route requires a token issued via the zero-click trusted-local pairing flow. No route is exempt except `/api/health`, `/api/engines/capabilities`, and the pairing endpoint itself.
-- **SSRF protection** — all outbound fetches (probes, downloads, mirror registration, resolve/connect-to overrides) are validated against internal/loopback/link-local/multicast IPs, including IPv4-mapped IPv6 addresses.
-- **Protocol allow-list** — curl `proto`/`protoRedir` options cannot enable `file`, `gopher`, `scp`, `smb`, `telnet`, `dict`, or `ldap`, preventing local-file reads via redirect.
-- **Secret hygiene** — Telegram bot tokens are never sent to non-`*.telegram.org` hosts; credential fields are redacted in the UI when configured.
-- **Path safety** — checksum verification and file operations use canonicalized paths to close TOCTOU windows.
-- **Process hygiene** — probe subprocesses (yt-dlp/ffmpeg) are actively killed on timeout instead of being left orphaned.
-- **Mutex recovery** — shared state mutexes recover from poisoning instead of panicking the daemon.
-
-See [SECURITY.md](SECURITY.md) for responsible-disclosure details.
+## Architecture
 
 ```text
-Browser Extension / Desktop UI
-          │
-          ▼
-Capability gating and protocol validation
-          │
-          ▼
-Tauri command layer + local daemon API
-          │
-          ▼
-Routing layer
-  ├─ Direct files      → in-process libcurl multi (Rust static link)
-  ├─ HLS/DASH/media   → yt-dlp + FFmpeg (subprocess)
-  ├─ Browser bridge   → loopback HTTP (127.0.0.1) + Native Messaging
-  └─ Installer hooks  → NSIS lifecycle (registry, native-host setup)
+Qt/QML desktop application (desktop-native/)
+        │
+        │ authenticated loopback API + event stream
+        ▼
+Rust runtime (src-tauri/)
+  ├─ nova-native-backend
+  ├─ libcurl multi direct engine
+  ├─ yt-dlp + FFmpeg media workflows
+  ├─ queues / scheduler / rules / diagnostics
+  └─ nova-native-host
+        │
+        ▼
+Manifest V3 browser extension (browser-extension/)
 ```
 
-The central principle is that all user-facing controls are derived from engine capabilities. The root desktop app uses `EngineCapabilityContext`; the browser extension consumes daemon capabilities before sending candidates; the daemon performs final validation before starting a task.
+The UI is a presentation and desktop-integration layer. Download execution, capability validation, persistence, queue policy and media processing remain daemon-owned.
+
+## Native desktop UI
+
+The approved NOVA shell includes:
+
+- frameless native window with a compact title bar and global Downloads search;
+- collapsible navigation rail with hidden, icons-only and expanded modes;
+- single-row icon command bar with secondary actions under an overflow menu;
+- configurable download table, sorting, filtering and persistent columns;
+- optional right-side task inspector with live transfer metrics and speed history;
+- queues, scheduler, batch import, media downloader and link grabber;
+- native tray, notifications, file/folder dialogs and platform progress integration;
+- diagnostics, runtime logs, engine controls, browser-integration repair and update checks;
+- persistent layout customization for density, accent, corner radius and panel visibility;
+- English and Arabic release UI with complete key parity and application-wide RTL support.
+
+The current release language scope is intentionally **English + Arabic**. Additional languages are deferred until the native desktop interface and release validation are complete.
+
+## Runtime and browser capabilities
+
+NOVA uses linked `libcurl multi` for direct transfers and routes adaptive media workflows to yt-dlp/FFmpeg when supported. The daemon advertises runtime capabilities, and both the Qt frontend and browser extension gate unsupported protocols/options before submission.
+
+Browser integration uses:
+
+- loopback-only daemon discovery;
+- scoped bearer credentials;
+- Native Messaging host `com.nova.downloadmanager`;
+- secret-proof automatic pairing;
+- Chrome/Edge extension identity derived from the pinned manifest key;
+- Firefox extension identity pinned in the extension manifest.
 
 ## Repository structure
 
 ```text
 .
-├─ .github/                         CI workflows and Dependabot configuration
-├─ branding/source/                 Master artwork (app icon, installer banners)
-├─ browser-extension/               Manifest V3 extension source, tests, and packaging
-├─ docs/                            All documentation except this root README
-│  ├─ architecture/                 Engine, capability, and source-tree architecture
-│  ├─ extension/                    Browser extension docs, CI templates, protocol specs
-│  ├─ maintenance/                  Dependabot and product-maintenance notes
-│  ├─ verification/                 Evidence-based local verification records
-│  ├─ research/                     Upstream source notes used by implementation
-│  └─ release/                      Release, store, testing, and publishing docs
-├─ public/                          Desktop public assets (favicons)
-├─ scripts/                         Build, audit, native curl, cleanup, and release helpers
-├─ src/                             Desktop React interface (132 languages, 6 themes)
-├─ src-tauri/                       Rust daemon, libcurl engine, NSIS config, icons
-├─ .editorconfig                    Repository-wide editor rules
-├─ .gitattributes                   Line-ending and binary file policy
-├─ .gitignore                       Generated-file and artifact policy
-├─ CHANGELOG.md                     Release changelog
-├─ CODE_OF_CONDUCT.md               Contributor Covenant code of conduct
-├─ CONTRIBUTING.md                  Contributor guide
-├─ LICENSE                          MIT License
-├─ README.md                        This file
-├─ SECURITY.md                      Security reporting policy
-├─ THIRD_PARTY_NOTICES.md           Bundled engine license notices
-├─ eslint.config.mjs                ESLint flat config
-├─ index.html                       Vite entry HTML
-├─ package.json                     Root product scripts and orchestration
-├─ pnpm-lock.yaml                   Canonical lockfile (single root)
-├─ pnpm-workspace.yaml              Workspace policy (root + browser-extension)
-├─ tsconfig.json                    TypeScript configuration
-├─ vite.config.ts                   Vite build configuration
-└─ vitest.config.ts                 Vitest test configuration
+├─ desktop-native/       Qt 6/QML/C++ desktop application, tests and UI gates
+├─ src-tauri/            Rust daemon/runtime and Native Messaging binaries
+├─ browser-extension/    Manifest V3 companion extension
+├─ android/              Android foundation
+├─ crates/               Shared Rust cores/mobile bridge
+├─ branding/source/      Canonical product artwork
+├─ scripts/              Runtime, branding, security and release helpers
+├─ docs/                 Architecture, verification and release documentation
+└─ .github/              CI, release automation and dependency policy
 ```
 
-The browser extension is a product submodule in source layout only. It no longer carries its own nested GitHub workflow, Dependabot, docs, devcontainer, duplicate repository policy files, or extension-local lockfile. Those are centralized at the repository root or under `docs/`.
+There is no React/Vite/Tauri desktop source tree. Node/pnpm at the repository root is used only for repository tooling and the browser-extension workspace.
 
 ## Requirements
 
-| Tool    | Version | Purpose                                       |
-| ------- | ------- | --------------------------------------------- |
-| Node.js | 24.x    | Frontend build, scripts, extension            |
-| pnpm    | 11.x    | Package manager (workspace)                   |
-| Rust    | stable  | Daemon, libcurl engine, Tauri                 |
-| CMake   | 3.x     | Native libcurl builds                         |
-| FFmpeg  | 7.x     | Media post-processing (bundled at build time) |
+For desktop development:
 
-Node.js and pnpm versions are pinned by `.node-version` and `packageManager` in `package.json`. The Rust edition is 2021 with minimum version 1.77.
+- Qt **6.8+** with Quick, Quick Controls 2, Network and Widgets;
+- CMake **3.24+**;
+- a C++20 compiler;
+- Rust stable;
+- native libcurl/OpenSSL development libraries appropriate to the platform.
 
-## Supported platforms
+For browser-extension work, Node.js 24 and pnpm 11 are used.
 
-Every release is built natively for each operating system and CPU architecture — no cross-compilation, no emulation at build time.
+## Build the native desktop application
 
-| OS                                                       | Architectures                      | Packages                                |
-| -------------------------------------------------------- | ---------------------------------- | --------------------------------------- |
-| Windows 10 / 11                                          | x64, ARM64                         | NSIS user + machine installers (`.exe`)  |
-| macOS                                                    | Intel (x64), Apple Silicon (ARM64) | `.dmg`, `.app`                          |
-| Linux — Debian, Ubuntu, Linux Mint, Pop!\_OS, elementary | x64, ARM64                         | `.deb`                                  |
-| Linux — Fedora, RHEL, CentOS Stream, openSUSE            | x64, ARM64                         | `.rpm`                                  |
-| Linux — Arch, Gentoo, and any other distribution         | x64, ARM64                         | AppImage (universal, no install needed) |
-| Android                                                   | ARM64                              | APK release asset                         |
-
-All artifacts ship with SHA-256 checksums and build metadata.
-
-## Development
-
-Install dependencies:
+Build the Rust runtime:
 
 ```bash
-pnpm install
+cargo build --manifest-path src-tauri/Cargo.toml --release \
+  --bin nova-native-backend --bin nova-native-host
 ```
 
-Build the native curl runtime and fetch helper engines:
+Configure and build Qt:
 
 ```bash
-pnpm run native-curl:build
-pnpm run fetch-engines
+cmake -S desktop-native -B build/native \
+  -DCMAKE_BUILD_TYPE=Release -DNOVA_BUILD_TESTS=ON
+cmake --build build/native --config Release --parallel
+ctest --test-dir build/native -C Release --output-on-failure
 ```
 
-Run the desktop app in development:
+The same operations are available through root scripts:
 
 ```bash
-pnpm run tauri:dev
+pnpm run runtime:check
+pnpm run runtime:test
+pnpm run native:configure
+pnpm run native:build
+pnpm run native:test
+pnpm run native:check
 ```
-
-Run only the frontend against an existing daemon:
-
-```bash
-pnpm run dev
-```
-
-Run the browser extension in development:
-
-```bash
-pnpm --filter nova-browser-extension dev
-```
-
-## Build and release
-
-Build the desktop frontend:
-
-```bash
-pnpm run build
-```
-
-Build extension packages:
-
-```bash
-pnpm run extension:package
-```
-
-Build the default Tauri bundle (Windows defaults to a non-elevated current-user install):
-
-```bash
-pnpm run tauri:build
-```
-
-On Windows, build both release installer scopes from the same application binary:
-
-```bash
-pnpm run windows:installers
-```
-
-The Windows release pipeline publishes a `*-user-setup.exe` installer that installs under the current user's local app data without Administrator privileges. The historical `*-setup.exe` filename is retained for the per-machine installer so existing release links and machine-wide update paths remain compatible.
-
-The CI pipeline (`ci.yml`) runs on `windows-latest` with pnpm 11.6.0, Node 24, and Rust stable 1.97.0. It produces:
-
-- SHA-256 checksums for all release artifacts
-- `build-metadata.json` with version, commit, and timestamp
-- Professional build summary with artifact sizes
-
-## Performance and optimization
-
-NOVA is built for maximum performance, stability, and minimal binary size:
-
-### Rust release profile
-
-```toml
-[profile.release]
-lto = "fat"              # Whole-program link-time optimization
-codegen-units = 1        # Single codegen unit for maximum optimization
-strip = "symbols"        # Strip debug symbols from binary
-opt-level = 3            # Maximum optimization level
-panic = "unwind"             # Preserves controlled panic recovery and diagnostics
-overflow-checks = true    # Retains arithmetic safety checks in release builds
-debug = false            # No debug info in release
-incremental = false      # Full rebuild for release
-
-[profile.release.package."*"]
-opt-level = 3            # Optimize all dependencies
-```
-
-### Frontend optimizations
-
-- CSS `will-change: transform` on animated interactive elements for GPU compositing.
-- CSS `contain: layout style` on table rows, glass panels, and segment blocks for layout isolation.
-- `text-rendering: optimizeLegibility` and `font-feature-settings` with tabular numerals (`tnum`) for download statistics.
-- Lazy-loaded i18n translation chunks (132 languages, loaded on demand).
-- Manual chunk splitting: `vendor` (React), `ui` (Lucide icons).
-
-### HTTP client tuning
-
-- Connection pool idle timeout: 90 seconds.
-- Maximum idle connections per host: 4.
-- Connect timeout: 15 seconds.
-
-### Crash reporting
-
-Release builds include a panic hook that logs thread name, file, line, and payload before aborting, providing crash diagnostics without debug symbols.
-
-## Quality gates
-
-Root product checks:
-
-```bash
-pnpm run lint              # TypeScript type check
-pnpm run lint:eslint       # ESLint linting
-pnpm test                  # Vitest unit tests
-pnpm run verify:capabilities   # Engine capability gating verification
-pnpm run audit:installer   # NSIS lifecycle audit
-pnpm run audit:final       # Comprehensive source audit
-```
-
-Browser extension checks:
-
-```bash
-pnpm --filter nova-browser-extension typecheck
-pnpm --filter nova-browser-extension verify:nova-sync
-pnpm --filter nova-browser-extension audit:release
-pnpm --filter nova-browser-extension build:zip
-```
-
-Rust checks:
-
-```bash
-cargo check --manifest-path src-tauri/Cargo.toml
-cargo test --manifest-path src-tauri/Cargo.toml
-# Opt-in network acceptance: official yt-dlp download, SHA-256 verification,
-# health check, and atomic managed installation.
-cargo test --manifest-path src-tauri/Cargo.toml \
-  external_tools::installer::tests::live_ytdlp_release_installs_verifies_and_executes \
-  -- --ignored --nocapture
-```
-
-The source audit enforces:
-
-- `lto = "fat"` in the release profile
-- `overflow-checks = true` for release builds
-- `[profile.release.package."*"]` for dependency optimization
-- Panic hook in `main.rs` for crash diagnostics
-- No committed `node_modules`, `dist/`, `target/`, or generated bundles
-- All governance files present (LICENSE, SECURITY.md, CONTRIBUTING.md, CHANGELOG.md, CODE_OF_CONDUCT.md, THIRD_PARTY_NOTICES.md)
-- Correct pnpm workspace configuration and lockfile policy
-- Engine capability gating in both desktop UI and browser extension
 
 ## Browser extension
 
-The extension is developed under `browser-extension/`, but its documentation and CI templates live in `docs/extension/`. It follows the NOVA desktop visual system and uses runtime capabilities from the daemon before enabling handoff actions.
-
-Important extension commands:
-
 ```bash
+pnpm install --frozen-lockfile
 pnpm --filter nova-browser-extension typecheck
+pnpm --filter nova-browser-extension test:unit
 pnpm --filter nova-browser-extension verify:offline
 pnpm run extension:package
 ```
 
-See [docs/extension/README.md](docs/extension/README.md) for the extension architecture, capture model, permissions, privacy model, and store-readiness documentation.
+See [docs/extension/README.md](docs/extension/README.md) for the extension capture model and packaging details.
 
-## Installer lifecycle
+## Quality gates
 
-The Windows installer uses a dark Tauri NSIS Modern UI theme with NOVA-branded HiDPI artwork:
+The native desktop pipeline builds six OS/architecture targets:
 
-- `src-tauri/windows/installer-header.bmp` — branded installer header
-- `src-tauri/windows/installer-sidebar.bmp` — branded sidebar
-- `src-tauri/windows/hooks.nsi` — lifecycle hooks (install, upgrade, repair, uninstall)
-- `src-tauri/windows/installer-template.nsi` — NSIS template with branded finish page
+- Windows x64 and ARM64
+- Linux x64 and ARM64
+- macOS Intel and Apple Silicon
 
-The single source for product icons, logos, and installer banners is `branding/source/`. Regenerate all target-specific artwork with `pnpm run branding:generate`; the copied files under Tauri, Vite, and WXT folders are generated build inputs, not separate branding sources.
+Static/native gates cover:
 
-The installer lifecycle covers:
+- English/Arabic localization completeness;
+- hard-coded user-visible copy;
+- approved UI shell contract;
+- keyboard and accessibility semantics;
+- WCAG text/focus contrast, including all selectable accents;
+- High-DPI 125% and 200% Qt display tests;
+- large-list/recovery behavior;
+- packaged Native Messaging framing and authenticated capture handoff;
+- browser/Qt/Rust Native Messaging identity consistency.
 
-- **Install** — current-user installation is the default and does not require Administrator privileges; release builds also include an explicit per-machine installer for all-users deployment
-- **Upgrade** — semver comparison detects existing installations, preserves user data
-- **Repair** — maintenance-style reinstall that keeps settings intact
-- **Uninstall** — clean removal with optional data preservation
-- **Legacy cleanup** — removes artifacts from previous engine configurations
-- **Native Messaging** — registers/unregisters browser extension host manifests
+Run repository security and branding checks with:
 
-CI fallback builds use SemVer build metadata (`v0.1.0+<run>`) instead of prerelease suffixes so rerunning a newer CI installer is treated as an in-place update, while real lower-version downgrades stay blocked.
+```bash
+pnpm run security:check
+pnpm run branding:verify
+pnpm run facts:verify
+```
 
-## Internationalization
+## Production-readiness policy
 
-NOVA supports **132 interface languages** with lazy-loaded translation chunks:
+Qt/QML is already the primary desktop UI. The production release gate is intentionally stricter than mainline adoption. `node desktop-native/scripts/check-parity.mjs --require-complete` blocks release tagging until every production gate is covered and `releaseReplacementReady` is true.
 
-English, Arabic, Bengali, Bulgarian, Chinese (Simplified), Chinese (Traditional), Czech, Danish, Dutch, Finnish, French, German, Greek, Hebrew, Hindi, Hungarian, Indonesian, Italian, Japanese, Korean, Malay, Norwegian, Persian, Polish, Portuguese, Romanian, Russian, Slovak, Spanish, Swedish, Thai, Turkish, Ukrainian, Urdu, Vietnamese.
+The remaining external validation areas are tracked in `desktop-native/parity/parity-manifest.json`, including real-browser packaged E2E, signed updater installation, complete six-platform candidate validation, and final assistive-technology/mixed-DPI testing.
 
-English is bundled in the main application bundle as the synchronous fallback. All other languages are loaded on demand as separate chunks to keep startup fast.
+## Security
 
-The browser extension ships with 25 languages in its bundle (a subset optimized for extension context).
+The daemon binds to loopback, uses scoped authentication, validates outbound destinations against SSRF-sensitive ranges and applies final capability/protocol validation before starting work. See [SECURITY.md](SECURITY.md) for reporting instructions.
 
-## Documentation
+## Android
 
-All documentation except this root README is centralized under [`docs/`](docs/README.md):
+Android remains a separate product surface under `android/` with shared Rust code under `crates/`. Its foundation workflow is independent from the Qt desktop build.
 
-- [Product scope and support](docs/PRODUCT_SCOPE_AND_SUPPORT.md)
-- [Project structure](docs/architecture/PROJECT_STRUCTURE.md)
-- [Capability gating](docs/architecture/CAPABILITY_GATING.md)
-- [Engine compatibility](docs/architecture/ENGINE_COMPATIBILITY.md)
-- [Browser extension](docs/extension/README.md)
-- [Extension architecture](docs/extension/ARCHITECTURE.md)
-- [Extension protocol](docs/extension/PROTOCOL.md)
-- [Overlay system](docs/extension/OVERLAY.md)
-- [DRM guard](docs/extension/DRM_GUARD.md)
-- [Permissions model](docs/extension/PERMISSIONS.md)
-- [Privacy model](docs/extension/PRIVACY.md)
-- [Aggressive capture](docs/extension/AGGRESSIVE_CAPTURE_MODE.md)
-- [Zero-click pairing](docs/extension/ZERO_CLICK_PAIRING.md)
-- [Dependabot and maintenance](docs/maintenance/DEPENDABOT_AND_MAINTENANCE.md)
-- [Managed tools and browser extension verification](docs/verification/MANAGED_TOOLS_AND_EXTENSION_VERIFICATION_2026-08-20.md)
-- [yt-dlp installation source notes](docs/research/ytdlp-installation-sources.md)
-- [Release process](docs/release/RELEASE.md) _(coming soon)_
-- [Testing](docs/release/TESTING.md) _(coming soon)_
-- [Store compliance](docs/release/STORE_COMPLIANCE.md) _(coming soon)_
+## License and project links
 
-## Support and community
+NOVA is distributed under the [MIT License](LICENSE). Bundled/managed third-party engine notices are documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-NOVA is an independent project. Voluntary support helps fund maintenance, browser-store packaging, testing, and engine integration work. Use the following maintainer channels for feedback, bug reports, collaboration, or support.
+Project/maintainer links:
 
-| Channel | Link | Use |
-| --- | --- | --- |
-| GitHub | [github.com/Alaa91H](https://github.com/Alaa91H) | Source code, issues, and release information. |
-| Email | [alahus2591@gmail.com](mailto:alahus2591@gmail.com) | Private contact and detailed bug reports. |
-| Telegram | [t.me/Alaa91h](https://t.me/Alaa91h) | Community contact and project updates. |
-| Ko-fi | [ko-fi.com/alaa91h](https://ko-fi.com/alaa91h) | Voluntary maintenance support. |
-
-When reporting a problem, include the NOVA version, operating system, task state or error message, and a redacted diagnostic log. Never publish passwords, tokens, signed URLs, or private paths in a public issue.
-
-## License and third-party notices
-
-NOVA Download Manager is released under the MIT License — see [LICENSE](LICENSE).
-
-Bundled engine integrations such as curl/libcurl, yt-dlp, and FFmpeg have independent license requirements that must be preserved in final release artifacts. These are documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), which the build stages into the installed application directory. Note in particular that FFmpeg builds may be LGPL or GPL depending on their enabled components; record the bundled FFmpeg's license and source in each release.
-
-Project governance:
-
-- [Contributing guide](CONTRIBUTING.md)
-- [Security policy](SECURITY.md)
-- [Changelog](CHANGELOG.md)
-- [Code of conduct](CODE_OF_CONDUCT.md)
+- GitHub: https://github.com/Alaa91H
+- Support: https://ko-fi.com/alaa91h
+- Telegram: https://t.me/Alaa91h
+- Email: mailto:alahus2591@gmail.com
