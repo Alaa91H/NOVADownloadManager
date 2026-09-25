@@ -25,8 +25,6 @@ qt_add_executable(nova-native
     src/models/DownloadListModel.h
     src/localization/I18nManager.cpp
     src/localization/I18nManager.h
-    src/localization/LegacyI18nCatalog.cpp
-    src/localization/LegacyI18nCatalog.h
     src/platform/AppearanceManager.cpp
     src/platform/AppearanceManager.h
     src/platform/BackendBootstrap.cpp
@@ -81,6 +79,12 @@ if(APPLE)
     enable_language(OBJCXX)
     target_sources(nova-native PRIVATE
         src/platform/MacDockProgress.mm
+        resources/icons/icon.icns
+    )
+    set_source_files_properties(
+        resources/icons/icon.icns
+        PROPERTIES
+            MACOSX_PACKAGE_LOCATION "Resources"
     )
     set_source_files_properties(
         src/platform/MacDockProgress.mm
@@ -94,6 +98,7 @@ if(APPLE)
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.nova.downloadmanager"
         MACOSX_BUNDLE_BUNDLE_NAME "NOVA Download Manager"
+        MACOSX_BUNDLE_ICON_FILE "icon.icns"
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
     )
@@ -112,6 +117,7 @@ if(UNIX AND NOT APPLE)
 endif()
 
 if(WIN32)
+    target_sources(nova-native PRIVATE resources/nova-native.rc)
     target_link_libraries(nova-native PRIVATE ole32 uuid advapi32)
 endif()
 
@@ -192,5 +198,10 @@ if(UNIX AND NOT APPLE)
     install(
         FILES resources/nova-native.desktop
         DESTINATION share/applications
+    )
+    install(
+        FILES resources/icons/128x128.png
+        DESTINATION share/icons/hicolor/128x128/apps
+        RENAME nova-download-manager.png
     )
 endif()
