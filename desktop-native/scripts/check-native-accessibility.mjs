@@ -18,9 +18,9 @@ function lineNumber(source, offset) {
   return source.slice(0, offset).split("\n").length;
 }
 
-function textFieldBlocks(source) {
+function componentBlocks(source, typeName) {
   const blocks = [];
-  const pattern = /\bTextField\s*\{/g;
+  const pattern = new RegExp("\\b" + typeName + "\\s*\\{", "g");
   let match;
   while ((match = pattern.exec(source)) !== null) {
     let depth = 0;
@@ -36,11 +36,30 @@ function textFieldBlocks(source) {
         }
       }
     }
-    if (end < 0) throw new Error("Unbalanced TextField block in QML.");
+    if (end < 0) throw new Error(`Unbalanced ${typeName} block in QML.`);
     blocks.push({ start: match.index, source: source.slice(match.index, end) });
     pattern.lastIndex = end;
   }
   return blocks;
+}
+
+function delegateBlock(listViewSource) {
+  const match = /delegate\s*:\s*[A-Za-z0-9_.]+\s*\{/.exec(listViewSource);
+  if (!match) return null;
+
+  const braceStart = listViewSource.indexOf("{", match.index);
+  let depth = 0;
+  for (let i = braceStart; i < listViewSource.length; i += 1) {
+    const ch = listViewSource[i];
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return listViewSource.slice(match.index, i + 1);
+      }
+    }
+  }
+  return null;
 }
 
 const violations = [];
@@ -59,7 +78,7 @@ for (const file of walk(qmlRoot)) {
     });
   }
 
-  for (const field of textFieldBlocks(source)) {
+  for (const field of componentBlocks(source, "TextField")) {
     const line = lineNumber(source, field.start);
     if (!/Accessible\.name\s*:/.test(field.source)) {
       violations.push({
@@ -81,6 +100,74 @@ for (const file of walk(qmlRoot)) {
       });
     }
   }
+
+  for (const listView of componentBlocks(source, "ListView")) {
+    const line = lineNumber(source, listView.start);
+    const delegateOffset = listView.source.indexOf("delegate:");
+    const listHeader =
+      delegateOffset >= 0 ? listView.source.slice(0, delegateOffset) : listView.source;
+
+    if (!/activeFocusOnTab\s*:\s*true/.test(listHeader)) {
+      violations.push({
+        file: relative,
+        line,
+        message: "ListView must be reachable through Tab navigation",
+      });
+    }
+    if (!/keyNavigationWraps\s*:\s*false/.test(listHeader)) {
+      violations.push({
+        file: relative,
+        line,
+        message: "ListView must define bounded keyboard arrow navigation",
+      });
+    }
+    if (!/Accessible\.name\s*:/.test(listHeader)) {
+      violations.push({
+        file: relative,
+        line,
+        message: "ListView is missing an Accessible.name",
+      });
+    }
+
+    const delegate = delegateBlock(listView.source);
+    if (delegate) {
+      if (!/Accessible\.name\s*:/.test(delegate)) {
+        violations.push({
+          file: relative,
+          line,
+          message: "ListView delegate is missing an Accessible.name",
+        });
+      }
+      if (!/Theme\.focusRing/.test(delegate)) {
+        violations.push({
+          file: relative,
+          line,
+          message: "ListView delegate is missing a visible keyboard focus indicator",
+        });
+      }
+    }
+  }
+
+  if (
+    relative.endsWith("/ConfirmDeleteDialog.qml") ||
+    relative.endsWith("/ConfirmRedownloadDialog.qml")
+  ) {
+    if (!/onOpened\s*:\s*[A-Za-z0-9_]+\.forceActiveFocus\(\)/.test(source)) {
+      violations.push({
+        file: relative,
+        line: 1,
+        message: "confirmation dialog must move focus to a safe action when opened",
+      });
+    }
+    const tabLinks = source.match(/KeyNavigation\.(?:tab|backtab)\s*:/g) || [];
+    if (tabLinks.length < 4) {
+      violations.push({
+        file: relative,
+        line: 1,
+        message: "confirmation dialog must define an explicit forward/backward focus loop",
+      });
+    }
+  }
 }
 
 if (violations.length > 0) {
@@ -95,5 +182,7 @@ if (violations.length > 0) {
 
 console.log(
   "Native accessibility/typography gate passed: all TextFields are named, " +
-    "monospace technical fields are LTR, and font sizes respect Theme.fontScale."
+    "monospace technical fields are LTR, font sizes respect Theme.fontScale, " +
+    "ListViews are keyboard reachable with visible focus, and confirmation dialogs " +
+    "define safe focus loops."
 );
