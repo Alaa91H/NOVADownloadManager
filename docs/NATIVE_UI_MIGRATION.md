@@ -56,7 +56,7 @@ The old interface can be removed only after all of these are true:
 - Column configuration, sorting, filtering and search
 - Keyboard shortcuts
 - RTL correctness
-- Translation migration for all supported languages
+- Complete English/Arabic release localization
 - Dark/light/system appearance
 - Windows x64/ARM64 validation
 - macOS Intel/Apple Silicon validation
@@ -103,14 +103,19 @@ Remaining before Stage 4 is considered complete:
 
 ### Stage 5 — Localization and platform polish
 
-Status: **in progress — functional localization/theme/accessibility layer implemented; platform validation remains**.
+Status: **in progress — English/Arabic release localization is complete; platform validation remains**.
 
 Implemented in the first Stage 5 slice:
 
+- The current release language scope is intentionally limited to English and Arabic.
+- English and Arabic native dictionaries have exact 573/573 key parity; CI rejects missing, extra or empty Arabic translations.
+- The language selector exposes only English and العربية. Unsupported or previously stored third-party language selections safely fall back to English.
+- Arabic remains the sole RTL release language. The legacy multi-language catalog/alias infrastructure is retained internally so additional languages can be developed after the native interface is otherwise complete.
+
 - Central native localization manager with live language switching.
-- Initial English, Arabic and German dictionaries, including automatic system-language resolution.
-- Full legacy language metadata is now exposed in the native selector, with resource-backed reuse of matching legacy locale entries and English fallback while native-key coverage is expanded.
-- Curated semantic aliases now bridge navigation, download actions, queue/scheduler controls, media options, settings, shortcuts and browser status copy to legacy locale keys; CI rejects regressions below 42% reusable native-key coverage; canonical English matching safely reuses legacy translations when only case or punctuation differs.
+
+
+
 - Application-wide RTL mirroring when Arabic is active.
 - Persistent language preference through `QSettings`.
 - System / Light / Dark appearance modes with live system color-scheme tracking.
@@ -139,7 +144,7 @@ Implemented in the first Stage 5 slice:
 
 Remaining before Stage 5 is complete:
 
-- Continue native-key translation coverage beyond the CI-enforced 42% legacy-reuse floor; unmatched native-only copy still falls back to English until a safe equivalent or dedicated translation is available.
+- Additional languages beyond English/Arabic are explicitly deferred until the native interface is otherwise complete.
 - Complete per-page RTL layout review, especially tables, inspectors and mixed URL/path content.
 - Extend typography scaling to every legacy-sized text declaration.
 - Complete semantic accessibility review beyond the now keyboard-enabled core lists and confirmation dialogs, especially custom controls, table semantics and remaining composite widgets.
@@ -182,7 +187,7 @@ Implemented:
 
 Current replacement blockers:
 
-- Full legacy language catalog beyond the current English/Arabic/German native baseline.
+- Additional languages beyond English/Arabic are deferred and are not a release blocker for the current native UI scope.
 - Real-browser packaged E2E remains: install the NOVA extension in Chrome/Edge/Firefox and validate an actual browser-origin capture plus registration/repair on Windows, macOS and Linux.
 - Production signed automatic updater installation.
 - Six-platform CI must complete successfully for the exact candidate commit.
