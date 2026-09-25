@@ -51,8 +51,10 @@ converted to big-endian `dOps`, VP8/VP9 metadata is converted to the version-1
 `AV1CodecConfigurationRecord` is validated and reused directly as `av1C`.
 
 Higher VP9 profiles remain gated until WebM colour metadata is preserved in the
-generic track contract. Opus remuxing emits an `edts/elst` edit for decoder
-pre-skip and uses a 48 kHz movie timescale for sample-accurate trimming.
+generic track contract. Opus remuxing emits an `edts/elst` edit for decoder pre-skip, uses a 48 kHz
+movie timescale for sample-accurate trimming, and writes `roll` sample groups
+(`sgpd/sbgp`) with a conservative 80 ms random-access pre-roll. The MP4
+`ftyp` also advertises `iso2` compatibility for roll-group support.
 Matroska demuxing, WebM/Matroska muxing, audio transcoding, video transcoding,
 subtitles/data muxing, general edit-list timeline handling beyond Opus pre-skip,
 and hardware acceleration

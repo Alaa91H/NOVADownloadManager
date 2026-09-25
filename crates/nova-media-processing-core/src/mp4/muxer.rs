@@ -493,10 +493,11 @@ fn required_duration(
 }
 
 fn make_ftyp() -> Vec<u8> {
-    let mut payload = Vec::with_capacity(20);
+    let mut payload = Vec::with_capacity(24);
     payload.extend_from_slice(b"isom");
     payload.extend_from_slice(&0x0000_0200_u32.to_be_bytes());
     payload.extend_from_slice(b"isom");
+    payload.extend_from_slice(b"iso2");
     payload.extend_from_slice(b"iso6");
     payload.extend_from_slice(b"mp41");
     make_box(*b"ftyp", payload)
@@ -694,6 +695,11 @@ fn make_stbl(track: &OutputTrack) -> Result<Vec<u8>, MediaProcessingError> {
     boxes.push(make_stsz(track)?);
     boxes.push(make_co64(track)?);
 
+    if let Some((sgpd, sbgp)) = make_opus_roll_groups(track)? {
+        boxes.push(sgpd);
+        boxes.push(sbgp);
+    }
+
     if track.track.kind == MediaTrackKind::Video
         && track.samples.iter().any(|sample| !sample.keyframe)
     {
@@ -831,6 +837,65 @@ fn make_ctts(track: &OutputTrack) -> Result<Vec<u8>, MediaProcessingError> {
         }
     }
     Ok(make_full_box(*b"ctts", version, 0, body))
+}
+
+fn make_opus_roll_groups(
+    track: &OutputTrack,
+) -> Result<Option<(Vec<u8>, Vec<u8>)>, MediaProcessingError> {
+    if !matches!(&track.track.codec, MediaCodec::Opus) {
+        return Ok(None);
+    }
+    let min_duration = track
+        .samples
+        .iter()
+        .map(|sample| sample.duration)
+        .min()
+        .filter(|duration| *duration > 0)
+        .ok_or_else(|| mux_error("Opus track has no positive sample duration"))?;
+
+    // Opus requires at least 80 ms of decoder pre-roll at random access.
+    // A single roll group is valid for the whole track; using the shortest
+    // sample duration makes the constant distance conservative even when
+    // packet durations vary.
+    let timescale = u64::from(track.track.time_base.denominator);
+    let preroll_units = timescale
+        .checked_mul(80)
+        .and_then(|value| value.checked_add(999))
+        .map(|value| value / 1000)
+        .ok_or_else(|| mux_error("Opus pre-roll timescale conversion overflow"))?;
+    let min_duration = u64::from(min_duration);
+    let sample_count = preroll_units
+        .checked_add(min_duration - 1)
+        .map(|value| value / min_duration)
+        .ok_or_else(|| mux_error("Opus roll-distance calculation overflow"))?
+        .max(1);
+    let roll_distance = i16::try_from(sample_count)
+        .map_err(|_| mux_error("Opus roll distance exceeds signed 16-bit range"))?
+        .checked_neg()
+        .ok_or_else(|| mux_error("Opus roll distance negation overflow"))?;
+
+    // SampleGroupDescriptionBox version 1, grouping_type='roll',
+    // default_length=2, one AudioRollRecoveryEntry.
+    let mut sgpd_body = Vec::with_capacity(14);
+    sgpd_body.extend_from_slice(b"roll");
+    sgpd_body.extend_from_slice(&2_u32.to_be_bytes());
+    sgpd_body.extend_from_slice(&1_u32.to_be_bytes());
+    sgpd_body.extend_from_slice(&roll_distance.to_be_bytes());
+    let sgpd = make_full_box(*b"sgpd", 1, 0, sgpd_body);
+
+    // Every Opus sample belongs to the same roll recovery group.
+    let mut sbgp_body = Vec::with_capacity(16);
+    sbgp_body.extend_from_slice(b"roll");
+    sbgp_body.extend_from_slice(&1_u32.to_be_bytes());
+    sbgp_body.extend_from_slice(
+        &u32::try_from(track.samples.len())
+            .map_err(|_| mux_error("Opus roll-group sample count exceeds u32"))?
+            .to_be_bytes(),
+    );
+    sbgp_body.extend_from_slice(&1_u32.to_be_bytes());
+    let sbgp = make_full_box(*b"sbgp", 0, 0, sbgp_body);
+
+    Ok(Some((sgpd, sbgp)))
 }
 
 fn make_stsc() -> Vec<u8> {
@@ -1184,6 +1249,10 @@ mod tests {
         let bytes = fs::read(&path).expect("read MP4");
         assert!(bytes.windows(4).any(|window| window == b"edts"));
         assert!(bytes.windows(4).any(|window| window == b"elst"));
+        assert!(bytes.windows(4).any(|window| window == b"sgpd"));
+        assert!(bytes.windows(4).any(|window| window == b"sbgp"));
+        assert!(bytes.windows(4).any(|window| window == b"iso2"));
+        assert!(bytes.windows(2).any(|window| window == (-4_i16).to_be_bytes()));
 
         let _ = fs::remove_file(path);
     }
