@@ -264,7 +264,6 @@ const Dictionary &english() {
         {QStringLiteral("media.remuxFormat"), QStringLiteral("Remux format")},
         {QStringLiteral("media.sponsorBlock"), QStringLiteral("Sponsor segments")},
         {QStringLiteral("media.proxy"), QStringLiteral("Proxy")},
-        {QStringLiteral("media.sourceAddress"), QStringLiteral("Quelladresse")},
         {QStringLiteral("media.sourceAddress"), QStringLiteral("Source address")},
         {QStringLiteral("media.cookiesBrowser"), QStringLiteral("Cookies from browser")},
         {QStringLiteral("media.userAgent"), QStringLiteral("User agent")},
