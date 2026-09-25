@@ -1,21 +1,24 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window
 import Nova.Native
 
 ApplicationWindow {
     id: window
 
     visible: !nativeSettings.startMinimized || !trayManager.enabled
-    width: 1360
-    height: 820
-    minimumWidth: 1040
-    minimumHeight: 660
+    width: 1540
+    height: 900
+    minimumWidth: 1100
+    minimumHeight: 700
     title: t("app.name")
-    color: Theme.window
+    color: "transparent"
+    flags: Qt.Window | Qt.FramelessWindowHint
 
     property string currentPage: "downloads"
     property string languageToken: i18n.language
+    property bool customizationOpen: false
 
     LayoutMirroring.enabled: i18n.rtl
     LayoutMirroring.childrenInherit: true
@@ -23,6 +26,14 @@ ApplicationWindow {
     function t(key) {
         const token = window.languageToken
         return i18n.translate(key)
+    }
+
+    function isDownloadsPage() {
+        return currentPage === "downloads"
+            || currentPage === "active"
+            || currentPage === "queued"
+            || currentPage === "completed"
+            || currentPage === "failed"
     }
 
     function syncUiPreferences() {
@@ -34,6 +45,31 @@ ApplicationWindow {
         Theme.highContrast = nativeSettings.highContrast
         Theme.reducedMotion = nativeSettings.reducedMotion
         Theme.fontScale = nativeSettings.fontScale
+        Theme.accentBase = nativeSettings.accentColor
+        Theme.radiusBase = nativeSettings.cornerRadius
+        Theme.densityScale = nativeSettings.interfaceDensity === "dense"
+            ? 0.80
+            : nativeSettings.interfaceDensity === "compact" ? 0.90 : 1.0
+    }
+
+    function openNewDownload() {
+        window.currentPage = "downloads"
+        Qt.callLater(function() {
+            if (contentLoader.item && contentLoader.item.openNewDownload)
+                contentLoader.item.openNewDownload()
+        })
+    }
+
+    function applyTopSearch(value) {
+        if (contentLoader.item && contentLoader.item.setSearchQuery)
+            contentLoader.item.setSearchQuery(value)
+    }
+
+    function toggleMaximized() {
+        if (window.visibility === Window.Maximized)
+            window.showNormal()
+        else
+            window.showMaximized()
     }
 
     Component.onCompleted: syncUiPreferences()
@@ -54,7 +90,6 @@ ApplicationWindow {
 
     Connections {
         target: clipboardMonitor
-
         function onUrlDetected(url, sourceText) {
             if (!novaApi.connected)
                 return
@@ -68,14 +103,6 @@ ApplicationWindow {
                 }
             })
         }
-    }
-
-    function openNewDownload() {
-        window.currentPage = "downloads"
-        Qt.callLater(function() {
-            if (contentLoader.item && contentLoader.item.openNewDownload)
-                contentLoader.item.openNewDownload()
-        })
     }
 
     Action {
@@ -120,6 +147,13 @@ ApplicationWindow {
         }
     }
 
+    Shortcut { sequence: "Alt+1"; onActivated: window.currentPage = "downloads" }
+    Shortcut { sequence: "Alt+2"; onActivated: window.currentPage = "active" }
+    Shortcut { sequence: "Alt+3"; onActivated: window.currentPage = "queued" }
+    Shortcut { sequence: "Alt+4"; onActivated: window.currentPage = "completed" }
+    Shortcut { sequence: "Alt+5"; onActivated: window.currentPage = "failed" }
+    Shortcut { sequence: "Ctrl+Shift+M"; onActivated: window.currentPage = "media" }
+
     Shortcut {
         sequence: nativeSettings.shortcutsEnabled
             ? String(nativeSettings.shortcutBindings.toggleNotifications || "Ctrl+M")
@@ -143,58 +177,6 @@ ApplicationWindow {
         }
     }
 
-    menuBar: MenuBar {
-        Menu {
-            title: window.t("menu.file")
-            MenuItem { action: newDownloadAction }
-            MenuItem {
-                text: window.t("nav.batch")
-                shortcut: nativeSettings.shortcutsEnabled
-                    ? String(nativeSettings.shortcutBindings.batchDownload || "Ctrl+Shift+N")
-                    : ""
-                onTriggered: window.currentPage = "batch"
-            }
-            MenuSeparator {}
-            MenuItem {
-                text: window.t("action.quit")
-                shortcut: StandardKey.Quit
-                onTriggered: Qt.quit()
-            }
-        }
-
-        Menu {
-            title: window.t("menu.view")
-            MenuItem { text: window.t("nav.downloads"); shortcut: "Alt+1"; onTriggered: window.currentPage = "downloads" }
-            MenuItem { text: window.t("nav.active"); shortcut: "Alt+2"; onTriggered: window.currentPage = "active" }
-            MenuItem { text: window.t("nav.queued"); shortcut: "Alt+3"; onTriggered: window.currentPage = "queued" }
-            MenuItem { text: window.t("nav.completed"); shortcut: "Alt+4"; onTriggered: window.currentPage = "completed" }
-            MenuItem { text: window.t("nav.failed"); shortcut: "Alt+5"; onTriggered: window.currentPage = "failed" }
-            MenuSeparator {}
-            MenuItem { action: refreshAction }
-        }
-
-        Menu {
-            title: window.t("menu.tools")
-            MenuItem { text: window.t("nav.queue"); onTriggered: window.currentPage = "queue" }
-            MenuItem {
-                text: window.t("nav.scheduler")
-                shortcut: nativeSettings.shortcutsEnabled
-                    ? String(nativeSettings.shortcutBindings.openScheduler || "Ctrl+L")
-                    : ""
-                onTriggered: window.currentPage = "scheduler"
-            }
-            MenuItem { text: window.t("nav.media"); shortcut: "Ctrl+Shift+M"; onTriggered: window.currentPage = "media" }
-            MenuItem { text: window.t("nav.grabber"); onTriggered: window.currentPage = "grabber" }
-            MenuSeparator {}
-            MenuItem { action: settingsAction }
-        }
-
-        Menu {
-            title: window.t("menu.help")
-            MenuItem { action: checkUpdatesAction }
-        }
-    }
-
     palette.window: Theme.window
     palette.windowText: Theme.textPrimary
     palette.base: Theme.surface
@@ -205,59 +187,233 @@ ApplicationWindow {
     palette.highlight: Theme.accent
     palette.highlightedText: "white"
 
-    RowLayout {
+    Rectangle {
+        id: shell
         anchors.fill: parent
-        spacing: 0
-
-        NavigationRail {
-            Layout.fillHeight: true
-            currentPage: window.currentPage
-            activeDownloads: downloadsModel.activeCount
-            onPageSelected: page => window.currentPage = page
-        }
-
-        Rectangle {
-            Layout.fillHeight: true
-            Layout.preferredWidth: 1
-            color: Theme.border
-        }
+        radius: window.visibility === Window.Maximized ? 0 : Theme.radiusLarge
+        color: Theme.window
+        border.width: window.visibility === Window.Maximized ? 0 : 1
+        border.color: Theme.borderStrong
+        clip: true
 
         ColumnLayout {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
+            anchors.fill: parent
             spacing: 0
 
-            Loader {
-                id: contentLoader
+            Rectangle {
+                id: titleBar
                 Layout.fillWidth: true
-                Layout.fillHeight: true
+                Layout.preferredHeight: Theme.titleBarHeight
+                color: Theme.sidebar
 
-                sourceComponent: window.currentPage === "downloads" || window.currentPage === "active"
-                                 || window.currentPage === "queued" || window.currentPage === "completed"
-                                 || window.currentPage === "failed"
-                                 ? downloadsPage
-                                 : window.currentPage === "queue"
-                                     ? queuePage
-                                     : window.currentPage === "batch"
-                                         ? batchImportPage
-                                         : window.currentPage === "scheduler"
-                                             ? schedulerPage
-                                             : window.currentPage === "media"
-                                                 ? mediaDownloaderPage
-                                                 : window.currentPage === "grabber"
-                                                     ? linkGrabberPage
-                                                     : window.currentPage === "settings"
-                                                         ? settingsPage
-                                                         : placeholderPage
+                MouseArea {
+                    anchors.fill: parent
+                    z: 0
+                    acceptedButtons: Qt.LeftButton
+                    onDoubleClicked: window.toggleMaximized()
+                    onPressed: mouse => {
+                        if (mouse.button === Qt.LeftButton)
+                            window.startSystemMove()
+                    }
+                }
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 8
+                    spacing: 10
+                    z: 1
+
+                    ToolButton {
+                        text: "☰"
+                        Layout.preferredWidth: 38
+                        Layout.preferredHeight: 38
+                        Accessible.name: window.t("custom.toggleSidebar")
+                        onClicked: nativeSettings.sidebarVisible = !nativeSettings.sidebarVisible
+                    }
+
+                    Rectangle {
+                        Layout.preferredWidth: 28
+                        Layout.preferredHeight: 28
+                        radius: 7
+                        color: Theme.accent
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "N"
+                            color: "white"
+                            font.pixelSize: Theme.fontMedium
+                            font.weight: Font.Bold
+                        }
+                    }
+
+                    Text {
+                        text: window.t("app.name")
+                        color: Theme.textPrimary
+                        font.pixelSize: Theme.fontMedium
+                        font.weight: Font.DemiBold
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    TextField {
+                        id: topSearch
+                        visible: window.isDownloadsPage()
+                        Layout.preferredWidth: Math.min(370, Math.max(240, window.width * 0.25))
+                        Layout.preferredHeight: 36
+                        placeholderText: window.t("downloads.search")
+                        Accessible.name: placeholderText
+                        selectByMouse: true
+                        LayoutMirroring.enabled: false
+                        onTextChanged: window.applyTopSearch(text)
+
+                        background: Rectangle {
+                            radius: Theme.radiusMedium
+                            color: Theme.surface
+                            border.width: parent.activeFocus ? 2 : 1
+                            border.color: parent.activeFocus ? Theme.focusRing : Theme.border
+                        }
+
+                        leftPadding: 34
+                        Text {
+                            anchors.left: parent.left
+                            anchors.leftMargin: 11
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "⌕"
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontBody
+                        }
+                    }
+
+                    ToolButton {
+                        text: "⚙"
+                        Layout.preferredWidth: 38
+                        Layout.preferredHeight: 38
+                        Accessible.name: window.t("custom.open")
+                        onClicked: window.customizationOpen = !window.customizationOpen
+                    }
+
+                    Rectangle {
+                        Layout.preferredWidth: 1
+                        Layout.preferredHeight: 24
+                        color: Theme.border
+                    }
+
+                    ToolButton {
+                        text: "−"
+                        Layout.preferredWidth: 38
+                        Layout.preferredHeight: 38
+                        Accessible.name: window.t("common.minimize")
+                        onClicked: window.showMinimized()
+                    }
+
+                    ToolButton {
+                        text: window.visibility === Window.Maximized ? "❐" : "□"
+                        Layout.preferredWidth: 38
+                        Layout.preferredHeight: 38
+                        Accessible.name: window.t("common.maximize")
+                        onClicked: window.toggleMaximized()
+                    }
+
+                    ToolButton {
+                        text: "×"
+                        Layout.preferredWidth: 38
+                        Layout.preferredHeight: 38
+                        Accessible.name: window.t("common.close")
+                        onClicked: window.close()
+                    }
+                }
             }
 
-            StatusBar {
+            Rectangle {
                 Layout.fillWidth: true
-                engineConnected: novaApi.connected
-                engineStatus: novaApi.statusText
-                activeCount: downloadsModel.activeCount
-                totalCount: downloadsModel.totalCount
-                totalSpeed: downloadsModel.totalSpeed
+                Layout.preferredHeight: 1
+                color: Theme.border
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                spacing: 0
+
+                NavigationRail {
+                    visible: nativeSettings.sidebarVisible
+                    Layout.fillHeight: true
+                    Layout.preferredWidth: implicitWidth
+                    collapsed: nativeSettings.sidebarCollapsed
+                    currentPage: window.currentPage
+                    activeDownloads: downloadsModel.activeCount
+                    onPageSelected: page => window.currentPage = page
+                }
+
+                Rectangle {
+                    visible: nativeSettings.sidebarVisible
+                    Layout.fillHeight: true
+                    Layout.preferredWidth: 1
+                    color: Theme.border
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    spacing: 0
+
+                    Loader {
+                        id: contentLoader
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+
+                        sourceComponent: window.isDownloadsPage()
+                            ? downloadsPage
+                            : window.currentPage === "queue"
+                                ? queuePage
+                                : window.currentPage === "batch"
+                                    ? batchImportPage
+                                    : window.currentPage === "scheduler"
+                                        ? schedulerPage
+                                        : window.currentPage === "media"
+                                            ? mediaDownloaderPage
+                                            : window.currentPage === "grabber"
+                                                ? linkGrabberPage
+                                                : window.currentPage === "settings"
+                                                    ? settingsPage
+                                                    : placeholderPage
+
+                        onLoaded: {
+                            if (item && item.setSearchQuery && topSearch.text.length > 0)
+                                item.setSearchQuery(topSearch.text)
+                        }
+                    }
+
+                    StatusBar {
+                        visible: nativeSettings.statusBarVisible
+                        Layout.fillWidth: true
+                        engineConnected: novaApi.connected
+                        engineStatus: novaApi.statusText
+                        activeCount: downloadsModel.activeCount
+                        totalCount: downloadsModel.totalCount
+                        totalSpeed: downloadsModel.totalSpeed
+                    }
+                }
+
+                Rectangle {
+                    visible: window.customizationOpen
+                    Layout.fillHeight: true
+                    Layout.preferredWidth: 1
+                    color: Theme.border
+                }
+
+                CustomizationPanel {
+                    visible: window.customizationOpen
+                    Layout.fillHeight: true
+                    Layout.preferredWidth: Theme.customizationWidth
+                    settings: nativeSettings
+                    onCloseRequested: window.customizationOpen = false
+                    onOpenSettingsRequested: {
+                        window.currentPage = "settings"
+                        window.customizationOpen = false
+                    }
+                }
             }
         }
     }
