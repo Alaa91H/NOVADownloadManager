@@ -167,6 +167,37 @@ if(NOVA_BUILD_TESTS)
         PROPERTIES
             TIMEOUT 30
     )
+
+    qt_add_executable(nova-native-display-tests
+        tests/DisplayScaleTests.cpp
+    )
+    target_link_libraries(nova-native-display-tests
+        PRIVATE
+            Qt6::Gui
+            Qt6::Test
+    )
+
+    add_test(
+        NAME nova-native-display-scale-125
+        COMMAND nova-native-display-tests -o -,txt
+    )
+    set_tests_properties(
+        nova-native-display-scale-125
+        PROPERTIES
+            TIMEOUT 20
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_SCALE_FACTOR=1.25;NOVA_EXPECT_SCALE_FACTOR=1.25"
+    )
+
+    add_test(
+        NAME nova-native-display-scale-200
+        COMMAND nova-native-display-tests -o -,txt
+    )
+    set_tests_properties(
+        nova-native-display-scale-200
+        PROPERTIES
+            TIMEOUT 20
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_SCALE_FACTOR=2.0;NOVA_EXPECT_SCALE_FACTOR=2.0"
+    )
 endif()
 
 install(TARGETS nova-native
