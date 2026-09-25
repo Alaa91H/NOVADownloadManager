@@ -579,6 +579,7 @@ pub(crate) mod tests {
             event_bus: crate::daemon::engine::event_bus::EventBus::new_with_capacity(100),
             priority_queue: crate::daemon::engine::priority_queue::PriorityBandwidthQueue::new(0),
             bandwidth_manager: crate::daemon::engine::bandwidth::BandwidthManager::default(),
+            torrent_dht: crate::daemon::torrent_dht::DhtService::load_or_new(data_dir),
             profile_manager: crate::daemon::engine::profiles::ProfileManager::new(),
             rule_engine: crate::daemon::engine::rules::DownloadRuleEngine::new(),
             scheduler: crate::daemon::engine::scheduler::SmartScheduler::new(),

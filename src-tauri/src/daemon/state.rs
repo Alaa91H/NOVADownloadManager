@@ -108,6 +108,8 @@ pub struct AppState {
     pub event_bus: EventBus,
     pub priority_queue: PriorityBandwidthQueue,
     pub bandwidth_manager: BandwidthManager,
+    /// Process-wide BEP 5 runtime: stable node id, shared routing table and UDP server state.
+    pub torrent_dht: crate::daemon::torrent_dht::DhtService,
     pub profile_manager: ProfileManager,
     pub rule_engine: DownloadRuleEngine,
     pub scheduler: SmartScheduler,

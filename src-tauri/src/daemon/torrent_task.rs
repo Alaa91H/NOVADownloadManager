@@ -176,7 +176,7 @@ pub async fn analyze_magnet(
     MagnetLink::parse(magnet_uri).map_err(|error| format!("Invalid magnet URI: {error}"))?;
 
     let cancel = CancellationToken::new();
-    let resolver = MagnetResolver::production_default();
+    let resolver = MagnetResolver::production_with_dht(state.torrent_dht.engine());
     let resolution = tokio::time::timeout(
         Duration::from_secs(90),
         resolver.resolve_uri(magnet_uri, &cancel),
@@ -217,7 +217,7 @@ pub async fn analyze_metainfo(
     let source_uri = discovery_source_from_metainfo(&metainfo);
 
     let cancel = CancellationToken::new();
-    let resolver = MagnetResolver::production_default();
+    let resolver = MagnetResolver::production_with_dht(state.torrent_dht.engine());
     let mut resolution = tokio::time::timeout(
         Duration::from_secs(45),
         resolver.discover_metainfo(metainfo, &cancel),
@@ -936,7 +936,7 @@ async fn run_torrent_worker(
             return;
         }
 
-        match MagnetResolver::production_default()
+        match MagnetResolver::production_with_dht(state.torrent_dht.engine())
             .discover_metainfo(metainfo, &cancel)
             .await
         {

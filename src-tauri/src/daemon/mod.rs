@@ -414,6 +414,8 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     ),
                 ));
                 let extractor_registry = SharedExtractorRegistry::new(extractor_registry);
+                let torrent_dht =
+                    crate::daemon::torrent_dht::DhtService::load_or_new(&data_dir);
 
                 let state = AppState {
                     media_jobs: Mutex::new(HashMap::new()),
@@ -462,6 +464,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                         crate::daemon::engine::priority_queue::PriorityBandwidthQueue::new(0),
                     bandwidth_manager: crate::daemon::engine::bandwidth::BandwidthManager::default(
                     ),
+                    torrent_dht,
                     profile_manager: crate::daemon::engine::profiles::ProfileManager::new(),
                     rule_engine: crate::daemon::engine::rules::DownloadRuleEngine::new(),
                     scheduler: crate::daemon::engine::scheduler::SmartScheduler::new(),
@@ -638,10 +641,10 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 });
                 persist::start_persistence_loop(state.clone());
 
-                let torrent_seed_cancel = tokio_util::sync::CancellationToken::new();
+                let torrent_network_cancel = tokio_util::sync::CancellationToken::new();
                 {
                     let seed_state = state.clone();
-                    let seed_cancel = torrent_seed_cancel.clone();
+                    let seed_cancel = torrent_network_cancel.clone();
                     tokio::spawn(async move {
                         if let Err(error) =
                             crate::daemon::torrent_seed::run_inbound_seed_listener(
@@ -651,6 +654,16 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                             .await
                         {
                             log::warn!("Native torrent seeding listener is unavailable: {error}");
+                        }
+                    });
+                }
+                {
+                    let dht_state = state.clone();
+                    let dht_service = state.torrent_dht.clone();
+                    let dht_cancel = torrent_network_cancel.clone();
+                    tokio::spawn(async move {
+                        if let Err(error) = dht_service.run_server(dht_state, dht_cancel).await {
+                            log::warn!("Native torrent DHT server is unavailable: {error}");
                         }
                     });
                 }
@@ -732,10 +745,10 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 let (shutdown_tx, shutdown_rx) = oneshot::channel();
                 *SHUTDOWN_TX.lock().unwrap() = Some(shutdown_tx);
                 let shutdown_state = state.clone();
-                let shutdown_seed_cancel = torrent_seed_cancel.clone();
+                let shutdown_torrent_network = torrent_network_cancel.clone();
                 let shutdown_signal = async move {
                     wait_for_daemon_shutdown(shutdown_rx).await;
-                    shutdown_seed_cancel.cancel();
+                    shutdown_torrent_network.cancel();
                     log::info!("Shutdown signal received; pausing active downloads...");
                     // Pause engine-owned work without holding locks across async I/O.
                     {

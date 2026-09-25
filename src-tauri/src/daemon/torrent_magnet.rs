@@ -71,9 +71,13 @@ impl MagnetResolver {
     }
 
     pub fn production_default() -> Self {
+        Self::production_with_dht(DhtEngine::production_default())
+    }
+
+    pub fn production_with_dht(dht: DhtEngine) -> Self {
         Self::new(
             TrackerTransport::production_default(),
-            DhtEngine::production_default(),
+            dht,
             PeerEngine::production_default(),
             MagnetResolverConfig::default(),
         )
