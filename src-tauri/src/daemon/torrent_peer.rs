@@ -616,7 +616,7 @@ impl PeerSession {
         let mut local_handshake = PeerHandshake::new(info_hash, local_peer_id);
         // BEP 10 is implemented end-to-end for ut_metadata and ut_pex.
         local_handshake.reserved[5] |= 0x10;
-        let local_dht_port = if config.enable_dht {
+        let local_dht_port = if config.enable_dht && address.is_ipv4() {
             active_dht_port()
         } else {
             None

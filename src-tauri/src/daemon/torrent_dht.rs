@@ -886,9 +886,17 @@ impl DhtEngine {
         let max_candidates = self.config.max_candidates.clamp(alpha, 8_192);
         let max_peers = self.config.max_peers.clamp(1, MAX_DHT_PEERS);
 
+        let known_ids = self
+            .routing_snapshot()
+            .into_iter()
+            .map(|entry| (entry.node.address, entry.node.id))
+            .collect::<HashMap<_, _>>();
         let mut candidates = bootstrap
             .into_iter()
-            .map(|address| Candidate { id: None, address })
+            .map(|address| Candidate {
+                id: known_ids.get(&address).copied(),
+                address,
+            })
             .collect::<Vec<_>>();
         let mut known_addresses = candidates
             .iter()
@@ -1081,7 +1089,12 @@ impl DhtEngine {
             .encode()
             .map_err(|error| format!("Could not encode DHT query: {error}"))?;
 
-        if let Some(socket) = self.transport.socket().await {
+        if let Some(socket) = self.transport.socket().await.filter(|socket| {
+            socket
+                .local_addr()
+                .map(|local| local.is_ipv4() == address.is_ipv4())
+                .unwrap_or(false)
+        }) {
             let receiver = self
                 .transport
                 .register(expected_transaction.to_vec(), address)

@@ -163,6 +163,7 @@ async fn serve_state_peer(
             build_pex_peers(&job.candidates, address)
         },
         allow_pex: !private_torrent,
+        advertise_dht: address.is_ipv4(),
     };
     let progress = storage
         .progress()
@@ -220,6 +221,7 @@ struct SeedExtensionService {
     metadata_info: Option<Arc<Vec<u8>>>,
     pex_peers: Vec<SocketAddr>,
     allow_pex: bool,
+    advertise_dht: bool,
 }
 
 impl SeedExtensionService {
@@ -333,7 +335,7 @@ async fn serve_inbound_seed_session_after_handshake(
         return Err("Torrent storage identity changed before seed session".to_owned());
     }
 
-    let dht_port = if plan.metainfo.private {
+    let dht_port = if plan.metainfo.private || !extensions.advertise_dht {
         None
     } else {
         active_dht_port()
@@ -1041,6 +1043,7 @@ mod tests {
                     metadata_info: Some(server_info),
                     pex_peers: vec!["8.8.8.8:6881".parse().unwrap()],
                     allow_pex: true,
+                    advertise_dht: false,
                 },
                 test_config(),
                 &CancellationToken::new(),
@@ -1148,6 +1151,7 @@ mod tests {
             metadata_info: Some(Arc::new(vec![b'd', b'e'])),
             pex_peers: vec!["8.8.8.8:6881".parse().unwrap()],
             allow_pex: false,
+            advertise_dht: false,
         };
         let handshake = service.local_handshake();
         assert_eq!(handshake.ut_metadata, Some(LOCAL_UT_METADATA_ID));
