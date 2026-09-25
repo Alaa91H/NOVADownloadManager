@@ -1285,6 +1285,7 @@ pub fn native_media_status() -> Value {
             "challengeTransformCoverage": "verified-native-subset",
             "challengeTransformFallback": "fail-closed",
             "separateTrackStaging": core.separate_track_staging,
+            "nativeMp4MultitrackMux": core.native_mp4_multitrack_mux,
             "hlsTaskExecution": true,
             "hlsVodTaskExecution": true,
             "hlsLiveTaskExecution": true,
@@ -1295,8 +1296,12 @@ pub fn native_media_status() -> Value {
             "manifestPauseResume": true,
             "manifestAtomicAssembly": true,
             "separateTrackTaskExecution": true,
-            "separateTrackMuxBackend": "nova-media-postprocess",
-            "separateTrackMuxRequiresPostProcessingReady": true,
+            "separateTrackMuxBackend": "container-dependent",
+            "separateTrackMuxRequiresPostProcessingReady": false,
+            "nativeMp4MuxBackend": "nova-media-core",
+            "nativeMp4MuxRequiresPostProcessingReady": false,
+            "nonMp4MuxBackend": "nova-media-postprocess",
+            "nonMp4MuxRequiresPostProcessingReady": true,
             "playlistProbe": true,
             "playlistPagination": true,
             "playlists": true,
@@ -1531,6 +1536,10 @@ pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
         .pointer("/capabilities/directDownloads")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let native_mux_ready = media
+        .pointer("/capabilities/nativeMp4MultitrackMux")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let post_processing_ready = ffmpeg_available;
     let direct_protocols = curl
         .get("protocols")
@@ -1543,6 +1552,7 @@ pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
         "directReady": direct_ready,
         "mediaExtractionReady": media_extraction_ready,
         "streamingReady": streaming_ready,
+        "nativeMuxReady": native_mux_ready,
         "postProcessingReady": post_processing_ready,
         "directProtocols": direct_protocols,
         "compatibilityMode": "runtime-verified-capabilities",
@@ -1556,6 +1566,7 @@ pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
             "directHttpHttpsFtp": if direct_ready { json!("libcurl-multi") } else { Value::Null },
             "mediaExtraction": if media_extraction_ready { json!("nova-media-engine") } else { Value::Null },
             "streaming": if streaming_ready { json!("nova-media-engine") } else { Value::Null },
+            "nativeMp4Mux": if native_mux_ready { json!("nova-media-engine") } else { Value::Null },
             "postProcessing": if post_processing_ready { json!("nova-media-postprocess") } else { Value::Null },
             "webMediaAndPlaylists": if media_extraction_ready { json!("nova-media-engine") } else { Value::Null },
             "mergeRemuxExtractSubtitles": if post_processing_ready { json!("nova-media-postprocess") } else { Value::Null },
@@ -1600,6 +1611,12 @@ mod tests {
             "single-representation-native"
         );
         assert_eq!(status["capabilities"]["separateTrackTaskExecution"], true);
+        assert_eq!(status["capabilities"]["nativeMp4MultitrackMux"], true);
+        assert_eq!(
+            status["capabilities"]["separateTrackMuxRequiresPostProcessingReady"],
+            false
+        );
+        assert_eq!(status["capabilities"]["nativeMp4MuxBackend"], "nova-media-core");
         assert_eq!(status["capabilities"]["formatSorting"], true);
         assert_eq!(status["capabilities"]["requestContextOriginScoped"], true);
         assert_eq!(status["capabilities"]["playlistProbe"], true);
