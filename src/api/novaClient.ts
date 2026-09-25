@@ -50,6 +50,7 @@ interface NovaHealth {
   directReady?: boolean;
   mediaExtractionReady?: boolean;
   streamingReady?: boolean;
+  nativeMuxReady?: boolean;
   postProcessingReady?: boolean;
   routing?: Record<string, unknown>;
   compatibilityMode?: string;
