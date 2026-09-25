@@ -25,6 +25,13 @@ pub struct PersistedState {
     pub native_media_requests: HashMap<String, crate::daemon::types::CreateDownloadBody>,
     #[serde(default)]
     pub native_media_protocols: HashMap<String, String>,
+    /// Sanitized torrent sources. Credential-bearing tracker parameters are omitted.
+    #[serde(default)]
+    pub torrent_sources: HashMap<String, String>,
+    /// Durable per-torrent seeding policy and counters.
+    #[serde(default)]
+    pub torrent_seeding:
+        HashMap<String, crate::daemon::torrent_seeding::TorrentSeedingSnapshot>,
     #[serde(default)]
     pub curl_args: HashMap<String, Vec<String>>,
     /// Per-task libcurl options are persisted separately from diagnostic CLI
@@ -226,12 +233,14 @@ fn sanitize_native_media_request(
 
 fn build_snapshot(state: &AppState) -> PersistedState {
     // Acquire locks in documented order
-    // (native_media_jobs → curl_jobs → task_snapshot)
+    // (native_media_jobs → torrent_jobs → curl_jobs → task_snapshot)
     // within a block scope so curl_jobs is released before download_stats,
     // preventing AB-BA deadlock with transfer.rs (which locks download_stats → curl_jobs).
     let (
         native_media_requests,
         native_media_protocols,
+        torrent_sources,
+        torrent_seeding,
         curl_args,
         curl_direct_options,
         resume_requires_reauth,
@@ -240,6 +249,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         telegram_last_update_id,
     ) = {
         let native_media_jobs = lock_or_err!(state.native_media_jobs);
+        let torrent_jobs = lock_or_err!(state.torrent_jobs);
         let curl_jobs = lock_or_err!(state.curl_jobs);
         let snapshot = lock_or_err!(state.task_snapshot);
 
@@ -251,6 +261,25 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         let native_media_protocols: HashMap<String, String> = native_media_jobs
             .iter()
             .map(|(id, job)| (id.clone(), job.protocol.clone()))
+            .collect();
+        let torrent_sources: HashMap<String, String> = torrent_jobs
+            .iter()
+            .filter_map(|(id, job)| {
+                let source = job
+                    .source_uri
+                    .as_deref()
+                    .unwrap_or(job.task.url.as_str());
+                crate::daemon::torrent_task::persistable_magnet_source(source, job.private)
+                    .ok()
+                    .map(|(sanitized, _)| (id.clone(), sanitized))
+            })
+            .collect();
+        let torrent_seeding: HashMap<
+            String,
+            crate::daemon::torrent_seeding::TorrentSeedingSnapshot,
+        > = torrent_jobs
+            .iter()
+            .map(|(id, job)| (id.clone(), job.seeding.snapshot()))
             .collect();
         let curl_args: HashMap<String, Vec<String>> = curl_jobs
             .iter()
@@ -273,6 +302,21 @@ fn build_snapshot(state: &AppState) -> PersistedState {
                 .iter()
                 .filter(|(_, job)| native_request_requires_reauth(&job.request))
                 .map(|(id, _)| id.clone()),
+        );
+        resume_requires_reauth.extend(
+            torrent_jobs
+                .iter()
+                .filter_map(|(id, job)| {
+                    let source = job
+                        .source_uri
+                        .as_deref()
+                        .unwrap_or(job.task.url.as_str());
+                    let removed_sensitive =
+                        crate::daemon::torrent_task::persistable_magnet_source(source, job.private)
+                            .map(|(_, removed)| removed)
+                            .unwrap_or(true);
+                    (job.requires_reauth || removed_sensitive).then_some(id.clone())
+                }),
         );
         resume_requires_reauth.sort();
         resume_requires_reauth.dedup();
@@ -300,6 +344,8 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         (
             native_media_requests,
             native_media_protocols,
+            torrent_sources,
+            torrent_seeding,
             curl_args,
             curl_direct_options,
             resume_requires_reauth,
@@ -312,7 +358,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
     let stats = lock_or_err!(state.download_stats).clone();
 
     PersistedState {
-        version: 2,
+        version: 3,
         tasks,
         recovery_checkpoints,
         native_media_requests,
@@ -498,6 +544,8 @@ pub(crate) mod tests {
     pub(crate) fn test_state(data_dir: &str) -> AppState {
         AppState {
             native_media_jobs: Mutex::new(HashMap::new()),
+            torrent_jobs: Mutex::new(HashMap::new()),
+            torrent_analyses: Mutex::new(HashMap::new()),
             curl_jobs: Mutex::new(HashMap::new()),
             task_snapshot: Mutex::new(HashMap::new()),
             capture_reviews: Mutex::new(std::collections::VecDeque::new()),
@@ -516,6 +564,7 @@ pub(crate) mod tests {
             event_bus: crate::daemon::engine::event_bus::EventBus::new_with_capacity(100),
             priority_queue: crate::daemon::engine::priority_queue::PriorityBandwidthQueue::new(0),
             bandwidth_manager: crate::daemon::engine::bandwidth::BandwidthManager::default(),
+            torrent_dht: crate::daemon::torrent_dht::DhtService::load_or_new(data_dir),
             profile_manager: crate::daemon::engine::profiles::ProfileManager::new(),
             rule_engine: crate::daemon::engine::rules::DownloadRuleEngine::new(),
             scheduler: crate::daemon::engine::scheduler::SmartScheduler::new(),
@@ -614,7 +663,7 @@ pub(crate) mod tests {
         let loaded = load(&dir_str);
 
         assert_eq!(loaded.tasks.len(), 2);
-        assert_eq!(loaded.version, 2);
+        assert_eq!(loaded.version, 3);
         let checkpoint = loaded
             .recovery_checkpoints
             .get("c1")
