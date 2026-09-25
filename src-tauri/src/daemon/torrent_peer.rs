@@ -60,6 +60,8 @@ pub struct PeerMetadataResult {
     pub address: SocketAddr,
     pub peer_id: [u8; 20],
     pub metainfo: TorrentMetainfo,
+    /// Exact BEP 9 info dictionary verified against the requested BTIH.
+    pub info_bytes: Vec<u8>,
     pub pex_peers: Vec<SocketAddr>,
 }
 
@@ -942,6 +944,7 @@ impl PeerSession {
             address: self.address,
             peer_id: self.remote_peer_id,
             metainfo,
+            info_bytes: raw_info,
             pex_peers: self.take_discovered_pex_peers(),
         })
     }

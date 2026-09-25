@@ -210,18 +210,19 @@ pub async fn analyze_metainfo(
     state: &SharedState,
     bytes: &[u8],
 ) -> Result<TorrentAnalysisView, String> {
-    let metainfo = TorrentMetainfo::parse(bytes)
+    let (metainfo, info_bytes) = TorrentMetainfo::parse_with_info_bytes(bytes)
         .map_err(|error| format!("Invalid torrent metadata file: {error}"))?;
     let source_uri = discovery_source_from_metainfo(&metainfo);
 
     let cancel = CancellationToken::new();
     let resolver = MagnetResolver::production_default();
-    let resolution = tokio::time::timeout(
+    let mut resolution = tokio::time::timeout(
         Duration::from_secs(45),
         resolver.discover_metainfo(metainfo, &cancel),
     )
     .await
     .map_err(|_| "Torrent peer discovery timed out after 45 seconds".to_owned())??;
+    resolution.info_bytes = Some(info_bytes);
 
     let id = uuid::Uuid::new_v4().simple().to_string();
     let view = analysis_view(&id, &resolution);
@@ -280,11 +281,12 @@ pub async fn create_torrent_task(
         .selected_bytes(&metainfo)
         .map_err(|error| format!("Invalid torrent selection: {error}"))?;
 
-    let storage = TorrentStorageSession::create(
+    let storage = TorrentStorageSession::create_with_info_bytes(
         PathBuf::from(root),
         metainfo.clone(),
         selection,
         AllocationMode::Sparse,
+        analysis.resolution.info_bytes.clone(),
     )
     .await
     .map_err(|error| format!("Could not prepare torrent storage: {error}"))?;
@@ -1569,11 +1571,13 @@ pub async fn redownload_torrent_task(state: &SharedState, id: &str) -> Result<Ta
         .await
         .map_err(|error| error.to_string())?;
 
-    let replacement = TorrentStorageSession::create(
+    let metadata_info = storage.metadata_info_bytes().map(|bytes| (*bytes).clone());
+    let replacement = TorrentStorageSession::create_with_info_bytes(
         PathBuf::from(&job.task.save_path),
         plan.metainfo,
         selection,
         AllocationMode::Sparse,
+        metadata_info,
     )
     .await
     .map_err(|error| error.to_string())?;

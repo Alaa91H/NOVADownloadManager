@@ -28,7 +28,7 @@ pub use dht::{
 pub use extension::{
     ExtendedHandshake, ExtensionError, MetadataAssembler, MetadataMessage, PeerExchange,
     EXTENSION_HANDSHAKE_ID, LOCAL_UT_METADATA_ID, LOCAL_UT_PEX_ID, MAX_EXTENDED_HANDSHAKE_BYTES,
-    MAX_METADATA_SIZE, MAX_PEX_PEERS, METADATA_PIECE_SIZE,
+    MAX_METADATA_SIZE, MAX_PEX_MESSAGE_BYTES, MAX_PEX_PEERS, METADATA_PIECE_SIZE,
 };
 pub use magnet::{
     MagnetLink, MagnetParseError, MAX_MAGNET_TRACKERS, MAX_MAGNET_URI_BYTES,

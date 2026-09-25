@@ -9,6 +9,7 @@ pub const METADATA_PIECE_SIZE: usize = 16 * 1024;
 pub const MAX_METADATA_SIZE: usize = 4 * 1024 * 1024;
 pub const MAX_EXTENDED_HANDSHAKE_BYTES: usize = 64 * 1024;
 pub const MAX_PEX_PEERS: usize = 2_048;
+pub const MAX_PEX_MESSAGE_BYTES: usize = 256 * 1024;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ExtendedHandshake {
@@ -364,8 +365,50 @@ pub struct PeerExchange {
 }
 
 impl PeerExchange {
+    pub fn encode(&self) -> Result<Vec<u8>, ExtensionError> {
+        let mut added = self.added.clone();
+        let mut dropped = self.dropped.clone();
+        dedup_limit(&mut added);
+        dedup_limit(&mut dropped);
+
+        let mut added4 = Vec::new();
+        let mut added6 = Vec::new();
+        let mut dropped4 = Vec::new();
+        let mut dropped6 = Vec::new();
+        for peer in added.into_iter().filter(|peer| peer.port() != 0) {
+            encode_compact_peer(peer, &mut added4, &mut added6);
+        }
+        for peer in dropped.into_iter().filter(|peer| peer.port() != 0) {
+            encode_compact_peer(peer, &mut dropped4, &mut dropped6);
+        }
+
+        let mut out = Vec::new();
+        out.push(b'd');
+        if !added4.is_empty() {
+            bstr(&mut out, b"added");
+            bstr(&mut out, &added4);
+        }
+        if !added6.is_empty() {
+            bstr(&mut out, b"added6");
+            bstr(&mut out, &added6);
+        }
+        if !dropped4.is_empty() {
+            bstr(&mut out, b"dropped");
+            bstr(&mut out, &dropped4);
+        }
+        if !dropped6.is_empty() {
+            bstr(&mut out, b"dropped6");
+            bstr(&mut out, &dropped6);
+        }
+        out.push(b'e');
+        if out.len() > MAX_PEX_MESSAGE_BYTES {
+            return Err(ExtensionError::PexMessageTooLarge(out.len()));
+        }
+        Ok(out)
+    }
+
     pub fn parse(payload: &[u8]) -> Result<Self, ExtensionError> {
-        if payload.len() > 256 * 1024 {
+        if payload.len() > MAX_PEX_MESSAGE_BYTES {
             return Err(ExtensionError::PexMessageTooLarge(payload.len()));
         }
         let mut parser = Parser::new(payload);
@@ -393,6 +436,23 @@ impl PeerExchange {
         dedup_limit(&mut added);
         dedup_limit(&mut dropped);
         Ok(Self { added, dropped })
+    }
+}
+
+fn encode_compact_peer(
+    peer: std::net::SocketAddr,
+    ipv4: &mut Vec<u8>,
+    ipv6: &mut Vec<u8>,
+) {
+    match peer {
+        std::net::SocketAddr::V4(address) => {
+            ipv4.extend_from_slice(&address.ip().octets());
+            ipv4.extend_from_slice(&address.port().to_be_bytes());
+        }
+        std::net::SocketAddr::V6(address) => {
+            ipv6.extend_from_slice(&address.ip().octets());
+            ipv6.extend_from_slice(&address.port().to_be_bytes());
+        }
     }
 }
 
@@ -824,6 +884,24 @@ mod tests {
             assembler.finish().expect_err("hash mismatch"),
             ExtensionError::MetadataHashMismatch
         );
+    }
+
+    #[test]
+    fn pex_encode_round_trips_ipv4_and_ipv6() {
+        let exchange = PeerExchange {
+            added: vec![
+                "1.2.3.4:6881".parse().unwrap(),
+                "[2001:db8::1]:6882".parse().unwrap(),
+                "1.2.3.4:6881".parse().unwrap(),
+            ],
+            dropped: vec!["9.9.9.9:6883".parse().unwrap()],
+        };
+        let encoded = exchange.encode().unwrap();
+        let decoded = PeerExchange::parse(&encoded).unwrap();
+        assert_eq!(decoded.added.len(), 2);
+        assert!(decoded.added.contains(&"1.2.3.4:6881".parse().unwrap()));
+        assert!(decoded.added.contains(&"[2001:db8::1]:6882".parse().unwrap()));
+        assert_eq!(decoded.dropped, vec!["9.9.9.9:6883".parse().unwrap()]);
     }
 
     #[test]

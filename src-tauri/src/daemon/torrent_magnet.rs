@@ -37,6 +37,8 @@ impl Default for MagnetResolverConfig {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MagnetResolution {
     pub metainfo: TorrentMetainfo,
+    /// Exact raw v1 info dictionary when metadata came from BEP 9 or a .torrent file.
+    pub info_bytes: Option<Vec<u8>>,
     pub local_peer_id: [u8; 20],
     pub metadata_peer: Option<SocketAddr>,
     pub tracker_peers: Vec<SocketAddr>,
@@ -223,6 +225,7 @@ impl MagnetResolver {
 
         Ok(MagnetResolution {
             metainfo,
+            info_bytes: None,
             local_peer_id,
             metadata_peer: None,
             tracker_peers,
@@ -308,6 +311,7 @@ fn build_resolution(
     let private = metadata.metainfo.private;
     MagnetResolution {
         metainfo: metadata.metainfo,
+        info_bytes: Some(metadata.info_bytes),
         local_peer_id,
         metadata_peer: Some(metadata.address),
         tracker_peers,
@@ -560,6 +564,7 @@ mod tests {
                 tracker_tiers: Vec::new(),
                 private: true,
             },
+            info_bytes: Vec::new(),
             pex_peers: vec!["8.8.8.8:6881".parse().unwrap()],
         };
 

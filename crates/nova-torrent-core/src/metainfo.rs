@@ -202,6 +202,35 @@ impl TorrentMetainfo {
         })
     }
 
+    /// Parse a metainfo file while preserving the exact raw v1 `info`
+    /// dictionary bytes used to compute the BTIH.
+    ///
+    /// BEP 9 serving must return these exact bytes; re-encoding a logically
+    /// equivalent dictionary can change the SHA-1 info hash.
+    pub fn parse_with_info_bytes(
+        bytes: &[u8],
+    ) -> Result<(Self, Vec<u8>), TorrentMetainfoError> {
+        if bytes.is_empty() {
+            return Err(TorrentMetainfoError::InvalidBencode(
+                "metainfo is empty".to_owned(),
+            ));
+        }
+        if bytes.len() > MAX_METAINFO_BYTES {
+            return Err(TorrentMetainfoError::TooLarge {
+                actual: bytes.len(),
+                limit: MAX_METAINFO_BYTES,
+            });
+        }
+
+        let (_, info_range) = Parser::new(bytes).parse_top_level()?;
+        let raw_info = bytes
+            .get(info_range)
+            .ok_or_else(|| TorrentMetainfoError::InvalidBencode("invalid info span".to_owned()))?
+            .to_vec();
+        let metainfo = Self::parse(bytes)?;
+        Ok((metainfo, raw_info))
+    }
+
     /// Parse an exact raw v1 `info` dictionary obtained through BEP 9.
     ///
     /// The raw bytes are embedded without re-encoding so the info hash remains

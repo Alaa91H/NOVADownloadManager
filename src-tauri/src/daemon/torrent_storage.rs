@@ -5,7 +5,9 @@ use std::sync::{Arc, Mutex};
 use nova_torrent_core::{
     AllocationMode, FilePriority, InfoHash, PieceCommit, PieceLayout, PieceScheduler, RecheckMode,
     RecheckReport, StorageError, TorrentMetainfo, TorrentSelection, TorrentStorage,
+    MAX_METADATA_SIZE,
 };
+use sha1::{Digest, Sha1};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, Debug)]
@@ -51,6 +53,7 @@ pub struct TorrentStorageProgress {
 #[derive(Clone)]
 pub struct TorrentStorageSession {
     storage: Arc<Mutex<TorrentStorage>>,
+    metadata_info: Option<Arc<Vec<u8>>>,
     generation: Arc<AtomicU64>,
     current_cancel: Arc<Mutex<CancellationToken>>,
     lifecycle: Arc<Mutex<()>>,
@@ -63,12 +66,29 @@ impl TorrentStorageSession {
         selection: TorrentSelection,
         allocation: AllocationMode,
     ) -> Result<Self, TorrentSessionError> {
+        Self::create_with_info_bytes(root, meta, selection, allocation, None).await
+    }
+
+    pub async fn create_with_info_bytes(
+        root: PathBuf,
+        meta: TorrentMetainfo,
+        selection: TorrentSelection,
+        allocation: AllocationMode,
+        info_bytes: Option<Vec<u8>>,
+    ) -> Result<Self, TorrentSessionError> {
+        let expected = meta.info_hash;
+        let validated = info_bytes
+            .map(|bytes| validate_metadata_info(expected, bytes))
+            .transpose()?;
         let storage = tokio::task::spawn_blocking(move || {
             TorrentStorage::create(root, meta, selection, allocation)
         })
         .await
         .map_err(join_error)??;
-        Ok(Self::from_storage(storage))
+        if let Some(bytes) = validated.as_ref() {
+            persist_metadata_info(&storage, bytes)?;
+        }
+        Ok(Self::from_storage(storage, validated.map(Arc::new)))
     }
 
     pub async fn open_or_create(
@@ -82,7 +102,8 @@ impl TorrentStorageSession {
         })
         .await
         .map_err(join_error)??;
-        Ok(Self::from_storage(storage))
+        let metadata_info = load_metadata_info(&storage);
+        Ok(Self::from_storage(storage, metadata_info))
     }
 
     pub async fn resume_from_manifest(
@@ -94,17 +115,23 @@ impl TorrentStorageSession {
         })
         .await
         .map_err(join_error)??;
-        Ok(Self::from_storage(storage))
+        let metadata_info = load_metadata_info(&storage);
+        Ok(Self::from_storage(storage, metadata_info))
     }
 
-    fn from_storage(storage: TorrentStorage) -> Self {
+    fn from_storage(storage: TorrentStorage, metadata_info: Option<Arc<Vec<u8>>>) -> Self {
         let generation = storage.checkpoint().generation;
         Self {
             storage: Arc::new(Mutex::new(storage)),
+            metadata_info,
             generation: Arc::new(AtomicU64::new(generation)),
             current_cancel: Arc::new(Mutex::new(CancellationToken::new())),
             lifecycle: Arc::new(Mutex::new(())),
         }
+    }
+
+    pub fn metadata_info_bytes(&self) -> Option<Arc<Vec<u8>>> {
+        self.metadata_info.clone()
     }
 
     pub async fn begin_run(&self) -> Result<TorrentRunLease, TorrentSessionError> {
@@ -395,6 +422,77 @@ impl TorrentStorageSession {
     }
 }
 
+const METADATA_INFO_FILE_NAME: &str = "info.bencode";
+
+fn validate_metadata_info(
+    expected: InfoHash,
+    bytes: Vec<u8>,
+) -> Result<Vec<u8>, TorrentSessionError> {
+    if bytes.is_empty() || bytes.len() > MAX_METADATA_SIZE {
+        return Err(TorrentSessionError::Metadata(format!(
+            "raw info dictionary size {} is outside BEP 9 limits",
+            bytes.len()
+        )));
+    }
+    let digest = Sha1::digest(&bytes);
+    if digest.as_slice() != expected.as_bytes() {
+        return Err(TorrentSessionError::Metadata(
+            "raw info dictionary SHA-1 does not match torrent info hash".to_owned(),
+        ));
+    }
+    let parsed = TorrentMetainfo::from_info_bytes(&bytes, &[])
+        .map_err(|error| TorrentSessionError::Metadata(error.to_string()))?;
+    if parsed.info_hash != expected {
+        return Err(TorrentSessionError::Metadata(
+            "raw info dictionary identity changed during validation".to_owned(),
+        ));
+    }
+    Ok(bytes)
+}
+
+fn persist_metadata_info(
+    storage: &TorrentStorage,
+    bytes: &[u8],
+) -> Result<(), TorrentSessionError> {
+    let path = storage.control_dir().join(METADATA_INFO_FILE_NAME);
+    let tmp = path.with_extension("bencode.tmp");
+    std::fs::write(&tmp, bytes)
+        .map_err(|error| TorrentSessionError::MetadataIo(tmp.clone(), error.to_string()))?;
+    let file = std::fs::File::open(&tmp)
+        .map_err(|error| TorrentSessionError::MetadataIo(tmp.clone(), error.to_string()))?;
+    file.sync_all()
+        .map_err(|error| TorrentSessionError::MetadataIo(tmp.clone(), error.to_string()))?;
+    if path.exists() {
+        std::fs::remove_file(&path)
+            .map_err(|error| TorrentSessionError::MetadataIo(path.clone(), error.to_string()))?;
+    }
+    std::fs::rename(&tmp, &path)
+        .map_err(|error| TorrentSessionError::MetadataIo(path.clone(), error.to_string()))?;
+    Ok(())
+}
+
+fn load_metadata_info(storage: &TorrentStorage) -> Option<Arc<Vec<u8>>> {
+    let path = storage.control_dir().join(METADATA_INFO_FILE_NAME);
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(error) => {
+            log::warn!("Could not read torrent metadata info sidecar {}: {error}", path.display());
+            return None;
+        }
+    };
+    match validate_metadata_info(storage.metainfo().info_hash, bytes) {
+        Ok(bytes) => Some(Arc::new(bytes)),
+        Err(error) => {
+            log::warn!(
+                "Ignoring invalid torrent metadata info sidecar {}: {error}",
+                path.display()
+            );
+            None
+        }
+    }
+}
+
 fn join_error(error: tokio::task::JoinError) -> TorrentSessionError {
     TorrentSessionError::Worker(error.to_string())
 }
@@ -413,6 +511,10 @@ pub enum TorrentSessionError {
     Worker(String),
     #[error("torrent scheduler restore failed: {0}")]
     Scheduler(String),
+    #[error("torrent metadata info is invalid: {0}")]
+    Metadata(String),
+    #[error("torrent metadata info I/O failed for {0}: {1}")]
+    MetadataIo(PathBuf, String),
 }
 
 #[cfg(test)]
@@ -542,6 +644,32 @@ mod tests {
         let progress = resumed.progress().await.unwrap();
         assert_eq!(progress.selected_completed_bytes, 4);
         assert_eq!(progress.selected_total_bytes, 8);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn exact_metadata_info_sidecar_survives_restart() {
+        let root = temp_root("metadata-info");
+        let mut info = b"d6:lengthi8e4:name8:test.bin12:piece lengthi4e6:pieces40:".to_vec();
+        info.extend_from_slice(&[1u8; 40]);
+        info.push(b'e');
+        let meta = TorrentMetainfo::from_info_bytes(&info, &[]).unwrap();
+        let session = TorrentStorageSession::create_with_info_bytes(
+            root.clone(),
+            meta.clone(),
+            TorrentSelection::all(&meta),
+            AllocationMode::Sparse,
+            Some(info.clone()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(session.metadata_info_bytes().as_deref().map(Vec::as_slice), Some(info.as_slice()));
+        drop(session);
+
+        let resumed = TorrentStorageSession::resume_from_manifest(root.clone(), meta.info_hash)
+            .await
+            .unwrap();
+        assert_eq!(resumed.metadata_info_bytes().as_deref().map(Vec::as_slice), Some(info.as_slice()));
         let _ = std::fs::remove_dir_all(root);
     }
 
