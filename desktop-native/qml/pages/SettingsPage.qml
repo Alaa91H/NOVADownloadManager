@@ -134,6 +134,8 @@ Item {
                 ? Qt.rgba(0.97, 0.32, 0.29, 0.10)
                 : Qt.rgba(0.25, 0.73, 0.31, 0.10)
             border.color: root.noticeError ? Theme.danger : Theme.success
+            Accessible.role: Accessible.AlertMessage
+            Accessible.name: root.noticeText
 
             Text {
                 anchors.fill: parent
@@ -1032,19 +1034,36 @@ Item {
                             model: api.logEntries
                             clip: true
                             spacing: 1
+                            activeFocusOnTab: true
+                            keyNavigationWraps: false
+                            Accessible.role: Accessible.List
+                            Accessible.name: root.t("settings.runtimeLogs")
+                            onActiveFocusChanged: {
+                                if (activeFocus && count > 0 && currentIndex < 0)
+                                    currentIndex = count - 1
+                            }
                             ScrollBar.vertical: ScrollBar {}
 
                             delegate: Rectangle {
+                                required property int index
                                 required property var modelData
                                 width: logList.width
+                                Accessible.role: Accessible.ListItem
                                 Accessible.name: modelData.level + " " + (modelData.message || "")
                                 Accessible.description: (modelData.timestamp || "") + (modelData.target ? " · " + modelData.target : "")
+                                Accessible.focusable: true
+                                Accessible.focused: logList.activeFocus && logList.currentIndex === index
+                                Accessible.selectable: true
+                                Accessible.selected: logList.currentIndex === index
                                 height: 46
                                 color: modelData.level === "ERROR"
                                     ? Qt.rgba(0.97, 0.32, 0.29, 0.08)
                                     : modelData.level === "WARN"
                                         ? Qt.rgba(0.82, 0.60, 0.13, 0.08)
                                         : "transparent"
+                                border.width: logList.activeFocus
+                                    && logList.currentIndex === index ? 2 : 0
+                                border.color: Theme.focusRing
 
                                 RowLayout {
                                     anchors.fill: parent
