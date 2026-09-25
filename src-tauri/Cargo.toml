@@ -23,7 +23,7 @@ serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 log = "0.4"
 flexi_logger = "0.31"
-tokio = { version = "1", features = ["rt", "macros", "time", "net", "sync", "io-util", "signal"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "net", "sync", "io-util", "signal"] }
 axum = { version = "0.8", features = ["macros", "query"] }
 tower-http = { version = "0.7", features = ["cors", "fs", "compression-gzip", "limit"] }
 reqwest = { version = ">=0.12.0, <0.14", features = ["json", "blocking", "multipart", "stream", "gzip", "brotli", "deflate"] }
@@ -46,6 +46,8 @@ zip = "8.6.0"
 tar = "0.4"
 xz2 = "0.1"
 unicode-normalization = "0.1"
+thiserror = "2"
+url = "2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
