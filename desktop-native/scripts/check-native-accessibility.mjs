@@ -121,6 +121,13 @@ for (const file of walk(qmlRoot)) {
         message: "ListView must define bounded keyboard arrow navigation",
       });
     }
+    if (!/Accessible\.role\s*:\s*Accessible\.List\b/.test(listHeader)) {
+      violations.push({
+        file: relative,
+        line,
+        message: "ListView is missing Accessible.List semantics",
+      });
+    }
     if (!/Accessible\.name\s*:/.test(listHeader)) {
       violations.push({
         file: relative,
@@ -131,12 +138,29 @@ for (const file of walk(qmlRoot)) {
 
     const delegate = delegateBlock(listView.source);
     if (delegate) {
+      if (!/Accessible\.role\s*:\s*Accessible\.ListItem\b/.test(delegate)) {
+        violations.push({
+          file: relative,
+          line,
+          message: "ListView delegate is missing Accessible.ListItem semantics",
+        });
+      }
       if (!/Accessible\.name\s*:/.test(delegate)) {
         violations.push({
           file: relative,
           line,
           message: "ListView delegate is missing an Accessible.name",
         });
+      }
+      for (const property of ["focusable", "focused", "selectable", "selected"]) {
+        const pattern = new RegExp("Accessible\\." + property + "\\s*:");
+        if (!pattern.test(delegate)) {
+          violations.push({
+            file: relative,
+            line,
+            message: `ListView delegate is missing Accessible.${property}`,
+          });
+        }
       }
       if (!/Theme\.focusRing/.test(delegate)) {
         violations.push({
@@ -183,6 +207,6 @@ if (violations.length > 0) {
 console.log(
   "Native accessibility/typography gate passed: all TextFields are named, " +
     "monospace technical fields are LTR, font sizes respect Theme.fontScale, " +
-    "ListViews are keyboard reachable with visible focus, and confirmation dialogs " +
-    "define safe focus loops."
+    "ListViews expose List/ListItem focus-selection semantics with visible focus, " +
+    "and confirmation dialogs define safe focus loops."
 );
