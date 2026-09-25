@@ -42,7 +42,10 @@ pub use types::{
     AudioParameters, MediaCodec, MediaContainer, MediaPacket, MediaPacketFlags, MediaProbe,
     MediaTimeBase, MediaTimestamp, MediaTrack, MediaTrackKind, VideoParameters,
 };
-pub use webm::{prepare_webm_track_for_mp4, probe_webm_file, WebmDemuxer};
+pub use webm::{
+    prepare_webm_track_for_mp4, probe_matroska_file, probe_webm_file, MatroskaDemuxer,
+    WebmDemuxer,
+};
 
 /// Stable version for the internal processing contract. Increment only when
 /// serialized job/packet semantics change incompatibly.

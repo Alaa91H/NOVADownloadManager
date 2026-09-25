@@ -184,13 +184,22 @@ pub struct WebmDemuxer {
 
 impl WebmDemuxer {
     pub fn open(path: &Path) -> Result<Self, MediaProcessingError> {
+        Self::open_container(path, "webm", MediaContainer::WebM)
+    }
+
+    fn open_container(
+        path: &Path,
+        expected_doc_type: &str,
+        container: MediaContainer,
+    ) -> Result<Self, MediaProcessingError> {
         let mut file = File::open(path).map_err(io_error)?;
         let file_len = file.metadata().map_err(io_error)?.len();
         if file_len < 8 {
-            return Err(demux_error("file is too small to be WebM"));
+            return Err(demux_error("file is too small to be EBML media"));
         }
 
-        let (probe, packets, video_colours) = scan_webm(&mut file, file_len)?;
+        let (probe, packets, video_colours) =
+            scan_ebml(&mut file, file_len, expected_doc_type, container)?;
         let packet_time_bases = probe
             .tracks
             .iter()
@@ -284,6 +293,41 @@ impl WebmDemuxer {
     }
 }
 
+/// Native Matroska reader backed by the same bounded EBML packet indexer used
+/// for WebM. The public type keeps the container boundary explicit while the
+/// parser shares the common Matroska/WebM Segment, Track, Cluster and Block
+/// machinery.
+#[derive(Debug)]
+pub struct MatroskaDemuxer {
+    inner: WebmDemuxer,
+}
+
+impl MatroskaDemuxer {
+    pub fn open(path: &Path) -> Result<Self, MediaProcessingError> {
+        Ok(Self {
+            inner: WebmDemuxer::open_container(
+                path,
+                "matroska",
+                MediaContainer::Matroska,
+            )?,
+        })
+    }
+
+    pub fn packet_count(&self) -> usize {
+        self.inner.packet_count()
+    }
+}
+
+impl MediaDemuxer for MatroskaDemuxer {
+    fn probe(&self) -> &MediaProbe {
+        self.inner.probe()
+    }
+
+    fn next_packet(&mut self) -> Result<Option<MediaPacket>, MediaProcessingError> {
+        self.inner.next_packet()
+    }
+}
+
 impl MediaDemuxer for WebmDemuxer {
     fn probe(&self) -> &MediaProbe {
         &self.probe
@@ -357,9 +401,15 @@ pub fn probe_webm_file(path: &Path) -> Result<MediaProbe, MediaProcessingError> 
     WebmDemuxer::open(path).map(|demuxer| demuxer.probe)
 }
 
-fn scan_webm(
+pub fn probe_matroska_file(path: &Path) -> Result<MediaProbe, MediaProcessingError> {
+    MatroskaDemuxer::open(path).map(|demuxer| demuxer.inner.probe)
+}
+
+fn scan_ebml(
     file: &mut File,
     file_len: u64,
+    expected_doc_type: &str,
+    container: MediaContainer,
 ) -> Result<
     (
         MediaProbe,
@@ -377,9 +427,9 @@ fn scan_webm(
 
     let doc_type = parse_doc_type(file, ebml, &mut element_count)?
         .ok_or_else(|| demux_error("EBML header is missing DocType"))?;
-    if !doc_type.eq_ignore_ascii_case("webm") {
+    if !doc_type.eq_ignore_ascii_case(expected_doc_type) {
         return Err(MediaProcessingError::UnsupportedContainer(format!(
-            "EBML DocType '{doc_type}' is not WebM"
+            "EBML DocType '{doc_type}' does not match expected '{expected_doc_type}'"
         )));
     }
 
@@ -439,7 +489,7 @@ fn scan_webm(
         .filter_map(|(track_id, meta)| meta.colour.map(|colour| (*track_id, colour)))
         .collect();
     let probe = MediaProbe {
-        container: MediaContainer::WebM,
+        container,
         duration_millis,
         tracks: tracks.into_values().map(|meta| meta.track).collect(),
     };
@@ -616,7 +666,7 @@ fn parse_track_entry(
     }
     let kind = kind.ok_or_else(|| demux_error("WebM TrackEntry is missing TrackType"))?;
     let codec_id = codec_id.ok_or_else(|| demux_error("WebM TrackEntry is missing CodecID"))?;
-    let codec = codec_from_webm_id(&codec_id);
+    let codec = codec_from_ebml_id(&codec_id);
 
     let video = if kind == MediaTrackKind::Video {
         let width = width.ok_or_else(|| demux_error("WebM video track is missing PixelWidth"))?;
@@ -1496,14 +1546,17 @@ fn opus_head_to_dops(
     Ok(dops)
 }
 
-fn codec_from_webm_id(value: &str) -> MediaCodec {
+fn codec_from_ebml_id(value: &str) -> MediaCodec {
     match value {
         "V_VP8" => MediaCodec::Vp8,
         "V_VP9" => MediaCodec::Vp9,
         "V_AV1" => MediaCodec::Av1,
+        "V_MPEG4/ISO/AVC" => MediaCodec::H264,
+        "V_MPEGH/ISO/HEVC" => MediaCodec::Hevc,
         "A_OPUS" => MediaCodec::Opus,
         "A_MPEG/L3" => MediaCodec::Mp3,
         "A_FLAC" => MediaCodec::Flac,
+        other if other == "A_AAC" || other.starts_with("A_AAC/") => MediaCodec::Aac,
         other => MediaCodec::Unknown(other.to_owned()),
     }
 }
@@ -2203,7 +2256,71 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_webm_ebml_doctype() {
+    fn demuxes_matroska_h264_simple_block() {
+        let ebml = element(
+            &[0x1A, 0x45, 0xDF, 0xA3],
+            element(&[0x42, 0x82], b"matroska".to_vec()),
+        );
+        let info = element(
+            &[0x15, 0x49, 0xA9, 0x66],
+            uint_element(&[0x2A, 0xD7, 0xB1], 1_000_000, 3),
+        );
+        let video = element(
+            &[0xE0],
+            [
+                uint_element(&[0xB0], 1280, 2),
+                uint_element(&[0xBA], 720, 2),
+            ]
+            .concat(),
+        );
+        let avcc = vec![1, 100, 0, 31, 0xff, 0xe1, 0, 0];
+        let track = element(
+            &[0xAE],
+            [
+                uint_element(&[0xD7], 1, 1),
+                uint_element(&[0x83], 1, 1),
+                element(&[0x86], b"V_MPEG4/ISO/AVC".to_vec()),
+                element(&[0x63, 0xA2], avcc.clone()),
+                uint_element(&[0x23, 0xE3, 0x83], 40_000_000, 4),
+                video,
+            ]
+            .concat(),
+        );
+        let tracks = element(&[0x16, 0x54, 0xAE, 0x6B], track);
+        let mut block = vec![0x81, 0x00, 0x00, 0x80];
+        block.extend_from_slice(b"NALU");
+        let cluster = element(
+            &[0x1F, 0x43, 0xB6, 0x75],
+            [
+                uint_element(&[0xE7], 0, 1),
+                element(&[0xA3], block),
+            ]
+            .concat(),
+        );
+        let segment = element(
+            &[0x18, 0x53, 0x80, 0x67],
+            [info, tracks, cluster].concat(),
+        );
+        let path = temp_path();
+        fs::write(&path, [ebml, segment].concat()).expect("fixture");
+
+        let mut demuxer = MatroskaDemuxer::open(&path).expect("Matroska demuxer");
+        assert_eq!(demuxer.probe().container, MediaContainer::Matroska);
+        assert_eq!(demuxer.probe().tracks.len(), 1);
+        assert_eq!(demuxer.probe().tracks[0].codec, MediaCodec::H264);
+        assert_eq!(demuxer.probe().tracks[0].codec_private, avcc);
+        assert_eq!(demuxer.packet_count(), 1);
+
+        let packet = demuxer.next_packet().expect("packet").expect("frame");
+        assert_eq!(packet.data, b"NALU");
+        assert_eq!(packet.duration.expect("duration").value, 40_000_000);
+        assert!(packet.flags.keyframe);
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn webm_demuxer_rejects_matroska_doctype() {
         let ebml = element(
             &[0x1A, 0x45, 0xDF, 0xA3],
             element(&[0x42, 0x82], b"matroska".to_vec()),
@@ -2212,7 +2329,26 @@ mod tests {
         let path = temp_path();
         fs::write(&path, [ebml, segment].concat()).expect("fixture");
 
-        let error = WebmDemuxer::open(&path).expect_err("Matroska must remain gated");
+        let error = WebmDemuxer::open(&path).expect_err("WebM must reject Matroska");
+        assert!(matches!(
+            error,
+            MediaProcessingError::UnsupportedContainer(_)
+        ));
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn matroska_demuxer_rejects_webm_doctype() {
+        let ebml = element(
+            &[0x1A, 0x45, 0xDF, 0xA3],
+            element(&[0x42, 0x82], b"webm".to_vec()),
+        );
+        let segment = element(&[0x18, 0x53, 0x80, 0x67], Vec::new());
+        let path = temp_path();
+        fs::write(&path, [ebml, segment].concat()).expect("fixture");
+
+        let error = MatroskaDemuxer::open(&path).expect_err("Matroska must reject WebM");
         assert!(matches!(
             error,
             MediaProcessingError::UnsupportedContainer(_)

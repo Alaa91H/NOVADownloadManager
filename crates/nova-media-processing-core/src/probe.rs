@@ -34,13 +34,7 @@ pub fn sniff_media_container(bytes: &[u8]) -> Option<MediaContainer> {
         return Some(MediaContainer::Mp4);
     }
     if is_ebml(bytes) {
-        if bytes
-            .windows(4)
-            .any(|window| window.eq_ignore_ascii_case(b"webm"))
-        {
-            return Some(MediaContainer::WebM);
-        }
-        return Some(MediaContainer::Matroska);
+        return sniff_ebml_container(bytes);
     }
     if is_mpeg_ts(bytes) {
         return Some(MediaContainer::MpegTs);
@@ -67,6 +61,73 @@ fn is_isobmff(bytes: &[u8]) -> bool {
 
 fn is_ebml(bytes: &[u8]) -> bool {
     bytes.starts_with(&[0x1A, 0x45, 0xDF, 0xA3])
+}
+
+fn sniff_ebml_container(bytes: &[u8]) -> Option<MediaContainer> {
+    let (header_size, size_len) = read_ebml_size(bytes, 4)?;
+    let mut cursor = 4_usize.checked_add(size_len)?;
+    let header_end = cursor.checked_add(header_size)?;
+    if header_end > bytes.len() {
+        return None;
+    }
+
+    while cursor < header_end {
+        let first = *bytes.get(cursor)?;
+        if first == 0 {
+            return None;
+        }
+        let id_len = usize::try_from(first.leading_zeros() + 1).ok()?;
+        if id_len == 0 || id_len > 4 {
+            return None;
+        }
+        let id_end = cursor.checked_add(id_len)?;
+        if id_end > header_end {
+            return None;
+        }
+
+        let (payload_size, payload_size_len) = read_ebml_size(bytes, id_end)?;
+        let payload_start = id_end.checked_add(payload_size_len)?;
+        let payload_end = payload_start.checked_add(payload_size)?;
+        if payload_end > header_end {
+            return None;
+        }
+
+        if bytes.get(cursor..id_end) == Some(&[0x42, 0x82][..]) {
+            let doc_type = std::str::from_utf8(bytes.get(payload_start..payload_end)?).ok()?;
+            if doc_type.eq_ignore_ascii_case("webm") {
+                return Some(MediaContainer::WebM);
+            }
+            if doc_type.eq_ignore_ascii_case("matroska") {
+                return Some(MediaContainer::Matroska);
+            }
+            return None;
+        }
+
+        cursor = payload_end;
+    }
+
+    None
+}
+
+fn read_ebml_size(bytes: &[u8], offset: usize) -> Option<(usize, usize)> {
+    let first = *bytes.get(offset)?;
+    if first == 0 {
+        return None;
+    }
+    let length = usize::try_from(first.leading_zeros() + 1).ok()?;
+    if length == 0 || length > 8 {
+        return None;
+    }
+    let marker = 0x80_u8 >> (length - 1);
+    let mut value = u64::from(first & (marker - 1));
+    for index in 1..length {
+        value = (value << 8) | u64::from(*bytes.get(offset.checked_add(index)?)?);
+    }
+    let unknown_max = (1_u64 << (7 * length)) - 1;
+    if value == unknown_max {
+        return None;
+    }
+    Some((usize::try_from(value).ok()?, length))
 }
 
 fn is_mpeg_ts(bytes: &[u8]) -> bool {
@@ -106,9 +167,32 @@ mod tests {
 
     #[test]
     fn distinguishes_webm_ebml_header() {
-        let mut bytes = vec![0x1A, 0x45, 0xDF, 0xA3];
-        bytes.extend_from_slice(b"\x42\x82webm");
+        let bytes = [
+            0x1A, 0x45, 0xDF, 0xA3, 0x87,
+            0x42, 0x82, 0x84, b'w', b'e', b'b', b'm',
+        ];
         assert_eq!(sniff_media_container(&bytes), Some(MediaContainer::WebM));
+    }
+
+    #[test]
+    fn distinguishes_matroska_ebml_header() {
+        let bytes = [
+            0x1A, 0x45, 0xDF, 0xA3, 0x8B,
+            0x42, 0x82, 0x88, b'm', b'a', b't', b'r', b'o', b's', b'k', b'a',
+        ];
+        assert_eq!(
+            sniff_media_container(&bytes),
+            Some(MediaContainer::Matroska)
+        );
+    }
+
+    #[test]
+    fn unknown_ebml_doctype_is_not_guessed_as_matroska() {
+        let bytes = [
+            0x1A, 0x45, 0xDF, 0xA3, 0x86,
+            0x42, 0x82, 0x83, b'f', b'o', b'o',
+        ];
+        assert_eq!(sniff_media_container(&bytes), None);
     }
 
     #[test]

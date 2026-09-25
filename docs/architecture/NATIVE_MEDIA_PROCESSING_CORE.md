@@ -21,9 +21,11 @@ The core currently provides:
   `av1C`, `vpcC`, `esds`, and `dOps`;
 - fragmented MP4/CMAF sample-run parsing through `mvex/trex`,
   `moof/traf/tfhd/tfdt/trun`;
-- native WebM demuxing for EBML `Info`, `Tracks`, `Cluster`,
-  `SimpleBlock`, and `BlockGroup` structures;
-- WebM VP8, VP9, AV1, Opus, MP3, and FLAC track recognition, including
+- native WebM and Matroska demuxing through a shared bounded EBML reader for
+  `Info`, `Tracks`, `Cluster`, `SimpleBlock`, and `BlockGroup`
+  structures;
+- WebM VP8, VP9, AV1, Opus, MP3, and FLAC track recognition plus Matroska
+  H.264, HEVC, AAC, VP8/VP9, AV1, Opus, MP3, and FLAC recognition, including
   codec-private data, dimensions, audio parameters, language, default
   duration metadata, and VP-relevant `Colour` fields;
 - WebM Xiph, fixed-size, and EBML block lacing with bounded frame indexing;
@@ -35,7 +37,9 @@ The core currently provides:
 
 ## Capability boundary
 
-`mp4_demux`, `fragmented_mp4_demux`, and `webm_demux` are enabled.
+`mp4_demux`, `fragmented_mp4_demux`, `webm_demux`, and
+`matroska_demux` are enabled. EBML container sniffing validates the DocType
+instead of treating an arbitrary non-WebM EBML document as Matroska.
 
 `mp4_mux` and `native_remux` are enabled. The native muxer writes `ftyp`,
 an extended-size `mdat`, and a generated `moov` with `stsd`, `stts`,
@@ -56,7 +60,7 @@ BitsPerChannel validation from WebM `Colour`; and WebM AV1
 movie timescale for sample-accurate trimming, and writes `roll` sample groups
 (`sgpd/sbgp`) with a conservative 80 ms random-access pre-roll. The MP4
 `ftyp` also advertises `iso2` compatibility for roll-group support.
-Matroska demuxing, WebM/Matroska muxing, audio transcoding, video transcoding,
+WebM/Matroska muxing, audio transcoding, video transcoding,
 subtitles/data muxing, general edit-list timeline handling beyond Opus pre-skip,
 and hardware acceleration
 remain disabled until their implementations are present and covered by native
