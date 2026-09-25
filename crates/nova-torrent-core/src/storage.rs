@@ -1,6 +1,6 @@
 use crate::{
     FilePriority, InfoHash, ManifestError, ResumeError, TorrentMetainfo, TorrentSelection,
-    TorrentResumeCheckpoint, TorrentStorageManifest, load_checkpoint_recovering,
+    TorrentResumeCheckpoint, TorrentStorageManifest, DEFAULT_BLOCK_SIZE, load_checkpoint_recovering,
     load_storage_manifest_recovering, save_checkpoint_atomic, save_storage_manifest_atomic,
 };
 use std::fs::{File, OpenOptions};
@@ -344,6 +344,63 @@ impl TorrentStorage {
             selected_bytes_written,
             boundary_cached,
         })
+    }
+
+    /// Read one peer-wire upload block only from a piece that NOVA has
+    /// previously verified, and verify the full piece again immediately before
+    /// serving it. The second verification prevents an external filesystem
+    /// modification after checkpoint creation from being uploaded to peers.
+    pub fn read_verified_block(
+        &mut self,
+        piece_index: usize,
+        begin: u32,
+        length: u32,
+    ) -> Result<Vec<u8>, StorageError> {
+        if length == 0 || length > DEFAULT_BLOCK_SIZE {
+            return Err(StorageError::InvalidUploadBlockLength {
+                actual: length,
+                max: DEFAULT_BLOCK_SIZE,
+            });
+        }
+        if !self.checkpoint.verified.is_set(piece_index)? {
+            return Err(StorageError::PieceNotVerified(piece_index));
+        }
+
+        let piece_size = self
+            .meta
+            .piece_size(piece_index)
+            .ok_or(StorageError::PieceOutOfRange(piece_index))?;
+        let end = u64::from(begin)
+            .checked_add(u64::from(length))
+            .ok_or(StorageError::LengthOverflow)?;
+        if end > piece_size {
+            return Err(StorageError::UploadBlockOutsidePiece {
+                piece_index,
+                begin,
+                length,
+                piece_size,
+            });
+        }
+
+        let piece = self.read_materialized_piece(piece_index)?;
+        let valid = self.meta.verify_piece(piece_index, &piece).unwrap_or(false);
+        if !valid {
+            self.checkpoint.verified.set(piece_index, false)?;
+            self.checkpoint.boundary_cache.set(piece_index, false)?;
+            self.remove_boundary_cache(piece_index);
+            save_checkpoint_atomic(&self.checkpoint_path, &self.checkpoint)?;
+            return Err(StorageError::PieceHashMismatch(piece_index));
+        }
+
+        let start = usize::try_from(begin).map_err(|_| StorageError::LengthOverflow)?;
+        let block_len = usize::try_from(length).map_err(|_| StorageError::LengthOverflow)?;
+        let end = start
+            .checked_add(block_len)
+            .ok_or(StorageError::LengthOverflow)?;
+        piece
+            .get(start..end)
+            .map(|block| block.to_vec())
+            .ok_or(StorageError::PieceSliceOutsideBuffer(piece_index))
     }
 
     pub fn startup_recheck(
@@ -995,6 +1052,19 @@ pub enum StorageError {
     PieceOutOfRange(usize),
     #[error("torrent piece {0} is not selected for download")]
     PieceNotSelected(usize),
+    #[error("torrent piece {0} is not verified and cannot be uploaded")]
+    PieceNotVerified(usize),
+    #[error("torrent upload block length {actual} is invalid; maximum is {max}")]
+    InvalidUploadBlockLength { actual: u32, max: u32 },
+    #[error(
+        "torrent upload block is outside piece {piece_index}: begin={begin}, length={length}, piece_size={piece_size}"
+    )]
+    UploadBlockOutsidePiece {
+        piece_index: usize,
+        begin: u32,
+        length: u32,
+        piece_size: u64,
+    },
     #[error("torrent piece {0} failed SHA-1 verification")]
     PieceHashMismatch(usize),
     #[error("torrent piece {0} slice points outside the verified buffer")]
@@ -1083,6 +1153,58 @@ mod tests {
             tracker_tiers: Vec::new(),
             private: false,
         }
+    }
+
+    #[test]
+    fn verified_upload_block_rechecks_piece_before_serving() {
+        let root = temp_root("upload-block");
+        let meta = multi_meta();
+        let selection = TorrentSelection::all(&meta);
+        let mut storage =
+            TorrentStorage::create(&root, meta.clone(), selection, AllocationMode::Sparse)
+                .unwrap();
+        let generation = storage.begin_run().unwrap();
+
+        storage.write_verified_piece(generation, 0, b"abcd").unwrap();
+        assert_eq!(
+            storage.read_verified_block(0, 1, 2).unwrap(),
+            b"bc".to_vec()
+        );
+
+        let mut target = OpenOptions::new()
+            .write(true)
+            .open(root.join("bundle/a.bin"))
+            .unwrap();
+        target.write_all(b"x").unwrap();
+        target.sync_all().unwrap();
+
+        assert!(matches!(
+            storage.read_verified_block(0, 0, 4),
+            Err(StorageError::PieceHashMismatch(0))
+        ));
+        assert!(!storage.checkpoint().verified.is_set(0).unwrap());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn upload_block_rejects_unverified_and_oversized_requests() {
+        let root = temp_root("upload-bounds");
+        let meta = multi_meta();
+        let selection = TorrentSelection::all(&meta);
+        let mut storage =
+            TorrentStorage::create(&root, meta, selection, AllocationMode::Sparse).unwrap();
+
+        assert!(matches!(
+            storage.read_verified_block(0, 0, 4),
+            Err(StorageError::PieceNotVerified(0))
+        ));
+        assert!(matches!(
+            storage.read_verified_block(0, 0, DEFAULT_BLOCK_SIZE + 1),
+            Err(StorageError::InvalidUploadBlockLength { .. })
+        ));
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

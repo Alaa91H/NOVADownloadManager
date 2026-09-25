@@ -235,6 +235,25 @@ impl TorrentStorageSession {
         Ok(result)
     }
 
+    pub async fn read_verified_block(
+        &self,
+        piece_index: usize,
+        begin: u32,
+        length: u32,
+    ) -> Result<Vec<u8>, TorrentSessionError> {
+        let storage = self.storage.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut storage = storage
+                .lock()
+                .map_err(|_| TorrentSessionError::LockPoisoned("storage"))?;
+            storage
+                .read_verified_block(piece_index, begin, length)
+                .map_err(TorrentSessionError::from)
+        })
+        .await
+        .map_err(join_error)?
+    }
+
     pub async fn startup_recheck(
         &self,
         mode: RecheckMode,
@@ -437,6 +456,33 @@ mod tests {
             tracker_tiers: Vec::new(),
             private: false,
         }
+    }
+
+    #[tokio::test]
+    async fn session_serves_only_verified_upload_blocks() {
+        let root = temp_root("upload");
+        let meta = meta();
+        let session = TorrentStorageSession::create(
+            root.clone(),
+            meta.clone(),
+            TorrentSelection::all(&meta),
+            AllocationMode::Sparse,
+        )
+        .await
+        .unwrap();
+
+        assert!(session.read_verified_block(0, 0, 4).await.is_err());
+        let lease = session.begin_run().await.unwrap();
+        session
+            .commit_piece(&lease, 0, b"abcd".to_vec())
+            .await
+            .unwrap();
+        assert_eq!(
+            session.read_verified_block(0, 1, 2).await.unwrap(),
+            b"bc".to_vec()
+        );
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[tokio::test]
