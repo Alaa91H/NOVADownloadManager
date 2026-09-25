@@ -19,6 +19,9 @@ use crate::daemon::state::SharedState;
 use crate::daemon::torrent_bandwidth::TorrentBandwidthLimiter;
 use crate::daemon::torrent_magnet::{MagnetResolution, MagnetResolver};
 use crate::daemon::torrent_peer::{generate_peer_id, PeerEngine};
+use crate::daemon::torrent_seeding::{
+    TorrentSeedingControl, TorrentSeedingPolicy, TorrentSeedingSnapshot,
+};
 use crate::daemon::torrent_storage::{TorrentStorageProgress, TorrentStorageSession};
 use crate::daemon::torrent_transfer::{TorrentTransferConfig, TorrentTransferCoordinator};
 use crate::daemon::types::{restart_task_state, transition_task_state, Task, TaskState};
@@ -51,6 +54,8 @@ pub struct TorrentJob {
     pub start_time: Instant,
     pub allocated_kbps: Arc<AtomicU64>,
     pub upload_limiter: Arc<TorrentBandwidthLimiter>,
+    pub seeding: TorrentSeedingControl,
+    pub seed_cancel_token: CancellationToken,
     pub uploaded_bytes: Arc<AtomicU64>,
     pub active_seed_connections: Arc<AtomicU64>,
     pub active_slot: Arc<AtomicBool>,
@@ -135,6 +140,12 @@ pub struct TorrentTaskDetails {
     pub candidate_peer_count: usize,
     pub uploaded_bytes: u64,
     pub active_seed_connections: u64,
+    pub seeding_enabled: bool,
+    pub seed_ratio_limit: Option<f64>,
+    pub seed_time_limit_seconds: Option<u64>,
+    pub seeded_seconds: u64,
+    pub seed_ratio: f64,
+    pub seed_limit_reached: bool,
     pub requires_reauth: bool,
 }
 
@@ -265,6 +276,8 @@ pub async fn create_torrent_task(
         id.clone(),
         state.bandwidth_manager.clone(),
     ));
+    let seeding = TorrentSeedingControl::default();
+    let uploaded_bytes = seeding.uploaded_counter();
     let connections = body
         .connections
         .unwrap_or(8)
@@ -312,7 +325,9 @@ pub async fn create_torrent_task(
         start_time: Instant::now(),
         allocated_kbps: allocated_kbps.clone(),
         upload_limiter,
-        uploaded_bytes: Arc::new(AtomicU64::new(0)),
+        seeding,
+        seed_cancel_token: CancellationToken::new(),
+        uploaded_bytes,
         active_seed_connections: Arc::new(AtomicU64::new(0)),
         active_slot: Arc::new(AtomicBool::new(false)),
         priority: DownloadPriority::Normal,
@@ -346,6 +361,7 @@ pub fn restore_torrent_job(
     source_uri: Option<String>,
     requires_reauth: bool,
     bandwidth: BandwidthManager,
+    seeding_snapshot: Option<TorrentSeedingSnapshot>,
 ) -> Result<TorrentJob, String> {
     let info_hash = info_hash_from_hex(&task.engine_id)?;
     let parsed_source = source_uri
@@ -366,6 +382,12 @@ pub fn restore_torrent_job(
         task.id.clone(),
         bandwidth,
     ));
+    let seeding = TorrentSeedingControl::from_snapshot(seeding_snapshot.unwrap_or_default());
+    let uploaded_bytes = seeding.uploaded_counter();
+    let seed_cancel_token = CancellationToken::new();
+    if !seeding.policy().enabled {
+        seed_cancel_token.cancel();
+    }
     Ok(TorrentJob {
         private: false,
         task,
@@ -378,7 +400,9 @@ pub fn restore_torrent_job(
         start_time: Instant::now(),
         allocated_kbps: Arc::new(AtomicU64::new(0)),
         upload_limiter,
-        uploaded_bytes: Arc::new(AtomicU64::new(0)),
+        seeding,
+        seed_cancel_token,
+        uploaded_bytes,
         active_seed_connections: Arc::new(AtomicU64::new(0)),
         active_slot: Arc::new(AtomicBool::new(false)),
         priority: DownloadPriority::Normal,
@@ -431,6 +455,11 @@ pub async fn torrent_task_details(
         })
         .collect();
 
+    let seeding_policy = job.seeding.policy();
+    let seed_limit_state = job.seeding.limit_state(progress.selected_total_bytes);
+    let task_completed =
+        TaskState::from_status(&job.task.status) == Some(TaskState::Completed);
+
     Ok(TorrentTaskDetails {
         task: job.task,
         info_hash: plan.metainfo.info_hash.to_hex(),
@@ -446,6 +475,13 @@ pub async fn torrent_task_details(
         candidate_peer_count: job.candidates.len(),
         uploaded_bytes: job.uploaded_bytes.load(Ordering::Relaxed),
         active_seed_connections: job.active_seed_connections.load(Ordering::Relaxed),
+        seeding_enabled: seeding_policy.enabled
+            && (!task_completed || !seed_limit_state.reached()),
+        seed_ratio_limit: seeding_policy.ratio_limit(),
+        seed_time_limit_seconds: seeding_policy.time_limit_seconds,
+        seeded_seconds: job.seeding.effective_seeded_seconds(),
+        seed_ratio: job.seeding.ratio(progress.selected_total_bytes),
+        seed_limit_reached: task_completed && seed_limit_state.reached(),
         requires_reauth: job.requires_reauth,
     })
 }
@@ -1722,6 +1758,7 @@ mod tests {
             Some(source),
             false,
             BandwidthManager::default(),
+            None,
         )
         .unwrap();
         job.storage = Arc::new(tokio::sync::Mutex::new(Some(storage)));
