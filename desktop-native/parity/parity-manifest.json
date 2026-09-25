@@ -914,7 +914,13 @@
         "desktop-native/qml/components/SettingsAdvancedPanel.qml",
         "desktop-native/qml/components/MediaAdvancedPanel.qml",
         "desktop-native/qml/pages/MediaDownloaderPage.qml",
-        "desktop-native/qml/components/QueueSettingsPanel.qml"
+        "desktop-native/qml/components/QueueSettingsPanel.qml",
+        "desktop-native/qml/pages/DownloadsPage.qml",
+        "desktop-native/qml/pages/QueuePage.qml",
+        "desktop-native/qml/pages/SchedulerPage.qml",
+        "desktop-native/qml/components/ConfirmDeleteDialog.qml",
+        "desktop-native/qml/components/ConfirmRedownloadDialog.qml",
+        "desktop-native/scripts/check-native-contrast.mjs"
       ],
       "contains": [
         {
@@ -928,20 +934,30 @@
           "file": "desktop-native/scripts/check-native-accessibility.mjs",
           "allOf": [
             "TextField is missing Accessible.name",
-            "bypasses Theme.fontScale",
-            "monospace technical TextField must stay explicitly LTR"
+            "ListView must be reachable through Tab navigation",
+            "visible keyboard focus indicator",
+            "confirmation dialog must define an explicit forward/backward focus loop",
+            "bypasses Theme.fontScale"
           ]
         },
         {
-          "file": "desktop-native/qml/components/SettingsAdvancedPanel.qml",
+          "file": "desktop-native/scripts/check-native-contrast.mjs",
           "allOf": [
-            "Accessible.name",
-            "LayoutMirroring.enabled: false",
-            "horizontalAlignment: Text.AlignLeft"
+            "4.5:1",
+            "3.0:1",
+            "Native WCAG contrast gate passed"
+          ]
+        },
+        {
+          "file": "desktop-native/qml/pages/DownloadsPage.qml",
+          "allOf": [
+            "activeFocusOnTab: true",
+            "keyNavigationWraps: false",
+            "Theme.focusRing"
           ]
         }
       ],
-      "blocker": "All native QML TextFields now expose Accessible.name, technical monospace inputs are statically required to stay LTR, and fixed numeric font.pixelSize declarations are rejected so text scaling remains effective. Remaining validation is real screen-reader behavior, color contrast, keyboard traversal beyond TextFields, High-DPI rendering and multi-monitor testing on packaged builds."
+      "blocker": "All native TextFields are named, the five native ListViews are Tab/arrow-key reachable with visible focus, destructive confirmation dialogs use explicit safe focus loops, technical fields preserve LTR behavior, scalable typography is enforced, and normal light/dark text/focus colors are guarded by WCAG contrast checks. Remaining validation requires real screen readers, complete custom-control/table semantics, packaged High-DPI and multi-monitor testing, and platform-specific assistive-technology QA."
     },
     {
       "id": "large-list-recovery",
