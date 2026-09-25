@@ -1287,7 +1287,17 @@ pub async fn recheck_restored_completed_torrents(state: &SharedState) {
                     progress.selected_completed_bytes, progress.selected_total_bytes
                 ));
             }
-            Ok::<(TorrentStorageProgress, TorrentStorageSession), String>((progress, storage))
+            let private_torrent = storage
+                .transfer_plan()
+                .await
+                .map_err(|error| format!("Could not read rechecked torrent metadata: {error}"))?
+                .metainfo
+                .private;
+            Ok::<(TorrentStorageProgress, TorrentStorageSession, bool), String>((
+                progress,
+                storage,
+                private_torrent,
+            ))
         }
         .await;
 
@@ -1302,14 +1312,10 @@ pub async fn recheck_restored_completed_torrents(state: &SharedState) {
             }
 
             match validation {
-                Ok((progress, storage)) => {
+                Ok((progress, storage, private_torrent)) => {
                     current.task.downloaded_bytes = progress.selected_completed_bytes;
                     current.task.size_bytes = progress.selected_total_bytes;
-                    current.private = storage
-                        .transfer_plan()
-                        .await
-                        .map(|plan| plan.metainfo.private)
-                        .unwrap_or(current.private);
+                    current.private = private_torrent;
                     current.task.engine_status = Some("completed-verified".to_owned());
                     current.task.error_message = None;
                     if !current.requires_reauth && current.seeding.policy().enabled {
