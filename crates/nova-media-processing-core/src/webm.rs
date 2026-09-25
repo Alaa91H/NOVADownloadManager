@@ -961,7 +961,7 @@ pub fn prepare_webm_track_for_mp4(
     track: &MediaTrack,
 ) -> Result<MediaTrack, MediaProcessingError> {
     let mut converted = track.clone();
-    converted.codec_private = match track.codec {
+    converted.codec_private = match &track.codec {
         MediaCodec::Vp8 => make_vpcc(0, 0, 8, 1, false)?,
         MediaCodec::Vp9 => vp9_webm_private_to_vpcc(&track.codec_private)?,
         MediaCodec::Av1 => validate_webm_av1c(&track.codec_private)?.to_vec(),
@@ -1139,7 +1139,7 @@ fn opus_head_to_dops(
     data: &[u8],
     audio: Option<&AudioParameters>,
 ) -> Result<Vec<u8>, MediaProcessingError> {
-    if data.len() < 19 || data.get(..8) != Some(b"OpusHead") {
+    if data.len() < 19 || &data[..8] != b"OpusHead" {
         return Err(demux_error(
             "WebM Opus CodecPrivate must contain an OpusHead identification header",
         ));
