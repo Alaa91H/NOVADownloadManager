@@ -22,6 +22,10 @@ enum TorrentRateSource {
         allocated_kbps: Arc<AtomicU64>,
         bandwidth: BandwidthManager,
     },
+    NovaBandwidthTask {
+        task_id: Arc<str>,
+        bandwidth: BandwidthManager,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -75,6 +79,18 @@ impl TorrentBandwidthLimiter {
         }
     }
 
+    pub fn for_bandwidth_task(task_id: String, bandwidth: BandwidthManager) -> Self {
+        Self {
+            source: TorrentRateSource::NovaBandwidthTask {
+                task_id: Arc::<str>::from(task_id),
+                bandwidth,
+            },
+            state: Arc::new(Mutex::new(LimiterState {
+                next_slot: Instant::now(),
+            })),
+        }
+    }
+
     pub fn effective_rate(&self) -> TorrentRateLimit {
         match &self.source {
             TorrentRateSource::Fixed(rate) => TorrentRateLimit::Limit(*rate),
@@ -102,6 +118,16 @@ impl TorrentBandwidthLimiter {
                             TorrentRateLimit::Limit(effective_kbps.saturating_mul(1024))
                         }
                     }
+                }
+            }
+            TorrentRateSource::NovaBandwidthTask { task_id, bandwidth } => {
+                match bandwidth.rate_limit_for(task_id) {
+                    RateLimit::Paused => TorrentRateLimit::Paused,
+                    RateLimit::Unlimited => TorrentRateLimit::Unlimited,
+                    RateLimit::Limit(kbps) if kbps > 0 => {
+                        TorrentRateLimit::Limit(kbps.saturating_mul(1024))
+                    }
+                    RateLimit::Limit(_) => TorrentRateLimit::Unlimited,
                 }
             }
         }
@@ -209,6 +235,33 @@ mod tests {
         assert_eq!(
             limiter.effective_rate(),
             TorrentRateLimit::Limit(500 * 1024)
+        );
+
+        bandwidth.pause_all();
+        assert_eq!(limiter.effective_rate(), TorrentRateLimit::Paused);
+    }
+
+    #[test]
+    fn nova_upload_rate_uses_bandwidth_policy_without_download_allocation() {
+        use crate::daemon::engine::bandwidth::{BandwidthConfig, BandwidthManager};
+
+        let bandwidth = BandwidthManager::new(BandwidthConfig {
+            global_limit_kbps: 320,
+            ..Default::default()
+        });
+        let limiter = TorrentBandwidthLimiter::for_bandwidth_task(
+            "torrent-upload".to_owned(),
+            bandwidth.clone(),
+        );
+        assert_eq!(
+            limiter.effective_rate(),
+            TorrentRateLimit::Limit(320 * 1024)
+        );
+
+        bandwidth.set_task_limit("torrent-upload".to_owned(), 96);
+        assert_eq!(
+            limiter.effective_rate(),
+            TorrentRateLimit::Limit(96 * 1024)
         );
 
         bandwidth.pause_all();

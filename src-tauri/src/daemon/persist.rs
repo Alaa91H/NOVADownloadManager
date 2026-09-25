@@ -634,6 +634,7 @@ pub(crate) mod tests {
             task.clone(),
             Some(secret_source.to_owned()),
             false,
+            state.bandwidth_manager.clone(),
         )
         .unwrap();
         job.private = true;

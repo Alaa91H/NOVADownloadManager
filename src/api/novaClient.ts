@@ -115,6 +115,8 @@ export interface TorrentTaskDetails {
   dhtPeerCount: number;
   pexPeerCount: number;
   candidatePeerCount: number;
+  uploadedBytes: number;
+  activeSeedConnections: number;
   requiresReauth: boolean;
 }
 

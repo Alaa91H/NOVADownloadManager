@@ -974,6 +974,7 @@ fn restore_persisted_tasks(
                 task.clone(),
                 source,
                 requires_reauth,
+                state.bandwidth_manager.clone(),
             ) {
                 Ok(job) => {
                     let allocation = job.allocated_kbps.clone();

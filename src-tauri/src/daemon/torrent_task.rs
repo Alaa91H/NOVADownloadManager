@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
+use crate::daemon::engine::bandwidth::BandwidthManager;
 use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
 use crate::daemon::state::SharedState;
 use crate::daemon::torrent_bandwidth::TorrentBandwidthLimiter;
@@ -49,6 +50,9 @@ pub struct TorrentJob {
     pub run_generation: Arc<AtomicU64>,
     pub start_time: Instant,
     pub allocated_kbps: Arc<AtomicU64>,
+    pub upload_limiter: Arc<TorrentBandwidthLimiter>,
+    pub uploaded_bytes: Arc<AtomicU64>,
+    pub active_seed_connections: Arc<AtomicU64>,
     pub active_slot: Arc<AtomicBool>,
     pub priority: DownloadPriority,
     pub requires_reauth: bool,
@@ -129,6 +133,8 @@ pub struct TorrentTaskDetails {
     pub dht_peer_count: usize,
     pub pex_peer_count: usize,
     pub candidate_peer_count: usize,
+    pub uploaded_bytes: u64,
+    pub active_seed_connections: u64,
     pub requires_reauth: bool,
 }
 
@@ -255,6 +261,10 @@ pub async fn create_torrent_task(
     let (persisted_source, _source_requires_reauth) =
         persistable_magnet_source(&analysis.source_uri, metainfo.private)?;
     let id = uuid::Uuid::new_v4().simple().to_string();
+    let upload_limiter = Arc::new(TorrentBandwidthLimiter::for_bandwidth_task(
+        id.clone(),
+        state.bandwidth_manager.clone(),
+    ));
     let connections = body
         .connections
         .unwrap_or(8)
@@ -301,6 +311,9 @@ pub async fn create_torrent_task(
         run_generation: Arc::new(AtomicU64::new(0)),
         start_time: Instant::now(),
         allocated_kbps: allocated_kbps.clone(),
+        upload_limiter,
+        uploaded_bytes: Arc::new(AtomicU64::new(0)),
+        active_seed_connections: Arc::new(AtomicU64::new(0)),
         active_slot: Arc::new(AtomicBool::new(false)),
         priority: DownloadPriority::Normal,
         requires_reauth: false,
@@ -332,6 +345,7 @@ pub fn restore_torrent_job(
     task: Task,
     source_uri: Option<String>,
     requires_reauth: bool,
+    bandwidth: BandwidthManager,
 ) -> Result<TorrentJob, String> {
     let info_hash = info_hash_from_hex(&task.engine_id)?;
     let parsed_source = source_uri
@@ -348,6 +362,10 @@ pub fn restore_torrent_job(
     }
 
     let restored_source = parsed_source.map(str::to_owned);
+    let upload_limiter = Arc::new(TorrentBandwidthLimiter::for_bandwidth_task(
+        task.id.clone(),
+        bandwidth,
+    ));
     Ok(TorrentJob {
         private: false,
         task,
@@ -359,6 +377,9 @@ pub fn restore_torrent_job(
         run_generation: Arc::new(AtomicU64::new(0)),
         start_time: Instant::now(),
         allocated_kbps: Arc::new(AtomicU64::new(0)),
+        upload_limiter,
+        uploaded_bytes: Arc::new(AtomicU64::new(0)),
+        active_seed_connections: Arc::new(AtomicU64::new(0)),
         active_slot: Arc::new(AtomicBool::new(false)),
         priority: DownloadPriority::Normal,
         requires_reauth,
@@ -423,6 +444,8 @@ pub async fn torrent_task_details(
         dht_peer_count: job.dht_peer_count,
         pex_peer_count: job.pex_peer_count,
         candidate_peer_count: job.candidates.len(),
+        uploaded_bytes: job.uploaded_bytes.load(Ordering::Relaxed),
+        active_seed_connections: job.active_seed_connections.load(Ordering::Relaxed),
         requires_reauth: job.requires_reauth,
     })
 }
@@ -1647,7 +1670,13 @@ mod tests {
             error_message: None,
         };
 
-        let mut job = restore_torrent_job(task.clone(), Some(source), false).unwrap();
+        let mut job = restore_torrent_job(
+            task.clone(),
+            Some(source),
+            false,
+            BandwidthManager::default(),
+        )
+        .unwrap();
         job.storage = Arc::new(tokio::sync::Mutex::new(Some(storage)));
         let state = Arc::new(crate::daemon::persist::tests::test_state(
             &data_dir.display().to_string(),
