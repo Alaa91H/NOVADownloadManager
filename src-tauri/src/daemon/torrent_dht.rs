@@ -182,7 +182,11 @@ impl DhtSharedTransport {
     }
 
     async fn set_socket(&self, socket: Option<Arc<UdpSocket>>) {
+        let disconnecting = socket.is_none();
         *self.socket.write().await = socket;
+        if disconnecting {
+            self.pending.lock().await.clear();
+        }
     }
 
     async fn socket(&self) -> Option<Arc<UdpSocket>> {
@@ -447,7 +451,10 @@ impl DhtService {
                         Ok(message) => message,
                         Err(_) => continue,
                     };
-                    if matches!(message, DhtMessage::Response { .. } | DhtMessage::Error { .. })
+                    if matches!(
+                        &message,
+                        DhtMessage::Response { .. } | DhtMessage::Error { .. }
+                    )
                         && self
                             .engine
                             .deliver_shared_response(source, message.clone())
