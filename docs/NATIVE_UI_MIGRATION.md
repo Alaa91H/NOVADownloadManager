@@ -130,13 +130,16 @@ Implemented in the first Stage 5 slice:
 - Every native QML TextField now exposes Accessible.name; advanced network, media, queue, scheduler and batch fields were completed in this hardening pass.
 - Technical monospace fields and network/path inputs remain explicitly LTR inside RTL layouts where required.
 - CI now rejects fixed numeric font.pixelSize declarations so text scale remains effective across native QML.
+- Downloads, Queue Manager, Scheduler rules and Media preview lists are now reachable by Tab and navigable by arrow keys, with visible focus rings and accessible row descriptions.
+- Delete and re-download confirmations move initial focus to Cancel and define explicit forward/backward keyboard focus loops.
+- Normal light/dark theme text colors now meet the automated 4.5:1 WCAG contrast floor, while the validated keyboard focus accent meets 3:1 across window, surface and raised-surface backgrounds.
 
 Remaining before Stage 5 is complete:
 
 - Continue native-key translation coverage beyond the CI-enforced 40% legacy-reuse floor; unmatched native-only copy still falls back to English until a safe equivalent or dedicated translation is available.
 - Complete per-page RTL layout review, especially tables, inspectors and mixed URL/path content.
 - Extend typography scaling to every legacy-sized text declaration.
-- Complete accessibility labels/descriptions and tab order beyond TextFields, especially complex lists, tables, dialogs and custom controls.
+- Complete semantic accessibility review beyond the now keyboard-enabled core lists and confirmation dialogs, especially custom controls, table semantics and remaining composite widgets.
 - Screen-reader validation and color-contrast validation.
 - High-DPI and multi-monitor validation.
 - macOS-specific visual/accessibility refinement beyond the implemented Dock progress integration, plus remaining cross-platform accessibility polish.
