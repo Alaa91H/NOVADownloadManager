@@ -112,8 +112,8 @@ request URL + authorized headers/cookies
 - native format selection;
 - challenge separation between ready and unresolved formats;
 - pure-Rust signature transform family support;
-- native throttling-parameter transform discovery and execution for verified player transform families;
-- bounded player-transform plan cache with fail-closed invalidation;
+- native throttling-parameter transform discovery and execution for verified player transform families, including named/indexed helpers, object-member aliases, helper-array aliases, top-level comma pipelines, rotate/drop/swap variants and splice-based swaps;
+- bounded player-transform plan cache with fail-closed invalidation; unknown helper aliases, compound returns and unverified transform semantics are rejected rather than partially executed;
 - native direct media transfer execution;
 - end-to-end HLS VOD task execution with master-variant selection, segment progress, verification and atomic assembly;
 - end-to-end live HLS recording with sequence cursors, pause/resume checkpoints and committed-part recovery;
