@@ -520,6 +520,18 @@ fn split_top_level(source: &str, delimiter: u8) -> Vec<&str> {
     output
 }
 
+fn transform_statements(body: &str) -> Vec<&str> {
+    let mut statements = Vec::new();
+    for semicolon_group in split_top_level(body, b';') {
+        for comma_group in split_top_level(semicolon_group, b',') {
+            let statement = comma_group.trim();
+            if !statement.is_empty() {
+                statements.push(statement);
+            }
+        }
+    }
+    statements
+}
 
 fn extract_signature_operations(script: &str) -> Result<Vec<TransformOperation>, String> {
     let throttling_target = locate_throttling_target(script).ok();
@@ -654,7 +666,7 @@ fn parse_transform_body(
     .map_err(|error| error.to_string())?;
 
     let mut operations = Vec::new();
-    for statement in body.split(';').map(str::trim).filter(|part| !part.is_empty()) {
+    for statement in transform_statements(body) {
         if statement.contains(".split(")
             || statement.contains(".join(")
             || statement.starts_with("return ")
@@ -1214,6 +1226,21 @@ AB=function(a){a=a.split("");ZZ.XX(a,2);return a.join("")};
     }
 
     #[test]
+    fn signature_parser_supports_top_level_comma_pipeline() {
+        let player = r#"
+var HH={Rv:function(a){a.reverse()},Sp:function(a,b){a.splice(0,b)}};
+SG=function(a){a=a.split(""),HH.Rv(a),HH.Sp(a,2);return a.join("")};
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert_eq!(
+            solver
+                .decipher_signature(player, "abcdef")
+                .expect("comma signature pipeline"),
+            "dcba"
+        );
+    }
+
+    #[test]
     fn signature_parser_skips_n_transform_hidden_behind_array_alias() {
         let player = r#"
 NT=function(a){a=a.split("");a.reverse();return a.join("")};
@@ -1403,6 +1430,22 @@ function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
                 .transform_throttling_parameter(player, "abcdef")
                 .expect("helper n transform"),
             "dcba"
+        );
+    }
+
+    #[test]
+    fn n_transform_supports_top_level_comma_pipeline() {
+        let player = r#"
+var HH={Rv:function(a){a.reverse()},Sp:function(a,b){a.splice(0,b)}};
+NT=function(a){a=a.split(""),HH.Rv(a),HH.Sp(a,1);return a.join("")};
+function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert_eq!(
+            solver
+                .transform_throttling_parameter(player, "abcdef")
+                .expect("comma n-transform pipeline"),
+            "edcba"
         );
     }
 
