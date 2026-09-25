@@ -1,21 +1,30 @@
-name: Native UI
+name: Native Desktop CI
 
 on:
   push:
     branches:
+      - "main"
+      - "master"
       - "feature/qt6-native-desktop-ui"
+    tags:
+      - "v*.*.*"
     paths:
       - "desktop-native/**"
-      - "src/**"
       - "src-tauri/**"
-      - "docs/NATIVE_UI_MIGRATION.md"
+      - "browser-extension/**"
+      - "docs/**"
       - ".github/workflows/native-ui.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
   pull_request:
+    branches:
+      - "main"
+      - "master"
     paths:
       - "desktop-native/**"
-      - "src/**"
       - "src-tauri/**"
-      - "docs/NATIVE_UI_MIGRATION.md"
+      - "browser-extension/**"
+      - "docs/**"
       - ".github/workflows/native-ui.yml"
   workflow_dispatch:
 
@@ -68,10 +77,6 @@ jobs:
         shell: bash
         run: |
           bash scripts/install-linux-build-deps.sh \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
             libssl-dev \
             libcurl4-openssl-dev \
             libbrotli-dev \
@@ -253,13 +258,13 @@ jobs:
           windeployqt --release --qmldir desktop-native/qml --dir (Join-Path $bundle "bin") $exe
           Copy-Item build/native-parity-report.md (Join-Path $bundle "PARITY_REPORT.md")
           @"
-          NOVA Native Preview
+          NOVA Native Desktop
           Commit: ${{ github.sha }}
           Branch: ${{ github.ref_name }}
           Platform: Windows
           Architecture: ${{ matrix.arch }}
           Qt: 6.8.3
-          Stage: 6.1 true parity hardening
+          UI: Qt 6 native production shell
           Runtime: Qt UI + Rust backend + Native Messaging host
           "@ | Set-Content (Join-Path $bundle "BUILD_INFO.txt")
 
@@ -270,13 +275,13 @@ jobs:
           bundle="preview/NOVA-Native-macOS"
           cp build/native-parity-report.md "$bundle/PARITY_REPORT.md"
           {
-            echo "NOVA Native Preview"
+            echo "NOVA Native Desktop"
             echo "Commit: ${GITHUB_SHA}"
             echo "Branch: ${GITHUB_REF_NAME}"
             echo "Platform: macOS"
             echo "Architecture: ${{ matrix.arch }}"
             echo "Qt: 6.8.3"
-            echo "Stage: 6.1 true parity hardening"
+            echo "UI: Qt 6 native production shell"
             echo "Runtime: Qt UI + Rust backend + Native Messaging host"
           } > "$bundle/BUILD_INFO.txt"
 
@@ -313,13 +318,13 @@ jobs:
           bundle="preview/NOVA-Native-Linux"
           cp build/native-parity-report.md "$bundle/PARITY_REPORT.md"
           {
-            echo "NOVA Native Preview"
+            echo "NOVA Native Desktop"
             echo "Commit: ${GITHUB_SHA}"
             echo "Branch: ${GITHUB_REF_NAME}"
             echo "Platform: Linux"
             echo "Architecture: ${{ matrix.arch }}"
             echo "Qt: 6.8.3"
-            echo "Stage: 6.1 true parity hardening"
+            echo "UI: Qt 6 native production shell"
             echo "Runtime: Qt UI + Rust backend + Native Messaging host"
           } > "$bundle/BUILD_INFO.txt"
           ldd "$bundle/bin/nova-native" > "$bundle/LINUX_RUNTIME_DEPENDENCIES.txt" || true
