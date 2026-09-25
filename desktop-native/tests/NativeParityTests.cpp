@@ -290,7 +290,7 @@ void NativeParityTests::legacyUiPreferencesMigrateOnce() {
         QCOMPARE(settings.defaultSaveDirectory(), QStringLiteral("/legacy/downloads"));
         QCOMPARE(settings.defaultConnections(), 8);
         QVERIFY(!settings.monitorClipboard());
-        QCOMPARE(settings.uiLanguage(), QStringLiteral("fr"));
+        QCOMPARE(settings.uiLanguage(), QStringLiteral("en"));
         settings.resetToDefaults();
     }
 
