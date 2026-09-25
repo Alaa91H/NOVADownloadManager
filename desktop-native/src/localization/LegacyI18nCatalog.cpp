@@ -214,6 +214,10 @@ LegacyI18nCatalog::LegacyI18nCatalog() {
     for (auto it = englishCatalog.constBegin(); it != englishCatalog.constEnd(); ++it) {
         if (!it.value().isEmpty()) {
             m_legacyKeysByEnglish.insert(it.value(), it.key());
+            const QString canonical = canonicalEnglish(it.value());
+            if (!canonical.isEmpty()) {
+                m_legacyKeysByCanonicalEnglish.insert(canonical, it.key());
+            }
         }
     }
 }
@@ -279,6 +283,15 @@ QString LegacyI18nCatalog::translate(
 
     const QList<QString> legacyKeys = m_legacyKeysByEnglish.values(englishValue);
     for (const QString &legacyKey : legacyKeys) {
+        const auto translated = dictionary.constFind(legacyKey);
+        if (translated != dictionary.constEnd() && !translated.value().isEmpty()) {
+            return translated.value();
+        }
+    }
+
+    const QString canonical = canonicalEnglish(englishValue);
+    const QList<QString> canonicalKeys = m_legacyKeysByCanonicalEnglish.values(canonical);
+    for (const QString &legacyKey : canonicalKeys) {
         const auto translated = dictionary.constFind(legacyKey);
         if (translated != dictionary.constEnd() && !translated.value().isEmpty()) {
             return translated.value();
@@ -391,6 +404,15 @@ QString LegacyI18nCatalog::decodeJsString(const QString &value) {
     }
 
     return decoded;
+}
+
+QString LegacyI18nCatalog::canonicalEnglish(const QString &value) {
+    QString normalized = value.normalized(QString::NormalizationForm_KC).toCaseFolded();
+    normalized.replace(
+        QRegularExpression(QStringLiteral("[\\p{P}\\p{S}\\s]+")),
+        QStringLiteral(" ")
+    );
+    return normalized.trimmed();
 }
 
 QString LegacyI18nCatalog::legacyKeyCandidate(const QString &nativeKey) {
