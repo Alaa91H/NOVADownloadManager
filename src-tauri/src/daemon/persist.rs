@@ -30,6 +30,10 @@ pub struct PersistedState {
     /// parameters are intentionally excluded and require reauthorization.
     #[serde(default)]
     pub torrent_sources: HashMap<String, String>,
+    /// Durable per-torrent seeding policy and upload/time counters.
+    #[serde(default)]
+    pub torrent_seeding:
+        HashMap<String, crate::daemon::torrent_seeding::TorrentSeedingSnapshot>,
     #[serde(default)]
     pub curl_args: HashMap<String, Vec<String>>,
     /// Per-task libcurl options are persisted separately from diagnostic CLI
@@ -234,6 +238,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         native_media_requests,
         native_media_protocols,
         torrent_sources,
+        torrent_seeding,
         curl_args,
         curl_direct_options,
         resume_requires_reauth,
@@ -271,6 +276,13 @@ fn build_snapshot(state: &AppState) -> PersistedState {
                     .ok()
                     .map(|(sanitized, _)| (id.clone(), sanitized))
             })
+            .collect();
+        let torrent_seeding: HashMap<
+            String,
+            crate::daemon::torrent_seeding::TorrentSeedingSnapshot,
+        > = torrent_jobs
+            .iter()
+            .map(|(id, job)| (id.clone(), job.seeding.snapshot()))
             .collect();
         let curl_args: HashMap<String, Vec<String>> = curl_jobs
             .iter()
@@ -342,6 +354,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
             native_media_requests,
             native_media_protocols,
             torrent_sources,
+            torrent_seeding,
             curl_args,
             curl_direct_options,
             resume_requires_reauth,
@@ -354,13 +367,14 @@ fn build_snapshot(state: &AppState) -> PersistedState {
     let stats = lock_or_err!(state.download_stats).clone();
 
     PersistedState {
-        version: 3,
+        version: 4,
         tasks,
         recovery_checkpoints,
         media_args,
         native_media_requests,
         native_media_protocols,
         torrent_sources,
+        torrent_seeding,
         curl_args,
         curl_direct_options,
         resume_requires_reauth,
@@ -635,6 +649,7 @@ pub(crate) mod tests {
             Some(secret_source.to_owned()),
             false,
             state.bandwidth_manager.clone(),
+            None,
         )
         .unwrap();
         job.private = true;
@@ -659,6 +674,19 @@ pub(crate) mod tests {
         assert!(!persisted.contains("tracker.example"));
 
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn legacy_snapshot_without_torrent_seeding_uses_defaults() {
+        let raw = r#"{
+            "version":3,
+            "tasks":[],
+            "media_args":{},
+            "torrent_sources":{},
+            "curl_args":{}
+        }"#;
+        let parsed: PersistedState = serde_json::from_str(raw).unwrap();
+        assert!(parsed.torrent_seeding.is_empty());
     }
 
     #[test]

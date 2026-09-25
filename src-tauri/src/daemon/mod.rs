@@ -903,6 +903,7 @@ fn restore_persisted_tasks(
     let resume_requires_reauth = restored.resume_requires_reauth.clone();
     let recovery_checkpoints = restored.recovery_checkpoints.clone();
     let torrent_sources = restored.torrent_sources.clone();
+    let torrent_seeding = restored.torrent_seeding.clone();
     for mut task in restored.tasks {
         if let Some(checkpoint) = recovery_checkpoints.get(&task.id) {
             if !checkpoint.apply_to_task(&mut task) {
@@ -977,6 +978,7 @@ fn restore_persisted_tasks(
                 source,
                 requires_reauth,
                 state.bandwidth_manager.clone(),
+                torrent_seeding.get(&task.id).cloned(),
             ) {
                 Ok(job) => {
                     let allocation = job.allocated_kbps.clone();
