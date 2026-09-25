@@ -1,0 +1,4 @@
+{
+  "requested_at": "2026-09-25T06:57:00+02:00",
+  "action": "cancel-all-stale-runs-and-start-clean-main-ci"
+}
