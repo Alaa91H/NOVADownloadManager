@@ -46,6 +46,15 @@ const legacyEntryPattern =
 
 const legacyByKey = new Map();
 const legacyKeysByEnglish = new Map();
+const legacyKeysByCanonicalEnglish = new Map();
+
+function canonicalEnglish(value) {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase("en-US")
+    .replace(/[\p{P}\p{S}\s]+/gu, " ")
+    .trim();
+}
 for (const match of legacySource.matchAll(legacyEntryPattern)) {
   const key = match[1];
   const value = match[3]
@@ -55,6 +64,14 @@ for (const match of legacySource.matchAll(legacyEntryPattern)) {
   legacyByKey.set(key, value);
   if (!legacyKeysByEnglish.has(value)) legacyKeysByEnglish.set(value, []);
   legacyKeysByEnglish.get(value).push(key);
+
+  const canonical = canonicalEnglish(value);
+  if (canonical) {
+    if (!legacyKeysByCanonicalEnglish.has(canonical)) {
+      legacyKeysByCanonicalEnglish.set(canonical, []);
+    }
+    legacyKeysByCanonicalEnglish.get(canonical).push(key);
+  }
 }
 
 const aliasStart = bridgeSource.indexOf("nativeLegacyAliases()");
@@ -113,6 +130,7 @@ if (invalidAliases.length > 0) {
 
 let directMatches = 0;
 let englishMatches = 0;
+let canonicalMatches = 0;
 let aliasMatches = 0;
 const covered = new Set();
 
@@ -128,6 +146,12 @@ for (const [nativeKey, englishValue] of nativeEntries) {
     covered.add(nativeKey);
   }
 
+  const canonical = canonicalEnglish(englishValue);
+  if (canonical && legacyKeysByCanonicalEnglish.has(canonical)) {
+    canonicalMatches += 1;
+    covered.add(nativeKey);
+  }
+
   if (aliases.has(nativeKey)) {
     aliasMatches += 1;
     covered.add(nativeKey);
@@ -137,7 +161,7 @@ for (const [nativeKey, englishValue] of nativeEntries) {
 const total = nativeEntries.size;
 const coveredCount = covered.size;
 const percentage = total === 0 ? 0 : (coveredCount / total) * 100;
-const requiredCoverage = 40;
+const requiredCoverage = 42;
 
 console.log(
   [
@@ -145,6 +169,7 @@ console.log(
     `${coveredCount}/${total} (${percentage.toFixed(1)}%)`,
     `direct=${directMatches}`,
     `english=${englishMatches}`,
+    `canonical=${canonicalMatches}`,
     `aliases=${aliasMatches}`,
   ].join(" ")
 );
