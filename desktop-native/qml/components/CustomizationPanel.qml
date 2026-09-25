@@ -137,7 +137,7 @@ Rectangle {
                     Repeater {
                         model: [
                             "#168df7", "#7c5cff", "#e93d82",
-                            "#f2554f", "#ff9216", "#20c96b"
+                            "#dc2626", "#c86700", "#168a4a"
                         ]
 
                         delegate: Button {
