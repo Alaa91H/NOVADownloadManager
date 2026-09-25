@@ -828,15 +828,53 @@ Item {
                             clip: true
                             spacing: 4
                             model: root.playlistMode ? api.mediaPlaylistEntries : api.mediaFormats
+                            activeFocusOnTab: true
+                            keyNavigationWraps: false
+                            Accessible.name: root.playlistMode
+                                ? root.t("media.playlistPreview")
+                                : root.t("media.mediaPreview")
+                            onActiveFocusChanged: {
+                                if (activeFocus && count > 0 && currentIndex < 0)
+                                    currentIndex = 0
+                            }
+                            Keys.onPressed: event => {
+                                if (!root.playlistMode
+                                    || root.selectAllPlaylist
+                                    || !api.mediaOptionSupported("playlistItems")
+                                    || currentIndex < 0
+                                    || currentIndex >= count) {
+                                    return
+                                }
+                                if (event.key === Qt.Key_Space || event.key === Qt.Key_Return
+                                    || event.key === Qt.Key_Enter) {
+                                    const entry = api.mediaPlaylistEntries[currentIndex]
+                                    if (entry)
+                                        root.togglePlaylistItem(Number(entry.index))
+                                    event.accepted = true
+                                }
+                            }
                             ScrollBar.vertical: ScrollBar {}
 
                             delegate: Rectangle {
+                                required property int index
                                 required property var modelData
                                 width: previewList.width
                                 height: 50
                                 radius: Theme.radiusSmall
                                 color: Theme.surfaceRaised
-                                border.color: Theme.border
+                                border.width: previewList.activeFocus
+                                    && previewList.currentIndex === index ? 2 : 1
+                                border.color: previewList.activeFocus
+                                    && previewList.currentIndex === index
+                                    ? Theme.focusRing : Theme.border
+                                Accessible.name: root.playlistMode
+                                    ? (modelData.title || modelData.id || root.t("media.playlistItem"))
+                                    : (modelData.height + "p · "
+                                        + String(modelData.ext || "").toUpperCase())
+                                Accessible.description: root.playlistMode
+                                    ? (modelData.durationString || modelData.url || "")
+                                    : ((modelData.vcodec || "") + " · "
+                                        + root.formatBytes(modelData.filesize))
 
                                 RowLayout {
                                     anchors.fill: parent
@@ -853,6 +891,11 @@ Item {
                                             ? "✓"
                                             : "○"
                                         implicitWidth: 34
+                                        Accessible.name: (modelData.title || root.t("media.playlistItem"))
+                                            + " — " + (root.selectAllPlaylist
+                                                || root.selectedPlaylistIndexes[String(modelData.index)]
+                                                ? root.t("media.selected")
+                                                : root.t("common.no"))
                                         onClicked: root.togglePlaylistItem(Number(modelData.index))
                                     }
 
