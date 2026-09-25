@@ -139,7 +139,7 @@ Implemented in the first Stage 5 slice:
 
 Remaining before Stage 5 is complete:
 
-- Continue native-key translation coverage beyond the CI-enforced 40% legacy-reuse floor; unmatched native-only copy still falls back to English until a safe equivalent or dedicated translation is available.
+- Continue native-key translation coverage beyond the CI-enforced 42% legacy-reuse floor; unmatched native-only copy still falls back to English until a safe equivalent or dedicated translation is available.
 - Complete per-page RTL layout review, especially tables, inspectors and mixed URL/path content.
 - Extend typography scaling to every legacy-sized text declaration.
 - Complete semantic accessibility review beyond the now keyboard-enabled core lists and confirmation dialogs, especially custom controls, table semantics and remaining composite widgets.
@@ -174,6 +174,8 @@ Implemented:
 - Browser integration exposes daemon-backed status and user-scoped Native Messaging registration repair on Windows, macOS and Linux.
 - The native runtime remains split into `nova-native` (Qt UI), `nova-native-backend` (headless Rust daemon) and `nova-native-host` (browser Native Messaging transport).
 - Native pairing now uses a random per-daemon proof stored beside the port file. The daemon issues a full local Desktop token only to Qt and a separate route-scoped Browser token only to the Native Messaging host; direct browser HTTP token minting is rejected.
+- Each six-platform preview build now launches the packaged `nova-native-host` through real length-prefixed Native Messaging frames and verifies secret-proof pairing, protocol v4, capability proxying and authenticated capture forwarding before artifact upload.
+- A browser-native identity gate derives the Chromium extension ID from the pinned manifest public key and verifies the Chrome/Edge origin, Firefox extension ID and `com.nova.downloadmanager` host name stay aligned across browser, Qt and Rust sources.
 - Windows preview bundles deploy Qt through `windeployqt`; macOS uses `macdeployqt`; Linux preview builds include explicit runtime dependency reporting.
 - CI targets Windows x64/ARM64, Linux x64/ARM64 and macOS ARM64/x64 with architecture assertions.
 - Native CTest coverage stress-loads 20,000 downloads and validates SSE disconnect/reconnect with bounded backoff.
@@ -181,7 +183,7 @@ Implemented:
 Current replacement blockers:
 
 - Full legacy language catalog beyond the current English/Arabic/German native baseline.
-- Packaged browser-capture E2E validation with the real NOVA extension on Windows, macOS and Linux.
+- Real-browser packaged E2E remains: install the NOVA extension in Chrome/Edge/Firefox and validate an actual browser-origin capture plus registration/repair on Windows, macOS and Linux.
 - Production signed automatic updater installation.
 - Six-platform CI must complete successfully for the exact candidate commit.
 - Final screen-reader, multi-monitor, mixed-DPI and accessibility validation.
