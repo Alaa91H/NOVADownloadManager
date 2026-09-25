@@ -1148,7 +1148,7 @@ Item {
                                 ? root.t("downloads.noDownloads")
                                 : root.t("downloads.nothingView")
                         color: Theme.textPrimary
-                        font.pixelSize: 16
+                        font.pixelSize: Math.round(16 * Theme.fontScale)
                         font.weight: Font.DemiBold
                     }
 
