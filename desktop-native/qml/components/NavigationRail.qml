@@ -42,7 +42,7 @@ Rectangle {
                     anchors.centerIn: parent
                     text: "N"
                     color: "white"
-                    font.pixelSize: 15
+                    font.pixelSize: Math.round(15 * Theme.fontScale)
                     font.weight: Font.Bold
                 }
             }
@@ -52,7 +52,7 @@ Rectangle {
                 Text {
                     text: "NOVA"
                     color: Theme.textPrimary
-                    font.pixelSize: 14
+                    font.pixelSize: Theme.fontMedium
                     font.weight: Font.DemiBold
                 }
                 Text {
