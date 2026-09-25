@@ -1,5 +1,4 @@
 #include "settings/NativeSettings.h"
-#include "localization/LegacyI18nCatalog.h"
 
 #include <QDir>
 #include <QFile>
@@ -60,12 +59,13 @@ QString legacyConfigPath() {
 }
 
 QString nativeLanguageFromLegacy(const QString &language) {
-    if (language.trimmed().isEmpty()) {
+    QString normalized = language.trimmed();
+    if (normalized.isEmpty()) {
         return {};
     }
-
-    return LegacyI18nCatalog::instance().normalizeLanguage(language)
-        == QStringLiteral("ar")
+    normalized.replace(QLatin1Char('_'), QLatin1Char('-'));
+    return normalized.toLower().section(QLatin1Char('-'), 0, 0)
+            == QStringLiteral("ar")
         ? QStringLiteral("ar")
         : QStringLiteral("en");
 }
