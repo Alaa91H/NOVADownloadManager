@@ -321,6 +321,9 @@ jobs:
           } > "$bundle/BUILD_INFO.txt"
           ldd "$bundle/bin/nova-native" > "$bundle/LINUX_RUNTIME_DEPENDENCIES.txt" || true
 
+      - name: Smoke-test packaged Native Messaging bridge
+        run: node desktop-native/scripts/smoke-native-messaging.mjs "preview/NOVA-Native-${{ runner.os }}"
+
       - name: Upload native preview
         uses: actions/upload-artifact@v4
         with:
