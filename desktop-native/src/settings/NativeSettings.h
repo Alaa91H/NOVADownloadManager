@@ -23,6 +23,13 @@ class NativeSettings final : public QObject {
     Q_PROPERTY(bool highContrast READ highContrast WRITE setHighContrast NOTIFY settingsChanged)
     Q_PROPERTY(bool reducedMotion READ reducedMotion WRITE setReducedMotion NOTIFY settingsChanged)
     Q_PROPERTY(double fontScale READ fontScale WRITE setFontScale NOTIFY settingsChanged)
+    Q_PROPERTY(bool sidebarVisible READ sidebarVisible WRITE setSidebarVisible NOTIFY settingsChanged)
+    Q_PROPERTY(bool sidebarCollapsed READ sidebarCollapsed WRITE setSidebarCollapsed NOTIFY settingsChanged)
+    Q_PROPERTY(bool detailsPanelVisible READ detailsPanelVisible WRITE setDetailsPanelVisible NOTIFY settingsChanged)
+    Q_PROPERTY(bool statusBarVisible READ statusBarVisible WRITE setStatusBarVisible NOTIFY settingsChanged)
+    Q_PROPERTY(QString interfaceDensity READ interfaceDensity WRITE setInterfaceDensity NOTIFY settingsChanged)
+    Q_PROPERTY(QString accentColor READ accentColor WRITE setAccentColor NOTIFY settingsChanged)
+    Q_PROPERTY(int cornerRadius READ cornerRadius WRITE setCornerRadius NOTIFY settingsChanged)
     Q_PROPERTY(QStringList downloadColumns READ downloadColumns WRITE setDownloadColumns NOTIFY settingsChanged)
     Q_PROPERTY(QString downloadSortKey READ downloadSortKey WRITE setDownloadSortKey NOTIFY settingsChanged)
     Q_PROPERTY(bool downloadSortAscending READ downloadSortAscending WRITE setDownloadSortAscending NOTIFY settingsChanged)
@@ -49,6 +56,13 @@ public:
     bool highContrast() const;
     bool reducedMotion() const;
     double fontScale() const;
+    bool sidebarVisible() const;
+    bool sidebarCollapsed() const;
+    bool detailsPanelVisible() const;
+    bool statusBarVisible() const;
+    QString interfaceDensity() const;
+    QString accentColor() const;
+    int cornerRadius() const;
     QStringList downloadColumns() const;
     QString downloadSortKey() const;
     bool downloadSortAscending() const;
@@ -71,6 +85,13 @@ public:
     void setHighContrast(bool value);
     void setReducedMotion(bool value);
     void setFontScale(double value);
+    void setSidebarVisible(bool value);
+    void setSidebarCollapsed(bool value);
+    void setDetailsPanelVisible(bool value);
+    void setStatusBarVisible(bool value);
+    void setInterfaceDensity(const QString &value);
+    void setAccentColor(const QString &value);
+    void setCornerRadius(int value);
     void setDownloadColumns(const QStringList &value);
     void setDownloadSortKey(const QString &value);
     void setDownloadSortAscending(bool value);
