@@ -64,7 +64,7 @@ Current scope includes:
 
 NOVA extractors may not delegate media ownership to a user-installed external resolver.
 
-This rule is enforced at runtime and in CI: once the first-party native media extractor accepts the request shape, validation or execution failures fail closed and cannot fall through to the compatibility bridge.
+This rule is enforced at runtime and in CI: once the first-party native media extractor accepts the request shape, validation or execution failures fail closed and cannot fall through to an external resolver.
 
 The preferred path is:
 
@@ -78,7 +78,7 @@ URL
  -> native assembly / post-processing
 ```
 
-A temporary `Media Bridge` exists only as a migration boundary for capabilities that have not yet reached native parity. It is not the identity of the media engine and is not exposed as a product-facing dependency.
+The former `Media Bridge` runtime has been removed. Legacy persisted tasks that still identify that engine are recognized only as migration records and are never executed.
 
 ## Native request path
 
@@ -149,7 +149,7 @@ request URL + authorized headers/cookies
 - sensitive native request context, including browser-cookie profile selection, is kept in memory and omitted from restart snapshots, forcing reauthorization when needed;
 - native-only public media API: `/api/media/resolve`, `/api/media/probe`, `/api/media/download`, and `/api/media/postprocess/status`;
 - runtime readiness is split into `mediaExtractionReady`, `streamingReady`, and `postProcessingReady`; the legacy `mediaReady` field remains a temporary compatibility alias only;
-- `/api/media/bridge/*` compatibility routes return HTTP 410 and never execute the legacy resolver;
+- legacy `/api/media/bridge/*` routes have been removed; active clients use the native media endpoints only;
 - Media Bridge is no longer registered in the runtime extractor registry, discovered during daemon startup, exposed by `/api/engines/*`, or listed by `/api/external-tools`;
 - native media capability checks such as `media.resolve` and `media.media_probe` report `nova-media-engine` directly with no external tool requirement.
 
@@ -166,7 +166,7 @@ Still isolated behind typed interfaces:
 - advanced live crash recovery beyond the persisted cursor/committed-part checkpoint implemented by the task path;
 - Chromium-family browser-cookie import (Chrome/Edge) pending native OS credential decryption; Firefox import is native;
 - additional site adapters;
-- physical deletion of legacy compatibility route handlers, state fields, executable discovery/packaging and bridge source files; public runtime routing and all active clients are already native-only.
+- legacy persisted `media-bridge` task snapshots remain decode-only migration records: unfinished tasks are marked `engine-retired` with guidance to re-add the original media URL; no bridge runtime is reconstructed.
 
 Unknown transforms and unsupported protected-media modes fail closed. They are never silently delegated to an unrelated external executable.
 
@@ -174,9 +174,9 @@ Unknown transforms and unsupported protected-media modes fail closed. They are n
 
 The temporary FFmpeg adapter is **not** a media resolver. NOVA resolves and downloads every selected track first. The adapter receives only local staged file paths and a destination path, uses explicit stream mapping with copy-only muxing, accepts no user-supplied command fragments, and can be cancelled by the task lifecycle. If post-processing is disabled or unavailable, a request that explicitly requires separate tracks fails closed rather than silently delegating extraction or lowering the selected quality.
 
-## Removal gate for Media Bridge
+## Post-removal native acceptance matrix
 
-The temporary bridge can be deleted after native acceptance tests pass for:
+Media Bridge runtime/source/routes are deleted. The remaining acceptance coverage tracks native maturity and must not reintroduce an external resolver fallback:
 
 - direct media;
 - HLS VOD and live — task path implemented, final cross-platform acceptance still required;
