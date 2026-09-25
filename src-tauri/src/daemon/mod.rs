@@ -1375,6 +1375,104 @@ mod tests {
     }
 
     #[test]
+    fn restoration_rehydrates_native_media_job_after_restart() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "nova-restore-native-media-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&data_dir).expect("create test data directory");
+        let data_dir_string = data_dir.display().to_string();
+        let state = Arc::new(persist::tests::test_state(&data_dir_string));
+
+        let mut task = restoration_test_task("native-media", "downloading");
+        task.engine = "nova-media-engine".to_owned();
+        task.engine_id = task.id.clone();
+        task.description = "Native media download".to_owned();
+        let request = CreateDownloadBody {
+            url: Some("https://example.com/watch?v=native".to_owned()),
+            name: Some("native-media.bin".to_owned()),
+            file_type: Some("video".to_owned()),
+            size_bytes: None,
+            category: Some("video".to_owned()),
+            queue_id: Some("main".to_owned()),
+            connections: Some(1),
+            resumable: Some(true),
+            save_path: Some(task.save_path.clone()),
+            description: Some("Native media download".to_owned()),
+            referer: None,
+            start_immediately: Some(false),
+            direct_options: None,
+            media_options: None,
+        };
+        let restored = persist::PersistedState {
+            tasks: vec![task],
+            native_media_requests: HashMap::from([("native-media".to_owned(), request)]),
+            native_media_protocols: HashMap::from([(
+                "native-media".to_owned(),
+                "direct".to_owned(),
+            )]),
+            ..Default::default()
+        };
+
+        restore_persisted_tasks(&state, restored);
+
+        let snapshot = state.task_snapshot.lock().expect("lock restored snapshot");
+        let restored_task = snapshot.get("native-media").expect("restored native media task");
+        assert_eq!(restored_task.status, "paused");
+        assert_eq!(restored_task.engine_status.as_deref(), Some("interrupted"));
+        drop(snapshot);
+
+        let jobs = state.native_media_jobs.lock().expect("lock native media jobs");
+        let job = jobs.get("native-media").expect("rehydrated native media job");
+        assert_eq!(job.protocol, "direct");
+        assert_eq!(
+            job.request.url.as_deref(),
+            Some("https://example.com/watch?v=native")
+        );
+        drop(jobs);
+        assert!(state.curl_jobs.lock().expect("lock curl jobs").is_empty());
+        std::fs::remove_dir_all(&data_dir).ok();
+    }
+
+    #[test]
+    fn restoration_marks_legacy_media_bridge_task_as_retired() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "nova-restore-retired-media-bridge-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&data_dir).expect("create test data directory");
+        let data_dir_string = data_dir.display().to_string();
+        let state = Arc::new(persist::tests::test_state(&data_dir_string));
+
+        let mut task = restoration_test_task("legacy-media", "downloading");
+        task.engine = "media-bridge".to_owned();
+        task.engine_id = task.id.clone();
+        let restored = persist::PersistedState {
+            tasks: vec![task],
+            ..Default::default()
+        };
+
+        restore_persisted_tasks(&state, restored);
+
+        let snapshot = state.task_snapshot.lock().expect("lock restored snapshot");
+        let restored_task = snapshot.get("legacy-media").expect("restored legacy media task");
+        assert_eq!(restored_task.status, "error");
+        assert_eq!(restored_task.engine_status.as_deref(), Some("engine-retired"));
+        assert!(restored_task
+            .error_message
+            .as_deref()
+            .is_some_and(|message| message.contains("NOVA Media Engine")));
+        drop(snapshot);
+        assert!(state
+            .native_media_jobs
+            .lock()
+            .expect("lock native media jobs")
+            .is_empty());
+        assert!(state.curl_jobs.lock().expect("lock curl jobs").is_empty());
+        std::fs::remove_dir_all(&data_dir).ok();
+    }
+
+    #[test]
     fn signal_shutdown_delivers_once_and_clears_sender() {
         // Regression for C1/C2: the shutdown signal must be delivered exactly
         // once (no leaked tokio runtime on restart) and the Sender must be
