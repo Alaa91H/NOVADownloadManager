@@ -16,9 +16,10 @@ The core currently provides:
 - classic MP4 track/sample parsing through `moov/trak/mdia/minf/stbl`;
 - `stsd`, `stts`, `ctts`, `stsc`, `stsz`/`stz2`,
   `stco`/`co64`, and `stss` parsing;
-- H.264, HEVC, AV1, VP8/VP9, AAC, Opus, and MP3 sample-entry recognition;
+- H.264, HEVC, AV1, VP8/VP9, AAC, Opus, MP3, and FLAC sample-entry
+  recognition;
 - extraction of common codec private configuration such as `avcC`, `hvcC`,
-  `av1C`, `vpcC`, `esds`, and `dOps`;
+  `av1C`, `vpcC`, `esds`, `dOps`, and `dfLa`;
 - fragmented MP4/CMAF sample-run parsing through `mvex/trex`,
   `moof/traf/tfhd/tfdt/trun`;
 - native WebM and Matroska demuxing through a shared bounded EBML reader for
@@ -48,7 +49,7 @@ instead of treating an arbitrary non-WebM EBML document as Matroska.
 
 `mp4_mux` and `native_remux` are enabled. The native remux bridge accepts
 MP4/fMP4 plus supported WebM and Matroska inputs. Matroska-to-MP4 remux supports
-H.264, HEVC, AAC, VP8, VP9, AV1, Opus, and MP3. AVC/HEVC keep their ISO/IEC
+H.264, HEVC, AAC, VP8, VP9, AV1, Opus, MP3, and FLAC. AVC/HEVC keep their ISO/IEC
 14496-15 decoder-configuration records after structural validation; AAC
 `AudioSpecificConfig` is wrapped into an MPEG-4 `esds` descriptor in-process;
 and VP8/VP9/AV1/Opus reuse the validated WebM codec bindings while preserving
@@ -58,11 +59,17 @@ timing without transcoding. Final Opus `DiscardPadding` is applied before MP4
 sample-duration conversion. The daemon advertises these paths as
 `native-matroska-demux` and `native-matroska-remux`.
 
+FLAC-in-MP4 uses the registered `fLaC` audio sample entry and version-0
+`dfLa` FullBox. The core keeps native FLAC CodecPrivate canonical as the
+`fLaC` signature plus metadata blocks, derives actual sample rate/channels/bit
+depth from STREAMINFO, and supports rates above 65,535 Hz by reducing only the
+legacy 16.16 sample-entry rate while preserving the authoritative STREAMINFO.
+
 The native MP4 muxer writes `ftyp`,
 an extended-size `mdat`, and a generated `moov` with `stsd`, `stts`,
 optional `ctts`, `stsc`, `stsz`, `co64`, and `stss` tables. It
 supports packet-preserving video/audio MP4 output for H.264, HEVC, AV1,
-VP8/VP9, AAC, Opus, and MP3 when the required MP4 codec configuration is
+VP8/VP9, AAC, Opus, MP3, and FLAC when the required MP4 codec configuration is
 available.
 
 The EBML muxers write WebM or Matroska without external tools. WebM output
@@ -84,7 +91,7 @@ BitsPerChannel validation from WebM `Colour`; and WebM AV1
 movie timescale for sample-accurate trimming, and writes `roll` sample groups
 (`sgpd/sbgp`) with a conservative 80 ms random-access pre-roll. The MP4
 `ftyp` also advertises `iso2` compatibility for roll-group support.
-FLAC-to-MP4 remux, audio transcoding, video transcoding, subtitles/data muxing,
+Audio transcoding, video transcoding, subtitles/data muxing,
 general edit-list timeline handling beyond Opus pre-skip, and hardware
 acceleration remain disabled until their implementations are present and
 covered by native tests.

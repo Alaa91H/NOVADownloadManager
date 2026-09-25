@@ -4,6 +4,7 @@ use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use crate::{
+    flac::{flac_metadata_blocks, flac_sample_entry_rate, parse_native_flac_codec_private},
     MediaCodec, MediaDemuxer, MediaMuxResult, MediaMuxer, MediaPacket,
     MediaProcessingControl, MediaProcessingError, MediaTimeBase, MediaTrack,
     MediaTrackKind, MediaTimestamp,
@@ -415,7 +416,7 @@ fn validate_audio_track(track: &MediaTrack) -> Result<(), MediaProcessingError> 
         .audio
         .as_ref()
         .ok_or_else(|| mux_error("audio track is missing audio parameters"))?;
-    if audio.channels == 0 || audio.sample_rate_hz == 0 || audio.sample_rate_hz > u16::MAX as u32 {
+    if audio.channels == 0 || audio.sample_rate_hz == 0 {
         return Err(mux_error("audio parameters are invalid for MP4 sample entry"));
     }
 
@@ -424,16 +425,37 @@ fn validate_audio_track(track: &MediaTrack) -> Result<(), MediaProcessingError> 
             if track.codec_private.is_empty() {
                 return Err(mux_error("aac audio track is missing codec configuration"));
             }
+            if audio.sample_rate_hz > u32::from(u16::MAX) {
+                return Err(mux_error("AAC sample rate exceeds classic MP4 sample entry"));
+            }
             Ok(())
         }
         MediaCodec::Opus => {
             if track.codec_private.is_empty() {
                 return Err(mux_error("opus audio track is missing codec configuration"));
             }
+            if audio.sample_rate_hz > u32::from(u16::MAX) {
+                return Err(mux_error("Opus sample rate exceeds classic MP4 sample entry"));
+            }
             let _ = opus_pre_skip_media_units(track)?;
             Ok(())
         }
-        MediaCodec::Mp3 => Ok(()),
+        MediaCodec::Mp3 => {
+            if audio.sample_rate_hz > u32::from(u16::MAX) {
+                return Err(mux_error("MP3 sample rate exceeds classic MP4 sample entry"));
+            }
+            Ok(())
+        }
+        MediaCodec::Flac => {
+            let info = parse_native_flac_codec_private(&track.codec_private)
+                .map_err(mux_error)?;
+            if audio.sample_rate_hz != info.sample_rate_hz || audio.channels != info.channels {
+                return Err(mux_error(
+                    "FLAC STREAMINFO does not match MediaTrack audio parameters",
+                ));
+            }
+            Ok(())
+        }
         _ => Err(MediaProcessingError::UnsupportedCodec(codec_name(&track.codec))),
     }
 }
@@ -763,27 +785,53 @@ fn make_audio_sample_entry(track: &MediaTrack) -> Result<Vec<u8>, MediaProcessin
         .audio
         .as_ref()
         .ok_or_else(|| mux_error("audio sample entry is missing audio parameters"))?;
-    let sample_rate = u16::try_from(audio.sample_rate_hz)
-        .map_err(|_| mux_error("audio sample rate exceeds classic MP4 sample entry"))?;
 
-    let (entry_kind, config) = match &track.codec {
+    let (entry_kind, config, sample_rate, channels, sample_size) = match &track.codec {
         MediaCodec::Aac => (
             *b"mp4a",
             Some(make_box(*b"esds", track.codec_private.clone())),
+            u16::try_from(audio.sample_rate_hz)
+                .map_err(|_| mux_error("AAC sample rate exceeds classic MP4 sample entry"))?,
+            audio.channels,
+            16_u16,
         ),
         MediaCodec::Opus => (
             *b"Opus",
             Some(make_box(*b"dOps", track.codec_private.clone())),
+            u16::try_from(audio.sample_rate_hz)
+                .map_err(|_| mux_error("Opus sample rate exceeds classic MP4 sample entry"))?,
+            audio.channels,
+            16_u16,
         ),
-        MediaCodec::Mp3 => (*b".mp3", None),
+        MediaCodec::Mp3 => (
+            *b".mp3",
+            None,
+            u16::try_from(audio.sample_rate_hz)
+                .map_err(|_| mux_error("MP3 sample rate exceeds classic MP4 sample entry"))?,
+            audio.channels,
+            16_u16,
+        ),
+        MediaCodec::Flac => {
+            let info = parse_native_flac_codec_private(&track.codec_private)
+                .map_err(mux_error)?;
+            let metadata = flac_metadata_blocks(&track.codec_private)
+                .map_err(mux_error)?;
+            (
+                *b"fLaC",
+                Some(make_full_box(*b"dfLa", 0, 0, metadata.to_vec())),
+                flac_sample_entry_rate(info.sample_rate_hz),
+                info.channels,
+                info.bits_per_sample,
+            )
+        }
         _ => return Err(MediaProcessingError::UnsupportedCodec(codec_name(&track.codec))),
     };
 
     let mut payload = vec![0_u8; 6];
     payload.extend_from_slice(&1_u16.to_be_bytes());
     payload.extend_from_slice(&[0_u8; 8]);
-    payload.extend_from_slice(&audio.channels.to_be_bytes());
-    payload.extend_from_slice(&16_u16.to_be_bytes());
+    payload.extend_from_slice(&channels.to_be_bytes());
+    payload.extend_from_slice(&sample_size.to_be_bytes());
     payload.extend_from_slice(&0_u16.to_be_bytes());
     payload.extend_from_slice(&0_u16.to_be_bytes());
     payload.extend_from_slice(&(u32::from(sample_rate) << 16).to_be_bytes());
@@ -1253,6 +1301,71 @@ mod tests {
         assert!(bytes.windows(4).any(|window| window == b"sbgp"));
         assert!(bytes.windows(4).any(|window| window == b"iso2"));
         assert!(bytes.windows(2).any(|window| window == (-4_i16).to_be_bytes()));
+
+        let _ = fs::remove_file(path);
+    }
+
+    fn flac_codec_private(sample_rate_hz: u32, channels: u8, bits_per_sample: u8) -> Vec<u8> {
+        let mut streaminfo = vec![0_u8; 34];
+        streaminfo[0..2].copy_from_slice(&4096_u16.to_be_bytes());
+        streaminfo[2..4].copy_from_slice(&4096_u16.to_be_bytes());
+        let packed = (u64::from(sample_rate_hz) << 44)
+            | (u64::from(channels - 1) << 41)
+            | (u64::from(bits_per_sample - 1) << 36);
+        streaminfo[10..18].copy_from_slice(&packed.to_be_bytes());
+
+        let mut private = b"fLaC".to_vec();
+        private.extend_from_slice(&[0x80, 0x00, 0x00, 34]);
+        private.extend_from_slice(&streaminfo);
+        private
+    }
+
+    #[test]
+    fn flac_output_writes_dfla_and_round_trips_streaminfo() {
+        let path = temp_path("flac-roundtrip");
+        let private = flac_codec_private(192_000, 2, 24);
+        let track = MediaTrack {
+            id: 1,
+            kind: MediaTrackKind::Audio,
+            codec: MediaCodec::Flac,
+            time_base: MediaTimeBase::new(1, 192_000).expect("time base"),
+            language: None,
+            video: None,
+            audio: Some(AudioParameters {
+                sample_rate_hz: 192_000,
+                channels: 2,
+                bitrate_bps: None,
+            }),
+            codec_private: private.clone(),
+        };
+
+        let mut muxer = Mp4Muxer::create(&path).expect("muxer");
+        let output_track = muxer.add_track(&track).expect("FLAC track");
+        muxer
+            .write_packet(&packet(
+                output_track,
+                track.time_base,
+                0,
+                4096,
+                b"FLAC-FRAME",
+            ))
+            .expect("FLAC packet");
+        muxer.finalize().expect("finalize FLAC MP4");
+
+        let bytes = fs::read(&path).expect("read FLAC MP4");
+        assert!(bytes.windows(4).any(|window| window == b"fLaC"));
+        assert!(bytes.windows(4).any(|window| window == b"dfLa"));
+
+        let mut demuxer = super::super::Mp4Demuxer::open(&path).expect("read FLAC MP4");
+        let parsed = &demuxer.probe().tracks[0];
+        assert_eq!(parsed.codec, MediaCodec::Flac);
+        assert_eq!(parsed.audio.as_ref().expect("audio").sample_rate_hz, 192_000);
+        assert_eq!(parsed.audio.as_ref().expect("audio").channels, 2);
+        assert_eq!(parsed.codec_private, private);
+        assert_eq!(
+            demuxer.next_packet().expect("packet").expect("FLAC frame").data,
+            b"FLAC-FRAME"
+        );
 
         let _ = fs::remove_file(path);
     }

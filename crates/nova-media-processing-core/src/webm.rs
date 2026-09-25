@@ -1292,6 +1292,15 @@ fn prepare_matroska_track_for_mp4_with_colour(
             validate_hevc_decoder_configuration_record(&track.codec_private)?.to_vec()
         }
         MediaCodec::Aac => make_aac_esds_payload(track)?,
+        MediaCodec::Flac => {
+            let info = crate::flac::parse_native_flac_codec_private(&track.codec_private)
+                .map_err(demux_error)?;
+            if let Some(audio) = converted.audio.as_mut() {
+                audio.sample_rate_hz = info.sample_rate_hz;
+                audio.channels = info.channels;
+            }
+            track.codec_private.clone()
+        }
         MediaCodec::Vp8
         | MediaCodec::Vp9
         | MediaCodec::Av1
@@ -2858,6 +2867,101 @@ mod tests {
         let packet = demuxer.next_packet().expect("packet").expect("frame");
         assert_eq!(packet.duration.expect("duration").value, 720);
 
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn matroska_flac_remux_round_trips_through_mp4_dfla() {
+        let ebml = element(
+            &[0x1A, 0x45, 0xDF, 0xA3],
+            element(&[0x42, 0x82], b"matroska".to_vec()),
+        );
+        let info = element(
+            &[0x15, 0x49, 0xA9, 0x66],
+            uint_element(&[0x2A, 0xD7, 0xB1], 1_000_000, 3),
+        );
+        let audio = element(
+            &[0xE1],
+            [
+                element(&[0xB5], 192_000_f64.to_be_bytes().to_vec()),
+                uint_element(&[0x9F], 2, 1),
+            ]
+            .concat(),
+        );
+
+        let mut streaminfo = vec![0_u8; 34];
+        streaminfo[0..2].copy_from_slice(&4096_u16.to_be_bytes());
+        streaminfo[2..4].copy_from_slice(&4096_u16.to_be_bytes());
+        let packed = (192_000_u64 << 44) | (1_u64 << 41) | (23_u64 << 36);
+        streaminfo[10..18].copy_from_slice(&packed.to_be_bytes());
+        let mut flac_private = b"fLaC".to_vec();
+        flac_private.extend_from_slice(&[0x80, 0x00, 0x00, 34]);
+        flac_private.extend_from_slice(&streaminfo);
+
+        let track = element(
+            &[0xAE],
+            [
+                uint_element(&[0xD7], 1, 1),
+                uint_element(&[0x83], 2, 1),
+                element(&[0x86], b"A_FLAC".to_vec()),
+                element(&[0x63, 0xA2], flac_private.clone()),
+                audio,
+            ]
+            .concat(),
+        );
+        let tracks = element(&[0x16, 0x54, 0xAE, 0x6B], track);
+
+        let mut block = vec![0x81, 0x00, 0x00, 0x00];
+        block.extend_from_slice(b"FLAC-FRAME");
+        let block_group = element(
+            &[0xA0],
+            [
+                element(&[0xA1], block),
+                uint_element(&[0x9B], 21, 1),
+            ]
+            .concat(),
+        );
+        let cluster = element(
+            &[0x1F, 0x43, 0xB6, 0x75],
+            [uint_element(&[0xE7], 0, 1), block_group].concat(),
+        );
+        let segment = element(
+            &[0x18, 0x53, 0x80, 0x67],
+            [info, tracks, cluster].concat(),
+        );
+
+        let path = temp_path();
+        let destination = path.with_extension("mp4");
+        fs::write(&path, [ebml, segment].concat()).expect("fixture");
+
+        let mut bridged =
+            crate::open_mp4_remux_demuxer(&path).expect("Matroska FLAC bridge");
+        let source_track = &bridged.probe().tracks[0];
+        assert_eq!(source_track.codec, MediaCodec::Flac);
+        assert_eq!(
+            source_track.audio.as_ref().expect("FLAC audio").sample_rate_hz,
+            192_000
+        );
+        assert_eq!(source_track.codec_private, flac_private);
+
+        let mut inputs: [&mut dyn MediaDemuxer; 1] = [bridged.as_mut()];
+        crate::mux_demuxers_to_mp4(&destination, &mut inputs)
+            .expect("Matroska FLAC to MP4");
+
+        let mut output = crate::Mp4Demuxer::open(&destination).expect("FLAC MP4 output");
+        let output_track = &output.probe().tracks[0];
+        assert_eq!(output_track.codec, MediaCodec::Flac);
+        assert_eq!(
+            output_track.audio.as_ref().expect("MP4 FLAC audio").sample_rate_hz,
+            192_000
+        );
+        assert_eq!(output_track.codec_private, flac_private);
+        assert_eq!(
+            output.next_packet().expect("packet").expect("FLAC frame").data,
+            b"FLAC-FRAME"
+        );
+
+        let _ = fs::remove_file(destination);
         let _ = fs::remove_file(path);
     }
 

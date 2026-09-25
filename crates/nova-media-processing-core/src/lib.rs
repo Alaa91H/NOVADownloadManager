@@ -10,6 +10,7 @@ mod capabilities;
 mod demux;
 mod ebml_muxer;
 mod error;
+mod flac;
 mod job;
 mod mux;
 mod mp4;

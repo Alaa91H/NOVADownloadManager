@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use crate::{
+    flac::{native_flac_codec_private_from_dfla, parse_native_flac_codec_private},
     AudioParameters, MediaCodec, MediaContainer, MediaProbe, MediaProcessingError,
     MediaTimeBase, MediaTrack, MediaTrackKind, VideoParameters,
 };
@@ -321,10 +322,16 @@ fn parse_sample_description(
             ))
         }
         MediaTrackKind::Audio => {
-            let channels = read_u16(slice(entry.payload, 16, 2)?)?;
+            let mut channels = read_u16(slice(entry.payload, 16, 2)?)?;
             let sample_rate_fixed = read_u32(slice(entry.payload, 24, 4)?)?;
-            let sample_rate_hz = sample_rate_fixed >> 16;
+            let mut sample_rate_hz = sample_rate_fixed >> 16;
             let private = parse_codec_private(entry.payload.get(28..).unwrap_or_default(), &codec)?;
+            if matches!(&codec, MediaCodec::Flac) {
+                let info = parse_native_flac_codec_private(&private)
+                    .map_err(demux_error)?;
+                sample_rate_hz = info.sample_rate_hz;
+                channels = info.channels;
+            }
             Ok((
                 codec,
                 None,
@@ -349,6 +356,7 @@ fn codec_from_sample_entry(kind: FourCc) -> MediaCodec {
         [b'v', b'p', b'0', b'8'] => MediaCodec::Vp8,
         [b'm', b'p', b'4', b'a'] => MediaCodec::Aac,
         [b'O', b'p', b'u', b's'] => MediaCodec::Opus,
+        [b'f', b'L', b'a', b'C'] => MediaCodec::Flac,
         [b'.', b'm', b'p', b'3'] | [b'm', b'p', b'3', b' '] => MediaCodec::Mp3,
         other => MediaCodec::Unknown(String::from_utf8_lossy(&other).into_owned()),
     }
@@ -359,6 +367,13 @@ fn parse_codec_private(data: &[u8], codec: &MediaCodec) -> Result<Vec<u8>, Media
         return Ok(Vec::new());
     }
     let children = parse_boxes(data)?;
+    if matches!(codec, MediaCodec::Flac) {
+        let dfla = child(&children, *b"dfLa")
+            .ok_or_else(|| demux_error("FLAC sample entry is missing dfLa"))?;
+        return native_flac_codec_private_from_dfla(dfla.payload)
+            .map_err(demux_error);
+    }
+
     let wanted = match codec {
         MediaCodec::H264 => Some(*b"avcC"),
         MediaCodec::Hevc => Some(*b"hvcC"),
