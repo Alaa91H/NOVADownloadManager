@@ -45,6 +45,9 @@ export const TorrentDownloadDialog: React.FC = () => {
   const [connections, setConnections] = useState(
     settings.connection.maxConnections > 0 ? settings.connection.maxConnections : 8,
   );
+  const [seedingEnabled, setSeedingEnabled] = useState(true);
+  const [seedRatioLimit, setSeedRatioLimit] = useState('');
+  const [seedTimeMinutes, setSeedTimeMinutes] = useState('');
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
@@ -199,6 +202,14 @@ export const TorrentDownloadDialog: React.FC = () => {
         startImmediately,
         filePriorities: priorities,
         connections: Math.max(1, Math.min(32, connections || 1)),
+        seeding: {
+          enabled: seedingEnabled,
+          ratioLimit: seedRatioLimit.trim() === '' ? null : Math.max(0, Number(seedRatioLimit)),
+          timeLimitSeconds:
+            seedTimeMinutes.trim() === ''
+              ? null
+              : Math.max(0, Math.round(Number(seedTimeMinutes) * 60)),
+        },
       });
 
       setTasksWith((previous) => [task, ...previous.filter((item) => item.id !== task.id)]);
@@ -339,6 +350,60 @@ export const TorrentDownloadDialog: React.FC = () => {
                 onChange={(event) => setConnections(Number(event.target.value) || 1)}
                 className="w-full rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-2 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
               />
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-hover)]/20 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold text-[var(--text-primary)]">Seeding</div>
+                <div className="mt-0.5 text-[10px] text-[var(--text-muted)]">
+                  Upload only verified pieces after they are available.
+                </div>
+              </div>
+              <label className="flex cursor-pointer items-center gap-2 text-[11px] font-semibold text-[var(--text-secondary)]">
+                <input
+                  type="checkbox"
+                  checked={seedingEnabled}
+                  onChange={(event) => setSeedingEnabled(event.target.checked)}
+                  className="h-4 w-4 rounded border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--accent-primary)] focus:ring-[var(--accent-primary)]"
+                />
+                Enable seeding
+              </label>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                  Ratio limit
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={1000}
+                  step={0.1}
+                  value={seedRatioLimit}
+                  disabled={!seedingEnabled}
+                  placeholder="Unlimited"
+                  onChange={(event) => setSeedRatioLimit(event.target.value)}
+                  className="w-full rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-2 text-xs text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] disabled:opacity-50"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                  Time limit (minutes)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={seedTimeMinutes}
+                  disabled={!seedingEnabled}
+                  placeholder="Unlimited"
+                  onChange={(event) => setSeedTimeMinutes(event.target.value)}
+                  className="w-full rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-2 text-xs text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] disabled:opacity-50"
+                />
+              </div>
             </div>
           </div>
 
