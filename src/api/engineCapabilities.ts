@@ -67,6 +67,11 @@ function asBoolean(value: unknown, path: string): boolean {
   return value;
 }
 
+function asOptionalBoolean(value: unknown, path: string, fallback = false): boolean {
+  if (value === undefined) return fallback;
+  return asBoolean(value, path);
+}
+
 function asString(value: unknown, path: string): string {
   if (typeof value !== 'string' || !value) {
     throw new Error(`Invalid engine capabilities response: ${path} must be a non-empty string.`);
@@ -132,7 +137,7 @@ export function parseEngineCapabilitiesResponse(value: unknown): EngineCapabilit
     directReady: asBoolean(root.directReady, 'directReady'),
     mediaExtractionReady: asBoolean(root.mediaExtractionReady, 'mediaExtractionReady'),
     streamingReady: asBoolean(root.streamingReady, 'streamingReady'),
-    nativeMuxReady: asBoolean(root.nativeMuxReady, 'nativeMuxReady'),
+    nativeMuxReady: asOptionalBoolean(root.nativeMuxReady, 'nativeMuxReady'),
     postProcessingReady: asBoolean(root.postProcessingReady, 'postProcessingReady'),
     directProtocols: asStringArray(root.directProtocols, 'directProtocols'),
     compatibilityMode,
