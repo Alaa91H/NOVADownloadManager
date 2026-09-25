@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: repository-build-reset
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   reset:
@@ -29,27 +29,26 @@ jobs:
         run: |
           set -euo pipefail
 
-          active_runs="$(
-            gh api --paginate               -H "Accept: application/vnd.github+json"               "/repos/$GITHUB_REPOSITORY/actions/runs?per_page=100"               --jq '.workflow_runs[]
-                | select(
-                    .status == "queued"
-                    or .status == "in_progress"
-                    or .status == "pending"
-                    or .status == "waiting"
-                    or .status == "requested"
-                  )
-                | .id'
-          )"
-
           cancelled=0
-          while IFS= read -r run_id; do
-            [ -n "$run_id" ] || continue
-            [ "$run_id" = "$CURRENT_RUN_ID" ] && continue
+          for status in queued in_progress pending waiting requested; do
+            while IFS= read -r run_id; do
+              [ -n "$run_id" ] || continue
+              [ "$run_id" = "$CURRENT_RUN_ID" ] && continue
 
-            echo "Cancelling workflow run $run_id"
-            gh api               --method POST               -H "Accept: application/vnd.github+json"               "/repos/$GITHUB_REPOSITORY/actions/runs/$run_id/cancel"               >/dev/null 2>&1 || true
-            cancelled=$((cancelled + 1))
-          done <<< "$active_runs"
+              echo "Cancelling $status workflow run $run_id"
+              gh api \
+                --method POST \
+                -H "Accept: application/vnd.github+json" \
+                "/repos/$GITHUB_REPOSITORY/actions/runs/$run_id/cancel" \
+                >/dev/null 2>&1 || true
+              cancelled=$((cancelled + 1))
+            done < <(
+              gh api \
+                -H "Accept: application/vnd.github+json" \
+                "/repos/$GITHUB_REPOSITORY/actions/runs?status=$status&per_page=100" \
+                --jq '.workflow_runs[].id'
+            )
+          done
 
           echo "Requested cancellation for $cancelled stale workflow run(s)."
           echo "cancelled=$cancelled" >> "$GITHUB_OUTPUT"
