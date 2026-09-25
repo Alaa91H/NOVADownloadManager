@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use nova_download_core::download_http_to_path_segmented_with_context;
 use nova_media_processing_core::{
-    mux_demuxers_to_mp4, MediaDemuxer, MediaMuxResult, Mp4Demuxer,
+    mux_demuxers_to_mp4, open_mp4_remux_demuxer, MediaDemuxer, MediaMuxResult,
 };
 use thiserror::Error;
 
@@ -55,7 +55,7 @@ pub enum YouTubeTransferError {
     WorkerPanic,
     #[error("native YouTube media processing failed: {0}")]
     Processing(String),
-    #[error("selected YouTube separate tracks are not ISO-BMFF/MP4 compatible: {0}")]
+    #[error("selected YouTube separate track is not supported by the native MP4 remux bridge: {0}")]
     UnsupportedMuxContainer(String),
     #[error("native YouTube mux requires a separate-track transfer")]
     NotSeparateTracks,
@@ -157,8 +157,9 @@ pub fn download_youtube_plan(
 /// Download a selected YouTube plan and finish all MP4-compatible
 /// post-processing inside NOVA's native media core.
 ///
-/// Single-stream plans are returned directly. Separate MP4/M4A tracks are
-/// downloaded through nova-download-core and muxed in-process without FFmpeg.
+/// Single-stream plans are returned directly. Separate MP4/M4A or supported
+/// WebM tracks are downloaded through nova-download-core and muxed in-process
+/// without FFmpeg.
 pub fn download_and_finalize_youtube_plan(
     extraction: &YouTubeExtraction,
     plan: &YouTubeDownloadPlan,
@@ -209,7 +210,8 @@ pub fn download_and_finalize_youtube_plan(
     }
 }
 
-/// Mux already-downloaded YouTube MP4/M4A staging files into one MP4.
+/// Mux already-downloaded YouTube MP4/M4A or supported WebM staging files
+/// into one MP4.
 ///
 /// Staging files are deleted only after the destination has been finalized
 /// successfully. On any demux/mux failure they are retained for diagnostics
@@ -227,11 +229,11 @@ pub fn mux_youtube_separate_tracks_to_mp4(
         return Err(YouTubeTransferError::NotSeparateTracks);
     };
 
-    let mut video = Mp4Demuxer::open(video_path)
+    let mut video = open_mp4_remux_demuxer(video_path)
         .map_err(|error| YouTubeTransferError::Processing(error.to_string()))?;
-    let mut audio = Mp4Demuxer::open(audio_path)
+    let mut audio = open_mp4_remux_demuxer(audio_path)
         .map_err(|error| YouTubeTransferError::Processing(error.to_string()))?;
-    let mut inputs: [&mut dyn MediaDemuxer; 2] = [&mut video, &mut audio];
+    let mut inputs: [&mut dyn MediaDemuxer; 2] = [video.as_mut(), audio.as_mut()];
     let result = mux_demuxers_to_mp4(destination, &mut inputs)
         .map_err(|error| YouTubeTransferError::Processing(error.to_string()))?;
 
@@ -241,6 +243,33 @@ pub fn mux_youtube_separate_tracks_to_mp4(
 }
 
 fn ensure_mp4_muxable_stream(stream: &MediaStream) -> Result<(), YouTubeTransferError> {
+    if youtube_stream_is_native_mp4_remuxable(stream) {
+        return Ok(());
+    }
+
+    let container = stream
+        .container
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("unknown");
+    let codec = stream
+        .video_codec
+        .as_deref()
+        .or(stream.audio_codec.as_deref())
+        .unwrap_or("unknown");
+    Err(YouTubeTransferError::UnsupportedMuxContainer(format!(
+        "{container}/{codec}"
+    )))
+}
+
+/// Whether a direct YouTube track can enter NOVA's packet-preserving MP4
+/// remux bridge without an external post-processor.
+pub fn youtube_stream_is_native_mp4_remuxable(stream: &MediaStream) -> bool {
+    if !matches!(stream.protocol, MediaProtocol::Http | MediaProtocol::Https) {
+        return false;
+    }
+
     let container = stream
         .container
         .as_deref()
@@ -248,15 +277,24 @@ fn ensure_mp4_muxable_stream(stream: &MediaStream) -> Result<(), YouTubeTransfer
         .trim()
         .to_ascii_lowercase();
     if matches!(container.as_str(), "mp4" | "m4a" | "m4v" | "mov") {
-        Ok(())
-    } else {
-        Err(YouTubeTransferError::UnsupportedMuxContainer(
-            if container.is_empty() {
-                "unknown".to_owned()
-            } else {
-                container
-            },
-        ))
+        return true;
+    }
+    if container != "webm" {
+        return false;
+    }
+
+    match stream.kind {
+        crate::MediaTrackKind::Video => stream
+            .video_codec
+            .as_deref()
+            .map(|codec| codec.trim().to_ascii_lowercase())
+            .is_some_and(|codec| codec.starts_with("vp9") || codec.starts_with("vp8")),
+        crate::MediaTrackKind::Audio => stream
+            .audio_codec
+            .as_deref()
+            .map(|codec| codec.trim().to_ascii_lowercase())
+            .is_some_and(|codec| codec.starts_with("opus") || codec.starts_with("mp3")),
+        _ => false,
     }
 }
 
@@ -460,6 +498,22 @@ mod tests {
         assert_eq!(probe.tracks.len(), 2);
 
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn webm_vp9_and_opus_are_admitted_to_native_mp4_remux() {
+        let mut video = stream("vp9", MediaTrackKind::Video, "https://video.test/vp9");
+        video.container = Some("webm".to_owned());
+        video.video_codec = Some("vp9".to_owned());
+        assert!(youtube_stream_is_native_mp4_remuxable(&video));
+
+        let mut audio = stream("opus", MediaTrackKind::Audio, "https://video.test/opus");
+        audio.container = Some("webm".to_owned());
+        audio.audio_codec = Some("opus".to_owned());
+        assert!(youtube_stream_is_native_mp4_remuxable(&audio));
+
+        video.video_codec = Some("av01.0.08M.08".to_owned());
+        assert!(!youtube_stream_is_native_mp4_remuxable(&video));
     }
 
     #[test]

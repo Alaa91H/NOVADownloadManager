@@ -10,10 +10,11 @@ use nova_download_core::{
 };
 use nova_media_core::{
     processing::{
-        mux_demuxers_to_mp4_controlled, MediaDemuxer, MediaProcessingControl, Mp4Demuxer,
+        mux_demuxers_to_mp4_controlled, open_mp4_remux_demuxer, MediaDemuxer,
+        MediaProcessingControl,
     },
     resolve_youtube_pending_formats, select_youtube_download_plan,
-    select_youtube_mp4_download_plan, youtube_video_id,
+    select_youtube_mp4_download_plan, youtube_stream_is_native_mp4_remuxable, youtube_video_id,
     ExtractRequest, MediaDescriptor, MediaProtocol, MediaStream, YouTubeDownloadPlan,
     YouTubeExtractor, YouTubePlayerScriptSolver, YouTubeSelectionPolicy,
 };
@@ -84,6 +85,7 @@ impl Extractor for NativeMediaExtractor {
                 "native-multi-track".to_owned(),
                 "native-mp4-demux".to_owned(),
                 "native-fmp4-demux".to_owned(),
+                "native-webm-demux".to_owned(),
                 "native-mp4-mux".to_owned(),
                 "native-remux".to_owned(),
                 "direct-media-handoff".to_owned(),
@@ -578,8 +580,8 @@ fn run_native_separate_transfer(
         return Err("native task generation changed during verification".to_owned());
     }
 
-    let mut video = Mp4Demuxer::open(&video_path).map_err(|error| error.to_string())?;
-    let mut audio = Mp4Demuxer::open(&audio_path).map_err(|error| error.to_string())?;
+    let mut video = open_mp4_remux_demuxer(&video_path).map_err(|error| error.to_string())?;
+    let mut audio = open_mp4_remux_demuxer(&audio_path).map_err(|error| error.to_string())?;
 
     if !native_transition(
         state,
@@ -591,7 +593,7 @@ fn run_native_separate_transfer(
         return Err("native task generation changed during finalization".to_owned());
     }
 
-    let mut inputs: [&mut dyn MediaDemuxer; 2] = [&mut video, &mut audio];
+    let mut inputs: [&mut dyn MediaDemuxer; 2] = [video.as_mut(), audio.as_mut()];
     mux_demuxers_to_mp4_controlled(
         destination,
         &mut inputs,
@@ -905,12 +907,28 @@ fn resolve_native_execution(
                 resolved_direct_from_descriptor(&extraction.descriptor, stream)
                     .map(ResolvedNativeExecution::Direct)
             }
-            YouTubeDownloadPlan::SeparateTracks { .. } => Err(
-                NativeMediaTaskError::UnsupportedFeature(
-                    "the selected separate tracks require a container muxer not implemented yet"
-                        .to_owned(),
-                ),
-            ),
+            YouTubeDownloadPlan::SeparateTracks {
+                video_stream_id,
+                audio_stream_id,
+            } => {
+                let video =
+                    find_descriptor_stream(&extraction.descriptor, &video_stream_id)?;
+                let audio =
+                    find_descriptor_stream(&extraction.descriptor, &audio_stream_id)?;
+                if !youtube_stream_is_native_mp4_remuxable(video)
+                    || !youtube_stream_is_native_mp4_remuxable(audio)
+                {
+                    return Err(NativeMediaTaskError::UnsupportedFeature(
+                        "the selected separate tracks are not supported by the native MP4 remux bridge"
+                            .to_owned(),
+                    ));
+                }
+                Ok(ResolvedNativeExecution::Separate(ResolvedSeparateMedia {
+                    title: extraction.descriptor.metadata.title.clone(),
+                    video: resolved_track_from_descriptor(&extraction.descriptor, video)?,
+                    audio: resolved_track_from_descriptor(&extraction.descriptor, audio)?,
+                }))
+            }
         };
     }
 

@@ -43,12 +43,15 @@ VP8/VP9, AAC, Opus, and MP3 when the required MP4 codec configuration is
 available.
 
 The media core also exposes a YouTube finalization path that downloads separate
-MP4/M4A tracks and muxes them inside NOVA without FFmpeg. WebM demuxing is now
-native, but WebM separate-track finalization remains gated until the processing
-layer converts WebM VP8/VP9/AV1 and Opus codec-private metadata into the MP4
-`vpcC`/`av1C`/`dOps` forms required by the current muxer.
+tracks and muxes them inside NOVA without FFmpeg. MP4/M4A inputs continue to
+work directly. WebM VP8, VP9 profile 0, Opus, and MP3 tracks can now enter the
+same MP4 remux path through content-based demux selection. WebM OpusHead is
+converted to big-endian `dOps`, and VP8/VP9 metadata is converted to the
+version-1 `vpcC` representation expected by the MP4 muxer.
 
-Matroska demuxing, WebM/Matroska muxing, audio transcoding, video transcoding,
+Higher VP9 profiles remain gated until WebM colour metadata is preserved in the
+generic track contract, and WebM AV1 remains gated until its `av1C` bridge is
+implemented. Matroska demuxing, WebM/Matroska muxing, audio transcoding, video transcoding,
 subtitles/data muxing, edit-list timeline handling, and hardware acceleration
 remain disabled until their implementations are present and covered by native
 tests.
