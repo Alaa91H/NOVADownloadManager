@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use nova_torrent_core::{
     AllocationMode, FilePriority, InfoHash, MagnetLink, RecheckMode, TorrentMetainfo,
-    TorrentSelection,
+    TorrentSelection, MAX_METADATA_SIZE,
 };
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
@@ -222,7 +222,7 @@ pub async fn analyze_metainfo(
     )
     .await
     .map_err(|_| "Torrent peer discovery timed out after 45 seconds".to_owned())??;
-    resolution.info_bytes = Some(info_bytes);
+    resolution.info_bytes = (info_bytes.len() <= MAX_METADATA_SIZE).then_some(info_bytes);
 
     let id = uuid::Uuid::new_v4().simple().to_string();
     let view = analysis_view(&id, &resolution);

@@ -435,7 +435,9 @@ fn validate_metadata_info(
         )));
     }
     let digest = Sha1::digest(&bytes);
-    if digest.as_slice() != expected.as_bytes() {
+    let mut actual = [0u8; 20];
+    actual.copy_from_slice(&digest);
+    if actual != *expected.as_bytes() {
         return Err(TorrentSessionError::Metadata(
             "raw info dictionary SHA-1 does not match torrent info hash".to_owned(),
         ));

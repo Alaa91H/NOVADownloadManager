@@ -992,7 +992,7 @@ mod tests {
         let server_storage = storage.clone();
         let server_info = storage.metadata_info_bytes().unwrap();
         let server = tokio::spawn(async move {
-            let (mut stream, remote_addr) = listener.accept().await.unwrap();
+            let (mut stream, _remote_addr) = listener.accept().await.unwrap();
             let remote = read_inbound_handshake(
                 &mut stream,
                 Duration::from_secs(2),
@@ -1013,10 +1013,7 @@ mod tests {
                 8,
                 SeedExtensionService {
                     metadata_info: Some(server_info),
-                    pex_peers: vec![
-                        "8.8.8.8:6881".parse().unwrap(),
-                        remote_addr,
-                    ],
+                    pex_peers: vec!["8.8.8.8:6881".parse().unwrap()],
                     allow_pex: true,
                 },
                 test_config(),
