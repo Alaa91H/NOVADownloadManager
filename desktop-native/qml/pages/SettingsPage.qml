@@ -981,6 +981,76 @@ Item {
                         }
                     }
 
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 92
+                        radius: Theme.radiusMedium
+                        color: Theme.surface
+                        border.color: Theme.border
+                        Accessible.role: Accessible.Grouping
+                        Accessible.name: root.t("settings.displayMetrics")
+
+                        GridLayout {
+                            anchors.fill: parent
+                            anchors.margins: 12
+                            columns: 5
+                            columnSpacing: 14
+
+                            Repeater {
+                                readonly property var metrics: desktop.displayMetrics
+                                readonly property var available: metrics.availableGeometry || ({})
+                                model: [
+                                    {
+                                        label: root.t("settings.screen"),
+                                        value: String(metrics.screenName || root.t("common.unknown"))
+                                    },
+                                    {
+                                        label: root.t("settings.scaleFactor"),
+                                        value: Number(metrics.devicePixelRatio || 1).toFixed(2) + "×"
+                                    },
+                                    {
+                                        label: root.t("settings.logicalDpi"),
+                                        value: Number(metrics.logicalDpi || 0).toFixed(1)
+                                    },
+                                    {
+                                        label: root.t("settings.screenCount"),
+                                        value: String(metrics.screenCount || 0)
+                                    },
+                                    {
+                                        label: root.t("settings.availableArea"),
+                                        value: String(available.width || 0) + "×"
+                                            + String(available.height || 0)
+                                    }
+                                ]
+
+                                delegate: ColumnLayout {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    spacing: 3
+                                    Accessible.role: Accessible.StaticText
+                                    Accessible.name: modelData.label + ": " + modelData.value
+
+                                    Text {
+                                        text: modelData.label
+                                        color: Theme.textMuted
+                                        font.pixelSize: Math.max(8, Theme.fontTiny - 1)
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: modelData.value
+                                        color: Theme.textPrimary
+                                        font.pixelSize: Math.round(11 * Theme.fontScale)
+                                        font.weight: Font.DemiBold
+                                        elide: Text.ElideRight
+                                        LayoutMirroring.enabled: false
+                                        horizontalAlignment: Text.AlignLeft
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     RowLayout {
                         Layout.fillWidth: true
 
