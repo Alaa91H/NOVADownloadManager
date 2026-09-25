@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::{IpAddr, SocketAddr};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use nova_torrent_core::{
     DhtMessage, DhtNodeId, DhtQuery, DhtResponse, InfoHash, MAX_DHT_PACKET_BYTES,
@@ -11,12 +13,27 @@ use tokio::net::{lookup_host, UdpSocket};
 use tokio::task::JoinSet;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
+use sha1::{Digest, Sha1};
 
+use crate::daemon::state::SharedState;
 use crate::daemon::utils::{is_internal_ip, private_network_allowed};
+use crate::lock_or_err;
 
 const DHT_BUCKET_COUNT: usize = 160;
 const DHT_BUCKET_SIZE: usize = 8;
 const DHT_ROUTING_MAX_AGE_SECS: u64 = 7 * 24 * 60 * 60;
+const DHT_STATE_VERSION: u32 = 1;
+const DHT_STATE_FILE_NAME: &str = "torrent-dht-state.json";
+const MAX_DHT_STATE_BYTES: u64 = 2 * 1024 * 1024;
+const DHT_TOKEN_ROTATE_INTERVAL: Duration = Duration::from_secs(5 * 60);
+const DHT_PEER_TTL: Duration = Duration::from_secs(30 * 60);
+const DHT_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(60);
+const MAX_STORED_INFO_HASHES: usize = 1_024;
+const MAX_STORED_PEERS_PER_HASH: usize = 128;
+const MAX_RESPONSE_PEERS: usize = 16;
+const MAX_RESPONSE_NODES: usize = 8;
+pub const DEFAULT_TORRENT_DHT_PORT: u16 = 6881;
+static ACTIVE_TORRENT_DHT_PORT: AtomicU16 = AtomicU16::new(0);
 
 const DEFAULT_BOOTSTRAP: &[&str] = &[
     "router.bittorrent.com:6881",
@@ -137,6 +154,469 @@ impl DhtRoutingTable {
         nodes.truncate(limit);
         nodes
     }
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedDhtState {
+    version: u32,
+    node_id: String,
+    #[serde(default)]
+    nodes: Vec<PersistedDhtNode>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedDhtNode {
+    id: String,
+    address: String,
+    last_seen_unix: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct StoredPeer {
+    address: SocketAddr,
+    seen_at: Instant,
+}
+
+#[derive(Debug)]
+struct DhtTokenState {
+    current: [u8; 20],
+    previous: [u8; 20],
+    rotated_at: Instant,
+}
+
+impl DhtTokenState {
+    fn new() -> Self {
+        Self {
+            current: random_secret(),
+            previous: random_secret(),
+            rotated_at: Instant::now(),
+        }
+    }
+
+    fn rotate_if_needed(&mut self) {
+        if self.rotated_at.elapsed() >= DHT_TOKEN_ROTATE_INTERVAL {
+            self.previous = self.current;
+            self.current = random_secret();
+            self.rotated_at = Instant::now();
+        }
+    }
+
+    fn issue(&mut self, ip: IpAddr) -> Vec<u8> {
+        self.rotate_if_needed();
+        token_digest(&self.current, ip).to_vec()
+    }
+
+    fn validate(&mut self, ip: IpAddr, token: &[u8]) -> bool {
+        self.rotate_if_needed();
+        constant_time_eq(token, &token_digest(&self.current, ip))
+            || constant_time_eq(token, &token_digest(&self.previous, ip))
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DhtService {
+    engine: DhtEngine,
+    peers: Arc<Mutex<HashMap<InfoHash, Vec<StoredPeer>>>>,
+    tokens: Arc<Mutex<DhtTokenState>>,
+    state_path: Arc<PathBuf>,
+}
+
+impl DhtService {
+    pub fn load_or_new(data_dir: &str) -> Self {
+        let path = Path::new(data_dir).join(DHT_STATE_FILE_NAME);
+        let restored = load_dht_state(&path);
+        let (node_id, nodes) = match restored {
+            Some(state) => match parse_node_id_hex(&state.node_id) {
+                Some(node_id) => {
+                    let nodes = state
+                        .nodes
+                        .into_iter()
+                        .filter_map(|entry| {
+                            let id = parse_node_id_hex(&entry.id)?;
+                            let address = entry.address.parse::<SocketAddr>().ok()?;
+                            Some(DhtRoutingSnapshotEntry {
+                                node: nova_torrent_core::DhtNode { id, address },
+                                last_seen_unix: entry.last_seen_unix,
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    (node_id, nodes)
+                }
+                None => {
+                    log::warn!("Ignoring DHT state with invalid node id");
+                    (generate_dht_node_id(), Vec::new())
+                }
+            },
+            None => (generate_dht_node_id(), Vec::new()),
+        };
+
+        let engine = DhtEngine::with_routing(node_id, DhtConfig::default(), nodes);
+        engine.prune_routing();
+        let service = Self {
+            engine,
+            peers: Arc::new(Mutex::new(HashMap::new())),
+            tokens: Arc::new(Mutex::new(DhtTokenState::new())),
+            state_path: Arc::new(path),
+        };
+        if let Err(error) = service.save_state() {
+            log::debug!("Could not initialize DHT state file: {error}");
+        }
+        service
+    }
+
+    pub fn engine(&self) -> DhtEngine {
+        self.engine.clone()
+    }
+
+    pub fn node_id(&self) -> DhtNodeId {
+        self.engine.node_id()
+    }
+
+    pub fn routing_node_count(&self) -> usize {
+        self.engine.routing_snapshot().len()
+    }
+
+    pub fn save_state(&self) -> Result<(), String> {
+        self.engine.prune_routing();
+        let nodes = self
+            .engine
+            .routing_snapshot()
+            .into_iter()
+            .map(|entry| PersistedDhtNode {
+                id: node_id_hex(entry.node.id),
+                address: entry.node.address.to_string(),
+                last_seen_unix: entry.last_seen_unix,
+            })
+            .collect::<Vec<_>>();
+        let state = PersistedDhtState {
+            version: DHT_STATE_VERSION,
+            node_id: node_id_hex(self.engine.node_id()),
+            nodes,
+        };
+        let bytes = serde_json::to_vec_pretty(&state)
+            .map_err(|error| format!("Could not encode DHT state: {error}"))?;
+        if bytes.len() as u64 > MAX_DHT_STATE_BYTES {
+            return Err(format!(
+                "DHT state exceeds {} byte safety limit",
+                MAX_DHT_STATE_BYTES
+            ));
+        }
+        if let Some(parent) = self.state_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("Could not create DHT state directory: {error}"))?;
+        }
+        let tmp = self.state_path.with_extension("json.tmp");
+        std::fs::write(&tmp, &bytes)
+            .map_err(|error| format!("Could not write DHT state {}: {error}", tmp.display()))?;
+        let file = std::fs::File::open(&tmp)
+            .map_err(|error| format!("Could not reopen DHT state {}: {error}", tmp.display()))?;
+        file.sync_all()
+            .map_err(|error| format!("Could not sync DHT state {}: {error}", tmp.display()))?;
+        if self.state_path.exists() {
+            std::fs::remove_file(self.state_path.as_ref())
+                .map_err(|error| format!("Could not replace DHT state: {error}"))?;
+        }
+        std::fs::rename(&tmp, self.state_path.as_ref())
+            .map_err(|error| format!("Could not commit DHT state: {error}"))
+    }
+
+    pub async fn run_server(
+        &self,
+        state: SharedState,
+        cancel: CancellationToken,
+    ) -> Result<u16, String> {
+        let port = configured_dht_port();
+        let socket = UdpSocket::bind(("0.0.0.0", port))
+            .await
+            .map_err(|error| format!("Could not bind torrent DHT UDP port {port}: {error}"))?;
+        let local = socket
+            .local_addr()
+            .map_err(|error| format!("Could not read torrent DHT listener address: {error}"))?;
+        ACTIVE_TORRENT_DHT_PORT.store(local.port(), Ordering::Release);
+        log::info!("Native torrent DHT server started on {local}");
+
+        let mut maintenance = tokio::time::interval(DHT_MAINTENANCE_INTERVAL);
+        maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut buffer = vec![0u8; MAX_DHT_PACKET_BYTES];
+
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                _ = maintenance.tick() => {
+                    self.maintenance();
+                    if let Err(error) = self.save_state() {
+                        log::debug!("Could not persist DHT routing state: {error}");
+                    }
+                }
+                received = socket.recv_from(&mut buffer) => {
+                    let (length, source) = match received {
+                        Ok(value) => value,
+                        Err(error) => {
+                            log::debug!("Torrent DHT receive failed: {error}");
+                            continue;
+                        }
+                    };
+                    if !self.engine.address_allowed(source) {
+                        continue;
+                    }
+                    let packet = &buffer[..length];
+                    let Some(response) = self.handle_packet(&state, source, packet) else {
+                        continue;
+                    };
+                    let encoded = match response.encode() {
+                        Ok(encoded) => encoded,
+                        Err(error) => {
+                            log::debug!("Could not encode torrent DHT response: {error}");
+                            continue;
+                        }
+                    };
+                    if encoded.len() > 1_200 {
+                        log::debug!(
+                            "Dropping oversized torrent DHT response to {source}: {} bytes",
+                            encoded.len()
+                        );
+                        continue;
+                    }
+                    let _ = socket.send_to(&encoded, source).await;
+                }
+            }
+        }
+
+        ACTIVE_TORRENT_DHT_PORT.store(0, Ordering::Release);
+        self.maintenance();
+        if let Err(error) = self.save_state() {
+            log::warn!("Could not save DHT routing state during shutdown: {error}");
+        }
+        Ok(local.port())
+    }
+
+    fn handle_packet(
+        &self,
+        state: &SharedState,
+        source: SocketAddr,
+        packet: &[u8],
+    ) -> Option<DhtMessage> {
+        let message = DhtMessage::parse(packet).ok()?;
+        let DhtMessage::Query {
+            transaction_id,
+            query,
+        } = message
+        else {
+            return None;
+        };
+
+        let remote_id = match query {
+            DhtQuery::Ping { id }
+            | DhtQuery::FindNode { id, .. }
+            | DhtQuery::GetPeers { id, .. }
+            | DhtQuery::AnnouncePeer { id, .. } => id,
+        };
+        self.engine.record_node(nova_torrent_core::DhtNode {
+            id: remote_id,
+            address: source,
+        });
+
+        match query {
+            DhtQuery::Ping { .. } => Some(DhtMessage::Response {
+                transaction_id,
+                response: DhtResponse {
+                    id: self.engine.node_id(),
+                    token: None,
+                    nodes: Vec::new(),
+                    peers: Vec::new(),
+                },
+            }),
+            DhtQuery::FindNode { target, .. } => Some(DhtMessage::Response {
+                transaction_id,
+                response: DhtResponse {
+                    id: self.engine.node_id(),
+                    token: None,
+                    nodes: self
+                        .engine
+                        .closest_nodes_for_node(target, MAX_RESPONSE_NODES),
+                    peers: Vec::new(),
+                },
+            }),
+            DhtQuery::GetPeers { info_hash, .. } => {
+                let private = local_torrent_dht_blocked(state, info_hash);
+                let peers = if private {
+                    Vec::new()
+                } else {
+                    self.peers_for(info_hash)
+                };
+                let token = if private {
+                    None
+                } else {
+                    Some(self.issue_token(source.ip()))
+                };
+                let nodes = if peers.is_empty() {
+                    self.engine
+                        .closest_nodes_for_info_hash(info_hash, MAX_RESPONSE_NODES)
+                } else {
+                    Vec::new()
+                };
+                Some(DhtMessage::Response {
+                    transaction_id,
+                    response: DhtResponse {
+                        id: self.engine.node_id(),
+                        token,
+                        nodes,
+                        peers,
+                    },
+                })
+            }
+            DhtQuery::AnnouncePeer {
+                info_hash,
+                port,
+                token,
+                implied_port,
+                ..
+            } => {
+                if local_torrent_dht_blocked(state, info_hash) {
+                    return Some(DhtMessage::Error {
+                        transaction_id,
+                        code: 203,
+                        message: "DHT disabled for this torrent".to_owned(),
+                    });
+                }
+                if !self.validate_token(source.ip(), &token) {
+                    return Some(DhtMessage::Error {
+                        transaction_id,
+                        code: 203,
+                        message: "Invalid token".to_owned(),
+                    });
+                }
+                let peer = SocketAddr::new(
+                    source.ip(),
+                    if implied_port { source.port() } else { port },
+                );
+                if !self.engine.address_allowed(peer) {
+                    return Some(DhtMessage::Error {
+                        transaction_id,
+                        code: 203,
+                        message: "Invalid peer address".to_owned(),
+                    });
+                }
+                self.store_peer(info_hash, peer);
+                Some(DhtMessage::Response {
+                    transaction_id,
+                    response: DhtResponse {
+                        id: self.engine.node_id(),
+                        token: None,
+                        nodes: Vec::new(),
+                        peers: Vec::new(),
+                    },
+                })
+            }
+        }
+    }
+
+    fn issue_token(&self, ip: IpAddr) -> Vec<u8> {
+        match self.tokens.lock() {
+            Ok(mut tokens) => tokens.issue(ip),
+            Err(poison) => poison.into_inner().issue(ip),
+        }
+    }
+
+    fn validate_token(&self, ip: IpAddr, token: &[u8]) -> bool {
+        match self.tokens.lock() {
+            Ok(mut tokens) => tokens.validate(ip, token),
+            Err(poison) => poison.into_inner().validate(ip, token),
+        }
+    }
+
+    fn store_peer(&self, info_hash: InfoHash, address: SocketAddr) {
+        let mut peers = match self.peers.lock() {
+            Ok(peers) => peers,
+            Err(poison) => poison.into_inner(),
+        };
+        prune_peer_store(&mut peers);
+        if !peers.contains_key(&info_hash) && peers.len() >= MAX_STORED_INFO_HASHES {
+            if let Some(oldest_key) = peers
+                .iter()
+                .min_by_key(|(_, values)| {
+                    values
+                        .iter()
+                        .map(|peer| peer.seen_at)
+                        .min()
+                        .unwrap_or_else(Instant::now)
+                })
+                .map(|(key, _)| *key)
+            {
+                peers.remove(&oldest_key);
+            }
+        }
+        let values = peers.entry(info_hash).or_default();
+        if let Some(existing) = values.iter_mut().find(|peer| peer.address == address) {
+            existing.seen_at = Instant::now();
+            return;
+        }
+        if values.len() >= MAX_STORED_PEERS_PER_HASH {
+            values.sort_by_key(|peer| peer.seen_at);
+            values.remove(0);
+        }
+        values.push(StoredPeer {
+            address,
+            seen_at: Instant::now(),
+        });
+    }
+
+    fn peers_for(&self, info_hash: InfoHash) -> Vec<SocketAddr> {
+        let mut peers = match self.peers.lock() {
+            Ok(peers) => peers,
+            Err(poison) => poison.into_inner(),
+        };
+        prune_peer_store(&mut peers);
+        let mut output = peers
+            .get(&info_hash)
+            .into_iter()
+            .flat_map(|values| values.iter().map(|peer| peer.address))
+            .filter(|address| self.engine.address_allowed(*address))
+            .collect::<Vec<_>>();
+        output.sort_unstable();
+        output.dedup();
+        output.truncate(MAX_RESPONSE_PEERS);
+        output
+    }
+
+    fn maintenance(&self) {
+        self.engine.prune_routing();
+        let mut peers = match self.peers.lock() {
+            Ok(peers) => peers,
+            Err(poison) => poison.into_inner(),
+        };
+        prune_peer_store(&mut peers);
+        match self.tokens.lock() {
+            Ok(mut tokens) => tokens.rotate_if_needed(),
+            Err(poison) => poison.into_inner().rotate_if_needed(),
+        }
+    }
+
+    #[cfg(test)]
+    fn for_tests(node_id: DhtNodeId, state_path: PathBuf) -> Self {
+        let engine = DhtEngine::for_tests(node_id, DhtConfig::default());
+        Self {
+            engine,
+            peers: Arc::new(Mutex::new(HashMap::new())),
+            tokens: Arc::new(Mutex::new(DhtTokenState::new())),
+            state_path: Arc::new(state_path),
+        }
+    }
+}
+
+pub fn configured_dht_port() -> u16 {
+    std::env::var("NOVA_TORRENT_DHT_PORT")
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .filter(|port| *port != 0)
+        .unwrap_or_else(crate::daemon::torrent_seed::configured_seed_port)
+}
+
+pub fn active_dht_port() -> Option<u16> {
+    let port = ACTIVE_TORRENT_DHT_PORT.load(Ordering::Acquire);
+    (port != 0).then_some(port)
 }
 
 #[derive(Clone, Debug)]
@@ -578,6 +1058,106 @@ impl DhtEngine {
     }
 }
 
+fn load_dht_state(path: &Path) -> Option<PersistedDhtState> {
+    let metadata = std::fs::metadata(path).ok()?;
+    if metadata.len() > MAX_DHT_STATE_BYTES {
+        log::warn!("Ignoring oversized DHT state file {}", path.display());
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    let state = serde_json::from_slice::<PersistedDhtState>(&bytes).ok()?;
+    if state.version != DHT_STATE_VERSION {
+        log::warn!(
+            "Ignoring unsupported DHT state version {} in {}",
+            state.version,
+            path.display()
+        );
+        return None;
+    }
+    Some(state)
+}
+
+fn node_id_hex(id: DhtNodeId) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(40);
+    for byte in id.as_bytes() {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
+}
+
+fn parse_node_id_hex(value: &str) -> Option<DhtNodeId> {
+    if value.len() != 40 {
+        return None;
+    }
+    let raw = value.as_bytes();
+    let mut bytes = [0u8; 20];
+    for index in 0..20 {
+        let high = hex_nibble(raw[index * 2])?;
+        let low = hex_nibble(raw[index * 2 + 1])?;
+        bytes[index] = (high << 4) | low;
+    }
+    Some(DhtNodeId::new(bytes))
+}
+
+fn hex_nibble(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn random_secret() -> [u8; 20] {
+    let first = *uuid::Uuid::new_v4().as_bytes();
+    let second = *uuid::Uuid::new_v4().as_bytes();
+    let mut secret = [0u8; 20];
+    secret[..16].copy_from_slice(&first);
+    secret[16..].copy_from_slice(&second[..4]);
+    secret
+}
+
+fn token_digest(secret: &[u8; 20], ip: IpAddr) -> [u8; 20] {
+    let mut hash = Sha1::new();
+    hash.update(secret);
+    match ip {
+        IpAddr::V4(ip) => hash.update(ip.octets()),
+        IpAddr::V6(ip) => hash.update(ip.octets()),
+    }
+    let digest = hash.finalize();
+    let mut token = [0u8; 20];
+    token.copy_from_slice(&digest);
+    token
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.iter()
+        .zip(right)
+        .fold(0u8, |diff, (left, right)| diff | (left ^ right))
+        == 0
+}
+
+fn prune_peer_store(peers: &mut HashMap<InfoHash, Vec<StoredPeer>>) {
+    for values in peers.values_mut() {
+        values.retain(|peer| peer.seen_at.elapsed() <= DHT_PEER_TTL);
+    }
+    peers.retain(|_, values| !values.is_empty());
+}
+
+fn local_torrent_dht_blocked(state: &SharedState, info_hash: InfoHash) -> bool {
+    let hex = info_hash.to_hex();
+    let jobs = lock_or_err!(state.torrent_jobs);
+    jobs.values().any(|job| {
+        job.task.engine_id.eq_ignore_ascii_case(&hex)
+            && (job.private || job.requires_reauth)
+    })
+}
+
 fn unix_now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -671,6 +1251,38 @@ mod tests {
             } => (peer, transaction_id, query),
             other => panic!("expected DHT query, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn rotating_tokens_are_bound_to_ip() {
+        let mut tokens = DhtTokenState::new();
+        let ip_a: IpAddr = "8.8.8.8".parse().unwrap();
+        let ip_b: IpAddr = "1.1.1.1".parse().unwrap();
+        let token = tokens.issue(ip_a);
+        assert!(tokens.validate(ip_a, &token));
+        assert!(!tokens.validate(ip_b, &token));
+    }
+
+    #[test]
+    fn dht_state_round_trip_preserves_node_id_and_routing() {
+        let root = std::env::temp_dir().join(format!(
+            "nova-dht-state-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join(DHT_STATE_FILE_NAME);
+        let service = DhtService::for_tests(id(4), path.clone());
+        service.engine.record_node(nova_torrent_core::DhtNode {
+            id: id(5),
+            address: "8.8.8.8:6881".parse().unwrap(),
+        });
+        service.save_state().unwrap();
+
+        let loaded = load_dht_state(&path).unwrap();
+        assert_eq!(parse_node_id_hex(&loaded.node_id), Some(id(4)));
+        assert_eq!(loaded.nodes.len(), 1);
+        assert_eq!(loaded.nodes[0].address, "8.8.8.8:6881");
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
