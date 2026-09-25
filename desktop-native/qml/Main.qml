@@ -360,7 +360,7 @@ ApplicationWindow {
                     Layout.alignment: Qt.AlignHCenter
                     text: window.currentPage.charAt(0).toUpperCase() + window.currentPage.slice(1)
                     color: Theme.textPrimary
-                    font.pixelSize: 22
+                    font.pixelSize: Theme.fontTitle
                     font.weight: Font.DemiBold
                 }
 
@@ -368,7 +368,7 @@ ApplicationWindow {
                     Layout.alignment: Qt.AlignHCenter
                     text: window.t("placeholder.migrating")
                     color: Theme.textMuted
-                    font.pixelSize: 11
+                    font.pixelSize: Math.round(11 * Theme.fontScale)
                 }
             }
         }
