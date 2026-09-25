@@ -22,8 +22,6 @@
     "version:apply": "node scripts/apply-version.mjs",
     "branding:generate": "node scripts/generate-icons.mjs",
     "branding:verify": "node scripts/verify-branding-assets.mjs",
-    "android:i18n:generate": "tsx scripts/generate-android-locales.mts",
-    "android:i18n:validate": "tsx scripts/generate-android-locales.mts --check && tsx scripts/validate-android-locales.mts",
     "extension:install": "pnpm install --frozen-lockfile",
     "extension:build": "pnpm --filter nova-browser-extension build",
     "extension:package": "pnpm --filter nova-browser-extension build:zip",
@@ -31,7 +29,6 @@
     "native-curl:build": "node scripts/build-native-curl.mjs",
     "native-curl:env": "node scripts/print-native-curl-env.mjs",
     "native-curl:verify": "node scripts/verify-native-curl.mjs",
-    "packaging:manifests": "node scripts/generate-package-manifests.mjs",
     "security:check": "node scripts/security-check.mjs",
     "facts:verify": "node scripts/verify-project-facts.mjs",
     "deps:check-updates": "node scripts/check-updates.mjs"
