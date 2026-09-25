@@ -7,6 +7,9 @@ QtObject {
     property bool highContrast: false
     property bool reducedMotion: false
     property real fontScale: 1.0
+    property color accentBase: "#168df7"
+    property int radiusBase: 10
+    property real densityScale: 1.0
 
     readonly property color window: highContrast
         ? (darkMode ? "#000000" : "#ffffff")
@@ -39,20 +42,23 @@ QtObject {
 
     readonly property color accent: highContrast
         ? (darkMode ? "#66a3ff" : "#0047b3")
-        : "#477eef"
+        : accentBase
     readonly property color accentMuted: darkMode ? "#20345a" : "#dce9ff"
     readonly property color success: darkMode ? "#3fb950" : "#188038"
     readonly property color warning: darkMode ? "#d29922" : "#9a6700"
     readonly property color danger: darkMode ? "#f85149" : "#c62828"
     readonly property color focusRing: accent
 
-    readonly property int radiusSmall: 4
-    readonly property int radiusMedium: 6
-    readonly property int radiusLarge: 10
-    readonly property int navigationWidth: Math.round(216 * Math.max(1.0, fontScale))
-    readonly property int detailsWidth: Math.round(310 * Math.max(1.0, fontScale))
-    readonly property int commandHeight: Math.round(46 * Math.max(1.0, fontScale))
-    readonly property int rowHeight: Math.round(46 * Math.max(1.0, fontScale))
+    readonly property int radiusSmall: Math.max(3, Math.round(radiusBase * 0.45))
+    readonly property int radiusMedium: Math.max(5, Math.round(radiusBase * 0.7))
+    readonly property int radiusLarge: radiusBase
+    readonly property int titleBarHeight: Math.round(56 * Math.max(1.0, fontScale))
+    readonly property int navigationCollapsedWidth: Math.round(62 * Math.max(1.0, fontScale))
+    readonly property int navigationExpandedWidth: Math.round(206 * Math.max(1.0, fontScale))
+    readonly property int detailsWidth: Math.round(356 * Math.max(1.0, fontScale))
+    readonly property int customizationWidth: Math.round(292 * Math.max(1.0, fontScale))
+    readonly property int commandHeight: Math.round(52 * densityScale * Math.max(1.0, fontScale))
+    readonly property int rowHeight: Math.round(54 * densityScale * Math.max(1.0, fontScale))
 
     readonly property int fontTiny: Math.round(9 * fontScale)
     readonly property int fontSmall: Math.round(10 * fontScale)
