@@ -775,7 +775,7 @@
       "id": "browser-integration",
       "label": "Browser integration status and pairing",
       "status": "partial",
-      "blocker": "The generated native preview now smoke-tests the packaged nova-native-host executable on the full Windows x64/ARM64, Linux x64/ARM64 and macOS Intel/Apple Silicon matrix. The smoke uses real Native Messaging framing and verifies rotating-secret pairing proof, protocol v4, capabilities proxying and authenticated candidate.send capture handoff. Remaining parity work is installing the real extension in Chrome/Edge/Firefox and validating browser-origin capture plus OS registration/repair end to end on packaged builds.",
+      "blocker": "Packaged previews now execute the real nova-native-host binary through Native Messaging framing on Windows x64/ARM64, Linux x64/ARM64 and macOS Intel/Apple Silicon, verifying pairing proof, protocol v4 and authenticated candidate.send forwarding. A separate CI contract derives the Chromium extension ID from the pinned manifest key and prevents Chrome/Edge origin, Firefox ID or native host-name drift across the extension, Qt and Rust. Remaining parity work is installing the real extension in Chrome/Edge/Firefox and validating browser-origin capture plus OS registration/repair end to end on packaged builds.",
       "evidence": [
         "desktop-native/src/platform/BackendBootstrap.cpp",
         "desktop-native/src/platform/DesktopIntegration.cpp",
@@ -790,7 +790,10 @@
         ".github/workflows/native-ui-rust.yml",
         "docs/extension/ZERO_CLICK_PAIRING.md",
         "desktop-native/scripts/smoke-native-messaging.mjs",
-        ".github/workflows/native-ui.yml"
+        ".github/workflows/native-ui.yml",
+        "desktop-native/scripts/check-browser-native-contract.mjs",
+        "browser-extension/src/manifest.json",
+        "browser-extension/src/transport/native-transport.ts"
       ],
       "contains": [
         {
@@ -814,13 +817,28 @@
         {
           "file": "desktop-native/scripts/smoke-native-messaging.mjs",
           "allOf": [
-            "nova-native-host.exe",
-            "x-nova-native-host",
-            "x-nova-pairing-secret",
             "auth.pair",
             "candidate.send",
             "/v1/capture-reviews",
+            "x-nova-native-host",
+            "x-nova-pairing-secret",
             "Bearer "
+          ]
+        },
+        {
+          "file": "desktop-native/scripts/check-browser-native-contract.mjs",
+          "allOf": [
+            "chromeExtensionIdFromPublicKey",
+            "nativeMessaging",
+            "com.nova.downloadmanager",
+            "browser_specific_settings"
+          ]
+        },
+        {
+          "file": ".github/workflows/native-ui-rust.yml",
+          "allOf": [
+            "Browser Native Messaging identity contract",
+            "check-browser-native-contract.mjs"
           ]
         },
         {
@@ -828,13 +846,6 @@
           "allOf": [
             "Smoke-test packaged Native Messaging bridge",
             "smoke-native-messaging.mjs"
-          ]
-        },
-        {
-          "file": "browser-extension/src/bridge/pairing-manager.ts",
-          "allOf": [
-            "requestNative",
-            "never allowed to mint a bearer token"
           ]
         }
       ]
