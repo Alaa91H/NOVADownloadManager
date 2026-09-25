@@ -55,8 +55,7 @@ pub(super) fn bool_from_status(status: &serde_json::Value, pointer: &str) -> boo
 
 pub(super) fn extension_capabilities_from_status(status: &serde_json::Value) -> serde_json::Value {
     let direct_ready = bool_from_status(status, "/directReady");
-    let media_ready = bool_from_status(status, "/mediaExtractionReady")
-        || bool_from_status(status, "/mediaReady");
+    let media_ready = bool_from_status(status, "/mediaExtractionReady");
     let streaming_ready = bool_from_status(status, "/streamingReady");
     let post_ready = bool_from_status(status, "/postProcessingReady");
     let hls_ready = streaming_ready
@@ -1486,7 +1485,6 @@ mod tests {
             "directReady": true,
             "mediaExtractionReady": true,
             "streamingReady": true,
-            "mediaReady": true,
             "postProcessingReady": false,
             "engines": {
                 "media": {

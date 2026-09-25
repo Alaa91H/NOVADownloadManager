@@ -227,7 +227,7 @@ pub(super) fn browser_ext_response(state: &SharedState) -> Json<serde_json::Valu
         "version": env!("CARGO_PKG_VERSION"),
         "captureEndpoint": "/captures",
         "directDownloads": capabilities.get("directReady").cloned().unwrap_or(serde_json::Value::Bool(false)),
-        "mediaDownloads": capabilities.get("mediaReady").cloned().unwrap_or(serde_json::Value::Bool(false)),
+        "mediaDownloads": capabilities.get("mediaExtractionReady").cloned().unwrap_or(serde_json::Value::Bool(false)),
         "postProcessing": capabilities.get("postProcessingReady").cloned().unwrap_or(serde_json::Value::Bool(false)),
         "directEngine": "libcurl-multi",
         "mediaEngine": "nova-media-engine",

@@ -1543,7 +1543,6 @@ pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
         "directReady": direct_ready,
         "mediaExtractionReady": media_extraction_ready,
         "streamingReady": streaming_ready,
-        "mediaReady": media_extraction_ready,
         "postProcessingReady": post_processing_ready,
         "directProtocols": direct_protocols,
         "compatibilityMode": "runtime-verified-capabilities",
@@ -1653,7 +1652,6 @@ mod tests {
         let status = all_engine_status("__nova_missing_post_processor__");
         assert_eq!(status["mediaExtractionReady"], true);
         assert_eq!(status["streamingReady"], true);
-        assert_eq!(status["mediaReady"], true);
         assert_eq!(status["engines"]["media"]["runtimeCore"], "nova-media-core");
         assert_eq!(status["postProcessingReady"], false);
         assert_eq!(status["mediaApi"]["resolve"], "/api/media/resolve");

@@ -11,8 +11,6 @@ export interface EngineCapabilitySnapshot {
   directReady: boolean;
   mediaExtractionReady: boolean;
   streamingReady: boolean;
-  /** @deprecated compatibility alias for mediaExtractionReady */
-  mediaReady: boolean;
   ffmpegReady: boolean;
   postProcessingReady: boolean;
   streamResolverReady: boolean;
@@ -241,8 +239,7 @@ function buildSnapshot(
   const routing = asRecord(root?.routing);
 
   const directReady = asBool(root?.directReady) || asBool(asRecord(curl?.capabilities)?.directDownloads);
-  const mediaExtractionReady =
-    asBool(root?.mediaExtractionReady) || asBool(root?.mediaReady) || asBool(media?.available);
+  const mediaExtractionReady = asBool(root?.mediaExtractionReady) || asBool(media?.available);
   const mediaCapabilities = asRecord(media?.capabilities);
   const hlsTaskExecutionReady = asBool(mediaCapabilities?.hlsTaskExecution);
   const dashTaskExecutionReady = asBool(mediaCapabilities?.dashTaskExecution);
@@ -282,7 +279,6 @@ function buildSnapshot(
     directReady,
     mediaExtractionReady,
     streamingReady,
-    mediaReady: mediaExtractionReady,
     ffmpegReady,
     postProcessingReady,
     streamResolverReady: streamingReady,

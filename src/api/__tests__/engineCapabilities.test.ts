@@ -10,7 +10,6 @@ function validCapabilities() {
     directReady: true,
     mediaExtractionReady: true,
     streamingReady: true,
-    mediaReady: true,
     postProcessingReady: true,
     directProtocols: ['http', 'https', 'ftp'],
     compatibilityMode: 'runtime-verified-capabilities',

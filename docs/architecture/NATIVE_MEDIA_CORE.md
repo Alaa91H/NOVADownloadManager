@@ -148,7 +148,7 @@ request URL + authorized headers/cookies
 - Chromium-family App-Bound cookie encryption is not bypassed; unsupported Chrome/Edge sources fail closed while Firefox remains the currently supported browser-cookie adapter;
 - sensitive native request context, including browser-cookie profile selection, is kept in memory and omitted from restart snapshots, forcing reauthorization when needed;
 - native-only public media API: `/api/media/resolve`, `/api/media/probe`, `/api/media/download`, and `/api/media/postprocess/status`;
-- runtime readiness is split into `mediaExtractionReady`, `streamingReady`, and `postProcessingReady`; the legacy `mediaReady` field remains a temporary compatibility alias only;
+- runtime readiness is split explicitly into `mediaExtractionReady`, `streamingReady`, and `postProcessingReady`; the retired `mediaReady` compatibility alias has been removed;
 - legacy `/api/media/bridge/*` routes have been removed; active clients use the native media endpoints only;
 - Media Bridge is no longer registered in the runtime extractor registry, discovered during daemon startup, exposed by `/api/engines/*`, or listed by `/api/external-tools`;
 - native media capability checks such as `media.resolve` and `media.media_probe` report `nova-media-engine` directly with no external tool requirement.
