@@ -36,6 +36,7 @@ const ID_BLOCK_GROUP: u64 = 0xA0;
 const ID_BLOCK: u64 = 0xA1;
 const ID_BLOCK_DURATION: u64 = 0x9B;
 const ID_REFERENCE_BLOCK: u64 = 0xFB;
+const ID_DISCARD_PADDING: u64 = 0x75A2;
 
 const NANOSECOND_TIME_BASE: MediaTimeBase = MediaTimeBase {
     numerator: 1,
@@ -77,6 +78,7 @@ struct RawPacketLocator {
     block_id: u64,
     block_timecode_units: i64,
     block_duration_units: Option<u64>,
+    discard_padding_ns: Option<i64>,
     lace_index: u16,
     lace_count: u16,
     keyframe: bool,
@@ -89,6 +91,7 @@ struct PacketLocator {
     size: u64,
     pts_ns: i64,
     duration_ns: Option<i64>,
+    discard_padding_ns: Option<i64>,
     keyframe: bool,
 }
 
@@ -127,6 +130,7 @@ pub struct WebmDemuxer {
     probe: MediaProbe,
     packets: Vec<PacketLocator>,
     packet_time_bases: BTreeMap<u32, MediaTimeBase>,
+    apply_discard_padding: bool,
     cursor: usize,
 }
 
@@ -149,6 +153,7 @@ impl WebmDemuxer {
             probe,
             packets,
             packet_time_bases,
+            apply_discard_padding: false,
             cursor: 0,
         })
     }
@@ -177,6 +182,49 @@ impl WebmDemuxer {
             .iter()
             .map(|track| (track.id, track.time_base))
             .collect();
+
+        let codecs = demuxer
+            .probe
+            .tracks
+            .iter()
+            .map(|track| (track.id, &track.codec))
+            .collect::<BTreeMap<_, _>>();
+        let mut last_packet_by_track = BTreeMap::<u32, usize>::new();
+        for (index, packet) in demuxer.packets.iter().enumerate() {
+            last_packet_by_track.insert(packet.track_id, index);
+        }
+        for (index, packet) in demuxer.packets.iter().enumerate() {
+            let Some(padding) = packet.discard_padding_ns.filter(|value| *value != 0) else {
+                continue;
+            };
+            if !matches!(codecs.get(&packet.track_id), Some(MediaCodec::Opus)) {
+                return Err(MediaProcessingError::UnsupportedOperation(
+                    "WebM DiscardPadding remux is currently implemented only for Opus"
+                        .to_owned(),
+                ));
+            }
+            if padding < 0 {
+                return Err(MediaProcessingError::UnsupportedOperation(
+                    "negative WebM DiscardPadding requires start-trim timeline handling"
+                        .to_owned(),
+                ));
+            }
+            if last_packet_by_track.get(&packet.track_id) != Some(&index) {
+                return Err(MediaProcessingError::UnsupportedOperation(
+                    "WebM DiscardPadding before the final Opus packet cannot preserve contiguous DTS"
+                        .to_owned(),
+                ));
+            }
+            let duration = packet.duration_ns.ok_or_else(|| {
+                demux_error("final Opus packet with DiscardPadding is missing duration")
+            })?;
+            if padding >= duration {
+                return Err(demux_error(
+                    "WebM DiscardPadding consumes the entire final Opus packet",
+                ));
+            }
+        }
+        demuxer.apply_discard_padding = true;
         Ok(demuxer)
     }
 }
@@ -215,8 +263,19 @@ impl MediaDemuxer for WebmDemuxer {
             value: rescale_nanoseconds(locator.pts_ns, time_base)?,
             time_base,
         };
-        let duration = locator
-            .duration_ns
+        let duration_ns = match (
+            locator.duration_ns,
+            self.apply_discard_padding.then_some(locator.discard_padding_ns).flatten(),
+        ) {
+            (Some(duration), Some(padding)) if padding > 0 => Some(
+                duration
+                    .checked_sub(padding)
+                    .filter(|value| *value > 0)
+                    .ok_or_else(|| demux_error("WebM DiscardPadding exceeds packet duration"))?,
+            ),
+            (duration, _) => duration,
+        };
+        let duration = duration_ns
             .map(|value| {
                 Ok(MediaTimestamp {
                     value: rescale_nanoseconds(value, time_base)?,
@@ -617,6 +676,7 @@ fn parse_cluster(
                     parsed,
                     cluster_timecode,
                     None,
+                    None,
                     packets,
                     block_id,
                 )?;
@@ -649,6 +709,7 @@ fn parse_block_group(
 ) -> Result<(), MediaProcessingError> {
     let mut block = None;
     let mut duration = None;
+    let mut discard_padding_ns = None;
     let mut has_reference = false;
     let mut cursor = group.data_offset;
 
@@ -658,6 +719,7 @@ fn parse_block_group(
         match child.id {
             ID_BLOCK => block = Some(child),
             ID_BLOCK_DURATION => duration = Some(read_uint(file, child)?),
+            ID_DISCARD_PADDING => discard_padding_ns = Some(read_signed_int(file, child)?),
             ID_REFERENCE_BLOCK => has_reference = true,
             _ => {}
         }
@@ -671,6 +733,7 @@ fn parse_block_group(
             parsed,
             cluster_timecode,
             duration,
+            discard_padding_ns,
             packets,
             block_id,
         )?;
@@ -682,6 +745,7 @@ fn push_block_packets(
     block: ParsedBlock,
     cluster_timecode: u64,
     block_duration_units: Option<u64>,
+    discard_padding_ns: Option<i64>,
     packets: &mut Vec<RawPacketLocator>,
     block_id: &mut u64,
 ) -> Result<(), MediaProcessingError> {
@@ -720,6 +784,11 @@ fn push_block_packets(
             block_id: current_block_id,
             block_timecode_units,
             block_duration_units,
+            discard_padding_ns: match discard_padding_ns {
+                Some(value) if value > 0 && index + 1 == usize::from(lace_count) => Some(value),
+                Some(value) if value < 0 && index == 0 => Some(value),
+                _ => None,
+            },
             lace_index: u16::try_from(index)
                 .map_err(|_| demux_error("WebM lace index exceeds u16"))?,
             lace_count,
@@ -968,6 +1037,7 @@ fn finalize_packet_timing(
                 size: packet.size,
                 pts_ns,
                 duration_ns,
+                discard_padding_ns: packet.discard_padding_ns,
                 keyframe: packet.keyframe,
             })
         })
@@ -1369,6 +1439,24 @@ fn read_uint(file: &mut File, header: ElementHeader) -> Result<u64, MediaProcess
     Ok(value)
 }
 
+fn read_signed_int(file: &mut File, header: ElementHeader) -> Result<i64, MediaProcessingError> {
+    let size = header.size();
+    if size == 0 || size > 8 {
+        return Err(demux_error("EBML signed integer must contain 1..=8 bytes"));
+    }
+    file.seek(SeekFrom::Start(header.data_offset))
+        .map_err(io_error)?;
+    let mut bytes = [0_u8; 8];
+    let start = 8_usize
+        .checked_sub(usize::try_from(size).map_err(|_| demux_error("signed integer size overflow"))?)
+        .ok_or_else(|| demux_error("signed integer size underflow"))?;
+    file.read_exact(&mut bytes[start..]).map_err(io_error)?;
+    if bytes[start] & 0x80 != 0 {
+        bytes[..start].fill(0xff);
+    }
+    Ok(i64::from_be_bytes(bytes))
+}
+
 fn read_float(file: &mut File, header: ElementHeader) -> Result<f64, MediaProcessingError> {
     file.seek(SeekFrom::Start(header.data_offset))
         .map_err(io_error)?;
@@ -1727,6 +1815,73 @@ mod tests {
             48_000
         );
         assert_eq!(converted.time_base.denominator, 48_000);
+    }
+
+    #[test]
+    fn final_opus_discard_padding_shortens_mp4_remux_sample_duration() {
+        let ebml = element(
+            &[0x1A, 0x45, 0xDF, 0xA3],
+            element(&[0x42, 0x82], b"webm".to_vec()),
+        );
+        let info = element(
+            &[0x15, 0x49, 0xA9, 0x66],
+            uint_element(&[0x2A, 0xD7, 0xB1], 1_000_000, 3),
+        );
+        let audio = element(
+            &[0xE1],
+            [
+                element(&[0xB5], 48_000_f64.to_be_bytes().to_vec()),
+                uint_element(&[0x9F], 2, 1),
+            ]
+            .concat(),
+        );
+        let mut opus_head = b"OpusHead".to_vec();
+        opus_head.push(1);
+        opus_head.push(2);
+        opus_head.extend_from_slice(&312_u16.to_le_bytes());
+        opus_head.extend_from_slice(&48_000_u32.to_le_bytes());
+        opus_head.extend_from_slice(&0_i16.to_le_bytes());
+        opus_head.push(0);
+        let track = element(
+            &[0xAE],
+            [
+                uint_element(&[0xD7], 1, 1),
+                uint_element(&[0x83], 2, 1),
+                element(&[0x86], b"A_OPUS".to_vec()),
+                element(&[0x63, 0xA2], opus_head),
+                uint_element(&[0x23, 0xE3, 0x83], 20_000_000, 4),
+                audio,
+            ]
+            .concat(),
+        );
+        let tracks = element(&[0x16, 0x54, 0xAE, 0x6B], track);
+        let mut block_payload = vec![0x81, 0x00, 0x00, 0x00];
+        block_payload.extend_from_slice(b"OPUS");
+        let block_group = element(
+            &[0xA0],
+            [
+                element(&[0xA1], block_payload),
+                uint_element(&[0x9B], 20, 1),
+                element(&[0x75, 0xA2], 5_000_000_i64.to_be_bytes().to_vec()),
+            ]
+            .concat(),
+        );
+        let cluster = element(
+            &[0x1F, 0x43, 0xB6, 0x75],
+            [uint_element(&[0xE7], 0, 1), block_group].concat(),
+        );
+        let segment = element(
+            &[0x18, 0x53, 0x80, 0x67],
+            [info, tracks, cluster].concat(),
+        );
+        let path = temp_path();
+        fs::write(&path, [ebml, segment].concat()).expect("fixture");
+
+        let mut demuxer = WebmDemuxer::open_for_mp4_remux(&path).expect("remux demuxer");
+        let packet = demuxer.next_packet().expect("packet").expect("frame");
+        assert_eq!(packet.duration.expect("duration").value, 720); // 15 ms at 48 kHz
+
+        let _ = fs::remove_file(path);
     }
 
     #[test]

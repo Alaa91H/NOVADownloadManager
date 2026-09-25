@@ -27,6 +27,8 @@ The core currently provides:
   codec-private data, dimensions, audio parameters, language, and default
   duration metadata;
 - WebM Xiph, fixed-size, and EBML block lacing with bounded frame indexing;
+- WebM `DiscardPadding` parsing, with positive final Opus tail padding mapped
+  to the shortened duration of the last MP4 Opus sample;
 - packet reads constrained to validated container payload ranges;
 - hard limits for box/element counts, metadata sizes, packet sizes, track
   counts, and sample counts to bound malformed-input resource consumption.
