@@ -1,0 +1,848 @@
+name: NOVA Unified CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - feature/qt6-native-desktop-ui
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches:
+      - main
+      - master
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  changes:
+    name: Detect affected build areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      desktop: ${{ steps.filter.outputs.desktop }}
+      runtime: ${{ steps.filter.outputs.runtime }}
+      build_reset: ${{ steps.filter.outputs.build_reset }}
+      release_request: ${{ steps.filter.outputs.release_request }}
+
+    steps:
+      - name: Harden runner
+        if: (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')) || github.event_name == 'pull_request'
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        if: (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')) || github.event_name == 'pull_request'
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect changed areas
+        id: filter
+        if: (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')) || github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            desktop:
+              - 'desktop-native/**'
+              - 'src-tauri/**'
+              - 'browser-extension/**'
+              - 'docs/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - '.github/workflows/nova-ci.yml'
+            runtime:
+              - 'src-tauri/**'
+              - 'desktop-native/**'
+              - 'browser-extension/**'
+              - '.github/workflows/nova-ci.yml'
+            build_reset:
+              - '.github/build-reset.json'
+            release_request:
+              - '.github/release-request.json'
+
+  reset:
+    name: Cancel stale runs and start clean CI
+    needs: changes
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.build_reset == 'true'
+    permissions:
+      actions: write
+      contents: read
+    concurrency:
+      group: repository-build-reset
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Cancel every other active workflow run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cancelled=0
+          for status in queued in_progress pending waiting requested; do
+            while IFS= read -r run_id; do
+              [ -n "$run_id" ] || continue
+              [ "$run_id" = "$CURRENT_RUN_ID" ] && continue
+
+              echo "Cancelling $status workflow run $run_id"
+              gh api \
+                --method POST \
+                -H "Accept: application/vnd.github+json" \
+                "/repos/$GITHUB_REPOSITORY/actions/runs/$run_id/cancel" \
+                >/dev/null 2>&1 || true
+              cancelled=$((cancelled + 1))
+            done < <(
+              gh api \
+                -H "Accept: application/vnd.github+json" \
+                "/repos/$GITHUB_REPOSITORY/actions/runs?status=$status&per_page=100" \
+                --jq '.workflow_runs[].id'
+            )
+          done
+
+          echo "Requested cancellation for $cancelled stale workflow run(s)."
+          echo "cancelled=$cancelled" >> "$GITHUB_OUTPUT"
+
+      - name: Start clean unified validation on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: gh workflow run nova-ci.yml --repo "$GITHUB_REPOSITORY" --ref main
+
+      - name: Summary
+        run: |
+          echo "## Build reset complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- All other queued/in-progress/pending workflow runs were cancelled." >> "$GITHUB_STEP_SUMMARY"
+          echo "- Fresh Desktop, Rust compatibility, Android and CodeQL validation was dispatched through the unified workflow." >> "$GITHUB_STEP_SUMMARY"
+
+  android:
+    name: Build Android foundation and ARM64 bridge
+    needs: changes
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        needs.changes.outputs.build_reset != 'true' &&
+        (
+          (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')) ||
+          (github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'master'))
+        )
+      )
+    permissions:
+      contents: read
+    concurrency:
+      group: android-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Android SDK command-line tools
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android build dependencies
+        run: |
+          # sdkmanager closes stdin after accepting its prompts. Ignore the
+          # expected SIGPIPE from `yes`, but keep sdkmanager failures fatal.
+          set +o pipefail
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager_exit=${PIPESTATUS[1]}
+          set -o pipefail
+          test "$sdkmanager_exit" -eq 0
+          sdkmanager --install \
+            'platform-tools' \
+            'platforms;android-37.0' \
+            'build-tools;36.0.0' \
+            'ndk;28.2.13676358' \
+            'cmake;3.22.1'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Set up Rust with Android ARM64 target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/nova-mobile-ffi -> .build/android-rust
+          key: android-arm64
+
+      - name: Build and verify ARM64 Rust bridge
+        run: |
+          scripts/build-android-ffi.sh arm64-v8a
+          test -f android/app/src/main/jniLibs/arm64-v8a/libnova_mobile_ffi.so
+
+      - name: Test shared Rust download core and mobile bridge
+        run: |
+          cargo test --manifest-path crates/nova-download-core/Cargo.toml --features http2,rustls,static-curl
+          cargo test --manifest-path crates/nova-mobile-core/Cargo.toml --features http2,rustls,static-curl
+          cargo test --manifest-path crates/nova-mobile-ffi/Cargo.toml
+
+      - name: Build debug APK and run JVM tests
+        working-directory: android
+        run: ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest
+
+      - name: Verify APK packages the NOVA Rust core
+        run: |
+          apk=android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$apk"
+          unzip -l "$apk" | grep -F 'lib/arm64-v8a/libnova_mobile_ffi.so'
+
+      - name: Upload Android foundation outputs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-foundation-${{ github.sha }}
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/test-results/testDebugUnitTest/
+          if-no-files-found: warn
+          retention-days: 14
+
+  runtime-compatibility:
+    name: Rust daemon compatibility
+    needs: changes
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        needs.changes.outputs.build_reset != 'true' &&
+        needs.changes.outputs.runtime == 'true' &&
+        (
+          (
+            github.event_name == 'push' &&
+            (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/feature/qt6-native-desktop-ui')
+          ) ||
+          (
+            github.event_name == 'pull_request' &&
+            (github.base_ref == 'main' || github.base_ref == 'master')
+          )
+        )
+      )
+    concurrency:
+      group: runtime-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux build dependencies
+        run: |
+          bash scripts/install-linux-build-deps.sh \
+            libssl-dev \
+            libcurl4-openssl-dev \
+            libbrotli-dev \
+            libzstd-dev \
+            libnghttp2-dev \
+            libssh2-1-dev \
+            pkg-config
+
+      - name: Cargo check
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Check native runtime binaries
+        run: cargo check --manifest-path src-tauri/Cargo.toml --bin nova-native-backend --bin nova-native-host
+
+      - name: Native bootstrap and browser integration tests
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml native_desktop_data_dir_honors_explicit_override --lib
+          cargo test --manifest-path src-tauri/Cargo.toml accepts_native_desktop_with_current_secret --lib
+          cargo test --manifest-path src-tauri/Cargo.toml rejects_native_marker_without_secret --lib
+          cargo test --manifest-path src-tauri/Cargo.toml rejects_ambiguous_native_role_markers --lib
+          cargo test --manifest-path src-tauri/Cargo.toml browser_token_is_limited_to_extension_api_surface --lib
+          cargo test --manifest-path src-tauri/Cargo.toml pairing_secret_parser_requires_matching_port_and_strong_secret --lib
+          cargo test --manifest-path src-tauri/Cargo.toml browser_config_tests --lib
+          cargo test --manifest-path src-tauri/Cargo.toml queue_catalog_preserves_empty_custom_queues --lib
+          cargo test --manifest-path src-tauri/Cargo.toml queue_catalog_preserves_legacy_advanced_limits --lib
+          cargo test --manifest-path src-tauri/Cargo.toml queue_schedule_supports_custom_days_and_overnight_windows --lib
+          cargo test --manifest-path src-tauri/Cargo.toml once_queue_stays_disabled_after_completion --lib
+          cargo test --manifest-path src-tauri/Cargo.toml queue_runtime_edges_and_retry_delay_are_stateful --lib
+          cargo test --manifest-path src-tauri/Cargo.toml queue_catalog_rejects_invalid_or_duplicate_ids --lib
+          cargo test --manifest-path src-tauri/Cargo.toml queue_catalog_round_trips_on_disk --lib
+
+      - name: Install browser-extension dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Browser Native Messaging identity contract
+        run: node desktop-native/scripts/check-browser-native-contract.mjs
+
+      - name: Browser pairing typecheck
+        run: pnpm --filter nova-browser-extension typecheck
+
+      - name: Browser pairing unit tests
+        run: pnpm --filter nova-browser-extension test:unit
+
+  desktop:
+    name: Build native UI (${{ matrix.os }})
+    needs: changes
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (
+        needs.changes.outputs.build_reset != 'true' &&
+        needs.changes.outputs.desktop == 'true' &&
+        (
+          (
+            github.event_name == 'push' &&
+            (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/feature/qt6-native-desktop-ui')
+          ) ||
+          (
+            github.event_name == 'pull_request' &&
+            (github.base_ref == 'main' || github.base_ref == 'master')
+          )
+        )
+      )
+    permissions:
+      contents: read
+    concurrency:
+      group: desktop-${{ matrix.os }}-${{ matrix.arch }}-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: Windows
+            arch: x64
+          - os: windows-11-arm
+            platform: Windows
+            arch: arm64
+          - os: ubuntu-latest
+            platform: Linux
+            arch: x64
+          - os: ubuntu-24.04-arm
+            platform: Linux
+            arch: arm64
+          - os: macos-15
+            platform: macOS
+            arch: arm64
+          - os: macos-15-intel
+            platform: macOS
+            arch: x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust backend build dependencies (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          bash scripts/install-linux-build-deps.sh \
+            libssl-dev \
+            libcurl4-openssl-dev \
+            libbrotli-dev \
+            libzstd-dev \
+            libnghttp2-dev \
+            libssh2-1-dev \
+            pkg-config
+
+      - name: Build native Rust runtime
+        run: cargo build --manifest-path src-tauri/Cargo.toml --release --bin nova-native-backend --bin nova-native-host
+
+      - name: Check localization gate
+        run: node desktop-native/scripts/check-localization.mjs
+
+      - name: Check English-Arabic release localization
+        run: node desktop-native/scripts/check-release-localization.mjs
+
+      - name: Check approved UI design contract
+        run: node desktop-native/scripts/check-approved-ui.mjs
+
+      - name: Check accessibility and typography
+        run: node desktop-native/scripts/check-native-accessibility.mjs
+
+      - name: Check WCAG contrast
+        run: node desktop-native/scripts/check-native-contrast.mjs
+
+      - name: Check product-copy branding
+        run: node desktop-native/scripts/check-product-copy.mjs
+
+      - name: Check native production-readiness manifest
+        run: node desktop-native/scripts/check-parity.mjs
+
+      - name: Install Qt
+        if: matrix.arch == 'x64' || runner.os == 'macOS'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          cache: true
+
+      - name: Install Qt (Linux ARM64)
+        if: runner.os == 'Linux' && matrix.arch == 'arm64'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: linux_arm64
+          arch: linux_gcc_arm64
+          cache: true
+
+      - name: Install Qt (Windows ARM64)
+        if: runner.os == 'Windows' && matrix.arch == 'arm64'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: windows_arm64
+          arch: win64_msvc2022_arm64
+          cache: true
+
+      - name: Configure
+        if: runner.os != 'Windows' || matrix.arch != 'arm64'
+        run: cmake -S desktop-native -B build/native -DCMAKE_BUILD_TYPE=Release -DNOVA_BUILD_TESTS=ON
+
+      - name: Configure (Windows ARM64)
+        if: runner.os == 'Windows' && matrix.arch == 'arm64'
+        run: cmake -S desktop-native -B build/native -A ARM64 -DCMAKE_BUILD_TYPE=Release -DNOVA_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build/native --config Release --parallel
+      - name: Validate native architecture (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          function Get-PEMachine([string]$Path) {
+            $bytes = [System.IO.File]::ReadAllBytes($Path)
+            $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+            return [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          }
+          $expected = if ("${{ matrix.arch }}" -eq "arm64") { 0xAA64 } else { 0x8664 }
+          foreach ($binary in @(
+            "build/native/Release/nova-native.exe",
+            "src-tauri/target/release/nova-native-backend.exe",
+            "src-tauri/target/release/nova-native-host.exe"
+          )) {
+            $actual = Get-PEMachine $binary
+            if ($actual -ne $expected) { throw "$binary machine 0x$($actual.ToString('X4')) does not match expected ${{ matrix.arch }}" }
+          }
+
+      - name: Validate native architecture (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ matrix.arch }}'
+          for binary in build/native/nova-native src-tauri/target/release/nova-native-backend src-tauri/target/release/nova-native-host; do
+            description="$(file -b "$binary")"
+            if [ "$expected" = "arm64" ]; then
+              printf '%s' "$description" | grep -Eqi 'aarch64|ARM aarch64'
+            else
+              printf '%s' "$description" | grep -Eqi 'x86-64|x86_64'
+            fi
+          done
+
+      - name: Validate native architecture (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ matrix.arch }}'
+          app="$(find build/native -type d -name 'nova-native.app' -print -quit)"
+          test -n "$app"
+          qt_archs="$(lipo -archs "$app/Contents/MacOS/nova-native")"
+          backend_archs="$(lipo -archs src-tauri/target/release/nova-native-backend)"
+          host_archs="$(lipo -archs src-tauri/target/release/nova-native-host)"
+          if [ "$expected" = "arm64" ]; then
+            for archs in "$qt_archs" "$backend_archs" "$host_archs"; do printf '%s' "$archs" | grep -qw arm64; done
+          else
+            for archs in "$qt_archs" "$backend_archs" "$host_archs"; do printf '%s' "$archs" | grep -qw x86_64; done
+          fi
+
+      - name: Deploy Qt test runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          windeployqt --release --no-translations "build/native/Release/nova-native-tests.exe"
+          windeployqt --release --no-translations "build/native/Release/nova-native-display-tests.exe"
+
+      - name: Native stress and recovery tests
+        run: ctest --test-dir build/native -C Release --output-on-failure
+
+      - name: Install preview bundle
+        run: cmake --install build/native --config Release --prefix "preview/NOVA-Native-${{ runner.os }}"
+
+      - name: Add Rust runtime to preview (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bundle = "preview/NOVA-Native-Windows/bin"
+          Copy-Item "src-tauri/target/release/nova-native-backend.exe" $bundle
+          Copy-Item "src-tauri/target/release/nova-native-host.exe" $bundle
+          if (!(Test-Path (Join-Path $bundle "nova-native-backend.exe"))) { throw "Native backend missing" }
+          if (!(Test-Path (Join-Path $bundle "nova-native-host.exe"))) { throw "Native host missing" }
+
+      - name: Add Rust runtime to preview (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          bundle="preview/NOVA-Native-Linux/bin"
+          cp src-tauri/target/release/nova-native-backend "$bundle/"
+          cp src-tauri/target/release/nova-native-host "$bundle/"
+          chmod 0755 "$bundle/nova-native-backend" "$bundle/nova-native-host"
+          test -x "$bundle/nova-native-backend"
+          test -x "$bundle/nova-native-host"
+
+      - name: Prepare macOS native bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          bundle="preview/NOVA-Native-macOS"
+          app="$(find "$bundle" -type d -name '*.app' -print -quit)"
+          test -n "$app"
+          macos_bin="$app/Contents/MacOS"
+          test -x "$macos_bin/nova-native"
+          cp src-tauri/target/release/nova-native-backend "$macos_bin/"
+          cp src-tauri/target/release/nova-native-host "$macos_bin/"
+          chmod 0755 "$macos_bin/nova-native-backend" "$macos_bin/nova-native-host"
+          macdeployqt "$app" -qmldir=desktop-native/qml
+          test -x "$macos_bin/nova-native-backend"
+          test -x "$macos_bin/nova-native-host"
+
+      - name: Deploy Qt runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bundle = "preview/NOVA-Native-Windows"
+          $exe = Join-Path $bundle "bin/nova-native.exe"
+          windeployqt --release --qmldir desktop-native/qml --dir (Join-Path $bundle "bin") $exe
+          Copy-Item build/native-parity-report.md (Join-Path $bundle "PARITY_REPORT.md")
+          @"
+          NOVA Native Desktop
+          Commit: ${{ github.sha }}
+          Branch: ${{ github.ref_name }}
+          Platform: Windows
+          Architecture: ${{ matrix.arch }}
+          Qt: 6.8.3
+          UI: Qt 6 native production shell
+          Runtime: Qt UI + Rust backend + Native Messaging host
+          "@ | Set-Content (Join-Path $bundle "BUILD_INFO.txt")
+
+      - name: Prepare macOS preview metadata
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          bundle="preview/NOVA-Native-macOS"
+          cp build/native-parity-report.md "$bundle/PARITY_REPORT.md"
+          {
+            echo "NOVA Native Desktop"
+            echo "Commit: ${GITHUB_SHA}"
+            echo "Branch: ${GITHUB_REF_NAME}"
+            echo "Platform: macOS"
+            echo "Architecture: ${{ matrix.arch }}"
+            echo "Qt: 6.8.3"
+            echo "UI: Qt 6 native production shell"
+            echo "Runtime: Qt UI + Rust backend + Native Messaging host"
+          } > "$bundle/BUILD_INFO.txt"
+
+      - name: Smoke-test native backend auto-pair (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime="preview/NOVA-Native-Linux/bin"
+          data_dir="$RUNNER_TEMP/nova-native-backend-smoke"
+          mkdir -p "$data_dir"
+          NOVA_NATIVE_DATA_DIR="$data_dir" NOVA_DAEMON_PORT=3299 "$runtime/nova-native-backend" &
+          backend_pid=$!
+          trap 'kill "$backend_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for _ in $(seq 1 40); do
+            response="$(curl -fsS -X POST \
+              -H 'Content-Type: application/json' \
+              -H 'x-nova-native-desktop: 1' \
+              -d '{}' \
+              http://127.0.0.1:3299/v1/pair/auto 2>/dev/null || true)"
+            if printf '%s' "$response" | grep -q '"pairToken"'; then
+              ready=1
+              break
+            fi
+            sleep 0.25
+          done
+          test "$ready" -eq 1
+
+      - name: Prepare Linux preview metadata
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          bundle="preview/NOVA-Native-Linux"
+          cp build/native-parity-report.md "$bundle/PARITY_REPORT.md"
+          {
+            echo "NOVA Native Desktop"
+            echo "Commit: ${GITHUB_SHA}"
+            echo "Branch: ${GITHUB_REF_NAME}"
+            echo "Platform: Linux"
+            echo "Architecture: ${{ matrix.arch }}"
+            echo "Qt: 6.8.3"
+            echo "UI: Qt 6 native production shell"
+            echo "Runtime: Qt UI + Rust backend + Native Messaging host"
+          } > "$bundle/BUILD_INFO.txt"
+          ldd "$bundle/bin/nova-native" > "$bundle/LINUX_RUNTIME_DEPENDENCIES.txt" || true
+
+      - name: Smoke-test packaged Native Messaging bridge
+        run: node desktop-native/scripts/smoke-native-messaging.mjs "preview/NOVA-Native-${{ runner.os }}"
+
+      - name: Upload native preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: NOVA-Native-Preview-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.sha }}
+          path: preview/NOVA-Native-${{ runner.os }}/
+          if-no-files-found: error
+          retention-days: 14
+
+  codeql:
+    name: Analyze ${{ matrix.language }}
+    needs: changes
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      (
+        needs.changes.outputs.build_reset != 'true' &&
+        (
+          (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')) ||
+          (github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'master'))
+        )
+      )
+    permissions:
+      contents: read
+      security-events: write
+    concurrency:
+      group: codeql-${{ matrix.language }}-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+          - language: rust
+            build-mode: none
+          - language: java-kotlin
+            build-mode: manual
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        if: matrix.language == 'java-kotlin'
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Android SDK command-line tools
+        if: matrix.language == 'java-kotlin'
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android compile dependencies
+        if: matrix.language == 'java-kotlin'
+        run: |
+          # sdkmanager closes stdin after accepting its prompts. Ignore the
+          # expected SIGPIPE from `yes`, but keep sdkmanager failures fatal.
+          set +o pipefail
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager_exit=${PIPESTATUS[1]}
+          set -o pipefail
+          test "$sdkmanager_exit" -eq 0
+          sdkmanager --install \
+            'platform-tools' \
+            'platforms;android-37.0' \
+            'build-tools;36.0.0'
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          dependency-caching: true
+
+      - name: Build Kotlin for CodeQL
+        if: matrix.language == 'java-kotlin'
+        working-directory: android
+        # CodeQL must observe a real Kotlin compiler process. A cached task
+        # produces no traceable compilation and leaves the Java/Kotlin database empty.
+        run: ./gradlew --no-daemon --no-build-cache --rerun-tasks :app:compileDebugKotlin
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
+
+  release:
+    name: Create tag and draft release
+    needs: changes
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.release_request == 'true'
+    permissions:
+      contents: write
+    concurrency:
+      group: nova-release-request
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Read release request
+        id: request
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(jq -r '.version // empty' .github/release-request.json)"
+          NOTES="$(jq -r '.notes // empty' .github/release-request.json)"
+          if ! printf '%s' "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::Invalid release version: $VERSION"
+            exit 1
+          fi
+          if [ -z "$NOTES" ]; then
+            echo "::error::Release notes must not be empty"
+            exit 1
+          fi
+          printf '%s\n' "$NOTES" > /tmp/release-notes.md
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Enforce native production readiness
+        run: node desktop-native/scripts/check-parity.mjs --require-complete
+
+      - name: Ensure tag does not already exist
+        env:
+          TAG: ${{ steps.request.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --tags origin | grep -q "refs/tags/$TAG$"; then
+            echo "::error::Tag $TAG already exists"
+            exit 1
+          fi
+
+      - name: Stamp release version
+        env:
+          TAG: ${{ steps.request.outputs.tag }}
+        run: node scripts/apply-version.mjs "$TAG"
+
+      - name: Commit version bump
+        env:
+          VERSION: ${{ steps.request.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json desktop-native/CMakeLists.txt desktop-native/parity/parity-manifest.json src-tauri/Cargo.toml src-tauri/Cargo.lock android/app/build.gradle.kts browser-extension/package.json browser-extension/src/manifest.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: release v$VERSION"
+            git push origin main
+          fi
+
+      - name: Create and push annotated tag
+        env:
+          TAG: ${{ steps.request.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+
+      - name: Create curated draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.request.outputs.tag }}
+        run: |
+          set -euo pipefail
+          args=(release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "Nova Download Manager $TAG" --notes-file /tmp/release-notes.md --draft)
+          if [[ "$TAG" == *-* ]]; then
+            args+=(--prerelease)
+          fi
+          gh "${args[@]}"
+
+
+      - name: Summary
+        env:
+          TAG: ${{ steps.request.outputs.tag }}
+        run: |
+          echo "## Release $TAG" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Version sources stamped and committed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Annotated tag created and pushed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Curated draft GitHub Release created" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tagged Desktop build is triggered automatically by the unified workflow" >> "$GITHUB_STEP_SUMMARY"
