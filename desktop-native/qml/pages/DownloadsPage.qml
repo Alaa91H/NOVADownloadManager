@@ -662,6 +662,14 @@ Item {
                             height: parent.height
                             spacing: 10
 
+                            Text {
+                                Layout.preferredWidth: 28
+                                text: "#"
+                                color: Theme.textMuted
+                                font.pixelSize: Theme.fontSmall
+                                horizontalAlignment: Text.AlignHCenter
+                            }
+
                             ToolButton {
                                 Layout.fillWidth: true
                                 text: root.t("common.name") + root.sortIndicator("name")
@@ -873,6 +881,15 @@ Item {
                                 anchors.leftMargin: 12
                                 anchors.rightMargin: 12
                                 spacing: 10
+
+                                Text {
+                                    Layout.preferredWidth: 28
+                                    text: String(index + 1)
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.fontSmall
+                                    font.family: "monospace"
+                                    horizontalAlignment: Text.AlignHCenter
+                                }
 
                                 Rectangle {
                                     Layout.preferredWidth: 38
