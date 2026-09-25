@@ -762,7 +762,7 @@ pub async fn run_dht_announce_lifecycle(
         let engine = state.torrent_dht.engine();
         let discovery = match engine.discover_peers(info_hash, &cancel).await {
             Ok(discovery) => discovery,
-            Err(error) if cancel.is_cancelled() => break,
+            Err(_) if cancel.is_cancelled() => break,
             Err(error) => {
                 log::debug!("Torrent DHT lifecycle {task_id}: discovery failed: {error}");
                 tokio::select! {

@@ -1103,7 +1103,7 @@ async fn run_torrent_worker(
             }
             state.mark_dirty();
         }
-        Err(error) if cancel.is_cancelled() => {
+        Err(_) if cancel.is_cancelled() => {
             finish_torrent_cancelled(&state, &id, generation, &active_slot);
         }
         Err(error) => {
