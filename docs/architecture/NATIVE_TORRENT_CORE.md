@@ -187,8 +187,10 @@ The daemon now starts a bounded process-wide IPv4 listener on port 6881 by defau
 (or `NOVA_TORRENT_SEED_PORT`), shares that port with tracker announces, limits
 concurrent inbound sessions, rejects non-seed-eligible jobs, and cancels sessions
 during daemon shutdown. `inboundPeerListener` and `seeding` are therefore exposed
-as supported. Upload bandwidth policy and persistent upload accounting remain
-disabled until they are wired into NOVA's bandwidth/statistics layer.
+as supported. Inbound sessions now share a per-torrent upload limiter driven by
+NOVA's global/per-task bandwidth policy and expose runtime uploaded-byte plus
+active-seed-connection counters through torrent task details. Persistent upload
+accounting across daemon restarts remains intentionally disabled.
 
 ### Remaining advanced swarm work
 

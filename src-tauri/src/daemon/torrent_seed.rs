@@ -12,8 +12,10 @@ use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::state::SharedState;
+use crate::daemon::torrent_bandwidth::TorrentBandwidthLimiter;
 use crate::daemon::torrent_storage::TorrentStorageSession;
 use crate::daemon::torrent_task::ensure_storage_session;
+use crate::daemon::types::TaskState;
 use crate::daemon::utils::{is_internal_ip, private_network_allowed};
 use crate::lock_or_err;
 
@@ -120,8 +122,11 @@ async fn serve_state_peer(
         let jobs = lock_or_err!(state.torrent_jobs);
         jobs.values()
             .find(|job| {
+                let state = TaskState::from_status(&job.task.status);
                 job.task.engine_id.eq_ignore_ascii_case(&info_hash_hex)
-                    && job.task.status != "error"
+                    && state.is_some_and(|state| {
+                        state == TaskState::Completed || state.is_active()
+                    })
                     && !job.requires_reauth
             })
             .cloned()
@@ -129,15 +134,27 @@ async fn serve_state_peer(
     .ok_or_else(|| "Inbound peer requested a torrent that is not seed-eligible".to_owned())?;
 
     let storage = ensure_storage_session(&job, job.storage.clone()).await?;
-    serve_inbound_seed_session_after_handshake(
+    job.active_seed_connections
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let result = serve_inbound_seed_session_after_handshake(
         stream,
         remote,
         storage,
         job.local_peer_id,
+        Some(job.upload_limiter.clone()),
         SeedSessionConfig::default(),
         cancel,
     )
-    .await
+    .await;
+    job.active_seed_connections
+        .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    if let Ok(stats) = result.as_ref() {
+        job.uploaded_bytes.fetch_add(
+            stats.uploaded_bytes,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    }
+    result
 }
 
 #[derive(Clone, Debug)]
@@ -182,6 +199,7 @@ pub async fn serve_inbound_seed_session(
         remote,
         storage,
         local_peer_id,
+        None,
         config,
         cancel,
     )
@@ -193,6 +211,7 @@ async fn serve_inbound_seed_session_after_handshake(
     remote: PeerHandshake,
     storage: TorrentStorageSession,
     local_peer_id: [u8; 20],
+    upload_limiter: Option<Arc<TorrentBandwidthLimiter>>,
     config: SeedSessionConfig,
     cancel: &CancellationToken,
 ) -> Result<SeedSessionStats, String> {
@@ -297,6 +316,9 @@ async fn serve_inbound_seed_session_after_handshake(
                     .ok_or_else(|| "Inbound upload byte accounting overflow".to_owned())?;
                 if next_uploaded > config.max_uploaded_bytes {
                     return Err("Inbound peer exceeded the per-session upload byte limit".to_owned());
+                }
+                if let Some(limiter) = upload_limiter.as_ref() {
+                    limiter.acquire(block_len, cancel).await?;
                 }
 
                 send_message(
