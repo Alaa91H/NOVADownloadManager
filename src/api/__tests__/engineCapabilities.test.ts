@@ -10,6 +10,7 @@ function validCapabilities() {
     directReady: true,
     mediaExtractionReady: true,
     streamingReady: true,
+    nativeMuxReady: true,
     postProcessingReady: true,
     directProtocols: ['http', 'https', 'ftp'],
     compatibilityMode: 'runtime-verified-capabilities',
@@ -23,6 +24,7 @@ function validCapabilities() {
       directHttpHttpsFtp: 'libcurl-multi',
       mediaExtraction: 'nova-media-engine',
       streaming: 'nova-media-engine',
+      nativeMp4Mux: 'nova-media-engine',
       postProcessing: 'nova-media-postprocess',
       webMediaAndPlaylists: 'nova-media-engine',
       mergeRemuxExtractSubtitles: 'nova-media-postprocess',
@@ -45,6 +47,8 @@ describe('engine capabilities contract', () => {
     expect(capabilities.engines.libcurlMulti.available).toBe(true);
     expect(capabilities.mediaExtractionReady).toBe(true);
     expect(capabilities.streamingReady).toBe(true);
+    expect(capabilities.nativeMuxReady).toBe(true);
+    expect(capabilities.routing.nativeMp4Mux).toBe('nova-media-engine');
     expect(capabilities.mediaApi.resolve).toBe('/api/media/resolve');
     expect(capabilities.mediaApi.download).toBe('/api/media/download');
     expect(capabilities.routing.mediaExtraction).toBe('nova-media-engine');
