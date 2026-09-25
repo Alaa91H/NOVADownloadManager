@@ -21,6 +21,7 @@ Dialog {
     closePolicy: Popup.CloseOnEscape
     width: Math.min(460, parent ? parent.width - 48 : 460)
     title: retryMode ? root.t("redownload.retryTitle") : root.t("redownload.title")
+    onOpened: cancelButton.forceActiveFocus()
 
     background: Rectangle {
         color: Theme.surfaceRaised
@@ -66,12 +67,20 @@ Dialog {
             Item { Layout.fillWidth: true }
 
             Button {
+                id: cancelButton
                 text: root.t("common.cancel")
+                Accessible.name: text
+                KeyNavigation.tab: confirmButton
+                KeyNavigation.backtab: confirmButton
                 onClicked: root.close()
             }
 
             Button {
+                id: confirmButton
                 text: root.retryMode ? root.t("action.retry") : root.t("action.redownload")
+                Accessible.name: text
+                KeyNavigation.tab: cancelButton
+                KeyNavigation.backtab: cancelButton
 
                 background: Rectangle {
                     radius: Theme.radiusMedium
