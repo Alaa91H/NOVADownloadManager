@@ -169,6 +169,24 @@ NOVA now accepts both native BitTorrent source forms without delegating executio
 - system-open file reads use a bounded one-time allow-list and raw binary IPC; arbitrary frontend-provided filesystem paths are rejected;
 - incoming local files must be regular `.torrent` files, non-empty, within the metainfo size limit, and on a local disk path.
 
+### Stage 8 — Inbound peer and seeding — foundation in progress
+
+The upload path now has a fail-closed session foundation:
+
+- storage exposes a bounded `read_verified_block` operation for peer requests;
+- every upload read re-verifies the full piece SHA-1 immediately before serving bytes;
+- filesystem corruption after checkpoint creation clears the verified bit and aborts the upload;
+- an inbound peer session validates the BitTorrent handshake and exact info hash;
+- the session advertises only the verified-piece bitfield and begins choked;
+- peers must express interest before NOVA unchokes and accepts requests;
+- request count, upload bytes, frame size, block length, and socket operation time are bounded;
+- metadata serving, PEX serving, and DHT-port advertising are not exposed by the upload-only session;
+- local TCP tests verify exact block serving and rejection of unverified pieces.
+
+The daemon capability surface reports this foundation separately. `inboundPeerListener`,
+`seeding`, and `uploadBandwidthPolicy` remain false until a process-wide listener,
+connection limiter, tracker lifecycle, and upload accounting are wired end-to-end.
+
 ### Remaining advanced swarm work
 
 The download path is operational. Features that remain intentionally unadvertised or disabled are advanced peer-service capabilities rather than prerequisites for native downloading:

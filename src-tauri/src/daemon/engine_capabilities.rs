@@ -2045,6 +2045,11 @@ pub fn native_torrent_status() -> Value {
             "peerReputation": true,
             "peerConnectionLimit": true,
             "peerTransferExecution": true,
+            "verifiedUploadBlockRead": true,
+            "inboundPeerSession": true,
+            "inboundPeerListener": false,
+            "seeding": false,
+            "uploadBandwidthPolicy": false,
             "selectedFileTransfer": true,
             "sparseStorage": true,
             "fullPreallocation": true,
@@ -2140,6 +2145,11 @@ mod tests {
         assert_eq!(status["capabilities"]["peerRequestPipeline"], true);
         assert_eq!(status["capabilities"]["peerReputation"], true);
         assert_eq!(status["capabilities"]["peerTransferExecution"], true);
+        assert_eq!(status["capabilities"]["verifiedUploadBlockRead"], true);
+        assert_eq!(status["capabilities"]["inboundPeerSession"], true);
+        assert_eq!(status["capabilities"]["inboundPeerListener"], false);
+        assert_eq!(status["capabilities"]["seeding"], false);
+        assert_eq!(status["capabilities"]["uploadBandwidthPolicy"], false);
         assert_eq!(status["capabilities"]["fileSelection"], true);
         assert_eq!(status["capabilities"]["priorityScheduler"], true);
         assert_eq!(status["capabilities"]["durableStorageCore"], true);

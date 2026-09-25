@@ -180,6 +180,7 @@ jobs:
           cargo test --manifest-path crates/nova-torrent-core/Cargo.toml
           cargo test --manifest-path src-tauri/Cargo.toml daemon::native_torrent::tests -- --nocapture
           cargo test --manifest-path src-tauri/Cargo.toml daemon::torrent_peer::tests -- --nocapture
+          cargo test --manifest-path src-tauri/Cargo.toml daemon::torrent_seed::tests -- --nocapture
           cargo test --manifest-path src-tauri/Cargo.toml daemon::torrent_dht::tests -- --nocapture
           cargo test --manifest-path src-tauri/Cargo.toml daemon::torrent_magnet::tests -- --nocapture
           cargo test --manifest-path src-tauri/Cargo.toml daemon::torrent_storage::tests -- --nocapture
