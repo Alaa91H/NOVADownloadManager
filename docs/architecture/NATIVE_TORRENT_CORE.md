@@ -189,8 +189,12 @@ concurrent inbound sessions, rejects non-seed-eligible jobs, and cancels session
 during daemon shutdown. `inboundPeerListener` and `seeding` are therefore exposed
 as supported. Inbound sessions now share a per-torrent upload limiter driven by
 NOVA's global/per-task bandwidth policy and expose runtime uploaded-byte plus
-active-seed-connection counters through torrent task details. Persistent upload
-accounting across daemon restarts remains intentionally disabled.
+active-seed-connection counters through torrent task details. Tracker lifecycle announcing is also tied to the torrent run token: NOVA announces
+`started`, follows tracker-provided announce intervals, emits `completed` only when
+the full torrent bitmap is verified, and sends a bounded best-effort `stopped`
+announce on pause, failure, removal, or shutdown. Announcing is fail-closed until
+the inbound listener has actually bound its port. Persistent upload accounting
+across daemon restarts remains intentionally disabled.
 
 ### Remaining advanced swarm work
 

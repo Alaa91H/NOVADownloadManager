@@ -791,6 +791,25 @@ async fn run_torrent_worker(
         }
     }
 
+    {
+        let tracker_state = state.clone();
+        let tracker_id = id.clone();
+        let tracker_storage = storage.clone();
+        let tracker_source = source_uri.clone();
+        let tracker_cancel = cancel.clone();
+        tokio::spawn(async move {
+            crate::daemon::torrent_tracker::run_tracker_lifecycle(
+                tracker_state,
+                tracker_id,
+                tracker_storage,
+                tracker_source,
+                local_peer_id,
+                tracker_cancel,
+            )
+            .await;
+        });
+    }
+
     if let Err(error) = transition_torrent_task(
         &state,
         &id,
@@ -1033,10 +1052,10 @@ pub async fn shutdown_torrent_tasks(state: &SharedState) {
         let mut pending = Vec::new();
         for (id, job) in jobs.iter_mut() {
             let current = TaskState::from_status(&job.task.status);
+            job.cancel_token.cancel();
             if current == Some(TaskState::Completed) {
                 continue;
             }
-            job.cancel_token.cancel();
             job.run_generation.fetch_add(1, Ordering::AcqRel);
             if current != Some(TaskState::Paused) {
                 if let Some(current) = current {
@@ -1381,6 +1400,7 @@ fn fail_torrent_task(
             release_queue_slot(state, id, active_slot, false);
             return;
         }
+        job.cancel_token.cancel();
         let _ = transition_task_state(&mut job.task, TaskState::Failed, "error");
         job.task.error_message = Some(limit_error(&error));
         job.task.speed_bytes_per_sec = 0;

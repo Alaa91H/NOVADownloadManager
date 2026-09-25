@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,6 +23,12 @@ use crate::lock_or_err;
 pub const DEFAULT_TORRENT_SEED_PORT: u16 = 6881;
 const MAX_SEED_CONTROL_FRAME_BYTES: usize = 64 * 1024;
 const MAX_INBOUND_SEED_CONNECTIONS: usize = 64;
+static ACTIVE_TORRENT_SEED_PORT: AtomicU16 = AtomicU16::new(0);
+
+pub fn active_seed_port() -> Option<u16> {
+    let port = ACTIVE_TORRENT_SEED_PORT.load(Ordering::Acquire);
+    (port != 0).then_some(port)
+}
 
 pub fn configured_seed_port() -> u16 {
     std::env::var("NOVA_TORRENT_SEED_PORT")
@@ -58,6 +65,7 @@ pub async fn run_inbound_seed_listener(
     let local = listener
         .local_addr()
         .map_err(|error| format!("Could not read native torrent seed listener address: {error}"))?;
+    ACTIVE_TORRENT_SEED_PORT.store(local.port(), Ordering::Release);
     log::info!("Native torrent inbound seeding listener started on {local}");
 
     let slots = Arc::new(Semaphore::new(MAX_INBOUND_SEED_CONNECTIONS));
@@ -100,6 +108,7 @@ pub async fn run_inbound_seed_listener(
         });
     }
 
+    ACTIVE_TORRENT_SEED_PORT.store(0, Ordering::Release);
     Ok(port)
 }
 

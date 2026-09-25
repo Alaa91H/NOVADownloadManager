@@ -2051,6 +2051,7 @@ pub fn native_torrent_status() -> Value {
             "seeding": true,
             "uploadBandwidthPolicy": true,
             "uploadSessionAccounting": true,
+            "trackerLifecycleAnnounce": true,
             "persistentUploadAccounting": false,
             "selectedFileTransfer": true,
             "sparseStorage": true,
@@ -2153,6 +2154,7 @@ mod tests {
         assert_eq!(status["capabilities"]["seeding"], true);
         assert_eq!(status["capabilities"]["uploadBandwidthPolicy"], true);
         assert_eq!(status["capabilities"]["uploadSessionAccounting"], true);
+        assert_eq!(status["capabilities"]["trackerLifecycleAnnounce"], true);
         assert_eq!(status["capabilities"]["persistentUploadAccounting"], false);
         assert_eq!(status["capabilities"]["fileSelection"], true);
         assert_eq!(status["capabilities"]["priorityScheduler"], true);

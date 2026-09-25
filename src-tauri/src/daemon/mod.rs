@@ -24,6 +24,7 @@ pub mod torrent_bandwidth;
 pub mod torrent_magnet;
 pub mod torrent_storage;
 pub mod torrent_task;
+pub mod torrent_tracker;
 pub mod torrent_transfer;
 
 /// Stable Chromium extension origin derived from NOVA's pinned public key.
