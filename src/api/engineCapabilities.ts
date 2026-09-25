@@ -17,6 +17,7 @@ export interface EngineRoutingCapabilities {
   directHttpHttpsFtp?: string | null;
   mediaExtraction?: string | null;
   streaming?: string | null;
+  nativeMp4Mux?: string | null;
   postProcessing?: string | null;
   /** @deprecated compatibility alias for mediaExtraction */
   webMediaAndPlaylists?: string | null;
@@ -38,6 +39,7 @@ export interface EngineCapabilitiesResponse {
   directReady: boolean;
   mediaExtractionReady: boolean;
   streamingReady: boolean;
+  nativeMuxReady: boolean;
   postProcessingReady: boolean;
   directProtocols: string[];
   compatibilityMode: 'runtime-verified-capabilities';
@@ -100,6 +102,7 @@ function parseRouting(value: unknown): EngineRoutingCapabilities {
     directHttpHttpsFtp: asOptionalEngineId(routing.directHttpHttpsFtp, 'routing.directHttpHttpsFtp'),
     mediaExtraction: asOptionalEngineId(routing.mediaExtraction, 'routing.mediaExtraction'),
     streaming: asOptionalEngineId(routing.streaming, 'routing.streaming'),
+    nativeMp4Mux: asOptionalEngineId(routing.nativeMp4Mux, 'routing.nativeMp4Mux'),
     postProcessing: asOptionalEngineId(routing.postProcessing, 'routing.postProcessing'),
     webMediaAndPlaylists: asOptionalEngineId(routing.webMediaAndPlaylists, 'routing.webMediaAndPlaylists'),
     mergeRemuxExtractSubtitles: asOptionalEngineId(
@@ -129,6 +132,7 @@ export function parseEngineCapabilitiesResponse(value: unknown): EngineCapabilit
     directReady: asBoolean(root.directReady, 'directReady'),
     mediaExtractionReady: asBoolean(root.mediaExtractionReady, 'mediaExtractionReady'),
     streamingReady: asBoolean(root.streamingReady, 'streamingReady'),
+    nativeMuxReady: asBoolean(root.nativeMuxReady, 'nativeMuxReady'),
     postProcessingReady: asBoolean(root.postProcessingReady, 'postProcessingReady'),
     directProtocols: asStringArray(root.directProtocols, 'directProtocols'),
     compatibilityMode,
