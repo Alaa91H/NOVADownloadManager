@@ -209,6 +209,8 @@ Item {
     function selectRow(index) {
         allVisibleSelected = false
         selectedIndex = index
+        if (list.currentIndex !== index)
+            list.currentIndex = index
         updateSelection()
     }
 
@@ -818,6 +820,30 @@ Item {
                         flickableDirection: Flickable.HorizontalAndVerticalFlick
                         contentWidth: Math.max(width, root.tableContentWidth())
                         model: root.downloads
+                        activeFocusOnTab: true
+                        keyNavigationWraps: false
+                        Accessible.name: root.pageTitle()
+                        Accessible.description: root.pageSubtitle()
+                        onActiveFocusChanged: {
+                            if (activeFocus && count > 0 && currentIndex < 0)
+                                currentIndex = root.selectedIndex >= 0 ? root.selectedIndex : 0
+                        }
+                        onCurrentIndexChanged: {
+                            if (activeFocus && currentIndex >= 0 && currentIndex < count
+                                && root.selectedIndex !== currentIndex) {
+                                root.selectRow(currentIndex)
+                            }
+                        }
+                        Keys.onSpacePressed: event => {
+                            if (currentIndex >= 0 && currentIndex < count)
+                                root.selectRow(currentIndex)
+                            event.accepted = true
+                        }
+                        Keys.onReturnPressed: event => {
+                            if (currentIndex >= 0 && currentIndex < count)
+                                root.selectRow(currentIndex)
+                            event.accepted = true
+                        }
                         ScrollBar.vertical: ScrollBar {}
                         ScrollBar.horizontal: ScrollBar {}
 
@@ -849,6 +875,8 @@ Item {
                             color: root.allVisibleSelected || root.selectedIndex === index
                                 ? Theme.surfaceSelected
                                 : mouse.containsMouse ? Theme.surfaceHover : "transparent"
+                            border.width: list.activeFocus && list.currentIndex === index ? 2 : 0
+                            border.color: Theme.focusRing
 
                             Rectangle {
                                 anchors.bottom: parent.bottom
