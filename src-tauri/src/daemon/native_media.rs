@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -453,7 +453,7 @@ fn create_native_manifest_task(
         description: body
             .description
             .clone()
-            .unwrap_or_else(|| format!("Native {protocol.to_ascii_uppercase()} media transfer")),
+            .unwrap_or_else(|| format!("Native {} media transfer", protocol.to_ascii_uppercase())),
         segments: Vec::new(),
         referer: body.referer.clone(),
         engine: "nova-media-engine".to_owned(),
@@ -3292,12 +3292,12 @@ fn load_native_cookie_file(path: &Path, target_url: &str) -> Result<String, Stri
 
     let mut cookies = Vec::new();
     for (line_number, raw_line) in text.lines().enumerate() {
-        let line = raw_line.trim_end_matches('').trim();
+        let line = raw_line.trim_end_matches('\r').trim();
         if line.is_empty() || (line.starts_with('#') && !line.starts_with("#HttpOnly_")) {
             continue;
         }
         let line = line.strip_prefix("#HttpOnly_").unwrap_or(line);
-        let fields = line.splitn(7, '	').collect::<Vec<_>>();
+        let fields = line.splitn(7, '\t').collect::<Vec<_>>();
         if fields.len() != 7 {
             return Err(format!(
                 "Malformed Netscape cookie at {}:{}",
