@@ -11,6 +11,7 @@ export interface EngineCapabilitySnapshot {
   directReady: boolean;
   mediaExtractionReady: boolean;
   streamingReady: boolean;
+  nativeMuxReady: boolean;
   ffmpegReady: boolean;
   postProcessingReady: boolean;
   streamResolverReady: boolean;
@@ -246,6 +247,8 @@ function buildSnapshot(
   const streamingReady =
     asBool(root?.streamingReady)
     || (mediaExtractionReady && (hlsTaskExecutionReady || dashTaskExecutionReady));
+  const nativeMuxReady =
+    asBool(root?.nativeMuxReady) || asBool(mediaCapabilities?.nativeMp4MultitrackMux);
   const ffmpegReady = asBool(ffmpeg?.available);
   const postProcessingReady = asBool(root?.postProcessingReady) || ffmpegReady;
 
@@ -279,6 +282,7 @@ function buildSnapshot(
     directReady,
     mediaExtractionReady,
     streamingReady,
+    nativeMuxReady,
     ffmpegReady,
     postProcessingReady,
     streamResolverReady: streamingReady,
