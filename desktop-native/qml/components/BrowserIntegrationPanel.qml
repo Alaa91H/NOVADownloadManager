@@ -375,6 +375,8 @@ Rectangle {
             Layout.fillWidth: true
             visible: root.errorText.length > 0
             text: root.errorText
+            Accessible.role: Accessible.AlertMessage
+            Accessible.name: text
             color: Theme.danger
             font.pixelSize: Theme.fontTiny
             wrapMode: Text.WordWrap
