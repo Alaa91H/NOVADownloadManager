@@ -149,6 +149,7 @@ Rectangle {
                 Text { text: root.t("media.formatSelector"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 TextField {
                     id: formatSelectorField
+                    Accessible.name: root.t("media.formatSelector")
                     Layout.fillWidth: true
                     placeholderText: "bestvideo+bestaudio/best"
                     enabled: root.supports("formatSelector")
@@ -161,6 +162,7 @@ Rectangle {
                 Text { text: root.t("media.formatSort"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 TextField {
                     id: formatSortField
+                    Accessible.name: root.t("media.formatSort")
                     Layout.fillWidth: true
                     placeholderText: "res,codec:avc:m4a"
                     enabled: root.supports("formatSort")
@@ -173,6 +175,7 @@ Rectangle {
                 Text { text: root.t("media.downloadSections"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 TextField {
                     id: downloadSectionsField
+                    Accessible.name: root.t("media.downloadSections")
                     Layout.fillWidth: true
                     placeholderText: "*00:01:00-00:03:00"
                     enabled: root.supports("downloadSections")
@@ -185,6 +188,7 @@ Rectangle {
                 Text { text: root.t("media.matchFilter"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 TextField {
                     id: matchFilterField
+                    Accessible.name: root.t("media.matchFilter")
                     Layout.fillWidth: true
                     placeholderText: "duration < 3600"
                     enabled: root.supports("matchFilter")
@@ -197,6 +201,7 @@ Rectangle {
                 Text { text: root.t("media.remuxFormat"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 TextField {
                     id: remuxFormatField
+                    Accessible.name: root.t("media.remuxFormat")
                     Layout.fillWidth: true
                     placeholderText: "mp4"
                     enabled: root.supports("remuxFormat")
@@ -208,6 +213,7 @@ Rectangle {
                 Text { text: root.t("media.sponsorBlock"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 TextField {
                     id: sponsorBlockField
+                    Accessible.name: root.t("media.sponsorBlock")
                     Layout.fillWidth: true
                     placeholderText: "sponsor,selfpromo"
                     enabled: root.supports("sponsorBlock")
@@ -225,6 +231,7 @@ Rectangle {
                 Text { text: root.t("media.proxy"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 TextField {
                     id: proxyField
+                    Accessible.name: root.t("media.proxy")
                     Layout.fillWidth: true
                     placeholderText: "https://proxy.example:8080"
                     enabled: root.supports("proxy")
@@ -237,6 +244,7 @@ Rectangle {
                 Text { text: root.t("media.sourceAddress"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 TextField {
                     id: sourceAddressField
+                    Accessible.name: root.t("media.sourceAddress")
                     Layout.fillWidth: true
                     placeholderText: "192.0.2.10"
                     enabled: root.supports("sourceAddress")
@@ -258,6 +266,7 @@ Rectangle {
                 Text { text: root.t("media.userAgent"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 TextField {
                     id: userAgentField
+                    Accessible.name: root.t("media.userAgent")
                     Layout.fillWidth: true
                     enabled: root.supports("userAgent")
                     selectByMouse: true
@@ -268,6 +277,7 @@ Rectangle {
                 Text { text: root.t("media.referer"); color: Theme.textSecondary; font.pixelSize: Theme.fontSmall }
                 TextField {
                     id: refererField
+                    Accessible.name: root.t("media.referer")
                     Layout.fillWidth: true
                     placeholderText: "https://example.com/page"
                     enabled: root.supports("referer")
