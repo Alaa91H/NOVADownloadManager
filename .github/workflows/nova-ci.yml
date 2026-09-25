@@ -55,6 +55,10 @@ jobs:
             desktop:
               - 'desktop-native/**'
               - 'src-tauri/**'
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'scripts/**'
               - 'browser-extension/**'
               - 'docs/**'
               - 'package.json'
@@ -63,6 +67,10 @@ jobs:
             runtime:
               - 'src-tauri/**'
               - 'desktop-native/**'
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'scripts/**'
               - 'browser-extension/**'
               - '.github/workflows/nova-ci.yml'
             build_reset:
