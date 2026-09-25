@@ -168,6 +168,40 @@ int DownloadListModel::activeCount() const noexcept {
     return result;
 }
 
+int DownloadListModel::queuedCount() const noexcept {
+    int result = 0;
+    for (const auto &item : m_allItems) {
+        const QString status = item.status.trimmed().toLower();
+        if (status == QStringLiteral("queued") || status == QStringLiteral("paused")) {
+            ++result;
+        }
+    }
+    return result;
+}
+
+int DownloadListModel::completedCount() const noexcept {
+    int result = 0;
+    for (const auto &item : m_allItems) {
+        if (item.status.trimmed().compare(QStringLiteral("completed"), Qt::CaseInsensitive) == 0) {
+            ++result;
+        }
+    }
+    return result;
+}
+
+int DownloadListModel::failedCount() const noexcept {
+    int result = 0;
+    for (const auto &item : m_allItems) {
+        const QString status = item.status.trimmed().toLower();
+        if (status == QStringLiteral("failed")
+            || status == QStringLiteral("error")
+            || status == QStringLiteral("interrupted")) {
+            ++result;
+        }
+    }
+    return result;
+}
+
 qint64 DownloadListModel::totalSpeed() const noexcept {
     qint64 speed = 0;
     for (const auto &item : m_allItems) {
