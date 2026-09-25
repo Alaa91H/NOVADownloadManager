@@ -11,6 +11,9 @@ class DownloadListModel final : public QAbstractListModel {
     Q_PROPERTY(int count READ count NOTIFY summaryChanged)
     Q_PROPERTY(int totalCount READ totalCount NOTIFY summaryChanged)
     Q_PROPERTY(int activeCount READ activeCount NOTIFY summaryChanged)
+    Q_PROPERTY(int queuedCount READ queuedCount NOTIFY summaryChanged)
+    Q_PROPERTY(int completedCount READ completedCount NOTIFY summaryChanged)
+    Q_PROPERTY(int failedCount READ failedCount NOTIFY summaryChanged)
     Q_PROPERTY(qint64 totalSpeed READ totalSpeed NOTIFY summaryChanged)
     Q_PROPERTY(QString filterState READ filterState WRITE setFilterState NOTIFY filterChanged)
     Q_PROPERTY(QString searchQuery READ searchQuery WRITE setSearchQuery NOTIFY filterChanged)
@@ -53,6 +56,9 @@ public:
     int count() const noexcept { return m_items.size(); }
     int totalCount() const noexcept { return m_allItems.size(); }
     int activeCount() const noexcept;
+    int queuedCount() const noexcept;
+    int completedCount() const noexcept;
+    int failedCount() const noexcept;
     qint64 totalSpeed() const noexcept;
 
     QString filterState() const { return m_filterState; }
