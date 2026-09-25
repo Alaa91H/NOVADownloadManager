@@ -25,6 +25,7 @@ private:
     static QHash<QString, QString> parseLocaleResource(const QString &resourcePath);
     static QString decodeJsString(const QString &value);
     static QString legacyKeyCandidate(const QString &nativeKey);
+    static QString canonicalEnglish(const QString &value);
 
     const QHash<QString, QString> &locale(const QString &language) const;
 
@@ -32,5 +33,6 @@ private:
     QSet<QString> m_rtlLanguages;
     QVariantList m_supportedLanguages;
     QMultiHash<QString, QString> m_legacyKeysByEnglish;
+    QMultiHash<QString, QString> m_legacyKeysByCanonicalEnglish;
     mutable QHash<QString, QHash<QString, QString>> m_localeCache;
 };
