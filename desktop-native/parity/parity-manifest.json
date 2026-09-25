@@ -920,7 +920,11 @@
         "desktop-native/qml/pages/SchedulerPage.qml",
         "desktop-native/qml/components/ConfirmDeleteDialog.qml",
         "desktop-native/qml/components/ConfirmRedownloadDialog.qml",
-        "desktop-native/scripts/check-native-contrast.mjs"
+        "desktop-native/scripts/check-native-contrast.mjs",
+        "desktop-native/tests/DisplayScaleTests.cpp",
+        "desktop-native/src/platform/DesktopIntegration.cpp",
+        "desktop-native/src/platform/DesktopIntegration.h",
+        "desktop-native/qml/pages/SettingsPage.qml"
       ],
       "contains": [
         {
@@ -933,31 +937,41 @@
         {
           "file": "desktop-native/scripts/check-native-accessibility.mjs",
           "allOf": [
-            "TextField is missing Accessible.name",
-            "ListView must be reachable through Tab navigation",
-            "visible keyboard focus indicator",
-            "confirmation dialog must define an explicit forward/backward focus loop",
-            "bypasses Theme.fontScale"
+            "Accessible.List semantics",
+            "Accessible.ListItem semantics",
+            "Accessible.focusable",
+            "Accessible.selected",
+            "Accessible.AlertMessage",
+            "Accessible.StatusBar"
           ]
         },
         {
-          "file": "desktop-native/scripts/check-native-contrast.mjs",
+          "file": "desktop-native/tests/DisplayScaleTests.cpp",
           "allOf": [
-            "4.5:1",
-            "3.0:1",
-            "Native WCAG contrast gate passed"
+            "windowHonorsRequestedScaleFactor",
+            "allScreensExposeValidMetrics",
+            "windowCanSwitchScreensWhenAvailable"
           ]
         },
         {
-          "file": "desktop-native/qml/pages/DownloadsPage.qml",
+          "file": "desktop-native/CMakeLists.txt",
           "allOf": [
-            "activeFocusOnTab: true",
-            "keyNavigationWraps: false",
-            "Theme.focusRing"
+            "QT_SCALE_FACTOR=1.25",
+            "QT_SCALE_FACTOR=2.0",
+            "nova-native-display-tests"
+          ]
+        },
+        {
+          "file": "desktop-native/src/platform/DesktopIntegration.cpp",
+          "allOf": [
+            "displayMetrics",
+            "devicePixelRatio",
+            "logicalDotsPerInch",
+            "screenChanged"
           ]
         }
       ],
-      "blocker": "All native TextFields are named, the five native ListViews are Tab/arrow-key reachable with visible focus, destructive confirmation dialogs use explicit safe focus loops, technical fields preserve LTR behavior, scalable typography is enforced, and normal light/dark text/focus colors are guarded by WCAG contrast checks. Remaining validation requires real screen readers, complete custom-control/table semantics, packaged High-DPI and multi-monitor testing, and platform-specific assistive-technology QA."
+      "blocker": "Core native lists now expose explicit List/ListItem focus-selection semantics to assistive technologies, settings alerts/status summaries expose semantic roles, and automated Qt display tests exercise fractional 125% and 200% scaling while validating every available screen. Live per-screen DPR/DPI/geometry metrics update when the window changes screens. Remaining validation requires real NVDA/JAWS/VoiceOver/Orca runs, packaged multi-monitor movement across mixed-DPI physical displays, and deeper semantics for remaining composite controls."
     },
     {
       "id": "large-list-recovery",
