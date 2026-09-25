@@ -9,7 +9,9 @@ export interface EngineCapabilitySnapshot {
   error: string | null;
   raw: unknown;
   directReady: boolean;
-  mediaReady: boolean;
+  mediaExtractionReady: boolean;
+  streamingReady: boolean;
+  nativeMuxReady: boolean;
   ffmpegReady: boolean;
   postProcessingReady: boolean;
   streamResolverReady: boolean;
@@ -21,7 +23,6 @@ export interface EngineCapabilitySnapshot {
   unsupportedDirectOptionKeys: Set<string>;
   mediaOptionKeys: Set<string>;
   unsupportedMediaOptionKeys: Set<string>;
-  supportedExternalDownloaders: Set<string>;
   refresh: () => Promise<void>;
   supportsDirectOption: (key: string) => boolean;
   supportsMediaOption: (key: string) => boolean;
@@ -234,12 +235,20 @@ function buildSnapshot(
 ): EngineCapabilitySnapshot {
   const root = asRecord(raw);
   const curl = readEngineRecord(root, 'libcurlMulti') || readEngineRecord(root, 'curl');
-  const ytdlp = readEngineRecord(root, 'ytdlp');
+  const media = readEngineRecord(root, 'media');
   const ffmpeg = readEngineRecord(root, 'ffmpeg');
   const routing = asRecord(root?.routing);
 
   const directReady = asBool(root?.directReady) || asBool(asRecord(curl?.capabilities)?.directDownloads);
-  const mediaReady = asBool(root?.mediaReady) || asBool(ytdlp?.available);
+  const mediaExtractionReady = asBool(root?.mediaExtractionReady) || asBool(media?.available);
+  const mediaCapabilities = asRecord(media?.capabilities);
+  const hlsTaskExecutionReady = asBool(mediaCapabilities?.hlsTaskExecution);
+  const dashTaskExecutionReady = asBool(mediaCapabilities?.dashTaskExecution);
+  const streamingReady =
+    asBool(root?.streamingReady)
+    || (mediaExtractionReady && (hlsTaskExecutionReady || dashTaskExecutionReady));
+  const nativeMuxReady =
+    asBool(root?.nativeMuxReady) || asBool(mediaCapabilities?.nativeMp4MultitrackMux);
   const ffmpegReady = asBool(ffmpeg?.available);
   const postProcessingReady = asBool(root?.postProcessingReady) || ffmpegReady;
 
@@ -252,12 +261,12 @@ function buildSnapshot(
       : Array.from(DIRECT_FALLBACK_KEYS),
   );
   const mediaOptionKeys = new Set(
-    asStringArray(ytdlp?.supportedMediaOptionKeys).length
-      ? asStringArray(ytdlp?.supportedMediaOptionKeys)
+    asStringArray(media?.supportedMediaOptionKeys).length
+      ? asStringArray(media?.supportedMediaOptionKeys)
       : Array.from(MEDIA_FALLBACK_KEYS),
   );
   const unsupportedDirectOptionKeys = new Set(asStringArray(curl?.unsupportedDirectOptionKeys));
-  const unsupportedMediaOptionKeys = new Set(asStringArray(ytdlp?.unsupportedMediaOptionKeys));
+  const unsupportedMediaOptionKeys = new Set(asStringArray(media?.unsupportedMediaOptionKeys));
   const enabledDirectOptionKeys = new Set(
     Array.from(directOptionKeys).filter((key) => !unsupportedDirectOptionKeys.has(key)),
   );
@@ -265,17 +274,18 @@ function buildSnapshot(
     Array.from(mediaOptionKeys).filter((key) => !unsupportedMediaOptionKeys.has(key)),
   );
   const directProtocolSet = lowerSet(directProtocols);
-  const supportedExternalDownloaders = new Set(asStringArray(ytdlp?.supportedExternalDownloaders));
 
   const snapshot: EngineCapabilitySnapshot = {
     loading,
     error,
     raw,
     directReady,
-    mediaReady,
+    mediaExtractionReady,
+    streamingReady,
+    nativeMuxReady,
     ffmpegReady,
     postProcessingReady,
-    streamResolverReady: mediaReady && postProcessingReady,
+    streamResolverReady: streamingReady,
     directEngineId:
       typeof routing?.directHttpHttpsFtp === 'string'
         ? routing.directHttpHttpsFtp
@@ -283,41 +293,42 @@ function buildSnapshot(
           ? 'libcurl-multi'
           : 'unavailable',
     mediaEngineId:
-      typeof routing?.webMediaAndPlaylists === 'string'
-        ? routing.webMediaAndPlaylists
-        : mediaReady
-          ? 'media engine'
-          : 'unavailable',
+      typeof routing?.mediaExtraction === 'string'
+        ? routing.mediaExtraction
+        : typeof routing?.webMediaAndPlaylists === 'string'
+          ? routing.webMediaAndPlaylists
+          : mediaExtractionReady
+            ? 'nova-media-engine'
+            : 'unavailable',
     postProcessorId:
-      typeof routing?.mergeRemuxExtractSubtitles === 'string'
-        ? routing.mergeRemuxExtractSubtitles
-        : postProcessingReady
-          ? 'ffmpeg'
-          : 'unavailable',
+      typeof routing?.postProcessing === 'string'
+        ? routing.postProcessing
+        : typeof routing?.mergeRemuxExtractSubtitles === 'string'
+          ? routing.mergeRemuxExtractSubtitles
+          : postProcessingReady
+            ? 'nova-media-postprocess'
+            : 'unavailable',
     directProtocols,
     directOptionKeys,
     unsupportedDirectOptionKeys,
     mediaOptionKeys,
     unsupportedMediaOptionKeys,
-    supportedExternalDownloaders,
     refresh,
     supportsDirectOption: (key: string) => directReady && enabledDirectOptionKeys.has(key),
-    supportsMediaOption: (key: string) => mediaReady && enabledMediaOptionKeys.has(key),
+    supportsMediaOption: (key: string) => mediaExtractionReady && enabledMediaOptionKeys.has(key),
     supportsDirectProtocol: (urlOrProtocol: string) => {
       if (!directReady) return false;
       const protocol = protocolFromUrlOrProtocol(urlOrProtocol);
       return Boolean(protocol && directProtocolSet.has(protocol));
     },
     supportsStreamCandidate: (mediaType?: string, source?: string, candidateUrl?: string) => {
-      if (!mediaReady || !postProcessingReady) return false;
+      if (!streamingReady) return false;
       const marker = `${mediaType || ''} ${source || ''} ${candidateUrl || ''}`.toLowerCase();
-      return (
-        marker.includes('hls') ||
-        marker.includes('dash') ||
-        marker.includes('m3u8') ||
-        marker.includes('mpd') ||
-        marker.includes('manifest')
-      );
+      const looksHls = marker.includes('hls') || marker.includes('m3u8');
+      const looksDash = marker.includes('dash') || marker.includes('mpd');
+      if (looksHls) return hlsTaskExecutionReady;
+      if (looksDash) return dashTaskExecutionReady;
+      return false;
     },
     sanitizeDirectOptions: (options: DirectDownloadOptions) => filterOptions(options, enabledDirectOptionKeys),
     sanitizeMediaOptions: (options: MediaDownloadOptions) => filterOptions(options, enabledMediaOptionKeys),
@@ -332,8 +343,7 @@ function buildSnapshot(
       return null;
     },
     mediaBlockedReason: () => {
-      if (!mediaReady) return 'Media engine is not ready.';
-      if (!postProcessingReady) return 'FFmpeg is required for complete media stream handling and post-processing.';
+      if (!mediaExtractionReady) return 'NOVA Media Engine is not ready.';
       return null;
     },
   };

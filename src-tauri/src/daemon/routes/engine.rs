@@ -55,10 +55,17 @@ pub(super) fn bool_from_status(status: &serde_json::Value, pointer: &str) -> boo
 
 pub(super) fn extension_capabilities_from_status(status: &serde_json::Value) -> serde_json::Value {
     let direct_ready = bool_from_status(status, "/directReady");
-    let media_ready = bool_from_status(status, "/mediaReady");
+    let media_ready = bool_from_status(status, "/mediaExtractionReady");
+    let streaming_ready = bool_from_status(status, "/streamingReady");
     let post_ready = bool_from_status(status, "/postProcessingReady");
-    let hls_ready = media_ready && post_ready;
-    let dash_ready = media_ready && post_ready;
+    let hls_ready = streaming_ready
+        && bool_from_status(status, "/engines/media/capabilities/hlsTaskExecution");
+    let dash_ready = streaming_ready
+        && bool_from_status(status, "/engines/media/capabilities/dashTaskExecution");
+    let subtitle_ready =
+        media_ready && bool_from_status(status, "/engines/media/capabilities/subtitles");
+    let audio_ready =
+        media_ready && bool_from_status(status, "/engines/media/capabilities/audioExtraction");
     let mut items = Vec::new();
     if direct_ready {
         items.push("candidate.directUrl");
@@ -84,14 +91,18 @@ pub(super) fn extension_capabilities_from_status(status: &serde_json::Value) -> 
     }
     if hls_ready || dash_ready {
         items.push("stream.quality.select");
-        if post_ready {
-            items.push("stream.subtitles");
-            items.push("stream.audioTracks");
-        }
+    }
+    if subtitle_ready {
+        items.push("stream.subtitles");
+    }
+    if audio_ready {
+        items.push("stream.audioTracks");
     }
     items.push("events.sse");
     items.push("settings.snapshot");
-    items.push("media.analyze");
+    if media_ready {
+        items.push("media.analyze");
+    }
     items.sort_unstable();
     items.dedup();
     let direct_protocols = status
@@ -103,9 +114,11 @@ pub(super) fn extension_capabilities_from_status(status: &serde_json::Value) -> 
         "items": items,
         "engineCapabilities": status,
         "directOptionKeys": status.pointer("/engines/libcurlMulti/supportedDirectOptionKeys").cloned().unwrap_or_else(|| serde_json::json!([])),
-        "mediaOptionKeys": status.pointer("/engines/ytdlp/supportedMediaOptionKeys").cloned().unwrap_or_else(|| serde_json::json!([])),
+        "mediaOptionKeys": status.pointer("/engines/media/supportedMediaOptionKeys").cloned().unwrap_or_else(|| serde_json::json!([])),
         "directProtocols": direct_protocols,
         "streamResolverReady": stream_resolver_ready,
+        "mediaAnalyzeReady": media_ready,
+        "postProcessingReady": post_ready,
         "unsupportedCandidateMediaTypes": ["torrent", "magnet"],
         "sourceOfTruth": "daemon-runtime-linked-libcurl-and-engine-probes"
     })
@@ -1189,21 +1202,6 @@ async fn handle_engine_download(
     }
 
     let (url, dest): (String, std::path::PathBuf) = match engine {
-        "ytdlp" | "yt-dlp" => {
-            let url = if cfg!(windows) {
-                "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
-            } else {
-                "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
-            };
-            (
-                url.to_owned(),
-                bin_dir.join(if cfg!(windows) {
-                    "yt-dlp.exe"
-                } else {
-                    "yt-dlp"
-                }),
-            )
-        }
         "ffmpeg" => {
             let url = if cfg!(windows) {
                 "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
@@ -1258,28 +1256,20 @@ async fn handle_engine_download(
                 }
             }
 
-            // For FFmpeg, extract the binary from the zip archive.
-            if engine == "ffmpeg" {
-                match extract_ffmpeg_from_zip(&bytes, &dest, &bin_dir) {
-                    Ok(true) => {}
-                    Ok(false) => {
-                        return Json(serde_json::json!({
-                            "ok": false,
-                            "error": "ffmpeg binary not found in the downloaded archive"
-                        }));
-                    }
-                    Err(e) => {
-                        return Json(serde_json::json!({
-                            "ok": false,
-                            "error": e,
-                        }));
-                    }
+            match extract_ffmpeg_from_zip(&bytes, &dest, &bin_dir) {
+                Ok(true) => {}
+                Ok(false) => {
+                    return Json(serde_json::json!({
+                        "ok": false,
+                        "error": "ffmpeg binary not found in the downloaded archive"
+                    }));
                 }
-            } else if let Err(e) = std::fs::write(&dest, &bytes) {
-                return Json(serde_json::json!({
-                    "ok": false,
-                    "error": format!("Failed to write binary: {e}")
-                }));
+                Err(error) => {
+                    return Json(serde_json::json!({
+                        "ok": false,
+                        "error": error,
+                    }));
+                }
             }
             let mut version_cmd = std::process::Command::new(&dest);
             hide_command_window(&mut version_cmd);
@@ -1320,7 +1310,6 @@ async fn handle_engine_verify(
     let engine = body.get("engine").and_then(|v| v.as_str()).unwrap_or("");
 
     let bin_path = match engine {
-        "ytdlp" | "yt-dlp" => state.ytdlp_binary(),
         "ffmpeg" => state.ffmpeg_binary(),
         _ => {
             return Json(serde_json::json!({
@@ -1359,74 +1348,28 @@ async fn handle_engine_verify(
 }
 
 async fn handle_engine_latest_version(
-    State(state): State<SharedState>,
+    State(_state): State<SharedState>,
     Json(body): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
-    let engine = body.get("engine").and_then(|v| v.as_str()).unwrap_or("");
+    let engine = body
+        .get("engine")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
 
-    let api_url = match engine {
-        "ytdlp" | "yt-dlp" => "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest",
-        "ffmpeg" => {
-            return Json(serde_json::json!({
-                "ok": true,
-                "engine": "ffmpeg",
-                "latestVersion": "system",
-                "note": "FFmpeg version depends on your system installation. Use your package manager to update."
-            }));
-        }
-        _ => {
-            return Json(serde_json::json!({
-                "ok": false,
-                "error": format!("Unknown engine: {engine}")
-            }));
-        }
-    };
-
-    match state.http_client.get(api_url).send().await {
-        Ok(resp) if resp.status().is_success() => {
-            let json: serde_json::Value = match resp.json().await {
-                Ok(v) => v,
-                Err(e) => {
-                    return Json(serde_json::json!({
-                        "ok": false,
-                        "error": format!("Failed to parse response: {e}")
-                    }));
-                }
-            };
-            let latest = json
-                .get("tag_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown")
-                .to_owned();
-            let ytdlp_bin = state.ytdlp_binary();
-            let mut current_cmd = std::process::Command::new(&ytdlp_bin);
-            hide_command_window(&mut current_cmd);
-            let current = current_cmd
-                .arg("--version")
-                .output()
-                .ok()
-                .and_then(|o| String::from_utf8(o.stdout).ok())
-                .map(|s| s.trim().to_owned())
-                .unwrap_or_default();
-
-            Json(serde_json::json!({
-                "ok": true,
-                "engine": engine,
-                "latestVersion": latest,
-                "currentVersion": current,
-                "updateAvailable": latest != current && !current.is_empty(),
-            }))
-        }
-        Ok(resp) => Json(serde_json::json!({
-            "ok": false,
-            "error": format!("HTTP {} from GitHub API", resp.status())
+    match engine {
+        "ffmpeg" => Json(serde_json::json!({
+            "ok": true,
+            "engine": "ffmpeg",
+            "latestVersion": "system",
+            "note": "Post-processing engine version follows the configured system or NOVA package."
         })),
-        Err(e) => Json(serde_json::json!({
+        _ => Json(serde_json::json!({
             "ok": false,
-            "error": format!("Request failed: {e}")
+            "error": format!("Unknown engine: {engine}")
         })),
     }
 }
+
 
 pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
     router
@@ -1532,9 +1475,54 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
 
 #[cfg(test)]
 mod tests {
-    use super::extract_ffmpeg_from_zip;
+    use super::{extension_capabilities_from_status, extract_ffmpeg_from_zip};
     use std::io::Write;
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn extension_media_capabilities_do_not_require_postprocessing() {
+        let status = serde_json::json!({
+            "directReady": true,
+            "mediaExtractionReady": true,
+            "streamingReady": true,
+            "postProcessingReady": false,
+            "engines": {
+                "media": {
+                    "capabilities": {
+                        "hlsTaskExecution": true,
+                        "dashTaskExecution": true,
+                        "subtitles": true,
+                        "audioExtraction": true
+                    }
+                },
+                "libcurlMulti": {
+                    "protocols": ["http", "https"],
+                    "supportedDirectOptionKeys": []
+                }
+            }
+        });
+        let capabilities = extension_capabilities_from_status(&status);
+        let items = capabilities
+            .get("items")
+            .and_then(serde_json::Value::as_array)
+            .expect("extension capability list");
+        let contains = |value: &str| {
+            items
+                .iter()
+                .any(|item| item.as_str() == Some(value))
+        };
+        assert!(contains("stream.hls.resolve"));
+        assert!(contains("stream.dash.resolve"));
+        assert!(contains("stream.subtitles"));
+        assert!(contains("stream.audioTracks"));
+        assert!(contains("media.analyze"));
+        assert_eq!(
+            capabilities
+                .get("postProcessingReady")
+                .and_then(serde_json::Value::as_bool),
+            Some(false)
+        );
+    }
 
     /// Builds an in-memory zip archive with the given (name, content) entries.
     /// Uses the zip crate's writer so the test exercises the same zip 4.x code

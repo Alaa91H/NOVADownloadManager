@@ -17,17 +17,17 @@ export const EngineStatusBar: React.FC<EngineStatusBarProps> = ({
   onFfmpegEnabledChange,
 }) => (
   <div className="flex items-center gap-3 p-2.5 bg-[var(--bg-hover)]/20 border border-[var(--border-color)]/30 rounded-xl">
-    {/* yt-dlp */}
+    {/* NOVA Media Engine */}
     <div className="flex items-center gap-1.5 flex-1 min-w-0">
       <Radio
-        className={`w-3.5 h-3.5 shrink-0 ${engineCapabilities.mediaReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
+        className={`w-3.5 h-3.5 shrink-0 ${engineCapabilities.mediaExtractionReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
       />
       <div className="min-w-0">
-        <span className="text-[10px] font-bold text-[var(--text-primary)] block leading-none">yt-dlp</span>
+        <span className="text-[10px] font-bold text-[var(--text-primary)] block leading-none">NOVA Media Engine</span>
         <span
-          className={`text-[9px] ${engineCapabilities.mediaReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
+          className={`text-[9px] ${engineCapabilities.mediaExtractionReady ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
         >
-          {engineCapabilities.mediaReady ? 'Ready' : 'Unavailable'}
+          {engineCapabilities.mediaExtractionReady ? 'Ready' : 'Unavailable'}
         </span>
       </div>
     </div>

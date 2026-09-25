@@ -9,31 +9,46 @@ export interface EngineRuntimeCapabilities {
   unsupportedDirectOptionKeys?: string[];
   supportedMediaOptionKeys?: string[];
   unsupportedMediaOptionKeys?: string[];
-  supportedExternalDownloaders?: string[];
   capabilities?: JsonRecord;
   [key: string]: unknown;
 }
 
 export interface EngineRoutingCapabilities {
   directHttpHttpsFtp?: string | null;
+  mediaExtraction?: string | null;
+  streaming?: string | null;
+  nativeMp4Mux?: string | null;
+  postProcessing?: string | null;
+  /** @deprecated compatibility alias for mediaExtraction */
   webMediaAndPlaylists?: string | null;
+  /** @deprecated compatibility alias for postProcessing */
   mergeRemuxExtractSubtitles?: string | null;
   torrentMagnet?: string | null;
+}
+
+export interface MediaApiCapabilities {
+  resolve: string;
+  probe: string;
+  download: string;
+  postprocessStatus: string;
 }
 
 export interface EngineCapabilitiesResponse {
   status: CapabilityStatus;
   allReady: boolean;
   directReady: boolean;
-  mediaReady: boolean;
+  mediaExtractionReady: boolean;
+  streamingReady: boolean;
+  nativeMuxReady: boolean;
   postProcessingReady: boolean;
   directProtocols: string[];
   compatibilityMode: 'runtime-verified-capabilities';
+  mediaApi: MediaApiCapabilities;
   routing: EngineRoutingCapabilities;
   engines: {
     curl: EngineRuntimeCapabilities;
     libcurlMulti: EngineRuntimeCapabilities;
-    ytdlp: EngineRuntimeCapabilities;
+    media: EngineRuntimeCapabilities;
     ffmpeg: EngineRuntimeCapabilities;
   };
 }
@@ -50,6 +65,11 @@ function asBoolean(value: unknown, path: string): boolean {
     throw new Error(`Invalid engine capabilities response: ${path} must be a boolean.`);
   }
   return value;
+}
+
+function asOptionalBoolean(value: unknown, path: string, fallback = false): boolean {
+  if (value === undefined) return fallback;
+  return asBoolean(value, path);
 }
 
 function asString(value: unknown, path: string): string {
@@ -71,10 +91,24 @@ function asOptionalEngineId(value: unknown, path: string): string | null | undef
   return asString(value, path);
 }
 
+function parseMediaApi(value: unknown): MediaApiCapabilities {
+  const api = asRecord(value, 'mediaApi');
+  return {
+    resolve: asString(api.resolve, 'mediaApi.resolve'),
+    probe: asString(api.probe, 'mediaApi.probe'),
+    download: asString(api.download, 'mediaApi.download'),
+    postprocessStatus: asString(api.postprocessStatus, 'mediaApi.postprocessStatus'),
+  };
+}
+
 function parseRouting(value: unknown): EngineRoutingCapabilities {
   const routing = asRecord(value, 'routing');
   return {
     directHttpHttpsFtp: asOptionalEngineId(routing.directHttpHttpsFtp, 'routing.directHttpHttpsFtp'),
+    mediaExtraction: asOptionalEngineId(routing.mediaExtraction, 'routing.mediaExtraction'),
+    streaming: asOptionalEngineId(routing.streaming, 'routing.streaming'),
+    nativeMp4Mux: asOptionalEngineId(routing.nativeMp4Mux, 'routing.nativeMp4Mux'),
+    postProcessing: asOptionalEngineId(routing.postProcessing, 'routing.postProcessing'),
     webMediaAndPlaylists: asOptionalEngineId(routing.webMediaAndPlaylists, 'routing.webMediaAndPlaylists'),
     mergeRemuxExtractSubtitles: asOptionalEngineId(
       routing.mergeRemuxExtractSubtitles,
@@ -101,15 +135,18 @@ export function parseEngineCapabilitiesResponse(value: unknown): EngineCapabilit
     status,
     allReady: asBoolean(root.allReady, 'allReady'),
     directReady: asBoolean(root.directReady, 'directReady'),
-    mediaReady: asBoolean(root.mediaReady, 'mediaReady'),
+    mediaExtractionReady: asBoolean(root.mediaExtractionReady, 'mediaExtractionReady'),
+    streamingReady: asBoolean(root.streamingReady, 'streamingReady'),
+    nativeMuxReady: asOptionalBoolean(root.nativeMuxReady, 'nativeMuxReady'),
     postProcessingReady: asBoolean(root.postProcessingReady, 'postProcessingReady'),
     directProtocols: asStringArray(root.directProtocols, 'directProtocols'),
     compatibilityMode,
+    mediaApi: parseMediaApi(root.mediaApi),
     routing: parseRouting(root.routing),
     engines: {
       curl: asRecord(engines.curl, 'engines.curl'),
       libcurlMulti: asRecord(engines.libcurlMulti, 'engines.libcurlMulti'),
-      ytdlp: asRecord(engines.ytdlp, 'engines.ytdlp'),
+      media: asRecord(engines.media, 'engines.media'),
       ffmpeg: asRecord(engines.ffmpeg, 'engines.ffmpeg'),
     },
   };

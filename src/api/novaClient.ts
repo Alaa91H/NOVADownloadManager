@@ -25,13 +25,12 @@ interface NovaHealth {
       unsupportedDirectOptionKeys?: string[];
       error?: string;
     };
-    ytdlp: {
+    media: {
       available: boolean;
       version: string;
       capabilities?: Record<string, unknown>;
       supportedMediaOptionKeys?: string[];
       unsupportedMediaOptionKeys?: string[];
-      supportedExternalDownloaders?: string[];
       error?: string;
     };
     ffmpeg?: {
@@ -48,6 +47,11 @@ interface NovaHealth {
     };
   };
   allEnginesReady?: boolean;
+  directReady?: boolean;
+  mediaExtractionReady?: boolean;
+  streamingReady?: boolean;
+  nativeMuxReady?: boolean;
+  postProcessingReady?: boolean;
   routing?: Record<string, unknown>;
   compatibilityMode?: string;
 }
@@ -101,9 +105,8 @@ interface MediaProbeResult {
 
 interface FfmpegStatus {
   available: boolean;
-  binary?: string;
-  version?: string;
-  versionText?: string;
+  engine?: 'nova-media-postprocess';
+  backend?: 'ffmpeg';
 }
 
 interface BrowserExtensionConfig {
@@ -141,9 +144,12 @@ export interface MediaPlaylistEntry {
 }
 
 interface MediaPlaylistResult {
+  id?: string;
   title: string;
   webpageUrl: string;
   entries: MediaPlaylistEntry[];
+  truncated?: boolean;
+  engine?: string;
 }
 
 type CreateDownloadPayload = Omit<
@@ -449,6 +455,18 @@ export const novaClient = {
     );
   },
 
+  async createMediaDownload(payload: CreateDownloadPayload): Promise<DownloadItem> {
+    return request<DownloadItem>(
+      '/api/media/download',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+      30000,
+    );
+  },
+
   async listCaptureReviews(): Promise<PendingCaptureReview[]> {
     const response = await request<{ ok: boolean; reviews?: PendingCaptureReview[]; message?: string }>(
       '/v1/capture-reviews',
@@ -515,11 +533,12 @@ export const novaClient = {
   },
 
   async probeMedia(url: string): Promise<MediaProbeResult> {
-    return request<MediaProbeResult>(`/api/ytdlp/probe?url=${encodeURIComponent(url)}`, undefined, 30000);
+    const encoded = encodeURIComponent(url);
+    return request<MediaProbeResult>(`/api/media/probe?url=${encoded}`, undefined, 30000);
   },
 
   async checkFfmpeg(): Promise<FfmpegStatus> {
-    return request<FfmpegStatus>('/api/ytdlp/ffmpeg', undefined, 5000);
+    return request<FfmpegStatus>('/api/media/postprocess/status', undefined, 5000);
   },
 
   async browserExtensionHealth(): Promise<BrowserExtensionHealth> {
@@ -539,7 +558,11 @@ export const novaClient = {
   },
 
   async probePlaylist(url: string): Promise<MediaPlaylistResult> {
-    return request<MediaPlaylistResult>(`/api/ytdlp/probe-playlist?url=${encodeURIComponent(url)}`, undefined, 60000);
+    return request<MediaPlaylistResult>(
+      `/api/media/probe-playlist?url=${encodeURIComponent(url)}`,
+      undefined,
+      60000,
+    );
   },
 
   async updateTelegramConfig(config: {

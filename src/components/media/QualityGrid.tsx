@@ -47,7 +47,7 @@ export const QualityGrid: React.FC<QualityGridProps> = ({
       <div className="flex items-center justify-between bg-[var(--danger-bg)]/5 border border-[var(--danger-border)] text-[var(--danger)] px-3 py-2 rounded-lg">
         <div className="flex items-center gap-2">
           <Info className="w-4 h-4" />
-          <div className="text-[11px]">yt-dlp is not available — media probing and some formats are disabled.</div>
+          <div className="text-[11px]">NOVA Media Engine is not available — media probing and some formats are disabled.</div>
         </div>
         <div>
           <button
@@ -77,7 +77,7 @@ export const QualityGrid: React.FC<QualityGridProps> = ({
       {options.map((opt) => {
         const isSelected = quality === opt.value;
         const badgeColor = resolutionBadgeColor(opt.height);
-        const needsFfmpegButMissing = opt.needsFfmpeg && ffmpegAvailable === false;
+        const needsMuxButMissing = opt.needsFfmpeg && ffmpegAvailable === false;
         return (
           <button
             key={opt.value}
@@ -120,7 +120,7 @@ export const QualityGrid: React.FC<QualityGridProps> = ({
                   {opt.hasAudio ? (
                     <span className="text-[9px] text-[var(--success)] font-bold">Muxed</span>
                   ) : (
-                    <span className="text-[9px] text-[var(--warning)] font-bold">Needs FFmpeg</span>
+                    <span className="text-[9px] text-[var(--warning)] font-bold">Separate A/V</span>
                   )}
                 </div>
               )}
@@ -132,8 +132,8 @@ export const QualityGrid: React.FC<QualityGridProps> = ({
             {opt.size && <span className="text-[10px] text-[var(--text-muted)] shrink-0 font-mono">{opt.size}</span>}
 
             {isSelected && <CheckCircle2 className="w-4 h-4 text-[var(--danger)] shrink-0" />}
-            {needsFfmpegButMissing && (
-              <span className="text-[9px] text-[var(--warning)] font-bold block ml-2">Needs FFmpeg</span>
+            {needsMuxButMissing && (
+              <span className="text-[9px] text-[var(--warning)] font-bold block ml-2">Needs mux support</span>
             )}
           </button>
         );
@@ -143,7 +143,7 @@ export const QualityGrid: React.FC<QualityGridProps> = ({
     {requiresFfmpeg && !ffmpegAvailable && quality !== 'best' && (
       <div className="flex items-center gap-1.5 text-[10px] text-[var(--warning)] bg-[var(--warning)]/5 border border-[var(--warning-border)] rounded-lg px-2.5 py-1.5">
         <Info className="w-3 h-3 shrink-0" />
-        This quality requires FFmpeg to merge video+audio streams.
+        This quality requires merging separate video+audio streams. Native MP4 mux or the host post-processor is required.
       </div>
     )}
   </div>

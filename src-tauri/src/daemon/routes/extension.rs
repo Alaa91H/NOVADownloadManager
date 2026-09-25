@@ -18,10 +18,9 @@ use crate::daemon::curl::{
 use crate::daemon::state::{
     PendingCaptureReview, SharedState, CAPTURE_REVIEW_TTL, MAX_PENDING_CAPTURE_REVIEWS,
 };
+use crate::daemon::native_media::create_native_media_task;
 use crate::daemon::types::{CreateDownloadBody, Task};
-use crate::daemon::ytdlp::create_ytdlp_task;
 
-use super::common::hidden_output_timed;
 use super::engine::extension_capabilities_from_status;
 
 use serde_json::json;
@@ -176,7 +175,7 @@ pub async fn handle_v1_extension_settings(
         "settings": {
             "captureEndpoint": "/captures",
             "directEngine": "libcurl-multi",
-            "mediaEngine": "yt-dlp",
+            "mediaEngine": "nova-media-engine",
             "postProcessor": "ffmpeg",
             "torrentMagnet": false
         }
@@ -228,10 +227,10 @@ pub(super) fn browser_ext_response(state: &SharedState) -> Json<serde_json::Valu
         "version": env!("CARGO_PKG_VERSION"),
         "captureEndpoint": "/captures",
         "directDownloads": capabilities.get("directReady").cloned().unwrap_or(serde_json::Value::Bool(false)),
-        "mediaDownloads": capabilities.get("mediaReady").cloned().unwrap_or(serde_json::Value::Bool(false)),
+        "mediaDownloads": capabilities.get("mediaExtractionReady").cloned().unwrap_or(serde_json::Value::Bool(false)),
         "postProcessing": capabilities.get("postProcessingReady").cloned().unwrap_or(serde_json::Value::Bool(false)),
         "directEngine": "libcurl-multi",
-        "mediaEngine": "yt-dlp",
+        "mediaEngine": "nova-media-engine",
         "postProcessor": "ffmpeg",
         "engineCapabilities": capabilities,
         "capabilities": extension_capabilities
@@ -445,7 +444,7 @@ pub(super) fn extension_candidate_to_download_body(
         media_type == "manifest" || source == "hls-manifest" || source == "dash-manifest";
     if is_stream_manifest {
         if !(url.starts_with("http://") || url.starts_with("https://")) {
-            return Err("Only http(s) HLS/DASH manifests can be handed off to yt-dlp.".to_owned());
+            return Err("Only http(s) HLS/DASH manifests can be handed off to NOVA Media Engine.".to_owned());
         }
     } else if !(url.starts_with("http://")
         || url.starts_with("https://")
@@ -478,12 +477,6 @@ pub(super) fn extension_candidate_to_download_body(
     let media_options = if is_stream_manifest {
         let media = crate::daemon::types::MediaDownloadOptions {
             mode: Some("video".to_owned()),
-            playlist: Some(false),
-            ffmpeg_enabled: Some(true),
-            embed_metadata: Some(true),
-            concurrent_fragments: Some(8),
-            retries: Some(5),
-            fragment_retries: Some(10),
             referer: referer.clone(),
             ..Default::default()
         };
@@ -527,7 +520,7 @@ pub(super) fn extension_candidate_to_download_body(
         save_path: json_str(body, "savePath"),
         description: json_str(body, "description").or_else(|| {
             Some(if is_stream_manifest {
-                "Browser extension HLS/DASH stream via yt-dlp + FFmpeg".to_owned()
+                "Browser extension HLS/DASH stream via NOVA Media Engine".to_owned()
             } else {
                 "Browser extension capture via runtime-verified libcurl multi".to_owned()
             })
@@ -652,16 +645,14 @@ async fn create_download_from_body(
         .as_deref()
         .ok_or_else(|| "Missing candidate URL".to_owned())?;
     crate::daemon::utils::is_safe_target_url(url)?;
-    match state.extractor_registry.validate(download_body) {
-        Ok(extractor) if extractor.id() == "yt-dlp" => {
-            create_ytdlp_task(state, download_body).await
-        }
-        Ok(_) => direct_create(state, download_body).await,
-        Err(_) if download_body.media_options.is_some() => {
-            create_ytdlp_task(state, download_body).await
-        }
-        Err(_) => direct_create(state, download_body).await,
+
+    if download_body.media_options.is_some() {
+        return create_native_media_task(state, download_body)
+            .await
+            .map_err(|error| error.to_string());
     }
+
+    direct_create(state, download_body).await
 }
 
 fn capture_review_response(review_id: String, duplicate: bool) -> Json<serde_json::Value> {
@@ -822,27 +813,187 @@ pub async fn handle_consume_capture_review(
     }
 }
 
+async fn native_media_probe_for_extension(
+    url: &str,
+    context: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mut request = nova_media_core::ExtractRequest::new(url);
+    if let Some(referer) = context
+        .get("referrer")
+        .or_else(|| context.get("pageUrl"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        request
+            .headers
+            .insert("Referer".to_owned(), referer.to_owned());
+    }
+
+    let owned = url.to_owned();
+    let resolved = tokio::time::timeout(
+        Duration::from_secs(35),
+        tokio::task::spawn_blocking(move || {
+            super::probes::resolve_native_media_request(request)
+        }),
+    )
+    .await
+    .map_err(|_| "Native media analysis timed out".to_owned())?
+    .map_err(|error| format!("Native media analysis worker failed: {error}"))?
+    .map_err(|error| format!("Native media analysis failed: {error}"))?;
+
+    super::probes::native_media_probe_payload(&resolved, &owned)
+}
+
+fn normalized_native_catalog_formats(
+    info: &serde_json::Value,
+) -> Vec<serde_json::Value> {
+    let mut formats = info
+        .get("formats")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|format| {
+            let url = format.get("url").and_then(serde_json::Value::as_str)?;
+            let mut item = serde_json::Map::new();
+            item.insert("url".to_owned(), serde_json::json!(url));
+            item.insert(
+                "formatId".to_owned(),
+                serde_json::json!(
+                    format
+                        .get("formatId")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("native")
+                ),
+            );
+            item.insert(
+                "label".to_owned(),
+                serde_json::json!(
+                    format
+                        .get("label")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("Native")
+                ),
+            );
+            item.insert(
+                "codecs".to_owned(),
+                serde_json::json!(
+                    format
+                        .get("codecs")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("")
+                ),
+            );
+            item.insert(
+                "container".to_owned(),
+                serde_json::json!(
+                    format
+                        .get("container")
+                        .or_else(|| format.get("ext"))
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("")
+                ),
+            );
+            item.insert(
+                "hasVideo".to_owned(),
+                serde_json::json!(
+                    format
+                        .get("hasVideo")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false)
+                ),
+            );
+            item.insert(
+                "hasAudio".to_owned(),
+                serde_json::json!(
+                    format
+                        .get("hasAudio")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false)
+                ),
+            );
+
+            for key in ["width", "height", "bandwidth", "estimatedSizeBytes"] {
+                if let Some(value) = format.get(key).and_then(serde_json::Value::as_u64) {
+                    item.insert(key.to_owned(), serde_json::json!(value));
+                } else if key == "estimatedSizeBytes" {
+                    if let Some(value) =
+                        format.get("filesize").and_then(serde_json::Value::as_u64)
+                    {
+                        item.insert(key.to_owned(), serde_json::json!(value));
+                    }
+                }
+            }
+            for key in ["fps", "tbr", "vbr", "abr"] {
+                if let Some(value) = format.get(key).and_then(serde_json::Value::as_f64) {
+                    item.insert(key.to_owned(), serde_json::json!(value));
+                }
+            }
+            if !item.contains_key("bandwidth") {
+                if let Some(value) = format
+                    .get("tbr")
+                    .and_then(serde_json::Value::as_f64)
+                    .or_else(|| format.get("abr").and_then(serde_json::Value::as_f64))
+                {
+                    item.insert(
+                        "bandwidth".to_owned(),
+                        serde_json::json!((value * 1000.0).max(0.0) as u64),
+                    );
+                }
+            }
+            Some(serde_json::Value::Object(item))
+        })
+        .collect::<Vec<_>>();
+
+    formats.sort_by(|left, right| {
+        let left_height = left
+            .get("height")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        let right_height = right
+            .get("height")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        right_height.cmp(&left_height).then_with(|| {
+            let left_bandwidth = left
+                .get("bandwidth")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
+            let right_bandwidth = right
+                .get("bandwidth")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
+            right_bandwidth.cmp(&left_bandwidth)
+        })
+    });
+    formats.dedup_by(|left, right| {
+        left.get("formatId") == right.get("formatId")
+            && left.get("height") == right.get("height")
+    });
+    formats
+}
+
 pub async fn handle_v1_stream_resolve(
-    State(state): State<SharedState>,
+    State(_state): State<SharedState>,
     Json(body): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
     let url = body
         .get("url")
-        .and_then(|v| v.as_str())
+        .and_then(serde_json::Value::as_str)
         .unwrap_or("")
         .trim();
     let manifest_type = body
         .get("manifestType")
-        .and_then(|v| v.as_str())
+        .and_then(serde_json::Value::as_str)
         .unwrap_or("hls");
-    if url.is_empty() {
-        return Json(
-            serde_json::json!({"ok": false, "resolved": false, "message": "Missing url", "qualities": []}),
-        );
-    }
-    if url.starts_with('-') {
+    if url.is_empty() || url.starts_with('-') {
         return Json(
             serde_json::json!({"ok": false, "resolved": false, "message": "Invalid url", "qualities": []}),
+        );
+    }
+    if !matches!(manifest_type, "hls" | "dash") {
+        return Json(
+            serde_json::json!({"ok": false, "resolved": false, "message": "Unsupported manifest type", "qualities": []}),
         );
     }
     if !(url.starts_with("http://") || url.starts_with("https://")) {
@@ -850,194 +1001,59 @@ pub async fn handle_v1_stream_resolve(
             serde_json::json!({"ok": false, "resolved": false, "message": "Only http(s) stream manifests are supported", "qualities": []}),
         );
     }
-    if let Err(e) = crate::daemon::utils::is_safe_target_url(url) {
-        log::warn!("Blocked stream resolve of unsafe URL {url}: {e}");
+    if let Err(error) = crate::daemon::utils::is_safe_target_url(url) {
+        log::warn!("Blocked stream resolve of unsafe URL {url}: {error}");
         return Json(
-            serde_json::json!({"ok": false, "resolved": false, "message": e, "qualities": []}),
+            serde_json::json!({"ok": false, "resolved": false, "message": error, "qualities": []}),
         );
     }
 
-    let ytdlp_bin = state.ytdlp_binary();
-    let url2 = url.to_owned();
-    let joined = tokio::task::spawn_blocking(move || {
-        hidden_output_timed(
-            &ytdlp_bin,
-            &[
-                "--dump-json",
-                "--no-playlist",
-                "--no-warnings",
-                "--skip-download",
-                "--",
-                &url2,
-            ],
-            Duration::from_secs(30),
-        )
-    })
-    .await;
-
-    let spawned = match joined {
-        Ok(value) => value,
-        Err(error) => {
-            return Json(
-                serde_json::json!({"ok": false, "resolved": false, "message": format!("Stream resolve worker failed: {}", error), "qualities": []}),
-            );
-        }
-    };
-    let process_output = match spawned {
-        Ok(value) => value,
-        Err(error) => {
-            if error.kind() == std::io::ErrorKind::TimedOut {
-                return Json(
-                    serde_json::json!({"ok": false, "resolved": false, "message": "Stream resolve timed out", "qualities": []}),
-                );
-            }
-            return Json(
-                serde_json::json!({"ok": false, "resolved": false, "message": format!("yt-dlp failed to start: {}", error), "qualities": []}),
-            );
-        }
-    };
-    if !process_output.status.success() {
-        return Json(
-            serde_json::json!({"ok": false, "resolved": false, "message": String::from_utf8_lossy(&process_output.stderr).lines().next().unwrap_or("yt-dlp could not resolve this stream"), "qualities": []}),
-        );
-    }
-    let stdout = String::from_utf8_lossy(&process_output.stdout);
-    let info: serde_json::Value = match serde_json::from_str(&stdout) {
-        Ok(value) => value,
-        Err(_) => {
-            return Json(
-                serde_json::json!({"ok": false, "resolved": false, "message": "Could not parse yt-dlp stream metadata", "qualities": []}),
-            )
-        }
-    };
-    let mut qualities = Vec::new();
-    if let Some(formats) = info.get("formats").and_then(|v| v.as_array()) {
-        for format in formats {
-            let Some(format_url) = format.get("url").and_then(|v| v.as_str()) else {
-                continue;
-            };
-            let height = format
-                .get("height")
-                .and_then(serde_json::Value::as_u64)
-                .map(|v| v as u32);
-            let width = format
-                .get("width")
-                .and_then(serde_json::Value::as_u64)
-                .map(|v| v as u32);
-            let bandwidth = format
-                .get("tbr")
-                .and_then(serde_json::Value::as_f64)
-                .map(|v| (v * 1000.0).max(0.0) as u64)
-                .or_else(|| {
-                    format
-                        .get("abr")
-                        .and_then(serde_json::Value::as_f64)
-                        .map(|v| (v * 1000.0).max(0.0) as u64)
-                });
-            let label = format
-                .get("format_note")
-                .or_else(|| format.get("resolution"))
-                .or_else(|| format.get("format_id"))
-                .and_then(|v| v.as_str())
-                .map(std::borrow::ToOwned::to_owned)
-                .or_else(|| height.map(|h| format!("{h}p")));
-            let mut q = serde_json::Map::new();
-            q.insert("url".to_owned(), serde_json::json!(format_url));
-            if let Some(width) = width {
-                q.insert("width".to_owned(), serde_json::json!(width));
-            }
-            if let Some(height) = height {
-                q.insert("height".to_owned(), serde_json::json!(height));
-            }
-            if let Some(bandwidth) = bandwidth {
-                q.insert("bandwidth".to_owned(), serde_json::json!(bandwidth));
-            }
-            if let Some(codecs) = format
-                .get("vcodec")
-                .or_else(|| format.get("acodec"))
-                .and_then(|v| v.as_str())
-                .filter(|v| !v.is_empty() && *v != "none")
-            {
-                q.insert("codecs".to_owned(), serde_json::json!(codecs));
-            }
-            if let Some(label) = label.filter(|v| !v.is_empty()) {
-                q.insert("label".to_owned(), serde_json::json!(label));
-            }
-            if let Some(format_id) = format
-                .get("format_id")
-                .and_then(|v| v.as_str())
-                .filter(|v| !v.is_empty())
-            {
-                q.insert("formatId".to_owned(), serde_json::json!(format_id));
-            }
-            if let Some(container) = format
-                .get("ext")
-                .and_then(|v| v.as_str())
-                .filter(|v| !v.is_empty())
-            {
-                q.insert("container".to_owned(), serde_json::json!(container));
-            }
-            if let Some(fps) = format
-                .get("fps")
-                .and_then(serde_json::Value::as_f64)
-                .filter(|v| *v > 0.0)
-            {
-                q.insert("fps".to_owned(), serde_json::json!(fps));
-            }
-            q.insert(
-                "hasVideo".to_owned(),
-                serde_json::json!(format
-                    .get("vcodec")
-                    .and_then(|v| v.as_str())
-                    .is_some_and(|v| v != "none")),
-            );
-            q.insert(
-                "hasAudio".to_owned(),
-                serde_json::json!(format
-                    .get("acodec")
-                    .and_then(|v| v.as_str())
-                    .is_some_and(|v| v != "none")),
-            );
-            qualities.push(serde_json::Value::Object(q));
-        }
-    }
-    qualities.sort_by(|a, b| {
-        let ah = a
-            .get("height")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        let bh = b
-            .get("height")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        bh.cmp(&ah)
+    let context = serde_json::json!({
+        "pageUrl": body.get("pageUrl").and_then(serde_json::Value::as_str)
     });
-    qualities.dedup_by(|a, b| a.get("url") == b.get("url"));
+    let info = match native_media_probe_for_extension(url, &context).await {
+        Ok(info) => info,
+        Err(error) => {
+            return Json(
+                serde_json::json!({"ok": false, "resolved": false, "message": error, "qualities": []}),
+            );
+        }
+    };
+    let qualities = normalized_native_catalog_formats(&info);
+    let estimated_size = qualities
+        .iter()
+        .filter_map(|quality| {
+            quality
+                .get("estimatedSizeBytes")
+                .and_then(serde_json::Value::as_u64)
+        })
+        .max();
 
     let mut payload = serde_json::Map::new();
-    payload.insert("ok".to_owned(), serde_json::json!(true));
-    payload.insert("resolved".to_owned(), serde_json::json!(true));
-    payload.insert("manifestType".to_owned(), serde_json::json!(manifest_type));
-    payload.insert("qualities".to_owned(), serde_json::Value::Array(qualities));
+    payload.insert("ok".to_owned(), json!(true));
+    payload.insert("resolved".to_owned(), json!(true));
+    payload.insert("manifestType".to_owned(), json!(manifest_type));
+    payload.insert("qualities".to_owned(), json!(qualities));
+    payload.insert(
+        "isLive".to_owned(),
+        json!(
+            info.get("isLive")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+        ),
+    );
+    payload.insert("drmProtected".to_owned(), json!(false));
+    payload.insert("subtitleTracks".to_owned(), json!([]));
+    payload.insert("audioTracks".to_owned(), json!([]));
+    payload.insert("engine".to_owned(), json!("nova-media-engine"));
     if let Some(duration) = info
         .get("duration")
         .and_then(serde_json::Value::as_f64)
-        .filter(|v| *v >= 0.0)
     {
-        payload.insert("durationSec".to_owned(), serde_json::json!(duration));
+        payload.insert("durationSec".to_owned(), json!(duration));
     }
-    if let Some(is_live) = info.get("is_live").and_then(serde_json::Value::as_bool) {
-        payload.insert("isLive".to_owned(), serde_json::json!(is_live));
-    }
-    payload.insert("drmProtected".to_owned(), serde_json::json!(false));
-    payload.insert("subtitleTracks".to_owned(), serde_json::json!([]));
-    payload.insert("audioTracks".to_owned(), serde_json::json!([]));
-    if let Some(size) = info
-        .get("filesize")
-        .or_else(|| info.get("filesize_approx"))
-        .and_then(serde_json::Value::as_u64)
-    {
-        payload.insert("estimatedSizeBytes".to_owned(), serde_json::json!(size));
+    if let Some(size) = estimated_size {
+        payload.insert("estimatedSizeBytes".to_owned(), json!(size));
     }
     Json(serde_json::Value::Object(payload))
 }
@@ -1077,7 +1093,7 @@ pub async fn handle_v1_media_add(
     let selected = body
         .get("selectedFormat")
         .unwrap_or(&serde_json::Value::Null);
-    let (format_selector, has_video) = match ytdlp_selector_for_selected_format(selected) {
+    let (format_selector, has_video, has_audio) = match native_selector_for_selected_format(selected) {
         Ok(selection) => selection,
         Err(message) => {
             return Json(
@@ -1087,12 +1103,7 @@ pub async fn handle_v1_media_add(
     };
     let mut media_options = crate::daemon::types::MediaDownloadOptions {
         mode: Some(if has_video { "video" } else { "audio" }.to_owned()),
-        playlist: Some(false),
-        ffmpeg_enabled: Some(true),
-        embed_metadata: Some(true),
-        concurrent_fragments: Some(8),
-        retries: Some(5),
-        fragment_retries: Some(10),
+        ffmpeg_enabled: Some(has_video && !has_audio),
         format_selector: Some(format_selector),
         referer: body
             .get("referrer")
@@ -1130,31 +1141,31 @@ pub async fn handle_v1_media_add(
         connections: Some(1),
         resumable: Some(true),
         save_path: None,
-        description: Some("Browser extension selected yt-dlp format".to_owned()),
+        description: Some("Browser extension selected NOVA media format".to_owned()),
         referer: media_options.referer.clone(),
         start_immediately: Some(true),
         direct_options: None,
         media_options: Some(media_options),
     };
-    match create_ytdlp_task(&state, &body).await {
+    match create_native_media_task(&state, &body).await {
         Ok(task) => Json(
             serde_json::json!({"ok": true, "accepted": true, "taskId": task.id, "taskIds": [task.id], "message": "Media added"}),
         ),
         Err(error) => Json(
-            serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": error}),
+            serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": error.to_string()}),
         ),
     }
 }
 
-fn ytdlp_selector_for_selected_format(
+fn native_selector_for_selected_format(
     selected: &serde_json::Value,
-) -> Result<(String, bool), &'static str> {
+) -> Result<(String, bool, bool), &'static str> {
     let format_id = selected
         .get("formatId")
         .and_then(serde_json::Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or("The selected media format has no yt-dlp format id.")?;
+        .ok_or("The selected media format has no NOVA media format id.")?;
     let has_video = selected
         .get("hasVideo")
         .and_then(serde_json::Value::as_bool)
@@ -1168,15 +1179,7 @@ fn ytdlp_selector_for_selected_format(
         .get("hasAudio")
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(!has_video);
-    let selector = if has_video && !has_audio {
-        // YouTube commonly exposes video-only tracks. Let yt-dlp merge the
-        // selected video with the best compatible audio rather than producing
-        // a silent file from the stream URL shown in the browser.
-        format!("{format_id}+bestaudio/best")
-    } else {
-        format_id.to_owned()
-    };
-    Ok((selector, has_video))
+    Ok((format_id.to_owned(), has_video, has_audio))
 }
 
 pub async fn handle_v1_stream_add(
@@ -1204,10 +1207,10 @@ pub async fn handle_v1_stream_add(
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .trim();
-    let url = if manifest_url.is_empty() {
-        selected_url
-    } else {
+    let url = if selected_url.is_empty() {
         manifest_url
+    } else {
+        selected_url
     };
     if url.is_empty() || url.starts_with('-') {
         return Json(
@@ -1222,12 +1225,6 @@ pub async fn handle_v1_stream_add(
     }
     let mut media_options = crate::daemon::types::MediaDownloadOptions {
         mode: Some("video".to_owned()),
-        playlist: Some(false),
-        ffmpeg_enabled: Some(true),
-        embed_metadata: Some(true),
-        concurrent_fragments: Some(8),
-        retries: Some(5),
-        fragment_retries: Some(10),
         referer: manifest
             .get("referrer")
             .or_else(|| manifest.get("pageUrl"))
@@ -1235,20 +1232,11 @@ pub async fn handle_v1_stream_add(
             .map(std::borrow::ToOwned::to_owned),
         ..Default::default()
     };
-    if let Some(format_id) = selected
-        .and_then(|q| q.get("formatId"))
-        .and_then(|v| v.as_str())
-        .filter(|v| !v.is_empty())
-    {
-        media_options.format_selector = Some(format_id.to_owned());
-    } else if let Some(height) = selected
+    if let Some(height) = selected
         .and_then(|q| q.get("height"))
         .and_then(serde_json::Value::as_u64)
     {
         media_options.quality = Some(format!("{height}p"));
-        media_options.format_selector = Some(format!(
-            "bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
-        ));
     }
     let body = CreateDownloadBody {
         url: Some(url.to_owned()),
@@ -1266,18 +1254,18 @@ pub async fn handle_v1_stream_add(
         connections: Some(1),
         resumable: Some(true),
         save_path: None,
-        description: Some("Browser extension HLS/DASH stream via yt-dlp + FFmpeg".to_owned()),
+        description: Some("Browser extension HLS/DASH stream via NOVA Media Engine".to_owned()),
         referer: media_options.referer.clone(),
         start_immediately: Some(true),
         direct_options: None,
         media_options: Some(media_options),
     };
-    match create_ytdlp_task(&state, &body).await {
+    match create_native_media_task(&state, &body).await {
         Ok(task) => Json(
             serde_json::json!({"ok": true, "accepted": true, "taskId": task.id, "taskIds": [task.id], "message": "Stream added"}),
         ),
         Err(error) => Json(
-            serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": error}),
+            serde_json::json!({"ok": false, "accepted": false, "taskId": "", "taskIds": [], "message": error.to_string()}),
         ),
     }
 }
@@ -1286,7 +1274,7 @@ pub async fn handle_v1_stream_add(
 //
 // The extension sends a URL plus optional context. The daemon runs:
 //   1. HTTP HEAD probe (size, type, range support)
-//   2. yt-dlp probe (full format catalog, title, duration)
+//   2. NOVA Media Engine probe (native format catalog, title, duration)
 //   3. RIE analysis (strategy, retry, connections)
 // and returns a unified analysis result with all the data the extension
 // needs to present a rich format catalog to the user.
@@ -1297,141 +1285,47 @@ pub async fn handle_v1_analyze(
 ) -> Json<serde_json::Value> {
     let url = body
         .get("url")
-        .and_then(|v| v.as_str())
+        .and_then(serde_json::Value::as_str)
         .unwrap_or("")
         .trim()
         .to_owned();
-    if url.is_empty() {
-        return Json(serde_json::json!({"ok": false, "stage": "init", "message": "Missing url"}));
-    }
-    if url.starts_with('-') {
-        return Json(serde_json::json!({"ok": false, "stage": "init", "message": "Invalid url"}));
+    if url.is_empty() || url.starts_with('-') {
+        return Json(
+            serde_json::json!({"ok": false, "stage": "init", "message": "Invalid url"}),
+        );
     }
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Json(
             serde_json::json!({"ok": false, "stage": "init", "message": "Only http(s) URLs are supported for analysis"}),
         );
     }
-    if let Err(e) = crate::daemon::utils::is_safe_target_url(&url) {
-        log::warn!("Blocked SSRF in v1/analyze for {url}: {e}");
-        return Json(serde_json::json!({"ok": false, "stage": "init", "message": e}));
+    if let Err(error) = crate::daemon::utils::is_safe_target_url(&url) {
+        log::warn!("Blocked SSRF in v1/analyze for {url}: {error}");
+        return Json(
+            serde_json::json!({"ok": false, "stage": "init", "message": error}),
+        );
     }
 
     let context = body.get("context").cloned().unwrap_or_else(|| json!({}));
-
-    // Stage 1: use the same staged HTTP probe as direct downloads. A bare
-    // HEAD request cannot resolve many production links (range-only servers,
-    // meta-refresh interstitials, SourceForge/GitHub-style pages) and loses
-    // the browser referer needed by hotlink-protected hosts.
     let http_meta = http_probe_for_analyze(&state, &url, &context).await;
-
-    // Stage 2: yt-dlp probe (for video/audio URLs)
-    let ytdlp_probe = ytdlp_probe_for_analyze(&state, &url).await;
-    let (ytdlp_result, analysis_code) = match ytdlp_probe {
-        Ok(info) => (Some(info), None),
-        Err(code) => {
-            log::debug!("managed media analysis did not return a yt-dlp catalog: {code}");
-            (None, Some(code))
+    let native_info = match native_media_probe_for_extension(&url, &context).await {
+        Ok(info) => Some(info),
+        Err(error) => {
+            log::debug!("native media analysis did not return a media catalog: {error}");
+            None
         }
     };
 
-    // Build format catalog
-    let mut formats: Vec<serde_json::Value> = Vec::new();
-    let mut title: Option<String> = None;
-    let mut duration_sec: Option<f64> = None;
-    let mut thumbnail: Option<String> = None;
-    let mut is_live = false;
-    let mut drm_protected = false;
+    let mut formats = native_info
+        .as_ref()
+        .map(normalized_native_catalog_formats)
+        .unwrap_or_default();
 
-    if let Some(ref info) = ytdlp_result {
-        title = info
-            .get("title")
-            .and_then(|v| v.as_str())
-            .map(std::borrow::ToOwned::to_owned);
-        duration_sec = info.get("duration").and_then(serde_json::Value::as_f64);
-        thumbnail = info
-            .get("thumbnail")
-            .and_then(|v| v.as_str())
-            .map(std::borrow::ToOwned::to_owned);
-        is_live = info
-            .get("is_live")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
-        drm_protected = info
-            .get("drm_protected")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
-
-        if let Some(yt_formats) = info.get("formats").and_then(|v| v.as_array()) {
-            for fmt in yt_formats {
-                let fmt_url = match fmt.get("url").and_then(|v| v.as_str()) {
-                    Some(u) => u,
-                    None => continue,
-                };
-                let height = fmt
-                    .get("height")
-                    .and_then(serde_json::Value::as_u64)
-                    .map(|v| v as u32);
-                let width = fmt
-                    .get("width")
-                    .and_then(serde_json::Value::as_u64)
-                    .map(|v| v as u32);
-                let bandwidth = fmt
-                    .get("tbr")
-                    .and_then(serde_json::Value::as_f64)
-                    .map(|v| (v * 1000.0).max(0.0) as u64)
-                    .or_else(|| {
-                        fmt.get("abr")
-                            .and_then(serde_json::Value::as_f64)
-                            .map(|v| (v * 1000.0).max(0.0) as u64)
-                    });
-                let label = fmt
-                    .get("format_note")
-                    .or_else(|| fmt.get("resolution"))
-                    .or_else(|| fmt.get("format_id"))
-                    .and_then(|v| v.as_str())
-                    .map(std::borrow::ToOwned::to_owned)
-                    .or_else(|| height.map(|h| format!("{h}p")));
-                let has_video = fmt
-                    .get("vcodec")
-                    .and_then(|v| v.as_str())
-                    .is_some_and(|v| v != "none");
-                let has_audio = fmt
-                    .get("acodec")
-                    .and_then(|v| v.as_str())
-                    .is_some_and(|v| v != "none");
-                let estimated_size = fmt
-                    .get("filesize")
-                    .or_else(|| fmt.get("filesize_approx"))
-                    .and_then(serde_json::Value::as_u64);
-
-                formats.push(json!({
-                    "url": fmt_url,
-                    "formatId": fmt.get("format_id").and_then(|v| v.as_str()).unwrap_or(""),
-                    "label": label.unwrap_or_default(),
-                    "width": width,
-                    "height": height,
-                    "bandwidth": bandwidth,
-                    "codecs": fmt.get("vcodec").or_else(|| fmt.get("acodec")).and_then(|v| v.as_str()).filter(|v| !v.is_empty() && *v != "none").unwrap_or(""),
-                    "container": fmt.get("ext").and_then(|v| v.as_str()).unwrap_or(""),
-                    "fps": fmt.get("fps").and_then(serde_json::Value::as_f64).filter(|v| *v > 0.0),
-                    "hasVideo": has_video,
-                    "hasAudio": has_audio,
-                    "estimatedSizeBytes": estimated_size,
-                    "tbr": fmt.get("tbr").and_then(serde_json::Value::as_f64),
-                    "vbr": fmt.get("vbr").and_then(serde_json::Value::as_f64),
-                    "abr": fmt.get("abr").and_then(serde_json::Value::as_f64),
-                }));
-            }
-        }
-    }
-
-    // If no yt-dlp formats but HTTP probe found something, add a single entry
     if formats.is_empty() {
         if let Some(ref meta) = http_meta {
             let content_type = meta
                 .get("contentType")
-                .and_then(|v| v.as_str())
+                .and_then(serde_json::Value::as_str)
                 .unwrap_or("");
             let size = meta.get("sizeBytes").and_then(serde_json::Value::as_u64);
             formats.push(json!({
@@ -1447,61 +1341,34 @@ pub async fn handle_v1_analyze(
         }
     }
 
-    // Sort formats: video by height desc, audio by bandwidth desc
-    formats.sort_by(|a, b| {
-        let a_h = a
-            .get("height")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        let b_h = b
-            .get("height")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        let a_bw = a
-            .get("bandwidth")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        let b_bw = b
-            .get("bandwidth")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        if a_h != b_h {
-            return b_h.cmp(&a_h);
-        }
-        b_bw.cmp(&a_bw)
-    });
-    formats.dedup_by(|a, b| a.get("url") == b.get("url"));
-
-    // Detect media type from HTTP probe + format analysis
-    let detected_type = if !formats.is_empty() {
-        let has_video = formats.iter().any(|f| {
-            f.get("hasVideo")
-                .and_then(serde_json::Value::as_bool)
-                .unwrap_or(false)
-        });
-        let has_audio = formats.iter().any(|f| {
-            f.get("hasAudio")
-                .and_then(serde_json::Value::as_bool)
-                .unwrap_or(false)
-        });
-        if has_video {
-            "video"
-        } else if has_audio {
-            "audio"
-        } else {
-            "other"
-        }
+    let detected_type = if formats.iter().any(|format| {
+        format
+            .get("hasVideo")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+    }) {
+        "video"
+    } else if formats.iter().any(|format| {
+        format
+            .get("hasAudio")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+    }) {
+        "audio"
     } else if let Some(ref meta) = http_meta {
-        let ct = meta
+        let content_type = meta
             .get("contentType")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .unwrap_or("");
-        if ct.starts_with("video/") {
-            "video"
-        } else if ct.starts_with("audio/") {
-            "audio"
-        } else if ct.starts_with("image/") {
+        if content_type.starts_with("image/") {
             "image"
+        } else if content_type == "application/pdf" {
+            "document"
+        } else if content_type.contains("zip")
+            || content_type.contains("archive")
+            || content_type.contains("compressed")
+        {
+            "archive"
         } else {
             "other"
         }
@@ -1509,26 +1376,42 @@ pub async fn handle_v1_analyze(
         "other"
     };
 
+    let title = native_info
+        .as_ref()
+        .and_then(|info| info.get("title"))
+        .and_then(serde_json::Value::as_str);
+    let duration_sec = native_info
+        .as_ref()
+        .and_then(|info| info.get("duration"))
+        .and_then(serde_json::Value::as_f64);
+    let thumbnail = native_info
+        .as_ref()
+        .and_then(|info| info.get("thumbnail"))
+        .and_then(serde_json::Value::as_str);
+    let is_live = native_info
+        .as_ref()
+        .and_then(|info| info.get("isLive"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+
     let mut result = serde_json::Map::new();
     result.insert("ok".to_owned(), json!(true));
     result.insert("stage".to_owned(), json!("complete"));
     result.insert("url".to_owned(), json!(url));
-    result.insert("title".to_owned(), json!(title));
-    result.insert("durationSec".to_owned(), json!(duration_sec));
-    result.insert("thumbnail".to_owned(), json!(thumbnail));
+    if let Some(title) = title {
+        result.insert("title".to_owned(), json!(title));
+    }
+    if let Some(duration_sec) = duration_sec {
+        result.insert("durationSec".to_owned(), json!(duration_sec));
+    }
+    if let Some(thumbnail) = thumbnail {
+        result.insert("thumbnail".to_owned(), json!(thumbnail));
+    }
     result.insert("isLive".to_owned(), json!(is_live));
-    result.insert("drmProtected".to_owned(), json!(drm_protected));
+    result.insert("drmProtected".to_owned(), json!(false));
     result.insert("detectedType".to_owned(), json!(detected_type));
     result.insert("formats".to_owned(), json!(formats));
-    // Keep process diagnostics structured and bounded. The extension maps an
-    // empty catalog to localized UI rather than displaying process stderr.
-    if formats.is_empty() {
-        if let Some(code) = analysis_code {
-            result.insert("analysisCode".to_owned(), json!(code));
-        }
-    }
-
-    // Include HTTP probe metadata if available
+    result.insert("engine".to_owned(), json!("nova-media-engine"));
     if let Some(ref meta) = http_meta {
         result.insert("httpProbe".to_owned(), meta.clone());
     }
@@ -1536,10 +1419,6 @@ pub async fn handle_v1_analyze(
     Json(serde_json::Value::Object(result))
 }
 
-// ── Streaming analysis progress: /v1/analyze/progress ──────────────────
-//
-// Same as /v1/analyze but returns SSE events for each stage so the
-// extension can show a live progress indicator.
 
 /// Guard that cancels a `CancellationToken` on drop. Placed inside the SSE
 /// stream so that when the client disconnects (and the stream is dropped),
@@ -1562,7 +1441,7 @@ pub async fn handle_v1_analyze_progress(
         .unwrap_or("")
         .trim()
         .to_owned();
-    let _context = body.get("context").cloned().unwrap_or_else(|| json!({}));
+    let context = body.get("context").cloned().unwrap_or_else(|| json!({}));
     let cancel = CancellationToken::new();
 
     let stream = async_stream::stream! {
@@ -1593,7 +1472,7 @@ pub async fn handle_v1_analyze_progress(
         yield_event!(json!({"stage": "http.probing", "url": &url}));
 
         let http_meta = tokio::select! {
-            result = http_probe_for_analyze(&state, &url, &_context) => result,
+            result = http_probe_for_analyze(&state, &url, &context) => result,
             () = cancel.cancelled() => None,
         };
         if let Some(ref meta) = http_meta {
@@ -1604,17 +1483,25 @@ pub async fn handle_v1_analyze_progress(
             return;
         }
 
-        yield_event!(json!({"stage": "ytdlp.probing", "url": &url}));
+        yield_event!(json!({"stage": "media.probing", "url": &url}));
 
-        let ytdlp_result = tokio::select! {
-            result = ytdlp_probe_for_analyze(&state, &url) => result.ok(),
+        let native_media_result = tokio::select! {
+            result = native_media_probe_for_extension(&url, &context) => result.ok(),
             () = cancel.cancelled() => None,
         };
-        if let Some(ref info) = ytdlp_result {
-            let format_count = info.get("formats").and_then(|v| v.as_array()).map_or(0, std::vec::Vec::len);
-            yield_event!(json!({"stage": "ytdlp.done", "formatCount": format_count, "title": info.get("title")}));
+        if let Some(ref info) = native_media_result {
+            let format_count = info
+                .get("formats")
+                .and_then(serde_json::Value::as_array)
+                .map_or(0, std::vec::Vec::len);
+            yield_event!(json!({
+                "stage": "media.done",
+                "formatCount": format_count,
+                "title": info.get("title"),
+                "engine": "nova-media-engine"
+            }));
         } else {
-            yield_event!(json!({"stage": "ytdlp.done", "formatCount": 0}));
+            yield_event!(json!({"stage": "media.done", "formatCount": 0, "engine": "nova-media-engine"}));
         }
 
         if cancel.is_cancelled() {
@@ -1674,52 +1561,6 @@ async fn http_probe_for_analyze(
     }
 }
 
-async fn ytdlp_probe_for_analyze(
-    state: &SharedState,
-    url: &str,
-) -> Result<serde_json::Value, &'static str> {
-    let ytdlp_bin = state.ytdlp_binary();
-    let url2 = url.to_owned();
-    let output = tokio::task::spawn_blocking(move || {
-        hidden_output_timed(
-            &ytdlp_bin,
-            &[
-                "--dump-json",
-                "--no-playlist",
-                "--no-warnings",
-                "--skip-download",
-                "--",
-                &url2,
-            ],
-            Duration::from_secs(30),
-        )
-    })
-    .await
-    .map_err(|_| "process_failed")?;
-
-    // Preserve a bounded category only. Raw stderr can contain unstable
-    // platform text and URL context, so it never crosses the loopback API.
-    let process_output = match output {
-        Ok(value) => value,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Err("tool_unavailable")
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::TimedOut => return Err("timed_out"),
-        Err(_) => return Err("process_failed"),
-    };
-    if !process_output.status.success() {
-        return Err("process_failed");
-    }
-    let stdout = String::from_utf8_lossy(&process_output.stdout);
-    if stdout.len() > 1_048_576 {
-        log::warn!(
-            "yt-dlp output exceeded 1 MB size limit ({} bytes)",
-            stdout.len()
-        );
-        return Err("output_too_large");
-    }
-    serde_json::from_str(&stdout).map_err(|_| "invalid_output")
-}
 
 fn content_type_to_ext(content_type: &str) -> &str {
     let ct = content_type.split(';').next().unwrap_or("").trim();
@@ -1883,8 +1724,30 @@ mod tests {
         assert!(!managed_media_is_drm_protected(&serde_json::json!({})));
     }
     #[test]
-    fn ytdlp_selected_video_only_format_merges_best_audio() {
-        let (selector, has_video) = ytdlp_selector_for_selected_format(&serde_json::json!({
+    fn native_catalog_omits_absent_optional_fields() {
+        let formats = normalized_native_catalog_formats(&serde_json::json!({
+            "formats": [{
+                "url": "https://site.test/watch",
+                "formatId": "audio",
+                "label": "Audio",
+                "hasVideo": false,
+                "hasAudio": true,
+                "container": "webm",
+                "codecs": "opus"
+            }]
+        }));
+        assert_eq!(formats.len(), 1);
+        let format = formats[0].as_object().expect("format object");
+        assert!(!format.contains_key("width"));
+        assert!(!format.contains_key("height"));
+        assert!(!format.contains_key("fps"));
+        assert!(!format.contains_key("bandwidth"));
+        assert!(!format.contains_key("estimatedSizeBytes"));
+    }
+
+    #[test]
+    fn native_selected_video_only_format_preserves_exact_id() {
+        let (selector, has_video, has_audio) = native_selector_for_selected_format(&serde_json::json!({
             "formatId": "137",
             "height": 1080,
             "hasVideo": true,
@@ -1892,33 +1755,36 @@ mod tests {
         }))
         .expect("video-only format should be selectable");
         assert!(has_video);
-        assert_eq!(selector, "137+bestaudio/best");
+        assert!(!has_audio);
+        assert_eq!(selector, "137");
     }
 
     #[test]
-    fn ytdlp_selected_muxed_or_audio_format_preserves_format_id() {
-        let (muxed, muxed_is_video) = ytdlp_selector_for_selected_format(&serde_json::json!({
+    fn native_selected_muxed_or_audio_format_preserves_format_id() {
+        let (muxed, muxed_is_video, muxed_has_audio) = native_selector_for_selected_format(&serde_json::json!({
             "formatId": "22",
             "hasVideo": true,
             "hasAudio": true,
         }))
         .expect("muxed format should be selectable");
         assert!(muxed_is_video);
+        assert!(muxed_has_audio);
         assert_eq!(muxed, "22");
 
-        let (audio, audio_is_video) = ytdlp_selector_for_selected_format(&serde_json::json!({
+        let (audio, audio_is_video, audio_has_audio) = native_selector_for_selected_format(&serde_json::json!({
             "formatId": "251",
             "hasVideo": false,
             "hasAudio": true,
         }))
         .expect("audio format should be selectable");
         assert!(!audio_is_video);
+        assert!(audio_has_audio);
         assert_eq!(audio, "251");
     }
 
     #[test]
-    fn ytdlp_selected_format_requires_format_id() {
-        assert!(ytdlp_selector_for_selected_format(&serde_json::json!({
+    fn native_selected_format_requires_format_id() {
+        assert!(native_selector_for_selected_format(&serde_json::json!({
             "hasVideo": true,
             "hasAudio": false,
         }))

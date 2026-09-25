@@ -366,7 +366,7 @@ fn handle_native_request(
             Some(params),
             needs_auth,
         ),
-        "probe.ytdlp" => {
+        "probe.media" => {
             let url_param = params.get("url").and_then(Value::as_str).unwrap_or("");
             let encoded: String = url_param
                 .bytes()
@@ -377,7 +377,7 @@ fn handle_native_request(
                     _ => format!("%{b:02X}"),
                 })
                 .collect();
-            let route = format!("/api/ytdlp/probe?url={encoded}");
+            let route = format!("/api/media/probe?url={encoded}");
             http_json(client, state, "GET", &route, None, needs_auth)
         }
         "capabilities" => http_json(

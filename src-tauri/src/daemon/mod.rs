@@ -1,3 +1,4 @@
+pub mod browser_cookies;
 pub mod curl;
 pub mod diagnostics;
 pub mod direct;
@@ -5,6 +6,7 @@ pub mod engine;
 pub mod engine_capabilities;
 pub mod external_tools;
 pub mod persist;
+pub mod postprocess;
 pub mod resource_intelligence;
 pub mod routes;
 pub mod state;
@@ -12,7 +14,7 @@ pub mod static_files;
 pub mod telegram;
 pub mod types;
 pub mod utils;
-pub mod ytdlp;
+pub mod native_media;
 
 /// Stable Chromium extension origin derived from NOVA's pinned public key.
 /// Chrome and Edge enforce this origin as an extension-identity boundary.
@@ -39,7 +41,8 @@ use crate::daemon::state::{AppState, SharedState};
 use crate::daemon::static_files::{serve_asset, serve_index, serve_spa_fallback};
 use crate::daemon::telegram::start_telegram_bot;
 use crate::daemon::types::{
-    transition_task_state, CreateDownloadBody, CurlJob, MediaJob, TaskState, TelegramConfig,
+    transition_task_state, CreateDownloadBody, CurlJob, NativeMediaJob, TaskState,
+    TelegramConfig,
 };
 use crate::lock_or_err;
 
@@ -372,17 +375,11 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     log::warn!("Failed to create data directory: {e}");
                 }
                 let restored = persist::load(&data_dir);
-                let ytdlp_binary = if cfg!(windows) {
-                    "yt-dlp.exe"
-                } else {
-                    "yt-dlp"
-                };
                 let ffmpeg_binary = if cfg!(windows) {
                     "ffmpeg.exe"
                 } else {
                     "ffmpeg"
                 };
-                let ytdlp_bin = resolve_engine_binary(&resource_dir, ytdlp_binary);
                 let ffmpeg_bin = resolve_engine_binary(&resource_dir, ffmpeg_binary);
 
                 // Build extractor registry
@@ -390,15 +387,12 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 extractor_registry
                     .register(std::sync::Arc::new(crate::daemon::curl::CurlExtractor));
                 extractor_registry.register(std::sync::Arc::new(
-                    crate::daemon::ytdlp::YtDlpExtractor::new(
-                        ytdlp_bin.clone(),
-                        ffmpeg_bin.clone(),
-                    ),
+                    crate::daemon::native_media::NativeMediaExtractor,
                 ));
                 let extractor_registry = SharedExtractorRegistry::new(extractor_registry);
 
                 let state = AppState {
-                    media_jobs: Mutex::new(HashMap::new()),
+                    native_media_jobs: Mutex::new(HashMap::new()),
                     curl_jobs: Mutex::new(HashMap::new()),
                     task_snapshot: Mutex::new(HashMap::new()),
                     capture_reviews: Mutex::new(std::collections::VecDeque::new()),
@@ -426,9 +420,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                         }),
                     resource_dir,
                     data_dir: data_dir.clone(),
-                    ytdlp_bin: std::sync::RwLock::new(ytdlp_bin.clone()),
                     ffmpeg_bin: std::sync::RwLock::new(ffmpeg_bin.clone()),
-                    bundled_ytdlp_bin: ytdlp_bin,
                     bundled_ffmpeg_bin: ffmpeg_bin,
                     engine_capabilities_cache: std::sync::RwLock::new(None),
                     engine_capabilities_probe: Mutex::new(()),
@@ -499,23 +491,20 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
 
                 log::debug!("Daemon started with API auth enabled");
 
-                // Discover persisted NOVA-managed tools before probing engine
-                // capabilities. This makes a verified user-installed binary the
-                // active runtime immediately after a restart rather than merely
-                // displaying it in Settings.
+                // Discover the public post-processing backend before probing
+                // engine capabilities. Media extraction itself is in-process
+                // and must not depend on compatibility executables.
                 let discovered_tools = {
                     let et = state.external_tools.clone();
                     tokio::task::spawn_blocking(move || {
                         let et = lock_or_err!(et);
-                        let yt_dlp =
-                            et.discover(crate::daemon::external_tools::types::ToolId::YtDlp);
-                        let ffmpeg =
-                            et.discover(crate::daemon::external_tools::types::ToolId::Ffmpeg);
-                        vec![yt_dlp, ffmpeg]
+                        vec![et.discover(
+                            crate::daemon::external_tools::types::ToolId::Ffmpeg,
+                        )]
                     })
                     .await
-                    .unwrap_or_else(|e| {
-                        log::error!("External tool discovery panicked: {e}");
+                    .unwrap_or_else(|error| {
+                        log::error!("External tool discovery panicked: {error}");
                         Vec::new()
                     })
                 };
@@ -535,9 +524,8 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     }
                 }
 
-                // Warm the engine-capability cache in the background only after
-                // managed tool activation, so the first extension connection
-                // observes the same binaries that the media engine will execute.
+                // Warm the engine-capability cache after post-processing tool
+                // activation. Media extraction readiness comes from the compiled core.
                 {
                     let warm_state = state.clone();
                     std::thread::spawn(move || {
@@ -690,17 +678,8 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 let shutdown_signal = async move {
                     wait_for_daemon_shutdown(shutdown_rx).await;
                     log::info!("Shutdown signal received; pausing active downloads...");
-                    // Lock in documented order: media_jobs, curl_jobs, task_snapshot
-                    {
-                        let mut media = lock_or_err!(shutdown_state.media_jobs);
-                        for job in media.values_mut() {
-                            if let Some(pid) = job.child {
-                                crate::daemon::utils::kill_process(pid);
-                            }
-                            job.task.status = "paused".to_owned();
-                            job.task.engine_status = Some("shutdown".to_owned());
-                        }
-                    }
+                    // Snapshot first-party libcurl jobs before persisting shutdown state.
+                    let curl_shutdown_snapshots = {
                     let curl_shutdown_snapshots = {
                         let mut curl = lock_or_err!(shutdown_state.curl_jobs);
                         let mut snapshots = Vec::with_capacity(curl.len());
@@ -866,12 +845,15 @@ fn restore_persisted_tasks(
 
         let is_direct_download = task.engine == "curl"
             || task.engine == "libcurl-multi"
-            || (task.engine != "yt-dlp"
+            || (task.engine != "media-bridge"
+                && task.engine != "nova-media-engine"
                 && (task.url.starts_with("http://") || task.url.starts_with("https://")));
 
         // P0 crash/restart consistency: a persisted completed state must still
         // agree with the filesystem before it is exposed as completed again.
-        if task.status == "completed" && is_direct_download {
+        if task.status == "completed"
+            && (is_direct_download || task.engine == "nova-media-engine")
+        {
             if let Err(error) = validate_restored_direct_completion(&task) {
                 log::warn!("Task {}: invalid persisted completion: {error}", task.id);
                 task.status = "error".to_owned();
@@ -903,28 +885,57 @@ fn restore_persisted_tasks(
                     .to_owned(),
             );
             task.speed_bytes_per_sec = 0;
-        } else if task.engine == "yt-dlp" {
-            let args = restored
-                .media_args
-                .get(&task.id)
-                .cloned()
-                .unwrap_or_default();
-            if task.status != "completed" && !args.is_empty() {
-                if let Ok(mut jobs) = state.media_jobs.lock() {
-                    jobs.insert(
-                        task.id.clone(),
-                        MediaJob {
-                            task: task.clone(),
-                            child: None,
-                            args,
-                            start_time: Instant::now(),
-                        },
+        } else if task.engine == "media-bridge" {
+            if task.status != "completed" {
+                task.status = "error".to_owned();
+                task.engine_status = Some("engine-retired".to_owned());
+                task.error_message = Some(
+                    "This task used the retired Media Bridge engine. Re-add the original media URL to migrate it to NOVA Media Engine."
+                        .to_owned(),
+                );
+                task.speed_bytes_per_sec = 0;
+                task.time_left_seconds = 0;
+            }
+        } else if task.engine == "nova-media-engine" {
+            let request = restored.native_media_requests.get(&task.id).cloned();
+            if task.status != "completed" {
+                if let Some(request) = request {
+                    if let Ok(mut jobs) = state.native_media_jobs.lock() {
+                        jobs.insert(
+                            task.id.clone(),
+                            NativeMediaJob {
+                                task: task.clone(),
+                                request,
+                                protocol: restored
+                                    .native_media_protocols
+                                    .get(&task.id)
+                                    .cloned()
+                                    .unwrap_or_else(|| {
+                                        if task.segments.len() == 2 {
+                                            "separate-tracks".to_owned()
+                                        } else {
+                                            "manifest".to_owned()
+                                        }
+                                    }),
+                                cancel_token: Arc::new(AtomicBool::new(false)),
+                                run_generation: Arc::new(AtomicU64::new(0)),
+                                start_time: Instant::now(),
+                            },
+                        );
+                    }
+                } else {
+                    task.status = "error".to_owned();
+                    task.engine_status = Some("native-request-missing".to_owned());
+                    task.error_message = Some(
+                        "The native media request could not be restored. Re-add the media URL to continue."
+                            .to_owned(),
                     );
                 }
             }
         } else if task.engine == "curl"
             || task.engine == "libcurl-multi"
-            || (task.engine != "yt-dlp"
+            || (task.engine != "media-bridge"
+                && task.engine != "nova-media-engine"
                 && (task.url.starts_with("http://") || task.url.starts_with("https://")))
         {
             task.engine = "libcurl-multi".to_owned();
@@ -1142,6 +1153,73 @@ mod tests {
     }
 
     #[test]
+    fn restoration_rebuilds_native_media_job_from_persisted_request() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "nova-restore-native-media-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&data_dir).expect("create test data directory");
+        let data_dir_string = data_dir.display().to_string();
+        let state = Arc::new(persist::tests::test_state(&data_dir_string));
+
+        let mut task = restoration_test_task("native-media", "downloading");
+        task.engine = "nova-media-engine".to_owned();
+        task.description = "Native media download".to_owned();
+
+        let request = CreateDownloadBody {
+            url: Some(task.url.clone()),
+            name: Some(task.name.clone()),
+            file_type: Some(task.file_type.clone()),
+            size_bytes: Some(task.size_bytes),
+            category: Some(task.category.clone()),
+            queue_id: Some(task.queue_id.clone()),
+            connections: Some(task.connections),
+            resumable: Some(task.resumable),
+            save_path: Some(task.save_path.clone()),
+            description: Some(task.description.clone()),
+            referer: None,
+            start_immediately: Some(false),
+            direct_options: None,
+            media_options: None,
+        };
+
+        restore_persisted_tasks(
+            &state,
+            persist::PersistedState {
+                tasks: vec![task],
+                native_media_requests: HashMap::from([("native-media".to_owned(), request)]),
+                native_media_protocols: HashMap::from([(
+                    "native-media".to_owned(),
+                    "manifest".to_owned(),
+                )]),
+                ..Default::default()
+            },
+        );
+
+        let jobs = state
+            .native_media_jobs
+            .lock()
+            .expect("lock restored native media jobs");
+        let job = jobs.get("native-media").expect("restored native media job");
+        assert_eq!(job.protocol, "manifest");
+        assert_eq!(job.task.status, "paused");
+        assert_eq!(job.task.engine_status.as_deref(), Some("interrupted"));
+        assert_eq!(
+            job.request.url.as_deref(),
+            Some("https://example.com/native-media")
+        );
+        drop(jobs);
+
+        let snapshot = state.task_snapshot.lock().expect("lock restored snapshot");
+        let restored = snapshot.get("native-media").expect("restored native media task");
+        assert_eq!(restored.status, "paused");
+        assert_eq!(restored.engine, "nova-media-engine");
+        drop(snapshot);
+
+        std::fs::remove_dir_all(&data_dir).ok();
+    }
+
+    #[test]
     fn restoration_keeps_completed_direct_task_only_when_file_matches() {
         let data_dir = std::env::temp_dir().join(format!(
             "nova-restore-complete-test-{}",
@@ -1293,6 +1371,104 @@ mod tests {
         drop(snapshot);
         assert!(state.curl_jobs.lock().expect("lock curl jobs").is_empty());
         assert!(state.priority_queue.entries().is_empty());
+        std::fs::remove_dir_all(&data_dir).ok();
+    }
+
+    #[test]
+    fn restoration_rehydrates_native_media_job_after_restart() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "nova-restore-native-media-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&data_dir).expect("create test data directory");
+        let data_dir_string = data_dir.display().to_string();
+        let state = Arc::new(persist::tests::test_state(&data_dir_string));
+
+        let mut task = restoration_test_task("native-media", "downloading");
+        task.engine = "nova-media-engine".to_owned();
+        task.engine_id = task.id.clone();
+        task.description = "Native media download".to_owned();
+        let request = CreateDownloadBody {
+            url: Some("https://example.com/watch?v=native".to_owned()),
+            name: Some("native-media.bin".to_owned()),
+            file_type: Some("video".to_owned()),
+            size_bytes: None,
+            category: Some("video".to_owned()),
+            queue_id: Some("main".to_owned()),
+            connections: Some(1),
+            resumable: Some(true),
+            save_path: Some(task.save_path.clone()),
+            description: Some("Native media download".to_owned()),
+            referer: None,
+            start_immediately: Some(false),
+            direct_options: None,
+            media_options: None,
+        };
+        let restored = persist::PersistedState {
+            tasks: vec![task],
+            native_media_requests: HashMap::from([("native-media".to_owned(), request)]),
+            native_media_protocols: HashMap::from([(
+                "native-media".to_owned(),
+                "direct".to_owned(),
+            )]),
+            ..Default::default()
+        };
+
+        restore_persisted_tasks(&state, restored);
+
+        let snapshot = state.task_snapshot.lock().expect("lock restored snapshot");
+        let restored_task = snapshot.get("native-media").expect("restored native media task");
+        assert_eq!(restored_task.status, "paused");
+        assert_eq!(restored_task.engine_status.as_deref(), Some("interrupted"));
+        drop(snapshot);
+
+        let jobs = state.native_media_jobs.lock().expect("lock native media jobs");
+        let job = jobs.get("native-media").expect("rehydrated native media job");
+        assert_eq!(job.protocol, "direct");
+        assert_eq!(
+            job.request.url.as_deref(),
+            Some("https://example.com/watch?v=native")
+        );
+        drop(jobs);
+        assert!(state.curl_jobs.lock().expect("lock curl jobs").is_empty());
+        std::fs::remove_dir_all(&data_dir).ok();
+    }
+
+    #[test]
+    fn restoration_marks_legacy_media_bridge_task_as_retired() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "nova-restore-retired-media-bridge-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&data_dir).expect("create test data directory");
+        let data_dir_string = data_dir.display().to_string();
+        let state = Arc::new(persist::tests::test_state(&data_dir_string));
+
+        let mut task = restoration_test_task("legacy-media", "downloading");
+        task.engine = "media-bridge".to_owned();
+        task.engine_id = task.id.clone();
+        let restored = persist::PersistedState {
+            tasks: vec![task],
+            ..Default::default()
+        };
+
+        restore_persisted_tasks(&state, restored);
+
+        let snapshot = state.task_snapshot.lock().expect("lock restored snapshot");
+        let restored_task = snapshot.get("legacy-media").expect("restored legacy media task");
+        assert_eq!(restored_task.status, "error");
+        assert_eq!(restored_task.engine_status.as_deref(), Some("engine-retired"));
+        assert!(restored_task
+            .error_message
+            .as_deref()
+            .is_some_and(|message| message.contains("NOVA Media Engine")));
+        drop(snapshot);
+        assert!(state
+            .native_media_jobs
+            .lock()
+            .expect("lock native media jobs")
+            .is_empty());
+        assert!(state.curl_jobs.lock().expect("lock curl jobs").is_empty());
         std::fs::remove_dir_all(&data_dir).ok();
     }
 

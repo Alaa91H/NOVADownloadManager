@@ -277,7 +277,13 @@ pub fn destination_from_body(body: &CreateDownloadBody, url: &str) -> (String, P
         // The save path is user-chosen, but its file-name component may be
         // derived from the untrusted server name; neutralize traversal in
         // the whole path while preserving the chosen directory.
-        let path = sanitize_output_path(std::path::Path::new(save_path));
+        let raw_path = std::path::Path::new(save_path);
+        let mut path = sanitize_output_path(raw_path);
+        let directory_hint =
+            raw_path.is_dir() || save_path.ends_with('/') || save_path.ends_with('\\');
+        if directory_hint {
+            path.push(&name);
+        }
         return (name, path);
     }
     (name.clone(), PathBuf::from(name))

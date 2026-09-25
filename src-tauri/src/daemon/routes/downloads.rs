@@ -20,8 +20,10 @@ use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
 use crate::daemon::engine::rules::RuleAction;
 use crate::daemon::state::SharedState;
 use crate::daemon::telegram::telegram_notify;
-use crate::daemon::types::{transition_task_state, CreateDownloadBody, Task, TaskState};
-use crate::daemon::ytdlp::create_ytdlp_task;
+use crate::daemon::types::{
+    transition_task_state, CreateDownloadBody, MediaDownloadOptions, Task, TaskState,
+};
+use crate::daemon::native_media::create_native_media_task;
 use crate::lock_or_err;
 
 use super::common::{daemon_error, fallback_file_name};
@@ -46,6 +48,23 @@ pub async fn handle_health(State(state): State<SharedState>) -> Json<serde_json:
         "version": env!("CARGO_PKG_VERSION"),
         "pid": std::process::id(),
         "allEnginesReady": status.get("allReady").cloned().unwrap_or(serde_json::json!(false)),
+        "directReady": status.get("directReady").cloned().unwrap_or(serde_json::json!(false)),
+        "mediaExtractionReady": status
+            .get("mediaExtractionReady")
+            .cloned()
+            .unwrap_or(serde_json::json!(false)),
+        "streamingReady": status
+            .get("streamingReady")
+            .cloned()
+            .unwrap_or(serde_json::json!(false)),
+        "nativeMuxReady": status
+            .get("nativeMuxReady")
+            .cloned()
+            .unwrap_or(serde_json::json!(false)),
+        "postProcessingReady": status
+            .get("postProcessingReady")
+            .cloned()
+            .unwrap_or(serde_json::json!(false)),
         "routing": status.get("routing").cloned().unwrap_or(serde_json::json!({})),
         "engines": status.get("engines").cloned().unwrap_or(serde_json::json!({}))
     }))
@@ -389,8 +408,14 @@ pub async fn handle_create_download(
             )
         })?;
         match extractor.id() {
-            "yt-dlp" => create_ytdlp_task(&state, &body).await,
-            _ => direct_create(&state, &body).await,
+            "nova-media-engine" => create_native_media_task(&state, &body)
+                .await
+                .map_err(|error| error.to_string()),
+            "libcurl-multi" => direct_create(&state, &body).await,
+            _ => Err(
+                "The selected extractor is internal and is not available through the public download API."
+                    .to_owned(),
+            ),
         }
     };
 
@@ -509,6 +534,16 @@ pub async fn handle_update_task(
             log::error!("Update task failed: {e}");
             daemon_error(e)
         })
+}
+
+pub async fn handle_create_media_download(
+    State(state): State<SharedState>,
+    Json(mut body): Json<CreateDownloadBody>,
+) -> Result<Json<Task>, (StatusCode, Json<serde_json::Value>)> {
+    if body.media_options.is_none() {
+        body.media_options = Some(MediaDownloadOptions::default());
+    }
+    handle_create_download(State(state), Json(body)).await
 }
 
 pub async fn handle_redownload_task(
@@ -1057,6 +1092,7 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
             "/api/downloads",
             get(handle_list_downloads).post(handle_create_download),
         )
+        .route("/api/media/download", post(handle_create_media_download))
         .route("/api/downloads/events", get(handle_download_events))
         .route("/api/downloads/{id}/pause", post(handle_pause_task))
         .route("/api/downloads/{id}/resume", post(handle_resume_task))
@@ -1141,7 +1177,7 @@ mod tests {
         enriched.queue_id = "fast".to_owned();
         enriched.description = "resolved download metadata".to_owned();
         enriched.referer = Some("https://example.test/page".to_owned());
-        enriched.engine = "yt-dlp".to_owned();
+        enriched.engine = "nova-media-engine".to_owned();
         enriched.engine_id = "resolved-engine-id".to_owned();
         enriched.size_bytes = 100;
         enriched.resumable = true;

@@ -10,9 +10,6 @@ use uuid::Uuid;
 const GITHUB_API_USER_AGENT: &str = "NOVA-DownloadManager";
 const GITHUB_API_ACCEPT: &str = "application/vnd.github+json";
 const GITHUB_API_VERSION: &str = "2022-11-28";
-// yt-dlp upstream recommends its nightly channel for regular use because
-// extractors such as YouTube change independently of monthly stable releases.
-const YTDLP_RELEASE_REPOSITORY: &str = "yt-dlp/yt-dlp-nightly-builds";
 
 pub fn check_latest_version(tool: &dyn ExternalTool, _http: &reqwest::Client) -> UpdateInfo {
     let os_pattern = match std::env::consts::OS {
@@ -28,7 +25,6 @@ pub fn check_latest_version(tool: &dyn ExternalTool, _http: &reqwest::Client) ->
     };
 
     match tool.id() {
-        ToolId::YtDlp => check_ytdlp_latest(os_pattern, arch_pattern),
         ToolId::Ffmpeg => check_ffmpeg_latest(os_pattern, arch_pattern),
     }
     .unwrap_or_else(|error| UpdateInfo {
@@ -198,29 +194,6 @@ fn check_ffmpeg_latest(os: &str, arch: &str) -> Result<UpdateInfo, String> {
         published_at,
         asset,
         "FFmpeg build from BtbN/FFmpeg-Builds.".to_owned(),
-    ))
-}
-
-fn check_ytdlp_latest(os: &str, arch: &str) -> Result<UpdateInfo, String> {
-    let json = latest_release(YTDLP_RELEASE_REPOSITORY)?;
-    let (latest_version, published_at) = release_metadata(&json);
-    let asset = selected_asset(&json, |name| match (os, arch) {
-        ("windows", "x86_64") => name == "yt-dlp.exe",
-        ("linux", "x86_64") => name == "yt-dlp_linux",
-        ("linux", "aarch64") => name == "yt-dlp_linux_aarch64",
-        ("macos", "x86_64" | "aarch64") => name == "yt-dlp_macos",
-        _ => false,
-    });
-    let upstream_notes = json
-        .get("body")
-        .and_then(|value| value.as_str())
-        .map(str::to_owned)
-        .unwrap_or_else(|| "Official yt-dlp nightly build.".to_owned());
-    Ok(update_info_from_asset(
-        latest_version,
-        published_at,
-        asset,
-        upstream_notes,
     ))
 }
 
@@ -567,12 +540,9 @@ pub fn uninstall_tool(
 #[cfg(test)]
 mod tests {
     use super::{
-        archive_entry_matches, asset_sha256, check_ytdlp_latest, download_and_install,
-        is_ffmpeg_static_asset, is_trusted_release_asset_url, sha256_hex,
+        archive_entry_matches, asset_sha256, is_ffmpeg_static_asset,
+        is_trusted_release_asset_url, sha256_hex,
     };
-    use crate::daemon::external_tools::health;
-    use crate::daemon::external_tools::tools::yt_dlp::YtDlpTool;
-    use crate::daemon::external_tools::types::InstallScope;
     use std::path::Path;
 
     #[test]
@@ -589,10 +559,10 @@ mod tests {
             "19e05df6b2e5fb94f3ee7eed2c02d340a1128a00231f5f6949641a143ab3b57a"
         );
         assert!(is_trusted_release_asset_url(
-            "https://github.com/yt-dlp/yt-dlp/releases/download/v1/yt-dlp"
+            "https://github.com/example/media/releases/download/v1/ffmpeg.zip"
         ));
         assert!(!is_trusted_release_asset_url(
-            "http://github.com/yt-dlp/yt-dlp/releases/download/v1/yt-dlp"
+            "http://github.com/example/media/releases/download/v1/ffmpeg.zip"
         ));
         assert!(!is_trusted_release_asset_url("https://example.test/tool"));
     }
@@ -629,49 +599,5 @@ mod tests {
         ));
     }
 
-    #[test]
-    #[ignore = "downloads the current official yt-dlp release and is run as a live acceptance check"]
-    fn live_ytdlp_release_installs_verifies_and_executes() {
-        if !cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-            return;
-        }
-        let root = std::env::temp_dir().join(format!(
-            "nova-live-ytdlp-install-{}-{}",
-            std::process::id(),
-            uuid::Uuid::new_v4()
-        ));
-        let install_dir = root.join("install");
-        let data_dir = root.join("data");
-        std::fs::create_dir_all(&data_dir).expect("create data directory");
-        let update =
-            check_ytdlp_latest("linux", "x86_64").expect("fetch official release metadata");
-        assert!(
-            update.available,
-            "official yt-dlp binary must publish a SHA-256 digest"
-        );
-        let result = download_and_install(
-            &YtDlpTool,
-            &update,
-            &install_dir,
-            &reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(90))
-                .build()
-                .expect("create HTTP client"),
-            &data_dir.display().to_string(),
-            InstallScope::User,
-        );
-        let installed =
-            result.expect("download, digest verification, health check, and atomic install");
-        let report = health::check_health(&YtDlpTool, Path::new(&installed));
-        assert!(
-            report.executable_works && report.status.is_available(),
-            "installed yt-dlp failed health check: {:?}",
-            report.error_message
-        );
-        assert!(
-            report.version_detected.is_some(),
-            "installed yt-dlp must report a version"
-        );
-        let _ = std::fs::remove_dir_all(root);
-    }
+
 }

@@ -70,6 +70,79 @@ pub struct NativeTransferProgress {
     pub total_bytes: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Enum)]
+pub enum MobileMediaTrackKind {
+    Video,
+    Audio,
+    AudioVideo,
+    Subtitle,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Enum)]
+pub enum MobileMediaProtocol {
+    Http,
+    Https,
+    Hls,
+    Dash,
+}
+
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct MobileMediaStream {
+    pub id: String,
+    pub kind: MobileMediaTrackKind,
+    pub protocol: MobileMediaProtocol,
+    pub url: String,
+    pub container: Option<String>,
+    pub video_codec: Option<String>,
+    pub audio_codec: Option<String>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub fps: Option<f64>,
+    pub bitrate_bps: Option<u64>,
+    pub audio_bitrate_bps: Option<u64>,
+    pub content_length: Option<u64>,
+    pub language: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
+pub struct MobileSubtitleTrack {
+    pub language: String,
+    pub name: Option<String>,
+    pub url: String,
+    pub format: Option<String>,
+    pub automatic: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct MobileMediaDescriptor {
+    pub source_kind: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub duration_millis: Option<u64>,
+    pub uploader: Option<String>,
+    pub webpage_url: String,
+    pub thumbnail_url: Option<String>,
+    pub is_live: bool,
+    pub streams: Vec<MobileMediaStream>,
+    pub subtitles: Vec<MobileSubtitleTrack>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
+pub struct MobileMediaResolveRequest {
+    pub url: String,
+    pub user_agent: Option<String>,
+    pub referer: Option<String>,
+    pub cookie_header: Option<String>,
+}
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum MediaResolveError {
+    #[error("invalid native media request: {message}")]
+    InvalidRequest { message: String },
+    #[error("native media resolution failed: {message}")]
+    ResolveFailed { message: String },
+}
+
 /// Result of a validated bounded ranged GET performed entirely by libcurl.
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
 pub struct HttpRangeProbe {
@@ -121,6 +194,16 @@ impl From<nova_download_core::TransportError> for TransportError {
             }
             nova_download_core::TransportError::RangeResponseRejected { message } => {
                 Self::RangeResponseRejected { message }
+            }
+            nova_download_core::TransportError::InvalidRequestContext { message } => {
+                Self::RequestFailed { message }
+            }
+            nova_download_core::TransportError::ResponseTooLarge { limit_bytes } => {
+                Self::RequestFailed {
+                    message: format!(
+                        "native HTTP response exceeded the in-memory limit of {limit_bytes} bytes"
+                    ),
+                }
             }
             nova_download_core::TransportError::Paused => Self::Paused,
             nova_download_core::TransportError::Cancelled => Self::Cancelled,
@@ -245,6 +328,216 @@ pub fn plan_http_recovery(
     }
 }
 
+
+fn mobile_media_descriptor(
+    descriptor: nova_media_core::MediaDescriptor,
+) -> MobileMediaDescriptor {
+    let source_kind = match descriptor.source_kind {
+        nova_media_core::MediaSourceKind::Direct => "direct",
+        nova_media_core::MediaSourceKind::Hls => "hls",
+        nova_media_core::MediaSourceKind::Dash => "dash",
+        nova_media_core::MediaSourceKind::Site => "site",
+        nova_media_core::MediaSourceKind::Live => "live",
+    }
+    .to_owned();
+
+    let streams = descriptor
+        .streams
+        .into_iter()
+        .map(|stream| MobileMediaStream {
+            id: stream.id,
+            kind: match stream.kind {
+                nova_media_core::MediaTrackKind::Video => MobileMediaTrackKind::Video,
+                nova_media_core::MediaTrackKind::Audio => MobileMediaTrackKind::Audio,
+                nova_media_core::MediaTrackKind::AudioVideo => MobileMediaTrackKind::AudioVideo,
+                nova_media_core::MediaTrackKind::Subtitle => MobileMediaTrackKind::Subtitle,
+            },
+            protocol: match stream.protocol {
+                nova_media_core::MediaProtocol::Http => MobileMediaProtocol::Http,
+                nova_media_core::MediaProtocol::Https => MobileMediaProtocol::Https,
+                nova_media_core::MediaProtocol::Hls => MobileMediaProtocol::Hls,
+                nova_media_core::MediaProtocol::Dash => MobileMediaProtocol::Dash,
+            },
+            url: stream.url,
+            container: stream.container,
+            video_codec: stream.video_codec,
+            audio_codec: stream.audio_codec,
+            width: stream.width,
+            height: stream.height,
+            fps: stream.fps.map(f64::from),
+            bitrate_bps: stream.bitrate_bps,
+            audio_bitrate_bps: stream.audio_bitrate_bps,
+            content_length: stream.content_length,
+            language: stream.language,
+        })
+        .collect();
+
+    let subtitles = descriptor
+        .subtitles
+        .into_iter()
+        .map(|subtitle| MobileSubtitleTrack {
+            language: subtitle.language,
+            name: subtitle.name,
+            url: subtitle.url,
+            format: subtitle.format,
+            automatic: subtitle.automatic,
+        })
+        .collect();
+
+    MobileMediaDescriptor {
+        source_kind,
+        title: descriptor.metadata.title,
+        description: descriptor.metadata.description,
+        duration_millis: descriptor.metadata.duration_millis,
+        uploader: descriptor.metadata.uploader,
+        webpage_url: descriptor.metadata.webpage_url,
+        thumbnail_url: descriptor.metadata.thumbnail_url,
+        is_live: descriptor.is_live,
+        streams,
+        subtitles,
+    }
+}
+
+fn resolve_mobile_media_descriptor(
+    request: MobileMediaResolveRequest,
+) -> Result<MobileMediaDescriptor, MediaResolveError> {
+    let mut extract = nova_media_core::ExtractRequest::new(request.url);
+    if let Some(user_agent) = request
+        .user_agent
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+    {
+        extract.headers.insert("User-Agent".to_owned(), user_agent);
+    }
+    if let Some(referer) = request
+        .referer
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+    {
+        extract.headers.insert("Referer".to_owned(), referer);
+    }
+    if let Some(cookie) = request
+        .cookie_header
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+    {
+        extract.headers.insert("Cookie".to_owned(), cookie);
+    }
+
+    let parsed = extract
+        .parsed_url()
+        .map_err(|error| MediaResolveError::InvalidRequest {
+            message: error.to_string(),
+        })?;
+    extract
+        .request_context()
+        .map_err(|error| MediaResolveError::InvalidRequest {
+            message: error.to_string(),
+        })?;
+
+    let descriptor = if nova_media_core::youtube_video_id(&parsed).is_some() {
+        let extractor = nova_media_core::YouTubeExtractor;
+        let mut extraction = extractor
+            .extract_native(&extract)
+            .map_err(|error| MediaResolveError::ResolveFailed {
+                message: error.to_string(),
+            })?;
+        if !extraction.pending_formats.is_empty() {
+            let context = extract
+                .request_context()
+                .map_err(|error| MediaResolveError::InvalidRequest {
+                    message: error.to_string(),
+                })?;
+            let solver = nova_media_core::YouTubePlayerScriptSolver;
+            nova_media_core::resolve_youtube_pending_formats(
+                &mut extraction,
+                &context,
+                &solver,
+            )
+            .map_err(|error| MediaResolveError::ResolveFailed {
+                message: error.to_string(),
+            })?;
+        }
+        extraction.descriptor
+    } else {
+        nova_media_core::ExtractorRegistry::with_native_defaults()
+            .resolve(&extract)
+            .map_err(|error| MediaResolveError::ResolveFailed {
+                message: error.to_string(),
+            })?
+    };
+
+    Ok(mobile_media_descriptor(descriptor))
+}
+
+#[uniffi::export]
+pub fn resolve_media(
+    request: MobileMediaResolveRequest,
+) -> Result<MobileMediaDescriptor, MediaResolveError> {
+    resolve_mobile_media_descriptor(request)
+}
+
+fn mobile_media_descriptor_json(descriptor: &MobileMediaDescriptor) -> String {
+    let streams = descriptor
+        .streams
+        .iter()
+        .map(|stream| {
+            serde_json::json!({
+                "id": stream.id,
+                "kind": match stream.kind {
+                    MobileMediaTrackKind::Video => "video",
+                    MobileMediaTrackKind::Audio => "audio",
+                    MobileMediaTrackKind::AudioVideo => "audio-video",
+                    MobileMediaTrackKind::Subtitle => "subtitle",
+                },
+                "protocol": match stream.protocol {
+                    MobileMediaProtocol::Http => "http",
+                    MobileMediaProtocol::Https => "https",
+                    MobileMediaProtocol::Hls => "hls",
+                    MobileMediaProtocol::Dash => "dash",
+                },
+                "url": stream.url,
+                "container": stream.container,
+                "videoCodec": stream.video_codec,
+                "audioCodec": stream.audio_codec,
+                "width": stream.width,
+                "height": stream.height,
+                "fps": stream.fps,
+                "bitrateBps": stream.bitrate_bps,
+                "audioBitrateBps": stream.audio_bitrate_bps,
+                "contentLength": stream.content_length,
+                "language": stream.language,
+            })
+        })
+        .collect::<Vec<_>>();
+    let subtitles = descriptor
+        .subtitles
+        .iter()
+        .map(|subtitle| {
+            serde_json::json!({
+                "language": subtitle.language,
+                "name": subtitle.name,
+                "url": subtitle.url,
+                "format": subtitle.format,
+                "automatic": subtitle.automatic,
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "sourceKind": descriptor.source_kind,
+        "title": descriptor.title,
+        "description": descriptor.description,
+        "durationMillis": descriptor.duration_millis,
+        "uploader": descriptor.uploader,
+        "webpageUrl": descriptor.webpage_url,
+        "thumbnailUrl": descriptor.thumbnail_url,
+        "isLive": descriptor.is_live,
+        "streams": streams,
+        "subtitles": subtitles,
+        "engine": "nova-media-engine",
+    })
+    .to_string()
+}
 
 #[uniffi::export]
 pub fn transfer_progress(task_id: String) -> Option<NativeTransferProgress> {
@@ -429,6 +722,74 @@ fn jni_string(
 #[cfg(target_os = "android")]
 fn throw_android_transfer_error(env: &mut jni::JNIEnv<'_>, message: impl Into<String>) {
     let _ = env.throw_new("java/lang/IllegalStateException", message.into());
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeResolveMediaJson(
+    mut env: jni::JNIEnv<'_>,
+    _receiver: jni::objects::JObject<'_>,
+    url: jni::objects::JString<'_>,
+    user_agent: jni::objects::JString<'_>,
+    referer: jni::objects::JString<'_>,
+    cookie_header: jni::objects::JString<'_>,
+) -> jni::sys::jstring {
+    let url = match jni_string(&mut env, &url, "media URL") {
+        Ok(value) => value,
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            return std::ptr::null_mut();
+        }
+    };
+    let user_agent = match jni_string(&mut env, &user_agent, "media user-agent") {
+        Ok(value) => value,
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            return std::ptr::null_mut();
+        }
+    };
+    let referer = match jni_string(&mut env, &referer, "media referer") {
+        Ok(value) => value,
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            return std::ptr::null_mut();
+        }
+    };
+    let cookie_header = match jni_string(&mut env, &cookie_header, "media cookie header") {
+        Ok(value) => value,
+        Err(message) => {
+            throw_android_transfer_error(&mut env, message);
+            return std::ptr::null_mut();
+        }
+    };
+
+    let optional = |value: String| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_owned())
+    };
+    let descriptor = match resolve_mobile_media_descriptor(MobileMediaResolveRequest {
+        url,
+        user_agent: optional(user_agent),
+        referer: optional(referer),
+        cookie_header: optional(cookie_header),
+    }) {
+        Ok(descriptor) => descriptor,
+        Err(error) => {
+            throw_android_transfer_error(&mut env, error.to_string());
+            return std::ptr::null_mut();
+        }
+    };
+
+    match env.new_string(mobile_media_descriptor_json(&descriptor)) {
+        Ok(value) => value.into_raw(),
+        Err(error) => {
+            throw_android_transfer_error(
+                &mut env,
+                format!("failed to encode native media descriptor for Android: {error}"),
+            );
+            std::ptr::null_mut()
+        }
+    }
 }
 
 #[cfg(target_os = "android")]
@@ -632,6 +993,56 @@ mod tests {
                 core_version,
             }) if client_version == BRIDGE_API_VERSION + 1 && core_version == BRIDGE_API_VERSION
         ));
+    }
+
+    #[test]
+    fn mobile_media_projection_uses_shared_descriptor_without_transport_secrets() {
+        let mut request_headers = std::collections::BTreeMap::new();
+        request_headers.insert("Cookie".to_owned(), "session=secret".to_owned());
+        let mut stream_headers = std::collections::BTreeMap::new();
+        stream_headers.insert("Authorization".to_owned(), "Bearer secret".to_owned());
+
+        let descriptor = nova_media_core::MediaDescriptor {
+            source_kind: nova_media_core::MediaSourceKind::Site,
+            metadata: nova_media_core::MediaMetadata {
+                title: "Mobile media".to_owned(),
+                description: Some("description".to_owned()),
+                duration_millis: Some(42_000),
+                uploader: Some("NOVA".to_owned()),
+                webpage_url: "https://site.test/watch".to_owned(),
+                thumbnail_url: Some("https://img.test/thumb.jpg".to_owned()),
+            },
+            streams: vec![nova_media_core::MediaStream {
+                id: "video".to_owned(),
+                kind: nova_media_core::MediaTrackKind::AudioVideo,
+                protocol: nova_media_core::MediaProtocol::Https,
+                url: "https://cdn.test/video.mp4".to_owned(),
+                container: Some("mp4".to_owned()),
+                video_codec: Some("avc1".to_owned()),
+                audio_codec: Some("mp4a".to_owned()),
+                width: Some(1920),
+                height: Some(1080),
+                fps: Some(30.0),
+                bitrate_bps: Some(4_000_000),
+                audio_bitrate_bps: Some(128_000),
+                content_length: Some(123),
+                language: None,
+                headers: stream_headers,
+            }],
+            subtitles: Vec::new(),
+            request_headers,
+            is_live: false,
+        };
+
+        let mobile = mobile_media_descriptor(descriptor);
+        assert_eq!(mobile.title, "Mobile media");
+        assert_eq!(mobile.streams.len(), 1);
+        assert_eq!(mobile.streams[0].kind, MobileMediaTrackKind::AudioVideo);
+
+        let json = mobile_media_descriptor_json(&mobile);
+        assert!(json.contains("\"engine\":\"nova-media-engine\""));
+        assert!(!json.contains("session=secret"));
+        assert!(!json.contains("Bearer secret"));
     }
 
     #[test]

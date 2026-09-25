@@ -47,23 +47,7 @@ impl CapabilityResolver {
             }
         }
 
-        let required_tool = match capability_id {
-            id if id.starts_with("media.") => {
-                if matches!(
-                    capability_id,
-                    "media.resolve"
-                        | "media.metadata"
-                        | "media.format_discovery"
-                        | "media.platform_extraction"
-                        | "media.direct_url_resolution"
-                ) {
-                    ToolId::YtDlp
-                } else {
-                    ToolId::Ffmpeg
-                }
-            }
-            _ => ToolId::Ffmpeg,
-        };
+        let required_tool = ToolId::Ffmpeg;
 
         CapabilityAvailability {
             capability_id: capability_id.to_owned(),
@@ -123,18 +107,16 @@ pub fn get_feature_requirements(feature: &str) -> Vec<(&'static str, ToolId)> {
         | "media.transcode"
         | "media.audio_extract"
         | "media.video_convert"
-        | "media.thumbnail_extract"
-        | "media.media_probe" => {
+        | "media.thumbnail_extract" => {
             vec![("FFmpeg", ToolId::Ffmpeg)]
         }
         "media.resolve"
         | "media.metadata"
         | "media.format_discovery"
         | "media.platform_extraction"
-        | "media.direct_url_resolution" => {
-            vec![("yt-dlp", ToolId::YtDlp)]
-        }
-        "media.extract_and_process" => vec![("yt-dlp", ToolId::YtDlp), ("FFmpeg", ToolId::Ffmpeg)],
+        | "media.direct_url_resolution"
+        | "media.media_probe" => vec![],
+        "media.extract_and_process" => vec![("FFmpeg", ToolId::Ffmpeg)],
         _ => vec![],
     }
 }

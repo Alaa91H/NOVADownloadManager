@@ -150,7 +150,7 @@ export const SettingsDialog: React.FC = () => {
       id: 'external_tools',
       labelKey: 'set_tab_engines',
       icon: Package,
-      keywords: ['external', 'tool', 'yt-dlp', 'ytdlp', 'ffmpeg', 'install', 'update'],
+      keywords: ['external', 'tool', 'media', 'engine', 'ffmpeg', 'install', 'update'],
     },
 
     {

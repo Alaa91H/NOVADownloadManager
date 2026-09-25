@@ -8,20 +8,32 @@ function validCapabilities() {
     status: 'connected',
     allReady: true,
     directReady: true,
-    mediaReady: true,
+    mediaExtractionReady: true,
+    streamingReady: true,
+    nativeMuxReady: true,
     postProcessingReady: true,
     directProtocols: ['http', 'https', 'ftp'],
     compatibilityMode: 'runtime-verified-capabilities',
+    mediaApi: {
+      resolve: '/api/media/resolve',
+      probe: '/api/media/probe',
+      download: '/api/media/download',
+      postprocessStatus: '/api/media/postprocess/status',
+    },
     routing: {
       directHttpHttpsFtp: 'libcurl-multi',
-      webMediaAndPlaylists: 'yt-dlp',
-      mergeRemuxExtractSubtitles: 'ffmpeg via yt-dlp',
+      mediaExtraction: 'nova-media-engine',
+      streaming: 'nova-media-engine',
+      nativeMp4Mux: 'nova-media-engine',
+      postProcessing: 'nova-media-postprocess',
+      webMediaAndPlaylists: 'nova-media-engine',
+      mergeRemuxExtractSubtitles: 'nova-media-postprocess',
       torrentMagnet: null,
     },
     engines: {
       curl: engine,
       libcurlMulti: engine,
-      ytdlp: engine,
+      media: engine,
       ffmpeg: engine,
     },
   };
@@ -33,14 +45,35 @@ describe('engine capabilities contract', () => {
 
     expect(capabilities.directProtocols).toEqual(['http', 'https', 'ftp']);
     expect(capabilities.engines.libcurlMulti.available).toBe(true);
+    expect(capabilities.mediaExtractionReady).toBe(true);
+    expect(capabilities.streamingReady).toBe(true);
+    expect(capabilities.nativeMuxReady).toBe(true);
+    expect(capabilities.routing.nativeMp4Mux).toBe('nova-media-engine');
+    expect(capabilities.mediaApi.resolve).toBe('/api/media/resolve');
+    expect(capabilities.mediaApi.download).toBe('/api/media/download');
+    expect(capabilities.routing.mediaExtraction).toBe('nova-media-engine');
+    expect(capabilities.routing.streaming).toBe('nova-media-engine');
+    expect(capabilities.routing.postProcessing).toBe('nova-media-postprocess');
     expect(capabilities.routing.torrentMagnet).toBeNull();
+  });
+
+  it('treats native mux readiness as an additive optional capability', () => {
+    const response = validCapabilities();
+    delete (response as Partial<typeof response>).nativeMuxReady;
+    delete response.routing.nativeMp4Mux;
+
+    const capabilities = parseEngineCapabilitiesResponse(response);
+    expect(capabilities.nativeMuxReady).toBe(false);
+    expect(capabilities.routing.nativeMp4Mux).toBeUndefined();
   });
 
   it('rejects capability responses without required readiness flags', () => {
     const response = validCapabilities();
-    delete (response as Partial<typeof response>).directReady;
+    delete (response as Partial<typeof response>).mediaExtractionReady;
 
-    expect(() => parseEngineCapabilitiesResponse(response)).toThrow('directReady must be a boolean');
+    expect(() => parseEngineCapabilitiesResponse(response)).toThrow(
+      'mediaExtractionReady must be a boolean',
+    );
   });
 
   it('rejects responses from an incompatible contract mode', () => {

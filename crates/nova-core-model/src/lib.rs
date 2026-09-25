@@ -147,8 +147,14 @@ impl TaskState {
                     | Self::Paused
                     | Self::Failed
             ),
-            Self::Verifying => matches!(next, Self::Finalizing | Self::Failed),
-            Self::Finalizing => matches!(next, Self::Completed | Self::Failed),
+            Self::Verifying => matches!(
+                next,
+                Self::Finalizing | Self::Pausing | Self::Paused | Self::Failed
+            ),
+            Self::Finalizing => matches!(
+                next,
+                Self::Completed | Self::Pausing | Self::Paused | Self::Failed
+            ),
             Self::Completed => false,
             Self::Failed => matches!(next, Self::Queued | Self::Paused),
             Self::Interrupted => matches!(
@@ -864,6 +870,8 @@ mod tests {
         assert!(TaskState::Downloading.can_transition_to(TaskState::Verifying));
         assert!(TaskState::Verifying.can_transition_to(TaskState::Finalizing));
         assert!(TaskState::Finalizing.can_transition_to(TaskState::Completed));
+        assert!(TaskState::Verifying.can_transition_to(TaskState::Pausing));
+        assert!(TaskState::Finalizing.can_transition_to(TaskState::Pausing));
     }
 
     #[test]

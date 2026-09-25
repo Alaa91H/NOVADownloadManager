@@ -262,7 +262,7 @@ export const AdvancedTabs: React.FC<AdvancedTabsProps> = ({
               onChange={(e) => {
                 onChange('cookiesFromBrowser', e.target.value);
               }}
-              placeholder="chrome, edge, firefox"
+              placeholder="firefox  or  firefox:profile-name"
               className="font-mono"
               style={{ direction: 'ltr', textAlign: 'left' }}
             />
