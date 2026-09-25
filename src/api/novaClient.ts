@@ -108,6 +108,32 @@ export interface TorrentSeedingPolicyInput {
   timeLimitSeconds?: number | null;
 }
 
+export interface TorrentPeerTelemetry {
+  address: string;
+  direction: 'inbound' | 'outbound' | string;
+  state: string;
+  downloadedBytes: number;
+  uploadedBytes: number;
+  successfulPieces: number;
+  failures: number;
+  supportsExtensions: boolean | null;
+  supportsDht: boolean | null;
+  lastError: string | null;
+  lastUpdateUnix: number;
+}
+
+export interface TorrentTrackerTelemetry {
+  endpoint: string;
+  state: string;
+  lastEvent: string;
+  peerCount: number;
+  seeders: number | null;
+  leechers: number | null;
+  intervalSeconds: number | null;
+  lastError: string | null;
+  lastUpdateUnix: number;
+}
+
 export interface TorrentTaskDetails {
   task: DownloadItem;
   infoHash: string;
@@ -134,6 +160,8 @@ export interface TorrentTaskDetails {
   pexServingEnabled: boolean;
   dhtServerActive: boolean;
   dhtRoutingNodes: number;
+  swarmPeers: TorrentPeerTelemetry[];
+  trackerTelemetry: TorrentTrackerTelemetry[];
   requiresReauth: boolean;
 }
 

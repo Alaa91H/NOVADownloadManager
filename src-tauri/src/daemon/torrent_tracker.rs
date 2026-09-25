@@ -34,6 +34,13 @@ pub async fn run_tracker_lifecycle(
     if tiers.is_empty() {
         return;
     }
+    let telemetry = {
+        let jobs = lock_or_err!(state.torrent_jobs);
+        jobs.get(&task_id)
+            .map(|job| job.telemetry.clone())
+            .unwrap_or_default()
+    };
+    telemetry.register_trackers(tiers.iter().flatten().map(String::as_str));
 
     let port = match wait_for_listener_port(&cancel).await {
         Some(port) => port,
@@ -78,11 +85,24 @@ pub async fn run_tracker_lifecycle(
             TrackerEvent::None
         };
 
+        let event_name = tracker_event_name(event);
+        telemetry.tracker_attempt(
+            tiers.iter().flatten().map(String::as_str),
+            event_name,
+        );
         match transport
             .announce_event(&tiers, &snapshot.request, event, &cancel)
             .await
         {
             Ok(success) => {
+                telemetry.tracker_success(
+                    &success.tracker_url,
+                    event_name,
+                    success.peers.len(),
+                    success.complete,
+                    success.incomplete,
+                    success.interval_seconds,
+                );
                 started = true;
                 if matches!(event, TrackerEvent::Completed) {
                     completed = true;
@@ -98,6 +118,11 @@ pub async fn run_tracker_lifecycle(
             }
             Err(error) if cancel.is_cancelled() => break,
             Err(error) => {
+                telemetry.tracker_failure(
+                    tiers.iter().flatten().map(String::as_str),
+                    event_name,
+                    &error,
+                );
                 log::debug!("Torrent tracker lifecycle {task_id}: announce failed: {error}");
                 next_delay = TRACKER_RETRY_DELAY;
             }
@@ -109,7 +134,11 @@ pub async fn run_tracker_lifecycle(
         if let Ok(snapshot) =
             tracker_snapshot(&state, &task_id, &storage, local_peer_id, port, key).await
         {
-            let _ = tokio::time::timeout(
+            telemetry.tracker_attempt(
+                tiers.iter().flatten().map(String::as_str),
+                "stopped",
+            );
+            match tokio::time::timeout(
                 STOPPED_ANNOUNCE_TIMEOUT,
                 transport.announce_event(
                     &tiers,
@@ -118,8 +147,37 @@ pub async fn run_tracker_lifecycle(
                     &stop_token,
                 ),
             )
-            .await;
+            .await
+            {
+                Ok(Ok(success)) => telemetry.tracker_success(
+                    &success.tracker_url,
+                    "stopped",
+                    success.peers.len(),
+                    success.complete,
+                    success.incomplete,
+                    success.interval_seconds,
+                ),
+                Ok(Err(error)) => telemetry.tracker_failure(
+                    tiers.iter().flatten().map(String::as_str),
+                    "stopped",
+                    &error,
+                ),
+                Err(_) => telemetry.tracker_failure(
+                    tiers.iter().flatten().map(String::as_str),
+                    "stopped",
+                    "Tracker stopped announce timed out",
+                ),
+            }
         }
+    }
+}
+
+fn tracker_event_name(event: TrackerEvent) -> &'static str {
+    match event {
+        TrackerEvent::None => "periodic",
+        TrackerEvent::Started => "started",
+        TrackerEvent::Completed => "completed",
+        TrackerEvent::Stopped => "stopped",
     }
 }
 

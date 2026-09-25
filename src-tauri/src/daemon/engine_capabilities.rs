@@ -2027,7 +2027,7 @@ pub fn native_torrent_status() -> Value {
             "dhtAnnouncePeer": true,
             "dhtServer": true,
             "dhtIpv4Server": true,
-            "dhtIpv6Server": false,
+            "dhtIpv6Server": true,
             "dhtGetPeersServe": true,
             "dhtAnnouncePeerServe": true,
             "dhtTokenRotation": true,
@@ -2035,6 +2035,10 @@ pub fn native_torrent_status() -> Value {
             "dhtSharedSocketTransport": true,
             "dhtPersistentRoutingTable": true,
             "dhtPeriodicAnnounce": true,
+            "dhtIpv6PeerAnnounce": false,
+            "livePeerTelemetry": true,
+            "liveTrackerTelemetry": true,
+            "telemetryCredentialRedaction": true,
             "pex": true,
             "pexReceive": true,
             "pexServe": true,
@@ -2162,7 +2166,7 @@ mod tests {
         assert_eq!(status["capabilities"]["privateDiscoveryGuard"], true);
         assert_eq!(status["capabilities"]["dhtServer"], true);
         assert_eq!(status["capabilities"]["dhtIpv4Server"], true);
-        assert_eq!(status["capabilities"]["dhtIpv6Server"], false);
+        assert_eq!(status["capabilities"]["dhtIpv6Server"], true);
         assert_eq!(status["capabilities"]["dhtGetPeersServe"], true);
         assert_eq!(status["capabilities"]["dhtAnnouncePeerServe"], true);
         assert_eq!(status["capabilities"]["dhtTokenRotation"], true);
@@ -2170,6 +2174,10 @@ mod tests {
         assert_eq!(status["capabilities"]["dhtSharedSocketTransport"], true);
         assert_eq!(status["capabilities"]["dhtPersistentRoutingTable"], true);
         assert_eq!(status["capabilities"]["dhtPeriodicAnnounce"], true);
+        assert_eq!(status["capabilities"]["dhtIpv6PeerAnnounce"], false);
+        assert_eq!(status["capabilities"]["livePeerTelemetry"], true);
+        assert_eq!(status["capabilities"]["liveTrackerTelemetry"], true);
+        assert_eq!(status["capabilities"]["telemetryCredentialRedaction"], true);
         assert_eq!(status["capabilities"]["metadataServe"], true);
         assert_eq!(status["capabilities"]["metadataServeExactInfoBytes"], true);
         assert_eq!(status["capabilities"]["metadataServePersistentSidecar"], true);
