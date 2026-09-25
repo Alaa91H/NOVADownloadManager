@@ -897,7 +897,6 @@ fn restore_persisted_tasks(
                 task.time_left_seconds = 0;
             }
         } else if task.engine == "nova-media-engine" {
-        } else if task.engine == "nova-media-engine" {
             let request = restored.native_media_requests.get(&task.id).cloned();
             if task.status != "completed" {
                 if let Some(request) = request {
@@ -1150,6 +1149,73 @@ mod tests {
         );
         drop(snapshot);
         assert_eq!(state.curl_jobs.lock().expect("lock curl jobs").len(), 2);
+        std::fs::remove_dir_all(&data_dir).ok();
+    }
+
+    #[test]
+    fn restoration_rebuilds_native_media_job_from_persisted_request() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "nova-restore-native-media-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&data_dir).expect("create test data directory");
+        let data_dir_string = data_dir.display().to_string();
+        let state = Arc::new(persist::tests::test_state(&data_dir_string));
+
+        let mut task = restoration_test_task("native-media", "downloading");
+        task.engine = "nova-media-engine".to_owned();
+        task.description = "Native media download".to_owned();
+
+        let request = CreateDownloadBody {
+            url: Some(task.url.clone()),
+            name: Some(task.name.clone()),
+            file_type: Some(task.file_type.clone()),
+            size_bytes: Some(task.size_bytes),
+            category: Some(task.category.clone()),
+            queue_id: Some(task.queue_id.clone()),
+            connections: Some(task.connections),
+            resumable: Some(task.resumable),
+            save_path: Some(task.save_path.clone()),
+            description: Some(task.description.clone()),
+            referer: None,
+            start_immediately: Some(false),
+            direct_options: None,
+            media_options: None,
+        };
+
+        restore_persisted_tasks(
+            &state,
+            persist::PersistedState {
+                tasks: vec![task],
+                native_media_requests: HashMap::from([("native-media".to_owned(), request)]),
+                native_media_protocols: HashMap::from([(
+                    "native-media".to_owned(),
+                    "manifest".to_owned(),
+                )]),
+                ..Default::default()
+            },
+        );
+
+        let jobs = state
+            .native_media_jobs
+            .lock()
+            .expect("lock restored native media jobs");
+        let job = jobs.get("native-media").expect("restored native media job");
+        assert_eq!(job.protocol, "manifest");
+        assert_eq!(job.task.status, "paused");
+        assert_eq!(job.task.engine_status.as_deref(), Some("interrupted"));
+        assert_eq!(
+            job.request.url.as_deref(),
+            Some("https://example.com/native-media")
+        );
+        drop(jobs);
+
+        let snapshot = state.task_snapshot.lock().expect("lock restored snapshot");
+        let restored = snapshot.get("native-media").expect("restored native media task");
+        assert_eq!(restored.status, "paused");
+        assert_eq!(restored.engine, "nova-media-engine");
+        drop(snapshot);
+
         std::fs::remove_dir_all(&data_dir).ok();
     }
 
