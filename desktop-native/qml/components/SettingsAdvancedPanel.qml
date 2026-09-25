@@ -193,35 +193,47 @@ ScrollView {
                     TextField {
                         Layout.fillWidth: true
                         placeholderText: root.t("settings.proxyHost")
+                        Accessible.name: root.t("settings.proxyHost")
                         text: String(root.advanced("proxyHost", ""))
                         enabled: Boolean(root.advanced("proxyEnabled", false))
                         onEditingFinished: root.setAdvanced("proxyHost", text)
+                        LayoutMirroring.enabled: false
+                        horizontalAlignment: Text.AlignLeft
                     }
 
                     TextField {
                         Layout.fillWidth: true
                         placeholderText: root.t("settings.proxyPort")
+                        Accessible.name: root.t("settings.proxyPort")
                         text: String(root.advanced("proxyPort", ""))
                         enabled: Boolean(root.advanced("proxyEnabled", false))
                         inputMethodHints: Qt.ImhDigitsOnly
                         onEditingFinished: root.setAdvanced("proxyPort", text)
+                        LayoutMirroring.enabled: false
+                        horizontalAlignment: Text.AlignLeft
                     }
 
                     TextField {
                         Layout.fillWidth: true
                         placeholderText: root.t("settings.proxyUser")
+                        Accessible.name: root.t("settings.proxyUser")
                         text: String(root.advanced("proxyUser", ""))
                         enabled: Boolean(root.advanced("proxyEnabled", false))
                         onEditingFinished: root.setAdvanced("proxyUser", text)
+                        LayoutMirroring.enabled: false
+                        horizontalAlignment: Text.AlignLeft
                     }
 
                     TextField {
                         Layout.fillWidth: true
                         placeholderText: root.t("settings.proxyPassword")
+                        Accessible.name: root.t("settings.proxyPassword")
                         text: String(root.advanced("proxyPassword", ""))
                         enabled: Boolean(root.advanced("proxyEnabled", false))
                         echoMode: TextInput.Password
                         onEditingFinished: root.setAdvanced("proxyPassword", text)
+                        LayoutMirroring.enabled: false
+                        horizontalAlignment: Text.AlignLeft
                     }
                 }
 
@@ -321,6 +333,7 @@ ScrollView {
                                 Layout.fillWidth: true
                                 visible: vpnMode.currentValue === "proxy"
                                 placeholderText: root.t("settings.vpnProxyUrl")
+                                Accessible.name: root.t("settings.vpnProxyUrl")
                                 text: String(root.advanced("vpnProxyUrl", ""))
                                 LayoutMirroring.enabled: false
                                 horizontalAlignment: Text.AlignLeft
@@ -331,6 +344,7 @@ ScrollView {
                                 Layout.fillWidth: true
                                 visible: vpnMode.currentValue === "bind"
                                 placeholderText: root.t("settings.vpnBindAddress")
+                                Accessible.name: root.t("settings.vpnBindAddress")
                                 text: String(root.advanced("vpnBindAddress", ""))
                                 LayoutMirroring.enabled: false
                                 horizontalAlignment: Text.AlignLeft
@@ -353,6 +367,7 @@ ScrollView {
                     TextField {
                         Layout.fillWidth: true
                         placeholderText: root.t("settings.dnsServers")
+                        Accessible.name: root.t("settings.dnsServers")
                         text: String(root.advanced("dnsServers", ""))
                         LayoutMirroring.enabled: false
                         horizontalAlignment: Text.AlignLeft
@@ -387,6 +402,7 @@ ScrollView {
                 TextField {
                     Layout.fillWidth: true
                     placeholderText: root.t("settings.userAgent")
+                    Accessible.name: root.t("settings.userAgent")
                     text: String(root.advanced("userAgent", ""))
                     LayoutMirroring.enabled: false
                     horizontalAlignment: Text.AlignLeft
@@ -484,6 +500,7 @@ ScrollView {
                             TextField {
                                 Layout.fillWidth: true
                                 placeholderText: root.t("settings.caCertificate")
+                                Accessible.name: root.t("settings.caCertificate")
                                 text: String(root.advanced("caCert", ""))
                                 LayoutMirroring.enabled: false
                                 horizontalAlignment: Text.AlignLeft
@@ -504,6 +521,7 @@ ScrollView {
                             TextField {
                                 Layout.fillWidth: true
                                 placeholderText: root.t("settings.clientCertificate")
+                                Accessible.name: root.t("settings.clientCertificate")
                                 text: String(root.advanced("clientCert", ""))
                                 LayoutMirroring.enabled: false
                                 horizontalAlignment: Text.AlignLeft
@@ -513,6 +531,7 @@ ScrollView {
                             TextField {
                                 Layout.fillWidth: true
                                 placeholderText: root.t("settings.clientKey")
+                                Accessible.name: root.t("settings.clientKey")
                                 text: String(root.advanced("clientKey", ""))
                                 LayoutMirroring.enabled: false
                                 horizontalAlignment: Text.AlignLeft
@@ -523,6 +542,7 @@ ScrollView {
                         TextField {
                             Layout.fillWidth: true
                             placeholderText: root.t("settings.tlsCiphers")
+                            Accessible.name: root.t("settings.tlsCiphers")
                             text: String(root.advanced("ciphers", ""))
                             LayoutMirroring.enabled: false
                             horizontalAlignment: Text.AlignLeft
@@ -582,8 +602,11 @@ ScrollView {
                     TextField {
                         Layout.fillWidth: true
                         placeholderText: root.t("settings.subtitleLanguage")
+                        Accessible.name: root.t("settings.subtitleLanguage")
                         text: String(root.advanced("subtitleLanguage", ""))
                         onEditingFinished: root.setAdvanced("subtitleLanguage", text)
+                        LayoutMirroring.enabled: false
+                        horizontalAlignment: Text.AlignLeft
                     }
                 }
 
@@ -593,6 +616,7 @@ ScrollView {
                         id: ffmpegPath
                         Layout.fillWidth: true
                         placeholderText: root.t("settings.ffmpegPath")
+                        Accessible.name: root.t("settings.ffmpegPath")
                         text: String(root.advanced("ffmpegPath", ""))
                         LayoutMirroring.enabled: false
                         horizontalAlignment: Text.AlignLeft
@@ -754,6 +778,7 @@ ScrollView {
                         ? String(api.telegramConfig.token || "****")
                         : root.t("settings.telegramToken")
                     echoMode: TextInput.Password
+                    Accessible.name: root.t("settings.telegramToken")
                     LayoutMirroring.enabled: false
                     horizontalAlignment: Text.AlignLeft
                 }
@@ -765,6 +790,7 @@ ScrollView {
                         id: telegramChatId
                         Layout.fillWidth: true
                         placeholderText: root.t("settings.telegramChatId")
+                        Accessible.name: root.t("settings.telegramChatId")
                         text: api.telegramConfig.chatId !== undefined
                             ? String(api.telegramConfig.chatId)
                             : ""
@@ -776,6 +802,7 @@ ScrollView {
                         id: telegramApiBase
                         Layout.fillWidth: true
                         text: String(api.telegramConfig.apiBase || "https://api.telegram.org")
+                        Accessible.name: root.t("settings.telegram") + " API"
                         LayoutMirroring.enabled: false
                         horizontalAlignment: Text.AlignLeft
                     }
@@ -881,6 +908,7 @@ ScrollView {
                             TextField {
                                 Layout.fillWidth: true
                                 text: root.shortcut(modelData.id)
+                                Accessible.name: modelData.label
                                 LayoutMirroring.enabled: false
                                 horizontalAlignment: Text.AlignLeft
                                 onEditingFinished: settings.setShortcutBinding(modelData.id, text)
