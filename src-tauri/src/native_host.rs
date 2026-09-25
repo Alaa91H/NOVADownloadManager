@@ -100,9 +100,40 @@ fn launch_capture_review_window() -> Result<(), String> {
     launch_desktop_process(Some("--capture-review"))
 }
 
-fn launch_desktop_process(argument: Option<&str>) -> Result<(), String> {
-    let executable = std::env::current_exe()
+fn resolve_desktop_executable() -> Result<std::path::PathBuf, String> {
+    if let Some(explicit) = std::env::var_os("NOVA_DESKTOP_EXECUTABLE")
+        .filter(|value| !value.is_empty())
+    {
+        let path = std::path::PathBuf::from(explicit);
+        if path.is_absolute() && path.is_file() {
+            return Ok(path);
+        }
+        return Err("NOVA_DESKTOP_EXECUTABLE must point to an existing absolute file".to_owned());
+    }
+
+    let current = std::env::current_exe()
         .map_err(|error| format!("cannot resolve NOVA executable: {error}"))?;
+    let parent = current
+        .parent()
+        .ok_or_else(|| "NOVA native host executable has no parent directory".to_owned())?;
+
+    #[cfg(target_os = "windows")]
+    let sibling = parent.join("nova-native.exe");
+    #[cfg(not(target_os = "windows"))]
+    let sibling = parent.join("nova-native");
+
+    if sibling.is_file() {
+        return Ok(sibling);
+    }
+
+    Err(format!(
+        "Qt native desktop executable was not found next to {}",
+        current.display()
+    ))
+}
+
+fn launch_desktop_process(argument: Option<&str>) -> Result<(), String> {
+    let executable = resolve_desktop_executable()?;
     let mut command = std::process::Command::new(executable);
     if let Some(argument) = argument {
         command.arg(argument);
@@ -171,6 +202,40 @@ fn read_port_file() -> Option<u16> {
     None
 }
 
+fn parse_pairing_secret(content: &str, expected_port: u16) -> Option<String> {
+    let value = serde_json::from_str::<Value>(content).ok()?;
+    if value.get("port").and_then(Value::as_u64) != Some(u64::from(expected_port)) {
+        return None;
+    }
+
+    value
+        .get("secret")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|secret| secret.len() >= 24)
+        .map(str::to_owned)
+}
+
+fn pairing_secret_for_base_url(base_url: &str) -> Option<String> {
+    let port = base_url
+        .rsplit_once(':')
+        .and_then(|(_, value)| value.parse::<u16>().ok())?;
+
+    for port_path in port_file_paths() {
+        let Some(parent) = port_path.parent() else {
+            continue;
+        };
+        let pairing_path = parent.join("nova-daemon.pairing.json");
+        let Ok(content) = std::fs::read_to_string(&pairing_path) else {
+            continue;
+        };
+        if let Some(secret) = parse_pairing_secret(&content, port) {
+            return Some(secret);
+        }
+    }
+    None
+}
+
 /// Compute platform-specific paths where the daemon may have written its port.
 /// These MUST match the directories the daemon actually uses:
 /// - Tauri mode:      `app_data_dir` for identifier `com.nova.downloadmanager`
@@ -179,6 +244,14 @@ fn read_port_file() -> Option<u16> {
 /// Legacy `NOVA` paths are kept as a fallback for older installs.
 fn port_file_paths() -> Vec<std::path::PathBuf> {
     let mut paths = Vec::new();
+
+    if let Some(override_dir) = std::env::var_os("NOVA_NATIVE_DATA_DIR")
+        .filter(|value| !value.is_empty())
+    {
+        paths.push(
+            std::path::PathBuf::from(override_dir).join("nova-daemon.port"),
+        );
+    }
 
     // Windows — Tauri app_data_dir: %APPDATA%\com.nova.downloadmanager
     if let Ok(app_data) = std::env::var("APPDATA") {
@@ -248,9 +321,11 @@ fn ping_daemon(client: &reqwest::blocking::Client, base_url: &str) -> bool {
     }
 }
 
-/// Call POST /v1/pair/auto to obtain the daemon's API token. The pair endpoint
-/// is exempt from auth and returns the real daemon token.
+/// Call POST /v1/pair/auto to obtain the daemon's separate native-client
+/// bearer token. The native host must prove possession of the per-daemon
+/// pairing secret published beside the daemon port file.
 fn obtain_api_token(client: &reqwest::blocking::Client, base_url: &str) -> Option<String> {
+    let pairing_secret = pairing_secret_for_base_url(base_url)?;
     let url = format!("{base_url}/v1/pair/auto");
     let response = client
         .post(&url)
@@ -259,14 +334,53 @@ fn obtain_api_token(client: &reqwest::blocking::Client, base_url: &str) -> Optio
             crate::daemon::NATIVE_HOST_PAIRING_HEADER,
             crate::daemon::NATIVE_HOST_PAIRING_VALUE,
         )
+        .header(crate::daemon::NATIVE_PAIRING_SECRET_HEADER, pairing_secret)
         .json(&json!({}))
         .send()
         .ok()?;
     let value: Value = response.json().ok()?;
+    if value.get("ok").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
     value
         .get("pairToken")
         .and_then(Value::as_str)
         .map(String::from)
+}
+
+#[cfg(test)]
+mod desktop_launch_tests {
+    use super::{parse_pairing_secret, resolve_desktop_executable};
+
+    #[test]
+    fn pairing_secret_parser_requires_matching_port_and_strong_secret() {
+        let content = serde_json::json!({
+            "port": 3199,
+            "pid": 1234,
+            "secret": "0123456789abcdef0123456789abcdef",
+            "protocolVersion": 1
+        })
+        .to_string();
+
+        assert_eq!(
+            parse_pairing_secret(&content, 3199).as_deref(),
+            Some("0123456789abcdef0123456789abcdef")
+        );
+        assert!(parse_pairing_secret(&content, 3200).is_none());
+        assert!(parse_pairing_secret(
+            r#"{"port":3199,"secret":"short"}"#,
+            3199
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn explicit_desktop_executable_must_be_absolute_and_exist() {
+        std::env::set_var("NOVA_DESKTOP_EXECUTABLE", "relative-nova-native");
+        let error = resolve_desktop_executable().expect_err("relative override must fail");
+        assert!(error.contains("absolute"));
+        std::env::remove_var("NOVA_DESKTOP_EXECUTABLE");
+    }
 }
 
 fn read_native_message() -> io::Result<Value> {
@@ -366,7 +480,7 @@ fn handle_native_request(
             Some(params),
             needs_auth,
         ),
-        "probe.media" => {
+        "probe.ytdlp" => {
             let url_param = params.get("url").and_then(Value::as_str).unwrap_or("");
             let encoded: String = url_param
                 .bytes()
@@ -377,7 +491,7 @@ fn handle_native_request(
                     _ => format!("%{b:02X}"),
                 })
                 .collect();
-            let route = format!("/api/media/probe?url={encoded}");
+            let route = format!("/api/ytdlp/probe?url={encoded}");
             http_json(client, state, "GET", &route, None, needs_auth)
         }
         "capabilities" => http_json(
@@ -446,10 +560,10 @@ fn native_pairing_response(
         "ok": true,
         "pairToken": pair_token,
         "autoApproved": true,
-        "method": "native-messaging-verified",
+        "method": "native-messaging-secret-proof",
         "protocolVersion": 4,
         "minimumSupportedProtocolVersion": 4,
-        "ttlSeconds": 60 * 60 * 24 * 30
+        "ttlSeconds": 60 * 60 * 24
     }))
 }
 
