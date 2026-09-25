@@ -20,6 +20,7 @@ use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
 use crate::daemon::engine::rules::RuleAction;
 use crate::daemon::state::SharedState;
 use crate::daemon::telegram::telegram_notify;
+use crate::daemon::torrent_task::{analyze_magnet, create_torrent_task, CreateTorrentBody};
 use crate::daemon::types::{
     transition_task_state, CreateDownloadBody, MediaDownloadOptions, Task, TaskState,
 };
@@ -353,6 +354,49 @@ pub async fn handle_create_download(
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": "Missing url"})),
         ));
+    }
+
+    if url.trim().to_ascii_lowercase().starts_with("magnet:") {
+        let save_path = body
+            .save_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .ok_or_else(|| {
+                (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(serde_json::json!({
+                        "error": "A destination directory is required for magnet downloads"
+                    })),
+                )
+            })?
+            .to_owned();
+
+        let analysis = analyze_magnet(&state, &url).await.map_err(|error| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({"error": error})),
+            )
+        })?;
+        let task = create_torrent_task(
+            &state,
+            CreateTorrentBody {
+                analysis_id: analysis.analysis_id,
+                save_path,
+                start_immediately: body.start_immediately,
+                file_priorities: None,
+                connections: body.connections,
+            },
+        )
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({"error": error})),
+            )
+        })?;
+        telegram_notify(&state, &format!("Torrent added: {}", task.name)).await;
+        return Ok(Json(task));
     }
 
     let (rule_priority, rule_mirrors, rule_rate_limit) =
