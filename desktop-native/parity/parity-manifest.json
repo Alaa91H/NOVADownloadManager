@@ -659,7 +659,7 @@
         "desktop-native/scripts/check-native-i18n-coverage.mjs",
         "desktop-native/tests/NativeParityTests.cpp"
       ],
-      "blocker": "The native selector exposes the full legacy language set, RTL metadata is shared, and curated aliases plus direct/exact reuse now cover at least 40% of native English keys through existing legacy translations. CI enforces the 40% floor. Remaining parity work is translating or safely mapping the unmatched native-only copy and completing per-language RTL/typography validation.",
+      "blocker": "The native selector exposes the full legacy language set, RTL metadata is shared, and direct/exact/canonical reuse plus curated aliases now cover at least 42% of native English keys through existing legacy translations (currently ~42.9%). CI enforces the floor. Remaining parity work is translating or safely mapping unmatched native-only copy and completing per-language RTL/typography validation.",
       "contains": [
         {
           "file": "desktop-native/src/localization/LegacyI18nCatalog.cpp",
@@ -673,7 +673,8 @@
         {
           "file": "desktop-native/scripts/check-native-i18n-coverage.mjs",
           "allOf": [
-            "requiredCoverage = 40",
+            "requiredCoverage = 42",
+            "canonicalEnglish",
             "Native localization bridge coverage gate passed"
           ]
         },
@@ -682,6 +683,7 @@
           "allOf": [
             "legacyLocalizationCatalogCoversFullLanguageSet",
             "Tous les téléchargements",
+            "Ajouter à la file d'attente",
             "settings.language"
           ]
         }
@@ -907,7 +909,12 @@
       "status": "partial",
       "evidence": [
         "desktop-native/qml/Main.qml",
-        "desktop-native/src/main.cpp"
+        "desktop-native/src/main.cpp",
+        "desktop-native/scripts/check-native-accessibility.mjs",
+        "desktop-native/qml/components/SettingsAdvancedPanel.qml",
+        "desktop-native/qml/components/MediaAdvancedPanel.qml",
+        "desktop-native/qml/pages/MediaDownloaderPage.qml",
+        "desktop-native/qml/components/QueueSettingsPanel.qml"
       ],
       "contains": [
         {
@@ -916,9 +923,25 @@
             "HighDpiScaleFactorRoundingPolicy",
             "PassThrough"
           ]
+        },
+        {
+          "file": "desktop-native/scripts/check-native-accessibility.mjs",
+          "allOf": [
+            "TextField is missing Accessible.name",
+            "bypasses Theme.fontScale",
+            "monospace technical TextField must stay explicitly LTR"
+          ]
+        },
+        {
+          "file": "desktop-native/qml/components/SettingsAdvancedPanel.qml",
+          "allOf": [
+            "Accessible.name",
+            "LayoutMirroring.enabled: false",
+            "horizontalAlignment: Text.AlignLeft"
+          ]
         }
       ],
-      "blocker": "Automated build coverage exists, but screen-reader, multi-monitor and full accessibility validation still require dedicated validation."
+      "blocker": "All native QML TextFields now expose Accessible.name, technical monospace inputs are statically required to stay LTR, and fixed numeric font.pixelSize declarations are rejected so text scaling remains effective. Remaining validation is real screen-reader behavior, color contrast, keyboard traversal beyond TextFields, High-DPI rendering and multi-monitor testing on packaged builds."
     },
     {
       "id": "large-list-recovery",
