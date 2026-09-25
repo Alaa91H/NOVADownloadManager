@@ -112,8 +112,19 @@ impl Default for TorrentSeedingControl {
 
 impl TorrentSeedingControl {
     pub fn from_snapshot(snapshot: TorrentSeedingSnapshot) -> Self {
+        let policy = match snapshot.policy.validate() {
+            Ok(policy) => policy,
+            Err(error) => {
+                log::warn!("Invalid persisted torrent seeding policy; disabling seeding: {error}");
+                TorrentSeedingPolicy {
+                    enabled: false,
+                    ratio_limit_milli: None,
+                    time_limit_seconds: None,
+                }
+            }
+        };
         Self {
-            policy: Arc::new(Mutex::new(snapshot.policy)),
+            policy: Arc::new(Mutex::new(policy)),
             uploaded_bytes: Arc::new(AtomicU64::new(snapshot.uploaded_bytes)),
             seeded_seconds: Arc::new(AtomicU64::new(snapshot.seeded_seconds)),
             active_since: Arc::new(Mutex::new(None)),
@@ -274,6 +285,22 @@ mod tests {
         });
         assert!(!control.upload_allowed(false, 1000));
         assert!(!control.upload_allowed(true, 1000));
+    }
+
+    #[test]
+    fn invalid_persisted_policy_fails_closed() {
+        let control = TorrentSeedingControl::from_snapshot(TorrentSeedingSnapshot {
+            policy: TorrentSeedingPolicy {
+                enabled: true,
+                ratio_limit_milli: Some(MAX_SEED_RATIO_MILLI + 1),
+                time_limit_seconds: None,
+            },
+            uploaded_bytes: 7,
+            seeded_seconds: 9,
+        });
+        assert!(!control.policy().enabled);
+        assert_eq!(control.uploaded_bytes(), 7);
+        assert_eq!(control.effective_seeded_seconds(), 9);
     }
 
     #[test]

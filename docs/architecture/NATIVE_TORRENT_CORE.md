@@ -169,7 +169,7 @@ NOVA now accepts both native BitTorrent source forms without delegating executio
 - system-open file reads use a bounded one-time allow-list and raw binary IPC; arbitrary frontend-provided filesystem paths are rejected;
 - incoming local files must be regular `.torrent` files, non-empty, within the metainfo size limit, and on a local disk path.
 
-### Stage 8 — Inbound peer and seeding — foundation in progress
+### Stage 8 — Inbound peer and seeding — complete
 
 The upload path now has a fail-closed session foundation:
 
@@ -196,16 +196,21 @@ announce on pause, failure, removal, or shutdown. Announcing is fail-closed unti
 the inbound listener has actually bound its port. Verified completed torrents
 also restart their tracker lifecycle after daemon recovery, while private torrents
 that lost tracker authorization remain fail-closed until reauthorization.
-Persistent upload accounting across daemon restarts remains intentionally disabled.
+Seeding policy is now durable and user-configurable. Each torrent can disable
+uploading entirely or set an optional upload/download ratio limit and completed
+seeding-time limit. Uploaded bytes and accumulated seeding time are persisted in
+`downloads-state.json` (state version 4), restored across daemon restarts, and
+exposed through torrent task details. The create-torrent dialog and live/completed
+torrent dialogs expose the same policy controls. Limit enforcement cancels all
+seed sessions and the tracker lifecycle through a dedicated seed cancellation
+token without cancelling the download worker.
 
 ### Remaining advanced swarm work
 
 The download path is operational. Features that remain intentionally unadvertised or disabled are advanced peer-service capabilities rather than prerequisites for native downloading:
 
-- inbound peer listening and upload/seeding;
 - serving BEP 9 metadata and BEP 11 PEX to remote peers;
 - a long-lived DHT server and persistent routing table;
-- seeding ratios/time limits and upload-bandwidth policy;
 - additional torrent task telemetry such as per-peer and per-tracker live tables.
 
 ## Quality gates
@@ -220,4 +225,8 @@ cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 cargo fmt --check --manifest-path src-tauri/Cargo.toml
 ```
 
-Torrent routing is enabled only for capabilities that are connected end-to-end. Advanced serving/seeding capabilities continue to report false until their implementations and lifecycle tests are complete.
+Torrent routing is enabled only for capabilities that are connected end-to-end.
+Inbound upload/seeding, bandwidth policy, tracker lifecycle, persistent counters,
+and ratio/time controls now report supported. Metadata/PEX serving and the
+long-lived DHT server remain deliberately unadvertised until their lifecycle and
+security tests are complete.

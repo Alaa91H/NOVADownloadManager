@@ -653,6 +653,14 @@ pub(crate) mod tests {
         )
         .unwrap();
         job.private = true;
+        job.seeding
+            .replace_policy(crate::daemon::torrent_seeding::TorrentSeedingPolicy {
+                enabled: false,
+                ratio_limit_milli: Some(2000),
+                time_limit_seconds: Some(3600),
+            })
+            .unwrap();
+        job.seeding.record_upload(4096);
         state
             .torrent_jobs
             .lock()
@@ -672,6 +680,11 @@ pub(crate) mod tests {
         let persisted = snapshot.torrent_sources.get(&task.id).unwrap();
         assert!(persisted.starts_with("magnet:?"));
         assert!(!persisted.contains("tracker.example"));
+        let seeding = snapshot.torrent_seeding.get(&task.id).unwrap();
+        assert_eq!(seeding.uploaded_bytes, 4096);
+        assert!(!seeding.policy.enabled);
+        assert_eq!(seeding.policy.ratio_limit_milli, Some(2000));
+        assert_eq!(seeding.policy.time_limit_seconds, Some(3600));
 
         let _ = std::fs::remove_dir_all(dir);
     }

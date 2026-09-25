@@ -2052,7 +2052,12 @@ pub fn native_torrent_status() -> Value {
             "uploadBandwidthPolicy": true,
             "uploadSessionAccounting": true,
             "trackerLifecycleAnnounce": true,
-            "persistentUploadAccounting": false,
+            "persistentUploadAccounting": true,
+            "persistentSeedTimeAccounting": true,
+            "seedingPolicyApi": true,
+            "seedingControlsUi": true,
+            "seedRatioLimit": true,
+            "seedTimeLimit": true,
             "selectedFileTransfer": true,
             "sparseStorage": true,
             "fullPreallocation": true,
@@ -2155,7 +2160,12 @@ mod tests {
         assert_eq!(status["capabilities"]["uploadBandwidthPolicy"], true);
         assert_eq!(status["capabilities"]["uploadSessionAccounting"], true);
         assert_eq!(status["capabilities"]["trackerLifecycleAnnounce"], true);
-        assert_eq!(status["capabilities"]["persistentUploadAccounting"], false);
+        assert_eq!(status["capabilities"]["persistentUploadAccounting"], true);
+        assert_eq!(status["capabilities"]["persistentSeedTimeAccounting"], true);
+        assert_eq!(status["capabilities"]["seedingPolicyApi"], true);
+        assert_eq!(status["capabilities"]["seedingControlsUi"], true);
+        assert_eq!(status["capabilities"]["seedRatioLimit"], true);
+        assert_eq!(status["capabilities"]["seedTimeLimit"], true);
         assert_eq!(status["capabilities"]["fileSelection"], true);
         assert_eq!(status["capabilities"]["priorityScheduler"], true);
         assert_eq!(status["capabilities"]["durableStorageCore"], true);

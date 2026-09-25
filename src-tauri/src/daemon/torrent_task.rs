@@ -1305,6 +1305,8 @@ pub async fn recheck_restored_completed_torrents(state: &SharedState) {
                 }
                 Err(error) => {
                     current.cancel_token.cancel();
+                    current.seed_cancel_token.cancel();
+                    current.seeding.stop_timer();
                     current.task.status = TaskState::Failed.as_status().to_owned();
                     current.task.engine_status = Some("completion-invalid".to_owned());
                     current.task.error_message = Some(limit_error(&error));
