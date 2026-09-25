@@ -121,8 +121,9 @@ request URL + authorized headers/cookies
 - dynamic DASH recording with incremental timeline cursors, pause/resume checkpoints and committed-part recovery;
 - native manifest tasks integrated with the shared task lifecycle, cancellation generation, queue accounting and persisted snapshots;
 - native separate audio/video task execution with parallel track staging, per-track progress and durable completed-track checkpoints;
-- 1080p/1440p/2160p quality selection can choose separate native video/audio tracks when post-processing is explicitly enabled;
-- lossless copy-mux is isolated behind the `NOVA Post-Processing` host interface; the temporary FFmpeg adapter receives local files only and never participates in URL resolution, extraction or authentication;
+- native progressive MP4 multi-track muxing in `nova-media-core`, preserving source codec/sample metadata and interleaving video/audio by decode time without transcoding;
+- 1080p/1440p/2160p quality selection can choose compatible MP4 video/audio tracks even when the host FFmpeg adapter is unavailable;
+- non-MP4 copy-mux and embedding operations remain isolated behind the `NOVA Post-Processing` host interface; the temporary FFmpeg adapter receives local files only and never participates in URL resolution, extraction or authentication;
 - pause/resume during separate-track transfer preserves native partial artifacts, while completed tracks are reused after restart without unnecessary re-download;
 - native audio-only representation selection without transcoding, including source-container preference and bounded format sorting;
 - explicit native stream/itag selection for one stream or a video+audio pair;
@@ -158,7 +159,7 @@ request URL + authorized headers/cookies
 Still isolated behind typed interfaces:
 
 - newly observed throttling/challenge transform families that fall outside the verified native parser subset;
-- a fully in-process Rust container muxer that can replace the temporary host post-processing adapter;
+- native WebM/Matroska multi-track muxing and the remaining embedding/remux cases still handled by the temporary host post-processing adapter;
 - HLS/DASH manifests that require composing separate audio/video representations into one output;
 - subtitle/thumbnail/metadata embedding into the final container;
 - chapter splitting and time-based partial-section extraction;
@@ -172,7 +173,7 @@ Unknown transforms and unsupported protected-media modes fail closed. They are n
 
 ### Post-processing boundary
 
-The temporary FFmpeg adapter is **not** a media resolver. NOVA resolves and downloads every selected track first. The adapter receives only local staged file paths and a destination path, uses explicit stream mapping with copy-only muxing, accepts no user-supplied command fragments, and can be cancelled by the task lifecycle. If post-processing is disabled or unavailable, a request that explicitly requires separate tracks fails closed rather than silently delegating extraction or lowering the selected quality.
+The temporary FFmpeg adapter is **not** a media resolver. Compatible MP4 video/audio pairs are muxed directly by `nova-media-core`; the adapter is reserved for container/embedding cases that the native muxer does not yet cover. NOVA resolves and downloads every selected track first. The adapter receives only local staged file paths and a destination path, uses explicit stream mapping with copy-only muxing, accepts no user-supplied command fragments, and can be cancelled by the task lifecycle. Unsupported non-MP4/embedding requests fail closed when the host post-processor is unavailable.
 
 ## Post-removal native acceptance matrix
 
