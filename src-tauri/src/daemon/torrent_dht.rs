@@ -35,7 +35,8 @@ const MAX_STORED_INFO_HASHES: usize = 1_024;
 const MAX_STORED_PEERS_PER_HASH: usize = 128;
 const MAX_RESPONSE_PEERS: usize = 16;
 const MAX_RESPONSE_NODES: usize = 8;
-static ACTIVE_TORRENT_DHT_PORT: AtomicU16 = AtomicU16::new(0);
+static ACTIVE_TORRENT_DHT_IPV4_PORT: AtomicU16 = AtomicU16::new(0);
+static ACTIVE_TORRENT_DHT_IPV6_PORT: AtomicU16 = AtomicU16::new(0);
 
 const DEFAULT_BOOTSTRAP: &[&str] = &[
     "router.bittorrent.com:6881",
@@ -165,7 +166,8 @@ struct PendingDhtExchange {
 }
 
 struct DhtSharedTransport {
-    socket: TokioRwLock<Option<Arc<UdpSocket>>>,
+    ipv4_socket: TokioRwLock<Option<Arc<UdpSocket>>>,
+    ipv6_socket: TokioRwLock<Option<Arc<UdpSocket>>>,
     pending: TokioMutex<HashMap<Vec<u8>, PendingDhtExchange>>,
 }
 
@@ -178,21 +180,32 @@ impl std::fmt::Debug for DhtSharedTransport {
 impl DhtSharedTransport {
     fn new() -> Self {
         Self {
-            socket: TokioRwLock::new(None),
+            ipv4_socket: TokioRwLock::new(None),
+            ipv6_socket: TokioRwLock::new(None),
             pending: TokioMutex::new(HashMap::new()),
         }
     }
 
-    async fn set_socket(&self, socket: Option<Arc<UdpSocket>>) {
-        let disconnecting = socket.is_none();
-        *self.socket.write().await = socket;
-        if disconnecting {
-            self.pending.lock().await.clear();
+    async fn set_socket(&self, ipv6: bool, socket: Option<Arc<UdpSocket>>) {
+        if ipv6 {
+            *self.ipv6_socket.write().await = socket;
+        } else {
+            *self.ipv4_socket.write().await = socket;
         }
     }
 
-    async fn socket(&self) -> Option<Arc<UdpSocket>> {
-        self.socket.read().await.clone()
+    async fn clear_sockets(&self) {
+        *self.ipv4_socket.write().await = None;
+        *self.ipv6_socket.write().await = None;
+        self.pending.lock().await.clear();
+    }
+
+    async fn socket_for(&self, address: SocketAddr) -> Option<Arc<UdpSocket>> {
+        if address.is_ipv6() {
+            self.ipv6_socket.read().await.clone()
+        } else {
+            self.ipv4_socket.read().await.clone()
+        }
     }
 
     async fn register(
@@ -411,23 +424,81 @@ impl DhtService {
         state: SharedState,
         cancel: CancellationToken,
     ) -> Result<u16, String> {
-        let port = configured_dht_port();
-        let socket = Arc::new(
-            UdpSocket::bind(("0.0.0.0", port))
+        let ipv4_port = configured_dht_port();
+        let ipv4_socket = Arc::new(
+            UdpSocket::bind(("0.0.0.0", ipv4_port))
                 .await
-                .map_err(|error| format!("Could not bind torrent DHT UDP port {port}: {error}"))?,
+                .map_err(|error| format!("Could not bind torrent DHT IPv4 UDP port {ipv4_port}: {error}"))?,
         );
-        let local = socket
+        let ipv4_local = ipv4_socket
             .local_addr()
-            .map_err(|error| format!("Could not read torrent DHT listener address: {error}"))?;
-        self.engine.attach_socket(Some(socket.clone())).await;
-        ACTIVE_TORRENT_DHT_PORT.store(local.port(), Ordering::Release);
-        log::info!("Native torrent DHT server started on {local}");
+            .map_err(|error| format!("Could not read torrent DHT IPv4 listener address: {error}"))?;
+        self.engine
+            .attach_socket(false, Some(ipv4_socket.clone()))
+            .await;
+        ACTIVE_TORRENT_DHT_IPV4_PORT.store(ipv4_local.port(), Ordering::Release);
+
+        let requested_ipv6_port = configured_dht_ipv6_port();
+        let ipv6_socket = match UdpSocket::bind(("::", requested_ipv6_port)).await {
+            Ok(socket) => Some(Arc::new(socket)),
+            Err(primary_error) if requested_ipv6_port != 0 => {
+                log::debug!(
+                    "Torrent DHT IPv6 port {requested_ipv6_port} unavailable ({primary_error}); retrying with an OS-assigned IPv6 port"
+                );
+                match UdpSocket::bind(("::", 0)).await {
+                    Ok(socket) => Some(Arc::new(socket)),
+                    Err(fallback_error) => {
+                        log::warn!(
+                            "Native torrent IPv6 DHT listener is unavailable: {fallback_error}"
+                        );
+                        None
+                    }
+                }
+            }
+            Err(error) => {
+                log::warn!("Native torrent IPv6 DHT listener is unavailable: {error}");
+                None
+            }
+        };
+
+        if let Some(socket) = ipv6_socket.as_ref() {
+            let local = socket
+                .local_addr()
+                .map_err(|error| format!("Could not read torrent DHT IPv6 listener address: {error}"))?;
+            self.engine.attach_socket(true, Some(socket.clone())).await;
+            ACTIVE_TORRENT_DHT_IPV6_PORT.store(local.port(), Ordering::Release);
+            log::info!(
+                "Native torrent DHT server started on IPv4 {ipv4_local} and IPv6 {local}"
+            );
+        } else {
+            log::info!("Native torrent DHT server started on IPv4 {ipv4_local}");
+        }
+
+        let mut workers = JoinSet::new();
+        {
+            let service = self.clone();
+            let worker_state = state.clone();
+            let worker_cancel = cancel.child_token();
+            let socket = ipv4_socket.clone();
+            workers.spawn(async move {
+                service
+                    .serve_socket(worker_state, socket, worker_cancel)
+                    .await
+            });
+        }
+        if let Some(socket) = ipv6_socket {
+            let service = self.clone();
+            let worker_state = state.clone();
+            let worker_cancel = cancel.child_token();
+            workers.spawn(async move {
+                service
+                    .serve_socket(worker_state, socket, worker_cancel)
+                    .await
+            });
+        }
 
         let mut maintenance = tokio::time::interval(DHT_MAINTENANCE_INTERVAL);
         maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        let mut buffer = vec![0u8; MAX_DHT_PACKET_BYTES];
-
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => break,
@@ -437,62 +508,94 @@ impl DhtService {
                         log::debug!("Could not persist DHT routing state: {error}");
                     }
                 }
-                received = socket.recv_from(&mut buffer) => {
-                    let (length, source) = match received {
-                        Ok(value) => value,
-                        Err(error) => {
-                            log::debug!("Torrent DHT receive failed: {error}");
-                            continue;
+                joined = workers.join_next(), if !workers.is_empty() => {
+                    match joined {
+                        Some(Ok(Ok(()))) => {
+                            if !cancel.is_cancelled() {
+                                log::warn!("A torrent DHT socket worker exited unexpectedly");
+                            }
                         }
-                    };
-                    if !self.engine.address_allowed(source) {
-                        continue;
-                    }
-                    let packet = &buffer[..length];
-                    let message = match DhtMessage::parse(packet) {
-                        Ok(message) => message,
-                        Err(_) => continue,
-                    };
-                    if matches!(
-                        &message,
-                        DhtMessage::Response { .. } | DhtMessage::Error { .. }
-                    )
-                        && self
-                            .engine
-                            .deliver_shared_response(source, message.clone())
-                            .await
-                    {
-                        continue;
-                    }
-                    let Some(response) = self.handle_message(&state, source, message) else {
-                        continue;
-                    };
-                    let encoded = match response.encode() {
-                        Ok(encoded) => encoded,
-                        Err(error) => {
-                            log::debug!("Could not encode torrent DHT response: {error}");
-                            continue;
+                        Some(Ok(Err(error))) => {
+                            log::warn!("Torrent DHT socket worker failed: {error}");
                         }
-                    };
-                    if encoded.len() > 1_200 {
-                        log::debug!(
-                            "Dropping oversized torrent DHT response to {source}: {} bytes",
-                            encoded.len()
-                        );
-                        continue;
+                        Some(Err(error)) => {
+                            log::warn!("Torrent DHT socket worker panicked: {error}");
+                        }
+                        None => {}
                     }
-                    let _ = socket.send_to(&encoded, source).await;
+                    if workers.is_empty() && !cancel.is_cancelled() {
+                        break;
+                    }
                 }
             }
         }
 
-        self.engine.attach_socket(None).await;
-        ACTIVE_TORRENT_DHT_PORT.store(0, Ordering::Release);
+        cancel.cancel();
+        workers.abort_all();
+        while workers.join_next().await.is_some() {}
+        self.engine.detach_sockets().await;
+        ACTIVE_TORRENT_DHT_IPV4_PORT.store(0, Ordering::Release);
+        ACTIVE_TORRENT_DHT_IPV6_PORT.store(0, Ordering::Release);
         self.maintenance();
         if let Err(error) = self.save_state() {
             log::warn!("Could not save DHT routing state during shutdown: {error}");
         }
-        Ok(local.port())
+        Ok(ipv4_local.port())
+    }
+
+    async fn serve_socket(
+        &self,
+        state: SharedState,
+        socket: Arc<UdpSocket>,
+        cancel: CancellationToken,
+    ) -> Result<(), String> {
+        let mut buffer = vec![0u8; MAX_DHT_PACKET_BYTES];
+        loop {
+            let (length, raw_source) = tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                received = socket.recv_from(&mut buffer) => {
+                    received.map_err(|error| format!("Torrent DHT receive failed: {error}"))?
+                }
+            };
+            let source = canonical_socket_addr(raw_source);
+            if !self.engine.address_allowed(source) {
+                continue;
+            }
+            let message = match DhtMessage::parse(&buffer[..length]) {
+                Ok(message) => message,
+                Err(_) => continue,
+            };
+            if matches!(
+                &message,
+                DhtMessage::Response { .. } | DhtMessage::Error { .. }
+            ) && self
+                .engine
+                .deliver_shared_response(source, message.clone())
+                .await
+            {
+                continue;
+            }
+            let Some(response) = self.handle_message(&state, source, message) else {
+                continue;
+            };
+            let encoded = match response.encode() {
+                Ok(encoded) => encoded,
+                Err(error) => {
+                    log::debug!("Could not encode torrent DHT response: {error}");
+                    continue;
+                }
+            };
+            if encoded.len() > 1_200 {
+                log::debug!(
+                    "Dropping oversized torrent DHT response to {source}: {} bytes",
+                    encoded.len()
+                );
+                continue;
+            }
+            if let Err(error) = socket.send_to(&encoded, raw_source).await {
+                log::trace!("Torrent DHT response to {source} failed: {error}");
+            }
+        }
     }
 
     #[cfg(test)]
@@ -847,9 +950,33 @@ pub fn configured_dht_port() -> u16 {
         .unwrap_or_else(crate::daemon::torrent_seed::configured_seed_port)
 }
 
-pub fn active_dht_port() -> Option<u16> {
-    let port = ACTIVE_TORRENT_DHT_PORT.load(Ordering::Acquire);
+pub fn configured_dht_ipv6_port() -> u16 {
+    std::env::var("NOVA_TORRENT_DHT_IPV6_PORT")
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .unwrap_or_else(configured_dht_port)
+}
+
+pub fn active_dht_ipv4_port() -> Option<u16> {
+    let port = ACTIVE_TORRENT_DHT_IPV4_PORT.load(Ordering::Acquire);
     (port != 0).then_some(port)
+}
+
+pub fn active_dht_ipv6_port() -> Option<u16> {
+    let port = ACTIVE_TORRENT_DHT_IPV6_PORT.load(Ordering::Acquire);
+    (port != 0).then_some(port)
+}
+
+pub fn active_dht_port_for(address: SocketAddr) -> Option<u16> {
+    if address.is_ipv6() {
+        active_dht_ipv6_port()
+    } else {
+        active_dht_ipv4_port()
+    }
+}
+
+pub fn active_dht_port() -> Option<u16> {
+    active_dht_ipv4_port().or_else(active_dht_ipv6_port)
 }
 
 #[derive(Clone, Debug)]
@@ -943,8 +1070,12 @@ impl DhtEngine {
         self.node_id
     }
 
-    async fn attach_socket(&self, socket: Option<Arc<UdpSocket>>) {
-        self.transport.set_socket(socket).await;
+    async fn attach_socket(&self, ipv6: bool, socket: Option<Arc<UdpSocket>>) {
+        self.transport.set_socket(ipv6, socket).await;
+    }
+
+    async fn detach_sockets(&self) {
+        self.transport.clear_sockets().await;
     }
 
     async fn deliver_shared_response(
@@ -1219,12 +1350,7 @@ impl DhtEngine {
             .encode()
             .map_err(|error| format!("Could not encode DHT query: {error}"))?;
 
-        if let Some(socket) = self.transport.socket().await.filter(|socket| {
-            socket
-                .local_addr()
-                .map(|local| local.is_ipv4() == address.is_ipv4())
-                .unwrap_or(false)
-        }) {
+        if let Some(socket) = self.transport.socket_for(address).await {
             let receiver = self
                 .transport
                 .register(expected_transaction.to_vec(), address)
@@ -1391,6 +1517,16 @@ impl DhtEngine {
             routing: Arc::new(Mutex::new(DhtRoutingTable::new(node_id))),
             transport: Arc::new(DhtSharedTransport::new()),
         }
+    }
+}
+
+fn canonical_socket_addr(address: SocketAddr) -> SocketAddr {
+    match address {
+        SocketAddr::V6(address) => match address.ip().to_ipv4_mapped() {
+            Some(ipv4) => SocketAddr::new(IpAddr::V4(ipv4), address.port()),
+            None => SocketAddr::V6(address),
+        },
+        SocketAddr::V4(_) => address,
     }
 }
 
@@ -1794,6 +1930,52 @@ mod tests {
         assert_eq!(snapshot[0].node, recent.node);
     }
 
+    #[test]
+    fn canonical_socket_addr_converts_ipv4_mapped_ipv6() {
+        let mapped: SocketAddr = "[::ffff:8.8.8.8]:6881".parse().unwrap();
+        assert_eq!(
+            canonical_socket_addr(mapped),
+            "8.8.8.8:6881".parse::<SocketAddr>().unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn shared_transport_selects_socket_by_address_family() {
+        let engine = DhtEngine::for_tests(id(7), DhtConfig::default());
+        let ipv4 = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let ipv6 = match UdpSocket::bind("[::1]:0").await {
+            Ok(socket) => Arc::new(socket),
+            Err(_) => return,
+        };
+        let ipv4_port = ipv4.local_addr().unwrap().port();
+        let ipv6_port = ipv6.local_addr().unwrap().port();
+        engine.attach_socket(false, Some(ipv4)).await;
+        engine.attach_socket(true, Some(ipv6)).await;
+
+        assert_eq!(
+            engine
+                .transport
+                .socket_for("8.8.8.8:6881".parse().unwrap())
+                .await
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .port(),
+            ipv4_port
+        );
+        assert_eq!(
+            engine
+                .transport
+                .socket_for("[2001:4860:4860::8888]:6881".parse().unwrap())
+                .await
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .port(),
+            ipv6_port
+        );
+    }
+
     #[tokio::test]
     async fn shared_transport_uses_long_lived_listener_port() {
         let remote = UdpSocket::bind("127.0.0.1:0").await.unwrap();
@@ -1807,7 +1989,7 @@ mod tests {
                 ..DhtConfig::default()
             },
         );
-        engine.attach_socket(Some(local.clone())).await;
+        engine.attach_socket(false, Some(local.clone())).await;
 
         let server_engine = engine.clone();
         let receiver = tokio::spawn(async move {

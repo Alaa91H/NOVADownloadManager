@@ -17,7 +17,7 @@ use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::torrent_bandwidth::TorrentBandwidthLimiter;
-use crate::daemon::torrent_dht::active_dht_port;
+use crate::daemon::torrent_dht::active_dht_port_for;
 use crate::daemon::utils::{is_internal_ip, private_network_allowed};
 
 const MAX_PEER_CANDIDATES: usize = 4_096;
@@ -616,8 +616,8 @@ impl PeerSession {
         let mut local_handshake = PeerHandshake::new(info_hash, local_peer_id);
         // BEP 10 is implemented end-to-end for ut_metadata and ut_pex.
         local_handshake.reserved[5] |= 0x10;
-        let local_dht_port = if config.enable_dht && address.is_ipv4() {
-            active_dht_port()
+        let local_dht_port = if config.enable_dht {
+            active_dht_port_for(address)
         } else {
             None
         };

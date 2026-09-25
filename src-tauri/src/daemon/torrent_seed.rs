@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::daemon::state::SharedState;
 use crate::daemon::torrent_bandwidth::TorrentBandwidthLimiter;
-use crate::daemon::torrent_dht::active_dht_port;
+use crate::daemon::torrent_dht::active_dht_ipv4_port;
 use crate::daemon::torrent_seeding::TorrentSeedingControl;
 use crate::daemon::torrent_storage::TorrentStorageSession;
 use crate::daemon::torrent_task::ensure_storage_session;
@@ -338,7 +338,7 @@ async fn serve_inbound_seed_session_after_handshake(
     let dht_port = if plan.metainfo.private || !extensions.advertise_dht {
         None
     } else {
-        active_dht_port()
+        active_dht_ipv4_port()
     };
     let mut local = PeerHandshake::new(expected_info_hash, local_peer_id);
     if extensions.enabled() {
