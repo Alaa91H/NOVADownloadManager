@@ -29,6 +29,11 @@ Rectangle {
 
     implicitHeight: 30
     color: Theme.sidebar
+    Accessible.role: Accessible.StatusBar
+    Accessible.name: root.engineStatus
+        + " · " + root.activeCount + " " + root.t("status.active")
+        + " · " + root.formatSpeed(root.totalSpeed)
+        + " · " + root.totalCount + " " + root.t("status.downloads")
 
     RowLayout {
         anchors.fill: parent
