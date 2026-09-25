@@ -1,44 +1,32 @@
 # NOVA Download Manager Project Structure
 
-NOVA is organized as one product with one repository control plane. The desktop UI, Rust daemon, browser extension, installer, audits, and documentation must stay aligned through root-owned scripts and root-owned CI.
+NOVA uses one repository control plane for the native desktop application, Rust runtime, browser companion, Android foundation, shared cores, documentation and release automation.
 
 ## Runtime surfaces
 
-- `src-tauri/` — Rust/Tauri daemon, in-process `libcurl multi` engine, media routing, Native Messaging host, NSIS hooks, and local loopback API.
-- `src/` — desktop React UI. Every engine-dependent control must read from `EngineCapabilityContext`.
-- `browser-extension/` — Manifest V3 browser companion source, tests, contracts, packaging tools, and WXT configuration.
-- `scripts/` — root build, native-curl, installer, audit, cleanup, i18n, and release helpers.
-- `.github/` — the single executable CI, release, and Dependabot control plane for the whole product. This is the single CI and Dependabot control plane for desktop, daemon, installer, and extension work.
-- `docs/` — all product documentation except the root `README.md`.
+- `desktop-native/` — the only desktop UI: Qt 6.8+, QML/Qt Quick Controls 2 and C++20.
+- `src-tauri/` — headless Rust runtime. The directory name is retained for history, but the crate no longer depends on Tauri or a WebView. It builds `nova-native-backend` and `nova-native-host`.
+- `browser-extension/` — Manifest V3 browser companion, tests and WXT packaging.
+- `android/` — Android application foundation.
+- `crates/` — shared Rust model/download/mobile libraries.
+- `scripts/` — native runtime, branding, security and release helpers.
+- `.github/` — executable CI/release/Dependabot control plane.
+- `docs/` — product documentation except the root README.
 
-## Centralization policy
+## Desktop ownership boundary
 
-The browser extension is part of the product, not an independent repository. It must not contain nested repository-management files such as `.github/`, `.devcontainer/`, extension-local `.gitignore`, extension-local `.npmrc`, extension-local `.nvmrc`, or extension-local documentation folders.
+Qt owns presentation, local UI preferences and OS integration. Rust owns transfer execution, engine capabilities, task state, queue/scheduler policy, media processing and browser handoff state. QML/C++ must not duplicate the daemon as a second download-state authority.
 
-Executable automation belongs in root `.github/`. Historical or reference-only extension CI/build templates belong under `docs/extension/ci-templates/`.
+## Retired desktop stack
 
-## Generated-file policy
+The former `src/` React tree, Vite entry points, Tauri window/bootstrap/configuration, WebView asset server, NSIS/Tauri installer sources and associated desktop-web tooling were removed when Qt became the primary UI.
 
-Generated directories and local outputs must not be committed:
+Repository fact checks reject reintroduction of those retired paths.
 
-- `node_modules/`
-- `dist/`
-- `build/`
-- `.output/`
-- `.wxt/`
-- `src-tauri/target/`
-- `src-tauri/resources/`
-- `bin/`
-- `vendor/native/`
-- release archives and installers
-- logs, temporary files, caches, diagnostics, and test reports
+## Package management
 
-The root `.gitignore` is the canonical ignore policy for both the desktop app and the browser extension.
+Root Node dependencies are repository scripting only. The browser extension retains its own package manifest inside the root pnpm workspace. Rust dependency management stays in Cargo and Qt dependency management stays in CMake.
 
-## Package-management policy
+## Generated outputs
 
-The root package owns orchestration. The extension keeps its own `package.json` because WXT and store packaging need extension-local commands, but package-manager policy is centralized at the root through `.npmrc`, `.node-version`, `.prettierrc`, `.editorconfig`, `.gitattributes`, `.gitignore`, `.github/dependabot.yml`, and `.github/workflows/ci.yml`.
-
-## Documentation policy
-
-The only documentation allowed outside `docs/` is the root `README.md`. Extension documentation belongs in `docs/extension/`, release/store material belongs in `docs/release/` (forthcoming), and maintenance policy belongs in `docs/maintenance/`.
+Do not commit build/runtime outputs such as `node_modules/`, `build/`, extension `.output/`, Rust `target/`, downloaded engines, release archives, logs or test reports.
