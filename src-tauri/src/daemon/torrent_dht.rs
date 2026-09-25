@@ -2084,7 +2084,7 @@ mod tests {
                 response: DhtResponse {
                     id: id(1),
                     token: Some(vec![1, 2, 3]),
-                    nodes: vec![DhtNode {
+                    nodes: vec![nova_torrent_core::DhtNode {
                         id: id(8),
                         address: second_address,
                     }],

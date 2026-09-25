@@ -592,7 +592,7 @@ pub async fn run_scheduler_tick(state: &SharedState) {
     // triggers. Locks acquired in documented order: media_jobs → curl_jobs →
     // task_snapshot.
     let (active_count, queued_count, total_count) = {
-        let media = lock_or_err!(state.media_jobs);
+        let media = lock_or_err!(state.native_media_jobs);
         let jobs = lock_or_err!(state.curl_jobs);
         let snapshot = lock_or_err!(state.task_snapshot);
         let mut active = 0u32;

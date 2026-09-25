@@ -10,7 +10,6 @@ pub mod postprocess;
 pub mod resource_intelligence;
 pub mod routes;
 pub mod state;
-pub mod static_files;
 pub mod telegram;
 pub mod types;
 pub mod utils;
@@ -38,7 +37,6 @@ pub(crate) const NOVA_CHROMIUM_EXTENSION_ORIGIN: &str =
 pub(crate) const NATIVE_HOST_PAIRING_HEADER: &str = "x-nova-native-host";
 pub(crate) const NATIVE_HOST_PAIRING_VALUE: &str = "1";
 
-use axum::routing::get;
 use axum::Router;
 use reqwest::Client as HttpClient;
 use std::collections::HashMap;
@@ -51,7 +49,6 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
 
 use crate::daemon::state::{AppState, SharedState};
-use crate::daemon::static_files::{serve_asset, serve_index, serve_spa_fallback};
 use crate::daemon::telegram::start_telegram_bot;
 use crate::daemon::types::{
     transition_task_state, CreateDownloadBody, CurlJob, NativeMediaJob, TaskState,
@@ -652,9 +649,6 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 start_telegram_bot(state.clone(), rt.handle().clone());
 
                 let app = crate::daemon::routes::register_routes(Router::new())
-                .route("/", get(serve_index))
-                .route("/assets/{*path}", get(serve_asset))
-                .route("/{*path}", get(serve_spa_fallback))
                 .with_state(state.clone())
                 .layer(axum::middleware::from_fn_with_state(
                     state.clone(),
