@@ -159,6 +159,8 @@ export interface TorrentTaskDetails {
   metadataServingAvailable: boolean;
   pexServingEnabled: boolean;
   dhtServerActive: boolean;
+  dhtIpv4Port: number | null;
+  dhtIpv6Port: number | null;
   dhtRoutingNodes: number;
   swarmPeers: TorrentPeerTelemetry[];
   trackerTelemetry: TorrentTrackerTelemetry[];

@@ -50,6 +50,26 @@ export const TorrentSeedingControls: React.FC<TorrentSeedingControlsProps> = ({ 
     };
   }, [applyDetails, taskId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      void novaClient
+        .torrentDetails(taskId)
+        .then((next) => {
+          if (!cancelled) setDetails(next);
+        })
+        .catch(() => {
+          // Keep the last successful snapshot; the primary load/save path
+          // already surfaces actionable errors to the user.
+        });
+    };
+    const timer = window.setInterval(refresh, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [taskId]);
+
   const save = async () => {
     if (saving) return;
     const ratio = ratioLimit.trim() === '' ? null : Number(ratioLimit);
@@ -159,6 +179,8 @@ export const TorrentSeedingControls: React.FC<TorrentSeedingControlsProps> = ({ 
       ) : null}
       {error ? <div className="mt-2 text-[10px] text-[var(--danger)]">{error}</div> : null}
 
+      {details ? <TorrentSwarmTelemetry details={details} /> : null}
+
       <div className="mt-3 flex justify-end">
         <button
           type="button"
@@ -179,3 +201,90 @@ const SeedMetric: React.FC<{ label: string; value: string }> = ({ label, value }
     <div className="mt-0.5 font-mono text-[10px] font-semibold text-[var(--text-primary)]">{value}</div>
   </div>
 );
+
+const TorrentSwarmTelemetry: React.FC<{ details: TorrentTaskDetails }> = ({ details }) => {
+  const peers = details.swarmPeers.slice(0, 32);
+  const trackers = details.trackerTelemetry.slice(0, 16);
+  const dhtEndpoints = [
+    details.dhtIpv4Port == null ? null : `IPv4 UDP :${details.dhtIpv4Port}`,
+    details.dhtIpv6Port == null ? null : `IPv6 UDP :${details.dhtIpv6Port}`,
+  ].filter(Boolean).join(' · ');
+
+  return (
+    <div className="mt-3 space-y-2 border-t border-[var(--border-color)]/70 pt-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-[10px] font-bold text-[var(--text-primary)]">Live swarm</div>
+          <div className="text-[9px] text-[var(--text-muted)]">
+            {dhtEndpoints || 'DHT listener unavailable'} · {details.dhtRoutingNodes} routing nodes
+          </div>
+        </div>
+        <div className="text-[9px] text-[var(--text-muted)]">
+          {details.swarmPeers.length} peers · {details.trackerTelemetry.length} trackers
+        </div>
+      </div>
+
+      <div className="grid gap-2 xl:grid-cols-2">
+        <div className="overflow-hidden rounded border border-[var(--border-color)]/70 bg-[var(--bg-input)]">
+          <div className="border-b border-[var(--border-color)]/70 px-2 py-1.5 text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">
+            Peers
+          </div>
+          <div className="max-h-40 overflow-auto">
+            {peers.length === 0 ? (
+              <div className="px-2 py-3 text-[9px] text-[var(--text-muted)]">No peer activity yet.</div>
+            ) : (
+              peers.map((peer) => (
+                <div
+                  key={`${peer.direction}-${peer.address}`}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 border-b border-[var(--border-color)]/40 px-2 py-1.5 last:border-b-0"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate font-mono text-[9px] text-[var(--text-primary)]">{peer.address}</div>
+                    <div className="text-[8px] text-[var(--text-muted)]">
+                      {peer.direction} · {peer.state}
+                      {peer.lastError ? ` · ${peer.lastError}` : ''}
+                    </div>
+                  </div>
+                  <div className="text-right font-mono text-[8px] text-[var(--text-secondary)]">
+                    <div>↓ {formatBytes(peer.downloadedBytes)}</div>
+                    <div>↑ {formatBytes(peer.uploadedBytes)}</div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded border border-[var(--border-color)]/70 bg-[var(--bg-input)]">
+          <div className="border-b border-[var(--border-color)]/70 px-2 py-1.5 text-[9px] font-bold uppercase tracking-wide text-[var(--text-muted)]">
+            Trackers
+          </div>
+          <div className="max-h-40 overflow-auto">
+            {trackers.length === 0 ? (
+              <div className="px-2 py-3 text-[9px] text-[var(--text-muted)]">No tracker activity yet.</div>
+            ) : (
+              trackers.map((tracker) => (
+                <div
+                  key={tracker.endpoint}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 border-b border-[var(--border-color)]/40 px-2 py-1.5 last:border-b-0"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate font-mono text-[9px] text-[var(--text-primary)]">{tracker.endpoint}</div>
+                    <div className="text-[8px] text-[var(--text-muted)]">
+                      {tracker.state} · {tracker.lastEvent}
+                      {tracker.lastError ? ` · ${tracker.lastError}` : ''}
+                    </div>
+                  </div>
+                  <div className="text-right font-mono text-[8px] text-[var(--text-secondary)]">
+                    <div>{tracker.peerCount} peers</div>
+                    <div>{tracker.intervalSeconds == null ? '—' : `${tracker.intervalSeconds}s`}</div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
