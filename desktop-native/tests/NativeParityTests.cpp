@@ -98,6 +98,9 @@ void NativeParityTests::largeListRemainsResponsive() {
     QCOMPARE(model.totalCount(), itemCount);
     QCOMPARE(model.count(), itemCount);
     QCOMPARE(model.activeCount(), itemCount / 4);
+    QCOMPARE(model.queuedCount(), 0);
+    QCOMPARE(model.completedCount(), itemCount - itemCount / 4);
+    QCOMPARE(model.failedCount(), 0);
     QVERIFY2(
         initialLoadMs < 8000,
         qPrintable(QStringLiteral("20k model load took %1 ms").arg(initialLoadMs))
