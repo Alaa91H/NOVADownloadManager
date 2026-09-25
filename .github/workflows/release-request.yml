@@ -51,6 +51,9 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Enforce native production readiness
+        run: node desktop-native/scripts/check-parity.mjs --require-complete
+
       - name: Ensure tag does not already exist
         env:
           TAG: ${{ steps.request.outputs.tag }}
