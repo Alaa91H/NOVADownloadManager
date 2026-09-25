@@ -26,6 +26,12 @@ const ID_LANGUAGE: u64 = 0x22B59C;
 const ID_VIDEO: u64 = 0xE0;
 const ID_PIXEL_WIDTH: u64 = 0xB0;
 const ID_PIXEL_HEIGHT: u64 = 0xBA;
+const ID_COLOUR: u64 = 0x55B0;
+const ID_MATRIX_COEFFICIENTS: u64 = 0x55B1;
+const ID_BITS_PER_CHANNEL: u64 = 0x55B2;
+const ID_COLOUR_RANGE: u64 = 0x55B9;
+const ID_TRANSFER_CHARACTERISTICS: u64 = 0x55BA;
+const ID_PRIMARIES: u64 = 0x55BB;
 const ID_AUDIO: u64 = 0xE1;
 const ID_SAMPLING_FREQUENCY: u64 = 0xB5;
 const ID_CHANNELS: u64 = 0x9F;
@@ -64,10 +70,51 @@ impl ElementHeader {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct WebmVideoColour {
+    matrix_coefficients: u8,
+    bits_per_channel: u8,
+    range: u8,
+    transfer_characteristics: u8,
+    primaries: u8,
+}
+
+impl Default for WebmVideoColour {
+    fn default() -> Self {
+        Self {
+            matrix_coefficients: 2,
+            bits_per_channel: 0,
+            range: 0,
+            transfer_characteristics: 2,
+            primaries: 2,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct VpColourConfiguration {
+    colour_primaries: u8,
+    transfer_characteristics: u8,
+    matrix_coefficients: u8,
+    full_range: bool,
+}
+
+impl Default for VpColourConfiguration {
+    fn default() -> Self {
+        Self {
+            colour_primaries: 1,
+            transfer_characteristics: 1,
+            matrix_coefficients: 1,
+            full_range: false,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct TrackMeta {
     track: MediaTrack,
     default_duration_ns: Option<u64>,
+    colour: Option<WebmVideoColour>,
 }
 
 #[derive(Clone, Debug)]
@@ -130,6 +177,7 @@ pub struct WebmDemuxer {
     probe: MediaProbe,
     packets: Vec<PacketLocator>,
     packet_time_bases: BTreeMap<u32, MediaTimeBase>,
+    video_colours: BTreeMap<u32, WebmVideoColour>,
     apply_discard_padding: bool,
     cursor: usize,
 }
@@ -142,7 +190,7 @@ impl WebmDemuxer {
             return Err(demux_error("file is too small to be WebM"));
         }
 
-        let (probe, packets) = scan_webm(&mut file, file_len)?;
+        let (probe, packets, video_colours) = scan_webm(&mut file, file_len)?;
         let packet_time_bases = probe
             .tracks
             .iter()
@@ -153,6 +201,7 @@ impl WebmDemuxer {
             probe,
             packets,
             packet_time_bases,
+            video_colours,
             apply_discard_padding: false,
             cursor: 0,
         })
@@ -170,11 +219,17 @@ impl WebmDemuxer {
     /// undecodable MP4.
     pub fn open_for_mp4_remux(path: &Path) -> Result<Self, MediaProcessingError> {
         let mut demuxer = Self::open(path)?;
+        let video_colours = demuxer.video_colours.clone();
         demuxer.probe.tracks = demuxer
             .probe
             .tracks
             .iter()
-            .map(prepare_webm_track_for_mp4)
+            .map(|track| {
+                prepare_webm_track_for_mp4_with_colour(
+                    track,
+                    video_colours.get(&track.id).copied(),
+                )
+            })
             .collect::<Result<Vec<_>, _>>()?;
         demuxer.packet_time_bases = demuxer
             .probe
@@ -305,7 +360,14 @@ pub fn probe_webm_file(path: &Path) -> Result<MediaProbe, MediaProcessingError> 
 fn scan_webm(
     file: &mut File,
     file_len: u64,
-) -> Result<(MediaProbe, Vec<PacketLocator>), MediaProcessingError> {
+) -> Result<
+    (
+        MediaProbe,
+        Vec<PacketLocator>,
+        BTreeMap<u32, WebmVideoColour>,
+    ),
+    MediaProcessingError,
+> {
     let mut element_count = 0_usize;
     let ebml = read_element_header(file, 0, file_len)?;
     bump_element_count(&mut element_count)?;
@@ -372,12 +434,16 @@ fn scan_webm(
             .then(|| millis.round() as u64)
     });
 
+    let video_colours = tracks
+        .iter()
+        .filter_map(|(track_id, meta)| meta.colour.map(|colour| (*track_id, colour)))
+        .collect();
     let probe = MediaProbe {
         container: MediaContainer::WebM,
         duration_millis,
         tracks: tracks.into_values().map(|meta| meta.track).collect(),
     };
-    Ok((probe, packets))
+    Ok((probe, packets, video_colours))
 }
 
 fn parse_doc_type(
@@ -489,6 +555,7 @@ fn parse_track_entry(
     let mut language = None;
     let mut width = None;
     let mut height = None;
+    let mut colour = None;
     let mut sample_rate = None;
     let mut channels = None;
 
@@ -526,10 +593,11 @@ fn parse_track_entry(
                 }
             }
             ID_VIDEO => {
-                let (parsed_width, parsed_height) =
+                let (parsed_width, parsed_height, parsed_colour) =
                     parse_video(file, child, element_count)?;
                 width = parsed_width;
                 height = parsed_height;
+                colour = parsed_colour;
             }
             ID_AUDIO => {
                 let (parsed_rate, parsed_channels) =
@@ -596,6 +664,7 @@ fn parse_track_entry(
             codec_private,
         },
         default_duration_ns,
+        colour,
     })
 }
 
@@ -603,9 +672,17 @@ fn parse_video(
     file: &mut File,
     video: ElementHeader,
     element_count: &mut usize,
-) -> Result<(Option<u32>, Option<u32>), MediaProcessingError> {
+) -> Result<
+    (
+        Option<u32>,
+        Option<u32>,
+        Option<WebmVideoColour>,
+    ),
+    MediaProcessingError,
+> {
     let mut width = None;
     let mut height = None;
+    let mut colour = None;
     let mut cursor = video.data_offset;
     while cursor < video.data_end {
         let child = read_element_header(file, cursor, video.data_end)?;
@@ -623,11 +700,65 @@ fn parse_video(
                         .map_err(|_| demux_error("WebM PixelHeight exceeds u32"))?,
                 )
             }
+            ID_COLOUR => {
+                if colour.is_some() {
+                    return Err(demux_error("WebM Video contains duplicate Colour elements"));
+                }
+                colour = Some(parse_video_colour(file, child, element_count)?);
+            }
             _ => {}
         }
         cursor = child.data_end;
     }
-    Ok((width, height))
+    Ok((width, height, colour))
+}
+
+fn parse_video_colour(
+    file: &mut File,
+    colour_header: ElementHeader,
+    element_count: &mut usize,
+) -> Result<WebmVideoColour, MediaProcessingError> {
+    let mut colour = WebmVideoColour::default();
+    let mut cursor = colour_header.data_offset;
+    while cursor < colour_header.data_end {
+        let child = read_element_header(file, cursor, colour_header.data_end)?;
+        bump_element_count(element_count)?;
+        match child.id {
+            ID_MATRIX_COEFFICIENTS => {
+                colour.matrix_coefficients =
+                    read_colour_u8(file, child, "MatrixCoefficients")?;
+            }
+            ID_BITS_PER_CHANNEL => {
+                colour.bits_per_channel =
+                    read_colour_u8(file, child, "BitsPerChannel")?;
+            }
+            ID_COLOUR_RANGE => {
+                colour.range = read_colour_u8(file, child, "Range")?;
+                if colour.range > 3 {
+                    return Err(demux_error("WebM Colour Range exceeds defined values"));
+                }
+            }
+            ID_TRANSFER_CHARACTERISTICS => {
+                colour.transfer_characteristics =
+                    read_colour_u8(file, child, "TransferCharacteristics")?;
+            }
+            ID_PRIMARIES => {
+                colour.primaries = read_colour_u8(file, child, "Primaries")?;
+            }
+            _ => {}
+        }
+        cursor = child.data_end;
+    }
+    Ok(colour)
+}
+
+fn read_colour_u8(
+    file: &mut File,
+    header: ElementHeader,
+    name: &str,
+) -> Result<u8, MediaProcessingError> {
+    u8::try_from(read_uint(file, header)?)
+        .map_err(|_| demux_error(format!("WebM Colour {name} exceeds u8")))
 }
 
 fn parse_audio(
@@ -1049,15 +1180,29 @@ fn finalize_packet_timing(
 ///
 /// The conversion is lossless for Opus identification headers. VP8 uses its
 /// defined profile-0 defaults. VP9 consumes the WebM CodecPrivate feature list.
-/// VP9 profiles other than profile 0 remain gated until WebM colour metadata is
-/// carried through the generic track model.
+/// When this function is used without a WebM demuxer, VP colour fields use the
+/// ISO binding defaults; `open_for_mp4_remux` additionally preserves WebM
+/// `Colour` metadata.
 pub fn prepare_webm_track_for_mp4(
     track: &MediaTrack,
 ) -> Result<MediaTrack, MediaProcessingError> {
+    prepare_webm_track_for_mp4_with_colour(track, None)
+}
+
+fn prepare_webm_track_for_mp4_with_colour(
+    track: &MediaTrack,
+    colour: Option<WebmVideoColour>,
+) -> Result<MediaTrack, MediaProcessingError> {
     let mut converted = track.clone();
     converted.codec_private = match &track.codec {
-        MediaCodec::Vp8 => make_vpcc(0, 0, 8, 1, false)?,
-        MediaCodec::Vp9 => vp9_webm_private_to_vpcc(&track.codec_private)?,
+        MediaCodec::Vp8 => make_vpcc(
+            0,
+            0,
+            8,
+            1,
+            vp_colour_configuration(colour, 8, 1)?,
+        )?,
+        MediaCodec::Vp9 => vp9_webm_private_to_vpcc(&track.codec_private, colour)?,
         MediaCodec::Av1 => validate_webm_av1c(&track.codec_private)?.to_vec(),
         MediaCodec::Opus => {
             if let Some(audio) = converted.audio.as_mut() {
@@ -1109,7 +1254,10 @@ fn validate_webm_av1c(data: &[u8]) -> Result<&[u8], MediaProcessingError> {
     Ok(data)
 }
 
-fn vp9_webm_private_to_vpcc(data: &[u8]) -> Result<Vec<u8>, MediaProcessingError> {
+fn vp9_webm_private_to_vpcc(
+    data: &[u8],
+    colour: Option<WebmVideoColour>,
+) -> Result<Vec<u8>, MediaProcessingError> {
     if data.is_empty() {
         return Err(MediaProcessingError::UnsupportedOperation(
             "VP9 WebM remux requires CodecPrivate profile metadata".to_owned(),
@@ -1162,11 +1310,6 @@ fn vp9_webm_private_to_vpcc(data: &[u8]) -> Result<Vec<u8>, MediaProcessingError
             "VP9 WebM remux requires CodecPrivate profile".to_owned(),
         )
     })?;
-    if profile != 0 {
-        return Err(MediaProcessingError::UnsupportedOperation(format!(
-            "VP9 WebM profile {profile} remux is gated until colour metadata is preserved"
-        )));
-    }
     let bit_depth = bit_depth.ok_or_else(|| {
         MediaProcessingError::UnsupportedOperation(
             "VP9 WebM remux requires CodecPrivate bit depth".to_owned(),
@@ -1177,13 +1320,21 @@ fn vp9_webm_private_to_vpcc(data: &[u8]) -> Result<Vec<u8>, MediaProcessingError
             "VP9 WebM remux requires CodecPrivate chroma subsampling".to_owned(),
         )
     })?;
-    if bit_depth != 8 || !matches!(chroma, 0 | 1) {
+    let profile_matches = match profile {
+        0 => bit_depth == 8 && matches!(chroma, 0 | 1),
+        1 => bit_depth == 8 && matches!(chroma, 2 | 3),
+        2 => matches!(bit_depth, 10 | 12) && matches!(chroma, 0 | 1),
+        3 => matches!(bit_depth, 10 | 12) && matches!(chroma, 2 | 3),
+        _ => false,
+    };
+    if !profile_matches {
         return Err(MediaProcessingError::UnsupportedOperation(format!(
-            "VP9 profile 0 requires 8-bit 4:2:0; got bit depth {bit_depth}, chroma {chroma}"
+            "VP9 profile {profile} is incompatible with bit depth {bit_depth} and chroma {chroma}"
         )));
     }
 
-    make_vpcc(profile, level.unwrap_or(0), bit_depth, chroma, false)
+    let colour = vp_colour_configuration(colour, bit_depth, chroma)?;
+    make_vpcc(profile, level.unwrap_or(0), bit_depth, chroma, colour)
 }
 
 fn set_unique_feature(
@@ -1199,12 +1350,53 @@ fn set_unique_feature(
     Ok(())
 }
 
+fn vp_colour_configuration(
+    colour: Option<WebmVideoColour>,
+    bit_depth: u8,
+    chroma_subsampling: u8,
+) -> Result<VpColourConfiguration, MediaProcessingError> {
+    let Some(colour) = colour else {
+        return Ok(VpColourConfiguration::default());
+    };
+
+    if colour.bits_per_channel != 0 && colour.bits_per_channel != bit_depth {
+        return Err(MediaProcessingError::UnsupportedOperation(format!(
+            "WebM Colour BitsPerChannel {} conflicts with VP bit depth {bit_depth}",
+            colour.bits_per_channel
+        )));
+    }
+    if colour.matrix_coefficients == 0 && chroma_subsampling != 3 {
+        return Err(MediaProcessingError::UnsupportedOperation(
+            "RGB/identity matrix VP content requires 4:4:4 chroma in vpcC".to_owned(),
+        ));
+    }
+
+    let full_range = match colour.range {
+        0 | 1 => false,
+        2 => true,
+        3 => {
+            return Err(MediaProcessingError::UnsupportedOperation(
+                "WebM Colour Range=3 cannot be represented by the binary vpcC full-range flag"
+                    .to_owned(),
+            ))
+        }
+        _ => return Err(demux_error("invalid WebM Colour Range")),
+    };
+
+    Ok(VpColourConfiguration {
+        colour_primaries: colour.primaries,
+        transfer_characteristics: colour.transfer_characteristics,
+        matrix_coefficients: colour.matrix_coefficients,
+        full_range,
+    })
+}
+
 fn make_vpcc(
     profile: u8,
     level: u8,
     bit_depth: u8,
     chroma_subsampling: u8,
-    full_range: bool,
+    colour: VpColourConfiguration,
 ) -> Result<Vec<u8>, MediaProcessingError> {
     if profile > 3
         || !matches!(bit_depth, 8 | 10 | 12)
@@ -1215,8 +1407,8 @@ fn make_vpcc(
     }
 
     // vpcC is a FullBox(version=1, flags=0), followed by the
-    // VPCodecConfigurationRecord. BT.709/legal-range defaults are used only
-    // for the currently-enabled SDR profile-0 bridge.
+    // VPCodecConfigurationRecord. WebM Colour fields are preserved when
+    // present; otherwise the VP ISO binding defaults are used.
     Ok(vec![
         1,
         0,
@@ -1224,10 +1416,10 @@ fn make_vpcc(
         0,
         profile,
         level,
-        (bit_depth << 4) | (chroma_subsampling << 1) | u8::from(full_range),
-        1,
-        1,
-        1,
+        (bit_depth << 4) | (chroma_subsampling << 1) | u8::from(colour.full_range),
+        colour.colour_primaries,
+        colour.transfer_characteristics,
+        colour.matrix_coefficients,
         0,
         0,
     ])
@@ -1757,6 +1949,132 @@ mod tests {
             converted.codec_private,
             vec![1, 0, 0, 0, 0, 41, 0x82, 1, 1, 1, 0, 0]
         );
+    }
+
+    #[test]
+    fn bridges_vp9_profile_1_444_with_iso_colour_defaults() {
+        let track = MediaTrack {
+            id: 1,
+            kind: MediaTrackKind::Video,
+            codec: MediaCodec::Vp9,
+            time_base: NANOSECOND_TIME_BASE,
+            language: None,
+            video: Some(VideoParameters {
+                width: 1920,
+                height: 1080,
+                frame_rate: Some(30.0),
+                bitrate_bps: None,
+            }),
+            audio: None,
+            codec_private: vec![
+                1, 1, 1, // profile 1
+                2, 1, 31, // level 3.1
+                3, 1, 8, // 8-bit
+                4, 1, 3, // 4:4:4
+            ],
+        };
+        let converted = prepare_webm_track_for_mp4(&track).expect("VP9 profile 1 bridge");
+        assert_eq!(
+            converted.codec_private,
+            vec![1, 0, 0, 0, 1, 31, 0x86, 1, 1, 1, 0, 0]
+        );
+    }
+
+    #[test]
+    fn preserves_webm_hdr_colour_for_vp9_profile_2_vpcc() {
+        let ebml = element(
+            &[0x1A, 0x45, 0xDF, 0xA3],
+            element(&[0x42, 0x82], b"webm".to_vec()),
+        );
+        let info = element(
+            &[0x15, 0x49, 0xA9, 0x66],
+            uint_element(&[0x2A, 0xD7, 0xB1], 1_000_000, 3),
+        );
+        let colour = element(
+            &[0x55, 0xB0],
+            [
+                uint_element(&[0x55, 0xB1], 9, 1),  // BT.2020 NCL matrix
+                uint_element(&[0x55, 0xB2], 10, 1), // 10-bit
+                uint_element(&[0x55, 0xB9], 2, 1),  // full range
+                uint_element(&[0x55, 0xBA], 16, 1), // PQ
+                uint_element(&[0x55, 0xBB], 9, 1),  // BT.2020 primaries
+            ]
+            .concat(),
+        );
+        let video = element(
+            &[0xE0],
+            [
+                uint_element(&[0xB0], 1920, 2),
+                uint_element(&[0xBA], 1080, 2),
+                colour,
+            ]
+            .concat(),
+        );
+        let track = element(
+            &[0xAE],
+            [
+                uint_element(&[0xD7], 1, 1),
+                uint_element(&[0x83], 1, 1),
+                element(&[0x86], b"V_VP9".to_vec()),
+                element(
+                    &[0x63, 0xA2],
+                    vec![
+                        1, 1, 2, // profile 2
+                        2, 1, 41, // level 4.1
+                        3, 1, 10, // 10-bit
+                        4, 1, 1, // 4:2:0 colocated
+                    ],
+                ),
+                uint_element(&[0x23, 0xE3, 0x83], 33_333_333, 4),
+                video,
+            ]
+            .concat(),
+        );
+        let tracks = element(&[0x16, 0x54, 0xAE, 0x6B], track);
+        let mut block = vec![0x81, 0x00, 0x00, 0x80];
+        block.extend_from_slice(b"HDR");
+        let cluster = element(
+            &[0x1F, 0x43, 0xB6, 0x75],
+            [
+                uint_element(&[0xE7], 0, 1),
+                element(&[0xA3], block),
+            ]
+            .concat(),
+        );
+        let segment = element(
+            &[0x18, 0x53, 0x80, 0x67],
+            [info, tracks, cluster].concat(),
+        );
+        let path = temp_path();
+        fs::write(&path, [ebml, segment].concat()).expect("fixture");
+
+        let demuxer = WebmDemuxer::open_for_mp4_remux(&path).expect("profile 2 remux");
+        assert_eq!(
+            demuxer.probe().tracks[0].codec_private,
+            vec![1, 0, 0, 0, 2, 41, 0xA3, 9, 16, 9, 0, 0]
+        );
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn rejects_vp9_colour_bit_depth_conflict() {
+        let data = vec![
+            1, 1, 2, // profile 2
+            2, 1, 41,
+            3, 1, 10,
+            4, 1, 1,
+        ];
+        let colour = WebmVideoColour {
+            bits_per_channel: 12,
+            ..WebmVideoColour::default()
+        };
+        let error = vp9_webm_private_to_vpcc(&data, Some(colour))
+            .expect_err("conflicting colour metadata");
+        assert!(matches!(
+            error,
+            MediaProcessingError::UnsupportedOperation(_)
+        ));
     }
 
     #[test]

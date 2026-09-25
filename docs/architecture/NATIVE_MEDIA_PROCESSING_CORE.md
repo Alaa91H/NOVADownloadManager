@@ -24,8 +24,8 @@ The core currently provides:
 - native WebM demuxing for EBML `Info`, `Tracks`, `Cluster`,
   `SimpleBlock`, and `BlockGroup` structures;
 - WebM VP8, VP9, AV1, Opus, MP3, and FLAC track recognition, including
-  codec-private data, dimensions, audio parameters, language, and default
-  duration metadata;
+  codec-private data, dimensions, audio parameters, language, default
+  duration metadata, and VP-relevant `Colour` fields;
 - WebM Xiph, fixed-size, and EBML block lacing with bounded frame indexing;
 - WebM `DiscardPadding` parsing, with positive final Opus tail padding mapped
   to the shortened duration of the last MP4 Opus sample;
@@ -46,14 +46,13 @@ available.
 
 The media core also exposes a YouTube finalization path that downloads separate
 tracks and muxes them inside NOVA without FFmpeg. MP4/M4A inputs continue to
-work directly. WebM VP8, VP9 profile 0, AV1, Opus, and MP3 tracks can now enter
-the same MP4 remux path through content-based demux selection. WebM OpusHead is
-converted to big-endian `dOps`, VP8/VP9 metadata is converted to the version-1
-`vpcC` representation expected by the MP4 muxer, and WebM AV1
-`AV1CodecConfigurationRecord` is validated and reused directly as `av1C`.
-
-Higher VP9 profiles remain gated until WebM colour metadata is preserved in the
-generic track contract. Opus remuxing emits an `edts/elst` edit for decoder pre-skip, uses a 48 kHz
+work directly. WebM VP8, VP9 profiles 0-3, AV1, Opus, and MP3 tracks can now
+enter the same MP4 remux path through content-based demux selection. WebM
+OpusHead is converted to big-endian `dOps`; VP8/VP9 metadata is converted to
+the version-1 `vpcC` representation expected by the MP4 muxer, including
+MatrixCoefficients, Primaries, TransferCharacteristics, Range, and
+BitsPerChannel validation from WebM `Colour`; and WebM AV1
+`AV1CodecConfigurationRecord` is validated and reused directly as `av1C`. Opus remuxing emits an `edts/elst` edit for decoder pre-skip, uses a 48 kHz
 movie timescale for sample-accurate trimming, and writes `roll` sample groups
 (`sgpd/sbgp`) with a conservative 80 ms random-access pre-roll. The MP4
 `ftyp` also advertises `iso2` compatibility for roll-group support.
