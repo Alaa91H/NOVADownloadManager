@@ -141,6 +141,9 @@ Implemented in the first Stage 5 slice:
 - Core Lists now expose explicit Accessible.List/Accessible.ListItem roles with focusable/focused/selectable/selected state, while settings notices and the application status summary expose AlertMessage/StatusBar roles.
 - Qt display tests now launch offscreen at 125% and 200% scale factors, validate effective window DPR and screen metrics, and exercise screen reassignment when multiple displays are available.
 - Diagnostics now shows live screen name, device-pixel ratio, logical DPI, display count and available geometry, updated when the native window changes screens.
+- The approved NOVA visual baseline is now implemented in QML: custom frameless shell, compact/expandable icon navigation, thin icon command row, global title-bar search, configurable right-side details workspace, live speed graph and single-line status metrics.
+- Layout customization is persisted through QSettings: sidebar visibility/collapse, details visibility, status-bar visibility, comfortable/compact/dense modes, six WCAG-validated accent presets and configurable corner radius.
+- CI contains an approved-design contract gate so the shell cannot silently regress to the earlier wide sidebar / text-heavy toolbar layout.
 
 Remaining before Stage 5 is complete:
 
