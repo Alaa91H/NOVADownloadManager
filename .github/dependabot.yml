@@ -1,17 +1,17 @@
 # Dependabot configuration for NOVA Download Manager.
 #
 # Four ecosystems are monitored:
-#   1. npm (root)           — desktop React UI, Vite, Tailwind, Tauri CLI
+#   1. npm (root)           — repository scripting only
 #   2. npm (browser-ext)    — WXT, Zod, Dexie, content-script libraries
 #   3. Cargo (src-tauri)    — Rust daemon, curl, tokio, axum, reqwest
-#   4. GitHub Actions       — CI workflows, release, auto-merge
+#   4. GitHub Actions       — CI workflows and release automation
 #
 # Groups batch related updates into a single PR to reduce noise.
 # Schedule: every Monday at 06:00 Berlin time (offset by 20 min per ecosystem).
 
 version: 2
 updates:
-  # ── Root desktop UI (npm) ──────────────────────────────────
+  # ── Root repository tooling (npm) ─────────────────────────
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
@@ -19,50 +19,15 @@ updates:
       day: "monday"
       time: "06:00"
       timezone: "Europe/Berlin"
-    open-pull-requests-limit: 8
+    open-pull-requests-limit: 3
     versioning-strategy: "increase-if-necessary"
     rebase-strategy: "auto"
     labels:
       - "dependencies"
-      - "frontend"
+      - "tooling"
     commit-message:
-      prefix: "deps(ui)"
+      prefix: "deps(tooling)"
       include: "scope"
-    groups:
-      react-ecosystem:
-        patterns:
-          - "react"
-          - "react-dom"
-          - "@types/react*"
-      tauri-plugins:
-        patterns:
-          - "@tauri-apps/*"
-      ui-library:
-        patterns:
-          - "lucide-react"
-          - "clsx"
-          - "tailwindcss"
-          - "@tailwindcss/*"
-      build-tooling:
-        patterns:
-          - "vite"
-          - "@vitejs/*"
-          - "vitest"
-          - "@vitest/*"
-          - "typescript"
-          - "tsx"
-      lint-format:
-        patterns:
-          - "eslint*"
-          - "@eslint/*"
-          - "typescript-eslint"
-          - "prettier"
-          - "eslint-config-prettier"
-          - "eslint-plugin-react-hooks"
-      testing:
-        patterns:
-          - "@testing-library/*"
-          - "jsdom"
 
   # ── Browser extension (npm) ────────────────────────────────
   - package-ecosystem: "npm"
@@ -129,11 +94,6 @@ updates:
       prefix: "deps(rust)"
       include: "scope"
     groups:
-      tauri-framework:
-        patterns:
-          - "tauri"
-          - "tauri-*"
-          - "tauri-plugin-*"
       http-stack:
         patterns:
           - "reqwest"
