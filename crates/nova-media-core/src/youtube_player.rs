@@ -445,7 +445,7 @@ fn transform_working_variable(
     input_argument: &str,
 ) -> Result<Option<String>, String> {
     let split = Regex::new(&format!(
-        r#"(?:(?:var|let|const)\s+)?(?P<work>[A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*{}\.split\(\s*["']{2}\s*\)"#,
+        r#"(?:(?:var|let|const)\s+)?(?P<work>[A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*{}\.split\(\s*["']{{2}}\s*\)"#,
         regex::escape(input_argument)
     ))
     .map_err(|error| error.to_string())?;
@@ -672,12 +672,12 @@ fn parse_transform_body(
     ))
     .map_err(|error| error.to_string())?;
     let split_initialization = Regex::new(&format!(
-        r#"^(?:(?:var|let|const)\s+)?{}\s*=\s*[A-Za-z_$][A-Za-z0-9_$]*\.split\(\s*["']{2}\s*\)$"#,
+        r#"^(?:(?:var|let|const)\s+)?{}\s*=\s*[A-Za-z_$][A-Za-z0-9_$]*\.split\(\s*["']{{2}}\s*\)$"#,
         regex::escape(argument)
     ))
     .map_err(|error| error.to_string())?;
     let join_finalization = Regex::new(&format!(
-        r#"^(?:return\s+)?{}\.join\(\s*["']{2}\s*\)$"#,
+        r#"^(?:return\s+)?{}\.join\(\s*["']{{2}}\s*\)$"#,
         regex::escape(argument)
     ))
     .map_err(|error| error.to_string())?;

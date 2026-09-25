@@ -47,9 +47,8 @@ pub use youtube::{
 };
 pub use youtube_player::YouTubePlayerScriptSolver;
 pub use youtube_transfer::{
-    download_and_finalize_youtube_plan, download_youtube_plan, download_youtube_plan_controlled,
-    mux_youtube_separate_tracks_to_mp4, youtube_stream_is_native_mp4_remuxable,
-    YouTubeFinalizedOutput, YouTubeTransferError, YouTubeTransferOutput, YouTubeTransferProgress,
+    download_youtube_plan, download_youtube_plan_controlled, YouTubeTransferError,
+    YouTubeTransferOutput, YouTubeTransferProgress,
 };
 
 use std::collections::BTreeMap;
@@ -381,7 +380,7 @@ impl ExtractRequest {
 
     pub fn request_context(&self) -> Result<HttpRequestContext, MediaError> {
         let mut context = HttpRequestContext::default();
-        merge_request_headers(&mut context, &self.headers);
+        merge_request_headers(&mut context, &self.headers, true);
         context
             .validate()
             .map_err(|error| MediaError::Transport(error.to_string()))?;

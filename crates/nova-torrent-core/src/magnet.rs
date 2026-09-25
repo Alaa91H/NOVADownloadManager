@@ -27,8 +27,8 @@ impl MagnetLink {
 
         let mut info_hash = None;
         let mut display_name = None;
-        let mut trackers = Vec::new();
-        let mut web_seeds = Vec::new();
+        let mut trackers: Vec<String> = Vec::new();
+        let mut web_seeds: Vec<String> = Vec::new();
         let mut exact_length = None;
 
         for (key, value) in url.query_pairs() {
