@@ -1511,10 +1511,122 @@ pub fn ffmpeg_status(ffmpeg_bin: &str) -> Value {
     })
 }
 
+pub fn native_torrent_status() -> Value {
+    let capabilities = nova_torrent_core::TorrentCoreCapabilities::native_foundation();
+    json!({
+        "id": nova_torrent_core::ENGINE_ID,
+        "name": "NOVA Torrent Engine",
+        "role": "torrent-download-engine",
+        // Protocol, discovery, transfer, durable storage, task lifecycle, and
+        // authenticated daemon APIs are connected end-to-end.
+        "available": true,
+        "foundationReady": true,
+        "version": env!("CARGO_PKG_VERSION"),
+        "source": "in-process Rust torrent core",
+        "runtimeCore": "nova-torrent-core",
+        "capabilities": {
+            "metainfoV1": capabilities.metainfo_v1,
+            "magnetBtih": capabilities.magnet_btih,
+            "peerWireV1": capabilities.peer_wire_v1,
+            "pieceScheduler": capabilities.piece_scheduler,
+            "httpTrackerProtocol": capabilities.http_tracker_protocol,
+            "udpTrackerProtocol": capabilities.udp_tracker_protocol,
+            "extensionProtocol": capabilities.extension_protocol,
+            "metadataExchangeProtocol": capabilities.metadata_exchange_protocol,
+            "pexProtocol": capabilities.pex_protocol,
+            "dhtKrpcProtocol": capabilities.dht_krpc_protocol,
+            "fileSelection": capabilities.file_selection,
+            "priorityScheduler": capabilities.priority_scheduler,
+            "durableStorageCore": capabilities.durable_storage,
+            "atomicResumeCheckpoint": capabilities.atomic_resume_checkpoint,
+            "verifiedPieceBitmap": capabilities.verified_piece_bitmap,
+            "startupRecheck": capabilities.startup_recheck,
+            "trackerRedactedStorageManifest": capabilities.tracker_redacted_manifest,
+            "boundaryPieceCache": capabilities.boundary_piece_cache,
+            "ownedTargetTracking": capabilities.owned_file_tracking,
+            "pieceHashVerification": true,
+            "safeMultiFileLayout": true,
+            "httpTrackers": true,
+            "udpTrackers": true,
+            "trackerTierFailover": true,
+            "trackerRetryBackoff": true,
+            "trackerSsrfProtection": true,
+            "dht": true,
+            "dhtPeerDiscovery": true,
+            "dhtAnnouncePeer": true,
+            "dhtServer": true,
+            "dhtIpv4Server": true,
+            "dhtIpv6Server": true,
+            "dhtGetPeersServe": true,
+            "dhtAnnouncePeerServe": true,
+            "dhtTokenRotation": true,
+            "dhtStableNodeId": true,
+            "dhtSharedSocketTransport": true,
+            "dhtPersistentRoutingTable": true,
+            "dhtPeriodicAnnounce": true,
+            "dhtIpv6PeerAnnounce": false,
+            "livePeerTelemetry": true,
+            "liveTrackerTelemetry": true,
+            "telemetryCredentialRedaction": true,
+            "pex": true,
+            "pexReceive": true,
+            "pexServe": true,
+            "pexServePrivateGuard": true,
+            "metadataExchange": true,
+            "metadataRetrieval": true,
+            "metadataServe": true,
+            "metadataServeExactInfoBytes": true,
+            "metadataServePersistentSidecar": true,
+            "magnetResolver": true,
+            "trackerlessMagnetDiscovery": true,
+            "privateDiscoveryGuard": true,
+            "peerTcpTransport": true,
+            "peerHandshakeValidation": true,
+            "peerStateMachine": true,
+            "peerRequestPipeline": true,
+            "peerPieceAssembly": true,
+            "peerPieceHashVerification": true,
+            "peerReputation": true,
+            "peerConnectionLimit": true,
+            "peerTransferExecution": true,
+            "verifiedUploadBlockRead": true,
+            "inboundPeerSession": true,
+            "inboundPeerListener": true,
+            "seeding": true,
+            "uploadBandwidthPolicy": true,
+            "uploadSessionAccounting": true,
+            "trackerLifecycleAnnounce": true,
+            "persistentUploadAccounting": true,
+            "persistentSeedTimeAccounting": true,
+            "seedingPolicyApi": true,
+            "seedingControlsUi": true,
+            "seedRatioLimit": true,
+            "seedTimeLimit": true,
+            "selectedFileTransfer": true,
+            "sparseStorage": true,
+            "fullPreallocation": true,
+            "generationSafePauseResume": true,
+            "sharedBandwidthLimit": true,
+            "novaPriorityQueueIntegration": true,
+            "novaBandwidthPolicyIntegration": true,
+            "restartSchedulerRestore": true,
+            "durableResume": true,
+            "daemonTaskRouting": true,
+            "torrentTaskLifecycleApi": true,
+            "torrentAnalysisApi": true,
+            "torrentMetainfoFileImport": true,
+            "torrentFilePriorityApi": true,
+            "torrentReauthorizationApi": true,
+            "genericMagnetCreateRouting": true
+        }
+    })
+}
+
 pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
     let curl = curl_status();
     let media = native_media_status();
     let ffmpeg = ffmpeg_status(ffmpeg_bin);
+    let torrent = native_torrent_status();
     let media_extraction_ready = media
         .get("available")
         .and_then(Value::as_bool)
@@ -1570,13 +1682,14 @@ pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
             "postProcessing": if post_processing_ready { json!("nova-media-postprocess") } else { Value::Null },
             "webMediaAndPlaylists": if media_extraction_ready { json!("nova-media-engine") } else { Value::Null },
             "mergeRemuxExtractSubtitles": if post_processing_ready { json!("nova-media-postprocess") } else { Value::Null },
-            "torrentMagnet": Value::Null
+            "torrentMagnet": json!(nova_torrent_core::ENGINE_ID)
         },
         "engines": {
             "curl": curl,
             "libcurlMulti": curl,
             "media": media,
-            "ffmpeg": ffmpeg
+            "ffmpeg": ffmpeg,
+            "torrent": torrent
         }
     })
 }
