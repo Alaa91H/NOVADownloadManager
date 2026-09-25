@@ -34,7 +34,7 @@ pub const fn native_media_processing_capabilities() -> NativeMediaProcessingCapa
         mp4_mux: true,
         fragmented_mp4_demux: true,
         mpeg_ts_demux: false,
-        webm_demux: false,
+        webm_demux: true,
         webm_mux: false,
         matroska_demux: false,
         matroska_mux: false,
@@ -58,6 +58,9 @@ mod tests {
         assert!(caps.mp4_demux);
         assert!(caps.fragmented_mp4_demux);
         assert!(caps.mp4_mux);
+        assert!(caps.webm_demux);
+        assert!(!caps.webm_mux);
+        assert!(!caps.matroska_demux);
         assert!(caps.native_remux);
         assert!(!caps.native_audio_transcode);
         assert!(!caps.native_video_transcode);

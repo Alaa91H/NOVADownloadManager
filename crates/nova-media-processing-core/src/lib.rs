@@ -16,35 +16,31 @@ mod pipeline;
 mod probe;
 mod progress;
 mod types;
+mod webm;
 
 pub use demux::MediaDemuxer;
 pub use mux::{MediaMuxResult, MediaMuxer};
 pub use mp4::{
-    mux_demuxers_to_mp4, mux_demuxers_to_mp4_controlled, probe_mp4_file,
-    Mp4Demuxer, Mp4Muxer, Mp4Sample,
-    Mp4TrackIndex, ParsedMp4,
+    mux_demuxers_to_mp4, mux_demuxers_to_mp4_controlled, probe_mp4_file, Mp4Demuxer, Mp4Muxer,
+    Mp4Sample, Mp4TrackIndex, ParsedMp4,
 };
 pub use capabilities::{
     native_media_processing_capabilities, NativeMediaProcessingCapabilities,
 };
 pub use error::MediaProcessingError;
 pub use job::{
-    MediaInput, MediaOutput, MediaProcessingJob, MediaProcessingOperation,
-    TranscodeSettings,
+    MediaInput, MediaOutput, MediaProcessingJob, MediaProcessingOperation, TranscodeSettings,
 };
-pub use pipeline::{
-    plan_media_pipeline, MediaPipelinePlan, MediaPipelineStage,
-};
+pub use pipeline::{plan_media_pipeline, MediaPipelinePlan, MediaPipelineStage};
 pub use probe::{probe_file_container, sniff_media_container};
 pub use progress::{
-    MediaProcessingControl, MediaProcessingPhase, MediaProcessingProgress,
-    MediaProgressSink,
+    MediaProcessingControl, MediaProcessingPhase, MediaProcessingProgress, MediaProgressSink,
 };
 pub use types::{
-    AudioParameters, MediaCodec, MediaContainer, MediaPacket, MediaPacketFlags,
-    MediaProbe, MediaTimeBase, MediaTimestamp, MediaTrack, MediaTrackKind,
-    VideoParameters,
+    AudioParameters, MediaCodec, MediaContainer, MediaPacket, MediaPacketFlags, MediaProbe,
+    MediaTimeBase, MediaTimestamp, MediaTrack, MediaTrackKind, VideoParameters,
 };
+pub use webm::{probe_webm_file, WebmDemuxer};
 
 /// Stable version for the internal processing contract. Increment only when
 /// serialized job/packet semantics change incompatibly.

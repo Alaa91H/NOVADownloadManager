@@ -21,25 +21,34 @@ The core currently provides:
   `av1C`, `vpcC`, `esds`, and `dOps`;
 - fragmented MP4/CMAF sample-run parsing through `mvex/trex`,
   `moof/traf/tfhd/tfdt/trun`;
-- packet reads constrained to validated `mdat` payload ranges;
-- hard limits for box counts, `moov`/`moof` sizes, packet sizes, and sample
-  counts to bound malformed-input resource consumption.
+- native WebM demuxing for EBML `Info`, `Tracks`, `Cluster`,
+  `SimpleBlock`, and `BlockGroup` structures;
+- WebM VP8, VP9, AV1, Opus, MP3, and FLAC track recognition, including
+  codec-private data, dimensions, audio parameters, language, and default
+  duration metadata;
+- WebM Xiph, fixed-size, and EBML block lacing with bounded frame indexing;
+- packet reads constrained to validated container payload ranges;
+- hard limits for box/element counts, metadata sizes, packet sizes, track
+  counts, and sample counts to bound malformed-input resource consumption.
 
 ## Capability boundary
 
-`mp4_demux` and `fragmented_mp4_demux` are enabled.
+`mp4_demux`, `fragmented_mp4_demux`, and `webm_demux` are enabled.
 
-`mp4_mux` and `native_remux` are enabled. The native muxer writes `ftyp`, an
-extended-size `mdat`, and a generated `moov` with `stsd`, `stts`, optional
-`ctts`, `stsc`, `stsz`, `co64`, and `stss` tables. It supports packet-preserving
-video/audio MP4 output for H.264, HEVC, AV1, VP8/VP9, AAC, Opus, and MP3 when
-the required codec configuration is available.
+`mp4_mux` and `native_remux` are enabled. The native muxer writes `ftyp`,
+an extended-size `mdat`, and a generated `moov` with `stsd`, `stts`,
+optional `ctts`, `stsc`, `stsz`, `co64`, and `stss` tables. It
+supports packet-preserving video/audio MP4 output for H.264, HEVC, AV1,
+VP8/VP9, AAC, Opus, and MP3 when the required MP4 codec configuration is
+available.
 
 The media core also exposes a YouTube finalization path that downloads separate
-MP4/M4A tracks and muxes them inside NOVA without FFmpeg. WebM separate-track
-finalization remains intentionally rejected until the native WebM/Matroska
-demuxer is implemented.
+MP4/M4A tracks and muxes them inside NOVA without FFmpeg. WebM demuxing is now
+native, but WebM separate-track finalization remains gated until the processing
+layer converts WebM VP8/VP9/AV1 and Opus codec-private metadata into the MP4
+`vpcC`/`av1C`/`dOps` forms required by the current muxer.
 
-Audio transcoding, video transcoding, subtitles/data muxing, edit-list timeline
-handling, and hardware acceleration remain disabled until their implementations
-are present and covered by native tests.
+Matroska demuxing, WebM/Matroska muxing, audio transcoding, video transcoding,
+subtitles/data muxing, edit-list timeline handling, and hardware acceleration
+remain disabled until their implementations are present and covered by native
+tests.
