@@ -703,17 +703,48 @@ void DesktopIntegration::watchScreen(QScreen *screen) {
         return;
     }
 
-    const auto changed = [this]() {
-        emit displayMetricsChanged();
-    };
-    connect(screen, &QScreen::geometryChanged, this, changed);
-    connect(screen, &QScreen::availableGeometryChanged, this, changed);
-    connect(screen, &QScreen::logicalDotsPerInchChanged, this, changed);
-    connect(screen, &QScreen::physicalDotsPerInchChanged, this, changed);
-    connect(screen, &QScreen::refreshRateChanged, this, changed);
-    connect(screen, &QScreen::orientationChanged, this, [this](Qt::ScreenOrientation) {
-        emit displayMetricsChanged();
-    });
+    connect(
+        screen,
+        &QScreen::geometryChanged,
+        this,
+        &DesktopIntegration::displayMetricsChanged,
+        Qt::UniqueConnection
+    );
+    connect(
+        screen,
+        &QScreen::availableGeometryChanged,
+        this,
+        &DesktopIntegration::displayMetricsChanged,
+        Qt::UniqueConnection
+    );
+    connect(
+        screen,
+        &QScreen::logicalDotsPerInchChanged,
+        this,
+        &DesktopIntegration::displayMetricsChanged,
+        Qt::UniqueConnection
+    );
+    connect(
+        screen,
+        &QScreen::physicalDotsPerInchChanged,
+        this,
+        &DesktopIntegration::displayMetricsChanged,
+        Qt::UniqueConnection
+    );
+    connect(
+        screen,
+        &QScreen::refreshRateChanged,
+        this,
+        &DesktopIntegration::displayMetricsChanged,
+        Qt::UniqueConnection
+    );
+    connect(
+        screen,
+        &QScreen::orientationChanged,
+        this,
+        &DesktopIntegration::displayMetricsChanged,
+        Qt::UniqueConnection
+    );
 }
 
 QVariantMap DesktopIntegration::displayMetrics() const {
@@ -749,7 +780,7 @@ QVariantMap DesktopIntegration::displayMetrics() const {
 
 void DesktopIntegration::setWindow(QWindow *window) {
     if (m_windowScreenConnection) {
-        disconnect(m_windowScreenConnection);
+        QObject::disconnect(m_windowScreenConnection);
     }
 
     m_window = window;
