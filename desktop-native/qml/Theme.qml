@@ -35,16 +35,16 @@ QtObject {
 
     readonly property color textPrimary: darkMode ? "#f3f6fa" : "#18212c"
     readonly property color textSecondary: darkMode ? "#a8b1bd" : "#4d5b6b"
-    readonly property color textMuted: darkMode ? "#737e8d" : "#718096"
+    readonly property color textMuted: darkMode ? "#7f8b9b" : "#627187"
 
     readonly property color accent: highContrast
         ? (darkMode ? "#66a3ff" : "#0047b3")
-        : "#4f8cff"
+        : "#477eef"
     readonly property color accentMuted: darkMode ? "#20345a" : "#dce9ff"
     readonly property color success: darkMode ? "#3fb950" : "#188038"
     readonly property color warning: darkMode ? "#d29922" : "#9a6700"
     readonly property color danger: darkMode ? "#f85149" : "#c62828"
-    readonly property color focusRing: highContrast ? accent : Qt.rgba(accent.r, accent.g, accent.b, 0.85)
+    readonly property color focusRing: accent
 
     readonly property int radiusSmall: 4
     readonly property int radiusMedium: 6
