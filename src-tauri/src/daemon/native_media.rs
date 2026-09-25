@@ -192,11 +192,16 @@ enum ResolvedNativeMedia {
     SeparateTracks(ResolvedSeparateTracks),
 }
 
+fn native_mux_supports_container(container: &str) -> bool {
+    nova_media_core::native_media_core_capabilities().native_mp4_multitrack_mux
+        && container.eq_ignore_ascii_case("mp4")
+}
+
 fn separate_tracks_need_external_postprocessor(resolved: &ResolvedNativeMedia) -> bool {
     matches!(
         resolved,
         ResolvedNativeMedia::SeparateTracks(separate)
-            if !separate.output_container.eq_ignore_ascii_case("mp4")
+            if !native_mux_supports_container(&separate.output_container)
     )
 }
 
@@ -961,7 +966,7 @@ fn run_native_separate_track_execution(
     output_path: &Path,
     connections: u32,
 ) {
-    let use_native_mp4_mux = resolved.output_container.eq_ignore_ascii_case("mp4");
+    let use_native_mp4_mux = native_mux_supports_container(&resolved.output_container);
     if !use_native_mp4_mux {
         let postprocessor = FfmpegPostProcessor::new(state.ffmpeg_binary());
         if !postprocessor.is_available() {
@@ -2469,16 +2474,27 @@ fn resolve_native_media(
             }
         }
 
-        let postprocessing_enabled = body
+        let host_postprocessing_enabled = body
             .media_options
             .as_ref()
             .and_then(|options| options.ffmpeg_enabled)
             .unwrap_or(false);
+        let native_multitrack_enabled =
+            nova_media_core::native_media_core_capabilities().native_mp4_multitrack_mux;
+        let multitrack_enabled = host_postprocessing_enabled || native_multitrack_enabled;
+        let preferred_container = if native_multitrack_enabled
+            && !host_postprocessing_enabled
+            && selection.preferred_container.is_none()
+        {
+            Some("mp4".to_owned())
+        } else {
+            selection.preferred_container.clone()
+        };
         let youtube_policy = YouTubeSelectionPolicy {
             mode: selection.mode,
             max_height,
-            prefer_separate_tracks: postprocessing_enabled,
-            preferred_container: selection.preferred_container.clone(),
+            prefer_separate_tracks: multitrack_enabled,
+            preferred_container,
             preferred_language: None,
             preferred_video_codec: selection.preferred_video_codec.clone(),
             preferred_audio_codec: selection.preferred_audio_codec.clone(),
@@ -2537,9 +2553,9 @@ fn resolve_native_media(
                         "audio mode cannot use a video+audio format selector".to_owned(),
                     ));
                 }
-                if !postprocessing_enabled {
+                if !multitrack_enabled {
                     return Err(NativeMediaTaskError::UnsupportedFeature(
-                        "the selected quality requires separate audio/video tracks, but native post-processing was disabled"
+                        "the selected quality requires separate audio/video tracks, but no compatible mux path is enabled"
                             .to_owned(),
                     ));
                 }
@@ -4237,6 +4253,14 @@ mod tests {
         assemble_ordered_parts(&parts, &output).expect("assemble dynamic DASH snapshot");
         assert_eq!(std::fs::read(&output).expect("dynamic DASH output"), b"INITMEDIA");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn native_mp4_mux_is_available_without_host_postprocessing() {
+        assert!(native_mux_supports_container("mp4"));
+        assert!(native_mux_supports_container("MP4"));
+        assert!(!native_mux_supports_container("webm"));
+        assert!(!native_mux_supports_container("mkv"));
     }
 
     #[test]
