@@ -63,7 +63,11 @@ QString nativeLanguageFromLegacy(const QString &language) {
     if (language.trimmed().isEmpty()) {
         return {};
     }
-    return LegacyI18nCatalog::instance().normalizeLanguage(language);
+
+    return LegacyI18nCatalog::instance().normalizeLanguage(language)
+        == QStringLiteral("ar")
+        ? QStringLiteral("ar")
+        : QStringLiteral("en");
 }
 
 QString canonicalDownloadColumn(const QString &value) {
@@ -534,10 +538,14 @@ QString NativeSettings::updateChannel() const {
 }
 
 QString NativeSettings::uiLanguage() const {
-    const QString stored = value<QString>(QStringLiteral("appearance/language"), QStringLiteral("system"))
-        .trimmed()
-        .toLower();
-    return stored.isEmpty() ? QStringLiteral("system") : stored;
+    const QString stored = value<QString>(
+        QStringLiteral("appearance/language"),
+        QStringLiteral("en")
+    ).trimmed().toLower();
+
+    return stored == QStringLiteral("ar")
+        ? QStringLiteral("ar")
+        : QStringLiteral("en");
 }
 
 QString NativeSettings::appearanceMode() const {
@@ -912,16 +920,9 @@ void NativeSettings::setUpdateChannel(const QString &value) {
 }
 
 void NativeSettings::setUiLanguage(const QString &value) {
-    QString normalized = value.trimmed().toLower();
-    static const QSet<QString> allowed{
-        QStringLiteral("system"),
-        QStringLiteral("en"),
-        QStringLiteral("ar"),
-        QStringLiteral("de")
-    };
-    if (!allowed.contains(normalized)) {
-        normalized = QStringLiteral("system");
-    }
+    const QString normalized = value.trimmed().toLower() == QStringLiteral("ar")
+        ? QStringLiteral("ar")
+        : QStringLiteral("en");
     store(QStringLiteral("appearance/language"), normalized);
 }
 
