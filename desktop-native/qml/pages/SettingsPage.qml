@@ -326,6 +326,9 @@ Item {
                                     Layout.fillWidth: true
                                     text: settings.defaultSaveDirectory
                                     placeholderText: root.t("settings.defaultDirectory")
+                                    Accessible.name: root.t("settings.defaultDirectory")
+                                    LayoutMirroring.enabled: false
+                                    horizontalAlignment: Text.AlignLeft
                                     selectByMouse: true
                                     onEditingFinished: settings.defaultSaveDirectory = text
                                 }
