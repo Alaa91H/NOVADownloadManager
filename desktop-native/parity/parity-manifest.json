@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "stage": "6.1-true-parity-hardening",
+  "stage": "7-native-primary",
   "nativePreviewVersion": "2.4.48-alpha",
   "statuses": [
     "covered",
