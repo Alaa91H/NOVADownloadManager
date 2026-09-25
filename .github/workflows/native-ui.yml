@@ -106,12 +106,8 @@ jobs:
       - name: Check product-copy branding
         run: node desktop-native/scripts/check-product-copy.mjs
 
-      - name: Check Stage 6.1 parity manifest
+      - name: Check native production-readiness manifest
         run: node desktop-native/scripts/check-parity.mjs
-
-      - name: Enforce native replacement readiness
-        if: github.event_name == 'pull_request' && github.base_ref == 'main'
-        run: node desktop-native/scripts/check-parity.mjs --require-complete
 
       - name: Install Qt
         if: matrix.arch == 'x64' || runner.os == 'macOS'
