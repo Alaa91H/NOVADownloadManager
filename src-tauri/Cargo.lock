@@ -2973,6 +2973,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "mp4-atom"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3d7433df407a636db7047600422af07145adf6ee25e0622745b0131516dbc3c"
+dependencies = [
+ "derive_more",
+ "num",
+ "pastey",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
+name = "mp4-track"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cea6f982e5cd76cb57f3ba968b5079446e3eaf5b0239533e0f1854b015a24700"
+dependencies = [
+ "mp4-atom",
+]
+
+[[package]]
 name = "muda"
 version = "0.19.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3112,13 +3134,14 @@ version = "0.1.0"
 dependencies = [
  "aes 0.8.4",
  "cbc",
+ "mp4-track",
  "nova-download-core",
  "nova-stream-core",
+ "regex",
  "serde",
+ "serde_json",
  "thiserror 2.0.20",
  "url",
- "serde_json",
- "regex",
 ]
 
 [[package]]
@@ -3589,6 +3612,12 @@ dependencies = [
  "libc",
  "system-deps",
 ]
+
+[[package]]
+name = "pastey"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
 
 [[package]]
 name = "parking"
