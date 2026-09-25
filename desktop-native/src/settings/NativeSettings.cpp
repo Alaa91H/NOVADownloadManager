@@ -570,6 +570,50 @@ double NativeSettings::fontScale() const {
     return qBound(0.85, value<double>(QStringLiteral("appearance/fontScale"), 1.0), 1.35);
 }
 
+bool NativeSettings::sidebarVisible() const {
+    return value<bool>(QStringLiteral("layout/sidebarVisible"), true);
+}
+
+bool NativeSettings::sidebarCollapsed() const {
+    return value<bool>(QStringLiteral("layout/sidebarCollapsed"), true);
+}
+
+bool NativeSettings::detailsPanelVisible() const {
+    return value<bool>(QStringLiteral("layout/detailsPanelVisible"), true);
+}
+
+bool NativeSettings::statusBarVisible() const {
+    return value<bool>(QStringLiteral("layout/statusBarVisible"), true);
+}
+
+QString NativeSettings::interfaceDensity() const {
+    const QString stored = value<QString>(
+        QStringLiteral("layout/density"),
+        QStringLiteral("comfortable")
+    ).trimmed().toLower();
+    if (stored == QStringLiteral("compact") || stored == QStringLiteral("dense")) {
+        return stored;
+    }
+    return QStringLiteral("comfortable");
+}
+
+QString NativeSettings::accentColor() const {
+    const QString stored = value<QString>(
+        QStringLiteral("appearance/accentColor"),
+        QStringLiteral("#168df7")
+    ).trimmed();
+    static const QRegularExpression pattern(
+        QStringLiteral("^#[0-9A-Fa-f]{6}$")
+    );
+    return pattern.match(stored).hasMatch()
+        ? stored.toLower()
+        : QStringLiteral("#168df7");
+}
+
+int NativeSettings::cornerRadius() const {
+    return qBound(4, value<int>(QStringLiteral("appearance/cornerRadius"), 10), 18);
+}
+
 QStringList NativeSettings::downloadColumns() const {
     const QStringList fallback{
         QStringLiteral("name"),
@@ -722,6 +766,13 @@ bool NativeSettings::exportBackup(const QString &path) const {
     settings.insert(QStringLiteral("highContrast"), highContrast());
     settings.insert(QStringLiteral("reducedMotion"), reducedMotion());
     settings.insert(QStringLiteral("fontScale"), fontScale());
+    settings.insert(QStringLiteral("sidebarVisible"), sidebarVisible());
+    settings.insert(QStringLiteral("sidebarCollapsed"), sidebarCollapsed());
+    settings.insert(QStringLiteral("detailsPanelVisible"), detailsPanelVisible());
+    settings.insert(QStringLiteral("statusBarVisible"), statusBarVisible());
+    settings.insert(QStringLiteral("interfaceDensity"), interfaceDensity());
+    settings.insert(QStringLiteral("accentColor"), accentColor());
+    settings.insert(QStringLiteral("cornerRadius"), cornerRadius());
     settings.insert(
         QStringLiteral("downloadColumns"),
         QJsonArray::fromStringList(downloadColumns())
@@ -822,6 +873,27 @@ bool NativeSettings::importBackup(const QString &path) {
     }
     if (settings.value(QStringLiteral("fontScale")).isDouble()) {
         setFontScale(settings.value(QStringLiteral("fontScale")).toDouble());
+    }
+    if (settings.value(QStringLiteral("sidebarVisible")).isBool()) {
+        setSidebarVisible(settings.value(QStringLiteral("sidebarVisible")).toBool());
+    }
+    if (settings.value(QStringLiteral("sidebarCollapsed")).isBool()) {
+        setSidebarCollapsed(settings.value(QStringLiteral("sidebarCollapsed")).toBool());
+    }
+    if (settings.value(QStringLiteral("detailsPanelVisible")).isBool()) {
+        setDetailsPanelVisible(settings.value(QStringLiteral("detailsPanelVisible")).toBool());
+    }
+    if (settings.value(QStringLiteral("statusBarVisible")).isBool()) {
+        setStatusBarVisible(settings.value(QStringLiteral("statusBarVisible")).toBool());
+    }
+    if (settings.value(QStringLiteral("interfaceDensity")).isString()) {
+        setInterfaceDensity(settings.value(QStringLiteral("interfaceDensity")).toString());
+    }
+    if (settings.value(QStringLiteral("accentColor")).isString()) {
+        setAccentColor(settings.value(QStringLiteral("accentColor")).toString());
+    }
+    if (settings.value(QStringLiteral("cornerRadius")).isDouble()) {
+        setCornerRadius(settings.value(QStringLiteral("cornerRadius")).toInt());
     }
     if (settings.value(QStringLiteral("downloadColumns")).isArray()) {
         QStringList columns;
@@ -947,6 +1019,49 @@ void NativeSettings::setReducedMotion(bool value) {
 
 void NativeSettings::setFontScale(double value) {
     store(QStringLiteral("appearance/fontScale"), qBound(0.85, value, 1.35));
+}
+
+void NativeSettings::setSidebarVisible(bool value) {
+    store(QStringLiteral("layout/sidebarVisible"), value);
+}
+
+void NativeSettings::setSidebarCollapsed(bool value) {
+    store(QStringLiteral("layout/sidebarCollapsed"), value);
+}
+
+void NativeSettings::setDetailsPanelVisible(bool value) {
+    store(QStringLiteral("layout/detailsPanelVisible"), value);
+}
+
+void NativeSettings::setStatusBarVisible(bool value) {
+    store(QStringLiteral("layout/statusBarVisible"), value);
+}
+
+void NativeSettings::setInterfaceDensity(const QString &value) {
+    const QString normalized = value.trimmed().toLower();
+    if (normalized == QStringLiteral("compact")
+        || normalized == QStringLiteral("dense")) {
+        store(QStringLiteral("layout/density"), normalized);
+        return;
+    }
+    store(QStringLiteral("layout/density"), QStringLiteral("comfortable"));
+}
+
+void NativeSettings::setAccentColor(const QString &value) {
+    const QString normalized = value.trimmed().toLower();
+    static const QRegularExpression pattern(
+        QStringLiteral("^#[0-9a-f]{6}$")
+    );
+    store(
+        QStringLiteral("appearance/accentColor"),
+        pattern.match(normalized).hasMatch()
+            ? normalized
+            : QStringLiteral("#168df7")
+    );
+}
+
+void NativeSettings::setCornerRadius(int value) {
+    store(QStringLiteral("appearance/cornerRadius"), qBound(4, value, 18));
 }
 
 void NativeSettings::setDownloadColumns(const QStringList &value) {
