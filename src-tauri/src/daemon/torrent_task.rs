@@ -1586,7 +1586,7 @@ pub async fn redownload_torrent_task(state: &SharedState, id: &str) -> Result<Ta
         .await
         .map_err(|error| error.to_string())?;
 
-    let metadata_info = storage.metadata_info_bytes().map(|bytes| (*bytes).clone());
+    let metadata_info = storage.metadata_info_bytes().as_deref().cloned();
     let replacement = TorrentStorageSession::create_with_info_bytes(
         PathBuf::from(&job.task.save_path),
         plan.metainfo,

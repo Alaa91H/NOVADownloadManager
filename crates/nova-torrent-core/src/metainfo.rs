@@ -1112,6 +1112,22 @@ mod tests {
     }
 
     #[test]
+    fn parse_with_info_bytes_preserves_exact_dictionary_bytes() {
+        let mut info = b"d6:lengthi4e4:name1:x12:piece lengthi4e6:pieces20:".to_vec();
+        info.extend_from_slice(&[7u8; 20]);
+        info.push(b'e');
+
+        let mut torrent = b"d4:info".to_vec();
+        torrent.extend_from_slice(&info);
+        torrent.push(b'e');
+
+        let (parsed, raw) = TorrentMetainfo::parse_with_info_bytes(&torrent).unwrap();
+        assert_eq!(raw, info);
+        let digest = Sha1::digest(&raw);
+        assert_eq!(parsed.info_hash.as_bytes(), &digest[..]);
+    }
+
+    #[test]
     fn info_hash_is_computed_from_exact_raw_info_bytes() {
         let bytes = single_file_torrent();
         let torrent = TorrentMetainfo::parse(&bytes).expect("parse torrent");
