@@ -90,6 +90,8 @@ ScrollView {
             radius: Theme.radiusMedium
             color: Theme.surfaceRaised
             border.color: root.noticeError ? Theme.danger : Theme.success
+            Accessible.role: Accessible.AlertMessage
+            Accessible.name: root.noticeText
 
             Text {
                 id: noticeTextItem
