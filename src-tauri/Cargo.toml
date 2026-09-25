@@ -6,7 +6,7 @@ authors = ["NOVA"]
 license = "MIT"
 repository = "https://github.com/nova-download-manager/nova"
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.81"
 
 [lib]
 name = "nova_lib"
