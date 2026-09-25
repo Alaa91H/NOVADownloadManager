@@ -248,35 +248,40 @@ impl WebmDemuxer {
             .map(|track| (track.id, track.time_base))
             .collect();
 
-        let codecs = demuxer
+        demuxer.enable_opus_discard_padding_for_mp4()?;
+        Ok(demuxer)
+    }
+
+    fn enable_opus_discard_padding_for_mp4(&mut self) -> Result<(), MediaProcessingError> {
+        let codecs = self
             .probe
             .tracks
             .iter()
             .map(|track| (track.id, &track.codec))
             .collect::<BTreeMap<_, _>>();
         let mut last_packet_by_track = BTreeMap::<u32, usize>::new();
-        for (index, packet) in demuxer.packets.iter().enumerate() {
+        for (index, packet) in self.packets.iter().enumerate() {
             last_packet_by_track.insert(packet.track_id, index);
         }
-        for (index, packet) in demuxer.packets.iter().enumerate() {
+        for (index, packet) in self.packets.iter().enumerate() {
             let Some(padding) = packet.discard_padding_ns.filter(|value| *value != 0) else {
                 continue;
             };
             if !matches!(codecs.get(&packet.track_id), Some(MediaCodec::Opus)) {
                 return Err(MediaProcessingError::UnsupportedOperation(
-                    "WebM DiscardPadding remux is currently implemented only for Opus"
+                    "EBML DiscardPadding remux is currently implemented only for Opus"
                         .to_owned(),
                 ));
             }
             if padding < 0 {
                 return Err(MediaProcessingError::UnsupportedOperation(
-                    "negative WebM DiscardPadding requires start-trim timeline handling"
+                    "negative EBML DiscardPadding requires start-trim timeline handling"
                         .to_owned(),
                 ));
             }
             if last_packet_by_track.get(&packet.track_id) != Some(&index) {
                 return Err(MediaProcessingError::UnsupportedOperation(
-                    "WebM DiscardPadding before the final Opus packet cannot preserve contiguous DTS"
+                    "EBML DiscardPadding before the final Opus packet cannot preserve contiguous DTS"
                         .to_owned(),
                 ));
             }
@@ -285,12 +290,12 @@ impl WebmDemuxer {
             })?;
             if padding >= duration {
                 return Err(demux_error(
-                    "WebM DiscardPadding consumes the entire final Opus packet",
+                    "EBML DiscardPadding consumes the entire final Opus packet",
                 ));
             }
         }
-        demuxer.apply_discard_padding = true;
-        Ok(demuxer)
+        self.apply_discard_padding = true;
+        Ok(())
     }
 }
 
@@ -330,11 +335,17 @@ impl MatroskaDemuxer {
             "matroska",
             MediaContainer::Matroska,
         )?;
+        let video_colours = inner.video_colours.clone();
         inner.probe.tracks = inner
             .probe
             .tracks
             .iter()
-            .map(prepare_matroska_track_for_mp4)
+            .map(|track| {
+                prepare_matroska_track_for_mp4_with_colour(
+                    track,
+                    video_colours.get(&track.id).copied(),
+                )
+            })
             .collect::<Result<Vec<_>, _>>()?;
         inner.packet_time_bases = inner
             .probe
@@ -343,6 +354,7 @@ impl MatroskaDemuxer {
             .map(|track| (track.id, track.time_base))
             .collect();
         reconstruct_matroska_video_dts(&mut inner)?;
+        inner.enable_opus_discard_padding_for_mp4()?;
         Ok(Self { inner })
     }
 }
@@ -1264,6 +1276,13 @@ fn finalize_packet_timing(
 pub fn prepare_matroska_track_for_mp4(
     track: &MediaTrack,
 ) -> Result<MediaTrack, MediaProcessingError> {
+    prepare_matroska_track_for_mp4_with_colour(track, None)
+}
+
+fn prepare_matroska_track_for_mp4_with_colour(
+    track: &MediaTrack,
+    colour: Option<WebmVideoColour>,
+) -> Result<MediaTrack, MediaProcessingError> {
     let mut converted = track.clone();
     converted.codec_private = match &track.codec {
         MediaCodec::H264 => {
@@ -1273,6 +1292,13 @@ pub fn prepare_matroska_track_for_mp4(
             validate_hevc_decoder_configuration_record(&track.codec_private)?.to_vec()
         }
         MediaCodec::Aac => make_aac_esds_payload(track)?,
+        MediaCodec::Vp8
+        | MediaCodec::Vp9
+        | MediaCodec::Av1
+        | MediaCodec::Opus
+        | MediaCodec::Mp3 => {
+            return prepare_webm_track_for_mp4_with_colour(track, colour)
+        }
         _ => {
             return Err(MediaProcessingError::UnsupportedCodec(format!(
                 "{:?} Matroska-to-MP4 remux",
@@ -1290,10 +1316,7 @@ fn reconstruct_matroska_video_dts(
         .probe
         .tracks
         .iter()
-        .filter(|track| {
-            track.kind == MediaTrackKind::Video
-                && matches!(&track.codec, MediaCodec::H264 | MediaCodec::Hevc)
-        })
+        .filter(|track| track.kind == MediaTrackKind::Video)
         .map(|track| track.id)
         .collect::<Vec<_>>();
 
@@ -1335,7 +1358,7 @@ fn reconstruct_matroska_video_dts(
                 .filter(|duration| *duration > 0)
                 .ok_or_else(|| {
                     MediaProcessingError::UnsupportedOperation(
-                        "Matroska AVC/HEVC remux requires a positive duration for every coded frame"
+                        "Matroska video remux requires a positive duration for every coded frame"
                             .to_owned(),
                     )
                 })?;
@@ -2672,6 +2695,168 @@ mod tests {
         let mut demuxer = WebmDemuxer::open_for_mp4_remux(&path).expect("remux demuxer");
         let packet = demuxer.next_packet().expect("packet").expect("frame");
         assert_eq!(packet.duration.expect("duration").value, 720); // 15 ms at 48 kHz
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn matroska_vp9_remux_preserves_hdr_colour_for_mp4() {
+        let ebml = element(
+            &[0x1A, 0x45, 0xDF, 0xA3],
+            element(&[0x42, 0x82], b"matroska".to_vec()),
+        );
+        let info = element(
+            &[0x15, 0x49, 0xA9, 0x66],
+            uint_element(&[0x2A, 0xD7, 0xB1], 1_000_000, 3),
+        );
+        let colour = element(
+            &[0x55, 0xB0],
+            [
+                uint_element(&[0x55, 0xB1], 9, 1),
+                uint_element(&[0x55, 0xB2], 10, 1),
+                uint_element(&[0x55, 0xB9], 2, 1),
+                uint_element(&[0x55, 0xBA], 16, 1),
+                uint_element(&[0x55, 0xBB], 9, 1),
+            ]
+            .concat(),
+        );
+        let video = element(
+            &[0xE0],
+            [
+                uint_element(&[0xB0], 1920, 2),
+                uint_element(&[0xBA], 1080, 2),
+                colour,
+            ]
+            .concat(),
+        );
+        let track = element(
+            &[0xAE],
+            [
+                uint_element(&[0xD7], 1, 1),
+                uint_element(&[0x83], 1, 1),
+                element(&[0x86], b"V_VP9".to_vec()),
+                element(
+                    &[0x63, 0xA2],
+                    vec![
+                        1, 1, 2,
+                        2, 1, 41,
+                        3, 1, 10,
+                        4, 1, 1,
+                    ],
+                ),
+                uint_element(&[0x23, 0xE3, 0x83], 33_333_333, 4),
+                video,
+            ]
+            .concat(),
+        );
+        let tracks = element(&[0x16, 0x54, 0xAE, 0x6B], track);
+        let mut block = vec![0x81, 0x00, 0x00, 0x80];
+        block.extend_from_slice(b"HDR");
+        let cluster = element(
+            &[0x1F, 0x43, 0xB6, 0x75],
+            [
+                uint_element(&[0xE7], 0, 1),
+                element(&[0xA3], block),
+            ]
+            .concat(),
+        );
+        let segment = element(
+            &[0x18, 0x53, 0x80, 0x67],
+            [info, tracks, cluster].concat(),
+        );
+        let path = temp_path();
+        fs::write(&path, [ebml, segment].concat()).expect("fixture");
+
+        let mut demuxer =
+            MatroskaDemuxer::open_for_mp4_remux(&path).expect("Matroska VP9 remux");
+        assert_eq!(demuxer.probe().tracks[0].codec, MediaCodec::Vp9);
+        assert_eq!(
+            demuxer.probe().tracks[0].codec_private,
+            vec![1, 0, 0, 0, 2, 41, 0xA3, 9, 16, 9, 0, 0]
+        );
+        let packet = demuxer.next_packet().expect("packet").expect("frame");
+        assert_eq!(packet.dts.expect("dts").value, 0);
+        assert_eq!(packet.pts.expect("pts").value, 0);
+
+        let destination = path.with_extension("mp4");
+        let mut bridged =
+            crate::open_mp4_remux_demuxer(&path).expect("content-sniffed Matroska VP9 bridge");
+        let mut inputs: [&mut dyn MediaDemuxer; 1] = [bridged.as_mut()];
+        crate::mux_demuxers_to_mp4(&destination, &mut inputs)
+            .expect("Matroska VP9 to MP4 remux");
+        let output = crate::Mp4Demuxer::open(&destination).expect("remuxed MP4");
+        assert_eq!(output.probe().tracks[0].codec, MediaCodec::Vp9);
+
+        let _ = fs::remove_file(destination);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn matroska_opus_discard_padding_shortens_mp4_remux_sample_duration() {
+        let ebml = element(
+            &[0x1A, 0x45, 0xDF, 0xA3],
+            element(&[0x42, 0x82], b"matroska".to_vec()),
+        );
+        let info = element(
+            &[0x15, 0x49, 0xA9, 0x66],
+            uint_element(&[0x2A, 0xD7, 0xB1], 1_000_000, 3),
+        );
+        let audio = element(
+            &[0xE1],
+            [
+                element(&[0xB5], 48_000_f64.to_be_bytes().to_vec()),
+                uint_element(&[0x9F], 2, 1),
+            ]
+            .concat(),
+        );
+        let mut opus_head = b"OpusHead".to_vec();
+        opus_head.push(1);
+        opus_head.push(2);
+        opus_head.extend_from_slice(&312_u16.to_le_bytes());
+        opus_head.extend_from_slice(&48_000_u32.to_le_bytes());
+        opus_head.extend_from_slice(&0_i16.to_le_bytes());
+        opus_head.push(0);
+        let track = element(
+            &[0xAE],
+            [
+                uint_element(&[0xD7], 1, 1),
+                uint_element(&[0x83], 2, 1),
+                element(&[0x86], b"A_OPUS".to_vec()),
+                element(&[0x63, 0xA2], opus_head),
+                uint_element(&[0x23, 0xE3, 0x83], 20_000_000, 4),
+                audio,
+            ]
+            .concat(),
+        );
+        let tracks = element(&[0x16, 0x54, 0xAE, 0x6B], track);
+        let mut block_payload = vec![0x81, 0x00, 0x00, 0x00];
+        block_payload.extend_from_slice(b"OPUS");
+        let block_group = element(
+            &[0xA0],
+            [
+                element(&[0xA1], block_payload),
+                uint_element(&[0x9B], 20, 1),
+                element(&[0x75, 0xA2], 5_000_000_i64.to_be_bytes().to_vec()),
+            ]
+            .concat(),
+        );
+        let cluster = element(
+            &[0x1F, 0x43, 0xB6, 0x75],
+            [uint_element(&[0xE7], 0, 1), block_group].concat(),
+        );
+        let segment = element(
+            &[0x18, 0x53, 0x80, 0x67],
+            [info, tracks, cluster].concat(),
+        );
+        let path = temp_path();
+        fs::write(&path, [ebml, segment].concat()).expect("fixture");
+
+        let mut demuxer =
+            MatroskaDemuxer::open_for_mp4_remux(&path).expect("Matroska Opus remux");
+        assert_eq!(demuxer.probe().tracks[0].codec, MediaCodec::Opus);
+        assert_eq!(demuxer.probe().tracks[0].time_base.denominator, 48_000);
+        let packet = demuxer.next_packet().expect("packet").expect("frame");
+        assert_eq!(packet.duration.expect("duration").value, 720);
 
         let _ = fs::remove_file(path);
     }
