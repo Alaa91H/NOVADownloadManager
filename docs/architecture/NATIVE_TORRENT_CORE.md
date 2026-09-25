@@ -193,8 +193,10 @@ active-seed-connection counters through torrent task details. Tracker lifecycle 
 `started`, follows tracker-provided announce intervals, emits `completed` only when
 the full torrent bitmap is verified, and sends a bounded best-effort `stopped`
 announce on pause, failure, removal, or shutdown. Announcing is fail-closed until
-the inbound listener has actually bound its port. Persistent upload accounting
-across daemon restarts remains intentionally disabled.
+the inbound listener has actually bound its port. Verified completed torrents
+also restart their tracker lifecycle after daemon recovery, while private torrents
+that lost tracker authorization remain fail-closed until reauthorization.
+Persistent upload accounting across daemon restarts remains intentionally disabled.
 
 ### Remaining advanced swarm work
 

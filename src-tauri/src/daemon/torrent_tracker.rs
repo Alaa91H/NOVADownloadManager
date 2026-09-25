@@ -87,7 +87,14 @@ pub async fn run_tracker_lifecycle(
                 if matches!(event, TrackerEvent::Completed) {
                     completed = true;
                 }
-                next_delay = TrackerTransport::next_announce_delay(&success);
+                next_delay = if matches!(event, TrackerEvent::Started)
+                    && snapshot.full_complete
+                    && !completed
+                {
+                    Duration::ZERO
+                } else {
+                    TrackerTransport::next_announce_delay(&success)
+                };
             }
             Err(error) if cancel.is_cancelled() => break,
             Err(error) => {

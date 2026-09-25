@@ -1011,10 +1011,11 @@ pub async fn recheck_restored_completed_torrents(state: &SharedState) {
                     progress.selected_completed_bytes, progress.selected_total_bytes
                 ));
             }
-            Ok::<TorrentStorageProgress, String>(progress)
+            Ok::<(TorrentStorageProgress, TorrentStorageSession), String>((progress, storage))
         }
         .await;
 
+        let mut tracker_storage = None;
         let task = {
             let mut torrent_jobs = lock_or_err!(state.torrent_jobs);
             let Some(current) = torrent_jobs.get_mut(&id) else {
@@ -1025,13 +1026,17 @@ pub async fn recheck_restored_completed_torrents(state: &SharedState) {
             }
 
             match validation {
-                Ok(progress) => {
+                Ok((progress, storage)) => {
                     current.task.downloaded_bytes = progress.selected_completed_bytes;
                     current.task.size_bytes = progress.selected_total_bytes;
                     current.task.engine_status = Some("completed-verified".to_owned());
                     current.task.error_message = None;
+                    if !current.requires_reauth {
+                        tracker_storage = Some(storage);
+                    }
                 }
                 Err(error) => {
+                    current.cancel_token.cancel();
                     current.task.status = TaskState::Failed.as_status().to_owned();
                     current.task.engine_status = Some("completion-invalid".to_owned());
                     current.task.error_message = Some(limit_error(&error));
@@ -1041,8 +1046,30 @@ pub async fn recheck_restored_completed_torrents(state: &SharedState) {
             }
             current.task.clone()
         };
-        lock_or_err!(state.task_snapshot).insert(id, task);
+        lock_or_err!(state.task_snapshot).insert(id.clone(), task);
         state.mark_dirty();
+
+        if let Some(storage) = tracker_storage {
+            let tracker_job = {
+                let jobs = lock_or_err!(state.torrent_jobs);
+                jobs.get(&id).cloned()
+            };
+            if let Some(tracker_job) = tracker_job {
+                let tracker_state = state.clone();
+                let tracker_id = id.clone();
+                tokio::spawn(async move {
+                    crate::daemon::torrent_tracker::run_tracker_lifecycle(
+                        tracker_state,
+                        tracker_id,
+                        storage,
+                        tracker_job.source_uri,
+                        tracker_job.local_peer_id,
+                        tracker_job.cancel_token,
+                    )
+                    .await;
+                });
+            }
+        }
     }
 }
 
