@@ -482,9 +482,12 @@ impl DhtService {
             let worker_cancel = socket_cancel.child_token();
             let socket = ipv4_socket.clone();
             workers.spawn(async move {
-                service
-                    .serve_socket(worker_state, socket, worker_cancel)
-                    .await
+                (
+                    false,
+                    service
+                        .serve_socket(worker_state, socket, worker_cancel)
+                        .await,
+                )
             });
         }
         if let Some(socket) = ipv6_socket {
@@ -492,9 +495,12 @@ impl DhtService {
             let worker_state = state.clone();
             let worker_cancel = socket_cancel.child_token();
             workers.spawn(async move {
-                service
-                    .serve_socket(worker_state, socket, worker_cancel)
-                    .await
+                (
+                    true,
+                    service
+                        .serve_socket(worker_state, socket, worker_cancel)
+                        .await,
+                )
             });
         }
 
@@ -511,13 +517,28 @@ impl DhtService {
                 }
                 joined = workers.join_next(), if !workers.is_empty() => {
                     match joined {
-                        Some(Ok(Ok(()))) => {
-                            if !cancel.is_cancelled() {
-                                log::warn!("A torrent DHT socket worker exited unexpectedly");
+                        Some(Ok((ipv6, result))) => {
+                            self.engine.attach_socket(ipv6, None).await;
+                            if ipv6 {
+                                ACTIVE_TORRENT_DHT_IPV6_PORT.store(0, Ordering::Release);
+                            } else {
+                                ACTIVE_TORRENT_DHT_IPV4_PORT.store(0, Ordering::Release);
                             }
-                        }
-                        Some(Ok(Err(error))) => {
-                            log::warn!("Torrent DHT socket worker failed: {error}");
+                            match result {
+                                Ok(()) if !cancel.is_cancelled() => {
+                                    log::warn!(
+                                        "Torrent DHT {} socket worker exited unexpectedly",
+                                        if ipv6 { "IPv6" } else { "IPv4" }
+                                    );
+                                }
+                                Ok(()) => {}
+                                Err(error) => {
+                                    log::warn!(
+                                        "Torrent DHT {} socket worker failed: {error}",
+                                        if ipv6 { "IPv6" } else { "IPv4" }
+                                    );
+                                }
+                            }
                         }
                         Some(Err(error)) => {
                             log::warn!("Torrent DHT socket worker panicked: {error}");
