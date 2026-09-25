@@ -601,13 +601,16 @@ QString NativeSettings::accentColor() const {
     const QString stored = value<QString>(
         QStringLiteral("appearance/accentColor"),
         QStringLiteral("#168df7")
-    ).trimmed();
-    static const QRegularExpression pattern(
-        QStringLiteral("^#[0-9A-Fa-f]{6}$")
-    );
-    return pattern.match(stored).hasMatch()
-        ? stored.toLower()
-        : QStringLiteral("#168df7");
+    ).trimmed().toLower();
+    static const QSet<QString> allowed{
+        QStringLiteral("#168df7"),
+        QStringLiteral("#7c5cff"),
+        QStringLiteral("#e93d82"),
+        QStringLiteral("#dc2626"),
+        QStringLiteral("#c86700"),
+        QStringLiteral("#168a4a")
+    };
+    return allowed.contains(stored) ? stored : QStringLiteral("#168df7");
 }
 
 int NativeSettings::cornerRadius() const {
@@ -1049,12 +1052,17 @@ void NativeSettings::setInterfaceDensity(const QString &value) {
 
 void NativeSettings::setAccentColor(const QString &value) {
     const QString normalized = value.trimmed().toLower();
-    static const QRegularExpression pattern(
-        QStringLiteral("^#[0-9a-f]{6}$")
-    );
+    static const QSet<QString> allowed{
+        QStringLiteral("#168df7"),
+        QStringLiteral("#7c5cff"),
+        QStringLiteral("#e93d82"),
+        QStringLiteral("#dc2626"),
+        QStringLiteral("#c86700"),
+        QStringLiteral("#168a4a")
+    };
     store(
         QStringLiteral("appearance/accentColor"),
-        pattern.match(normalized).hasMatch()
+        allowed.contains(normalized)
             ? normalized
             : QStringLiteral("#168df7")
     );
