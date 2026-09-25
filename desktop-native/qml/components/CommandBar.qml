@@ -15,6 +15,7 @@ Rectangle {
     signal propertiesRequested()
     signal deleteRequested()
     signal refreshRequested()
+    signal columnsRequested()
 
     property bool hasSelection: false
     property bool engineConnected: false
@@ -182,6 +183,12 @@ Rectangle {
         }
 
         Item { Layout.fillWidth: true }
+
+        CompactAction {
+            glyph: "☷"
+            label: root.t("downloads.columns")
+            onClicked: root.columnsRequested()
+        }
 
         CompactAction {
             glyph: "↻"
