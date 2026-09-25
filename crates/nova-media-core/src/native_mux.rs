@@ -308,6 +308,76 @@ fn append_suffix(path: &Path, suffix: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mp4_track::{Codec, FourCc, Mp4Reader, Mp4Writer, SampleInput, TrackConfig, TrackKind, WriterConfig};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_dir(label: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "nova-native-mux-{label}-{}-{nonce}",
+            std::process::id()
+        ))
+    }
+
+    fn write_single_track_fixture(
+        path: &Path,
+        kind: TrackKind,
+        entry: FourCc,
+        timescale: u32,
+        durations: &[u32],
+    ) {
+        let file = File::create(path).expect("create fixture");
+        let mut writer =
+            Mp4Writer::new(file, WriterConfig::default()).expect("create fixture writer");
+        let id = writer
+            .add_track(TrackConfig {
+                kind,
+                timescale,
+                language: "und".to_owned(),
+                handler_name: match kind {
+                    TrackKind::Video => "VideoHandler".to_owned(),
+                    TrackKind::Audio => "SoundHandler".to_owned(),
+                    TrackKind::Subtitle => "SubtitleHandler".to_owned(),
+                    TrackKind::Other(_) => "DataHandler".to_owned(),
+                },
+                codec: Codec::Other {
+                    entry,
+                    raw: vec![0; 70],
+                },
+                width: if kind == TrackKind::Video { 16.0 } else { 0.0 },
+                height: if kind == TrackKind::Video { 16.0 } else { 0.0 },
+                edit_list: Vec::new(),
+            })
+            .expect("add fixture track");
+
+        for (index, duration) in durations.iter().copied().enumerate() {
+            let data = [
+                u8::try_from(index).unwrap_or(u8::MAX),
+                u8::try_from(index.saturating_add(1)).unwrap_or(u8::MAX),
+                u8::try_from(index.saturating_add(2)).unwrap_or(u8::MAX),
+            ];
+            writer
+                .write_sample(
+                    id,
+                    &SampleInput {
+                        data: &data,
+                        duration,
+                        cts_offset: 0,
+                        is_sync: true,
+                    },
+                )
+                .expect("write fixture sample");
+        }
+
+        writer
+            .finish()
+            .expect("finish fixture")
+            .sync_all()
+            .expect("sync fixture");
+    }
 
     fn sample(dts: u64) -> SampleInfo {
         SampleInfo {
@@ -337,6 +407,57 @@ mod tests {
             append_suffix(Path::new("movie.mp4"), ".nova-native-mux.tmp"),
             PathBuf::from("movie.mp4.nova-native-mux.tmp")
         );
+    }
+
+    #[test]
+    fn native_mux_roundtrip_preserves_video_and_audio_tracks() {
+        let dir = unique_temp_dir("roundtrip");
+        std::fs::create_dir_all(&dir).expect("create mux test directory");
+        let video = dir.join("video.mp4");
+        let audio = dir.join("audio.m4a");
+        let output = dir.join("merged.mp4");
+
+        write_single_track_fixture(
+            &video,
+            TrackKind::Video,
+            FourCc(*b"zzv1"),
+            90_000,
+            &[3_000, 3_000],
+        );
+        write_single_track_fixture(
+            &audio,
+            TrackKind::Audio,
+            FourCc(*b"zza1"),
+            48_000,
+            &[1_024, 1_024, 1_024],
+        );
+
+        let result = mux_mp4_tracks(&video, &audio, &output).expect("native mux");
+        assert_eq!(result.video_samples, 2);
+        assert_eq!(result.audio_samples, 3);
+        assert!(result.bytes > 0);
+        assert_eq!(result.destination, output);
+
+        let reader = Mp4Reader::open(File::open(&output).expect("open muxed output"))
+            .expect("parse muxed output");
+        assert_eq!(reader.tracks().len(), 2);
+
+        let video_track = reader
+            .tracks()
+            .iter()
+            .find(|track| track.kind == TrackKind::Video)
+            .expect("video track");
+        let audio_track = reader
+            .tracks()
+            .iter()
+            .find(|track| track.kind == TrackKind::Audio)
+            .expect("audio track");
+        assert_eq!(video_track.sample_count, 2);
+        assert_eq!(audio_track.sample_count, 3);
+        assert_eq!(video_track.timescale, 90_000);
+        assert_eq!(audio_track.timescale, 48_000);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
