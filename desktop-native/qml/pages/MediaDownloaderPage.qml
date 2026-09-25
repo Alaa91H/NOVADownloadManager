@@ -830,6 +830,7 @@ Item {
                             model: root.playlistMode ? api.mediaPlaylistEntries : api.mediaFormats
                             activeFocusOnTab: true
                             keyNavigationWraps: false
+                            Accessible.role: Accessible.List
                             Accessible.name: root.playlistMode
                                 ? root.t("media.playlistPreview")
                                 : root.t("media.mediaPreview")
@@ -867,6 +868,7 @@ Item {
                                 border.color: previewList.activeFocus
                                     && previewList.currentIndex === index
                                     ? Theme.focusRing : Theme.border
+                                Accessible.role: Accessible.ListItem
                                 Accessible.name: root.playlistMode
                                     ? (modelData.title || modelData.id || root.t("media.playlistItem"))
                                     : (modelData.height + "p · "
@@ -875,6 +877,18 @@ Item {
                                     ? (modelData.durationString || modelData.url || "")
                                     : ((modelData.vcodec || "") + " · "
                                         + root.formatBytes(modelData.filesize))
+                                Accessible.focusable: true
+                                Accessible.focused: previewList.activeFocus
+                                    && previewList.currentIndex === index
+                                Accessible.selectable: true
+                                Accessible.selected: previewList.currentIndex === index
+                                Accessible.onPressAction: {
+                                    previewList.currentIndex = index
+                                    if (root.playlistMode && !root.selectAllPlaylist
+                                        && api.mediaOptionSupported("playlistItems")) {
+                                        root.togglePlaylistItem(Number(modelData.index))
+                                    }
+                                }
 
                                 RowLayout {
                                     anchors.fill: parent
