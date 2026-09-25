@@ -73,7 +73,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock browser-extension/package.json browser-extension/src/manifest.json
+          git add package.json desktop-native/CMakeLists.txt src-tauri/Cargo.toml src-tauri/Cargo.lock browser-extension/package.json browser-extension/src/manifest.json
           if ! git diff --cached --quiet; then
             git commit -m "chore: release v$VERSION"
             git push origin main
@@ -103,7 +103,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.request.outputs.tag }}
-        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
+        run: gh workflow run native-ui.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
 
       - name: Summary
         env:
