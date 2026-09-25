@@ -1,6 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::{IpAddr, SocketAddr};
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use nova_torrent_core::{
     DhtMessage, DhtNodeId, DhtQuery, DhtResponse, InfoHash, MAX_DHT_PACKET_BYTES,
@@ -13,11 +14,130 @@ use tokio_util::sync::CancellationToken;
 
 use crate::daemon::utils::{is_internal_ip, private_network_allowed};
 
+const DHT_BUCKET_COUNT: usize = 160;
+const DHT_BUCKET_SIZE: usize = 8;
+const DHT_ROUTING_MAX_AGE_SECS: u64 = 7 * 24 * 60 * 60;
+
 const DEFAULT_BOOTSTRAP: &[&str] = &[
     "router.bittorrent.com:6881",
     "dht.transmissionbt.com:6881",
     "router.utorrent.com:6881",
 ];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DhtRoutingSnapshotEntry {
+    pub node: nova_torrent_core::DhtNode,
+    pub last_seen_unix: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RoutingEntry {
+    node: nova_torrent_core::DhtNode,
+    last_seen_unix: u64,
+}
+
+#[derive(Debug)]
+struct DhtRoutingTable {
+    local_id: DhtNodeId,
+    buckets: Vec<VecDeque<RoutingEntry>>,
+}
+
+impl DhtRoutingTable {
+    fn new(local_id: DhtNodeId) -> Self {
+        Self {
+            local_id,
+            buckets: (0..DHT_BUCKET_COUNT).map(|_| VecDeque::new()).collect(),
+        }
+    }
+
+    fn restore(local_id: DhtNodeId, entries: &[DhtRoutingSnapshotEntry]) -> Self {
+        let mut table = Self::new(local_id);
+        let cutoff = unix_now().saturating_sub(DHT_ROUTING_MAX_AGE_SECS);
+        let mut restored = entries
+            .iter()
+            .copied()
+            .filter(|entry| entry.last_seen_unix >= cutoff)
+            .collect::<Vec<_>>();
+        restored.sort_by_key(|entry| entry.last_seen_unix);
+        for entry in restored {
+            table.record_at(entry.node, entry.last_seen_unix);
+        }
+        table
+    }
+
+    fn record(&mut self, node: nova_torrent_core::DhtNode) {
+        self.record_at(node, unix_now());
+    }
+
+    fn record_at(&mut self, node: nova_torrent_core::DhtNode, last_seen_unix: u64) {
+        let Some(index) = bucket_index(self.local_id, node.id) else {
+            return;
+        };
+        let bucket = &mut self.buckets[index];
+        if let Some(position) = bucket
+            .iter()
+            .position(|entry| entry.node.id == node.id || entry.node.address == node.address)
+        {
+            bucket.remove(position);
+        }
+        while bucket.len() >= DHT_BUCKET_SIZE {
+            bucket.pop_front();
+        }
+        bucket.push_back(RoutingEntry {
+            node,
+            last_seen_unix,
+        });
+    }
+
+    fn prune(&mut self) {
+        let cutoff = unix_now().saturating_sub(DHT_ROUTING_MAX_AGE_SECS);
+        for bucket in &mut self.buckets {
+            bucket.retain(|entry| entry.last_seen_unix >= cutoff);
+        }
+    }
+
+    fn snapshot(&self) -> Vec<DhtRoutingSnapshotEntry> {
+        self.buckets
+            .iter()
+            .flat_map(|bucket| bucket.iter())
+            .map(|entry| DhtRoutingSnapshotEntry {
+                node: entry.node,
+                last_seen_unix: entry.last_seen_unix,
+            })
+            .collect()
+    }
+
+    fn closest_to_info_hash(&self, target: InfoHash, limit: usize) -> Vec<nova_torrent_core::DhtNode> {
+        let mut nodes = self
+            .buckets
+            .iter()
+            .flat_map(|bucket| bucket.iter().map(|entry| entry.node))
+            .collect::<Vec<_>>();
+        nodes.sort_by(|left, right| {
+            left.id
+                .xor_distance(target)
+                .cmp(&right.id.xor_distance(target))
+                .then_with(|| left.address.cmp(&right.address))
+        });
+        nodes.truncate(limit);
+        nodes
+    }
+
+    fn closest_to_node(&self, target: DhtNodeId, limit: usize) -> Vec<nova_torrent_core::DhtNode> {
+        let mut nodes = self
+            .buckets
+            .iter()
+            .flat_map(|bucket| bucket.iter().map(|entry| entry.node))
+            .collect::<Vec<_>>();
+        nodes.sort_by(|left, right| {
+            xor_node_distance(left.id, target)
+                .cmp(&xor_node_distance(right.id, target))
+                .then_with(|| left.address.cmp(&right.address))
+        });
+        nodes.truncate(limit);
+        nodes
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct DhtConfig {
@@ -63,14 +183,24 @@ pub struct DhtEngine {
     node_id: DhtNodeId,
     config: DhtConfig,
     allow_private_network: bool,
+    routing: Arc<Mutex<DhtRoutingTable>>,
 }
 
 impl DhtEngine {
     pub fn new(node_id: DhtNodeId, config: DhtConfig) -> Self {
+        Self::with_routing(node_id, config, Vec::new())
+    }
+
+    pub fn with_routing(
+        node_id: DhtNodeId,
+        config: DhtConfig,
+        entries: Vec<DhtRoutingSnapshotEntry>,
+    ) -> Self {
         Self {
             node_id,
             config,
             allow_private_network: private_network_allowed(),
+            routing: Arc::new(Mutex::new(DhtRoutingTable::restore(node_id, &entries))),
         }
     }
 
@@ -80,6 +210,52 @@ impl DhtEngine {
 
     pub const fn node_id(&self) -> DhtNodeId {
         self.node_id
+    }
+
+    pub fn record_node(&self, node: nova_torrent_core::DhtNode) {
+        if node.id == self.node_id || !self.address_allowed(node.address) {
+            return;
+        }
+        match self.routing.lock() {
+            Ok(mut routing) => routing.record(node),
+            Err(poison) => poison.into_inner().record(node),
+        }
+    }
+
+    pub fn routing_snapshot(&self) -> Vec<DhtRoutingSnapshotEntry> {
+        match self.routing.lock() {
+            Ok(routing) => routing.snapshot(),
+            Err(poison) => poison.into_inner().snapshot(),
+        }
+    }
+
+    pub fn prune_routing(&self) {
+        match self.routing.lock() {
+            Ok(mut routing) => routing.prune(),
+            Err(poison) => poison.into_inner().prune(),
+        }
+    }
+
+    pub fn closest_nodes_for_info_hash(
+        &self,
+        target: InfoHash,
+        limit: usize,
+    ) -> Vec<nova_torrent_core::DhtNode> {
+        match self.routing.lock() {
+            Ok(routing) => routing.closest_to_info_hash(target, limit),
+            Err(poison) => poison.into_inner().closest_to_info_hash(target, limit),
+        }
+    }
+
+    pub fn closest_nodes_for_node(
+        &self,
+        target: DhtNodeId,
+        limit: usize,
+    ) -> Vec<nova_torrent_core::DhtNode> {
+        match self.routing.lock() {
+            Ok(routing) => routing.closest_to_node(target, limit),
+            Err(poison) => poison.into_inner().closest_to_node(target, limit),
+        }
     }
 
     pub async fn discover_peers(
@@ -154,6 +330,10 @@ impl DhtEngine {
                     Err(_) => continue,
                 };
                 responding_nodes = responding_nodes.saturating_add(1);
+                self.record_node(nova_torrent_core::DhtNode {
+                    id: response.id,
+                    address: candidate.address,
+                });
 
                 if let Some(token) = response.token {
                     announce_tokens.insert(candidate.address, token);
@@ -174,10 +354,11 @@ impl DhtEngine {
                 }
 
                 for node in response.nodes {
-                    if known_addresses.len() >= max_candidates {
-                        break;
-                    }
                     if node.address.port() == 0 || !self.address_allowed(node.address) {
+                        continue;
+                    }
+                    self.record_node(node);
+                    if known_addresses.len() >= max_candidates {
                         continue;
                     }
                     if known_addresses.insert(node.address) {
@@ -342,7 +523,16 @@ impl DhtEngine {
         &self,
         cancel: &CancellationToken,
     ) -> Result<Vec<SocketAddr>, String> {
-        let mut resolved = Vec::new();
+        let mut resolved = self
+            .routing_snapshot()
+            .into_iter()
+            .map(|entry| entry.node.address)
+            .filter(|address| self.address_allowed(*address))
+            .collect::<Vec<_>>();
+        resolved.sort_unstable();
+        resolved.dedup();
+        resolved.truncate(self.config.max_candidates.max(1));
+
         for bootstrap in &self.config.bootstrap {
             let lookup = tokio::select! {
                 _ = cancel.cancelled() => return Err("DHT bootstrap resolution cancelled".to_owned()),
@@ -371,7 +561,7 @@ impl DhtEngine {
         Ok(resolved)
     }
 
-    fn address_allowed(&self, address: SocketAddr) -> bool {
+    pub(crate) fn address_allowed(&self, address: SocketAddr) -> bool {
         address.port() != 0
             && (self.allow_private_network || !is_internal_ip(address.ip()))
             && !is_unspecified_or_broadcast(address.ip())
@@ -383,8 +573,42 @@ impl DhtEngine {
             node_id,
             config,
             allow_private_network: true,
+            routing: Arc::new(Mutex::new(DhtRoutingTable::new(node_id))),
         }
     }
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
+
+fn bucket_index(local: DhtNodeId, remote: DhtNodeId) -> Option<usize> {
+    let distance = xor_node_distance(local, remote);
+    if distance.iter().all(|byte| *byte == 0) {
+        return None;
+    }
+    let leading = distance
+        .iter()
+        .take_while(|byte| **byte == 0)
+        .count()
+        .saturating_mul(8)
+        + distance
+            .iter()
+            .find(|byte| **byte != 0)
+            .map(|byte| byte.leading_zeros() as usize)
+            .unwrap_or(0);
+    Some(leading.min(DHT_BUCKET_COUNT - 1))
+}
+
+fn xor_node_distance(left: DhtNodeId, right: DhtNodeId) -> [u8; 20] {
+    let mut distance = [0u8; 20];
+    for (index, output) in distance.iter_mut().enumerate() {
+        *output = left.as_bytes()[index] ^ right.as_bytes()[index];
+    }
+    distance
 }
 
 #[derive(Clone, Debug)]
@@ -447,6 +671,48 @@ mod tests {
             } => (peer, transaction_id, query),
             other => panic!("expected DHT query, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn routing_table_is_bucket_bounded_and_lru_refreshed() {
+        let local = id(0);
+        let mut table = DhtRoutingTable::new(local);
+        for value in 1u8..=20 {
+            table.record_at(
+                nova_torrent_core::DhtNode {
+                    id: DhtNodeId::new([value; 20]),
+                    address: SocketAddr::from(([8, 8, 8, value], 6000 + u16::from(value))),
+                },
+                u64::from(value),
+            );
+        }
+        assert!(table.snapshot().len() <= DHT_BUCKET_COUNT * DHT_BUCKET_SIZE);
+        for bucket in &table.buckets {
+            assert!(bucket.len() <= DHT_BUCKET_SIZE);
+        }
+    }
+
+    #[test]
+    fn routing_snapshot_restores_recent_nodes_only() {
+        let now = unix_now();
+        let recent = DhtRoutingSnapshotEntry {
+            node: nova_torrent_core::DhtNode {
+                id: id(2),
+                address: "8.8.8.8:6881".parse().unwrap(),
+            },
+            last_seen_unix: now,
+        };
+        let stale = DhtRoutingSnapshotEntry {
+            node: nova_torrent_core::DhtNode {
+                id: id(3),
+                address: "1.1.1.1:6881".parse().unwrap(),
+            },
+            last_seen_unix: now.saturating_sub(DHT_ROUTING_MAX_AGE_SECS + 1),
+        };
+        let table = DhtRoutingTable::restore(id(1), &[recent, stale]);
+        let snapshot = table.snapshot();
+        assert_eq!(snapshot.len(), 1);
+        assert_eq!(snapshot[0].node, recent.node);
     }
 
     #[tokio::test]
