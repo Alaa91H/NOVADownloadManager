@@ -1,0 +1,67 @@
+name: Build reset
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/build-reset.json'
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: repository-build-reset
+  cancel-in-progress: false
+
+jobs:
+  reset:
+    name: Cancel stale runs and start clean CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Cancel every other active workflow run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          active_runs="$(
+            gh api --paginate               -H "Accept: application/vnd.github+json"               "/repos/$GITHUB_REPOSITORY/actions/runs?per_page=100"               --jq '.workflow_runs[]
+                | select(
+                    .status == "queued"
+                    or .status == "in_progress"
+                    or .status == "pending"
+                    or .status == "waiting"
+                    or .status == "requested"
+                  )
+                | .id'
+          )"
+
+          cancelled=0
+          while IFS= read -r run_id; do
+            [ -n "$run_id" ] || continue
+            [ "$run_id" = "$CURRENT_RUN_ID" ] && continue
+
+            echo "Cancelling workflow run $run_id"
+            gh api               --method POST               -H "Accept: application/vnd.github+json"               "/repos/$GITHUB_REPOSITORY/actions/runs/$run_id/cancel"               >/dev/null 2>&1 || true
+            cancelled=$((cancelled + 1))
+          done <<< "$active_runs"
+
+          echo "Requested cancellation for $cancelled stale workflow run(s)."
+          echo "cancelled=$cancelled" >> "$GITHUB_OUTPUT"
+
+      - name: Start one clean CI run on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref main
+
+      - name: Summary
+        run: |
+          echo "## Build reset complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- All other queued/in-progress/pending workflow runs were cancelled." >> "$GITHUB_STEP_SUMMARY"
+          echo "- One fresh CI workflow was dispatched on `main`." >> "$GITHUB_STEP_SUMMARY"
