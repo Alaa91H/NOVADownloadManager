@@ -260,17 +260,44 @@ Item {
                     spacing: 8
                     clip: true
                     model: api.schedulerRules
+                    activeFocusOnTab: true
+                    keyNavigationWraps: false
+                    Accessible.name: root.t("scheduler.automationRules")
+                    onActiveFocusChanged: {
+                        if (activeFocus && count > 0 && currentIndex < 0)
+                            currentIndex = 0
+                    }
+                    Keys.onPressed: event => {
+                        if (currentIndex < 0 || currentIndex >= count)
+                            return
+                        const rule = api.schedulerRules[currentIndex]
+                        if (!rule)
+                            return
+                        if (event.key === Qt.Key_Space) {
+                            api.setSchedulerRuleEnabled(rule.id, !Boolean(rule.enabled))
+                            event.accepted = true
+                        } else if (event.key === Qt.Key_Delete) {
+                            api.deleteSchedulerRule(rule.id)
+                            event.accepted = true
+                        }
+                    }
                     ScrollBar.vertical: ScrollBar {}
 
                     delegate: Rectangle {
+                        required property int index
                         required property var modelData
                         width: ruleList.width
                         height: 92
                         radius: Theme.radiusMedium
                         color: Theme.surface
-                        border.color: api.activeSchedulerRuleIds.indexOf(modelData.id) >= 0
-                            ? Theme.accent
-                            : Theme.border
+                        border.width: ruleList.activeFocus
+                            && ruleList.currentIndex === index ? 2 : 1
+                        border.color: ruleList.activeFocus
+                            && ruleList.currentIndex === index
+                            ? Theme.focusRing
+                            : api.activeSchedulerRuleIds.indexOf(modelData.id) >= 0
+                                ? Theme.accent
+                                : Theme.border
                         Accessible.name: modelData.name || root.t("scheduler.unnamedRule")
                         Accessible.description: root.triggerSummary(modelData.trigger)
                             + " · " + root.actionSummary(modelData.action)
