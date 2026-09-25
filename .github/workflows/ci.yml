@@ -187,6 +187,10 @@ jobs:
           fi
           grep -q '"/api/media/resolve"' src-tauri/src/daemon/routes/probes.rs
           grep -q '"/api/media/download"' src-tauri/src/daemon/routes/downloads.rs
+          if grep -RInF '/api/media/bridge' src-tauri/src/daemon/routes; then
+            echo "::error::Retired Media Bridge routes must not be registered or reintroduced."
+            exit 1
+          fi
           grep -q '"mediaExtractionReady"' src-tauri/src/daemon/engine_capabilities.rs
           grep -q '"streamingReady"' src-tauri/src/daemon/engine_capabilities.rs
           if grep -nE 'media-bridge.*=> Ok\(ToolId::MediaBridge\)|media_bridge.*=> Ok\(ToolId::MediaBridge\)' \
