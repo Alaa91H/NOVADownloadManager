@@ -589,6 +589,7 @@ Item {
                                 id: outputTemplate
                                 Layout.fillWidth: true
                                 text: "%(title)s.%(ext)s"
+                                Accessible.name: root.t("media.outputTemplate")
                                 enabled: api.mediaOptionSupported("outputTemplate")
                                 selectByMouse: true
                                 font.family: "monospace"
@@ -611,6 +612,7 @@ Item {
                                     ? root.t("media.allPlaylistItems")
                                     : root.playlistItemsValue()
                                 placeholderText: root.t("media.selectPlaylistItems")
+                                Accessible.name: root.t("media.playlistItems")
                                 LayoutMirroring.enabled: false
                                 horizontalAlignment: Text.AlignLeft
                             }
@@ -683,6 +685,7 @@ Item {
                             visible: subtitlesCheck.checked
                             enabled: api.mediaOptionSupported("subtitleLanguages")
                             placeholderText: root.t("media.subtitleLanguages")
+                            Accessible.name: root.t("media.subtitleLanguages")
                             selectByMouse: true
                             LayoutMirroring.enabled: false
                             horizontalAlignment: Text.AlignLeft
