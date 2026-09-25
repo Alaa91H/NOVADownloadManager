@@ -6,12 +6,13 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use nova_download_core::{fetch_http_bytes_with_context, HttpRequestContext, TransferControl};
 use nova_media_core::{
-    assemble_ordered_parts, download_youtube_plan_controlled, resolve_youtube_pending_formats,
-    select_youtube_download_plan,
+    assemble_ordered_parts, download_youtube_plan_controlled, mux_mp4_tracks_controlled,
+    resolve_youtube_pending_formats, select_youtube_download_plan,
     stage_dash_representation_plan_controlled_with_progress_scoped,
     stage_hls_media_plan_controlled_with_progress_scoped, youtube_video_id, ExtractRequest,
     select_media_stream, MediaChapter, MediaDescriptor, MediaProtocol, MediaSelectionMode,
-    MediaSelectionPolicy, MediaSortKey, MediaStream, YouTubeDownloadPlan, YouTubeExtraction,
+    MediaSelectionPolicy, MediaSortKey, MediaStream, NativeMuxError, YouTubeDownloadPlan,
+    YouTubeExtraction,
     YouTubeExtractor, YouTubePlayerScriptSolver, YouTubeSelectionPolicy, YouTubeTransferOutput,
     YouTubeTransferProgress, DEFAULT_MANIFEST_MAX_BYTES,
 };
@@ -191,6 +192,14 @@ enum ResolvedNativeMedia {
     SeparateTracks(ResolvedSeparateTracks),
 }
 
+fn separate_tracks_need_external_postprocessor(resolved: &ResolvedNativeMedia) -> bool {
+    matches!(
+        resolved,
+        ResolvedNativeMedia::SeparateTracks(separate)
+            if !separate.output_container.eq_ignore_ascii_case("mp4")
+    )
+}
+
 #[derive(Debug)]
 struct ManifestStageOutput {
     parts: Vec<(u64, PathBuf)>,
@@ -228,13 +237,13 @@ pub async fn create_native_media_task(
         .as_ref()
         .and_then(|options| options.embed_subtitles)
         .unwrap_or(false);
-    let needs_postprocessor =
-        matches!(resolved, ResolvedNativeMedia::SeparateTracks(_)) || wants_subtitle_embedding;
-    if needs_postprocessor {
+    let needs_external_postprocessor =
+        separate_tracks_need_external_postprocessor(&resolved) || wants_subtitle_embedding;
+    if needs_external_postprocessor {
         let postprocessor = FfmpegPostProcessor::new(state.ffmpeg_binary());
         if !postprocessor.is_available() {
             return Err(NativeMediaTaskError::UnsupportedFeature(
-                "the requested native media operation requires local post-processing, but the NOVA post-processor is not available"
+                "the requested media operation requires the legacy host post-processor, but it is not available"
                     .to_owned(),
             ));
         }
@@ -952,16 +961,19 @@ fn run_native_separate_track_execution(
     output_path: &Path,
     connections: u32,
 ) {
-    let postprocessor = FfmpegPostProcessor::new(state.ffmpeg_binary());
-    if !postprocessor.is_available() {
-        fail_native_task(
-            state,
-            id,
-            generation,
-            "NOVA post-processing muxer is unavailable; the native video/audio tracks were not downloaded"
-                .to_owned(),
-        );
-        return;
+    let use_native_mp4_mux = resolved.output_container.eq_ignore_ascii_case("mp4");
+    if !use_native_mp4_mux {
+        let postprocessor = FfmpegPostProcessor::new(state.ffmpeg_binary());
+        if !postprocessor.is_available() {
+            fail_native_task(
+                state,
+                id,
+                generation,
+                "The selected output container still requires the legacy host post-processor, and it is unavailable"
+                    .to_owned(),
+            );
+            return;
+        }
     }
 
     let control = || {
@@ -1071,7 +1083,11 @@ fn run_native_separate_track_execution(
         id,
         generation,
         TaskState::Finalizing,
-        "muxing-audio-video",
+        if use_native_mp4_mux {
+            "muxing-audio-video-native"
+        } else {
+            "muxing-audio-video-host"
+        },
     ) {
         handle_native_transition_error(
             state,
@@ -1083,6 +1099,22 @@ fn run_native_separate_track_execution(
         return;
     }
 
+    if use_native_mp4_mux {
+        match mux_mp4_tracks_controlled(&output.0, &output.1, output_path, &should_cancel) {
+            Ok(result) => {
+                if complete_native_task(state, id, generation, result.bytes) {
+                    let _ = std::fs::remove_dir_all(staging_dir);
+                }
+            }
+            Err(NativeMuxError::Cancelled) if should_cancel() => {
+                finish_native_cancelled(state, id, generation)
+            }
+            Err(error) => fail_native_task(state, id, generation, error.to_string()),
+        }
+        return;
+    }
+
+    let postprocessor = FfmpegPostProcessor::new(state.ffmpeg_binary());
     let request = MediaMuxRequest {
         video_path: output.0,
         audio_path: output.1,
