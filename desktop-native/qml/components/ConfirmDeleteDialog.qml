@@ -20,6 +20,7 @@ Dialog {
     closePolicy: Popup.CloseOnEscape
     width: Math.min(430, parent ? parent.width - 48 : 430)
     title: root.t("delete.title")
+    onOpened: cancelButton.forceActiveFocus()
 
     background: Rectangle {
         color: Theme.surfaceRaised
@@ -63,12 +64,20 @@ Dialog {
             Item { Layout.fillWidth: true }
 
             Button {
+                id: cancelButton
                 text: root.t("common.cancel")
+                Accessible.name: text
+                KeyNavigation.tab: deleteButton
+                KeyNavigation.backtab: deleteButton
                 onClicked: root.close()
             }
 
             Button {
+                id: deleteButton
                 text: root.t("action.delete")
+                Accessible.name: text
+                KeyNavigation.tab: cancelButton
+                KeyNavigation.backtab: cancelButton
 
                 background: Rectangle {
                     radius: Theme.radiusMedium
