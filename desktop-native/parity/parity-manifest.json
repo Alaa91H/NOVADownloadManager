@@ -939,10 +939,9 @@
           "allOf": [
             "Accessible.List semantics",
             "Accessible.ListItem semantics",
-            "Accessible.focusable",
-            "Accessible.selected",
-            "Accessible.AlertMessage",
-            "Accessible.StatusBar"
+            "for (const property of [\"focusable\", \"focused\", \"selectable\", \"selected\"])",
+            "settings notice surface must expose Accessible.AlertMessage",
+            "status bar must expose StatusBar semantics"
           ]
         },
         {
