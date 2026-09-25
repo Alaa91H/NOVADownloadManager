@@ -634,15 +634,40 @@
       "evidence": [
         "desktop-native/qml/Main.qml",
         "desktop-native/qml/Theme.qml",
-        "desktop-native/src/localization/I18nManager.cpp"
+        "desktop-native/src/localization/I18nManager.cpp",
+        "desktop-native/qml/components/CustomizationPanel.qml",
+        "desktop-native/qml/components/NavigationRail.qml",
+        "desktop-native/qml/components/CommandBar.qml",
+        "desktop-native/src/settings/NativeSettings.cpp",
+        "desktop-native/scripts/check-approved-ui.mjs"
       ],
       "contains": [
         {
           "file": "desktop-native/qml/Main.qml",
           "allOf": [
             "LayoutMirroring.enabled",
-            "StandardKey.New",
+            "Qt.FramelessWindowHint",
+            "topSearch",
+            "sidebarVisible",
+            "customizationOpen",
             "Ctrl+,"
+          ]
+        },
+        {
+          "file": "desktop-native/qml/Theme.qml",
+          "allOf": [
+            "accentBase",
+            "densityScale",
+            "navigationCollapsedWidth",
+            "customizationWidth"
+          ]
+        },
+        {
+          "file": "desktop-native/scripts/check-approved-ui.mjs",
+          "allOf": [
+            "Approved native UI design contract passed",
+            "compact rail",
+            "persistent customization"
           ]
         }
       ]
