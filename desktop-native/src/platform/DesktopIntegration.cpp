@@ -13,6 +13,7 @@
 #include <QJsonObject>
 #include <QProcess>
 #include <QSaveFile>
+#include <QScreen>
 #include <QSet>
 #include <QUrl>
 #include <QVariantMap>
@@ -40,6 +41,15 @@ extern "C" void novaSetMacDockProgress(
 
 
 namespace {
+
+QVariantMap geometryMap(const QRect &geometry) {
+    return QVariantMap{
+        {QStringLiteral("x"), geometry.x()},
+        {QStringLiteral("y"), geometry.y()},
+        {QStringLiteral("width"), geometry.width()},
+        {QStringLiteral("height"), geometry.height()}
+    };
+}
 
 QVariantMap inspectNativeHostManifest(const QString &path) {
     QVariantMap result;
@@ -297,6 +307,26 @@ bool writeUserBrowserRegistration(const QString &subKey, const QString &manifest
 
 DesktopIntegration::DesktopIntegration(QObject *parent)
     : QObject(parent) {
+    for (QScreen *screen : QGuiApplication::screens()) {
+        watchScreen(screen);
+    }
+    connect(
+        qGuiApp,
+        &QGuiApplication::screenAdded,
+        this,
+        [this](QScreen *screen) {
+            watchScreen(screen);
+            emit displayMetricsChanged();
+        }
+    );
+    connect(
+        qGuiApp,
+        &QGuiApplication::screenRemoved,
+        this,
+        [this](QScreen *) {
+            emit displayMetricsChanged();
+        }
+    );
 #if defined(Q_OS_WIN)
     const HRESULT initResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     m_comInitialized = SUCCEEDED(initResult);
@@ -668,8 +698,74 @@ QString DesktopIntegration::chooseSaveFile(
     );
 }
 
+void DesktopIntegration::watchScreen(QScreen *screen) {
+    if (!screen) {
+        return;
+    }
+
+    const auto changed = [this]() {
+        emit displayMetricsChanged();
+    };
+    connect(screen, &QScreen::geometryChanged, this, changed);
+    connect(screen, &QScreen::availableGeometryChanged, this, changed);
+    connect(screen, &QScreen::logicalDotsPerInchChanged, this, changed);
+    connect(screen, &QScreen::physicalDotsPerInchChanged, this, changed);
+    connect(screen, &QScreen::refreshRateChanged, this, changed);
+    connect(screen, &QScreen::orientationChanged, this, [this](Qt::ScreenOrientation) {
+        emit displayMetricsChanged();
+    });
+}
+
+QVariantMap DesktopIntegration::displayMetrics() const {
+    QScreen *screen = m_window && m_window->screen()
+        ? m_window->screen()
+        : QGuiApplication::primaryScreen();
+
+    QVariantMap result;
+    result.insert(QStringLiteral("screenCount"), QGuiApplication::screens().size());
+    if (!screen) {
+        return result;
+    }
+
+    result.insert(QStringLiteral("screenName"), screen->name());
+    result.insert(QStringLiteral("devicePixelRatio"), m_window
+        ? m_window->devicePixelRatio()
+        : screen->devicePixelRatio());
+    result.insert(QStringLiteral("screenDevicePixelRatio"), screen->devicePixelRatio());
+    result.insert(QStringLiteral("logicalDpi"), screen->logicalDotsPerInch());
+    result.insert(QStringLiteral("physicalDpi"), screen->physicalDotsPerInch());
+    result.insert(QStringLiteral("refreshRate"), screen->refreshRate());
+    result.insert(QStringLiteral("geometry"), geometryMap(screen->geometry()));
+    result.insert(
+        QStringLiteral("availableGeometry"),
+        geometryMap(screen->availableGeometry())
+    );
+    result.insert(
+        QStringLiteral("virtualGeometry"),
+        geometryMap(screen->virtualGeometry())
+    );
+    return result;
+}
+
 void DesktopIntegration::setWindow(QWindow *window) {
+    if (m_windowScreenConnection) {
+        disconnect(m_windowScreenConnection);
+    }
+
     m_window = window;
+    if (m_window) {
+        m_windowScreenConnection = connect(
+            m_window,
+            &QWindow::screenChanged,
+            this,
+            [this](QScreen *screen) {
+                watchScreen(screen);
+                emit displayMetricsChanged();
+            }
+        );
+        watchScreen(m_window->screen());
+    }
+    emit displayMetricsChanged();
 }
 
 void DesktopIntegration::handleDownloads(const QJsonArray &downloads) {
