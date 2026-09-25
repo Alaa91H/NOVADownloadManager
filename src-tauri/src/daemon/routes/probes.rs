@@ -1300,40 +1300,9 @@ pub async fn handle_media_postprocess_status(
     }))
 }
 
-fn retired_media_bridge_response(
-    replacement: &'static str,
-) -> (StatusCode, Json<serde_json::Value>) {
-    (
-        StatusCode::GONE,
-        Json(serde_json::json!({
-            "error": "The Media Bridge API has been retired.",
-            "replacement": replacement,
-            "engine": "nova-media-engine"
-        })),
-    )
-}
-
-async fn handle_deprecated_media_bridge_probe() -> (StatusCode, Json<serde_json::Value>) {
-    retired_media_bridge_response("/api/media/probe")
-}
-
-async fn handle_deprecated_media_bridge_playlist_probe() -> (StatusCode, Json<serde_json::Value>) {
-    retired_media_bridge_response("/api/media/probe-playlist")
-}
-
 #[cfg(test)]
 mod bounded_body_tests {
-    use super::{append_limited_probe_chunk, retired_media_bridge_response};
-    use axum::http::StatusCode;
-    use axum::Json;
-
-    #[test]
-    fn retired_media_bridge_routes_point_to_native_replacements() {
-        let (status, Json(payload)) = retired_media_bridge_response("/api/media/probe");
-        assert_eq!(status, StatusCode::GONE);
-        assert_eq!(payload["replacement"], "/api/media/probe");
-        assert_eq!(payload["engine"], "nova-media-engine");
-    }
+    use super::append_limited_probe_chunk;
 
     #[test]
     fn streamed_probe_body_never_exceeds_its_inspection_budget() {
@@ -1359,14 +1328,6 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
         .route(
             "/api/media/probe-playlist",
             get(handle_native_media_probe_playlist),
-        )
-        .route(
-            "/api/media/bridge/probe",
-            get(handle_deprecated_media_bridge_probe),
-        )
-        .route(
-            "/api/media/bridge/probe-playlist",
-            get(handle_deprecated_media_bridge_playlist_probe),
         )
         .route(
             "/api/media/postprocess/status",
