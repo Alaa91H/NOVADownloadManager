@@ -1292,11 +1292,18 @@ pub async fn handle_media_postprocess_status(
     State(state): State<SharedState>,
 ) -> Json<serde_json::Value> {
     let ffmpeg_bin = state.ffmpeg_binary();
-    let available = hidden_output(&ffmpeg_bin, &["-version"]).is_ok_and(|output| output.status.success());
+    let legacy_host_available =
+        hidden_output(&ffmpeg_bin, &["-version"]).is_ok_and(|output| output.status.success());
+    let native_mp4_mux_available =
+        nova_media_core::native_media_core_capabilities().native_mp4_multitrack_mux;
     Json(serde_json::json!({
-        "available": available,
+        "available": legacy_host_available,
         "engine": "nova-media-postprocess",
-        "backend": "ffmpeg"
+        "backend": "ffmpeg",
+        "nativeMp4MuxAvailable": native_mp4_mux_available,
+        "nativeMp4MuxBackend": "nova-media-core",
+        "legacyHostAvailable": legacy_host_available,
+        "legacyHostBackend": "ffmpeg"
     }))
 }
 
