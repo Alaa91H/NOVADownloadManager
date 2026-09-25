@@ -584,6 +584,9 @@ pub async fn update_torrent_seeding_policy(
             && (completed || task_state.is_active())
             && (!completed || !job.seeding.limit_state(job.task.size_bytes).reached());
         if !eligible {
+            if completed {
+                job.seeding.stop_timer();
+            }
             job.seed_cancel_token.cancel();
         }
         (job.clone(), eligible)
@@ -1066,6 +1069,7 @@ async fn run_torrent_worker(
                 if let Some(job) = jobs.get_mut(&id) {
                     job.seeding.start_timer();
                     if job.seeding.limit_state(job.task.size_bytes).reached() {
+                        job.seeding.stop_timer();
                         job.seed_cancel_token.cancel();
                     }
                 }
@@ -1171,6 +1175,7 @@ fn start_torrent_seed_services(
             if task_state == Some(TaskState::Completed) {
                 watch_control.start_timer();
                 if watch_control.limit_state(total_bytes).reached() {
+                    watch_control.stop_timer();
                     watch_cancel.cancel();
                     watch_state.mark_dirty();
                     break;
@@ -1291,6 +1296,7 @@ pub async fn recheck_restored_completed_torrents(state: &SharedState) {
                     if !current.requires_reauth && current.seeding.policy().enabled {
                         current.seeding.start_timer();
                         if current.seeding.limit_state(progress.selected_total_bytes).reached() {
+                            current.seeding.stop_timer();
                             current.seed_cancel_token.cancel();
                         } else {
                             tracker_storage = Some(storage);

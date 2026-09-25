@@ -396,6 +396,7 @@ async fn serve_inbound_seed_session_after_handshake(
                 if let Some(control) = seeding.as_ref() {
                     control.record_upload(block_len);
                     if completed && control.limit_state(downloaded_bytes).reached() {
+                        control.stop_timer();
                         if let Some(token) = seed_cancel.as_ref() {
                             token.cancel();
                         }
