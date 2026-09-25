@@ -22,7 +22,7 @@ pub fn analyze_url(url: &str) -> UrlIntelligence {
         .to_owned();
     let port = parsed
         .as_ref()
-        .and_then(tauri::Url::port)
+        .and_then(|url| url.port())
         .unwrap_or_else(|| default_port(&scheme));
     let path = parsed
         .as_ref()
