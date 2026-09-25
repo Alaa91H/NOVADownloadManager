@@ -681,13 +681,14 @@ impl PeerSession {
         }
 
         let remote_supports_extensions = remote.supports_extension_protocol();
+        let remote_supports_dht = remote.supports_dht_port();
         let mut session = Self {
             address,
             _connection_permit: None,
             download_limiter: None,
             remote_peer_id: remote.peer_id,
             remote_supports_extensions,
-            remote_supports_dht: remote.supports_dht_port(),
+            remote_supports_dht,
             remote_extensions: None,
             discovered_pex_peers: VecDeque::new(),
             state: PeerState::new(piece_count),
@@ -1225,7 +1226,8 @@ impl PeerSession {
                 | PeerMessage::NotInterested
                 | PeerMessage::Request { .. }
                 | PeerMessage::Cancel { .. }
-                | PeerMessage::Port(_) => {
+                | PeerMessage::Port(_)
+                | PeerMessage::Extended { .. } => {
                     control_frames_without_progress =
                         control_frames_without_progress.saturating_add(1);
                 }
