@@ -503,7 +503,9 @@ export const MediaDownloadPage: React.FC = () => {
       const isPlaylist = isPlaylistUrl;
       const fileType = saveMode === 'audio' ? 'audio' : 'video';
 
-      const effectiveQuality = requiresFfmpeg && !engineCapabilities.postProcessingReady ? 'best' : quality;
+      const mediaMuxReady =
+        engineCapabilities.nativeMuxReady || engineCapabilities.postProcessingReady;
+      const effectiveQuality = requiresFfmpeg && !mediaMuxReady ? 'best' : quality;
 
       const {
         mediaProxy,
@@ -907,7 +909,9 @@ export const MediaDownloadPage: React.FC = () => {
                           selectedFormat={selectedFormat}
                           selectedFormatSize={selectedFormatSize}
                           requiresFfmpeg={requiresFfmpeg}
-                          ffmpegAvailable={ffmpegAvailable}
+                          ffmpegAvailable={
+                            engineCapabilities.nativeMuxReady || ffmpegAvailable === true
+                          }
                           mediaReady={engineCapabilities.mediaExtractionReady}
                           onOpenEnginesSettings={() => {
                             openDialog('settings');
