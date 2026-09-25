@@ -353,6 +353,7 @@ Item {
                             id: newQueueName
                             Layout.fillWidth: true
                             placeholderText: root.t("queue.newName")
+                            Accessible.name: root.t("queue.newName")
                             onAccepted: {
                                 if (text.trim().length > 0) {
                                     api.createQueue(text.trim())
@@ -460,6 +461,7 @@ Item {
                                     id: taskSearch
                                     Layout.fillWidth: true
                                     placeholderText: root.t("queue.searchTasks")
+                                    Accessible.name: root.t("queue.searchTasks")
                                 }
                                 Text {
                                     text: root.t("queue.next") + ": "
