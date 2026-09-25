@@ -41,7 +41,16 @@ The core currently provides:
 `matroska_demux` are enabled. EBML container sniffing validates the DocType
 instead of treating an arbitrary non-WebM EBML document as Matroska.
 
-`mp4_mux` and `native_remux` are enabled. The native muxer writes `ftyp`,
+`mp4_mux` and `native_remux` are enabled. The native remux bridge accepts
+MP4/fMP4, supported WebM, and Matroska AVC/HEVC/AAC inputs. Matroska AVC and
+HEVC keep their ISO/IEC 14496-15 decoder-configuration records after structural
+validation; AAC `AudioSpecificConfig` is wrapped into an MPEG-4 `esds`
+descriptor in-process. For AVC/HEVC, DTS is reconstructed from Matroska coding
+order while block timestamps remain PTS, preserving reordered-frame timing
+without transcoding. The daemon advertises these paths as
+`native-matroska-demux` and `native-matroska-remux`.
+
+The native muxer writes `ftyp`,
 an extended-size `mdat`, and a generated `moov` with `stsd`, `stts`,
 optional `ctts`, `stsc`, `stsz`, `co64`, and `stss` tables. It
 supports packet-preserving video/audio MP4 output for H.264, HEVC, AV1,
@@ -60,7 +69,8 @@ BitsPerChannel validation from WebM `Colour`; and WebM AV1
 movie timescale for sample-accurate trimming, and writes `roll` sample groups
 (`sgpd/sbgp`) with a conservative 80 ms random-access pre-roll. The MP4
 `ftyp` also advertises `iso2` compatibility for roll-group support.
-WebM/Matroska muxing, audio transcoding, video transcoding,
+Matroska remux for codecs outside AVC/HEVC/AAC, WebM/Matroska muxing,
+audio transcoding, video transcoding,
 subtitles/data muxing, general edit-list timeline handling beyond Opus pre-skip,
 and hardware acceleration
 remain disabled until their implementations are present and covered by native

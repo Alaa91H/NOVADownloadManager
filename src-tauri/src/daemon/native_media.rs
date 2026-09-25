@@ -86,6 +86,8 @@ impl Extractor for NativeMediaExtractor {
                 "native-mp4-demux".to_owned(),
                 "native-fmp4-demux".to_owned(),
                 "native-webm-demux".to_owned(),
+                "native-matroska-demux".to_owned(),
+                "native-matroska-remux".to_owned(),
                 "native-mp4-mux".to_owned(),
                 "native-remux".to_owned(),
                 "direct-media-handoff".to_owned(),

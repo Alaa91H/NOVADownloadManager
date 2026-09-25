@@ -43,8 +43,8 @@ pub use types::{
     MediaTimeBase, MediaTimestamp, MediaTrack, MediaTrackKind, VideoParameters,
 };
 pub use webm::{
-    prepare_webm_track_for_mp4, probe_matroska_file, probe_webm_file, MatroskaDemuxer,
-    WebmDemuxer,
+    prepare_matroska_track_for_mp4, prepare_webm_track_for_mp4, probe_matroska_file,
+    probe_webm_file, MatroskaDemuxer, WebmDemuxer,
 };
 
 /// Stable version for the internal processing contract. Increment only when

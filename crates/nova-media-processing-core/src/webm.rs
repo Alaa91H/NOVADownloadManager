@@ -137,6 +137,7 @@ struct PacketLocator {
     offset: u64,
     size: u64,
     pts_ns: i64,
+    dts_ns: i64,
     duration_ns: Option<i64>,
     discard_padding_ns: Option<i64>,
     keyframe: bool,
@@ -316,6 +317,34 @@ impl MatroskaDemuxer {
     pub fn packet_count(&self) -> usize {
         self.inner.packet_count()
     }
+
+    /// Open Matroska for packet-preserving remux into NOVA's MP4 muxer.
+    ///
+    /// AVC and HEVC retain their ISO/IEC 14496-15 configuration records.
+    /// AAC AudioSpecificConfig is wrapped in an MPEG-4 ES descriptor for
+    /// the MP4 `esds` box. Video DTS is reconstructed from Matroska coding
+    /// order while the block timestamps remain the presentation timestamps.
+    pub fn open_for_mp4_remux(path: &Path) -> Result<Self, MediaProcessingError> {
+        let mut inner = WebmDemuxer::open_container(
+            path,
+            "matroska",
+            MediaContainer::Matroska,
+        )?;
+        inner.probe.tracks = inner
+            .probe
+            .tracks
+            .iter()
+            .map(prepare_matroska_track_for_mp4)
+            .collect::<Result<Vec<_>, _>>()?;
+        inner.packet_time_bases = inner
+            .probe
+            .tracks
+            .iter()
+            .map(|track| (track.id, track.time_base))
+            .collect();
+        reconstruct_matroska_video_dts(&mut inner)?;
+        Ok(Self { inner })
+    }
 }
 
 impl MediaDemuxer for MatroskaDemuxer {
@@ -358,8 +387,12 @@ impl MediaDemuxer for WebmDemuxer {
             .get(&locator.track_id)
             .copied()
             .unwrap_or(NANOSECOND_TIME_BASE);
-        let timestamp = MediaTimestamp {
+        let pts = MediaTimestamp {
             value: rescale_nanoseconds(locator.pts_ns, time_base)?,
+            time_base,
+        };
+        let dts = MediaTimestamp {
+            value: rescale_nanoseconds(locator.dts_ns, time_base)?,
             time_base,
         };
         let duration_ns = match (
@@ -384,8 +417,8 @@ impl MediaDemuxer for WebmDemuxer {
             .transpose()?;
         Ok(Some(MediaPacket {
             track_id: locator.track_id,
-            pts: Some(timestamp),
-            dts: Some(timestamp),
+            pts: Some(pts),
+            dts: Some(dts),
             duration,
             flags: MediaPacketFlags {
                 keyframe: locator.keyframe,
@@ -1217,12 +1250,400 @@ fn finalize_packet_timing(
                 offset: packet.offset,
                 size: packet.size,
                 pts_ns,
+                dts_ns: pts_ns,
                 duration_ns,
                 discard_padding_ns: packet.discard_padding_ns,
                 keyframe: packet.keyframe,
             })
         })
         .collect()
+}
+
+/// Convert Matroska codec initialization metadata into the canonical payload
+/// expected by NOVA's ISO-BMFF/MP4 muxer.
+pub fn prepare_matroska_track_for_mp4(
+    track: &MediaTrack,
+) -> Result<MediaTrack, MediaProcessingError> {
+    let mut converted = track.clone();
+    converted.codec_private = match &track.codec {
+        MediaCodec::H264 => {
+            validate_avc_decoder_configuration_record(&track.codec_private)?.to_vec()
+        }
+        MediaCodec::Hevc => {
+            validate_hevc_decoder_configuration_record(&track.codec_private)?.to_vec()
+        }
+        MediaCodec::Aac => make_aac_esds_payload(track)?,
+        _ => {
+            return Err(MediaProcessingError::UnsupportedCodec(format!(
+                "{:?} Matroska-to-MP4 remux",
+                track.codec
+            )))
+        }
+    };
+    Ok(converted)
+}
+
+fn reconstruct_matroska_video_dts(
+    demuxer: &mut WebmDemuxer,
+) -> Result<(), MediaProcessingError> {
+    let video_track_ids = demuxer
+        .probe
+        .tracks
+        .iter()
+        .filter(|track| {
+            track.kind == MediaTrackKind::Video
+                && matches!(&track.codec, MediaCodec::H264 | MediaCodec::Hevc)
+        })
+        .map(|track| track.id)
+        .collect::<Vec<_>>();
+
+    for track_id in video_track_ids {
+        let indexes = demuxer
+            .packets
+            .iter()
+            .enumerate()
+            .filter_map(|(index, packet)| (packet.track_id == track_id).then_some(index))
+            .collect::<Vec<_>>();
+        if indexes.is_empty() {
+            continue;
+        }
+
+        let min_pts = indexes
+            .iter()
+            .map(|index| demuxer.packets[*index].pts_ns)
+            .min()
+            .ok_or_else(|| demux_error("Matroska video track contains no timestamps"))?;
+        if min_pts != 0 {
+            return Err(MediaProcessingError::UnsupportedOperation(format!(
+                "Matroska video track {track_id} does not start its presentation timeline at zero"
+            )));
+        }
+
+        let mut dts_ns = 0_i64;
+        for index in indexes {
+            let packet = demuxer
+                .packets
+                .get_mut(index)
+                .ok_or_else(|| demux_error("Matroska packet index became invalid"))?;
+            if packet.pts_ns < 0 {
+                return Err(MediaProcessingError::UnsupportedOperation(
+                    "negative Matroska video PTS requires edit-list timeline handling".to_owned(),
+                ));
+            }
+            let duration = packet
+                .duration_ns
+                .filter(|duration| *duration > 0)
+                .ok_or_else(|| {
+                    MediaProcessingError::UnsupportedOperation(
+                        "Matroska AVC/HEVC remux requires a positive duration for every coded frame"
+                            .to_owned(),
+                    )
+                })?;
+            packet.dts_ns = dts_ns;
+            dts_ns = dts_ns
+                .checked_add(duration)
+                .ok_or_else(|| demux_error("Matroska video DTS overflow"))?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_avc_decoder_configuration_record(
+    data: &[u8],
+) -> Result<&[u8], MediaProcessingError> {
+    if data.len() < 7 || data[0] != 1 {
+        return Err(demux_error(
+            "Matroska AVC CodecPrivate is not an AVCDecoderConfigurationRecord",
+        ));
+    }
+    if data[4] & 0x03 == 2 {
+        return Err(demux_error(
+            "Matroska AVC CodecPrivate uses forbidden NAL length size",
+        ));
+    }
+
+    let profile = data[1];
+    let mut cursor = 6_usize;
+    let sequence_parameter_sets = usize::from(data[5] & 0x1f);
+    if sequence_parameter_sets == 0 {
+        return Err(demux_error(
+            "Matroska AVC CodecPrivate contains no sequence parameter sets",
+        ));
+    }
+    for _ in 0..sequence_parameter_sets {
+        cursor = skip_length_prefixed_nal(data, cursor, "AVC SPS")?;
+    }
+
+    let picture_parameter_sets = usize::from(
+        *data
+            .get(cursor)
+            .ok_or_else(|| demux_error("truncated AVC picture parameter set count"))?,
+    );
+    cursor += 1;
+    if picture_parameter_sets == 0 {
+        return Err(demux_error(
+            "Matroska AVC CodecPrivate contains no picture parameter sets",
+        ));
+    }
+    for _ in 0..picture_parameter_sets {
+        cursor = skip_length_prefixed_nal(data, cursor, "AVC PPS")?;
+    }
+
+    if cursor < data.len() && avc_profile_has_extensions(profile) {
+        if data.len() - cursor < 4 {
+            return Err(demux_error(
+                "truncated AVCDecoderConfigurationRecord extension",
+            ));
+        }
+        // chroma_format, bit_depth_luma_minus8, bit_depth_chroma_minus8
+        cursor += 3;
+        let extension_count = usize::from(data[cursor]);
+        cursor += 1;
+        for _ in 0..extension_count {
+            cursor = skip_length_prefixed_nal(data, cursor, "AVC SPS extension")?;
+        }
+    }
+
+    if cursor != data.len() {
+        return Err(MediaProcessingError::UnsupportedOperation(
+            "Matroska AVC CodecPrivate contains trailing extension data not representable in avcC"
+                .to_owned(),
+        ));
+    }
+    Ok(data)
+}
+
+fn avc_profile_has_extensions(profile: u8) -> bool {
+    matches!(
+        profile,
+        44 | 83 | 86 | 100 | 110 | 118 | 122 | 128 | 134 | 135 | 138 | 139 | 144
+    )
+}
+
+fn skip_length_prefixed_nal(
+    data: &[u8],
+    cursor: usize,
+    name: &str,
+) -> Result<usize, MediaProcessingError> {
+    let length_bytes = data
+        .get(cursor..cursor.saturating_add(2))
+        .ok_or_else(|| demux_error(format!("truncated {name} length")))?;
+    let length = usize::from(u16::from_be_bytes([length_bytes[0], length_bytes[1]]));
+    if length == 0 {
+        return Err(demux_error(format!("{name} must not be empty")));
+    }
+    cursor
+        .checked_add(2)
+        .and_then(|start| start.checked_add(length))
+        .filter(|end| *end <= data.len())
+        .ok_or_else(|| demux_error(format!("truncated {name} payload")))
+}
+
+fn validate_hevc_decoder_configuration_record(
+    data: &[u8],
+) -> Result<&[u8], MediaProcessingError> {
+    if data.len() < 23 || data[0] != 1 {
+        return Err(demux_error(
+            "Matroska HEVC CodecPrivate is not an HEVCDecoderConfigurationRecord",
+        ));
+    }
+    if data[21] & 0x03 == 2 {
+        return Err(demux_error(
+            "Matroska HEVC CodecPrivate uses forbidden NAL length size",
+        ));
+    }
+
+    let arrays = usize::from(data[22]);
+    if arrays == 0 {
+        return Err(demux_error(
+            "Matroska HEVC CodecPrivate contains no NAL parameter arrays",
+        ));
+    }
+    let mut cursor = 23_usize;
+    for _ in 0..arrays {
+        cursor = cursor
+            .checked_add(1)
+            .filter(|cursor| *cursor <= data.len())
+            .ok_or_else(|| demux_error("truncated HEVC array header"))?;
+        let count_bytes = data
+            .get(cursor..cursor.saturating_add(2))
+            .ok_or_else(|| demux_error("truncated HEVC NAL count"))?;
+        let count = usize::from(u16::from_be_bytes([count_bytes[0], count_bytes[1]]));
+        cursor += 2;
+        if count == 0 {
+            return Err(demux_error("HEVC parameter array must contain NAL units"));
+        }
+        for _ in 0..count {
+            cursor = skip_length_prefixed_nal(data, cursor, "HEVC parameter NAL")?;
+        }
+    }
+    if cursor != data.len() {
+        return Err(demux_error(
+            "HEVCDecoderConfigurationRecord has trailing bytes",
+        ));
+    }
+    Ok(data)
+}
+
+fn make_aac_esds_payload(track: &MediaTrack) -> Result<Vec<u8>, MediaProcessingError> {
+    let audio = track
+        .audio
+        .as_ref()
+        .ok_or_else(|| demux_error("Matroska AAC track is missing audio parameters"))?;
+    validate_audio_specific_config(&track.codec_private)?;
+
+    let bitrate = audio
+        .bitrate_bps
+        .map(u32::try_from)
+        .transpose()
+        .map_err(|_| {
+            MediaProcessingError::UnsupportedOperation(
+                "Matroska AAC bitrate exceeds MP4 ES descriptor range".to_owned(),
+            )
+        })?
+        .unwrap_or(0);
+
+    let decoder_specific =
+        make_mpeg4_descriptor(0x05, track.codec_private.clone())?;
+
+    let mut decoder_config = Vec::with_capacity(13 + decoder_specific.len());
+    decoder_config.push(0x40); // MPEG-4 Audio objectTypeIndication
+    decoder_config.push(0x15); // AudioStream, upstream=0, reserved=1
+    decoder_config.extend_from_slice(&[0, 0, 0]); // bufferSizeDB
+    decoder_config.extend_from_slice(&bitrate.to_be_bytes());
+    decoder_config.extend_from_slice(&bitrate.to_be_bytes());
+    decoder_config.extend_from_slice(&decoder_specific);
+    let decoder_config = make_mpeg4_descriptor(0x04, decoder_config)?;
+
+    let sl_config = make_mpeg4_descriptor(0x06, vec![0x02])?;
+
+    let mut es = Vec::with_capacity(3 + decoder_config.len() + sl_config.len());
+    es.extend_from_slice(&1_u16.to_be_bytes()); // ES_ID
+    es.push(0); // streamDependenceFlag, URL_Flag, OCRstreamFlag, streamPriority
+    es.extend_from_slice(&decoder_config);
+    es.extend_from_slice(&sl_config);
+    let es = make_mpeg4_descriptor(0x03, es)?;
+
+    let mut payload = vec![0, 0, 0, 0]; // FullBox version + flags
+    payload.extend_from_slice(&es);
+    Ok(payload)
+}
+
+fn validate_audio_specific_config(data: &[u8]) -> Result<(), MediaProcessingError> {
+    let mut bit_offset = 0_usize;
+    let object_type = read_aac_object_type(data, &mut bit_offset)?;
+    read_aac_sampling_frequency(data, &mut bit_offset)?;
+    let _channel_configuration = read_bits(data, &mut bit_offset, 4)?;
+
+    if matches!(object_type, 5 | 29) {
+        read_aac_sampling_frequency(data, &mut bit_offset)?;
+        let extension_object_type = read_aac_object_type(data, &mut bit_offset)?;
+        if extension_object_type == 0 {
+            return Err(demux_error(
+                "AAC AudioSpecificConfig has reserved extension object type 0",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn read_aac_object_type(
+    data: &[u8],
+    bit_offset: &mut usize,
+) -> Result<u32, MediaProcessingError> {
+    let object_type = read_bits(data, bit_offset, 5)?;
+    let object_type = if object_type == 31 {
+        32 + read_bits(data, bit_offset, 6)?
+    } else {
+        object_type
+    };
+    if object_type == 0 {
+        return Err(demux_error(
+            "AAC AudioSpecificConfig has reserved object type 0",
+        ));
+    }
+    Ok(object_type)
+}
+
+fn read_aac_sampling_frequency(
+    data: &[u8],
+    bit_offset: &mut usize,
+) -> Result<(), MediaProcessingError> {
+    let frequency_index = read_bits(data, bit_offset, 4)?;
+    if frequency_index == 15 {
+        if read_bits(data, bit_offset, 24)? == 0 {
+            return Err(demux_error(
+                "AAC AudioSpecificConfig has zero explicit sampling frequency",
+            ));
+        }
+    } else if frequency_index > 12 {
+        return Err(demux_error(
+            "AAC AudioSpecificConfig uses a reserved sampling-frequency index",
+        ));
+    }
+    Ok(())
+}
+
+fn read_bits(
+    data: &[u8],
+    bit_offset: &mut usize,
+    count: usize,
+) -> Result<u32, MediaProcessingError> {
+    if count == 0 || count > 32 {
+        return Err(demux_error("invalid bit-reader width"));
+    }
+    let end = bit_offset
+        .checked_add(count)
+        .ok_or_else(|| demux_error("AAC bit offset overflow"))?;
+    if end > data.len().saturating_mul(8) {
+        return Err(demux_error("truncated AAC AudioSpecificConfig"));
+    }
+
+    let mut value = 0_u32;
+    for bit in *bit_offset..end {
+        let byte = data[bit / 8];
+        let shift = 7 - (bit % 8);
+        value = (value << 1) | u32::from((byte >> shift) & 1);
+    }
+    *bit_offset = end;
+    Ok(value)
+}
+
+fn make_mpeg4_descriptor(
+    tag: u8,
+    payload: Vec<u8>,
+) -> Result<Vec<u8>, MediaProcessingError> {
+    let mut descriptor = Vec::with_capacity(payload.len().saturating_add(5));
+    descriptor.push(tag);
+    append_mpeg4_descriptor_length(&mut descriptor, payload.len())?;
+    descriptor.extend_from_slice(&payload);
+    Ok(descriptor)
+}
+
+fn append_mpeg4_descriptor_length(
+    output: &mut Vec<u8>,
+    length: usize,
+) -> Result<(), MediaProcessingError> {
+    let mut value = u32::try_from(length)
+        .map_err(|_| demux_error("MPEG-4 descriptor length exceeds u32"))?;
+    if value > 0x0fff_ffff {
+        return Err(demux_error("MPEG-4 descriptor length exceeds 28 bits"));
+    }
+
+    let mut chunks = [0_u8; 4];
+    let mut count = 1_usize;
+    chunks[3] = (value & 0x7f) as u8;
+    value >>= 7;
+    while value != 0 {
+        if count == 4 {
+            return Err(demux_error("MPEG-4 descriptor length overflow"));
+        }
+        chunks[3 - count] = ((value & 0x7f) as u8) | 0x80;
+        value >>= 7;
+        count += 1;
+    }
+    output.extend_from_slice(&chunks[4 - count..]);
+    Ok(())
 }
 
 /// Convert WebM codec initialization metadata into the canonical payload
@@ -2317,6 +2738,157 @@ mod tests {
         assert!(packet.flags.keyframe);
 
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn matroska_h264_remux_reconstructs_coding_order_dts() {
+        let ebml = element(
+            &[0x1A, 0x45, 0xDF, 0xA3],
+            element(&[0x42, 0x82], b"matroska".to_vec()),
+        );
+        let info = element(
+            &[0x15, 0x49, 0xA9, 0x66],
+            uint_element(&[0x2A, 0xD7, 0xB1], 1_000_000, 3),
+        );
+        let video = element(
+            &[0xE0],
+            [
+                uint_element(&[0xB0], 640, 2),
+                uint_element(&[0xBA], 360, 2),
+            ]
+            .concat(),
+        );
+        let avcc = vec![
+            1, 66, 0, 30, 0xff, 0xe1,
+            0, 1, 0x67,
+            1,
+            0, 1, 0x68,
+        ];
+        let track = element(
+            &[0xAE],
+            [
+                uint_element(&[0xD7], 1, 1),
+                uint_element(&[0x83], 1, 1),
+                element(&[0x86], b"V_MPEG4/ISO/AVC".to_vec()),
+                element(&[0x63, 0xA2], avcc),
+                uint_element(&[0x23, 0xE3, 0x83], 40_000_000, 4),
+                video,
+            ]
+            .concat(),
+        );
+        let tracks = element(&[0x16, 0x54, 0xAE, 0x6B], track);
+
+        let make_block = |timecode: i16, keyframe: bool, payload: &[u8]| {
+            let mut block = vec![0x81];
+            block.extend_from_slice(&timecode.to_be_bytes());
+            block.push(if keyframe { 0x80 } else { 0x00 });
+            block.extend_from_slice(payload);
+            element(&[0xA3], block)
+        };
+        let cluster = element(
+            &[0x1F, 0x43, 0xB6, 0x75],
+            [
+                uint_element(&[0xE7], 0, 1),
+                make_block(0, true, b"I"),
+                make_block(80, false, b"P"),
+                make_block(40, false, b"B"),
+            ]
+            .concat(),
+        );
+        let segment = element(
+            &[0x18, 0x53, 0x80, 0x67],
+            [info, tracks, cluster].concat(),
+        );
+        let path = temp_path();
+        fs::write(&path, [ebml, segment].concat()).expect("fixture");
+
+        let mut demuxer =
+            MatroskaDemuxer::open_for_mp4_remux(&path).expect("Matroska H264 remux");
+        let mut pts = Vec::new();
+        let mut dts = Vec::new();
+        while let Some(packet) = demuxer.next_packet().expect("packet") {
+            pts.push(packet.pts.expect("pts").value);
+            dts.push(packet.dts.expect("dts").value);
+        }
+        assert_eq!(pts, vec![0, 80_000_000, 40_000_000]);
+        assert_eq!(dts, vec![0, 40_000_000, 80_000_000]);
+
+        let destination = path.with_extension("mp4");
+        let mut bridged =
+            crate::open_mp4_remux_demuxer(&path).expect("content-sniffed Matroska bridge");
+        let mut inputs: [&mut dyn MediaDemuxer; 1] = [bridged.as_mut()];
+        crate::mux_demuxers_to_mp4(&destination, &mut inputs).expect("Matroska to MP4 remux");
+
+        let mut output = crate::Mp4Demuxer::open(&destination).expect("remuxed MP4");
+        assert_eq!(output.probe().tracks[0].codec, MediaCodec::H264);
+        let mut output_pts = Vec::new();
+        let mut output_dts = Vec::new();
+        while let Some(packet) = output.next_packet().expect("MP4 packet") {
+            output_pts.push(packet.pts.expect("MP4 pts").value);
+            output_dts.push(packet.dts.expect("MP4 dts").value);
+        }
+        assert_eq!(output_pts, pts);
+        assert_eq!(output_dts, dts);
+
+        let _ = fs::remove_file(destination);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn matroska_aac_private_is_wrapped_for_mp4_esds() {
+        let track = MediaTrack {
+            id: 2,
+            kind: MediaTrackKind::Audio,
+            codec: MediaCodec::Aac,
+            time_base: NANOSECOND_TIME_BASE,
+            language: None,
+            video: None,
+            audio: Some(AudioParameters {
+                sample_rate_hz: 48_000,
+                channels: 2,
+                bitrate_bps: Some(128_000),
+            }),
+            codec_private: vec![0x11, 0x90], // AAC-LC, 48 kHz, stereo
+        };
+        let converted =
+            prepare_matroska_track_for_mp4(&track).expect("AAC Matroska bridge");
+        assert_eq!(&converted.codec_private[..4], &[0, 0, 0, 0]);
+        assert_eq!(converted.codec_private[4], 0x03);
+        assert!(converted
+            .codec_private
+            .windows(2)
+            .any(|window| window == [0x11, 0x90]));
+    }
+
+    #[test]
+    fn validates_matroska_hevc_decoder_configuration_record() {
+        let mut hvcc = vec![0_u8; 23];
+        hvcc[0] = 1;
+        hvcc[21] = 0x03;
+        hvcc[22] = 1;
+        hvcc.push(0x20); // VPS array
+        hvcc.extend_from_slice(&1_u16.to_be_bytes());
+        hvcc.extend_from_slice(&1_u16.to_be_bytes());
+        hvcc.push(0x40);
+
+        let track = MediaTrack {
+            id: 1,
+            kind: MediaTrackKind::Video,
+            codec: MediaCodec::Hevc,
+            time_base: NANOSECOND_TIME_BASE,
+            language: None,
+            video: Some(VideoParameters {
+                width: 1920,
+                height: 1080,
+                frame_rate: Some(30.0),
+                bitrate_bps: None,
+            }),
+            audio: None,
+            codec_private: hvcc.clone(),
+        };
+        let converted =
+            prepare_matroska_track_for_mp4(&track).expect("HEVC Matroska bridge");
+        assert_eq!(converted.codec_private, hvcc);
     }
 
     #[test]
