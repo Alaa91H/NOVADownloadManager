@@ -3592,7 +3592,7 @@ mod tests {
             audio_codec: None,
             width: Some(1920),
             height: Some(1080),
-            fps: Some(30),
+            fps: Some(30.0),
             bitrate_bps: None,
             audio_bitrate_bps: None,
             content_length: Some(100),
