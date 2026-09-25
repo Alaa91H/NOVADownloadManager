@@ -106,16 +106,16 @@ requirePng('branding/source/app-icon.png', 512, 512);
 requirePng('branding/source/installer-banner.png', 2172, 724);
 requirePng('branding/source/profile-logo.png', 1254, 1254);
 
-requirePng('src/assets/logo.png', 512, 512);
-requirePng('src-tauri/icons/32x32.png', 32, 32);
-requirePng('src-tauri/icons/64x64.png', 64, 64);
-requirePng('src-tauri/icons/128x128.png', 128, 128);
-requirePng('src-tauri/icons/128x128@2x.png', 256, 256);
-requirePng('src-tauri/icons/icon.png', 1024, 1024);
-requireIco('src-tauri/icons/icon.ico', [16, 24, 32, 48, 64, 128, 256]);
-requireIcns('src-tauri/icons/icon.icns');
-requireBmp('src-tauri/windows/installer-header.bmp', 600, 228);
-requireBmp('src-tauri/windows/installer-sidebar.bmp', 656, 1256);
+requirePng('desktop-native/resources/icons/32x32.png', 32, 32);
+requirePng('desktop-native/resources/icons/64x64.png', 64, 64);
+requirePng('desktop-native/resources/icons/128x128.png', 128, 128);
+requirePng('desktop-native/resources/icons/128x128@2x.png', 256, 256);
+requirePng('desktop-native/resources/icons/icon.png', 1024, 1024);
+requireIco('desktop-native/resources/icons/icon.ico', [16, 24, 32, 48, 64, 128, 256]);
+requireIcns('desktop-native/resources/icons/icon.icns');
+requireContains('desktop-native/CMakeLists.txt', 'resources/nova-native.rc', 'Windows Qt icon resource');
+requireContains('desktop-native/CMakeLists.txt', 'MACOSX_BUNDLE_ICON_FILE "icon.icns"', 'macOS Qt icon resource');
+requireContains('desktop-native/resources/nova-native.desktop', 'Icon=nova-download-manager', 'Linux Qt icon reference');
 
 requirePng('browser-extension/public/icons/icon-16.png', 16, 16);
 requirePng('browser-extension/public/icons/icon-32.png', 32, 32);
@@ -125,14 +125,6 @@ requirePng('browser-extension/public/icons/icon.png', 512, 512);
 requirePng('browser-extension/public/icons/logo.png', 512, 512);
 requireIco('browser-extension/public/icons/icon.ico', [16, 32, 48, 128]);
 
-requirePng('public/favicon-16x16.png', 16, 16);
-requirePng('public/favicon-32x32.png', 32, 32);
-requirePng('public/apple-touch-icon.png', 180, 180);
-requirePng('public/android-chrome-192x192.png', 192, 192);
-requirePng('public/android-chrome-512x512.png', 512, 512);
-requireIco('public/favicon.ico', [16, 24, 32, 48, 64, 128, 256]);
-requireIco('public/icon.ico', [16, 24, 32, 48, 64, 128, 256]);
-
 requirePng('android/app/src/main/res/mipmap-mdpi/ic_nova_launcher.png', 48, 48);
 requirePng('android/app/src/main/res/mipmap-hdpi/ic_nova_launcher.png', 72, 72);
 requirePng('android/app/src/main/res/mipmap-xhdpi/ic_nova_launcher.png', 96, 96);
@@ -140,46 +132,6 @@ requirePng('android/app/src/main/res/mipmap-xxhdpi/ic_nova_launcher.png', 144, 1
 requirePng('android/app/src/main/res/mipmap-xxxhdpi/ic_nova_launcher.png', 192, 192);
 requireContains('android/app/src/main/AndroidManifest.xml', '@mipmap/ic_nova_launcher', 'Android primary launcher icon');
 
-const tauriConfig = JSON.parse(readText('src-tauri/tauri.conf.json'));
-const bundleIcons = tauriConfig.bundle?.icon ?? [];
-for (const icon of [
-  'icons/32x32.png',
-  'icons/128x128.png',
-  'icons/128x128@2x.png',
-  'icons/icon.icns',
-  'icons/icon.ico',
-]) {
-  if (!bundleIcons.includes(icon)) fail(`src-tauri/tauri.conf.json: bundle icon missing ${icon}`);
-}
-const nsis = tauriConfig.bundle?.windows?.nsis ?? {};
-if (nsis.installerIcon !== 'icons/icon.ico') fail('src-tauri/tauri.conf.json: installerIcon must use icons/icon.ico');
-if (nsis.uninstallerIcon !== 'icons/icon.ico')
-  fail('src-tauri/tauri.conf.json: uninstallerIcon must use icons/icon.ico');
-if (nsis.headerImage !== './windows/installer-header.bmp')
-  fail('src-tauri/tauri.conf.json: headerImage must use installer-header.bmp');
-if (nsis.sidebarImage !== './windows/installer-sidebar.bmp')
-  fail('src-tauri/tauri.conf.json: sidebarImage must use installer-sidebar.bmp');
-if (nsis.uninstallerHeaderImage !== './windows/installer-header.bmp')
-  fail('src-tauri/tauri.conf.json: uninstallerHeaderImage must use installer-header.bmp');
-requireContains('src-tauri/windows/hooks.nsi', 'MUI_BGCOLOR', 'NSIS dark background theme');
-requireContains('src-tauri/windows/hooks.nsi', 'MUI_TEXTCOLOR', 'NSIS dark text theme');
-requireContains(
-  'src-tauri/windows/hooks.nsi',
-  'MUI_HEADERIMAGE_BITMAP_STRETCH AspectFitHeight',
-  'NSIS HiDPI header scaling',
-);
-requireContains(
-  'src-tauri/windows/hooks.nsi',
-  'MUI_WELCOMEFINISHPAGE_BITMAP_STRETCH AspectFitHeight',
-  'NSIS HiDPI sidebar scaling',
-);
-
-requireContains(
-  'src-tauri/src/lib.rs',
-  'app.default_window_icon()',
-  'default window icon lookup for tray/taskbar consistency',
-);
-requireContains('src-tauri/src/lib.rs', 'TrayIconBuilder::new()', 'tray icon builder');
 requireContains('browser-extension/wxt.config.ts', "16: 'icons/icon-16.png'", 'extension icon-16 reference');
 requireContains('browser-extension/wxt.config.ts', "128: 'icons/icon-128.png'", 'extension icon-128 reference');
 requireContains(
@@ -187,8 +139,6 @@ requireContains(
   "resources: ['icons/icon-48.png', 'icons/logo.png']",
   'extension web-accessible logo reference',
 );
-requireContains('index.html', 'href="/favicon.ico"', 'web favicon reference');
-requireContains('index.html', 'href="/site.webmanifest"', 'web manifest reference');
 
 const artExts = new Set(['.png', '.ico', '.icns', '.bmp', '.webmanifest']);
 const ignoredPrefixes = [
@@ -198,6 +148,7 @@ const ignoredPrefixes = [
   'browser-extension/.output/',
   'browser-extension/dist/',
   'src-tauri/target/',
+  'desktop-native/build/',
   'android/app/build/',
 ];
 const artFiles = walk(ROOT)
@@ -207,11 +158,7 @@ const artFiles = walk(ROOT)
 
 const allowedPrefixes = [
   'branding/source/',
-  'public/',
-  'screenshots/',
-  'src/assets/',
-  'src-tauri/icons/',
-  'src-tauri/windows/',
+  'desktop-native/resources/icons/',
   'browser-extension/public/icons/',
   'android/app/src/main/res/mipmap-',
 ];

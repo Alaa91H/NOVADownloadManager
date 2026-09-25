@@ -1,6 +1,8 @@
-use chrono::{Local, Timelike};
+use chrono::{DateTime, Datelike, Local, Timelike};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SchedulerRule {
@@ -52,6 +54,116 @@ pub enum SchedulerAction {
     Sleep,
 }
 
+#[derive(Clone, Debug)]
+struct QueueRetryRuntime {
+    attempts: u32,
+    next_allowed: Instant,
+}
+
+#[derive(Default)]
+struct QueueSchedulerRuntime {
+    window_active: HashMap<String, bool>,
+    completion_state: HashMap<String, bool>,
+    retries: HashMap<(String, String), QueueRetryRuntime>,
+    exit_requested: bool,
+}
+
+fn parse_hhmm(value: Option<&str>, fallback_hour: u32, fallback_minute: u32) -> (u32, u32) {
+    let Some(raw) = value else {
+        return (fallback_hour, fallback_minute);
+    };
+    let mut parts = raw.trim().split(':');
+    let hour = parts
+        .next()
+        .and_then(|part| part.parse::<u32>().ok())
+        .filter(|hour| *hour < 24)
+        .unwrap_or(fallback_hour);
+    let minute = parts
+        .next()
+        .and_then(|part| part.parse::<u32>().ok())
+        .filter(|minute| *minute < 60)
+        .unwrap_or(fallback_minute);
+    (hour, minute)
+}
+
+/// Returns whether a daemon-owned queue schedule is active for the supplied time.
+///
+/// For windows that cross midnight, the early-morning portion belongs to the
+/// weekday on which the window started. This keeps custom-day schedules
+/// intuitive and matches desktop queue semantics.
+pub fn queue_schedule_window_active(
+    queue: &serde_json::Value,
+    now: &DateTime<Local>,
+) -> bool {
+    if !queue
+        .get("scheduled")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        return false;
+    }
+
+    let schedule_type = queue
+        .get("scheduleType")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("daily");
+    if schedule_type == "once"
+        && queue
+            .get("scheduleCompleted")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+    {
+        return false;
+    }
+
+    let (start_hour, start_minute) = parse_hhmm(
+        queue.get("startTime").and_then(serde_json::Value::as_str),
+        0,
+        0,
+    );
+    let (end_hour, end_minute) = parse_hhmm(
+        queue.get("endTime").and_then(serde_json::Value::as_str),
+        23,
+        59,
+    );
+    let start = start_hour * 60 + start_minute;
+    let end = end_hour * 60 + end_minute;
+    let current = now.hour() * 60 + now.minute();
+    let overnight = start > end;
+    let in_window = if start <= end {
+        current >= start && current < end
+    } else {
+        current >= start || current < end
+    };
+    if !in_window {
+        return false;
+    }
+
+    if schedule_type == "daily" {
+        return true;
+    }
+
+    let schedule_day = if overnight && current < end {
+        (now.clone() - chrono::Duration::days(1))
+            .weekday()
+            .num_days_from_sunday() as u64
+    } else {
+        now.weekday().num_days_from_sunday() as u64
+    };
+    let days = queue
+        .get("days")
+        .and_then(serde_json::Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(serde_json::Value::as_u64)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_else(|| vec![0, 1, 2, 3, 4, 5, 6]);
+
+    days.contains(&schedule_day)
+}
+
 #[derive(Clone)]
 pub struct SmartScheduler {
     rules: Arc<Mutex<Vec<SchedulerRule>>>,
@@ -62,6 +174,7 @@ pub struct SmartScheduler {
     /// condition becomes true, then stays silent until it goes false and
     /// true again. Prevents Shutdown/Sleep/Notify spam every 60s tick.
     fired_rules: Arc<Mutex<std::collections::HashSet<String>>>,
+    queue_runtime: Arc<Mutex<QueueSchedulerRuntime>>,
 }
 
 impl SmartScheduler {
@@ -71,7 +184,83 @@ impl SmartScheduler {
             active_rules: Arc::new(Mutex::new(Vec::new())),
             power_commands_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             fired_rules: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            queue_runtime: Arc::new(Mutex::new(QueueSchedulerRuntime::default())),
         }
+    }
+
+    pub fn queue_window_transition(&self, queue_id: &str, active: bool) -> (bool, bool) {
+        let Ok(mut runtime) = self.queue_runtime.lock() else {
+            return (false, false);
+        };
+        let previous = runtime
+            .window_active
+            .insert(queue_id.to_owned(), active)
+            .unwrap_or(false);
+        (!previous && active, previous && !active)
+    }
+
+    pub fn queue_completion_edge(&self, queue_id: &str, completed: bool) -> bool {
+        let Ok(mut runtime) = self.queue_runtime.lock() else {
+            return false;
+        };
+        match runtime.completion_state.insert(queue_id.to_owned(), completed) {
+            Some(previous) => !previous && completed,
+            None => false,
+        }
+    }
+
+    pub fn queue_retry_due(
+        &self,
+        queue_id: &str,
+        task_id: &str,
+        failed: bool,
+        max_retries: u32,
+        retry_delay_secs: u64,
+    ) -> bool {
+        let Ok(mut runtime) = self.queue_runtime.lock() else {
+            return false;
+        };
+        let key = (queue_id.to_owned(), task_id.to_owned());
+        if !failed || max_retries == 0 {
+            runtime.retries.remove(&key);
+            return false;
+        }
+
+        let now = Instant::now();
+        let delay = Duration::from_secs(retry_delay_secs.max(1));
+        let entry = runtime.retries.entry(key).or_insert_with(|| QueueRetryRuntime {
+            attempts: 0,
+            next_allowed: now + delay,
+        });
+
+        if entry.attempts >= max_retries || now < entry.next_allowed {
+            return false;
+        }
+
+        entry.attempts = entry.attempts.saturating_add(1);
+        entry.next_allowed = now + delay;
+        true
+    }
+
+    pub fn reset_queue_runtime(&self, queue_id: &str) {
+        if let Ok(mut runtime) = self.queue_runtime.lock() {
+            runtime.window_active.remove(queue_id);
+            runtime.completion_state.remove(queue_id);
+            runtime.retries.retain(|(id, _), _| id != queue_id);
+        }
+    }
+
+    pub fn request_exit(&self) {
+        if let Ok(mut runtime) = self.queue_runtime.lock() {
+            runtime.exit_requested = true;
+        }
+    }
+
+    pub fn exit_requested(&self) -> bool {
+        self.queue_runtime
+            .lock()
+            .map(|runtime| runtime.exit_requested)
+            .unwrap_or(false)
     }
 
     pub fn set_power_commands_enabled(&self, enabled: bool) {
@@ -475,6 +664,82 @@ mod tests {
         ));
         let actions = sched.evaluate(3000, 0, 0, 0);
         assert_eq!(actions.len(), 2);
+    }
+
+    #[test]
+    fn queue_schedule_supports_custom_days_and_overnight_windows() {
+        let queue = serde_json::json!({
+            "scheduled": true,
+            "scheduleType": "custom",
+            "startTime": "22:00",
+            "endTime": "06:00",
+            "days": [3],
+            "scheduleCompleted": false
+        });
+
+        let wednesday_late = chrono::NaiveDate::from_ymd_opt(2026, 9, 23)
+            .unwrap()
+            .and_hms_opt(23, 0, 0)
+            .unwrap()
+            .and_local_timezone(Local)
+            .single()
+            .unwrap();
+        assert!(queue_schedule_window_active(&queue, &wednesday_late));
+
+        let thursday_early = chrono::NaiveDate::from_ymd_opt(2026, 9, 24)
+            .unwrap()
+            .and_hms_opt(2, 0, 0)
+            .unwrap()
+            .and_local_timezone(Local)
+            .single()
+            .unwrap();
+        assert!(queue_schedule_window_active(&queue, &thursday_early));
+
+        let thursday_late = chrono::NaiveDate::from_ymd_opt(2026, 9, 24)
+            .unwrap()
+            .and_hms_opt(23, 0, 0)
+            .unwrap()
+            .and_local_timezone(Local)
+            .single()
+            .unwrap();
+        assert!(!queue_schedule_window_active(&queue, &thursday_late));
+    }
+
+    #[test]
+    fn once_queue_stays_disabled_after_completion() {
+        let queue = serde_json::json!({
+            "scheduled": true,
+            "scheduleType": "once",
+            "startTime": "00:00",
+            "endTime": "23:59",
+            "days": [4],
+            "scheduleCompleted": true
+        });
+        let now = chrono::NaiveDate::from_ymd_opt(2026, 9, 24)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_local_timezone(Local)
+            .single()
+            .unwrap();
+        assert!(!queue_schedule_window_active(&queue, &now));
+    }
+
+    #[test]
+    fn queue_runtime_edges_and_retry_delay_are_stateful() {
+        let sched = SmartScheduler::new();
+        assert_eq!(sched.queue_window_transition("night", false), (false, false));
+        assert_eq!(sched.queue_window_transition("night", true), (true, false));
+        assert_eq!(sched.queue_window_transition("night", true), (false, false));
+        assert_eq!(sched.queue_window_transition("night", false), (false, true));
+
+        assert!(!sched.queue_completion_edge("night", true));
+        assert!(!sched.queue_completion_edge("night", true));
+        assert!(!sched.queue_completion_edge("night", false));
+        assert!(sched.queue_completion_edge("night", true));
+
+        assert!(!sched.queue_retry_due("night", "task-1", true, 3, 60));
+        assert!(!sched.queue_retry_due("night", "task-1", false, 3, 60));
     }
 
     #[test]

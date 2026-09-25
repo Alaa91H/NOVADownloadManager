@@ -1,0 +1,110 @@
+name: Native Runtime Compatibility
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - feature/qt6-native-desktop-ui
+    paths:
+      - "src-tauri/**"
+      - "browser-extension/**"
+      - "desktop-native/src/platform/DesktopIntegration.cpp"
+      - "desktop-native/scripts/check-browser-native-contract.mjs"
+      - ".github/workflows/native-ui-rust.yml"
+  pull_request:
+    branches:
+      - main
+      - master
+    paths:
+      - "src-tauri/**"
+      - "desktop-native/**"
+      - "browser-extension/**"
+      - ".github/workflows/native-ui-rust.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+# Prevent compatibility checks from accumulating across rapid development
+# commits while preserving explicit manual validation runs.
+concurrency:
+  group: native-ui-rust-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+jobs:
+  rust-daemon-compatibility:
+    name: Rust daemon compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux build dependencies
+        run: |
+          bash scripts/install-linux-build-deps.sh \
+            libssl-dev \
+            libcurl4-openssl-dev \
+            libbrotli-dev \
+            libzstd-dev \
+            libnghttp2-dev \
+            libssh2-1-dev \
+            pkg-config
+
+      - name: Cargo check
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Check native runtime binaries
+        run: cargo check --manifest-path src-tauri/Cargo.toml --bin nova-native-backend --bin nova-native-host
+
+      - name: Native bootstrap and browser integration tests
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml native_desktop_data_dir_honors_explicit_override --lib
+          cargo test --manifest-path src-tauri/Cargo.toml accepts_native_desktop_with_current_secret --lib
+          cargo test --manifest-path src-tauri/Cargo.toml rejects_native_marker_without_secret --lib
+          cargo test --manifest-path src-tauri/Cargo.toml rejects_ambiguous_native_role_markers --lib
+          cargo test --manifest-path src-tauri/Cargo.toml browser_token_is_limited_to_extension_api_surface --lib
+          cargo test --manifest-path src-tauri/Cargo.toml pairing_secret_parser_requires_matching_port_and_strong_secret --lib
+          cargo test --manifest-path src-tauri/Cargo.toml browser_config_tests --lib
+          cargo test --manifest-path src-tauri/Cargo.toml queue_catalog_preserves_empty_custom_queues --lib
+          cargo test --manifest-path src-tauri/Cargo.toml queue_catalog_preserves_legacy_advanced_limits --lib
+          cargo test --manifest-path src-tauri/Cargo.toml queue_schedule_supports_custom_days_and_overnight_windows --lib
+          cargo test --manifest-path src-tauri/Cargo.toml once_queue_stays_disabled_after_completion --lib
+          cargo test --manifest-path src-tauri/Cargo.toml queue_runtime_edges_and_retry_delay_are_stateful --lib
+          cargo test --manifest-path src-tauri/Cargo.toml queue_catalog_rejects_invalid_or_duplicate_ids --lib
+          cargo test --manifest-path src-tauri/Cargo.toml queue_catalog_round_trips_on_disk --lib
+
+      - name: Install browser-extension dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Browser Native Messaging identity contract
+        run: node desktop-native/scripts/check-browser-native-contract.mjs
+
+      - name: Browser pairing typecheck
+        run: pnpm --filter nova-browser-extension typecheck
+
+      - name: Browser pairing unit tests
+        run: pnpm --filter nova-browser-extension test:unit

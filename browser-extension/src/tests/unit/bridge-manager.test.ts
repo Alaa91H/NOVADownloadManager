@@ -116,63 +116,34 @@ describe('BridgeManager (loopback HTTP reachable)', () => {
     vi.unstubAllGlobals();
   });
 
-  it('reports connected when loopback HTTP is reachable even if Native Messaging is missing', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((input: string | URL) => {
-        const url = String(input);
-        if (url.endsWith('/v1/ping')) {
-          return Promise.resolve(
-            jsonResponse({
-              ok: true,
-              app: 'NOVA Download Manager',
-              appVersion: '0.1.0',
-              protocolVersion: 4,
-              minimumSupportedProtocolVersion: 4,
-              browserIntegrationEnabled: true,
-            }),
-          );
-        }
+  it('does not pair from loopback HTTP alone when Native Messaging is missing', async () => {
+    const fetchMock = vi.fn((input: string | URL) => {
+      const url = String(input);
+      if (url.endsWith('/v1/ping')) {
+        return Promise.resolve(
+          jsonResponse({
+            ok: true,
+            app: 'NOVA Download Manager',
+            appVersion: '0.1.0',
+            protocolVersion: 4,
+            minimumSupportedProtocolVersion: 4,
+            browserIntegrationEnabled: true,
+          }),
+        );
+      }
 
-        if (url.endsWith('/v1/pair/auto')) {
-          return Promise.resolve(
-            jsonResponse({
-              ok: true,
-              pairToken: 'test-pair-token-1234567890',
-              autoApproved: true,
-              protocolVersion: 4,
-              minimumSupportedProtocolVersion: 4,
-              ttlSeconds: 3600,
-            }),
-          );
-        }
-
-        if (url.endsWith('/v1/extension-settings')) {
-          return Promise.resolve(
-            jsonResponse({
-              ok: true,
-              capabilities: {
-                items: ['candidate.directUrl', 'task.add', 'task.addBatch'],
-                directProtocols: ['http', 'https'],
-                engineCapabilities: {
-                  directReady: true,
-                  mediaReady: false,
-                  allReady: false,
-                },
-              },
-            }),
-          );
-        }
-
-        return Promise.resolve(jsonResponse({ ok: false, error: 'unexpected route' }, 404));
-      }),
-    );
+      return Promise.resolve(jsonResponse({ ok: false, error: 'unexpected route' }, 404));
+    });
+    vi.stubGlobal('fetch', fetchMock);
 
     const bridge = new BridgeManager(fakeStateStore() as never);
     const state = await bridge.autoConnect();
-    expect(state.status).toBe('connected');
-    expect(state.canSend).toBe(true);
-    expect(state.transport).toBe('http');
+
+    expect(state.status).toBe('offline');
+    expect(state.canSend).toBe(false);
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).not.toContainEqual(
+      expect.stringContaining('/v1/pair/auto'),
+    );
   });
 
   it('prefers Native Messaging for pairing when the trusted host is available', async () => {
