@@ -47,7 +47,7 @@ const errors = [];
 const seen = new Set();
 
 if (manifest.schemaVersion !== 1) errors.push("Unsupported parity manifest schemaVersion.");
-const supportedStages = new Set(["6-parity-freeze", "6.1-true-parity-hardening"]);
+const supportedStages = new Set(["6-parity-freeze", "6.1-true-parity-hardening", "7-native-primary"]);
 if (!supportedStages.has(manifest.stage)) {
   errors.push("Parity manifest stage must be a supported native parity stage.");
 }
@@ -137,11 +137,11 @@ const requireComplete = process.argv.includes("--require-complete")
   || process.env.NOVA_REQUIRE_COMPLETE_PARITY === "1";
 if (requireComplete && incompleteCount > 0) {
   errors.push(
-    `Native replacement readiness requires all capabilities covered; remaining: ${partial} partial, ${gap} gap, ${blocked} blocked.`
+    `Native production readiness requires all capabilities covered; remaining: ${partial} partial, ${gap} gap, ${blocked} blocked.`
   );
 }
 if (requireComplete && !manifest.releaseReplacementReady) {
-  errors.push("Native replacement readiness requires releaseReplacementReady=true.");
+  errors.push("Native production readiness requires releaseReplacementReady=true.");
 }
 
 if (errors.length > 0) fail(errors);
@@ -155,7 +155,7 @@ const lines = [
   "",
   `Coverage summary: **${covered} covered**, **${partial} partial**, **${gap} gaps**, **${blocked} blocked**.`,
   "",
-  `Legacy UI replacement ready: **${manifest.releaseReplacementReady ? "YES" : "NO"}**.`,
+  `Production release ready: **${manifest.releaseReplacementReady ? "YES" : "NO"}**.`,
   "",
   "| Capability | Status | Notes |",
   "| --- | --- | --- |",
@@ -167,13 +167,13 @@ for (const row of rows) {
 
 lines.push(
   "",
-  "## Stage 6 policy",
+  "## Native production-readiness policy",
   "",
   "- Covered capabilities must keep their evidence files and required implementation tokens.",
-  "- Existing parity gaps stay explicit until implemented; they are not silently treated as complete.",
+  "- The Qt/QML desktop shell is the primary UI; remaining partial/blocked items are production-release validation gates.",
   "- New native preview builds must carry this report so QA can see current blockers.",
-  "- `--require-complete` (or `NOVA_REQUIRE_COMPLETE_PARITY=1`) is the production replacement gate and fails until every capability is covered and releaseReplacementReady is true.",
-  "- A manifest with releaseReplacementReady=true is invalid while any partial, gap or blocked capability remains.",
+  "- `--require-complete` (or `NOVA_REQUIRE_COMPLETE_PARITY=1`) is the production release gate and fails until every capability is covered and releaseReplacementReady is true.",
+  "- A manifest with releaseReplacementReady=true is invalid while any partial, gap or blocked production gate remains.",
   ""
 );
 
