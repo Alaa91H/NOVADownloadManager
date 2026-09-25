@@ -187,7 +187,6 @@ Implemented:
 
 Current replacement blockers:
 
-- Additional languages beyond English/Arabic are deferred and are not a release blocker for the current native UI scope.
 - Real-browser packaged E2E remains: install the NOVA extension in Chrome/Edge/Firefox and validate an actual browser-origin capture plus registration/repair on Windows, macOS and Linux.
 - Production signed automatic updater installation.
 - Six-platform CI must complete successfully for the exact candidate commit.
