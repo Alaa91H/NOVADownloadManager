@@ -82,6 +82,28 @@ function updateNativeCMake(path, version) {
   return true;
 }
 
+function updateParityManifest(path, version) {
+  const source = readFileSync(path, 'utf8');
+  const updated = source.replace(
+    /("nativePreviewVersion"\s*:\s*")[^"]*(")/,
+    `$1${version}$2`,
+  );
+  if (updated === source) return false;
+  writeFileSync(path, updated, 'utf8');
+  return true;
+}
+
+function updateAndroidGradle(path, version) {
+  const source = readFileSync(path, 'utf8');
+  const updated = source.replace(
+    /(versionName\s*=\s*")[^"]*(")/,
+    `$1${version}$2`,
+  );
+  if (updated === source) return false;
+  writeFileSync(path, updated, 'utf8');
+  return true;
+}
+
 const tag = resolveTag();
 if (!tag) {
   if (optional) {
@@ -99,8 +121,10 @@ console.log(`[apply-version] Stamping native release ${version} (browser manifes
 const targets = [
   ['package.json', () => updateJsonVersion(join(ROOT, 'package.json'), version)],
   ['desktop-native/CMakeLists.txt', () => updateNativeCMake(join(ROOT, 'desktop-native', 'CMakeLists.txt'), version)],
+  ['desktop-native/parity/parity-manifest.json', () => updateParityManifest(join(ROOT, 'desktop-native', 'parity', 'parity-manifest.json'), version)],
   ['src-tauri/Cargo.toml', () => updateCargoToml(join(ROOT, 'src-tauri', 'Cargo.toml'), version)],
   ['src-tauri/Cargo.lock', () => updateCargoLock(join(ROOT, 'src-tauri', 'Cargo.lock'), version)],
+  ['android/app/build.gradle.kts', () => updateAndroidGradle(join(ROOT, 'android', 'app', 'build.gradle.kts'), version)],
   ['browser-extension/package.json', () => updateJsonVersion(join(ROOT, 'browser-extension', 'package.json'), version)],
   ['browser-extension/src/manifest.json', () => updateJsonVersion(join(ROOT, 'browser-extension', 'src', 'manifest.json'), manifestVersion)],
 ];
