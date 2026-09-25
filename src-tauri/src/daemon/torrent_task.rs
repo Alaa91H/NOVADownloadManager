@@ -24,6 +24,9 @@ use crate::daemon::torrent_seeding::{
     MAX_SEED_RATIO_MILLI,
 };
 use crate::daemon::torrent_storage::{TorrentStorageProgress, TorrentStorageSession};
+use crate::daemon::torrent_telemetry::{
+    TorrentPeerTelemetryView, TorrentSwarmTelemetry, TorrentTrackerTelemetryView,
+};
 use crate::daemon::torrent_transfer::{TorrentTransferConfig, TorrentTransferCoordinator};
 use crate::daemon::types::{restart_task_state, transition_task_state, Task, TaskState};
 use crate::lock_or_err;
@@ -66,6 +69,7 @@ pub struct TorrentJob {
     pub tracker_peer_count: usize,
     pub dht_peer_count: usize,
     pub pex_peer_count: usize,
+    pub telemetry: TorrentSwarmTelemetry,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -164,6 +168,8 @@ pub struct TorrentTaskDetails {
     pub pex_serving_enabled: bool,
     pub dht_server_active: bool,
     pub dht_routing_nodes: usize,
+    pub swarm_peers: Vec<TorrentPeerTelemetryView>,
+    pub tracker_telemetry: Vec<TorrentTrackerTelemetryView>,
     pub requires_reauth: bool,
 }
 
@@ -365,6 +371,7 @@ pub async fn create_torrent_task(
         tracker_peer_count: analysis.resolution.tracker_peers.len(),
         dht_peer_count: analysis.resolution.dht_peers.len(),
         pex_peer_count: analysis.resolution.pex_peers.len(),
+        telemetry: TorrentSwarmTelemetry::default(),
     };
 
     {
@@ -439,6 +446,7 @@ pub fn restore_torrent_job(
         tracker_peer_count: 0,
         dht_peer_count: 0,
         pex_peer_count: 0,
+        telemetry: TorrentSwarmTelemetry::default(),
     })
 }
 
@@ -484,6 +492,7 @@ pub async fn torrent_task_details(
         })
         .collect();
 
+    let telemetry = job.telemetry.snapshot();
     let seeding_policy = job.seeding.policy();
     let seed_limit_state = job.seeding.limit_state(progress.selected_total_bytes);
     let task_state = TaskState::from_status(&job.task.status);
@@ -521,6 +530,8 @@ pub async fn torrent_task_details(
         pex_serving_enabled: !plan.metainfo.private,
         dht_server_active: crate::daemon::torrent_dht::active_dht_port().is_some(),
         dht_routing_nodes: state.torrent_dht.routing_node_count(),
+        swarm_peers: telemetry.peers,
+        tracker_telemetry: telemetry.trackers,
         requires_reauth: job.requires_reauth,
     })
 }
@@ -1000,7 +1011,9 @@ async fn run_torrent_worker(
         allocated_kbps,
         state.bandwidth_manager.clone(),
     ));
-    let peers = PeerEngine::production_default().with_download_limiter(limiter);
+    let peers = PeerEngine::production_default()
+        .with_download_limiter(limiter)
+        .with_telemetry(job_snapshot.telemetry.clone());
     let coordinator = TorrentTransferCoordinator::new(
         peers,
         TorrentTransferConfig {

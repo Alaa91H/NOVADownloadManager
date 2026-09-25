@@ -178,6 +178,11 @@ async fn serve_state_peer(
         return Err("Inbound torrent seeding is disabled or its configured limit was reached".to_owned());
     }
 
+    job.telemetry.inbound_peer_connected(
+        address,
+        remote.supports_extension_protocol(),
+        remote.supports_dht_port(),
+    );
     job.active_seed_connections
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
@@ -213,6 +218,12 @@ async fn serve_state_peer(
     cancellation_bridge.abort();
     job.active_seed_connections
         .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    match &result {
+        Ok(stats) => job
+            .telemetry
+            .inbound_peer_finished(address, stats.uploaded_bytes),
+        Err(error) => job.telemetry.inbound_peer_failed(address, error),
+    }
     result
 }
 

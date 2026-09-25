@@ -18,6 +18,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::daemon::torrent_bandwidth::TorrentBandwidthLimiter;
 use crate::daemon::torrent_dht::active_dht_port_for;
+use crate::daemon::torrent_telemetry::TorrentSwarmTelemetry;
 use crate::daemon::utils::{is_internal_ip, private_network_allowed};
 
 const MAX_PEER_CANDIDATES: usize = 4_096;
@@ -192,6 +193,7 @@ pub struct PeerEngine {
     connection_slots: Arc<Semaphore>,
     download_limiter: Option<Arc<TorrentBandwidthLimiter>>,
     allow_private_network: bool,
+    telemetry: Option<TorrentSwarmTelemetry>,
 }
 
 impl PeerEngine {
@@ -208,6 +210,7 @@ impl PeerEngine {
             connection_slots: Arc::new(Semaphore::new(limit)),
             download_limiter,
             allow_private_network: private_network_allowed(),
+            telemetry: None,
         }
     }
 
@@ -224,6 +227,11 @@ impl PeerEngine {
         engine
     }
 
+    pub fn with_telemetry(&self, telemetry: TorrentSwarmTelemetry) -> Self {
+        let mut engine = self.clone();
+        engine.telemetry = Some(telemetry);
+        engine
+    }
 
     pub async fn reputation(&self, address: SocketAddr) -> PeerReputation {
         self.reputation.lock().await.get(&address)
@@ -326,6 +334,9 @@ impl PeerEngine {
             if cancel.is_cancelled() {
                 return Err("Torrent peer selection cancelled".to_owned());
             }
+            if let Some(telemetry) = self.telemetry.as_ref() {
+                telemetry.peer_connecting(address);
+            }
 
             let connection_permit = tokio::select! {
                 _ = cancel.cancelled() => return Err("Torrent peer selection cancelled".to_owned()),
@@ -355,6 +366,13 @@ impl PeerEngine {
                     if let Some(limiter) = self.download_limiter.clone() {
                         session.attach_download_limiter(limiter);
                     }
+                    if let Some(telemetry) = self.telemetry.as_ref() {
+                        telemetry.peer_connected(
+                            address,
+                            session.supports_extensions(),
+                            session.supports_dht(),
+                        );
+                    }
                     session
                 },
                 Err(error) => {
@@ -371,6 +389,9 @@ impl PeerEngine {
                         .await
                         .get_mut(address)
                         .record_success(result.bytes.len() as u64);
+                    if let Some(telemetry) = self.telemetry.as_ref() {
+                        telemetry.peer_piece_success(address, result.bytes.len() as u64);
+                    }
                     return Ok(result);
                 }
                 Err(error) => {
@@ -501,31 +522,37 @@ impl PeerEngine {
             connection_slots: Arc::new(Semaphore::new(limit)),
             download_limiter,
             allow_private_network: true,
+            telemetry: None,
         }
     }
 
     async fn record_failure(&self, address: SocketAddr, error: &str) {
-        let mut book = self.reputation.lock().await;
-        let reputation = book.get_mut(address);
-        if error.contains("SHA-1 verification")
-            || error.contains("metadata SHA-1")
-            || error.contains("hash mismatch")
         {
-            reputation.record_hash_failure();
-        } else if error.contains("timed out")
-            || error.contains("too long")
-            || error.contains("exhausted retries")
-        {
-            reputation.record_timeout();
-        } else if error.contains("protocol")
-            || error.contains("unsolicited")
-            || error.contains("wrong torrent info hash")
-            || error.contains("invalid handshake")
-            || error.contains("out of range")
-        {
-            reputation.record_protocol_error();
-        } else {
-            reputation.record_connect_failure();
+            let mut book = self.reputation.lock().await;
+            let reputation = book.get_mut(address);
+            if error.contains("SHA-1 verification")
+                || error.contains("metadata SHA-1")
+                || error.contains("hash mismatch")
+            {
+                reputation.record_hash_failure();
+            } else if error.contains("timed out")
+                || error.contains("too long")
+                || error.contains("exhausted retries")
+            {
+                reputation.record_timeout();
+            } else if error.contains("protocol")
+                || error.contains("unsolicited")
+                || error.contains("wrong torrent info hash")
+                || error.contains("invalid handshake")
+                || error.contains("out of range")
+            {
+                reputation.record_protocol_error();
+            } else {
+                reputation.record_connect_failure();
+            }
+        }
+        if let Some(telemetry) = self.telemetry.as_ref() {
+            telemetry.peer_failure(address, error);
         }
     }
 }
