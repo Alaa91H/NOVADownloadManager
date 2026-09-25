@@ -133,6 +133,9 @@ Implemented in the first Stage 5 slice:
 - Downloads, Queue Manager, Scheduler rules and Media preview lists are now reachable by Tab and navigable by arrow keys, with visible focus rings and accessible row descriptions.
 - Delete and re-download confirmations move initial focus to Cancel and define explicit forward/backward keyboard focus loops.
 - Normal light/dark theme text colors now meet the automated 4.5:1 WCAG contrast floor, while the validated keyboard focus accent meets 3:1 across window, surface and raised-surface backgrounds.
+- Core Lists now expose explicit Accessible.List/Accessible.ListItem roles with focusable/focused/selectable/selected state, while settings notices and the application status summary expose AlertMessage/StatusBar roles.
+- Qt display tests now launch offscreen at 125% and 200% scale factors, validate effective window DPR and screen metrics, and exercise screen reassignment when multiple displays are available.
+- Diagnostics now shows live screen name, device-pixel ratio, logical DPI, display count and available geometry, updated when the native window changes screens.
 
 Remaining before Stage 5 is complete:
 
@@ -140,6 +143,7 @@ Remaining before Stage 5 is complete:
 - Complete per-page RTL layout review, especially tables, inspectors and mixed URL/path content.
 - Extend typography scaling to every legacy-sized text declaration.
 - Complete semantic accessibility review beyond the now keyboard-enabled core lists and confirmation dialogs, especially custom controls, table semantics and remaining composite widgets.
+- Complete physical-device accessibility validation: NVDA/JAWS on Windows, VoiceOver on macOS, Orca on Linux, plus packaged mixed-DPI multi-monitor movement on each supported OS.
 - Screen-reader validation and color-contrast validation.
 - High-DPI and multi-monitor validation.
 - macOS-specific visual/accessibility refinement beyond the implemented Dock progress integration, plus remaining cross-platform accessibility polish.
