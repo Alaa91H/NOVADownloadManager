@@ -28,7 +28,7 @@ private slots:
     void streamReconnectsAfterDaemonReturns();
     void reconnectBackoffIsBounded();
     void legacyUiPreferencesMigrateOnce();
-    void legacyLocalizationCatalogCoversFullLanguageSet();
+    void releaseLocalizationIsEnglishArabicOnly();
     void batchPatternsMatchLegacySyntax();
     void batchImportCarriesAdvancedOptions();
     void batchImportHonorsRuntimeCapabilities();
@@ -245,7 +245,7 @@ void NativeParityTests::legacyUiPreferencesMigrateOnce() {
         },
         {
             QStringLiteral("extra"),
-            QJsonObject{{QStringLiteral("language"), QStringLiteral("fr-FR")}}
+            QJsonObject{{QStringLiteral("language"), QStringLiteral("de-DE")}}
         }
     };
     config.write(QJsonDocument(legacy).toJson(QJsonDocument::Compact));
@@ -257,7 +257,7 @@ void NativeParityTests::legacyUiPreferencesMigrateOnce() {
         QCOMPARE(settings.defaultSaveDirectory(), QStringLiteral("/legacy/downloads"));
         QCOMPARE(settings.defaultConnections(), 24);
         QVERIFY(settings.monitorClipboard());
-        QCOMPARE(settings.uiLanguage(), QStringLiteral("fr"));
+        QCOMPARE(settings.uiLanguage(), QStringLiteral("en"));
 
         settings.setDefaultConnections(8);
         settings.setMonitorClipboard(false);
@@ -298,7 +298,7 @@ void NativeParityTests::legacyUiPreferencesMigrateOnce() {
         NativeSettings settings(settingsFile, nullptr);
         QCOMPARE(settings.defaultConnections(), 8);
         QVERIFY(!settings.monitorClipboard());
-        QCOMPARE(settings.uiLanguage(), QStringLiteral("system"));
+        QCOMPARE(settings.uiLanguage(), QStringLiteral("en"));
         QVERIFY(settings.defaultSaveDirectory() != QStringLiteral("/changed/legacy"));
     }
 
@@ -310,58 +310,38 @@ void NativeParityTests::legacyUiPreferencesMigrateOnce() {
 }
 
 
-void NativeParityTests::legacyLocalizationCatalogCoversFullLanguageSet() {
+void NativeParityTests::releaseLocalizationIsEnglishArabicOnly() {
     I18nManager i18n;
     const QVariantList languages = i18n.supportedLanguages();
-    QVERIFY2(
-        languages.size() > 100,
-        "Native language catalog must expose the full legacy language set"
-    );
 
-    auto containsLanguage = [&languages](const QString &code) {
-        return std::any_of(
-            languages.cbegin(),
-            languages.cend(),
-            [&code](const QVariant &entry) {
-                return entry.toMap().value(QStringLiteral("code")).toString() == code;
-            }
-        );
-    };
-
-    QVERIFY(containsLanguage(QStringLiteral("fr")));
-    QVERIFY(containsLanguage(QStringLiteral("ur")));
-    QVERIFY(containsLanguage(QStringLiteral("zh-tw")));
-
-    i18n.setLanguage(QStringLiteral("fr-FR"));
-    QCOMPARE(i18n.language(), QStringLiteral("fr"));
-    QCOMPARE(i18n.translate(QStringLiteral("action.delete")), QStringLiteral("Supprimer"));
+    QCOMPARE(languages.size(), 2);
     QCOMPARE(
-        i18n.translate(QStringLiteral("nav.downloads")),
-        QStringLiteral("Tous les téléchargements")
+        languages.at(0).toMap().value(QStringLiteral("code")).toString(),
+        QStringLiteral("en")
     );
     QCOMPARE(
-        i18n.translate(QStringLiteral("add.queue")),
-        QStringLiteral("Ajouter à la file d'attente")
+        languages.at(1).toMap().value(QStringLiteral("code")).toString(),
+        QStringLiteral("ar")
     );
-    QVERIFY(
-        i18n.translate(QStringLiteral("settings.language"))
-            != QStringLiteral("Language")
-    );
+
+    i18n.setLanguage(QStringLiteral("en-US"));
+    QCOMPARE(i18n.language(), QStringLiteral("en"));
+    QCOMPARE(i18n.translate(QStringLiteral("action.delete")), QStringLiteral("Delete"));
     QVERIFY(!i18n.rtl());
 
-    i18n.setLanguage(QStringLiteral("ur"));
-    QCOMPARE(i18n.language(), QStringLiteral("ur"));
+    i18n.setLanguage(QStringLiteral("ar-SA"));
+    QCOMPARE(i18n.language(), QStringLiteral("ar"));
+    QCOMPARE(i18n.translate(QStringLiteral("action.delete")), QStringLiteral("حذف"));
     QVERIFY(i18n.rtl());
 
-    i18n.setLanguage(QStringLiteral("zh-TW"));
-    QCOMPARE(i18n.language(), QStringLiteral("zh-tw"));
+    i18n.setLanguage(QStringLiteral("de-DE"));
+    QCOMPARE(i18n.language(), QStringLiteral("en"));
     QVERIFY(!i18n.rtl());
 
-    i18n.setLanguage(QStringLiteral("de-DE"));
-    QCOMPARE(i18n.language(), QStringLiteral("de"));
-    QCOMPARE(i18n.translate(QStringLiteral("settings.language")), QStringLiteral("Sprache"));
+    i18n.setLanguage(QStringLiteral("fr-FR"));
+    QCOMPARE(i18n.language(), QStringLiteral("en"));
+    QCOMPARE(i18n.translate(QStringLiteral("settings.language")), QStringLiteral("Language"));
 }
-
 
 void NativeParityTests::batchPatternsMatchLegacySyntax() {
     {
