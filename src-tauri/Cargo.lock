@@ -3069,7 +3069,7 @@ dependencies = [
 
 [[package]]
 name = "nova"
-version = "2.4.48-alpha"
+version = "2.4.49-alpha"
 dependencies = [
  "async-stream",
  "axum",
