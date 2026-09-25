@@ -32,6 +32,7 @@ use crate::daemon::engine::self_healing::SelfHealer;
 use crate::daemon::types::{
     CreateDownloadBody, CurlJob, NativeMediaJob, Task, TelegramConfig,
 };
+use crate::daemon::torrent_task::{PendingTorrentAnalysis, TorrentJob};
 
 /// Browser-originated download data that has passed daemon URL validation but
 /// still requires an explicit user decision in the desktop confirmation dialog.
@@ -60,19 +61,23 @@ const ENGINE_CACHE_TTL_SECS: u64 = 120;
 
 /// Lock ordering (acquire in this order to prevent deadlocks):
 ///   1. `native_media_jobs`
-///   2. `curl_jobs`
-///   3. `task_snapshot`
-///   4. `engine_trackers`
-///   5. `mirror_managers`
-///   6. `telegram_config` / `telegram_last_update_id`
-///   7. `download_stats`
-///   8. `watchdog_handles`
-///   9. `external_tools`
-///  10. `policy_engine` / `self_healer` / `die_orchestrator` / `resource_manager`
+///   2. `torrent_jobs`
+///   3. `torrent_analyses`
+///   4. `curl_jobs`
+///   5. `task_snapshot`
+///   6. `engine_trackers`
+///   7. `mirror_managers`
+///   8. `telegram_config` / `telegram_last_update_id`
+///   9. `download_stats`
+///  10. `watchdog_handles`
+///  11. `external_tools`
+///  12. `policy_engine` / `self_healer` / `die_orchestrator` / `resource_manager`
 ///
 /// Never acquire a lower-numbered lock while holding a higher-numbered one.
 pub struct AppState {
     pub native_media_jobs: Mutex<HashMap<String, NativeMediaJob>>,
+    pub torrent_jobs: Mutex<HashMap<String, TorrentJob>>,
+    pub torrent_analyses: Mutex<HashMap<String, PendingTorrentAnalysis>>,
     pub curl_jobs: Mutex<HashMap<String, CurlJob>>,
     pub task_snapshot: Mutex<HashMap<String, Task>>,
     /// Bounded, ephemeral browser captures awaiting explicit desktop approval.
@@ -97,6 +102,8 @@ pub struct AppState {
     pub event_bus: EventBus,
     pub priority_queue: PriorityBandwidthQueue,
     pub bandwidth_manager: BandwidthManager,
+    /// Process-wide BEP 5 runtime: stable node id, shared routing table and UDP server state.
+    pub torrent_dht: crate::daemon::torrent_dht::DhtService,
     pub profile_manager: ProfileManager,
     pub rule_engine: DownloadRuleEngine,
     pub scheduler: SmartScheduler,
