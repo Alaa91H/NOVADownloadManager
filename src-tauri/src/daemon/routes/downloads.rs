@@ -57,6 +57,10 @@ pub async fn handle_health(State(state): State<SharedState>) -> Json<serde_json:
             .get("streamingReady")
             .cloned()
             .unwrap_or(serde_json::json!(false)),
+        "nativeMuxReady": status
+            .get("nativeMuxReady")
+            .cloned()
+            .unwrap_or(serde_json::json!(false)),
         "postProcessingReady": status
             .get("postProcessingReady")
             .cloned()
