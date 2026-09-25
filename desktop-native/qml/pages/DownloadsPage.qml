@@ -703,12 +703,12 @@ Item {
                                 onClicked: root.requestSort("size")
                             }
                             ToolButton {
-                                Layout.preferredWidth: 190
-                                visible: root.columnVisible("progress")
-                                text: root.t("common.progress") + root.sortIndicator("progress")
+                                Layout.preferredWidth: 100
+                                visible: root.columnVisible("status")
+                                text: root.t("common.status") + root.sortIndicator("status")
                                 flat: true
                                 Accessible.name: text
-                                onClicked: root.requestSort("progress")
+                                onClicked: root.requestSort("status")
                             }
                             ToolButton {
                                 Layout.preferredWidth: 90
@@ -718,6 +718,16 @@ Item {
                                 Accessible.name: text
                                 onClicked: root.requestSort("speed")
                             }
+                            ToolButton {
+                                Layout.preferredWidth: 190
+                                visible: root.columnVisible("progress")
+                                text: root.t("common.progress") + root.sortIndicator("progress")
+                                flat: true
+                                Accessible.name: text
+                                onClicked: root.requestSort("progress")
+                            }
+
+
                             ToolButton {
                                 Layout.preferredWidth: 70
                                 visible: root.columnVisible("eta")
@@ -742,14 +752,7 @@ Item {
                                 Accessible.name: text
                                 onClicked: root.requestSort("dateAdded")
                             }
-                            ToolButton {
-                                Layout.preferredWidth: 100
-                                visible: root.columnVisible("status")
-                                text: root.t("common.status") + root.sortIndicator("status")
-                                flat: true
-                                Accessible.name: text
-                                onClicked: root.requestSort("status")
-                            }
+
                             ToolButton {
                                 Layout.preferredWidth: 72
                                 visible: root.columnVisible("retries")
@@ -959,7 +962,26 @@ Item {
                                     font.pixelSize: Theme.fontSmall
                                     font.family: "monospace"
                                 }
-
+                                Text {
+                                    Layout.preferredWidth: 100
+                                    visible: root.columnVisible("status")
+                                    text: root.statusLabel(status)
+                                    color: status === "completed"
+                                        ? Theme.success
+                                        : status === "error" || status === "failed" ? Theme.danger
+                                        : status === "paused" ? Theme.warning
+                                        : Theme.textSecondary
+                                    font.pixelSize: Theme.fontSmall
+                                    font.weight: Font.DemiBold
+                                }
+                                Text {
+                                    Layout.preferredWidth: 90
+                                    visible: root.columnVisible("speed")
+                                    text: root.formatSpeed(speedBytesPerSec)
+                                    color: speedBytesPerSec > 0 ? Theme.textPrimary : Theme.textMuted
+                                    font.pixelSize: Theme.fontSmall
+                                    font.family: "monospace"
+                                }
                                 RowLayout {
                                     Layout.preferredWidth: 190
                                     visible: root.columnVisible("progress")
@@ -982,14 +1004,9 @@ Item {
                                     }
                                 }
 
-                                Text {
-                                    Layout.preferredWidth: 90
-                                    visible: root.columnVisible("speed")
-                                    text: root.formatSpeed(speedBytesPerSec)
-                                    color: speedBytesPerSec > 0 ? Theme.textPrimary : Theme.textMuted
-                                    font.pixelSize: Theme.fontSmall
-                                    font.family: "monospace"
-                                }
+
+
+
 
                                 Text {
                                     Layout.preferredWidth: 70
@@ -1019,18 +1036,7 @@ Item {
                                     elide: Text.ElideRight
                                 }
 
-                                Text {
-                                    Layout.preferredWidth: 100
-                                    visible: root.columnVisible("status")
-                                    text: root.statusLabel(status)
-                                    color: status === "completed"
-                                        ? Theme.success
-                                        : status === "error" || status === "failed" ? Theme.danger
-                                        : status === "paused" ? Theme.warning
-                                        : Theme.textSecondary
-                                    font.pixelSize: Theme.fontSmall
-                                    font.weight: Font.DemiBold
-                                }
+
                                 Text {
                                     Layout.preferredWidth: 72
                                     visible: root.columnVisible("retries")
