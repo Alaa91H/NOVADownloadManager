@@ -82,9 +82,9 @@ node desktop-native/scripts/check-parity.mjs
 cmake -S desktop-native -B build/native-tests -DNOVA_BUILD_TESTS=ON
 cmake --build build/native-tests --parallel
 ctest --test-dir build/native-tests --output-on-failure
+```
 
 The native test suite also launches a Qt window through the offscreen platform at 125% and 200% `QT_SCALE_FACTOR` values. It verifies the effective window DPR, logical geometry and all exposed screen metrics; when a runner exposes multiple displays it additionally verifies screen reassignment.
-```
 
 `check-native-i18n-coverage.mjs` rejects alias drift and any regression below the current 42% native-to-legacy translation reuse floor. `check-native-accessibility.mjs` requires every TextField to expose an accessible name, keeps monospace technical inputs explicitly LTR, and rejects fixed numeric font sizes that bypass text scaling. It also requires every ListView to be Tab/arrow-key reachable, expose List/ListItem focus-selection semantics to screen readers, and show a visible focus indicator; destructive confirmation dialogs keep explicit safe focus loops. `check-native-contrast.mjs` enforces 4.5:1 normal-text and 3:1 keyboard-focus contrast across the normal light/dark surfaces.
 
@@ -97,5 +97,6 @@ On the feature branch, GitHub Actions builds native preview artifacts for Window
 - `PARITY_REPORT.md` showing covered, partial, gap and blocked migration gates;
 - Windows: Qt runtime deployment via `windeployqt`;
 - Linux: runtime dependency report for QA environments.
+- all six platform/architecture preview jobs run the packaged `nova-native-host` through a Native Messaging framing smoke test that verifies pairing proof and authenticated capture forwarding before artifact upload.
 
 Known blockers remain explicit in the parity manifest and must be resolved before Stage 7 replacement.
