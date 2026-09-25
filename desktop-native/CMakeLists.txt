@@ -9,10 +9,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(NOVA_BUILD_TESTS "Build native Qt stress/recovery tests" OFF)
 
-file(GLOB NOVA_LEGACY_I18N_FILES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/../src/lib/i18n/*.ts"
-)
-
 find_package(Qt6 6.8 REQUIRED COMPONENTS Quick QuickControls2 Network Widgets)
 if(UNIX AND NOT APPLE)
     find_package(Qt6 6.8 REQUIRED COMPONENTS DBus)
@@ -78,12 +74,6 @@ qt_add_qml_module(nova-native
         qml/pages/SettingsPage.qml
 )
 
-qt_add_resources(nova-native "legacy_i18n"
-    PREFIX "/legacy-i18n"
-    BASE "${CMAKE_CURRENT_SOURCE_DIR}/../src/lib/i18n"
-    FILES ${NOVA_LEGACY_I18N_FILES}
-)
-
 target_include_directories(nova-native PRIVATE src)
 target_compile_definitions(nova-native PRIVATE NOVA_NATIVE_VERSION="${NOVA_APP_VERSION}")
 
@@ -140,16 +130,8 @@ if(NOVA_BUILD_TESTS)
         src/models/DownloadListModel.h
         src/localization/I18nManager.cpp
         src/localization/I18nManager.h
-        src/localization/LegacyI18nCatalog.cpp
-        src/localization/LegacyI18nCatalog.h
         src/settings/NativeSettings.cpp
         src/settings/NativeSettings.h
-    )
-
-    qt_add_resources(nova-native-tests "legacy_i18n_test"
-        PREFIX "/legacy-i18n"
-        BASE "${CMAKE_CURRENT_SOURCE_DIR}/../src/lib/i18n"
-        FILES ${NOVA_LEGACY_I18N_FILES}
     )
 
     target_include_directories(nova-native-tests PRIVATE src)
