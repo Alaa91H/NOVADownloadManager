@@ -14,6 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::daemon::state::SharedState;
 use crate::daemon::torrent_bandwidth::TorrentBandwidthLimiter;
+use crate::daemon::torrent_seeding::TorrentSeedingControl;
 use crate::daemon::torrent_storage::TorrentStorageSession;
 use crate::daemon::torrent_task::ensure_storage_session;
 use crate::daemon::types::TaskState;
@@ -131,11 +132,12 @@ async fn serve_state_peer(
         let jobs = lock_or_err!(state.torrent_jobs);
         jobs.values()
             .find(|job| {
-                let state = TaskState::from_status(&job.task.status);
+                let task_state = TaskState::from_status(&job.task.status);
                 job.task.engine_id.eq_ignore_ascii_case(&info_hash_hex)
-                    && state.is_some_and(|state| {
-                        state == TaskState::Completed || state.is_active()
+                    && task_state.is_some_and(|task_state| {
+                        task_state == TaskState::Completed || task_state.is_active()
                     })
+                    && job.seeding.policy().enabled
                     && !job.requires_reauth
             })
             .cloned()
@@ -143,6 +145,19 @@ async fn serve_state_peer(
     .ok_or_else(|| "Inbound peer requested a torrent that is not seed-eligible".to_owned())?;
 
     let storage = ensure_storage_session(&job, job.storage.clone()).await?;
+    let progress = storage
+        .progress()
+        .await
+        .map_err(|error| format!("Could not read torrent seed progress: {error}"))?;
+    let completed =
+        TaskState::from_status(&job.task.status) == Some(TaskState::Completed);
+    if !job
+        .seeding
+        .upload_allowed(completed, progress.selected_total_bytes)
+    {
+        return Err("Inbound torrent seeding is disabled or its configured limit was reached".to_owned());
+    }
+
     job.active_seed_connections
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
@@ -150,11 +165,11 @@ async fn serve_state_peer(
     let cancellation_bridge = {
         let linked = session_cancel.clone();
         let daemon_cancel = cancel.clone();
-        let task_cancel = job.cancel_token.clone();
+        let seed_cancel = job.seed_cancel_token.clone();
         tokio::spawn(async move {
             tokio::select! {
                 _ = daemon_cancel.cancelled() => linked.cancel(),
-                _ = task_cancel.cancelled() => linked.cancel(),
+                _ = seed_cancel.cancelled() => linked.cancel(),
             }
         })
     };
@@ -165,7 +180,11 @@ async fn serve_state_peer(
         storage,
         job.local_peer_id,
         Some(job.upload_limiter.clone()),
-        Some(job.uploaded_bytes.clone()),
+        Some(job.seeding.clone()),
+        Some(job.seed_cancel_token.clone()),
+        Some(state.clone()),
+        completed,
+        progress.selected_total_bytes,
         SeedSessionConfig::default(),
         &session_cancel,
     )
@@ -220,6 +239,10 @@ pub async fn serve_inbound_seed_session(
         local_peer_id,
         None,
         None,
+        None,
+        None,
+        false,
+        0,
         config,
         cancel,
     )
@@ -232,7 +255,11 @@ async fn serve_inbound_seed_session_after_handshake(
     storage: TorrentStorageSession,
     local_peer_id: [u8; 20],
     upload_limiter: Option<Arc<TorrentBandwidthLimiter>>,
-    uploaded_counter: Option<Arc<std::sync::atomic::AtomicU64>>,
+    seeding: Option<TorrentSeedingControl>,
+    seed_cancel: Option<CancellationToken>,
+    dirty_state: Option<SharedState>,
+    completed: bool,
+    downloaded_bytes: u64,
     config: SeedSessionConfig,
     cancel: &CancellationToken,
 ) -> Result<SeedSessionStats, String> {
@@ -240,6 +267,11 @@ async fn serve_inbound_seed_session_after_handshake(
         return Err("Inbound peer used NOVA's own peer id".to_owned());
     }
     let expected_info_hash = remote.info_hash;
+    if let Some(control) = seeding.as_ref() {
+        if !control.upload_allowed(completed, downloaded_bytes) {
+            return Err("Inbound torrent seeding policy does not allow uploads".to_owned());
+        }
+    }
 
     let local = PeerHandshake::new(expected_info_hash, local_peer_id);
     write_message_bytes(
@@ -321,6 +353,14 @@ async fn serve_inbound_seed_session_after_handshake(
                 if stats.requests_served >= config.max_requests {
                     return Err("Inbound peer exceeded the per-session request limit".to_owned());
                 }
+                if let Some(control) = seeding.as_ref() {
+                    if !control.upload_allowed(completed, downloaded_bytes) {
+                        if let Some(token) = seed_cancel.as_ref() {
+                            token.cancel();
+                        }
+                        return Err("Inbound torrent seeding limit was reached".to_owned());
+                    }
+                }
 
                 let block = storage
                     .read_verified_block(piece_index as usize, begin, length)
@@ -353,11 +393,16 @@ async fn serve_inbound_seed_session_after_handshake(
                     cancel,
                 )
                 .await?;
-                if let Some(counter) = uploaded_counter.as_ref() {
-                    counter.fetch_add(
-                        block_len,
-                        std::sync::atomic::Ordering::Relaxed,
-                    );
+                if let Some(control) = seeding.as_ref() {
+                    control.record_upload(block_len);
+                    if completed && control.limit_state(downloaded_bytes).reached() {
+                        if let Some(token) = seed_cancel.as_ref() {
+                            token.cancel();
+                        }
+                    }
+                }
+                if let Some(state) = dirty_state.as_ref() {
+                    state.mark_dirty();
                 }
                 stats.requests_served = stats.requests_served.saturating_add(1);
                 stats.uploaded_bytes = next_uploaded;

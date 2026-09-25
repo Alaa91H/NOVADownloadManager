@@ -600,6 +600,12 @@ pub fn start_torrent_process(state: &SharedState, id: &str) -> Result<(), String
 
         job.cancel_token.cancel();
         job.cancel_token = CancellationToken::new();
+        job.seed_cancel_token.cancel();
+        job.seed_cancel_token = CancellationToken::new();
+        job.seeding.stop_timer();
+        if !job.seeding.policy().enabled {
+            job.seed_cancel_token.cancel();
+        }
         let generation = job.run_generation.fetch_add(1, Ordering::AcqRel) + 1;
         job.start_time = Instant::now();
         job.task.speed_bytes_per_sec = 0;
@@ -827,25 +833,6 @@ async fn run_torrent_worker(
         }
     }
 
-    {
-        let tracker_state = state.clone();
-        let tracker_id = id.clone();
-        let tracker_storage = storage.clone();
-        let tracker_source = source_uri.clone();
-        let tracker_cancel = cancel.clone();
-        tokio::spawn(async move {
-            crate::daemon::torrent_tracker::run_tracker_lifecycle(
-                tracker_state,
-                tracker_id,
-                tracker_storage,
-                tracker_source,
-                local_peer_id,
-                tracker_cancel,
-            )
-            .await;
-        });
-    }
-
     if let Err(error) = transition_torrent_task(
         &state,
         &id,
@@ -856,6 +843,7 @@ async fn run_torrent_worker(
         fail_torrent_task(&state, &id, generation, error, &active_slot);
         return;
     }
+    start_torrent_seed_services(&state, &id, storage.clone());
 
     let limiter = Arc::new(TorrentBandwidthLimiter::for_nova_task(
         id.clone(),
@@ -944,6 +932,15 @@ async fn run_torrent_worker(
                 );
                 return;
             }
+            {
+                let mut jobs = lock_or_err!(state.torrent_jobs);
+                if let Some(job) = jobs.get_mut(&id) {
+                    job.seeding.start_timer();
+                    if job.seeding.limit_state(job.task.size_bytes).reached() {
+                        job.seed_cancel_token.cancel();
+                    }
+                }
+            }
             let completed_bytes = get_torrent_task(&state, &id)
                 .map(|task| task.downloaded_bytes)
                 .unwrap_or(0);
@@ -962,6 +959,101 @@ async fn run_torrent_worker(
             fail_torrent_task(&state, &id, generation, error.to_string(), &active_slot);
         }
     }
+}
+
+fn start_torrent_seed_services(
+    state: &SharedState,
+    id: &str,
+    storage: TorrentStorageSession,
+) {
+    let job = {
+        let jobs = lock_or_err!(state.torrent_jobs);
+        jobs.get(id).cloned()
+    };
+    let Some(job) = job else {
+        return;
+    };
+    let task_state = TaskState::from_status(&job.task.status);
+    if job.requires_reauth
+        || !job.seeding.policy().enabled
+        || !task_state.is_some_and(|state| state == TaskState::Completed || state.is_active())
+        || job.seed_cancel_token.is_cancelled()
+    {
+        return;
+    }
+    if task_state == Some(TaskState::Completed)
+        && job.seeding.limit_state(job.task.size_bytes).reached()
+    {
+        job.seed_cancel_token.cancel();
+        return;
+    }
+
+    let tracker_state = state.clone();
+    let tracker_id = id.to_owned();
+    let tracker_storage = storage.clone();
+    let tracker_source = job.source_uri.clone();
+    let tracker_peer_id = job.local_peer_id;
+    let tracker_cancel = job.seed_cancel_token.clone();
+    tokio::spawn(async move {
+        crate::daemon::torrent_tracker::run_tracker_lifecycle(
+            tracker_state,
+            tracker_id,
+            tracker_storage,
+            tracker_source,
+            tracker_peer_id,
+            tracker_cancel,
+        )
+        .await;
+    });
+
+    let watch_state = state.clone();
+    let watch_id = id.to_owned();
+    let watch_control = job.seeding.clone();
+    let watch_cancel = job.seed_cancel_token.clone();
+    tokio::spawn(async move {
+        let mut dirty_ticks = 0u8;
+        loop {
+            tokio::select! {
+                _ = watch_cancel.cancelled() => break,
+                _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+            }
+
+            let (task_state, total_bytes, still_exists) = {
+                let jobs = lock_or_err!(watch_state.torrent_jobs);
+                match jobs.get(&watch_id) {
+                    Some(current) => (
+                        TaskState::from_status(&current.task.status),
+                        current.task.size_bytes,
+                        true,
+                    ),
+                    None => (None, 0, false),
+                }
+            };
+            if !still_exists
+                || !watch_control.policy().enabled
+                || !task_state.is_some_and(|state| {
+                    state == TaskState::Completed || state.is_active()
+                })
+            {
+                watch_cancel.cancel();
+                break;
+            }
+
+            if task_state == Some(TaskState::Completed) {
+                watch_control.start_timer();
+                if watch_control.limit_state(total_bytes).reached() {
+                    watch_cancel.cancel();
+                    watch_state.mark_dirty();
+                    break;
+                }
+                dirty_ticks = dirty_ticks.saturating_add(1);
+                if dirty_ticks >= 6 {
+                    dirty_ticks = 0;
+                    watch_state.mark_dirty();
+                }
+            }
+        }
+    });
 }
 
 async fn update_torrent_progress_once(
@@ -1067,8 +1159,13 @@ pub async fn recheck_restored_completed_torrents(state: &SharedState) {
                     current.task.size_bytes = progress.selected_total_bytes;
                     current.task.engine_status = Some("completed-verified".to_owned());
                     current.task.error_message = None;
-                    if !current.requires_reauth {
-                        tracker_storage = Some(storage);
+                    if !current.requires_reauth && current.seeding.policy().enabled {
+                        current.seeding.start_timer();
+                        if current.seeding.limit_state(progress.selected_total_bytes).reached() {
+                            current.seed_cancel_token.cancel();
+                        } else {
+                            tracker_storage = Some(storage);
+                        }
                     }
                 }
                 Err(error) => {
@@ -1086,25 +1183,7 @@ pub async fn recheck_restored_completed_torrents(state: &SharedState) {
         state.mark_dirty();
 
         if let Some(storage) = tracker_storage {
-            let tracker_job = {
-                let jobs = lock_or_err!(state.torrent_jobs);
-                jobs.get(&id).cloned()
-            };
-            if let Some(tracker_job) = tracker_job {
-                let tracker_state = state.clone();
-                let tracker_id = id.clone();
-                tokio::spawn(async move {
-                    crate::daemon::torrent_tracker::run_tracker_lifecycle(
-                        tracker_state,
-                        tracker_id,
-                        storage,
-                        tracker_job.source_uri,
-                        tracker_job.local_peer_id,
-                        tracker_job.cancel_token,
-                    )
-                    .await;
-                });
-            }
+            start_torrent_seed_services(state, &id, storage);
         }
     }
 }
@@ -1116,6 +1195,8 @@ pub async fn shutdown_torrent_tasks(state: &SharedState) {
         for (id, job) in jobs.iter_mut() {
             let current = TaskState::from_status(&job.task.status);
             job.cancel_token.cancel();
+            job.seed_cancel_token.cancel();
+            job.seeding.stop_timer();
             if current == Some(TaskState::Completed) {
                 continue;
             }
@@ -1178,6 +1259,8 @@ pub async fn pause_torrent_task(state: &SharedState, id: &str) -> Result<Task, S
             if active { "pausing" } else { "paused" },
         )?;
         job.cancel_token.cancel();
+        job.seed_cancel_token.cancel();
+        job.seeding.stop_timer();
         job.task.speed_bytes_per_sec = 0;
         let task = job.task.clone();
         let out = (
@@ -1259,6 +1342,8 @@ pub async fn delete_torrent_task(
             .get_mut(id)
             .ok_or_else(|| "Torrent task not found".to_owned())?;
         job.cancel_token.cancel();
+        job.seed_cancel_token.cancel();
+        job.seeding.stop_timer();
         job.run_generation.fetch_add(1, Ordering::AcqRel);
 
         let current = TaskState::from_status(&job.task.status);
@@ -1358,6 +1443,9 @@ pub async fn redownload_torrent_task(state: &SharedState, id: &str) -> Result<Ta
         current.task.error_message = None;
         current.storage = Arc::new(tokio::sync::Mutex::new(Some(replacement)));
         current.cancel_token = CancellationToken::new();
+        current.seed_cancel_token.cancel();
+        current.seed_cancel_token = CancellationToken::new();
+        current.seeding.reset_statistics();
         current.active_slot.store(false, Ordering::Release);
         current.run_generation.fetch_add(1, Ordering::AcqRel);
         let task = current.task.clone();
@@ -1432,6 +1520,8 @@ fn finish_torrent_cancelled(
             return;
         }
         let current = TaskState::from_status(&job.task.status);
+        job.seed_cancel_token.cancel();
+        job.seeding.stop_timer();
         if current != Some(TaskState::Completed) {
             if current != Some(TaskState::Paused) {
                 let _ = transition_task_state(&mut job.task, TaskState::Paused, "paused");
@@ -1464,6 +1554,8 @@ fn fail_torrent_task(
             return;
         }
         job.cancel_token.cancel();
+        job.seed_cancel_token.cancel();
+        job.seeding.stop_timer();
         let _ = transition_task_state(&mut job.task, TaskState::Failed, "error");
         job.task.error_message = Some(limit_error(&error));
         job.task.speed_bytes_per_sec = 0;
