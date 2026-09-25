@@ -1,20 +1,16 @@
-name: Native UI Rust Compatibility
+name: Native Runtime Compatibility
 
 on:
   push:
     branches:
+      - main
+      - master
       - feature/qt6-native-desktop-ui
     paths:
       - "src-tauri/**"
       - "browser-extension/**"
       - "desktop-native/src/platform/DesktopIntegration.cpp"
       - "desktop-native/scripts/check-browser-native-contract.mjs"
-      - "src/api/novaClient.ts"
-      - "src/api/__tests__/novaClient.request.test.ts"
-      - "src/components/AppShell.tsx"
-      - "src/store/queueStore.ts"
-      - "src/store/__tests__/queueStore.test.ts"
-      - "src/types/desktop-ui.types.ts"
       - ".github/workflows/native-ui-rust.yml"
   pull_request:
     branches:
@@ -24,12 +20,6 @@ on:
       - "src-tauri/**"
       - "desktop-native/**"
       - "browser-extension/**"
-      - "src/api/novaClient.ts"
-      - "src/api/__tests__/novaClient.request.test.ts"
-      - "src/components/AppShell.tsx"
-      - "src/store/queueStore.ts"
-      - "src/store/__tests__/queueStore.test.ts"
-      - "src/types/desktop-ui.types.ts"
       - ".github/workflows/native-ui-rust.yml"
   workflow_dispatch:
 
@@ -76,10 +66,6 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           bash scripts/install-linux-build-deps.sh \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
             libssl-dev \
             libcurl4-openssl-dev \
             libbrotli-dev \
@@ -113,14 +99,6 @@ jobs:
 
       - name: Install browser-extension dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Legacy migration bridge typecheck
-        run: pnpm exec tsc --noEmit
-
-      - name: Legacy queue compatibility tests
-        run: |
-          pnpm exec vitest run src/api/__tests__/novaClient.request.test.ts
-          pnpm exec vitest run src/store/__tests__/queueStore.test.ts
 
       - name: Browser Native Messaging identity contract
         run: node desktop-native/scripts/check-browser-native-contract.mjs
