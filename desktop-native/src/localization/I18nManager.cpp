@@ -1,5 +1,4 @@
 #include "localization/I18nManager.h"
-#include "localization/LegacyI18nCatalog.h"
 
 #include <QHash>
 #include <QLocale>
@@ -1857,17 +1856,6 @@ QString I18nManager::translate(const QString &key) const {
     const auto fallback = english().constFind(key);
     if (fallback == english().constEnd()) {
         return key;
-    }
-
-    if (m_language != QStringLiteral("en")) {
-        const QString migrated = LegacyI18nCatalog::instance().translate(
-            m_language,
-            key,
-            fallback.value()
-        );
-        if (!migrated.isEmpty()) {
-            return migrated;
-        }
     }
 
     return fallback.value();
