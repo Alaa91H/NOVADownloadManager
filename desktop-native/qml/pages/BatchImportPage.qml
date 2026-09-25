@@ -310,6 +310,7 @@ Item {
 
                 TextField {
                     id: refererField
+                    Accessible.name: root.t("batch.referer")
                     Layout.columnSpan: 3
                     Layout.fillWidth: true
                     enabled: !api.batchRunning
@@ -326,6 +327,7 @@ Item {
 
                 TextField {
                     id: userAgentField
+                    Accessible.name: root.t("batch.userAgent")
                     Layout.columnSpan: 3
                     Layout.fillWidth: true
                     enabled: !api.batchRunning
@@ -359,6 +361,7 @@ Item {
 
                 TextField {
                     id: proxyField
+                    Accessible.name: root.t("batch.proxy")
                     Layout.columnSpan: 3
                     Layout.fillWidth: true
                     placeholderText: root.t("batch.proxyHint")
@@ -395,6 +398,7 @@ Item {
 
                 TextField {
                     id: cookiesField
+                    Accessible.name: root.t("batch.cookies")
                     Layout.columnSpan: 3
                     Layout.fillWidth: true
                     placeholderText: root.t("batch.cookiesHint")
