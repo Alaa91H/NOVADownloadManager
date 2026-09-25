@@ -822,6 +822,7 @@ Item {
                         model: root.downloads
                         activeFocusOnTab: true
                         keyNavigationWraps: false
+                        Accessible.role: Accessible.List
                         Accessible.name: root.pageTitle()
                         Accessible.description: root.pageSubtitle()
                         onActiveFocusChanged: {
@@ -870,8 +871,14 @@ Item {
 
                             width: list.contentWidth
                             height: Theme.rowHeight
+                            Accessible.role: Accessible.ListItem
                             Accessible.name: name || root.t("common.unnamedDownload")
                             Accessible.description: (status || "") + " · " + Math.round(progress * 100) + "%"
+                            Accessible.focusable: true
+                            Accessible.focused: list.activeFocus && list.currentIndex === index
+                            Accessible.selectable: true
+                            Accessible.selected: root.allVisibleSelected || root.selectedIndex === index
+                            Accessible.onPressAction: root.selectRow(index)
                             color: root.allVisibleSelected || root.selectedIndex === index
                                 ? Theme.surfaceSelected
                                 : mouse.containsMouse ? Theme.surfaceHover : "transparent"
