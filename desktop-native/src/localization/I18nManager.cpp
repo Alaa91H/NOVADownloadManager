@@ -1753,7 +1753,20 @@ bool I18nManager::rtl() const {
 }
 
 QString I18nManager::normalizeLanguage(const QString &language) {
-    return LegacyI18nCatalog::instance().normalizeLanguage(language);
+    QString normalized = language.trimmed();
+    if (normalized.isEmpty()
+        || normalized.compare(QStringLiteral("system"), Qt::CaseInsensitive) == 0) {
+        normalized = QLocale::system().name();
+    }
+
+    normalized.replace(QLatin1Char('_'), QLatin1Char('-'));
+    const QString primary = normalized
+        .toLower()
+        .section(QLatin1Char('-'), 0, 0);
+
+    return primary == QStringLiteral("ar")
+        ? QStringLiteral("ar")
+        : QStringLiteral("en");
 }
 
 void I18nManager::setLanguage(const QString &language) {
@@ -1766,15 +1779,22 @@ void I18nManager::setLanguage(const QString &language) {
 }
 
 QVariantList I18nManager::supportedLanguages() const {
-    return LegacyI18nCatalog::instance().supportedLanguages();
+    return QVariantList{
+        QVariantMap{
+            {QStringLiteral("code"), QStringLiteral("en")},
+            {QStringLiteral("label"), QStringLiteral("English")}
+        },
+        QVariantMap{
+            {QStringLiteral("code"), QStringLiteral("ar")},
+            {QStringLiteral("label"), QStringLiteral("العربية")}
+        }
+    };
 }
 
 QString I18nManager::translate(const QString &key) const {
     const Dictionary *localized = nullptr;
     if (m_language == QStringLiteral("ar")) {
         localized = &arabic();
-    } else if (m_language == QStringLiteral("de")) {
-        localized = &german();
     }
 
     if (localized != nullptr) {
