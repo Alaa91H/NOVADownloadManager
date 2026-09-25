@@ -3086,6 +3086,7 @@ dependencies = [
  "nova-download-core",
  "nova-media-core",
  "nova-stream-core",
+ "nova-torrent-core",
  "regex",
  "reqwest",
  "rusqlite",
@@ -3136,6 +3137,7 @@ dependencies = [
  "cbc",
  "mp4-track",
  "nova-download-core",
+ "nova-media-processing-core",
  "nova-stream-core",
  "regex",
  "serde",
@@ -3145,11 +3147,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "nova-media-processing-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "nova-stream-core"
 version = "0.1.0"
 dependencies = [
  "quick-xml",
  "serde",
+ "thiserror 2.0.20",
+ "url",
+]
+
+[[package]]
+name = "nova-torrent-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "sha1 0.10.7",
  "thiserror 2.0.20",
  "url",
 ]
