@@ -910,7 +910,7 @@ fn track_duration_movie_timescale(track: &OutputTrack) -> Result<u64, MediaProce
 }
 
 fn opus_pre_skip_media_units(track: &MediaTrack) -> Result<Option<u64>, MediaProcessingError> {
-    if track.codec != MediaCodec::Opus {
+    if !matches!(&track.codec, MediaCodec::Opus) {
         return Ok(None);
     }
     if track.codec_private.len() < 11 || track.codec_private[0] != 0 {
@@ -1123,6 +1123,20 @@ mod tests {
             },
             data: data.to_vec(),
         }
+    }
+
+    #[test]
+    fn rejects_invalid_opus_dops_before_writing_packets() {
+        let path = temp_path("opus-invalid-dops");
+        let mut track = audio_track(1);
+        track.codec = MediaCodec::Opus;
+        track.codec_private = vec![1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+        let mut muxer = Mp4Muxer::create(&path).expect("muxer");
+        let error = muxer.add_track(&track).expect_err("invalid dOps");
+        assert!(matches!(error, MediaProcessingError::Mux(_)));
+
+        let _ = fs::remove_file(path);
     }
 
     #[test]
