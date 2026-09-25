@@ -66,6 +66,7 @@ Implemented native surfaces include:
 - Bundled headless Rust backend and dedicated browser Native Messaging host
 - Rotating-proof trusted-local backend discovery/pairing, scoped browser credentials and cross-platform browser-host registration repair
 - Packaged Native Messaging protocol smoke on the six preview targets plus a cross-source identity contract that derives the Chromium ID from the extension public key and locks Qt/Rust/browser host identity
+- Approved NOVA desktop shell implemented as the visual baseline: frameless title bar, compact icon rail, single-row icon command bar, numbered/file-type download table, optional details panel with live speed chart, one-line status summary, and persistent live customization for layout density, accent color, corner radius and panel visibility
 
 ## Stage 6.1 parity and preview builds
 
@@ -76,6 +77,7 @@ Run the local gates with:
 ```bash
 node desktop-native/scripts/check-localization.mjs
 node desktop-native/scripts/check-release-localization.mjs
+node desktop-native/scripts/check-approved-ui.mjs
 node desktop-native/scripts/check-native-accessibility.mjs
 node desktop-native/scripts/check-native-contrast.mjs
 node desktop-native/scripts/check-browser-native-contract.mjs
