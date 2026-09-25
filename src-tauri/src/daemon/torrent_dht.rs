@@ -10,6 +10,7 @@ use nova_torrent_core::{
     MAX_DHT_PEERS,
 };
 use tokio::net::{lookup_host, UdpSocket};
+use tokio::sync::{oneshot, Mutex as TokioMutex, RwLock as TokioRwLock};
 use tokio::task::JoinSet;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
@@ -32,7 +33,6 @@ const MAX_STORED_INFO_HASHES: usize = 1_024;
 const MAX_STORED_PEERS_PER_HASH: usize = 128;
 const MAX_RESPONSE_PEERS: usize = 16;
 const MAX_RESPONSE_NODES: usize = 8;
-pub const DEFAULT_TORRENT_DHT_PORT: u16 = 6881;
 static ACTIVE_TORRENT_DHT_PORT: AtomicU16 = AtomicU16::new(0);
 
 const DEFAULT_BOOTSTRAP: &[&str] = &[
@@ -67,6 +67,7 @@ impl DhtRoutingTable {
         }
     }
 
+    #[cfg(test)]
     fn restore(local_id: DhtNodeId, entries: &[DhtRoutingSnapshotEntry]) -> Self {
         let mut table = Self::new(local_id);
         let cutoff = unix_now().saturating_sub(DHT_ROUTING_MAX_AGE_SECS);
@@ -153,6 +154,83 @@ impl DhtRoutingTable {
         });
         nodes.truncate(limit);
         nodes
+    }
+}
+
+struct PendingDhtExchange {
+    address: SocketAddr,
+    sender: oneshot::Sender<DhtMessage>,
+}
+
+struct DhtSharedTransport {
+    socket: TokioRwLock<Option<Arc<UdpSocket>>>,
+    pending: TokioMutex<HashMap<Vec<u8>, PendingDhtExchange>>,
+}
+
+impl std::fmt::Debug for DhtSharedTransport {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("DhtSharedTransport")
+    }
+}
+
+impl DhtSharedTransport {
+    fn new() -> Self {
+        Self {
+            socket: TokioRwLock::new(None),
+            pending: TokioMutex::new(HashMap::new()),
+        }
+    }
+
+    async fn set_socket(&self, socket: Option<Arc<UdpSocket>>) {
+        *self.socket.write().await = socket;
+    }
+
+    async fn socket(&self) -> Option<Arc<UdpSocket>> {
+        self.socket.read().await.clone()
+    }
+
+    async fn register(
+        &self,
+        transaction_id: Vec<u8>,
+        address: SocketAddr,
+    ) -> Result<oneshot::Receiver<DhtMessage>, String> {
+        let mut pending = self.pending.lock().await;
+        if pending.contains_key(&transaction_id) {
+            return Err("DHT transaction id collision".to_owned());
+        }
+        let (sender, receiver) = oneshot::channel();
+        pending.insert(
+            transaction_id,
+            PendingDhtExchange {
+                address,
+                sender,
+            },
+        );
+        Ok(receiver)
+    }
+
+    async fn remove(&self, transaction_id: &[u8]) {
+        self.pending.lock().await.remove(transaction_id);
+    }
+
+    async fn deliver(&self, source: SocketAddr, message: DhtMessage) -> bool {
+        let transaction_id = match &message {
+            DhtMessage::Response { transaction_id, .. }
+            | DhtMessage::Error { transaction_id, .. } => transaction_id.clone(),
+            DhtMessage::Query { .. } => return false,
+        };
+        let mut pending = self.pending.lock().await;
+        let Some(exchange) = pending.get(&transaction_id) else {
+            return false;
+        };
+        if exchange.address != source {
+            return false;
+        }
+        let Some(exchange) = pending.remove(&transaction_id) else {
+            return false;
+        };
+        let _ = exchange.sender.send(message);
+        true
     }
 }
 
@@ -328,12 +406,15 @@ impl DhtService {
         cancel: CancellationToken,
     ) -> Result<u16, String> {
         let port = configured_dht_port();
-        let socket = UdpSocket::bind(("0.0.0.0", port))
-            .await
-            .map_err(|error| format!("Could not bind torrent DHT UDP port {port}: {error}"))?;
+        let socket = Arc::new(
+            UdpSocket::bind(("0.0.0.0", port))
+                .await
+                .map_err(|error| format!("Could not bind torrent DHT UDP port {port}: {error}"))?,
+        );
         let local = socket
             .local_addr()
             .map_err(|error| format!("Could not read torrent DHT listener address: {error}"))?;
+        self.engine.attach_socket(Some(socket.clone())).await;
         ACTIVE_TORRENT_DHT_PORT.store(local.port(), Ordering::Release);
         log::info!("Native torrent DHT server started on {local}");
 
@@ -362,7 +443,19 @@ impl DhtService {
                         continue;
                     }
                     let packet = &buffer[..length];
-                    let Some(response) = self.handle_packet(&state, source, packet) else {
+                    let message = match DhtMessage::parse(packet) {
+                        Ok(message) => message,
+                        Err(_) => continue,
+                    };
+                    if matches!(message, DhtMessage::Response { .. } | DhtMessage::Error { .. })
+                        && self
+                            .engine
+                            .deliver_shared_response(source, message.clone())
+                            .await
+                    {
+                        continue;
+                    }
+                    let Some(response) = self.handle_message(&state, source, message) else {
                         continue;
                     };
                     let encoded = match response.encode() {
@@ -384,6 +477,7 @@ impl DhtService {
             }
         }
 
+        self.engine.attach_socket(None).await;
         ACTIVE_TORRENT_DHT_PORT.store(0, Ordering::Release);
         self.maintenance();
         if let Err(error) = self.save_state() {
@@ -399,6 +493,15 @@ impl DhtService {
         packet: &[u8],
     ) -> Option<DhtMessage> {
         let message = DhtMessage::parse(packet).ok()?;
+        self.handle_message(state, source, message)
+    }
+
+    fn handle_message(
+        &self,
+        state: &SharedState,
+        source: SocketAddr,
+        message: DhtMessage,
+    ) -> Option<DhtMessage> {
         let DhtMessage::Query {
             transaction_id,
             query,
@@ -664,6 +767,7 @@ pub struct DhtEngine {
     config: DhtConfig,
     allow_private_network: bool,
     routing: Arc<Mutex<DhtRoutingTable>>,
+    transport: Arc<DhtSharedTransport>,
 }
 
 impl DhtEngine {
@@ -697,6 +801,7 @@ impl DhtEngine {
             config,
             allow_private_network,
             routing: Arc::new(Mutex::new(routing)),
+            transport: Arc::new(DhtSharedTransport::new()),
         }
     }
 
@@ -706,6 +811,18 @@ impl DhtEngine {
 
     pub const fn node_id(&self) -> DhtNodeId {
         self.node_id
+    }
+
+    async fn attach_socket(&self, socket: Option<Arc<UdpSocket>>) {
+        self.transport.set_socket(socket).await;
+    }
+
+    async fn deliver_shared_response(
+        &self,
+        source: SocketAddr,
+        message: DhtMessage,
+    ) -> bool {
+        self.transport.deliver(source, message).await
     }
 
     pub fn record_node(&self, node: nova_torrent_core::DhtNode) {
@@ -960,6 +1077,65 @@ impl DhtEngine {
         expected_transaction: &[u8],
         cancel: &CancellationToken,
     ) -> Result<DhtMessage, String> {
+        let packet = query
+            .encode()
+            .map_err(|error| format!("Could not encode DHT query: {error}"))?;
+
+        if let Some(socket) = self.transport.socket().await {
+            let receiver = self
+                .transport
+                .register(expected_transaction.to_vec(), address)
+                .await?;
+            let sent = tokio::select! {
+                _ = cancel.cancelled() => {
+                    self.transport.remove(expected_transaction).await;
+                    return Err("DHT query cancelled".to_owned());
+                }
+                result = timeout(self.config.query_timeout, socket.send_to(&packet, address)) => {
+                    match result {
+                        Ok(Ok(sent)) => sent,
+                        Ok(Err(error)) => {
+                            self.transport.remove(expected_transaction).await;
+                            return Err(format!("DHT send to {address} failed: {error}"));
+                        }
+                        Err(_) => {
+                            self.transport.remove(expected_transaction).await;
+                            return Err(format!("DHT send to {address} timed out"));
+                        }
+                    }
+                }
+            };
+            if sent != packet.len() {
+                self.transport.remove(expected_transaction).await;
+                return Err(format!(
+                    "DHT datagram to {address} was truncated: {sent}/{} bytes",
+                    packet.len()
+                ));
+            }
+
+            let message = tokio::select! {
+                _ = cancel.cancelled() => {
+                    self.transport.remove(expected_transaction).await;
+                    return Err("DHT query cancelled".to_owned());
+                }
+                result = timeout(self.config.query_timeout, receiver) => {
+                    match result {
+                        Ok(Ok(message)) => message,
+                        Ok(Err(_)) => {
+                            return Err(format!("DHT response channel from {address} closed"));
+                        }
+                        Err(_) => {
+                            self.transport.remove(expected_transaction).await;
+                            return Err(format!("DHT receive from {address} timed out"));
+                        }
+                    }
+                }
+            };
+            return Ok(message);
+        }
+
+        // Bootstrap/tests can run before the process-wide DHT listener is
+        // attached. Fall back to a bounded one-shot socket in that case.
         let bind = if address.is_ipv4() {
             "0.0.0.0:0"
         } else {
@@ -973,22 +1149,19 @@ impl DhtEngine {
             .await
             .map_err(|error| format!("Could not connect DHT UDP socket to {address}: {error}"))?;
 
-        let packet = query
-            .encode()
-            .map_err(|error| format!("Could not encode DHT query: {error}"))?;
-        tokio::select! {
+        let sent = tokio::select! {
             _ = cancel.cancelled() => return Err("DHT query cancelled".to_owned()),
             result = timeout(self.config.query_timeout, socket.send(&packet)) => {
-                let sent = result
+                result
                     .map_err(|_| format!("DHT send to {address} timed out"))?
-                    .map_err(|error| format!("DHT send to {address} failed: {error}"))?;
-                if sent != packet.len() {
-                    return Err(format!(
-                        "DHT datagram to {address} was truncated: {sent}/{} bytes",
-                        packet.len()
-                    ));
-                }
+                    .map_err(|error| format!("DHT send to {address} failed: {error}"))?
             }
+        };
+        if sent != packet.len() {
+            return Err(format!(
+                "DHT datagram to {address} was truncated: {sent}/{} bytes",
+                packet.len()
+            ));
         }
 
         let mut buffer = vec![0u8; MAX_DHT_PACKET_BYTES];
@@ -1073,6 +1246,7 @@ impl DhtEngine {
             config,
             allow_private_network: true,
             routing: Arc::new(Mutex::new(DhtRoutingTable::new(node_id))),
+            transport: Arc::new(DhtSharedTransport::new()),
         }
     }
 }
@@ -1394,6 +1568,68 @@ mod tests {
         let snapshot = table.snapshot();
         assert_eq!(snapshot.len(), 1);
         assert_eq!(snapshot[0].node, recent.node);
+    }
+
+    #[tokio::test]
+    async fn shared_transport_uses_long_lived_listener_port() {
+        let remote = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let remote_address = remote.local_addr().unwrap();
+        let local = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let local_address = local.local_addr().unwrap();
+        let engine = DhtEngine::for_tests(
+            id(7),
+            DhtConfig {
+                query_timeout: Duration::from_secs(2),
+                ..DhtConfig::default()
+            },
+        );
+        engine.attach_socket(Some(local.clone())).await;
+
+        let server_engine = engine.clone();
+        let receiver = tokio::spawn(async move {
+            let mut buffer = vec![0u8; MAX_DHT_PACKET_BYTES];
+            let (length, source) = remote.recv_from(&mut buffer).await.unwrap();
+            assert_eq!(source.port(), local_address.port());
+            let query = DhtMessage::parse(&buffer[..length]).unwrap();
+            let transaction_id = match query {
+                DhtMessage::Query { transaction_id, .. } => transaction_id,
+                other => panic!("expected query, got {other:?}"),
+            };
+            let response = DhtMessage::Response {
+                transaction_id,
+                response: DhtResponse {
+                    id: id(8),
+                    token: Some(vec![1, 2, 3]),
+                    nodes: Vec::new(),
+                    peers: Vec::new(),
+                },
+            };
+            remote
+                .send_to(&response.encode().unwrap(), source)
+                .await
+                .unwrap();
+        });
+
+        let demux_engine = server_engine.clone();
+        let demux_socket = local.clone();
+        let demux = tokio::spawn(async move {
+            let mut buffer = vec![0u8; MAX_DHT_PACKET_BYTES];
+            let (length, source) = demux_socket.recv_from(&mut buffer).await.unwrap();
+            let message = DhtMessage::parse(&buffer[..length]).unwrap();
+            assert!(demux_engine.deliver_shared_response(source, message).await);
+        });
+
+        let response = server_engine
+            .query_get_peers(
+                remote_address,
+                InfoHash::new([3u8; 20]),
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.id, id(8));
+        receiver.await.unwrap();
+        demux.await.unwrap();
     }
 
     #[tokio::test]
