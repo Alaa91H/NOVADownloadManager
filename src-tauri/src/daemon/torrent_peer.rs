@@ -17,6 +17,7 @@ use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::torrent_bandwidth::TorrentBandwidthLimiter;
+use crate::daemon::torrent_dht::active_dht_port;
 use crate::daemon::utils::{is_internal_ip, private_network_allowed};
 
 const MAX_PEER_CANDIDATES: usize = 4_096;
@@ -35,6 +36,7 @@ pub struct PeerSessionConfig {
     pub max_metadata_retries: u32,
     pub max_control_frames_without_progress: u32,
     pub enable_pex: bool,
+    pub enable_dht: bool,
 }
 
 impl Default for PeerSessionConfig {
@@ -51,6 +53,7 @@ impl Default for PeerSessionConfig {
             max_metadata_retries: 2,
             max_control_frames_without_progress: 128,
             enable_pex: true,
+            enable_dht: true,
         }
     }
 }
@@ -334,6 +337,7 @@ impl PeerEngine {
             let mut session_config = self.config.session.clone();
             if metainfo.private {
                 session_config.enable_pex = false;
+                session_config.enable_dht = false;
             }
             let mut session = match PeerSession::connect_with_policy(
                 address,
@@ -416,7 +420,10 @@ impl PeerEngine {
 
             let mut session_config = self.config.session.clone();
             if !trackers.is_empty() {
+                // Privacy is unknown until BEP 9 metadata arrives. Do not
+                // advertise DHT/PEX on tracker-backed magnets in that window.
                 session_config.enable_pex = false;
+                session_config.enable_dht = false;
             }
             let mut session = match PeerSession::connect_with_policy(
                 address,
@@ -607,8 +614,16 @@ impl PeerSession {
         let _ = stream.set_nodelay(true);
 
         let mut local_handshake = PeerHandshake::new(info_hash, local_peer_id);
-        // BEP 10 is now implemented end-to-end for ut_metadata and ut_pex.
+        // BEP 10 is implemented end-to-end for ut_metadata and ut_pex.
         local_handshake.reserved[5] |= 0x10;
+        let local_dht_port = if config.enable_dht {
+            active_dht_port()
+        } else {
+            None
+        };
+        if local_dht_port.is_some() {
+            local_handshake.reserved[7] |= 0x01;
+        }
 
         write_all_cancellable(
             &mut stream,
@@ -653,6 +668,14 @@ impl PeerSession {
             config,
             allow_private_network,
         };
+
+        if remote_supports_dht {
+            if let Some(port) = local_dht_port {
+                session
+                    .send(&PeerMessage::Port(port), cancel)
+                    .await?;
+            }
+        }
 
         if remote_supports_extensions {
             let mut local_extensions = ExtendedHandshake::local(None);
@@ -1442,6 +1465,7 @@ mod tests {
             max_metadata_retries: 1,
             max_control_frames_without_progress: 32,
             enable_pex: true,
+            enable_dht: true,
         }
     }
 

@@ -16,6 +16,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::daemon::state::SharedState;
 use crate::daemon::torrent_bandwidth::TorrentBandwidthLimiter;
+use crate::daemon::torrent_dht::active_dht_port;
 use crate::daemon::torrent_seeding::TorrentSeedingControl;
 use crate::daemon::torrent_storage::TorrentStorageSession;
 use crate::daemon::torrent_task::ensure_storage_session;
@@ -324,9 +325,25 @@ async fn serve_inbound_seed_session_after_handshake(
         }
     }
 
+    let plan = storage
+        .transfer_plan()
+        .await
+        .map_err(|error| format!("Could not read torrent seed plan: {error}"))?;
+    if plan.metainfo.info_hash != expected_info_hash {
+        return Err("Torrent storage identity changed before seed session".to_owned());
+    }
+
+    let dht_port = if plan.metainfo.private {
+        None
+    } else {
+        active_dht_port()
+    };
     let mut local = PeerHandshake::new(expected_info_hash, local_peer_id);
     if extensions.enabled() {
         local.reserved[5] |= 0x10;
+    }
+    if dht_port.is_some() {
+        local.reserved[7] |= 0x01;
     }
     write_message_bytes(
         &mut stream,
@@ -337,12 +354,16 @@ async fn serve_inbound_seed_session_after_handshake(
     )
     .await?;
 
-    let plan = storage
-        .transfer_plan()
-        .await
-        .map_err(|error| format!("Could not read torrent seed plan: {error}"))?;
-    if plan.metainfo.info_hash != expected_info_hash {
-        return Err("Torrent storage identity changed before seed session".to_owned());
+    if remote.supports_dht_port() {
+        if let Some(port) = dht_port {
+            send_message(
+                &mut stream,
+                &PeerMessage::Port(port),
+                config.frame_timeout,
+                cancel,
+            )
+            .await?;
+        }
     }
 
     if extensions.enabled() && remote.supports_extension_protocol() {
