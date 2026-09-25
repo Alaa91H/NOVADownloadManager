@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(NOVANative VERSION 2.4.48 LANGUAGES CXX)
+project(NOVANative VERSION 2.4.49 LANGUAGES CXX)
 
-set(NOVA_APP_VERSION "2.4.48-alpha")
+set(NOVA_APP_VERSION "2.4.49-alpha")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
