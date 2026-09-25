@@ -353,9 +353,91 @@ fn array_transform_function<'a>(
             .ok_or_else(|| format!("YouTube n-transform array target {entry} was not found"));
     }
 
+    let member = Regex::new(
+        r#"^(?P<object>[A-Za-z_$][A-Za-z0-9_$]*)\s*\.\s*(?P<method>[A-Za-z_$][A-Za-z0-9_$]*)$"#,
+    )
+    .map_err(|error| error.to_string())?;
+    let bracket_member = Regex::new(
+        r#"^(?P<object>[A-Za-z_$][A-Za-z0-9_$]*)\s*\[\s*["'](?P<method>[A-Za-z_$][A-Za-z0-9_$]*)["']\s*\]$"#,
+    )
+    .map_err(|error| error.to_string())?;
+    if let Some(captures) = member
+        .captures(entry)
+        .or_else(|| bracket_member.captures(entry))
+    {
+        let object = captures
+            .name("object")
+            .map(|value| value.as_str())
+            .ok_or_else(|| "YouTube n-transform member object is missing".to_owned())?;
+        let method = captures
+            .name("method")
+            .map(|value| value.as_str())
+            .ok_or_else(|| "YouTube n-transform member method is missing".to_owned())?;
+        return object_transform_function(script, object, method)?
+            .ok_or_else(|| format!("YouTube n-transform array target {entry} was not found"));
+    }
+
     Err(format!(
         "unsupported YouTube n-transform array entry {array}[{index}]"
     ))
+}
+
+fn object_transform_function<'a>(
+    script: &'a str,
+    object: &str,
+    method: &str,
+) -> Result<Option<(String, &'a str)>, String> {
+    let object_pattern = Regex::new(&format!(
+        r#"(?:(?:var|let|const)\s+)?{}\s*=\s*\{{"#,
+        regex::escape(object)
+    ))
+    .map_err(|error| error.to_string())?;
+    let Some(object_match) = object_pattern.find(script) else {
+        return Ok(None);
+    };
+    let brace = object_match.end().saturating_sub(1);
+    let object_body = balanced_block(script, brace, b'{', b'}')
+        .ok_or_else(|| format!("YouTube transform object {object} is malformed"))?;
+
+    let patterns = [
+        Regex::new(&format!(
+            r#"(?:"|')?{}(?:"|')?\s*:\s*function\((?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)\)\s*\{{"#,
+            regex::escape(method)
+        )),
+        Regex::new(&format!(
+            r#"(?:"|')?{}(?:"|')?\s*:\s*\(\s*(?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)\s*\)\s*=>\s*\{{"#,
+            regex::escape(method)
+        )),
+        Regex::new(&format!(
+            r#"(?:"|')?{}(?:"|')?\s*:\s*(?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)\s*=>\s*\{{"#,
+            regex::escape(method)
+        )),
+        Regex::new(&format!(
+            r#"(?:"|')?{}(?:"|')?\s*\(\s*(?P<arg>[A-Za-z_$][A-Za-z0-9_$]*)\s*\)\s*\{{"#,
+            regex::escape(method)
+        )),
+    ];
+
+    for pattern in patterns {
+        let pattern = pattern.map_err(|error| error.to_string())?;
+        for captures in pattern.captures_iter(object_body) {
+            let Some(whole) = captures.get(0) else {
+                continue;
+            };
+            let Some(argument) = captures.name("arg").map(|value| value.as_str().to_owned()) else {
+                continue;
+            };
+            let method_brace = whole.end().saturating_sub(1);
+            let Some(body) = balanced_block(object_body, method_brace, b'{', b'}') else {
+                continue;
+            };
+            if let Some(working) = transform_working_variable(body, &argument)? {
+                return Ok(Some((working, body)));
+            }
+        }
+    }
+
+    Ok(None)
 }
 
 fn transform_working_variable(
@@ -744,15 +826,86 @@ fn classify_array_helper_operation(
         r#"^(?:function\([^)]*\)|\([^)]*\)\s*=>|[A-Za-z_$][A-Za-z0-9_$]*\s*=>)\s*\{"#,
     )
     .map_err(|error| error.to_string())?;
-    let function_match = function
-        .find(entry)
-        .ok_or_else(|| format!("YouTube transform helper {array}[{index}] is not a function"))?;
-    let brace = function_match.end().saturating_sub(1);
-    let method_body = balanced_block(entry, brace, b'{', b'}')
-        .ok_or_else(|| format!("YouTube transform helper {array}[{index}] is malformed"))?;
-    classify_operation_body(method_body, amount).ok_or_else(|| {
-        format!("unsupported YouTube transform helper {array}[{index}]")
-    })
+    if let Some(function_match) = function.find(entry) {
+        let brace = function_match.end().saturating_sub(1);
+        let method_body = balanced_block(entry, brace, b'{', b'}')
+            .ok_or_else(|| format!("YouTube transform helper {array}[{index}] is malformed"))?;
+        return classify_operation_body(method_body, amount).ok_or_else(|| {
+            format!("unsupported YouTube transform helper {array}[{index}]")
+        });
+    }
+
+    let member = Regex::new(
+        r#"^(?P<object>[A-Za-z_$][A-Za-z0-9_$]*)\s*\.\s*(?P<method>[A-Za-z_$][A-Za-z0-9_$]*)$"#,
+    )
+    .map_err(|error| error.to_string())?;
+    let bracket_member = Regex::new(
+        r#"^(?P<object>[A-Za-z_$][A-Za-z0-9_$]*)\s*\[\s*["'](?P<method>[A-Za-z_$][A-Za-z0-9_$]*)["']\s*\]$"#,
+    )
+    .map_err(|error| error.to_string())?;
+    if let Some(captures) = member
+        .captures(entry)
+        .or_else(|| bracket_member.captures(entry))
+    {
+        let object = captures
+            .name("object")
+            .map(|value| value.as_str())
+            .ok_or_else(|| "YouTube transform helper member object is missing".to_owned())?;
+        let method = captures
+            .name("method")
+            .map(|value| value.as_str())
+            .ok_or_else(|| "YouTube transform helper member method is missing".to_owned())?;
+        return classify_helper_operation(script, object, method, amount);
+    }
+
+    if Regex::new(r#"^[A-Za-z_$][A-Za-z0-9_$]*$"#)
+        .map_err(|error| error.to_string())?
+        .is_match(entry)
+    {
+        return classify_named_helper_operation(script, entry, amount);
+    }
+
+    Err(format!(
+        "YouTube transform helper {array}[{index}] is not a supported function alias"
+    ))
+}
+
+fn classify_named_helper_operation(
+    script: &str,
+    name: &str,
+    amount: usize,
+) -> Result<TransformOperation, String> {
+    let patterns = [
+        Regex::new(&format!(
+            r#"{}\s*=\s*function\([^)]*\)\s*\{{"#,
+            regex::escape(name)
+        )),
+        Regex::new(&format!(
+            r#"function\s+{}\([^)]*\)\s*\{{"#,
+            regex::escape(name)
+        )),
+        Regex::new(&format!(
+            r#"{}\s*=\s*\([^)]*\)\s*=>\s*\{{"#,
+            regex::escape(name)
+        )),
+        Regex::new(&format!(
+            r#"{}\s*=\s*[A-Za-z_$][A-Za-z0-9_$]*\s*=>\s*\{{"#,
+            regex::escape(name)
+        )),
+    ];
+
+    for pattern in patterns {
+        let pattern = pattern.map_err(|error| error.to_string())?;
+        if let Some(function_match) = pattern.find(script) {
+            let brace = function_match.end().saturating_sub(1);
+            let body = balanced_block(script, brace, b'{', b'}')
+                .ok_or_else(|| format!("YouTube transform helper {name} is malformed"))?;
+            return classify_operation_body(body, amount)
+                .ok_or_else(|| format!("unsupported YouTube transform helper {name}"));
+        }
+    }
+
+    Err(format!("YouTube transform helper {name} was not found"))
 }
 
 fn operation_amount(body: &str, fallback: usize) -> usize {
@@ -780,6 +933,21 @@ fn operation_amount(body: &str, fallback: usize) -> usize {
 
 fn classify_operation_body(body: &str, amount: usize) -> Option<TransformOperation> {
     let amount = operation_amount(body, amount);
+
+    let splice_swap = Regex::new(
+        r#"(?P<target>[A-Za-z_$][A-Za-z0-9_$]*)\s*\[\s*0\s*\]\s*=\s*(?P<source>[A-Za-z_$][A-Za-z0-9_$]*)\.splice\(\s*[A-Za-z_$][A-Za-z0-9_$]*\s*%\s*(?P<len>[A-Za-z_$][A-Za-z0-9_$]*)\.length\s*,\s*1\s*,\s*(?P<insert>[A-Za-z_$][A-Za-z0-9_$]*)\s*\[\s*0\s*\]\s*\)\s*\[\s*0\s*\]"#,
+    )
+    .ok();
+    if let Some(captures) = splice_swap.as_ref().and_then(|pattern| pattern.captures(body)) {
+        let target = captures.name("target").map(|value| value.as_str());
+        let source = captures.name("source").map(|value| value.as_str());
+        let len = captures.name("len").map(|value| value.as_str());
+        let insert = captures.name("insert").map(|value| value.as_str());
+        if target.is_some() && target == source && target == len && target == insert {
+            return Some(TransformOperation::Swap(amount));
+        }
+    }
+
     let has_reverse = body.contains(".reverse(");
     let has_splice = body.contains(".splice(");
     let has_slice = body.contains(".slice(");
@@ -1236,6 +1404,90 @@ function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
                 .expect("helper n transform"),
             "dcba"
         );
+    }
+
+    #[test]
+    fn n_transform_supports_object_member_target_alias() {
+        let player = r#"
+var OPS={Nt:function(a){a=a.split("");a.reverse();return a.join("")}};
+var NX=[OPS.Nt];
+function apply(p){var x=p.get("n");x&&(x=NX[0](x),p.set("n",x))}
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert_eq!(
+            solver
+                .transform_throttling_parameter(player, "abcdef")
+                .expect("object-member n transform"),
+            "fedcba"
+        );
+    }
+
+    #[test]
+    fn n_transform_supports_member_aliases_inside_helper_arrays() {
+        let player = r#"
+var OPS={
+Rv:function(a){a.reverse()},
+Sp:function(a,b){a.splice(0,b)}
+};
+var HH=[OPS.Rv,OPS["Sp"]];
+NT=function(a){a=a.split("");HH[0](a);HH[1](a,2);return a.join("")};
+function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert_eq!(
+            solver
+                .transform_throttling_parameter(player, "abcdef")
+                .expect("member-alias helper array"),
+            "dcba"
+        );
+    }
+
+    #[test]
+    fn n_transform_supports_named_function_aliases_inside_helper_arrays() {
+        let player = r#"
+RV=function(a){a.reverse()};
+function SP(a,b){a.splice(0,b)}
+var HH=[RV,SP];
+NT=function(a){a=a.split("");HH[0](a);HH[1](a,1);return a.join("")};
+function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert_eq!(
+            solver
+                .transform_throttling_parameter(player, "abcdef")
+                .expect("named helper aliases"),
+            "edcba"
+        );
+    }
+
+    #[test]
+    fn n_transform_supports_splice_swap_helper_family() {
+        let player = r#"
+var HH={Sw:function(a,b){a[0]=a.splice(b%a.length,1,a[0])[0]}};
+NT=function(a){a=a.split("");HH.Sw(a,2);return a.join("")};
+function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert_eq!(
+            solver
+                .transform_throttling_parameter(player, "abcdef")
+                .expect("splice swap"),
+            "cbadef"
+        );
+    }
+
+    #[test]
+    fn n_transform_rejects_member_alias_that_is_not_a_transform() {
+        let player = r#"
+var OPS={Bad:function(a){a.push("x")}};
+var HH=[OPS.Bad];
+NT=function(a){a=a.split("");HH[0](a);return a.join("")};
+function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert!(solver
+            .transform_throttling_parameter(player, "abcdef")
+            .is_err());
     }
 
     #[test]
