@@ -20,7 +20,10 @@ fn torrent_error(message: String) -> ApiError {
     let lower = message.to_ascii_lowercase();
     let status = if lower.contains("not found") || lower.contains("expired") {
         StatusCode::NOT_FOUND
-    } else if lower.contains("already active") || lower.contains("pause the torrent") {
+    } else if lower.contains("already active")
+        || lower.contains("pause the torrent")
+        || lower.contains("completed torrent")
+    {
         StatusCode::CONFLICT
     } else {
         StatusCode::UNPROCESSABLE_ENTITY
@@ -137,6 +140,10 @@ mod tests {
         );
         assert_eq!(
             torrent_error("Torrent task is already active".to_owned()).0,
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            torrent_error("Completed torrent file priorities cannot be changed".to_owned()).0,
             StatusCode::CONFLICT
         );
         assert_eq!(

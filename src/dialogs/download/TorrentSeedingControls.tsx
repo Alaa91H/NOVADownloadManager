@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 
 import { novaClient, type TorrentTaskDetails } from '../../api/novaClient';
 import { formatBytes } from '../../initialData';
@@ -17,7 +17,7 @@ export const TorrentSeedingControls: React.FC<TorrentSeedingControlsProps> = ({ 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const applyDetails = (next: TorrentTaskDetails) => {
+  const applyDetails = useCallback((next: TorrentTaskDetails) => {
     setDetails(next);
     setEnabled(next.seedingEnabled);
     setRatioLimit(next.seedRatioLimit == null ? '' : String(next.seedRatioLimit));
@@ -26,7 +26,7 @@ export const TorrentSeedingControls: React.FC<TorrentSeedingControlsProps> = ({ 
         ? ''
         : String(Math.round((next.seedTimeLimitSeconds / 60) * 100) / 100),
     );
-  };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,7 +48,7 @@ export const TorrentSeedingControls: React.FC<TorrentSeedingControlsProps> = ({ 
     return () => {
       cancelled = true;
     };
-  }, [taskId]);
+  }, [applyDetails, taskId]);
 
   const save = async () => {
     if (saving) return;

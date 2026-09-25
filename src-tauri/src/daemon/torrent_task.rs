@@ -523,8 +523,16 @@ pub async fn update_torrent_file_priorities(
     let (job, storage_slot) = {
         let jobs = lock_or_err!(state.torrent_jobs);
         let job = jobs.get(id).ok_or_else(|| "Torrent task not found".to_owned())?;
-        if TaskState::from_status(&job.task.status).is_some_and(TaskState::is_active) {
+        let current = TaskState::from_status(&job.task.status)
+            .ok_or_else(|| format!("Torrent task has unknown state '{}'", job.task.status))?;
+        if current.is_active() {
             return Err("Pause the torrent before changing file priorities".to_owned());
+        }
+        if current == TaskState::Completed {
+            return Err(
+                "Completed torrent file priorities cannot be changed; use redownload instead"
+                    .to_owned(),
+            );
         }
         (job.clone(), job.storage.clone())
     };
