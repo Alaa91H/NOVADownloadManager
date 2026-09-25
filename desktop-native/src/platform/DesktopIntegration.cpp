@@ -719,6 +719,13 @@ void DesktopIntegration::watchScreen(QScreen *screen) {
     );
     connect(
         screen,
+        &QScreen::virtualGeometryChanged,
+        this,
+        &DesktopIntegration::displayMetricsChanged,
+        Qt::UniqueConnection
+    );
+    connect(
+        screen,
         &QScreen::logicalDotsPerInchChanged,
         this,
         &DesktopIntegration::displayMetricsChanged,
