@@ -1,12 +1,14 @@
 /* src/dialogs/tasks/TaskPropertiesDialog.tsx */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { HardDrive } from 'lucide-react';
 import { useDialogData, useDialogActions, useTaskActions, useToastActions, useI18n } from '../../store/selectors';
 import { tauriClient } from '../../api/tauriClient';
+import { novaClient, type TorrentFilePriority, type TorrentTaskDetails } from '../../api/novaClient';
 import { TextField, SelectField, Checkbox, DialogButton, Button } from '../../components/primitives';
 import type { FileType, DownloadItem } from '../../types/desktop-ui.types';
 import { formatBytes } from '../../initialData';
 import { useEngineCapabilities } from '../../capabilities/EngineCapabilityContext';
+import { isTaskActiveStatus } from '../../utils/taskStatus';
 
 export const TaskPropertiesDialog: React.FC = () => {
   const dialog = useDialogData();
@@ -34,6 +36,10 @@ export const TaskPropertiesDialog: React.FC = () => {
         </DialogButton>
       </div>
     );
+  }
+
+  if (task.engine === 'native-torrent') {
+    return <TorrentTaskProperties task={task} onClose={closeDialog} />;
   }
 
   const handlePickDirectory = async () => {
@@ -72,6 +78,7 @@ export const TaskPropertiesDialog: React.FC = () => {
     { value: 'compressed', label: t('compressed') },
     { value: 'video', label: t('videos') },
     { value: 'audio', label: t('audio') },
+    { value: 'torrent', label: 'Torrent' },
     { value: 'other', label: t('others') },
   ];
 
@@ -217,3 +224,197 @@ export const TaskPropertiesDialog: React.FC = () => {
     </div>
   );
 };
+
+const TorrentTaskProperties: React.FC<{ task: DownloadItem; onClose: () => void }> = ({ task, onClose }) => {
+  const { addToast } = useToastActions();
+  const { setTasksWith } = useTaskActions();
+  const [details, setDetails] = useState<TorrentTaskDetails | null>(null);
+  const [priorities, setPriorities] = useState<TorrentFilePriority[]>([]);
+  const [reauthMagnet, setReauthMagnet] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    void novaClient
+      .torrentDetails(task.id)
+      .then((result) => {
+        if (cancelled) return;
+        setDetails(result);
+        setPriorities(result.files.map((file) => file.priority));
+        setError('');
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : 'Could not read torrent details.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [task.id]);
+
+  const updateTask = (next: DownloadItem) => {
+    setTasksWith((previous) => previous.map((item) => (item.id === next.id ? next : item)));
+  };
+
+  const savePriorities = async () => {
+    if (!details || saving) return;
+    if (priorities.every((priority) => priority === 'skip')) {
+      addToast('error', 'Torrent selection', 'At least one torrent file must remain selected.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const next = await novaClient.updateTorrentFiles(task.id, priorities);
+      setDetails(next);
+      setPriorities(next.files.map((file) => file.priority));
+      updateTask(next.task);
+      addToast('success', 'Torrent files', 'Torrent file priorities were updated.');
+    } catch (reason) {
+      addToast('error', 'Torrent files', reason instanceof Error ? reason.message : 'Could not update file priorities.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const reauthorize = async () => {
+    if (!reauthMagnet.trim() || saving) return;
+    setSaving(true);
+    try {
+      const next = await novaClient.reauthorizeTorrent(task.id, reauthMagnet.trim());
+      updateTask(next);
+      const refreshed = await novaClient.torrentDetails(task.id);
+      setDetails(refreshed);
+      setReauthMagnet('');
+      addToast('success', 'Torrent authorization', 'The torrent source was re-authorized for this session.');
+    } catch (reason) {
+      addToast(
+        'error',
+        'Torrent authorization',
+        reason instanceof Error ? reason.message : 'Could not re-authorize this torrent.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const active = isTaskActiveStatus(task.status);
+
+  return (
+    <div className="space-y-4">
+      {loading && <div className="text-xs text-[var(--text-secondary)]">Loading torrent state…</div>}
+      {error && (
+        <div className="rounded-lg border border-[var(--danger-border)] bg-[var(--danger-bg)] p-3 text-xs text-[var(--danger)]">
+          {error}
+        </div>
+      )}
+
+      {details && (
+        <>
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+            <TorrentMetric label="Verified pieces" value={`${String(details.verifiedPieces)}/${String(details.pieceCount)}`} />
+            <TorrentMetric label="Downloaded" value={formatBytes(details.selectedCompletedBytes)} />
+            <TorrentMetric label="Peer candidates" value={String(details.candidatePeerCount)} />
+            <TorrentMetric
+              label="Discovery"
+              value={`T ${String(details.trackerPeerCount)} · D ${String(details.dhtPeerCount)} · P ${String(details.pexPeerCount)}`}
+            />
+          </div>
+
+          <div className="space-y-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-hover)]/20 p-3 text-[10px]">
+            <div className="text-[var(--text-muted)]">Info hash</div>
+            <div className="break-all font-mono text-[var(--text-primary)]">{details.infoHash}</div>
+            <div className="mt-2 text-[var(--text-muted)]">Destination root</div>
+            <div className="break-all font-mono text-[var(--text-primary)]">{task.savePath}</div>
+            {details.private && <div className="mt-2 font-semibold text-[var(--warning)]">Private torrent</div>}
+          </div>
+
+          {details.requiresReauth && (
+            <div className="space-y-2 rounded-lg border border-[var(--warning-border)] bg-[var(--warning-bg)] p-3">
+              <div className="text-xs font-semibold text-[var(--warning)]">Tracker authorization required</div>
+              <p className="text-[10px] text-[var(--text-secondary)]">
+                NOVA intentionally did not persist credential-bearing tracker parameters. Paste the original magnet to
+                authorize this session again.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  value={reauthMagnet}
+                  onChange={(event) => setReauthMagnet(event.target.value)}
+                  placeholder="magnet:?xt=urn:btih:…"
+                  className="min-w-0 flex-1 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 font-mono text-[10px] text-[var(--text-primary)]"
+                />
+                <Button onClick={() => void reauthorize()} variant="secondary" size="sm" disabled={saving}>
+                  Re-authorize
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <div className="overflow-hidden rounded-lg border border-[var(--border-color)]">
+            <div className="border-b border-[var(--border-color)] bg-[var(--bg-hover)]/30 px-3 py-2 text-xs font-semibold">
+              Torrent files
+            </div>
+            <div className="max-h-64 overflow-auto">
+              {details.files.map((file, index) => (
+                <div
+                  key={file.index}
+                  className="grid grid-cols-[1fr_90px_100px] items-center gap-2 border-b border-[var(--border-color)]/60 px-3 py-2 last:border-b-0"
+                >
+                  <div className="truncate text-[11px]" title={file.path}>
+                    {file.path}
+                  </div>
+                  <div className="text-right font-mono text-[10px] text-[var(--text-muted)]">
+                    {formatBytes(file.length)}
+                  </div>
+                  <select
+                    value={priorities[index] || file.priority}
+                    disabled={active || saving}
+                    onChange={(event) => {
+                      const next = priorities.slice();
+                      next[index] = event.target.value as TorrentFilePriority;
+                      setPriorities(next);
+                    }}
+                    className="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-1 text-[10px]"
+                  >
+                    <option value="high">High</option>
+                    <option value="normal">Normal</option>
+                    <option value="skip">Skip</option>
+                  </select>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {active && (
+            <div className="text-[10px] text-[var(--warning)]">
+              Pause the torrent before changing file selection or priority.
+            </div>
+          )}
+        </>
+      )}
+
+      <div className="flex justify-end gap-2 border-t border-[var(--border-color)] pt-4">
+        {details && !active && (
+          <DialogButton onClick={() => void savePriorities()} variant="primary" disabled={saving}>
+            Save file priorities
+          </DialogButton>
+        )}
+        <DialogButton onClick={onClose} variant="ghost">
+          Close
+        </DialogButton>
+      </div>
+    </div>
+  );
+};
+
+const TorrentMetric: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <div className="rounded border border-[var(--border-color)] bg-[var(--bg-hover)]/20 p-2">
+    <div className="text-[9px] uppercase tracking-wide text-[var(--text-muted)]">{label}</div>
+    <div className="mt-1 text-[11px] font-semibold text-[var(--text-primary)]">{value}</div>
+  </div>
+);
+

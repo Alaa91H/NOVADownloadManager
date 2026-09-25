@@ -21,6 +21,7 @@ import {
   isTaskReceivingBytes,
   isTaskResumableStatus,
 } from '../../utils/taskStatus';
+import { TorrentSeedingControls } from './TorrentSeedingControls';
 import {
   TaskProgressBar,
   ProgressLegend,
@@ -311,6 +312,8 @@ export const ActiveProgressDialog: React.FC<{ taskId?: string }> = ({ taskId }) 
       className="space-y-2 font-sans text-xs text-[var(--text-primary)] select-none pb-1"
       style={{ direction: 'ltr' }}
     >
+      {task.engine === 'native-torrent' ? <TorrentSeedingControls taskId={task.id} /> : null}
+
       {/* Segmented Progress Bar */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">

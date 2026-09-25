@@ -9,6 +9,9 @@ import { taskProgressInfo } from '../utils/progressUtils';
 const AddDownloadDialog = lazy(() =>
   import('./download/AddDownloadDialog').then((m) => ({ default: m.AddDownloadDialog })),
 );
+const TorrentDownloadDialog = lazy(() =>
+  import('./download/TorrentDownloadDialog').then((m) => ({ default: m.TorrentDownloadDialog })),
+);
 const DiagnosticsDialog = lazy(() =>
   import('./diagnostics/DiagnosticsDialog').then((m) => ({ default: m.DiagnosticsDialog })),
 );
@@ -58,6 +61,11 @@ export default function DialogRoot() {
       title = t('action_add');
       size = 'lg';
       childComponent = <AddDownloadDialog />;
+      break;
+    case 'torrentDownload':
+      title = 'Torrent Download';
+      size = 'xl';
+      childComponent = <TorrentDownloadDialog />;
       break;
     case 'diagnostics':
       title = t('nav_diagnostics');

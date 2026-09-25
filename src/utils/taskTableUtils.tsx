@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sliders, FileText, Cpu, Film, Music, HelpCircle } from 'lucide-react';
+import { Sliders, FileText, Cpu, Film, Music, HelpCircle, Magnet } from 'lucide-react';
 import type { FileType } from '../types/desktop-ui.types';
 
 export type SortColumn =
@@ -48,6 +48,8 @@ export const getFileTypeIcon = (type: FileType, customSize?: string) => {
       return <Music className={`${size} text-[var(--accent-primary)] shrink-0`} />;
     case 'document':
       return <FileText className={`${size} text-[var(--danger)] shrink-0`} />;
+    case 'torrent':
+      return <Magnet className={`${size} text-[var(--accent-primary)] shrink-0`} />;
     default:
       return <HelpCircle className={`${size} text-[var(--text-secondary)] shrink-0`} />;
   }

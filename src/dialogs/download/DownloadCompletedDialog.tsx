@@ -12,6 +12,7 @@ import {
   useTaskData,
 } from '../../store/selectors';
 import { Button, DialogButton } from '../../components/primitives';
+import { TorrentSeedingControls } from './TorrentSeedingControls';
 
 /**
  * An explicit, actionable completion surface.  It intentionally owns only the
@@ -86,6 +87,8 @@ export const DownloadCompletedDialog: React.FC = () => {
           ) : null}
         </div>
       </div>
+
+      {task.engine === 'native-torrent' ? <TorrentSeedingControls taskId={task.id} /> : null}
 
       <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-hover)]/30 px-3 py-2.5 text-xs text-[var(--text-primary)]">
         <input
