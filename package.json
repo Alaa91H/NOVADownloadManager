@@ -1,7 +1,7 @@
 {
   "name": "nova",
   "private": true,
-  "version": "2.4.48-alpha",
+  "version": "2.4.49-alpha",
   "description": "NOVA Download Manager native Qt desktop application with Rust download engine and browser companion.",
   "type": "module",
   "engines": {
