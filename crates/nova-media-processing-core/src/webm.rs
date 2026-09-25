@@ -126,6 +126,7 @@ pub struct WebmDemuxer {
     file: File,
     probe: MediaProbe,
     packets: Vec<PacketLocator>,
+    packet_time_bases: BTreeMap<u32, MediaTimeBase>,
     cursor: usize,
 }
 
@@ -138,10 +139,16 @@ impl WebmDemuxer {
         }
 
         let (probe, packets) = scan_webm(&mut file, file_len)?;
+        let packet_time_bases = probe
+            .tracks
+            .iter()
+            .map(|track| (track.id, track.time_base))
+            .collect();
         Ok(Self {
             file,
             probe,
             packets,
+            packet_time_bases,
             cursor: 0,
         })
     }
@@ -164,6 +171,12 @@ impl WebmDemuxer {
             .iter()
             .map(prepare_webm_track_for_mp4)
             .collect::<Result<Vec<_>, _>>()?;
+        demuxer.packet_time_bases = demuxer
+            .probe
+            .tracks
+            .iter()
+            .map(|track| (track.id, track.time_base))
+            .collect();
         Ok(demuxer)
     }
 }
@@ -193,18 +206,29 @@ impl MediaDemuxer for WebmDemuxer {
             .and_then(|_| self.file.read_exact(&mut data))
             .map_err(io_error)?;
 
+        let time_base = self
+            .packet_time_bases
+            .get(&locator.track_id)
+            .copied()
+            .unwrap_or(NANOSECOND_TIME_BASE);
         let timestamp = MediaTimestamp {
-            value: locator.pts_ns,
-            time_base: NANOSECOND_TIME_BASE,
+            value: rescale_nanoseconds(locator.pts_ns, time_base)?,
+            time_base,
         };
+        let duration = locator
+            .duration_ns
+            .map(|value| {
+                Ok(MediaTimestamp {
+                    value: rescale_nanoseconds(value, time_base)?,
+                    time_base,
+                })
+            })
+            .transpose()?;
         Ok(Some(MediaPacket {
             track_id: locator.track_id,
             pts: Some(timestamp),
             dts: Some(timestamp),
-            duration: locator.duration_ns.map(|value| MediaTimestamp {
-                value,
-                time_base: NANOSECOND_TIME_BASE,
-            }),
+            duration,
             flags: MediaPacketFlags {
                 keyframe: locator.keyframe,
                 discontinuity: false,
@@ -969,6 +993,10 @@ pub fn prepare_webm_track_for_mp4(
             if let Some(audio) = converted.audio.as_mut() {
                 audio.sample_rate_hz = 48_000;
             }
+            converted.time_base = MediaTimeBase {
+                numerator: 1,
+                denominator: 48_000,
+            };
             opus_head_to_dops(&track.codec_private, converted.audio.as_ref())?
         }
         MediaCodec::Mp3 => Vec::new(),
@@ -1415,6 +1443,35 @@ fn read_exact_cursor(
     Ok(())
 }
 
+fn rescale_nanoseconds(
+    value: i64,
+    target: MediaTimeBase,
+) -> Result<i64, MediaProcessingError> {
+    if target.numerator != 1 || target.denominator == 0 {
+        return Err(demux_error("WebM packet target time base must be 1/timescale"));
+    }
+    if target == NANOSECOND_TIME_BASE {
+        return Ok(value);
+    }
+
+    let scaled = i128::from(value)
+        .checked_mul(i128::from(target.denominator))
+        .ok_or_else(|| demux_error("WebM timestamp rescale overflow"))?;
+    let divisor = 1_000_000_000_i128;
+    let rounded = if scaled >= 0 {
+        scaled
+            .checked_add(divisor / 2)
+            .ok_or_else(|| demux_error("WebM timestamp rounding overflow"))?
+            / divisor
+    } else {
+        scaled
+            .checked_sub(divisor / 2)
+            .ok_or_else(|| demux_error("WebM timestamp rounding overflow"))?
+            / divisor
+    };
+    i64::try_from(rounded).map_err(|_| demux_error("WebM rescaled timestamp exceeds i64"))
+}
+
 fn scale_signed_units(value: i64, scale_ns: u64) -> Result<i64, MediaProcessingError> {
     let scale = i64::try_from(scale_ns)
         .map_err(|_| demux_error("WebM TimecodeScale exceeds i64"))?;
@@ -1669,6 +1726,7 @@ mod tests {
             converted.audio.expect("audio").sample_rate_hz,
             48_000
         );
+        assert_eq!(converted.time_base.denominator, 48_000);
     }
 
     #[test]

@@ -9,7 +9,7 @@ use crate::{
     MediaTrackKind, MediaTimestamp,
 };
 
-const MOVIE_TIMESCALE: u32 = 1000;
+const MOVIE_TIMESCALE: u32 = 48_000;
 const MAX_SAMPLES_PER_TRACK: usize = 10_000_000;
 const MAX_TRACKS: usize = 64;
 
@@ -420,13 +420,17 @@ fn validate_audio_track(track: &MediaTrack) -> Result<(), MediaProcessingError> 
     }
 
     match &track.codec {
-        MediaCodec::Aac | MediaCodec::Opus => {
+        MediaCodec::Aac => {
             if track.codec_private.is_empty() {
-                return Err(mux_error(format!(
-                    "{} audio track is missing codec configuration",
-                    codec_name(&track.codec)
-                )));
+                return Err(mux_error("aac audio track is missing codec configuration"));
             }
+            Ok(())
+        }
+        MediaCodec::Opus => {
+            if track.codec_private.is_empty() {
+                return Err(mux_error("opus audio track is missing codec configuration"));
+            }
+            let _ = opus_pre_skip_media_units(track)?;
             Ok(())
         }
         MediaCodec::Mp3 => Ok(()),
@@ -534,8 +538,34 @@ fn make_mvhd(duration: u64, next_track_id: u32) -> Result<Vec<u8>, MediaProcessi
 
 fn make_trak(track: &OutputTrack) -> Result<Vec<u8>, MediaProcessingError> {
     let duration_movie = track_duration_movie_timescale(track)?;
-    let payload = [make_tkhd(track, duration_movie)?, make_mdia(track)?].concat();
-    Ok(make_box(*b"trak", payload))
+    let mut boxes = vec![make_tkhd(track, duration_movie)?];
+    if let Some(edts) = make_opus_edts(track)? {
+        boxes.push(edts);
+    }
+    boxes.push(make_mdia(track)?);
+    Ok(make_box(*b"trak", boxes.concat()))
+}
+
+fn make_opus_edts(track: &OutputTrack) -> Result<Option<Vec<u8>>, MediaProcessingError> {
+    let Some(pre_skip) = opus_pre_skip_media_units(&track.track)? else {
+        return Ok(None);
+    };
+    let media_duration = track_duration_media_timescale(track)?;
+    if pre_skip > media_duration {
+        return Err(mux_error("Opus pre-skip exceeds encoded media duration"));
+    }
+
+    let segment_duration = track_duration_movie_timescale(track)?;
+    let media_time =
+        i64::try_from(pre_skip).map_err(|_| mux_error("Opus pre-skip exceeds i64"))?;
+
+    let mut body = 1_u32.to_be_bytes().to_vec(); // entry_count
+    body.extend_from_slice(&segment_duration.to_be_bytes());
+    body.extend_from_slice(&media_time.to_be_bytes());
+    body.extend_from_slice(&1_i16.to_be_bytes()); // media_rate_integer
+    body.extend_from_slice(&0_i16.to_be_bytes()); // media_rate_fraction
+    let elst = make_full_box(*b"elst", 1, 0, body);
+    Ok(Some(make_box(*b"edts", elst)))
 }
 
 fn make_tkhd(
@@ -866,11 +896,42 @@ fn track_duration_media_timescale(track: &OutputTrack) -> Result<u64, MediaProce
 
 fn track_duration_movie_timescale(track: &OutputTrack) -> Result<u64, MediaProcessingError> {
     let media_duration = track_duration_media_timescale(track)?;
+    let presentation_duration = match opus_pre_skip_media_units(&track.track)? {
+        Some(pre_skip) => media_duration
+            .checked_sub(pre_skip)
+            .ok_or_else(|| mux_error("Opus pre-skip exceeds encoded media duration"))?,
+        None => media_duration,
+    };
     let timescale = u64::from(track.track.time_base.denominator);
-    media_duration
+    presentation_duration
         .checked_mul(u64::from(MOVIE_TIMESCALE))
         .map(|value| value / timescale)
         .ok_or_else(|| mux_error("MP4 movie duration overflow"))
+}
+
+fn opus_pre_skip_media_units(track: &MediaTrack) -> Result<Option<u64>, MediaProcessingError> {
+    if track.codec != MediaCodec::Opus {
+        return Ok(None);
+    }
+    if track.codec_private.len() < 11 || track.codec_private[0] != 0 {
+        return Err(mux_error("invalid Opus dOps decoder configuration"));
+    }
+
+    let pre_skip = u64::from(u16::from_be_bytes([
+        track.codec_private[2],
+        track.codec_private[3],
+    ]));
+    let timescale = u64::from(track.time_base.denominator);
+    let scaled = pre_skip
+        .checked_mul(timescale)
+        .ok_or_else(|| mux_error("Opus pre-skip timescale conversion overflow"))?;
+    if scaled % 48_000 != 0 {
+        return Err(MediaProcessingError::UnsupportedOperation(
+            "Opus MP4 remux requires a media timescale that represents 48 kHz pre-skip exactly"
+                .to_owned(),
+        ));
+    }
+    Ok(Some(scaled / 48_000))
 }
 
 fn compress_u32_runs<I>(values: I) -> Vec<(u32, u32)>
@@ -1062,6 +1123,55 @@ mod tests {
             },
             data: data.to_vec(),
         }
+    }
+
+    #[test]
+    fn opus_output_writes_edit_list_for_preskip() {
+        let path = temp_path("opus-edts");
+        let track = MediaTrack {
+            id: 1,
+            kind: MediaTrackKind::Audio,
+            codec: MediaCodec::Opus,
+            time_base: MediaTimeBase::new(1, 48_000).expect("time base"),
+            language: None,
+            video: None,
+            audio: Some(AudioParameters {
+                sample_rate_hz: 48_000,
+                channels: 2,
+                bitrate_bps: None,
+            }),
+            codec_private: vec![
+                0, 2, 0x01, 0x38, 0x00, 0x00, 0xbb, 0x80, 0x00, 0x00, 0,
+            ],
+        };
+
+        let mut muxer = Mp4Muxer::create(&path).expect("muxer");
+        let output_track = muxer.add_track(&track).expect("track");
+        muxer
+            .write_packet(&packet(
+                output_track,
+                track.time_base,
+                0,
+                960,
+                b"OPUS-A",
+            ))
+            .expect("packet 1");
+        muxer
+            .write_packet(&packet(
+                output_track,
+                track.time_base,
+                960,
+                960,
+                b"OPUS-B",
+            ))
+            .expect("packet 2");
+        muxer.finalize().expect("finalize");
+
+        let bytes = fs::read(&path).expect("read MP4");
+        assert!(bytes.windows(4).any(|window| window == b"edts"));
+        assert!(bytes.windows(4).any(|window| window == b"elst"));
+
+        let _ = fs::remove_file(path);
     }
 
     #[test]
