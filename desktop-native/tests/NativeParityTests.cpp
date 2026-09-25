@@ -339,6 +339,10 @@ void NativeParityTests::legacyLocalizationCatalogCoversFullLanguageSet() {
         i18n.translate(QStringLiteral("nav.downloads")),
         QStringLiteral("Tous les téléchargements")
     );
+    QCOMPARE(
+        i18n.translate(QStringLiteral("add.queue")),
+        QStringLiteral("Ajouter à la file d'attente")
+    );
     QVERIFY(
         i18n.translate(QStringLiteral("settings.language"))
             != QStringLiteral("Language")
