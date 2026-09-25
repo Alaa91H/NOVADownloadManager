@@ -173,6 +173,30 @@ for (const file of walk(qmlRoot)) {
   }
 
   if (
+    relative.endsWith("/SettingsPage.qml") ||
+    relative.endsWith("/SettingsAdvancedPanel.qml")
+  ) {
+    if (!/Accessible\.role\s*:\s*Accessible\.AlertMessage\b/.test(source)) {
+      violations.push({
+        file: relative,
+        line: 1,
+        message: "settings notice surface must expose Accessible.AlertMessage",
+      });
+    }
+  }
+
+  if (relative.endsWith("/StatusBar.qml")) {
+    if (!/Accessible\.role\s*:\s*Accessible\.StatusBar\b/.test(source)
+        || !/Accessible\.name\s*:/.test(source)) {
+      violations.push({
+        file: relative,
+        line: 1,
+        message: "status bar must expose StatusBar semantics and a readable summary",
+      });
+    }
+  }
+
+  if (
     relative.endsWith("/ConfirmDeleteDialog.qml") ||
     relative.endsWith("/ConfirmRedownloadDialog.qml")
   ) {
