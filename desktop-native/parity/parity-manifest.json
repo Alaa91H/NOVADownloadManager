@@ -103,9 +103,7 @@
         "desktop-native/src/api/NovaApiClient.cpp",
         "desktop-native/tests/NativeParityTests.cpp",
         "src-tauri/src/daemon/routes/engine.rs",
-        "src-tauri/src/daemon/curl/task_api.rs",
-        "src/store/queueStore.ts",
-        "src/components/AppShell.tsx"
+        "src-tauri/src/daemon/curl/task_api.rs"
       ],
       "contains": [
         {
@@ -178,15 +176,6 @@
             "speedLimitKbs",
             "taskIds",
             "queueIds"
-          ]
-        },
-        {
-          "file": "src/store/queueStore.ts",
-          "allOf": [
-            "createQueueAndMoveTask",
-            "moveTaskToQueue",
-            "removeTaskFromQueue",
-            "reorderQueues"
           ]
         }
       ]
@@ -294,10 +283,7 @@
         "desktop-native/src/api/NovaApiClient.cpp",
         "desktop-native/src/platform/DesktopIntegration.cpp",
         "desktop-native/tests/NativeParityTests.cpp",
-        "src-tauri/src/daemon/routes/engine.rs",
-        "src/api/novaClient.ts",
-        "src/api/__tests__/novaClient.request.test.ts",
-        "src/components/AppShell.tsx"
+        "src-tauri/src/daemon/routes/engine.rs"
       ],
       "contains": [
         {
@@ -348,14 +334,6 @@
             "handle_queue_catalog_put",
             "normalize_queue_catalog",
             "nova-queue-catalog.json"
-          ]
-        },
-        {
-          "file": "src/components/AppShell.tsx",
-          "allOf": [
-            "syncQueueCatalog",
-            "useQueueData",
-            "QueueCatalog"
           ]
         },
         {
@@ -735,19 +713,11 @@
       "id": "columns-sorting",
       "label": "Column configuration and sorting",
       "status": "covered",
-      "legacyEvidence": [
-        "src/components/ColumnConfigPanel.tsx",
-        "src/hooks/useColumnState.ts",
-        "src/hooks/useTaskSortFilter.ts"
-      ],
       "evidence": [
         "desktop-native/qml/pages/DownloadsPage.qml",
         "desktop-native/src/models/DownloadListModel.cpp",
         "desktop-native/src/settings/NativeSettings.cpp",
-        "desktop-native/tests/NativeParityTests.cpp",
-        "src/components/TaskTable.tsx",
-        "src/hooks/useColumnState.ts",
-        "src/hooks/useTaskSortFilter.ts"
+        "desktop-native/tests/NativeParityTests.cpp"
       ],
       "contains": [
         {
@@ -882,9 +852,7 @@
         "desktop-native/src/platform/ClipboardMonitor.cpp",
         "desktop-native/src/settings/NativeSettings.cpp",
         "desktop-native/qml/Main.qml",
-        "desktop-native/qml/components/AddDownloadDialog.qml",
-        "src/utils/clipboard.ts",
-        "src/components/AppShell.tsx"
+        "desktop-native/qml/components/AddDownloadDialog.qml"
       ],
       "contains": [
         {
