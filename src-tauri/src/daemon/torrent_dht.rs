@@ -407,11 +407,11 @@ impl DhtService {
             return None;
         };
 
-        let remote_id = match query {
+        let remote_id = match &query {
             DhtQuery::Ping { id }
             | DhtQuery::FindNode { id, .. }
             | DhtQuery::GetPeers { id, .. }
-            | DhtQuery::AnnouncePeer { id, .. } => id,
+            | DhtQuery::AnnouncePeer { id, .. } => *id,
         };
         self.engine.record_node(nova_torrent_core::DhtNode {
             id: remote_id,
@@ -676,11 +676,27 @@ impl DhtEngine {
         config: DhtConfig,
         entries: Vec<DhtRoutingSnapshotEntry>,
     ) -> Self {
+        let allow_private_network = private_network_allowed();
+        let mut routing = DhtRoutingTable::new(node_id);
+        let cutoff = unix_now().saturating_sub(DHT_ROUTING_MAX_AGE_SECS);
+        let mut entries = entries
+            .into_iter()
+            .filter(|entry| entry.last_seen_unix >= cutoff)
+            .filter(|entry| {
+                entry.node.address.port() != 0
+                    && !is_unspecified_or_broadcast(entry.node.address.ip())
+                    && (allow_private_network || !is_internal_ip(entry.node.address.ip()))
+            })
+            .collect::<Vec<_>>();
+        entries.sort_by_key(|entry| entry.last_seen_unix);
+        for entry in entries {
+            routing.record_at(entry.node, entry.last_seen_unix);
+        }
         Self {
             node_id,
             config,
-            allow_private_network: private_network_allowed(),
-            routing: Arc::new(Mutex::new(DhtRoutingTable::restore(node_id, &entries))),
+            allow_private_network,
+            routing: Arc::new(Mutex::new(routing)),
         }
     }
 
@@ -1014,6 +1030,9 @@ impl DhtEngine {
         resolved.truncate(self.config.max_candidates.max(1));
 
         for bootstrap in &self.config.bootstrap {
+            if resolved.len() >= self.config.max_candidates.max(1) {
+                break;
+            }
             let lookup = tokio::select! {
                 _ = cancel.cancelled() => return Err("DHT bootstrap resolution cancelled".to_owned()),
                 result = timeout(self.config.bootstrap_timeout, lookup_host(bootstrap.as_str())) => {
@@ -1080,7 +1099,7 @@ fn load_dht_state(path: &Path) -> Option<PersistedDhtState> {
 fn node_id_hex(id: DhtNodeId) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut output = String::with_capacity(40);
-    for byte in id.as_bytes() {
+    for &byte in id.as_bytes() {
         output.push(HEX[(byte >> 4) as usize] as char);
         output.push(HEX[(byte & 0x0f) as usize] as char);
     }
@@ -1138,7 +1157,7 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     }
     left.iter()
         .zip(right)
-        .fold(0u8, |diff, (left, right)| diff | (left ^ right))
+        .fold(0u8, |diff, (left, right)| diff | (*left ^ *right))
         == 0
 }
 
@@ -1251,6 +1270,56 @@ mod tests {
             } => (peer, transaction_id, query),
             other => panic!("expected DHT query, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn dht_service_get_peers_token_allows_announce() {
+        let root = std::env::temp_dir().join(format!(
+            "nova-dht-service-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let service = DhtService::for_tests(id(9), root.join(DHT_STATE_FILE_NAME));
+        let state = std::sync::Arc::new(crate::daemon::persist::tests::test_state(
+            &root.display().to_string(),
+        ));
+        let source: SocketAddr = "8.8.8.8:50000".parse().unwrap();
+        let hash = InfoHash::new([0x44; 20]);
+
+        let request = DhtMessage::Query {
+            transaction_id: b"gp".to_vec(),
+            query: DhtQuery::GetPeers {
+                id: id(3),
+                info_hash: hash,
+            },
+        };
+        let response = service
+            .handle_packet(&state, source, &request.encode().unwrap())
+            .unwrap();
+        let token = match response {
+            DhtMessage::Response { response, .. } => response.token.unwrap(),
+            other => panic!("expected response, got {other:?}"),
+        };
+
+        let announce = DhtMessage::Query {
+            transaction_id: b"ap".to_vec(),
+            query: DhtQuery::AnnouncePeer {
+                id: id(3),
+                info_hash: hash,
+                port: 51413,
+                token,
+                implied_port: false,
+            },
+        };
+        assert!(matches!(
+            service.handle_packet(&state, source, &announce.encode().unwrap()),
+            Some(DhtMessage::Response { .. })
+        ));
+        assert_eq!(
+            service.peers_for(hash),
+            vec!["8.8.8.8:51413".parse::<SocketAddr>().unwrap()]
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
