@@ -29,6 +29,7 @@ private slots:
     void reconnectBackoffIsBounded();
     void legacyUiPreferencesMigrateOnce();
     void releaseLocalizationIsEnglishArabicOnly();
+    void shellCustomizationPersists();
     void batchPatternsMatchLegacySyntax();
     void batchImportCarriesAdvancedOptions();
     void batchImportHonorsRuntimeCapabilities();
@@ -342,6 +343,52 @@ void NativeParityTests::releaseLocalizationIsEnglishArabicOnly() {
     QCOMPARE(i18n.language(), QStringLiteral("en"));
     QCOMPARE(i18n.translate(QStringLiteral("settings.language")), QStringLiteral("Language"));
 }
+
+void NativeParityTests::shellCustomizationPersists() {
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    const QByteArray previousDataDir = qgetenv("NOVA_NATIVE_DATA_DIR");
+    qputenv("NOVA_NATIVE_DATA_DIR", temp.path().toUtf8());
+
+    const QString settingsFile = temp.filePath(QStringLiteral("native-layout.ini"));
+    {
+        NativeSettings settings(settingsFile, nullptr);
+        QVERIFY(settings.sidebarVisible());
+        QVERIFY(settings.sidebarCollapsed());
+        QVERIFY(settings.detailsPanelVisible());
+        QVERIFY(settings.statusBarVisible());
+        QCOMPARE(settings.interfaceDensity(), QStringLiteral("comfortable"));
+        QCOMPARE(settings.accentColor(), QStringLiteral("#168df7"));
+        QCOMPARE(settings.cornerRadius(), 10);
+
+        settings.setSidebarVisible(false);
+        settings.setSidebarCollapsed(false);
+        settings.setDetailsPanelVisible(false);
+        settings.setStatusBarVisible(false);
+        settings.setInterfaceDensity(QStringLiteral("dense"));
+        settings.setAccentColor(QStringLiteral("#7c5cff"));
+        settings.setCornerRadius(14);
+    }
+
+    {
+        NativeSettings settings(settingsFile, nullptr);
+        QVERIFY(!settings.sidebarVisible());
+        QVERIFY(!settings.sidebarCollapsed());
+        QVERIFY(!settings.detailsPanelVisible());
+        QVERIFY(!settings.statusBarVisible());
+        QCOMPARE(settings.interfaceDensity(), QStringLiteral("dense"));
+        QCOMPARE(settings.accentColor(), QStringLiteral("#7c5cff"));
+        QCOMPARE(settings.cornerRadius(), 14);
+    }
+
+    if (previousDataDir.isEmpty()) {
+        qunsetenv("NOVA_NATIVE_DATA_DIR");
+    } else {
+        qputenv("NOVA_NATIVE_DATA_DIR", previousDataDir);
+    }
+}
+
 
 void NativeParityTests::batchPatternsMatchLegacySyntax() {
     {
