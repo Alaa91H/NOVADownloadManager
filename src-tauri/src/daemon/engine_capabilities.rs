@@ -2034,6 +2034,7 @@ pub fn native_torrent_status() -> Value {
             "dhtStableNodeId": true,
             "dhtSharedSocketTransport": true,
             "dhtPersistentRoutingTable": true,
+            "dhtPeriodicAnnounce": true,
             "pex": true,
             "pexReceive": true,
             "pexServe": true,
@@ -2168,6 +2169,7 @@ mod tests {
         assert_eq!(status["capabilities"]["dhtStableNodeId"], true);
         assert_eq!(status["capabilities"]["dhtSharedSocketTransport"], true);
         assert_eq!(status["capabilities"]["dhtPersistentRoutingTable"], true);
+        assert_eq!(status["capabilities"]["dhtPeriodicAnnounce"], true);
         assert_eq!(status["capabilities"]["metadataServe"], true);
         assert_eq!(status["capabilities"]["metadataServeExactInfoBytes"], true);
         assert_eq!(status["capabilities"]["metadataServePersistentSidecar"], true);

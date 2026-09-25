@@ -1157,6 +1157,22 @@ fn start_torrent_seed_services(
         .await;
     });
 
+    {
+        let dht_state = state.clone();
+        let dht_id = id.to_owned();
+        let dht_storage = storage.clone();
+        let dht_cancel = job.seed_cancel_token.clone();
+        tokio::spawn(async move {
+            crate::daemon::torrent_dht::run_dht_announce_lifecycle(
+                dht_state,
+                dht_id,
+                dht_storage,
+                dht_cancel,
+            )
+            .await;
+        });
+    }
+
     let watch_state = state.clone();
     let watch_id = id.to_owned();
     let watch_control = job.seeding.clone();

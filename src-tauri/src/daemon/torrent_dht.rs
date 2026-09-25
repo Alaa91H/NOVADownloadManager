@@ -29,6 +29,8 @@ const MAX_DHT_STATE_BYTES: u64 = 2 * 1024 * 1024;
 const DHT_TOKEN_ROTATE_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const DHT_PEER_TTL: Duration = Duration::from_secs(30 * 60);
 const DHT_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(60);
+const DHT_ANNOUNCE_REFRESH_INTERVAL: Duration = Duration::from_secs(15 * 60);
+const DHT_ANNOUNCE_RETRY_INTERVAL: Duration = Duration::from_secs(60);
 const MAX_STORED_INFO_HASHES: usize = 1_024;
 const MAX_STORED_PEERS_PER_HASH: usize = 128;
 const MAX_RESPONSE_PEERS: usize = 16;
@@ -714,6 +716,126 @@ impl DhtService {
             tokens: Arc::new(Mutex::new(DhtTokenState::new())),
             state_path: Arc::new(state_path),
         }
+    }
+}
+
+pub async fn run_dht_announce_lifecycle(
+    state: SharedState,
+    task_id: String,
+    storage: crate::daemon::torrent_storage::TorrentStorageSession,
+    cancel: CancellationToken,
+) {
+    let plan = match storage.transfer_plan().await {
+        Ok(plan) => plan,
+        Err(error) => {
+            log::debug!(
+                "Torrent DHT lifecycle {task_id}: storage plan unavailable: {error}"
+            );
+            return;
+        }
+    };
+    if plan.metainfo.private {
+        return;
+    }
+    let info_hash = plan.metainfo.info_hash;
+
+    loop {
+        if cancel.is_cancelled() {
+            break;
+        }
+
+        let Some(peer_port) = crate::daemon::torrent_seed::active_seed_port() else {
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                _ = tokio::time::sleep(DHT_ANNOUNCE_RETRY_INTERVAL) => {}
+            }
+            continue;
+        };
+        if active_dht_port().is_none() {
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                _ = tokio::time::sleep(DHT_ANNOUNCE_RETRY_INTERVAL) => {}
+            }
+            continue;
+        }
+
+        let engine = state.torrent_dht.engine();
+        let discovery = match engine.discover_peers(info_hash, &cancel).await {
+            Ok(discovery) => discovery,
+            Err(error) if cancel.is_cancelled() => break,
+            Err(error) => {
+                log::debug!("Torrent DHT lifecycle {task_id}: discovery failed: {error}");
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    _ = tokio::time::sleep(DHT_ANNOUNCE_RETRY_INTERVAL) => {}
+                }
+                continue;
+            }
+        };
+
+        merge_discovered_dht_peers(&state, &task_id, &discovery.peers);
+
+        let mut announces = JoinSet::new();
+        for target in discovery.announce_targets.into_iter().take(8) {
+            let engine = engine.clone();
+            let child = cancel.child_token();
+            announces.spawn(async move {
+                engine
+                    .announce_peer(&target, info_hash, peer_port, &child)
+                    .await
+            });
+        }
+        while let Some(result) = announces.join_next().await {
+            if cancel.is_cancelled() {
+                announces.abort_all();
+                break;
+            }
+            if let Ok(Err(error)) = result {
+                log::trace!("Torrent DHT announce failed: {error}");
+            }
+        }
+        if cancel.is_cancelled() {
+            break;
+        }
+
+        if let Err(error) = state.torrent_dht.save_state() {
+            log::debug!("Torrent DHT lifecycle {task_id}: routing persistence failed: {error}");
+        }
+
+        tokio::select! {
+            _ = cancel.cancelled() => break,
+            _ = tokio::time::sleep(DHT_ANNOUNCE_REFRESH_INTERVAL) => {}
+        }
+    }
+}
+
+fn merge_discovered_dht_peers(
+    state: &SharedState,
+    task_id: &str,
+    discovered: &[SocketAddr],
+) {
+    let mut jobs = lock_or_err!(state.torrent_jobs);
+    let Some(job) = jobs.get_mut(task_id) else {
+        return;
+    };
+    if job.private || job.requires_reauth {
+        return;
+    }
+
+    let mut seen = job.candidates.iter().copied().collect::<HashSet<_>>();
+    let mut added = 0usize;
+    for peer in discovered.iter().copied() {
+        if peer.port() == 0 || !state.torrent_dht.engine().address_allowed(peer) {
+            continue;
+        }
+        if seen.insert(peer) && job.candidates.len() < 2_048 {
+            job.candidates.push(peer);
+            added = added.saturating_add(1);
+        }
+    }
+    job.dht_peer_count = discovered.len().min(MAX_DHT_PEERS);
+    if added > 0 {
+        state.mark_dirty();
     }
 }
 

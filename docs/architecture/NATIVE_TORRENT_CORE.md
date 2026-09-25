@@ -284,6 +284,9 @@ Torrent routing is enabled only for capabilities that are connected end-to-end.
 Inbound upload/seeding, bandwidth policy, tracker lifecycle, persistent counters,
 ratio/time controls, BEP 9 metadata serving, public-torrent BEP 11 PEX
 serving, the long-lived IPv4 DHT server, rotating announce tokens, shared-socket
-KRPC transport, and persistent routing state now report supported. Dual-stack
-IPv6 DHT serving remains explicitly unadvertised until cross-platform listener
+KRPC transport, persistent routing state, and periodic public-torrent DHT
+re-announcing now report supported. The DHT announce lifecycle is tied to the
+same seed cancellation token as tracker/upload serving, so pause, removal,
+configured seed limits, and daemon shutdown stop DHT advertising as well.
+Dual-stack IPv6 DHT serving remains explicitly unadvertised until cross-platform listener
 binding is verified.
