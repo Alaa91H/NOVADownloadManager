@@ -262,6 +262,7 @@ Item {
                     model: api.schedulerRules
                     activeFocusOnTab: true
                     keyNavigationWraps: false
+                    Accessible.role: Accessible.List
                     Accessible.name: root.t("scheduler.automationRules")
                     onActiveFocusChanged: {
                         if (activeFocus && count > 0 && currentIndex < 0)
@@ -298,9 +299,15 @@ Item {
                             : api.activeSchedulerRuleIds.indexOf(modelData.id) >= 0
                                 ? Theme.accent
                                 : Theme.border
+                        Accessible.role: Accessible.ListItem
                         Accessible.name: modelData.name || root.t("scheduler.unnamedRule")
                         Accessible.description: root.triggerSummary(modelData.trigger)
                             + " · " + root.actionSummary(modelData.action)
+                        Accessible.focusable: true
+                        Accessible.focused: ruleList.activeFocus && ruleList.currentIndex === index
+                        Accessible.selectable: true
+                        Accessible.selected: ruleList.currentIndex === index
+                        Accessible.onPressAction: ruleList.currentIndex = index
 
                         RowLayout {
                             anchors.fill: parent
