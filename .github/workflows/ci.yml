@@ -162,6 +162,7 @@ jobs:
             src-tauri/src/daemon/native_torrent.rs \
             src-tauri/src/daemon/torrent_peer.rs \
             src-tauri/src/daemon/torrent_dht.rs \
+            src-tauri/src/daemon/torrent_telemetry.rs \
             src-tauri/src/daemon/torrent_magnet.rs \
             src-tauri/src/daemon/torrent_storage.rs \
             src-tauri/src/daemon/torrent_bandwidth.rs \
@@ -184,6 +185,7 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml daemon::torrent_seeding::tests -- --nocapture
           cargo test --manifest-path src-tauri/Cargo.toml daemon::torrent_tracker::tests -- --nocapture
           cargo test --manifest-path src-tauri/Cargo.toml daemon::torrent_dht::tests -- --nocapture
+          cargo test --manifest-path src-tauri/Cargo.toml daemon::torrent_telemetry::tests -- --nocapture
           cargo test --manifest-path src-tauri/Cargo.toml daemon::torrent_magnet::tests -- --nocapture
           cargo test --manifest-path src-tauri/Cargo.toml daemon::torrent_storage::tests -- --nocapture
           cargo test --manifest-path src-tauri/Cargo.toml daemon::torrent_bandwidth::tests -- --nocapture

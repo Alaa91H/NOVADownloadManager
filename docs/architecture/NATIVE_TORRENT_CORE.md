@@ -256,17 +256,55 @@ TCP seed listener has actually bound; private torrents do not advertise DHT in
 peer handshakes or use the DHT announce path. Peer-wire BEP 5 support advertises
 the DHT reserved bit and `PORT` only when the IPv4 DHT server is live.
 
-IPv6 KRPC parsing/discovery remains supported, but the long-lived inbound DHT
-listener is intentionally advertised as IPv4-only until a dual-stack binding
-strategy is verified across Windows, Linux, and macOS.
+IPv6 KRPC parsing/discovery remains supported, but Stage 10 intentionally
+advertised only the IPv4 listener while the cross-platform dual-stack lifecycle
+was still being hardened.
+
+### Stage 11 — dual-stack DHT and live swarm telemetry — complete
+
+The process-wide DHT runtime now owns independent long-lived IPv4 and IPv6 UDP
+sockets. IPv4 continues to prefer the configured BitTorrent DHT port. IPv6
+first attempts `NOVA_TORRENT_DHT_IPV6_PORT` (or the IPv4 DHT port when the
+variable is unset) and falls back to an OS-assigned IPv6 port when platform
+dual-stack binding rules prevent sharing that numeric port. Active ports are
+tracked separately and peer-wire `PORT` advertising chooses the port matching
+the connected peer's address family. IPv4-mapped IPv6 sources are canonicalized
+before routing/token policy is applied.
+
+Shared KRPC transport is family-aware: IPv4 destinations use the IPv4 listener
+and IPv6 destinations use the IPv6 listener, while both feed the same stable
+node ID, transaction demultiplexer, routing table, token rotation, peer store,
+and persistent state. If one socket worker exits, only that family is detached
+and marked inactive; the other DHT family continues serving. IPv6
+`announce_peer` for NOVA itself remains intentionally disabled because the
+inbound TCP seed listener is still IPv4-only; advertising an unreachable IPv6
+peer endpoint would be incorrect.
+
+Each torrent job now also owns an ephemeral bounded swarm telemetry store. It
+keeps at most 256 peer rows and 64 tracker rows and is never persisted. Outbound
+peer rows record connect state, BEP 10/BEP 5 support, successful piece bytes and
+failures; inbound rows record live upload sessions and uploaded bytes. Tracker
+rows record lifecycle event, state, returned peer count, seeder/leecher counts,
+announce interval and bounded error detail. Tracker telemetry strips userinfo,
+query, fragment and path before exposing an endpoint, preventing passkeys or
+tokens from reaching the API/UI.
+
+`TorrentTaskDetails` exposes the live peer/tracker rows, active IPv4/IPv6 DHT
+ports and routing-node count. The existing torrent seeding panel refreshes the
+snapshot every two seconds without overwriting policy fields being edited and
+renders bounded scrollable Peer and Tracker tables in both active-download and
+completed-download dialogs.
 
 ### Remaining advanced swarm work
 
-The native torrent download, inbound peer-service, and IPv4 DHT paths are
-operational. Remaining advanced swarm work is primarily:
+The native torrent download, seeding, dual-stack DHT node service and live
+swarm observability paths are operational. The main advanced networking work
+remaining is:
 
-- dual-stack long-lived IPv6 DHT serving;
-- additional torrent task telemetry such as per-peer and per-tracker live tables.
+- dual-stack inbound TCP peer/seeding listener and IPv6 DHT peer announcements;
+- deeper per-peer live state such as choke/interest, availability and rolling
+  transfer-rate samples when those metrics can be exposed without hot-path
+  contention.
 
 ## Quality gates
 
@@ -283,10 +321,11 @@ cargo fmt --check --manifest-path src-tauri/Cargo.toml
 Torrent routing is enabled only for capabilities that are connected end-to-end.
 Inbound upload/seeding, bandwidth policy, tracker lifecycle, persistent counters,
 ratio/time controls, BEP 9 metadata serving, public-torrent BEP 11 PEX
-serving, the long-lived IPv4 DHT server, rotating announce tokens, shared-socket
-KRPC transport, persistent routing state, and periodic public-torrent DHT
-re-announcing now report supported. The DHT announce lifecycle is tied to the
-same seed cancellation token as tracker/upload serving, so pause, removal,
-configured seed limits, and daemon shutdown stop DHT advertising as well.
-Dual-stack IPv6 DHT serving remains explicitly unadvertised until cross-platform listener
-binding is verified.
+serving, long-lived IPv4/IPv6 DHT node service, rotating announce tokens,
+family-aware shared-socket KRPC transport, persistent routing state, periodic
+public-torrent DHT re-announcing, and bounded live peer/tracker telemetry now
+report supported. The DHT announce lifecycle is tied to the same seed
+cancellation token as tracker/upload serving, so pause, removal, configured
+seed limits, and daemon shutdown stop DHT advertising as well. IPv6 DHT peer
+announcements remain explicitly false until the TCP seed listener itself is
+dual-stack.
