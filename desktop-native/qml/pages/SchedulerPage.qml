@@ -437,6 +437,7 @@ Item {
                 Layout.fillWidth: true
                 visible: actionType.currentIndex === 0 || actionType.currentIndex === 1
                 placeholderText: root.t("scheduler.taskIds")
+                Accessible.name: root.t("scheduler.taskIds")
                 LayoutMirroring.enabled: false
                 horizontalAlignment: Text.AlignLeft
             }
@@ -465,6 +466,7 @@ Item {
                 Layout.fillWidth: true
                 visible: actionType.currentIndex === 3
                 placeholderText: root.t("scheduler.notificationMessage")
+                Accessible.name: root.t("scheduler.notificationMessage")
             }
 
             Text {
