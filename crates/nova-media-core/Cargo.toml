@@ -12,6 +12,7 @@ rust-version = "1.81"
 cbc = { version = "0.1.2", features = ["std"] }
 aes = "0.8.4"
 nova-download-core = { path = "../nova-download-core" }
+nova-media-processing-core = { path = "../nova-media-processing-core" }
 nova-stream-core = { path = "../nova-stream-core" }
 mp4-track = "0.1.0"
 regex = "1"

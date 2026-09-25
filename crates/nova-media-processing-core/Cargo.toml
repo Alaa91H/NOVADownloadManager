@@ -1,0 +1,13 @@
+[package]
+name = "nova-media-processing-core"
+version = "0.1.0"
+description = "Native in-process media processing primitives for NOVA Download Manager"
+authors = ["NOVA"]
+license = "MIT"
+repository = "https://github.com/Alaa91H/NOVADownloadManager"
+edition = "2021"
+rust-version = "1.77"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
