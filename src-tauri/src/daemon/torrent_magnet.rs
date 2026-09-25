@@ -8,7 +8,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::native_torrent::TrackerTransport;
-use crate::daemon::torrent_dht::DhtEngine;
+use crate::daemon::torrent_dht::{DhtAnnounceTarget, DhtEngine};
 use crate::daemon::torrent_peer::{generate_peer_id, PeerEngine, PeerMetadataResult};
 
 #[derive(Clone, Debug)]
@@ -165,7 +165,7 @@ impl MagnetResolver {
             .discover_peers(magnet.info_hash, cancel)
             .await
             .map_err(|error| format!("DHT peer discovery failed: {error}"))?;
-        let dht_peers = bounded_unique(dht.peers, self.config.max_candidate_peers);
+        let dht_peers = bounded_unique(dht.peers.clone(), self.config.max_candidate_peers);
         if dht_peers.is_empty() {
             return Err("DHT discovery returned no peers for magnet metadata".to_owned());
         }
@@ -182,13 +182,22 @@ impl MagnetResolver {
             .await
             .map_err(|error| format!("DHT peers could not provide magnet metadata: {error}"))?;
 
-        Ok(build_resolution(
+        let resolution = build_resolution(
             metadata,
             local_peer_id,
             tracker_peers,
             dht_peers,
             true,
-        ))
+        );
+        if !resolution.metainfo.private {
+            self.announce_dht_targets(
+                &dht.announce_targets,
+                resolution.metainfo.info_hash,
+                cancel,
+            )
+            .await;
+        }
+        Ok(resolution)
     }
 
     /// Discover peers for metainfo that is already trusted locally (for
@@ -219,12 +228,18 @@ impl MagnetResolver {
             .await;
 
         let mut dht_peers = Vec::new();
+        let mut dht_announce_targets = Vec::new();
         let mut used_dht = false;
         if tracker_peers.is_empty() && !metainfo.private && self.config.enable_dht {
             if let Ok(discovery) = self.dht.discover_peers(metainfo.info_hash, cancel).await {
                 dht_peers = bounded_unique(discovery.peers, self.config.max_candidate_peers);
+                dht_announce_targets = discovery.announce_targets;
                 used_dht = !dht_peers.is_empty();
             }
+        }
+        if !metainfo.private {
+            self.announce_dht_targets(&dht_announce_targets, metainfo.info_hash, cancel)
+                .await;
         }
 
         Ok(MagnetResolution {
@@ -237,6 +252,34 @@ impl MagnetResolver {
             pex_peers: Vec::new(),
             used_dht,
         })
+    }
+
+    async fn announce_dht_targets(
+        &self,
+        targets: &[DhtAnnounceTarget],
+        info_hash: InfoHash,
+        cancel: &CancellationToken,
+    ) {
+        let Some(port) = crate::daemon::torrent_seed::active_seed_port() else {
+            return;
+        };
+        let mut tasks = JoinSet::new();
+        for target in targets.iter().take(8).cloned() {
+            let dht = self.dht.clone();
+            let child = cancel.child_token();
+            tasks.spawn(async move {
+                let _ = dht
+                    .announce_peer(&target, info_hash, port, &child)
+                    .await;
+            });
+        }
+        while let Some(joined) = tasks.join_next().await {
+            if cancel.is_cancelled() {
+                tasks.abort_all();
+                break;
+            }
+            let _ = joined;
+        }
     }
 
     async fn discover_tracker_peers(
