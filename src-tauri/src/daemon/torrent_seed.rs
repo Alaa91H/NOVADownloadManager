@@ -136,24 +136,34 @@ async fn serve_state_peer(
     let storage = ensure_storage_session(&job, job.storage.clone()).await?;
     job.active_seed_connections
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+    let session_cancel = CancellationToken::new();
+    let cancellation_bridge = {
+        let linked = session_cancel.clone();
+        let daemon_cancel = cancel.clone();
+        let task_cancel = job.cancel_token.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = daemon_cancel.cancelled() => linked.cancel(),
+                _ = task_cancel.cancelled() => linked.cancel(),
+            }
+        })
+    };
+
     let result = serve_inbound_seed_session_after_handshake(
         stream,
         remote,
         storage,
         job.local_peer_id,
         Some(job.upload_limiter.clone()),
+        Some(job.uploaded_bytes.clone()),
         SeedSessionConfig::default(),
-        cancel,
+        &session_cancel,
     )
     .await;
+    cancellation_bridge.abort();
     job.active_seed_connections
         .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-    if let Ok(stats) = result.as_ref() {
-        job.uploaded_bytes.fetch_add(
-            stats.uploaded_bytes,
-            std::sync::atomic::Ordering::Relaxed,
-        );
-    }
     result
 }
 
@@ -200,6 +210,7 @@ pub async fn serve_inbound_seed_session(
         storage,
         local_peer_id,
         None,
+        None,
         config,
         cancel,
     )
@@ -212,6 +223,7 @@ async fn serve_inbound_seed_session_after_handshake(
     storage: TorrentStorageSession,
     local_peer_id: [u8; 20],
     upload_limiter: Option<Arc<TorrentBandwidthLimiter>>,
+    uploaded_counter: Option<Arc<std::sync::atomic::AtomicU64>>,
     config: SeedSessionConfig,
     cancel: &CancellationToken,
 ) -> Result<SeedSessionStats, String> {
@@ -332,6 +344,12 @@ async fn serve_inbound_seed_session_after_handshake(
                     cancel,
                 )
                 .await?;
+                if let Some(counter) = uploaded_counter.as_ref() {
+                    counter.fetch_add(
+                        block_len,
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
+                }
                 stats.requests_served = stats.requests_served.saturating_add(1);
                 stats.uploaded_bytes = next_uploaded;
             }
