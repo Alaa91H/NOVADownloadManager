@@ -54,14 +54,20 @@ jobs:
           echo "Requested cancellation for $cancelled stale workflow run(s)."
           echo "cancelled=$cancelled" >> "$GITHUB_OUTPUT"
 
-      - name: Start one clean CI run on main
+      - name: Start clean validation workflows on main
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run native-ui.yml --repo "$GITHUB_REPOSITORY" --ref main
+        shell: bash
+        run: |
+          set -euo pipefail
+          for workflow in native-ui.yml native-ui-rust.yml android-foundation.yml codeql.yml; do
+            echo "Dispatching $workflow on main"
+            gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref main
+          done
 
       - name: Summary
         run: |
           echo "## Build reset complete" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- All other queued/in-progress/pending workflow runs were cancelled." >> "$GITHUB_STEP_SUMMARY"
-          echo "- One fresh Native Desktop CI workflow was dispatched on `main`." >> "$GITHUB_STEP_SUMMARY"
+          echo "- Fresh Native Desktop, Rust compatibility, Android foundation and CodeQL workflows were dispatched on `main`." >> "$GITHUB_STEP_SUMMARY"
