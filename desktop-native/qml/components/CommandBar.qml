@@ -40,17 +40,51 @@ Rectangle {
     implicitHeight: Theme.commandHeight
     color: Theme.window
 
+    component CompactAction: ToolButton {
+        required property string glyph
+        required property string label
+        implicitWidth: 42
+        implicitHeight: 38
+        text: glyph
+        activeFocusOnTab: true
+        Accessible.name: label
+        ToolTip.visible: hovered
+        ToolTip.text: label
+
+        background: Rectangle {
+            radius: Theme.radiusMedium
+            color: parent.pressed
+                ? Theme.surfaceSelected
+                : parent.hovered ? Theme.surfaceHover : Theme.surface
+            border.width: parent.activeFocus ? 2 : 1
+            border.color: parent.activeFocus ? Theme.focusRing : Theme.border
+        }
+
+        contentItem: Text {
+            text: parent.text
+            color: parent.enabled ? Theme.textSecondary : Theme.textMuted
+            opacity: parent.enabled ? 1.0 : 0.45
+            font.pixelSize: Theme.fontBody
+            font.weight: Font.DemiBold
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+    }
+
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: 14
         anchors.rightMargin: 14
-        spacing: 4
+        spacing: 7
 
         Button {
-            text: "+  " + root.t("action.newDownload")
+            id: addButton
+            text: "+   " + root.t("action.newDownload")
             enabled: root.engineConnected
+            Layout.preferredHeight: 40
             font.pixelSize: Theme.fontBody
             font.weight: Font.DemiBold
+            Accessible.name: root.t("action.newDownload")
 
             background: Rectangle {
                 radius: Theme.radiusMedium
@@ -70,83 +104,88 @@ Rectangle {
             onClicked: root.newDownloadRequested()
         }
 
-        ToolSeparator {}
-
-        Button {
-            text: root.t("action.resume")
-            flat: true
-            activeFocusOnTab: true
-            Accessible.name: text
+        CompactAction {
+            glyph: "▶"
+            label: root.t("action.resume")
             enabled: root.hasSelection
                 && root.engineConnected
                 && root.canResumeSelection
             onClicked: root.resumeRequested()
         }
 
-        Button {
-            text: root.t("action.pause")
-            flat: true
-            activeFocusOnTab: true
-            Accessible.name: text
+        CompactAction {
+            glyph: "Ⅱ"
+            label: root.t("action.pause")
             enabled: root.hasSelection
                 && root.engineConnected
                 && root.canPauseSelection
             onClicked: root.pauseRequested()
         }
 
-        Button {
-            text: root.failedSelection ? root.t("action.retry") : root.t("action.redownload")
-            flat: true
-            activeFocusOnTab: true
-            Accessible.name: text
+        CompactAction {
+            glyph: "↻"
+            label: root.failedSelection
+                ? root.t("action.retry")
+                : root.t("action.redownload")
             enabled: root.hasSelection && root.engineConnected
             onClicked: root.redownloadRequested()
         }
 
-        ToolSeparator {}
-
-        Button {
-            text: root.t("action.open")
-            flat: true
-            activeFocusOnTab: true
-            Accessible.name: text
-            enabled: root.canOpenFile
-            onClicked: root.openFileRequested()
-        }
-
-        Button {
-            text: root.t("action.folder")
-            flat: true
-            activeFocusOnTab: true
-            Accessible.name: text
-            enabled: root.hasSelection && root.hasSavePath
-            onClicked: root.openFolderRequested()
-        }
-
-        Button {
-            text: root.t("action.properties")
-            flat: true
-            activeFocusOnTab: true
-            Accessible.name: text
-            enabled: root.hasSelection
-            onClicked: root.propertiesRequested()
-        }
-
-        Button {
-            text: root.t("action.delete")
-            flat: true
-            activeFocusOnTab: true
-            Accessible.name: text
+        CompactAction {
+            glyph: "⌫"
+            label: root.t("action.delete")
             enabled: root.hasSelection && root.engineConnected
             onClicked: root.deleteRequested()
         }
 
+        CompactAction {
+            glyph: "▱"
+            label: root.t("action.folder")
+            enabled: root.hasSelection && root.hasSavePath
+            onClicked: root.openFolderRequested()
+        }
+
+        CompactAction {
+            id: moreButton
+            glyph: "•••"
+            label: root.t("common.more")
+            enabled: root.hasSelection
+            onClicked: moreMenu.popup()
+        }
+
+        Menu {
+            id: moreMenu
+
+            MenuItem {
+                text: root.t("action.open")
+                enabled: root.canOpenFile
+                onTriggered: root.openFileRequested()
+            }
+            MenuItem {
+                text: root.t("action.properties")
+                enabled: root.hasSelection
+                onTriggered: root.propertiesRequested()
+            }
+            MenuSeparator {}
+            MenuItem {
+                text: root.failedSelection
+                    ? root.t("action.retry")
+                    : root.t("action.redownload")
+                enabled: root.hasSelection && root.engineConnected
+                onTriggered: root.redownloadRequested()
+            }
+            MenuItem {
+                text: root.t("action.delete")
+                enabled: root.hasSelection && root.engineConnected
+                onTriggered: root.deleteRequested()
+            }
+        }
+
         Item { Layout.fillWidth: true }
 
-        ToolButton {
-            text: root.t("action.refresh")
-            activeFocusOnTab: true
-            Accessible.name: text
+        CompactAction {
+            glyph: "↻"
+            label: root.t("action.refresh")
             onClicked: root.refreshRequested()
         }
     }
