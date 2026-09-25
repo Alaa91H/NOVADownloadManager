@@ -15,6 +15,19 @@ pub mod telegram;
 pub mod types;
 pub mod utils;
 pub mod native_media;
+pub mod native_torrent;
+pub mod torrent_peer;
+pub mod torrent_policy;
+pub mod torrent_seed;
+pub mod torrent_seeding;
+pub mod torrent_dht;
+pub mod torrent_bandwidth;
+pub mod torrent_magnet;
+pub mod torrent_storage;
+pub mod torrent_task;
+pub mod torrent_telemetry;
+pub mod torrent_tracker;
+pub mod torrent_transfer;
 
 /// Stable Chromium extension origin derived from NOVA's pinned public key.
 /// Chrome and Edge enforce this origin as an extension-identity boundary.
@@ -390,9 +403,12 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     crate::daemon::native_media::NativeMediaExtractor,
                 ));
                 let extractor_registry = SharedExtractorRegistry::new(extractor_registry);
+                let torrent_dht = crate::daemon::torrent_dht::DhtService::load_or_new(&data_dir);
 
                 let state = AppState {
                     native_media_jobs: Mutex::new(HashMap::new()),
+                    torrent_jobs: Mutex::new(HashMap::new()),
+                    torrent_analyses: Mutex::new(HashMap::new()),
                     curl_jobs: Mutex::new(HashMap::new()),
                     task_snapshot: Mutex::new(HashMap::new()),
                     capture_reviews: Mutex::new(std::collections::VecDeque::new()),
@@ -433,6 +449,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                         crate::daemon::engine::priority_queue::PriorityBandwidthQueue::new(0),
                     bandwidth_manager: crate::daemon::engine::bandwidth::BandwidthManager::default(
                     ),
+                    torrent_dht,
                     profile_manager: crate::daemon::engine::profiles::ProfileManager::new(),
                     rule_engine: crate::daemon::engine::rules::DownloadRuleEngine::new(),
                     scheduler: crate::daemon::engine::scheduler::SmartScheduler::new(),
@@ -678,8 +695,8 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                 let shutdown_signal = async move {
                     wait_for_daemon_shutdown(shutdown_rx).await;
                     log::info!("Shutdown signal received; pausing active downloads...");
+                    crate::daemon::torrent_task::shutdown_torrent_tasks(&shutdown_state).await;
                     // Snapshot first-party libcurl jobs before persisting shutdown state.
-                    let curl_shutdown_snapshots = {
                     let curl_shutdown_snapshots = {
                         let mut curl = lock_or_err!(shutdown_state.curl_jobs);
                         let mut snapshots = Vec::with_capacity(curl.len());
