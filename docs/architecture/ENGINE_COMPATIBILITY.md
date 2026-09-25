@@ -5,51 +5,49 @@
 NOVA uses one product-owned execution model:
 
 - direct file downloads use `nova-download-core` and in-process libcurl multi;
-- media extraction and stream planning use `nova-media-core`;
+- media extraction, selection and transfer planning use `nova-media-core`;
 - HLS/DASH protocol modeling uses `nova-stream-core`;
-- post-processing is represented as a separate capability;
-- a temporary `Media Bridge` is available only where native parity is not yet complete.
+- post-processing is a separate local-file capability owned by `nova-media-postprocess`;
+- the retired Media Bridge is not registered, discovered, executed or exposed by the runtime.
 
-No external resolver name is part of the public capability model.
+Legacy persisted tasks that still carry the historical `media-bridge` engine id are decode-only migration records. Unfinished tasks are marked `engine-retired` and instruct the user to re-add the original media URL; no bridge runtime is reconstructed.
 
 ## Public engine identities
 
-The daemon exposes stable NOVA-owned identities:
+The daemon exposes NOVA-owned identities:
 
 - `native-transfer`
+- `libcurl-multi`
 - `nova-media-engine`
 - `nova-media-postprocess`
-- `media-bridge` for temporary migration compatibility only
 
-Frontend code should consume `engines.media` and must not depend on implementation-vendor names.
+Frontend and companion clients consume `engines.media` and capability fields instead of implementation-vendor names.
 
 ## Capability endpoint
 
 `GET /api/engines/capabilities` is the runtime source of truth.
 
-Media readiness is determined from:
+Media readiness is split explicitly into:
 
-- native extractor availability;
-- protocol support;
-- post-processing availability when required;
-- optional bridge readiness only for capabilities not yet migrated.
+- `mediaExtractionReady` for first-party extraction and metadata/format resolution;
+- `streamingReady` for native HLS/DASH execution;
+- `postProcessingReady` for local-file mux/remux operations.
 
-Feature code must validate capabilities before starting work rather than assuming a particular binary exists.
+The retired `mediaReady` compatibility alias is not part of the contract. Feature code validates the capability it actually needs instead of inferring readiness from an external executable.
 
-## Media resolve API
+## Media API
 
-Native resolution is exposed through:
+Canonical first-party media endpoints are:
 
-- `GET /api/media/native/resolve?url=...`
-- `POST /api/media/native/resolve`
+- `GET|POST /api/media/resolve`
+- `GET /api/media/probe`
+- `GET /api/media/probe-playlist`
+- `POST /api/media/download`
+- `GET /api/media/postprocess/status`
 
-The POST contract reuses NOVA's existing media request model and accepts explicit authorized request context such as User-Agent, Referer, Cookie and custom headers.
+The resolve contract accepts explicit user-authorized request context such as User-Agent, Referer, Cookie and safe custom headers. Transport-owned headers are rejected and sensitive request context is not persisted to disk.
 
-Compatibility probing, where still required, lives under the NOVA namespace:
-
-- `/api/media/bridge/probe`
-- `/api/media/bridge/probe-playlist`
-- `/api/media/postprocess/status`
+Retired `/api/media/bridge/*` routes are not registered.
 
 ## Browser companion contract
 
@@ -60,16 +58,16 @@ The browser companion uses NOVA-owned messages such as:
 - media capability snapshots
 - selected stream-quality objects
 
-HLS/DASH candidates are handed to the NOVA media API. The extension never chooses an implementation vendor.
+HLS/DASH candidates are handed to NOVA Media Engine. The extension does not choose or invoke an external media resolver.
 
 ## Diagnostics
 
-Diagnostics report NOVA capability identities and versions/capability states. External executable filenames, source repositories and package implementation details are restricted to the compatibility adapter and third-party/legal metadata where technically necessary.
+Diagnostics report NOVA capability identities and native job counts. External executable details are limited to capabilities that genuinely require a local executable, such as the temporary FFmpeg post-processing adapter.
 
 ## Compatibility policy
 
-1. Native paths are preferred.
-2. Unsupported native behavior fails explicitly.
-3. The Media Bridge may be used only during migration.
-4. No public UI, API schema, product documentation or engine identity may expose a vendor resolver name.
-5. Once parity gates pass, the bridge code and release resource are deleted.
+1. Native media ownership is authoritative.
+2. Unsupported native behavior fails explicitly and closed.
+3. No retired resolver fallback may be registered or reintroduced.
+4. Historical `media-bridge` persisted ids are accepted only to produce a deterministic migration error.
+5. Public UI, API schemas, product documentation and engine identities use NOVA-owned terminology.

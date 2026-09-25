@@ -63,9 +63,9 @@ impl ExtractorRegistry {
         self.extractors.clone()
     }
 
-    /// Replaces an extractor in place, preserving the registry order used for
-    /// selection. Managed external-tool installation uses this to activate a
-    /// newly verified media-bridge binary without a daemon restart.
+    /// Replaces an extractor in place while preserving deterministic
+    /// selection order. This is a generic registry operation and does not
+    /// imply any external media resolver fallback.
     pub fn replace(&mut self, id: &str, replacement: Arc<dyn Extractor>) -> bool {
         if let Some(existing) = self
             .extractors
@@ -190,7 +190,7 @@ mod tests {
             media: false,
         }));
         reg.register(Arc::new(MockExtractor {
-            id: "media-bridge".into(),
+            id: "nova-media-engine".into(),
             media: true,
         }));
 
@@ -209,7 +209,7 @@ mod tests {
             reg.select("https://youtube.com/watch?v=123", true)
                 .unwrap()
                 .id(),
-            "media-bridge"
+            "nova-media-engine"
         );
     }
 
@@ -286,7 +286,7 @@ mod tests {
         let mut reg = ExtractorRegistry::new();
         reg.register(Arc::new(RejectingExtractor));
         reg.register(Arc::new(MockExtractor {
-            id: "media-bridge".into(),
+            id: "compatibility-fallback".into(),
             media: true,
         }));
         let body = CreateDownloadBody {

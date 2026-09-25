@@ -1173,7 +1173,7 @@ mod tests {
         enriched.queue_id = "fast".to_owned();
         enriched.description = "resolved download metadata".to_owned();
         enriched.referer = Some("https://example.test/page".to_owned());
-        enriched.engine = "media-bridge".to_owned();
+        enriched.engine = "nova-media-engine".to_owned();
         enriched.engine_id = "resolved-engine-id".to_owned();
         enriched.size_bytes = 100;
         enriched.resumable = true;
