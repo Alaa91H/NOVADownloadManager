@@ -228,11 +228,44 @@ to the daemon network policy. Private torrents never advertise or send PEX;
 the privacy decision is read from the authoritative storage metainfo rather
 than mutable runtime discovery state.
 
+### Stage 10 — long-lived DHT server and persistent routing — complete
+
+NOVA now owns one process-wide BEP 5 runtime with a stable 160-bit node ID and
+a shared Kademlia-style routing table. The table uses 160 XOR-distance buckets,
+keeps up to eight LRU nodes per bucket, rejects blocked/internal addresses under
+the daemon network policy, expires nodes older than seven days, and persists
+the stable node ID plus recent routing entries in
+`torrent-dht-state.json`. State writes use a synced temporary file before
+replacement, and stale/corrupt/unsupported state fails closed to a fresh node.
+
+The daemon binds a long-lived IPv4 UDP listener on the configured torrent DHT
+port (by default the same numeric port as the TCP peer listener). Incoming
+`ping`, `find_node`, `get_peers`, and `announce_peer` KRPC queries are
+served with bounded responses. `get_peers` tokens are SHA-1-derived from a
+rotating secret and the requester's IP; secrets rotate every five minutes and
+the previous secret remains valid during the rollover window. Peer announcements
+are held in a bounded 30-minute in-memory store and are never accepted for a
+locally known private/reauthorization-blocked torrent.
+
+Outbound DHT discovery and `announce_peer` now share the same long-lived UDP
+socket and source port through transaction-ID demultiplexing instead of opening
+a new ephemeral socket for every query. Learned responders and returned nodes
+feed the same routing table, and persisted node IDs are used when ordering
+bootstrap candidates by XOR distance. Public torrents announce only when the
+TCP seed listener has actually bound; private torrents do not advertise DHT in
+peer handshakes or use the DHT announce path. Peer-wire BEP 5 support advertises
+the DHT reserved bit and `PORT` only when the IPv4 DHT server is live.
+
+IPv6 KRPC parsing/discovery remains supported, but the long-lived inbound DHT
+listener is intentionally advertised as IPv4-only until a dual-stack binding
+strategy is verified across Windows, Linux, and macOS.
+
 ### Remaining advanced swarm work
 
-The download and inbound peer-service paths are operational. Features that remain intentionally unadvertised or disabled are advanced swarm capabilities:
+The native torrent download, inbound peer-service, and IPv4 DHT paths are
+operational. Remaining advanced swarm work is primarily:
 
-- a long-lived DHT server and persistent routing table;
+- dual-stack long-lived IPv6 DHT serving;
 - additional torrent task telemetry such as per-peer and per-tracker live tables.
 
 ## Quality gates
@@ -249,7 +282,8 @@ cargo fmt --check --manifest-path src-tauri/Cargo.toml
 
 Torrent routing is enabled only for capabilities that are connected end-to-end.
 Inbound upload/seeding, bandwidth policy, tracker lifecycle, persistent counters,
-ratio/time controls, BEP 9 metadata serving, and public-torrent BEP 11 PEX
-serving now report supported. The long-lived DHT server remains deliberately
-unadvertised until its lifecycle, token, routing-table, and persistence tests
-are complete.
+ratio/time controls, BEP 9 metadata serving, public-torrent BEP 11 PEX
+serving, the long-lived IPv4 DHT server, rotating announce tokens, shared-socket
+KRPC transport, and persistent routing state now report supported. Dual-stack
+IPv6 DHT serving remains explicitly unadvertised until cross-platform listener
+binding is verified.

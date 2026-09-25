@@ -132,6 +132,8 @@ export interface TorrentTaskDetails {
   seedLimitReached: boolean;
   metadataServingAvailable: boolean;
   pexServingEnabled: boolean;
+  dhtServerActive: boolean;
+  dhtRoutingNodes: number;
   requiresReauth: boolean;
 }
 

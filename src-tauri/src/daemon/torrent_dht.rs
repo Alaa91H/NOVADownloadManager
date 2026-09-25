@@ -486,6 +486,7 @@ impl DhtService {
         Ok(local.port())
     }
 
+    #[cfg(test)]
     fn handle_packet(
         &self,
         state: &SharedState,
@@ -1506,6 +1507,87 @@ mod tests {
             service.peers_for(hash),
             vec!["8.8.8.8:51413".parse::<SocketAddr>().unwrap()]
         );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn private_torrent_get_peers_does_not_issue_announce_token() {
+        use crate::daemon::engine::bandwidth::BandwidthManager;
+        use crate::daemon::torrent_task::restore_torrent_job;
+        use crate::daemon::types::{Task, TaskState};
+
+        let root = std::env::temp_dir().join(format!(
+            "nova-dht-private-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let service = DhtService::for_tests(id(9), root.join(DHT_STATE_FILE_NAME));
+        let state = std::sync::Arc::new(crate::daemon::persist::tests::test_state(
+            &root.display().to_string(),
+        ));
+        let hash = InfoHash::new([0x55; 20]);
+        let source_uri = format!("magnet:?xt=urn:btih:{}", hash.to_hex());
+        let task = Task {
+            id: "private-dht".to_owned(),
+            name: "private.bin".to_owned(),
+            url: source_uri.clone(),
+            file_type: "torrent".to_owned(),
+            status: TaskState::Paused.as_status().to_owned(),
+            size_bytes: 1,
+            downloaded_bytes: 0,
+            speed_bytes_per_sec: 0,
+            time_left_seconds: 0,
+            elapsed_seconds: 0,
+            date_added: "2026-09-25T00:00:00Z".to_owned(),
+            category: "torrent".to_owned(),
+            queue_id: "main".to_owned(),
+            connections: 1,
+            resumable: true,
+            save_path: root.join("payload").display().to_string(),
+            description: "private dht test".to_owned(),
+            segments: Vec::new(),
+            referer: None,
+            engine: nova_torrent_core::ENGINE_ID.to_owned(),
+            engine_id: hash.to_hex(),
+            engine_status: None,
+            error_message: None,
+        };
+        let mut job = restore_torrent_job(
+            task,
+            Some(source_uri),
+            false,
+            BandwidthManager::default(),
+            None,
+        )
+        .unwrap();
+        job.private = true;
+        state
+            .torrent_jobs
+            .lock()
+            .unwrap()
+            .insert("private-dht".to_owned(), job);
+
+        let request = DhtMessage::Query {
+            transaction_id: b"pr".to_vec(),
+            query: DhtQuery::GetPeers {
+                id: id(3),
+                info_hash: hash,
+            },
+        };
+        let response = service
+            .handle_packet(
+                &state,
+                "8.8.8.8:50000".parse().unwrap(),
+                &request.encode().unwrap(),
+            )
+            .unwrap();
+        match response {
+            DhtMessage::Response { response, .. } => {
+                assert!(response.token.is_none());
+                assert!(response.peers.is_empty());
+            }
+            other => panic!("expected response, got {other:?}"),
+        }
         let _ = std::fs::remove_dir_all(root);
     }
 

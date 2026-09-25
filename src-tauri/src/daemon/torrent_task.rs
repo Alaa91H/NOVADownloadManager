@@ -162,6 +162,8 @@ pub struct TorrentTaskDetails {
     pub seed_limit_reached: bool,
     pub metadata_serving_available: bool,
     pub pex_serving_enabled: bool,
+    pub dht_server_active: bool,
+    pub dht_routing_nodes: usize,
     pub requires_reauth: bool,
 }
 
@@ -517,6 +519,8 @@ pub async fn torrent_task_details(
         seed_limit_reached: task_completed && seed_limit_state.reached(),
         metadata_serving_available: storage.metadata_info_bytes().is_some(),
         pex_serving_enabled: !plan.metainfo.private,
+        dht_server_active: crate::daemon::torrent_dht::active_dht_port().is_some(),
+        dht_routing_nodes: state.torrent_dht.routing_node_count(),
         requires_reauth: job.requires_reauth,
     })
 }

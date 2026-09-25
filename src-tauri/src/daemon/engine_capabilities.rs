@@ -2025,8 +2025,15 @@ pub fn native_torrent_status() -> Value {
             "dht": true,
             "dhtPeerDiscovery": true,
             "dhtAnnouncePeer": true,
-            "dhtServer": false,
-            "dhtPersistentRoutingTable": false,
+            "dhtServer": true,
+            "dhtIpv4Server": true,
+            "dhtIpv6Server": false,
+            "dhtGetPeersServe": true,
+            "dhtAnnouncePeerServe": true,
+            "dhtTokenRotation": true,
+            "dhtStableNodeId": true,
+            "dhtSharedSocketTransport": true,
+            "dhtPersistentRoutingTable": true,
             "pex": true,
             "pexReceive": true,
             "pexServe": true,
@@ -2152,7 +2159,15 @@ mod tests {
         assert_eq!(status["capabilities"]["pexServe"], true);
         assert_eq!(status["capabilities"]["pexServePrivateGuard"], true);
         assert_eq!(status["capabilities"]["privateDiscoveryGuard"], true);
-        assert_eq!(status["capabilities"]["dhtServer"], false);
+        assert_eq!(status["capabilities"]["dhtServer"], true);
+        assert_eq!(status["capabilities"]["dhtIpv4Server"], true);
+        assert_eq!(status["capabilities"]["dhtIpv6Server"], false);
+        assert_eq!(status["capabilities"]["dhtGetPeersServe"], true);
+        assert_eq!(status["capabilities"]["dhtAnnouncePeerServe"], true);
+        assert_eq!(status["capabilities"]["dhtTokenRotation"], true);
+        assert_eq!(status["capabilities"]["dhtStableNodeId"], true);
+        assert_eq!(status["capabilities"]["dhtSharedSocketTransport"], true);
+        assert_eq!(status["capabilities"]["dhtPersistentRoutingTable"], true);
         assert_eq!(status["capabilities"]["metadataServe"], true);
         assert_eq!(status["capabilities"]["metadataServeExactInfoBytes"], true);
         assert_eq!(status["capabilities"]["metadataServePersistentSidecar"], true);
