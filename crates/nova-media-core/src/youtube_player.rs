@@ -523,6 +523,13 @@ fn split_top_level(source: &str, delimiter: u8) -> Vec<&str> {
 fn transform_statements(body: &str) -> Vec<&str> {
     let mut statements = Vec::new();
     for semicolon_group in split_top_level(body, b';') {
+        let semicolon_group = semicolon_group.trim();
+        if semicolon_group.starts_with("return ") {
+            if !semicolon_group.is_empty() {
+                statements.push(semicolon_group);
+            }
+            continue;
+        }
         for comma_group in split_top_level(semicolon_group, b',') {
             let statement = comma_group.trim();
             if !statement.is_empty() {
@@ -664,15 +671,39 @@ fn parse_transform_body(
         regex::escape(argument)
     ))
     .map_err(|error| error.to_string())?;
+    let split_initialization = Regex::new(&format!(
+        r#"^(?:(?:var|let|const)\s+)?{}\s*=\s*[A-Za-z_$][A-Za-z0-9_$]*\.split\(\s*["']{2}\s*\)$"#,
+        regex::escape(argument)
+    ))
+    .map_err(|error| error.to_string())?;
+    let join_finalization = Regex::new(&format!(
+        r#"^(?:return\s+)?{}\.join\(\s*["']{2}\s*\)$"#,
+        regex::escape(argument)
+    ))
+    .map_err(|error| error.to_string())?;
 
     let mut operations = Vec::new();
     for statement in transform_statements(body) {
-        if statement.contains(".split(")
-            || statement.contains(".join(")
-            || statement.starts_with("return ")
-            || undefined_guard.is_match(statement)
+        if undefined_guard.is_match(statement)
+            || split_initialization.is_match(statement)
+            || join_finalization.is_match(statement)
         {
             continue;
+        }
+        if statement.contains(".split(") {
+            return Err(format!(
+                "unsupported split statement in YouTube transform function: {statement}"
+            ));
+        }
+        if statement.contains(".join(") {
+            return Err(format!(
+                "unsupported join statement in YouTube transform function: {statement}"
+            ));
+        }
+        if statement.starts_with("return ") {
+            return Err(format!(
+                "unsupported return statement in YouTube transform function: {statement}"
+            ));
         }
 
         if statement.contains(&format!("{argument}.reverse()")) {
@@ -1517,6 +1548,18 @@ function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
                 .expect("splice swap"),
             "cbadef"
         );
+    }
+
+    #[test]
+    fn n_transform_rejects_compound_return_instead_of_dropping_hidden_work() {
+        let player = r#"
+NT=function(a){a=a.split("");return a.reverse(),a.join("")};
+function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
+"#;
+        let solver = YouTubePlayerScriptSolver;
+        assert!(solver
+            .transform_throttling_parameter(player, "abcdef")
+            .is_err());
     }
 
     #[test]
