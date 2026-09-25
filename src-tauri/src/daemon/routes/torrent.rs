@@ -8,8 +8,9 @@ use axum::Router;
 use crate::daemon::state::SharedState;
 use crate::daemon::torrent_task::{
     analyze_magnet, analyze_metainfo, create_torrent_task, reauthorize_torrent_task,
-    torrent_task_details, update_torrent_file_priorities, AnalyzeTorrentBody, CreateTorrentBody,
-    ReauthorizeTorrentBody, TorrentAnalysisView, TorrentTaskDetails, UpdateTorrentFilesBody,
+    torrent_task_details, update_torrent_file_priorities, update_torrent_seeding_policy,
+    AnalyzeTorrentBody, CreateTorrentBody, ReauthorizeTorrentBody, TorrentAnalysisView,
+    TorrentTaskDetails, UpdateTorrentFilesBody, UpdateTorrentSeedingBody,
 };
 use crate::daemon::types::Task;
 
@@ -78,6 +79,17 @@ async fn handle_update_torrent_files(
         .map_err(torrent_error)
 }
 
+async fn handle_update_torrent_seeding(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateTorrentSeedingBody>,
+) -> Result<Json<TorrentTaskDetails>, ApiError> {
+    update_torrent_seeding_policy(&state, &id, body)
+        .await
+        .map(Json)
+        .map_err(torrent_error)
+}
+
 async fn handle_reauthorize_torrent(
     State(state): State<SharedState>,
     Path(id): Path<String>,
@@ -102,6 +114,10 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
         .route(
             "/api/torrents/{id}/files",
             patch(handle_update_torrent_files),
+        )
+        .route(
+            "/api/torrents/{id}/seeding",
+            patch(handle_update_torrent_seeding),
         )
         .route(
             "/api/torrents/{id}/reauthorize",

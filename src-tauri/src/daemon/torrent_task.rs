@@ -21,6 +21,7 @@ use crate::daemon::torrent_magnet::{MagnetResolution, MagnetResolver};
 use crate::daemon::torrent_peer::{generate_peer_id, PeerEngine};
 use crate::daemon::torrent_seeding::{
     TorrentSeedingControl, TorrentSeedingPolicy, TorrentSeedingSnapshot,
+    MAX_SEED_RATIO_MILLI,
 };
 use crate::daemon::torrent_storage::{TorrentStorageProgress, TorrentStorageSession};
 use crate::daemon::torrent_transfer::{TorrentTransferConfig, TorrentTransferCoordinator};
@@ -84,12 +85,24 @@ pub struct CreateTorrentBody {
     pub file_priorities: Option<Vec<FilePriority>>,
     #[serde(default)]
     pub connections: Option<u32>,
+    #[serde(default)]
+    pub seeding: Option<UpdateTorrentSeedingBody>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateTorrentFilesBody {
     pub file_priorities: Vec<FilePriority>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTorrentSeedingBody {
+    pub enabled: bool,
+    #[serde(default)]
+    pub ratio_limit: Option<f64>,
+    #[serde(default)]
+    pub time_limit_seconds: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -141,6 +154,7 @@ pub struct TorrentTaskDetails {
     pub uploaded_bytes: u64,
     pub active_seed_connections: u64,
     pub seeding_enabled: bool,
+    pub seeding_active: bool,
     pub seed_ratio_limit: Option<f64>,
     pub seed_time_limit_seconds: Option<u64>,
     pub seeded_seconds: u64,
@@ -251,6 +265,12 @@ pub async fn create_torrent_task(
     }
 
     let metainfo = analysis.resolution.metainfo.clone();
+    let seeding_policy = body
+        .seeding
+        .as_ref()
+        .map(seeding_policy_from_body)
+        .transpose()?
+        .unwrap_or_default();
     let selection = match body.file_priorities {
         Some(priorities) => TorrentSelection::new(&metainfo, priorities)
             .map_err(|error| format!("Invalid torrent file selection: {error}"))?,
@@ -276,7 +296,10 @@ pub async fn create_torrent_task(
         id.clone(),
         state.bandwidth_manager.clone(),
     ));
-    let seeding = TorrentSeedingControl::default();
+    let seeding = TorrentSeedingControl::from_snapshot(TorrentSeedingSnapshot {
+        policy: seeding_policy,
+        ..TorrentSeedingSnapshot::default()
+    });
     let uploaded_bytes = seeding.uploaded_counter();
     let connections = body
         .connections
@@ -457,8 +480,14 @@ pub async fn torrent_task_details(
 
     let seeding_policy = job.seeding.policy();
     let seed_limit_state = job.seeding.limit_state(progress.selected_total_bytes);
-    let task_completed =
-        TaskState::from_status(&job.task.status) == Some(TaskState::Completed);
+    let task_state = TaskState::from_status(&job.task.status);
+    let task_completed = task_state == Some(TaskState::Completed);
+    let seeding_active = !job.requires_reauth
+        && task_state.is_some_and(|state| state == TaskState::Completed || state.is_active())
+        && job
+            .seeding
+            .upload_allowed(task_completed, progress.selected_total_bytes)
+        && !job.seed_cancel_token.is_cancelled();
 
     Ok(TorrentTaskDetails {
         task: job.task,
@@ -475,8 +504,8 @@ pub async fn torrent_task_details(
         candidate_peer_count: job.candidates.len(),
         uploaded_bytes: job.uploaded_bytes.load(Ordering::Relaxed),
         active_seed_connections: job.active_seed_connections.load(Ordering::Relaxed),
-        seeding_enabled: seeding_policy.enabled
-            && (!task_completed || !seed_limit_state.reached()),
+        seeding_enabled: seeding_policy.enabled,
+        seeding_active,
         seed_ratio_limit: seeding_policy.ratio_limit(),
         seed_time_limit_seconds: seeding_policy.time_limit_seconds,
         seeded_seconds: job.seeding.effective_seeded_seconds(),
@@ -526,6 +555,76 @@ pub async fn update_torrent_file_priorities(
     torrent_task_details(state, id).await
 }
 
+pub async fn update_torrent_seeding_policy(
+    state: &SharedState,
+    id: &str,
+    body: UpdateTorrentSeedingBody,
+) -> Result<TorrentTaskDetails, String> {
+    let policy = seeding_policy_from_body(&body)?;
+    let (job_snapshot, should_start) = {
+        let mut jobs = lock_or_err!(state.torrent_jobs);
+        let job = jobs
+            .get_mut(id)
+            .ok_or_else(|| "Torrent task not found".to_owned())?;
+
+        job.seed_cancel_token.cancel();
+        job.seeding.stop_timer();
+        job.seeding.replace_policy(policy)?;
+        job.seed_cancel_token = CancellationToken::new();
+
+        let task_state = TaskState::from_status(&job.task.status)
+            .ok_or_else(|| format!("Torrent task has unknown state '{}'", job.task.status))?;
+        let completed = task_state == TaskState::Completed;
+        if policy.enabled && completed {
+            job.seeding.start_timer();
+        }
+
+        let eligible = policy.enabled
+            && !job.requires_reauth
+            && (completed || task_state.is_active())
+            && (!completed || !job.seeding.limit_state(job.task.size_bytes).reached());
+        if !eligible {
+            job.seed_cancel_token.cancel();
+        }
+        (job.clone(), eligible)
+    };
+    state.mark_dirty();
+
+    if should_start {
+        let storage = ensure_storage_session(&job_snapshot, job_snapshot.storage.clone()).await?;
+        start_torrent_seed_services(state, id, storage);
+    }
+
+    torrent_task_details(state, id).await
+}
+
+fn seeding_policy_from_body(
+    body: &UpdateTorrentSeedingBody,
+) -> Result<TorrentSeedingPolicy, String> {
+    let ratio_limit_milli = match body.ratio_limit {
+        Some(ratio) => {
+            if !ratio.is_finite() || ratio < 0.0 {
+                return Err("Torrent seed ratio limit must be a finite non-negative number".to_owned());
+            }
+            let maximum = f64::from(MAX_SEED_RATIO_MILLI) / 1000.0;
+            if ratio > maximum {
+                return Err(format!(
+                    "Torrent seed ratio limit exceeds maximum {maximum:.3}"
+                ));
+            }
+            Some((ratio * 1000.0).round() as u32)
+        }
+        None => None,
+    };
+
+    TorrentSeedingPolicy {
+        enabled: body.enabled,
+        ratio_limit_milli,
+        time_limit_seconds: body.time_limit_seconds,
+    }
+    .validate()
+}
+
 pub async fn reauthorize_torrent_task(
     state: &SharedState,
     id: &str,
@@ -559,6 +658,36 @@ pub async fn reauthorize_torrent_task(
     };
     lock_or_err!(state.task_snapshot).insert(id.to_owned(), task.clone());
     state.mark_dirty();
+
+    let seed_job = {
+        let mut jobs = lock_or_err!(state.torrent_jobs);
+        jobs.get_mut(id).map(|job| {
+            job.seed_cancel_token.cancel();
+            job.seed_cancel_token = CancellationToken::new();
+            if !job.seeding.policy().enabled {
+                job.seed_cancel_token.cancel();
+            }
+            job.clone()
+        })
+    };
+    if let Some(seed_job) = seed_job {
+        let task_state = TaskState::from_status(&seed_job.task.status);
+        if seed_job.seeding.policy().enabled
+            && task_state.is_some_and(|state| {
+                state == TaskState::Completed || state.is_active()
+            })
+        {
+            if let Ok(storage) =
+                ensure_storage_session(&seed_job, seed_job.storage.clone()).await
+            {
+                if task_state == Some(TaskState::Completed) {
+                    seed_job.seeding.start_timer();
+                }
+                start_torrent_seed_services(state, id, storage);
+            }
+        }
+    }
+
     Ok(task)
 }
 
@@ -1733,6 +1862,28 @@ fn limit_error(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn seeding_policy_input_rounds_ratio_to_milli_units() {
+        let policy = seeding_policy_from_body(&UpdateTorrentSeedingBody {
+            enabled: true,
+            ratio_limit: Some(1.2344),
+            time_limit_seconds: Some(3600),
+        })
+        .unwrap();
+        assert_eq!(policy.ratio_limit_milli, Some(1234));
+        assert_eq!(policy.time_limit_seconds, Some(3600));
+    }
+
+    #[test]
+    fn seeding_policy_input_rejects_invalid_ratio() {
+        assert!(seeding_policy_from_body(&UpdateTorrentSeedingBody {
+            enabled: true,
+            ratio_limit: Some(f64::NAN),
+            time_limit_seconds: None,
+        })
+        .is_err());
+    }
 
     #[test]
     fn metainfo_import_builds_secret_safe_restart_source() {

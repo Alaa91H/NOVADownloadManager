@@ -102,6 +102,12 @@ export interface TorrentAnalysis {
   usedDht: boolean;
 }
 
+export interface TorrentSeedingPolicyInput {
+  enabled: boolean;
+  ratioLimit?: number | null;
+  timeLimitSeconds?: number | null;
+}
+
 export interface TorrentTaskDetails {
   task: DownloadItem;
   infoHash: string;
@@ -117,6 +123,13 @@ export interface TorrentTaskDetails {
   candidatePeerCount: number;
   uploadedBytes: number;
   activeSeedConnections: number;
+  seedingEnabled: boolean;
+  seedingActive: boolean;
+  seedRatioLimit: number | null;
+  seedTimeLimitSeconds: number | null;
+  seededSeconds: number;
+  seedRatio: number;
+  seedLimitReached: boolean;
   requiresReauth: boolean;
 }
 
@@ -513,6 +526,7 @@ export const novaClient = {
     startImmediately?: boolean;
     filePriorities?: TorrentFilePriority[];
     connections?: number;
+    seeding?: TorrentSeedingPolicyInput;
   }): Promise<DownloadItem> {
     return request<DownloadItem>(
       '/api/torrents',
@@ -538,6 +552,21 @@ export const novaClient = {
         body: JSON.stringify({ filePriorities }),
       },
       15000,
+    );
+  },
+
+  async updateTorrentSeeding(
+    id: string,
+    policy: TorrentSeedingPolicyInput,
+  ): Promise<TorrentTaskDetails> {
+    return request<TorrentTaskDetails>(
+      `/api/torrents/${encodeURIComponent(id)}/seeding`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(policy),
+      },
+      10000,
     );
   },
 
