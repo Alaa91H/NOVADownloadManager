@@ -2029,10 +2029,13 @@ pub fn native_torrent_status() -> Value {
             "dhtPersistentRoutingTable": false,
             "pex": true,
             "pexReceive": true,
-            "pexServe": false,
+            "pexServe": true,
+            "pexServePrivateGuard": true,
             "metadataExchange": true,
             "metadataRetrieval": true,
-            "metadataServe": false,
+            "metadataServe": true,
+            "metadataServeExactInfoBytes": true,
+            "metadataServePersistentSidecar": true,
             "magnetResolver": true,
             "trackerlessMagnetDiscovery": true,
             "privateDiscoveryGuard": true,
@@ -2146,9 +2149,13 @@ mod tests {
         assert_eq!(status["capabilities"]["metadataExchange"], true);
         assert_eq!(status["capabilities"]["dhtPeerDiscovery"], true);
         assert_eq!(status["capabilities"]["pexReceive"], true);
+        assert_eq!(status["capabilities"]["pexServe"], true);
+        assert_eq!(status["capabilities"]["pexServePrivateGuard"], true);
         assert_eq!(status["capabilities"]["privateDiscoveryGuard"], true);
         assert_eq!(status["capabilities"]["dhtServer"], false);
-        assert_eq!(status["capabilities"]["metadataServe"], false);
+        assert_eq!(status["capabilities"]["metadataServe"], true);
+        assert_eq!(status["capabilities"]["metadataServeExactInfoBytes"], true);
+        assert_eq!(status["capabilities"]["metadataServePersistentSidecar"], true);
         assert_eq!(status["capabilities"]["peerTcpTransport"], true);
         assert_eq!(status["capabilities"]["peerRequestPipeline"], true);
         assert_eq!(status["capabilities"]["peerReputation"], true);

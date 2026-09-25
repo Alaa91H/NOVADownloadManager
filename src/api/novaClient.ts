@@ -130,6 +130,8 @@ export interface TorrentTaskDetails {
   seededSeconds: number;
   seedRatio: number;
   seedLimitReached: boolean;
+  metadataServingAvailable: boolean;
+  pexServingEnabled: boolean;
   requiresReauth: boolean;
 }
 

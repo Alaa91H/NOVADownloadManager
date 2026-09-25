@@ -205,11 +205,33 @@ torrent dialogs expose the same policy controls. Limit enforcement cancels all
 seed sessions and the tracker lifecycle through a dedicated seed cancellation
 token without cancelling the download worker.
 
+### Stage 9 — BEP 9 metadata serving and BEP 11 PEX serving — complete
+
+NOVA now participates in BEP 10 extension negotiation on inbound peer sessions.
+The exact raw v1 `info` dictionary that produced the BTIH is retained when
+metadata comes from a magnet peer or a user-supplied `.torrent` file. Metadata
+bytes eligible for BEP 9 are SHA-1 validated before being written to a
+NOVA-owned `info.bencode` sidecar next to the resume state and are validated
+again when restored. Missing, oversized, corrupt, or identity-mismatched
+sidecars fail closed: downloading and ordinary seeding continue, but
+`ut_metadata` is not advertised.
+
+Inbound peers that negotiated BEP 10 can request bounded 16 KiB metadata pieces.
+NOVA replies using the extension ID advertised by the remote peer, rejects
+out-of-range pieces, caps metadata requests per session, and routes extension
+bytes through the shared upload limiter.
+
+Public torrents also advertise `ut_pex`. After the remote extended handshake,
+NOVA sends one bounded PEX snapshot with at most 50 unique eligible peers,
+excluding the connected peer and filtering private-network addresses according
+to the daemon network policy. Private torrents never advertise or send PEX;
+the privacy decision is read from the authoritative storage metainfo rather
+than mutable runtime discovery state.
+
 ### Remaining advanced swarm work
 
-The download path is operational. Features that remain intentionally unadvertised or disabled are advanced peer-service capabilities rather than prerequisites for native downloading:
+The download and inbound peer-service paths are operational. Features that remain intentionally unadvertised or disabled are advanced swarm capabilities:
 
-- serving BEP 9 metadata and BEP 11 PEX to remote peers;
 - a long-lived DHT server and persistent routing table;
 - additional torrent task telemetry such as per-peer and per-tracker live tables.
 
@@ -227,6 +249,7 @@ cargo fmt --check --manifest-path src-tauri/Cargo.toml
 
 Torrent routing is enabled only for capabilities that are connected end-to-end.
 Inbound upload/seeding, bandwidth policy, tracker lifecycle, persistent counters,
-and ratio/time controls now report supported. Metadata/PEX serving and the
-long-lived DHT server remain deliberately unadvertised until their lifecycle and
-security tests are complete.
+ratio/time controls, BEP 9 metadata serving, and public-torrent BEP 11 PEX
+serving now report supported. The long-lived DHT server remains deliberately
+unadvertised until its lifecycle, token, routing-table, and persistence tests
+are complete.

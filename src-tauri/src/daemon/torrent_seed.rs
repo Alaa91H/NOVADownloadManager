@@ -149,14 +149,19 @@ async fn serve_state_peer(
     .ok_or_else(|| "Inbound peer requested a torrent that is not seed-eligible".to_owned())?;
 
     let storage = ensure_storage_session(&job, job.storage.clone()).await?;
+    let plan = storage
+        .transfer_plan()
+        .await
+        .map_err(|error| format!("Could not read torrent extension service plan: {error}"))?;
+    let private_torrent = plan.metainfo.private;
     let extension_service = SeedExtensionService {
         metadata_info: storage.metadata_info_bytes(),
-        pex_peers: if job.private {
+        pex_peers: if private_torrent {
             Vec::new()
         } else {
             build_pex_peers(&job.candidates, address)
         },
-        allow_pex: !job.private,
+        allow_pex: !private_torrent,
     };
     let progress = storage
         .progress()
@@ -1114,6 +1119,18 @@ mod tests {
         let result = server.await.unwrap();
         assert!(result.is_err());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn private_extension_service_never_advertises_pex() {
+        let service = SeedExtensionService {
+            metadata_info: Some(Arc::new(vec![b'd', b'e'])),
+            pex_peers: vec!["8.8.8.8:6881".parse().unwrap()],
+            allow_pex: false,
+        };
+        let handshake = service.local_handshake();
+        assert_eq!(handshake.ut_metadata, Some(LOCAL_UT_METADATA_ID));
+        assert_eq!(handshake.ut_pex, None);
     }
 
     #[test]

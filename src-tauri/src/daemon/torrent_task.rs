@@ -160,6 +160,8 @@ pub struct TorrentTaskDetails {
     pub seeded_seconds: u64,
     pub seed_ratio: f64,
     pub seed_limit_reached: bool,
+    pub metadata_serving_available: bool,
+    pub pex_serving_enabled: bool,
     pub requires_reauth: bool,
 }
 
@@ -513,6 +515,8 @@ pub async fn torrent_task_details(
         seeded_seconds: job.seeding.effective_seeded_seconds(),
         seed_ratio: job.seeding.ratio(progress.selected_total_bytes),
         seed_limit_reached: task_completed && seed_limit_state.reached(),
+        metadata_serving_available: storage.metadata_info_bytes().is_some(),
+        pex_serving_enabled: !plan.metainfo.private,
         requires_reauth: job.requires_reauth,
     })
 }
@@ -1301,6 +1305,11 @@ pub async fn recheck_restored_completed_torrents(state: &SharedState) {
                 Ok((progress, storage)) => {
                     current.task.downloaded_bytes = progress.selected_completed_bytes;
                     current.task.size_bytes = progress.selected_total_bytes;
+                    current.private = storage
+                        .transfer_plan()
+                        .await
+                        .map(|plan| plan.metainfo.private)
+                        .unwrap_or(current.private);
                     current.task.engine_status = Some("completed-verified".to_owned());
                     current.task.error_message = None;
                     if !current.requires_reauth && current.seeding.policy().enabled {
