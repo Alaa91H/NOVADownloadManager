@@ -110,6 +110,11 @@ pub async fn list_all_tasks(state: &SharedState) -> Vec<Task> {
         .map(|j| j.task.clone())
         .collect();
     tasks.extend(
+        lock_or_err!(state.torrent_jobs)
+            .values()
+            .map(|j| j.task.clone()),
+    );
+    tasks.extend(
         lock_or_err!(state.curl_jobs)
             .values()
             .map(|j| j.task.clone()),
@@ -155,6 +160,9 @@ pub fn get_task(state: &SharedState, id: &str) -> Option<Task> {
     if let Some(job) = lock_or_err!(state.native_media_jobs).get(id) {
         return Some(job.task.clone());
     }
+    if let Some(job) = lock_or_err!(state.torrent_jobs).get(id) {
+        return Some(job.task.clone());
+    }
     if let Some(job) = lock_or_err!(state.curl_jobs).get(id) {
         return Some(job.task.clone());
     }
@@ -163,6 +171,10 @@ pub fn get_task(state: &SharedState, id: &str) -> Option<Task> {
 
 pub async fn pause_task(state: &SharedState, id: &str) -> Result<Task, String> {
     log::debug!("pause_task requested for {id}");
+    let is_torrent = { lock_or_err!(state.torrent_jobs).contains_key(id) };
+    if is_torrent {
+        return crate::daemon::torrent_task::pause_torrent_task(state, id).await;
+    }
     {
         let mut jobs = lock_or_err!(state.native_media_jobs);
         if let Some(job) = jobs.get_mut(id) {
@@ -232,6 +244,10 @@ pub async fn pause_task(state: &SharedState, id: &str) -> Result<Task, String> {
 
 pub async fn resume_task(state: &SharedState, id: &str) -> Result<Task, String> {
     log::debug!("resume_task requested for {id}");
+    let is_torrent = { lock_or_err!(state.torrent_jobs).contains_key(id) };
+    if is_torrent {
+        return crate::daemon::torrent_task::resume_torrent_task(state, id).await;
+    }
     {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         loop {
@@ -473,6 +489,31 @@ pub async fn update_task_metadata(
         return Err("Nothing to update".to_owned());
     }
 
+    let is_torrent = { lock_or_err!(state.torrent_jobs).contains_key(id) };
+    if is_torrent {
+        if new_url.is_some() {
+            return Err(
+                "Use the torrent reauthorization API to replace a magnet source".to_owned(),
+            );
+        }
+        let task = {
+            let mut jobs = lock_or_err!(state.torrent_jobs);
+            let job = jobs
+                .get_mut(id)
+                .ok_or_else(|| "Torrent task not found".to_owned())?;
+            if TaskState::from_status(&job.task.status).is_some_and(TaskState::is_active) {
+                return Err("Pause the torrent before renaming it".to_owned());
+            }
+            if let Some(ref name) = new_name {
+                job.task.name = name.clone();
+            }
+            job.task.clone()
+        };
+        lock_or_err!(state.task_snapshot).insert(id.to_owned(), task.clone());
+        state.mark_dirty();
+        return Ok(task);
+    }
+
     // Native HLS/DASH/separate-track tasks.
     {
         let out = {
@@ -577,6 +618,10 @@ pub async fn update_task_metadata(
 /// Re-download a task from scratch: removes the existing output (and any
 /// segment parts), resets progress, clears stale validators, and restarts.
 pub async fn redownload_task(state: &SharedState, id: &str) -> Result<Task, String> {
+    let is_torrent = { lock_or_err!(state.torrent_jobs).contains_key(id) };
+    if is_torrent {
+        return crate::daemon::torrent_task::redownload_torrent_task(state, id).await;
+    }
     {
         let out = {
             let mut jobs = lock_or_err!(state.native_media_jobs);
@@ -687,6 +732,10 @@ pub async fn redownload_task(state: &SharedState, id: &str) -> Result<Task, Stri
 
 pub async fn delete_task(state: &SharedState, id: &str, delete_files: bool) -> Result<(), String> {
     log::debug!("delete_task requested for {id} (delete_files={delete_files})");
+    let is_torrent = { lock_or_err!(state.torrent_jobs).contains_key(id) };
+    if is_torrent {
+        return crate::daemon::torrent_task::delete_torrent_task(state, id, delete_files).await;
+    }
     {
         let entry = {
             let mut jobs = lock_or_err!(state.native_media_jobs);
