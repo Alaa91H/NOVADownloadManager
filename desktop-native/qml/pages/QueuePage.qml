@@ -292,6 +292,7 @@ Item {
                         clip: true
                         activeFocusOnTab: true
                         keyNavigationWraps: false
+                        Accessible.role: Accessible.List
                         Accessible.name: root.t("queue.queues")
                         onActiveFocusChanged: {
                             if (activeFocus && count > 0) {
@@ -330,10 +331,17 @@ Item {
                                 : root.selectedQueueId === String(modelData.id)
                                     ? Theme.accent
                                     : Theme.border
+                            Accessible.role: Accessible.ListItem
                             Accessible.name: modelData.name || modelData.id
                             Accessible.description: (modelData.downloadOrder
                                 ? modelData.downloadOrder.length : 0)
                                 + " " + root.t("queue.tasks")
+                            Accessible.focusable: true
+                            Accessible.focused: queueCatalogList.activeFocus
+                                && queueCatalogList.currentIndex === index
+                            Accessible.selectable: true
+                            Accessible.selected: root.selectedQueueId === String(modelData.id)
+                            Accessible.onPressAction: root.selectQueueIndex(index)
 
                             MouseArea {
                                 anchors.fill: parent
@@ -527,6 +535,7 @@ Item {
                                     spacing: 1
                                     activeFocusOnTab: true
                                     keyNavigationWraps: false
+                                    Accessible.role: Accessible.List
                                     Accessible.name: root.t("queue.tasks")
                                     onActiveFocusChanged: {
                                         if (activeFocus && count > 0 && currentIndex < 0)
@@ -548,9 +557,15 @@ Item {
                                         border.width: taskList.activeFocus
                                             && taskList.currentIndex === index ? 2 : 0
                                         border.color: Theme.focusRing
+                                        Accessible.role: Accessible.ListItem
                                         Accessible.name: taskRow.info.name || String(modelData)
                                         Accessible.description: (taskRow.info.status || root.t("common.unknown"))
                                             + " · " + root.formatBytes(taskRow.info.sizeBytes)
+                                        Accessible.focusable: true
+                                        Accessible.focused: taskList.activeFocus
+                                            && taskList.currentIndex === index
+                                        Accessible.selectable: true
+                                        Accessible.selected: taskList.currentIndex === index
 
                                         RowLayout {
                                             anchors.fill: parent
