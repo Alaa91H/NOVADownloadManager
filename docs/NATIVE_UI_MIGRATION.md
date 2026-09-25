@@ -110,7 +110,7 @@ Implemented in the first Stage 5 slice:
 - Central native localization manager with live language switching.
 - Initial English, Arabic and German dictionaries, including automatic system-language resolution.
 - Full legacy language metadata is now exposed in the native selector, with resource-backed reuse of matching legacy locale entries and English fallback while native-key coverage is expanded.
-- Curated semantic aliases now bridge navigation, download actions, queue/scheduler controls, media options, settings, shortcuts and browser status copy to legacy locale keys; CI rejects regressions below 40% reusable native-key coverage.
+- Curated semantic aliases now bridge navigation, download actions, queue/scheduler controls, media options, settings, shortcuts and browser status copy to legacy locale keys; CI rejects regressions below 42% reusable native-key coverage; canonical English matching safely reuses legacy translations when only case or punctuation differs.
 - Application-wide RTL mirroring when Arabic is active.
 - Persistent language preference through `QSettings`.
 - System / Light / Dark appearance modes with live system color-scheme tracking.
@@ -127,13 +127,16 @@ Implemented in the first Stage 5 slice:
 - Explicit Qt High-DPI scale-factor rounding policy.
 - CI localization gate that rejects newly introduced hard-coded user-visible English QML copy while allowing narrowly scoped technical literals.
 - Keyboard focus rings and accessibility names for the primary navigation and command actions.
+- Every native QML TextField now exposes Accessible.name; advanced network, media, queue, scheduler and batch fields were completed in this hardening pass.
+- Technical monospace fields and network/path inputs remain explicitly LTR inside RTL layouts where required.
+- CI now rejects fixed numeric font.pixelSize declarations so text scale remains effective across native QML.
 
 Remaining before Stage 5 is complete:
 
 - Continue native-key translation coverage beyond the CI-enforced 40% legacy-reuse floor; unmatched native-only copy still falls back to English until a safe equivalent or dedicated translation is available.
 - Complete per-page RTL layout review, especially tables, inspectors and mixed URL/path content.
 - Extend typography scaling to every legacy-sized text declaration.
-- Accessibility labels/descriptions and tab order for all dialogs, lists, tables and form controls.
+- Complete accessibility labels/descriptions and tab order beyond TextFields, especially complex lists, tables, dialogs and custom controls.
 - Screen-reader validation and color-contrast validation.
 - High-DPI and multi-monitor validation.
 - macOS-specific visual/accessibility refinement beyond the implemented Dock progress integration, plus remaining cross-platform accessibility polish.
