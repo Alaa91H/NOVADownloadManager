@@ -74,6 +74,23 @@ Rectangle {
         return Theme.accent
     }
 
+    function statusLabel() {
+        const status = String(root.item.status || "").toLowerCase()
+        if (status === "downloading") return root.t("status.downloading")
+        if (status === "paused") return root.t("status.paused")
+        if (status === "queued") return root.t("status.queued")
+        if (status === "completed") return root.t("status.completed")
+        if (status === "failed" || status === "error" || status === "interrupted")
+            return root.t("status.failed")
+        if (status === "preparing" || status === "probing")
+            return root.t("status.preparing")
+        if (status === "retrying" || status === "recovering")
+            return root.t("status.retrying")
+        if (status === "verifying" || status === "finalizing")
+            return root.t("status.verifying")
+        return root.item.status || root.t("common.unknown")
+    }
+
     onItemChanged: {
         root.speedHistory = []
         speedCanvas.requestPaint()
@@ -142,7 +159,7 @@ Rectangle {
                 Text {
                     id: previewStatus
                     anchors.centerIn: parent
-                    text: root.item.status || root.t("common.unknown")
+                    text: root.statusLabel()
                     color: root.statusColor()
                     font.pixelSize: Theme.fontSmall
                     font.weight: Font.DemiBold
@@ -254,7 +271,7 @@ Rectangle {
                             Text { text: root.t("common.size"); color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
                             Text { text: root.formatBytes(root.item.sizeBytes); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; font.family: "monospace" }
                             Text { text: root.t("common.status"); color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
-                            Text { text: root.item.status || root.t("common.unknown"); color: root.statusColor(); font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
+                            Text { text: root.statusLabel(); color: root.statusColor(); font.pixelSize: Theme.fontSmall; font.weight: Font.DemiBold }
                             Text { text: root.t("common.speed"); color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
                             Text { text: root.formatSpeed(root.item.speedBytesPerSec); color: Theme.textPrimary; font.pixelSize: Theme.fontSmall; font.family: "monospace" }
                             Text { text: root.t("common.eta"); color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
