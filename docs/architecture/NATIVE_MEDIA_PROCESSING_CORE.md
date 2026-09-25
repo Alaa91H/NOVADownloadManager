@@ -47,12 +47,15 @@ The core currently provides:
 instead of treating an arbitrary non-WebM EBML document as Matroska.
 
 `mp4_mux` and `native_remux` are enabled. The native remux bridge accepts
-MP4/fMP4, supported WebM, and Matroska AVC/HEVC/AAC inputs. Matroska AVC and
-HEVC keep their ISO/IEC 14496-15 decoder-configuration records after structural
-validation; AAC `AudioSpecificConfig` is wrapped into an MPEG-4 `esds`
-descriptor in-process. For AVC/HEVC, DTS is reconstructed from Matroska coding
-order while block timestamps remain PTS, preserving reordered-frame timing
-without transcoding. The daemon advertises these paths as
+MP4/fMP4 plus supported WebM and Matroska inputs. Matroska-to-MP4 remux supports
+H.264, HEVC, AAC, VP8, VP9, AV1, Opus, and MP3. AVC/HEVC keep their ISO/IEC
+14496-15 decoder-configuration records after structural validation; AAC
+`AudioSpecificConfig` is wrapped into an MPEG-4 `esds` descriptor in-process;
+and VP8/VP9/AV1/Opus reuse the validated WebM codec bindings while preserving
+VP colour metadata where present. Video DTS is reconstructed from Matroska
+coding order while block timestamps remain PTS, preserving reordered-frame
+timing without transcoding. Final Opus `DiscardPadding` is applied before MP4
+sample-duration conversion. The daemon advertises these paths as
 `native-matroska-demux` and `native-matroska-remux`.
 
 The native MP4 muxer writes `ftyp`,
@@ -81,8 +84,7 @@ BitsPerChannel validation from WebM `Colour`; and WebM AV1
 movie timescale for sample-accurate trimming, and writes `roll` sample groups
 (`sgpd/sbgp`) with a conservative 80 ms random-access pre-roll. The MP4
 `ftyp` also advertises `iso2` compatibility for roll-group support.
-Matroska remux for codecs outside AVC/HEVC/AAC, audio transcoding, video transcoding,
-subtitles/data muxing, general edit-list timeline handling beyond Opus pre-skip,
-and hardware acceleration
-remain disabled until their implementations are present and covered by native
-tests.
+FLAC-to-MP4 remux, audio transcoding, video transcoding, subtitles/data muxing,
+general edit-list timeline handling beyond Opus pre-skip, and hardware
+acceleration remain disabled until their implementations are present and
+covered by native tests.
