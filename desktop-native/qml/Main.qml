@@ -264,7 +264,6 @@ ApplicationWindow {
                         placeholderText: window.t("downloads.search")
                         Accessible.name: placeholderText
                         selectByMouse: true
-                        LayoutMirroring.enabled: false
                         onTextChanged: window.applyTopSearch(text)
 
                         background: Rectangle {
@@ -425,6 +424,7 @@ ApplicationWindow {
             downloads: downloadsModel
             api: novaApi
             page: window.currentPage
+            onFocusSearchRequested: topSearch.forceActiveFocus()
         }
     }
 
