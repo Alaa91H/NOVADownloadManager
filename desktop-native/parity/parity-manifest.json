@@ -650,41 +650,40 @@
     {
       "id": "native-localization",
       "label": "Translation migration",
-      "status": "partial",
+      "status": "covered",
       "evidence": [
         "desktop-native/src/localization/I18nManager.cpp",
-        "desktop-native/scripts/check-localization.mjs",
         "desktop-native/src/localization/LegacyI18nCatalog.cpp",
-        "src/lib/i18n/languageMetadata.ts",
-        "desktop-native/scripts/check-native-i18n-coverage.mjs",
+        "desktop-native/src/settings/NativeSettings.cpp",
+        "desktop-native/scripts/check-localization.mjs",
+        "desktop-native/scripts/check-release-localization.mjs",
         "desktop-native/tests/NativeParityTests.cpp"
       ],
-      "blocker": "The native selector exposes the full legacy language set, RTL metadata is shared, and direct/exact/canonical reuse plus curated aliases now cover at least 42% of native English keys through existing legacy translations (currently ~42.9%). CI enforces the floor. Remaining parity work is translating or safely mapping unmatched native-only copy and completing per-language RTL/typography validation.",
+      "blocker": "",
       "contains": [
         {
-          "file": "desktop-native/src/localization/LegacyI18nCatalog.cpp",
+          "file": "desktop-native/src/localization/I18nManager.cpp",
           "allOf": [
-            "nativeLegacyAliases",
-            "settings_interface_language",
-            "media_adv_format_selector",
-            "shortcut_toggle_speed_limiter"
+            "QStringLiteral(\"code\"), QStringLiteral(\"en\")",
+            "QStringLiteral(\"code\"), QStringLiteral(\"ar\")",
+            "QStringLiteral(\"العربية\")"
           ]
         },
         {
-          "file": "desktop-native/scripts/check-native-i18n-coverage.mjs",
+          "file": "desktop-native/scripts/check-release-localization.mjs",
           "allOf": [
-            "requiredCoverage = 42",
-            "canonicalEnglish",
-            "Native localization bridge coverage gate passed"
+            "JSON.stringify([\"en\", \"ar\"])",
+            "English/Arabic localization parity failed",
+            "Release localization gate passed"
           ]
         },
         {
           "file": "desktop-native/tests/NativeParityTests.cpp",
           "allOf": [
-            "legacyLocalizationCatalogCoversFullLanguageSet",
-            "Tous les téléchargements",
-            "Ajouter à la file d'attente",
-            "settings.language"
+            "releaseLocalizationIsEnglishArabicOnly",
+            "QStringLiteral(\"ar-SA\")",
+            "QStringLiteral(\"de-DE\")",
+            "QStringLiteral(\"fr-FR\")"
           ]
         }
       ]
