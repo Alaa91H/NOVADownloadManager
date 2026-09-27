@@ -29,6 +29,12 @@ pub struct ResourceIntelligenceEngine {
     pub profile_store: Arc<ServerProfileStore>,
 }
 
+impl Default for ResourceIntelligenceEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ResourceIntelligenceEngine {
     pub fn new() -> Self {
         Self {
