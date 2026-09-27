@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use nova_torrent_core::{
     ExtendedHandshake, InfoHash, MetadataMessage, PeerExchange, PeerHandshake, PeerMessage,
-    EXTENSION_HANDSHAKE_ID, LOCAL_UT_METADATA_ID, LOCAL_UT_PEX_ID, MAX_PEER_FRAME_BYTES,
+    EXTENSION_HANDSHAKE_ID, LOCAL_UT_METADATA_ID, MAX_PEER_FRAME_BYTES,
     METADATA_PIECE_SIZE, PEER_HANDSHAKE_LEN,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
