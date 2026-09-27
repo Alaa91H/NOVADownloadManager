@@ -1086,15 +1086,15 @@ void NovaApiClient::startQueue(const QString &queueIdText) {
         }
     }
 
-    int slots = qMax(0, maxActive - active);
+    int availableSlots = qMax(0, maxActive - active);
     for (const QString &taskId : orderedQueueTaskIds(queueId)) {
-        if (slots <= 0) {
+        if (availableSlots <= 0) {
             break;
         }
         const QString status = statuses.value(taskId);
         if (status == QStringLiteral("queued") || status == QStringLiteral("paused")) {
             resumeDownload(taskId);
-            --slots;
+            --availableSlots;
         }
     }
     emit queueCatalogActionCompleted(QStringLiteral("start"), queueId);

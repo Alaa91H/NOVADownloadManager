@@ -63,7 +63,6 @@ pub struct TorrentSeedingSnapshot {
     pub seeded_seconds: u64,
 }
 
-
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TorrentSeedingLimitState {
     pub ratio_reached: bool,
