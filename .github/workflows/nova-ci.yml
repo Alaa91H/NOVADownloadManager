@@ -389,7 +389,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -651,7 +651,7 @@ jobs:
         run: node desktop-native/scripts/smoke-native-messaging.mjs "preview/NOVA-Native-${{ runner.os }}"
 
       - name: Upload native preview
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: NOVA-Native-Preview-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.sha }}
           path: preview/NOVA-Native-${{ runner.os }}/
