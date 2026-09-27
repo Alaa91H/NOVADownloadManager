@@ -445,14 +445,14 @@ void NativeParityTests::batchPatternsMatchLegacySyntax() {
         );
         QVERIFY(!expanded.ok());
         QVERIFY(expanded.urls.isEmpty());
-        QVERIFY(expanded.error.contains(QStringLiteral("10,000")));
+        QVERIFY(expanded.error.contains(QString::number(Nova::BatchPattern::MaxExpandedUrls)));
 
         const auto preview = Nova::BatchPattern::countInput(
             QStringLiteral("https://example.test/file[1-10001].bin")
         );
         QVERIFY(!preview.ok());
         QCOMPARE(preview.count, 0);
-        QVERIFY(preview.error.contains(QStringLiteral("10,000")));
+        QVERIFY(preview.error.contains(QString::number(Nova::BatchPattern::MaxExpandedUrls)));
     }
 }
 
