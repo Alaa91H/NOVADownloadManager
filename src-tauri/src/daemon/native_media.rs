@@ -993,7 +993,7 @@ fn run_native_separate_track_execution(
         &plan,
         &track_base,
         connections,
-        || control(),
+        control,
         |progress| {
             update_native_multitrack_progress(&progress_state, &progress_id, generation, progress);
         },
@@ -1077,7 +1077,7 @@ fn run_native_separate_track_execution(
     }
 
     if use_native_mp4_mux {
-        match mux_mp4_tracks_controlled(&output.0, &output.1, output_path, &should_cancel) {
+        match mux_mp4_tracks_controlled(&output.0, &output.1, output_path, should_cancel) {
             Ok(result) => {
                 if complete_native_task(state, id, generation, result.bytes) {
                     let _ = std::fs::remove_dir_all(staging_dir);
@@ -1272,8 +1272,8 @@ where
         Some(&media_url),
         staging_dir,
         connections,
-        || should_cancel(),
-        |bytes| on_progress(bytes),
+        should_cancel,
+        on_progress,
     )
     .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
     let total_bytes = staged.total_bytes;
@@ -1337,8 +1337,8 @@ where
         Some(&response.effective_url),
         staging_dir,
         connections,
-        || should_cancel(),
-        |bytes| on_progress(bytes),
+        should_cancel,
+        on_progress,
     )
     .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
     let total_bytes = staged.total_bytes;
@@ -1415,7 +1415,7 @@ where
                     Some(media_url),
                     &tick_dir,
                     connections,
-                    || should_cancel(),
+                    should_cancel,
                     |bytes| on_progress(base.saturating_add(bytes)),
                 )
                 .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
@@ -1518,7 +1518,7 @@ where
                 Some(&effective_url),
                 &tick_dir,
                 connections,
-                || should_cancel(),
+                should_cancel,
                 |bytes| on_progress(base.saturating_add(bytes)),
             )
             .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
@@ -1646,7 +1646,8 @@ where
 }
 
 fn best_dash_representation_indices(manifest: &DashManifest) -> Option<(usize, usize, usize)> {
-    let mut best: Option<((u64, u64), (usize, usize, usize))> = None;
+    type DashRepresentationScore = ((u64, u64), (usize, usize, usize));
+    let mut best: Option<DashRepresentationScore> = None;
     for (period_index, period) in manifest.periods.iter().enumerate() {
         for (adaptation_index, adaptation) in period.adaptations.iter().enumerate() {
             for (representation_index, representation) in
@@ -2367,7 +2368,7 @@ fn option_is_configured(value: &Value) -> bool {
         Value::Null => false,
         Value::Bool(value) => *value,
         Value::String(value) => !value.trim().is_empty(),
-        Value::Number(value) => value.as_u64().map_or(true, |number| number != 0),
+        Value::Number(value) => value.as_u64() != Some(0),
         Value::Array(values) => !values.is_empty(),
         Value::Object(values) => !values.is_empty(),
     }
@@ -3608,8 +3609,10 @@ mod tests {
             language: None,
             headers: BTreeMap::new(),
         };
-        let mut options = MediaDownloadOptions::default();
-        options.remux_format = Some("mp4".to_owned());
+        let mut options = MediaDownloadOptions {
+            remux_format: Some("mp4".to_owned()),
+            ..Default::default()
+        };
         ensure_native_remux_policy(&stream, Some(&options)).expect("same container");
 
         options.remux_format = Some("webm".to_owned());
@@ -3621,8 +3624,10 @@ mod tests {
 
     #[test]
     fn separate_tracks_can_copy_mux_to_mkv_policy() {
-        let mut options = MediaDownloadOptions::default();
-        options.remux_format = Some("mkv".to_owned());
+        let options = MediaDownloadOptions {
+            remux_format: Some("mkv".to_owned()),
+            ..Default::default()
+        };
         assert_eq!(
             requested_separate_track_container("mp4", Some(&options)).expect("mkv copy mux"),
             "mkv"
