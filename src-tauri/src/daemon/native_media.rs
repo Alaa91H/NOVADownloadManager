@@ -4220,7 +4220,21 @@ mod tests {
         let (period, adaptation, representation) =
             best_dash_representation_indices(&manifest).expect("DASH representation");
         let dir = unique_temp_dir("nova-native-dash-live-task");
-        let cancelled = AtomicBool::new(false);
+        let checkpoint_path = dir.join("dash-live-checkpoint.json");
+        let cancelled = std::sync::Arc::new(AtomicBool::new(false));
+        let watcher_cancelled = cancelled.clone();
+        let watcher_checkpoint = checkpoint_path.clone();
+        let cancel_watcher = std::thread::spawn(move || {
+            let deadline = Instant::now() + std::time::Duration::from_secs(5);
+            while !watcher_checkpoint.exists() {
+                assert!(
+                    Instant::now() < deadline,
+                    "dynamic DASH checkpoint was not committed before cancellation"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            watcher_cancelled.store(true, Ordering::Release);
+        });
 
         let result = stage_dash_live_stream(
             &first.effective_url,
@@ -4232,18 +4246,14 @@ mod tests {
             &dir,
             2,
             &|| cancelled.load(Ordering::Acquire),
-            &|bytes| {
-                if bytes >= 9 {
-                    cancelled.store(true, Ordering::Release);
-                }
-            },
+            &|_| {},
         );
+        cancel_watcher.join().expect("dynamic DASH cancel watcher");
         server.join().expect("dynamic DASH server");
         assert!(matches!(result, Err(NativeMediaTaskError::Transfer(_))));
 
         let checkpoint: DashLiveTaskCheckpoint =
-            read_live_checkpoint(&dir.join("dash-live-checkpoint.json"))
-                .expect("dynamic DASH checkpoint");
+            read_live_checkpoint(&checkpoint_path).expect("dynamic DASH checkpoint");
         assert_eq!(checkpoint.cursor.last_time, Some(10));
         assert_eq!(checkpoint.total_bytes, 9);
 

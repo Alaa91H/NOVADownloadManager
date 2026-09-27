@@ -1753,10 +1753,18 @@ mod tests {
         );
         assert_eq!(
             status["capabilities"]["separateTrackMuxBackend"],
-            "nova-media-postprocess"
+            "container-dependent"
         );
         assert_eq!(
             status["capabilities"]["separateTrackMuxRequiresPostProcessingReady"],
+            false
+        );
+        assert_eq!(
+            status["capabilities"]["nonMp4MuxBackend"],
+            "nova-media-postprocess"
+        );
+        assert_eq!(
+            status["capabilities"]["nonMp4MuxRequiresPostProcessingReady"],
             true
         );
         let supported = status["supportedMediaOptionKeys"]

@@ -1213,6 +1213,7 @@ mod tests {
         let data_dir_string = data_dir.display().to_string();
         let state = Arc::new(persist::tests::test_state(&data_dir_string));
         let mut checkpoint_task = restoration_test_task("pausing", "pausing");
+        checkpoint_task.size_bytes = 1024;
         checkpoint_task.downloaded_bytes = 321;
         checkpoint_task.speed_bytes_per_sec = 777;
         let checkpoint = nova_core_model::RecoveryCheckpoint::from_task(
