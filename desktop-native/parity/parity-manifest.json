@@ -358,7 +358,7 @@
         "desktop-native/src/api/NovaApiClient.cpp",
         "desktop-native/tests/NativeParityTests.cpp",
         "src-tauri/src/daemon/engine_capabilities.rs",
-        "src-tauri/src/daemon/ytdlp.rs"
+        "src-tauri/src/daemon/native_media.rs"
       ],
       "contains": [
         {
@@ -574,7 +574,7 @@
         "desktop-native/src/platform/DesktopIntegration.cpp",
         "desktop-native/src/platform/MacDockProgress.mm",
         "desktop-native/CMakeLists.txt",
-        ".github/workflows/native-ui.yml"
+        ".github/workflows/nova-ci.yml"
       ],
       "contains": [
         {
@@ -656,7 +656,6 @@
       "status": "covered",
       "evidence": [
         "desktop-native/src/localization/I18nManager.cpp",
-        "desktop-native/src/localization/LegacyI18nCatalog.cpp",
         "desktop-native/src/settings/NativeSettings.cpp",
         "desktop-native/scripts/check-localization.mjs",
         "desktop-native/scripts/check-release-localization.mjs",
@@ -781,10 +780,9 @@
         "browser-extension/src/bridge/pairing-manager.ts",
         "browser-extension/src/tests/unit/pairing-manager.test.ts",
         "browser-extension/src/tests/unit/bridge-manager.test.ts",
-        ".github/workflows/native-ui-rust.yml",
+        ".github/workflows/nova-ci.yml",
         "docs/extension/ZERO_CLICK_PAIRING.md",
         "desktop-native/scripts/smoke-native-messaging.mjs",
-        ".github/workflows/native-ui.yml",
         "desktop-native/scripts/check-browser-native-contract.mjs",
         "browser-extension/src/manifest.json",
         "browser-extension/src/transport/native-transport.ts"
@@ -802,9 +800,9 @@
         {
           "file": "src-tauri/src/native_host.rs",
           "allOf": [
-            "pairing_secret_for_base_url",
-            "NATIVE_PAIRING_SECRET_HEADER",
-            "native-messaging-secret-proof",
+            "NATIVE_HOST_PAIRING_HEADER",
+            "NATIVE_HOST_PAIRING_VALUE",
+            "/v1/pair/auto",
             "candidate.send"
           ]
         },
@@ -829,15 +827,10 @@
           ]
         },
         {
-          "file": ".github/workflows/native-ui-rust.yml",
+          "file": ".github/workflows/nova-ci.yml",
           "allOf": [
             "Browser Native Messaging identity contract",
-            "check-browser-native-contract.mjs"
-          ]
-        },
-        {
-          "file": ".github/workflows/native-ui.yml",
-          "allOf": [
+            "check-browser-native-contract.mjs",
             "Smoke-test packaged Native Messaging bridge",
             "smoke-native-messaging.mjs"
           ]
@@ -903,7 +896,7 @@
       "label": "Windows/macOS/Linux architecture validation",
       "status": "partial",
       "evidence": [
-        ".github/workflows/native-ui.yml",
+        ".github/workflows/nova-ci.yml",
         "desktop-native/src/platform/BackendBootstrap.cpp",
         "src-tauri/src/bin/nova-native-backend.rs",
         "src-tauri/src/bin/nova-native-host.rs"
@@ -988,7 +981,7 @@
         "desktop-native/src/models/DownloadListModel.cpp",
         "desktop-native/src/api/NovaApiClient.cpp",
         "desktop-native/src/platform/BackendBootstrap.cpp",
-        ".github/workflows/native-ui.yml"
+        ".github/workflows/nova-ci.yml"
       ],
       "contains": [
         {
@@ -1018,7 +1011,7 @@
           ]
         },
         {
-          "file": ".github/workflows/native-ui.yml",
+          "file": ".github/workflows/nova-ci.yml",
           "allOf": [
             "Native stress and recovery tests",
             "ctest --test-dir build/native"
