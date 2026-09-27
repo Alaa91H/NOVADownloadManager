@@ -1584,32 +1584,33 @@ pub fn download_http_to_path_segmented_controlled_with_context<
                         message: format!("failed to open segment {index}: {error}"),
                     })?;
                 let start = range.start + existing;
-                let mut writer = ProgressWriter {
-                    inner: &mut file,
-                    aggregate,
-                    total: total_bytes,
-                    progress,
+                let result = {
+                    let mut writer = ProgressWriter {
+                        inner: &mut file,
+                        aggregate,
+                        total: total_bytes,
+                        progress,
+                    };
+                    stream_http_range_controlled_with_validator(
+                        effective_url,
+                        start,
+                        range.end,
+                        &mut writer,
+                        context,
+                        Some(validator),
+                        || {
+                            let command = control();
+                            if command != TransferControl::Continue {
+                                return command;
+                            }
+                            if abort.load(Ordering::Acquire) {
+                                TransferControl::Cancel
+                            } else {
+                                TransferControl::Continue
+                            }
+                        },
+                    )
                 };
-                let result = stream_http_range_controlled_with_validator(
-                    effective_url,
-                    start,
-                    range.end,
-                    &mut writer,
-                    context,
-                    Some(validator),
-                    || {
-                        let command = control();
-                        if command != TransferControl::Continue {
-                            return command;
-                        }
-                        if abort.load(Ordering::Acquire) {
-                            TransferControl::Cancel
-                        } else {
-                            TransferControl::Continue
-                        }
-                    },
-                );
-                drop(writer);
 
                 if let Err(error) = file.flush().and_then(|_| file.sync_all()) {
                     abort.store(true, Ordering::Release);
