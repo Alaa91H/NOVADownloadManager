@@ -200,6 +200,10 @@ impl SegmentRange {
             self.end.saturating_sub(self.start).saturating_add(1)
         }
     }
+
+    pub const fn is_empty(&self) -> bool {
+        self.end < self.start
+    }
 }
 
 /// The part-file naming convention shared by the transfer planner, the
