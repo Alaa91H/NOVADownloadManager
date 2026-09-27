@@ -30,8 +30,7 @@ pub struct PersistedState {
     pub torrent_sources: HashMap<String, String>,
     /// Durable per-torrent seeding policy and counters.
     #[serde(default)]
-    pub torrent_seeding:
-        HashMap<String, crate::daemon::torrent_seeding::TorrentSeedingSnapshot>,
+    pub torrent_seeding: HashMap<String, crate::daemon::torrent_seeding::TorrentSeedingSnapshot>,
     #[serde(default)]
     pub curl_args: HashMap<String, Vec<String>>,
     /// Per-task libcurl options are persisted separately from diagnostic CLI
@@ -193,10 +192,11 @@ pub fn load(data_dir: &str) -> PersistedState {
     }
 }
 
-fn native_request_requires_reauth(
-    request: &crate::daemon::types::CreateDownloadBody,
-) -> bool {
-    request.referer.as_deref().is_some_and(|value| !value.trim().is_empty())
+fn native_request_requires_reauth(request: &crate::daemon::types::CreateDownloadBody) -> bool {
+    request
+        .referer
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
         || request.media_options.as_ref().is_some_and(|options| {
             options
                 .cookies
@@ -265,10 +265,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         let torrent_sources: HashMap<String, String> = torrent_jobs
             .iter()
             .filter_map(|(id, job)| {
-                let source = job
-                    .source_uri
-                    .as_deref()
-                    .unwrap_or(job.task.url.as_str());
+                let source = job.source_uri.as_deref().unwrap_or(job.task.url.as_str());
                 crate::daemon::torrent_task::persistable_magnet_source(source, job.private)
                     .ok()
                     .map(|(sanitized, _)| (id.clone(), sanitized))
@@ -303,21 +300,14 @@ fn build_snapshot(state: &AppState) -> PersistedState {
                 .filter(|(_, job)| native_request_requires_reauth(&job.request))
                 .map(|(id, _)| id.clone()),
         );
-        resume_requires_reauth.extend(
-            torrent_jobs
-                .iter()
-                .filter_map(|(id, job)| {
-                    let source = job
-                        .source_uri
-                        .as_deref()
-                        .unwrap_or(job.task.url.as_str());
-                    let removed_sensitive =
-                        crate::daemon::torrent_task::persistable_magnet_source(source, job.private)
-                            .map(|(_, removed)| removed)
-                            .unwrap_or(true);
-                    (job.requires_reauth || removed_sensitive).then_some(id.clone())
-                }),
-        );
+        resume_requires_reauth.extend(torrent_jobs.iter().filter_map(|(id, job)| {
+            let source = job.source_uri.as_deref().unwrap_or(job.task.url.as_str());
+            let removed_sensitive =
+                crate::daemon::torrent_task::persistable_magnet_source(source, job.private)
+                    .map(|(_, removed)| removed)
+                    .unwrap_or(true);
+            (job.requires_reauth || removed_sensitive).then_some(id.clone())
+        }));
         resume_requires_reauth.sort();
         resume_requires_reauth.dedup();
         let tasks: Vec<Task> = snapshot.values().cloned().collect();

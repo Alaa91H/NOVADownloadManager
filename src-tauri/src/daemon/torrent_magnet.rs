@@ -135,8 +135,7 @@ impl MagnetResolver {
                     ));
                 }
                 Err(tracker_metadata_error)
-                    if !self.config.enable_dht
-                        || !self.config.dht_fallback_with_trackers =>
+                    if !self.config.enable_dht || !self.config.dht_fallback_with_trackers =>
                 {
                     return Err(format!(
                         "Tracker peers were found but metadata exchange failed: {tracker_metadata_error}"
@@ -182,20 +181,10 @@ impl MagnetResolver {
             .await
             .map_err(|error| format!("DHT peers could not provide magnet metadata: {error}"))?;
 
-        let resolution = build_resolution(
-            metadata,
-            local_peer_id,
-            tracker_peers,
-            dht_peers,
-            true,
-        );
+        let resolution = build_resolution(metadata, local_peer_id, tracker_peers, dht_peers, true);
         if !resolution.metainfo.private {
-            self.announce_dht_targets(
-                &dht.announce_targets,
-                resolution.metainfo.info_hash,
-                cancel,
-            )
-            .await;
+            self.announce_dht_targets(&dht.announce_targets, resolution.metainfo.info_hash, cancel)
+                .await;
         }
         Ok(resolution)
     }
@@ -273,9 +262,7 @@ impl MagnetResolver {
             let dht = self.dht.clone();
             let child = cancel.child_token();
             tasks.spawn(async move {
-                let _ = dht
-                    .announce_peer(&target, info_hash, port, &child)
-                    .await;
+                let _ = dht.announce_peer(&target, info_hash, port, &child).await;
             });
         }
         while let Some(joined) = tasks.join_next().await {
@@ -378,7 +365,11 @@ fn build_resolution(
 }
 
 fn bounded_unique(peers: Vec<SocketAddr>, limit: usize) -> Vec<SocketAddr> {
-    let mut unique = peers.into_iter().collect::<HashSet<_>>().into_iter().collect::<Vec<_>>();
+    let mut unique = peers
+        .into_iter()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
     unique.sort_unstable();
     unique.truncate(limit.max(1));
     unique
@@ -396,23 +387,20 @@ mod tests {
     #[tokio::test]
     async fn trackerless_magnet_resolves_through_dht_and_bep9_peer() {
         use crate::daemon::torrent_dht::DhtConfig;
-        use crate::daemon::torrent_peer::{
-            read_peer_frame, PeerEngineConfig, PeerSessionConfig,
-        };
+        use crate::daemon::torrent_peer::{read_peer_frame, PeerEngineConfig, PeerSessionConfig};
         use nova_torrent_core::{
-            DhtMessage, DhtNodeId, DhtQuery, DhtResponse, ExtendedHandshake,
-            MetadataMessage, PeerHandshake, PeerMessage, EXTENSION_HANDSHAKE_ID,
-            LOCAL_UT_METADATA_ID, MAX_DHT_PACKET_BYTES, PEER_HANDSHAKE_LEN,
+            DhtMessage, DhtNodeId, DhtQuery, DhtResponse, ExtendedHandshake, MetadataMessage,
+            PeerHandshake, PeerMessage, EXTENSION_HANDSHAKE_ID, LOCAL_UT_METADATA_ID,
+            MAX_DHT_PACKET_BYTES, PEER_HANDSHAKE_LEN,
         };
         use std::time::Duration;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tokio::net::{TcpListener, UdpSocket};
 
-        let mut info =
-            b"d6:lengthi8e4:name9:piece.bin12:piece lengthi8e6:pieces20:".to_vec();
+        let mut info = b"d6:lengthi8e4:name9:piece.bin12:piece lengthi8e6:pieces20:".to_vec();
         info.extend_from_slice(&[
-            0x42, 0x5a, 0xf1, 0x2a, 0x07, 0x43, 0x50, 0x2b, 0x32, 0x2e,
-            0x93, 0xa0, 0x15, 0xbc, 0xf8, 0x68, 0xe3, 0x24, 0xd5, 0x6a,
+            0x42, 0x5a, 0xf1, 0x2a, 0x07, 0x43, 0x50, 0x2b, 0x32, 0x2e, 0x93, 0xa0, 0x15, 0xbc,
+            0xf8, 0x68, 0xe3, 0x24, 0xd5, 0x6a,
         ]);
         info.push(b'e');
         let expected = TorrentMetainfo::from_info_bytes(&info, &[]).unwrap();
@@ -429,8 +417,7 @@ mod tests {
             assert_eq!(client.info_hash, info_hash);
             assert!(client.supports_extension_protocol());
 
-            let mut remote =
-                PeerHandshake::new(info_hash, *b"-NVTEST-REMOTE-00001");
+            let mut remote = PeerHandshake::new(info_hash, *b"-NVTEST-REMOTE-00001");
             remote.reserved[5] |= 0x10;
             stream.write_all(&remote.encode()).await.unwrap();
 
@@ -515,10 +502,11 @@ mod tests {
             let request = DhtMessage::parse(&buffer).unwrap();
             let DhtMessage::Query {
                 transaction_id,
-                query: DhtQuery::GetPeers {
-                    info_hash: requested,
-                    ..
-                },
+                query:
+                    DhtQuery::GetPeers {
+                        info_hash: requested,
+                        ..
+                    },
             } = request
             else {
                 panic!("expected DHT get_peers");

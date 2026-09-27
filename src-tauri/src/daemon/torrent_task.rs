@@ -20,8 +20,7 @@ use crate::daemon::torrent_bandwidth::TorrentBandwidthLimiter;
 use crate::daemon::torrent_magnet::{MagnetResolution, MagnetResolver};
 use crate::daemon::torrent_peer::{generate_peer_id, PeerEngine};
 use crate::daemon::torrent_seeding::{
-    TorrentSeedingControl, TorrentSeedingPolicy, TorrentSeedingSnapshot,
-    MAX_SEED_RATIO_MILLI,
+    TorrentSeedingControl, TorrentSeedingPolicy, TorrentSeedingSnapshot, MAX_SEED_RATIO_MILLI,
 };
 use crate::daemon::torrent_storage::{TorrentStorageProgress, TorrentStorageSession};
 use crate::daemon::torrent_telemetry::{
@@ -464,7 +463,9 @@ pub async fn torrent_task_details(
 ) -> Result<TorrentTaskDetails, String> {
     let (job, storage_slot) = {
         let jobs = lock_or_err!(state.torrent_jobs);
-        let job = jobs.get(id).ok_or_else(|| "Torrent task not found".to_owned())?;
+        let job = jobs
+            .get(id)
+            .ok_or_else(|| "Torrent task not found".to_owned())?;
         (job.clone(), job.storage.clone())
     };
     let storage = ensure_storage_session(&job, storage_slot).await?;
@@ -547,7 +548,9 @@ pub async fn update_torrent_file_priorities(
 ) -> Result<TorrentTaskDetails, String> {
     let (job, storage_slot) = {
         let jobs = lock_or_err!(state.torrent_jobs);
-        let job = jobs.get(id).ok_or_else(|| "Torrent task not found".to_owned())?;
+        let job = jobs
+            .get(id)
+            .ok_or_else(|| "Torrent task not found".to_owned())?;
         let current = TaskState::from_status(&job.task.status)
             .ok_or_else(|| format!("Torrent task has unknown state '{}'", job.task.status))?;
         if current.is_active() {
@@ -563,14 +566,20 @@ pub async fn update_torrent_file_priorities(
     };
 
     let storage = ensure_storage_session(&job, storage_slot).await?;
-    let plan = storage.transfer_plan().await.map_err(|error| error.to_string())?;
+    let plan = storage
+        .transfer_plan()
+        .await
+        .map_err(|error| error.to_string())?;
     let selection = TorrentSelection::new(&plan.metainfo, priorities)
         .map_err(|error| format!("Invalid torrent file priorities: {error}"))?;
     storage
         .update_selection(selection)
         .await
         .map_err(|error| format!("Could not update torrent selection: {error}"))?;
-    let progress = storage.progress().await.map_err(|error| error.to_string())?;
+    let progress = storage
+        .progress()
+        .await
+        .map_err(|error| error.to_string())?;
 
     {
         let mut jobs = lock_or_err!(state.torrent_jobs);
@@ -583,7 +592,9 @@ pub async fn update_torrent_file_priorities(
             lock_or_err!(state.task_snapshot).insert(id.to_owned(), task);
         }
     }
-    state.priority_queue.update_size(id, progress.selected_total_bytes);
+    state
+        .priority_queue
+        .update_size(id, progress.selected_total_bytes);
     state.mark_dirty();
     torrent_task_details(state, id).await
 }
@@ -640,7 +651,9 @@ fn seeding_policy_from_body(
     let ratio_limit_milli = match body.ratio_limit {
         Some(ratio) => {
             if !ratio.is_finite() || ratio < 0.0 {
-                return Err("Torrent seed ratio limit must be a finite non-negative number".to_owned());
+                return Err(
+                    "Torrent seed ratio limit must be a finite non-negative number".to_owned(),
+                );
             }
             let maximum = f64::from(MAX_SEED_RATIO_MILLI) / 1000.0;
             if ratio > maximum {
@@ -670,7 +683,9 @@ pub async fn reauthorize_torrent_task(
         .map_err(|error| format!("Invalid magnet URI: {error}"))?;
     let (expected, private_torrent) = {
         let jobs = lock_or_err!(state.torrent_jobs);
-        let job = jobs.get(id).ok_or_else(|| "Torrent task not found".to_owned())?;
+        let job = jobs
+            .get(id)
+            .ok_or_else(|| "Torrent task not found".to_owned())?;
         (info_hash_from_hex(&job.task.engine_id)?, job.private)
     };
     if magnet.info_hash != expected {
@@ -680,7 +695,9 @@ pub async fn reauthorize_torrent_task(
     let (persisted, _removed_sensitive) = persistable_magnet_source(magnet_uri, private_torrent)?;
     let task = {
         let mut jobs = lock_or_err!(state.torrent_jobs);
-        let job = jobs.get_mut(id).ok_or_else(|| "Torrent task not found".to_owned())?;
+        let job = jobs
+            .get_mut(id)
+            .ok_or_else(|| "Torrent task not found".to_owned())?;
         job.source_uri = Some(magnet_uri.trim().to_owned());
         job.requires_reauth = false;
         job.task.url = persisted;
@@ -709,13 +726,9 @@ pub async fn reauthorize_torrent_task(
     if let Some(seed_job) = seed_job {
         let task_state = TaskState::from_status(&seed_job.task.status);
         if seed_job.seeding.policy().enabled
-            && task_state.is_some_and(|state| {
-                state == TaskState::Completed || state.is_active()
-            })
+            && task_state.is_some_and(|state| state == TaskState::Completed || state.is_active())
         {
-            if let Ok(storage) =
-                ensure_storage_session(&seed_job, seed_job.storage.clone()).await
-            {
+            if let Ok(storage) = ensure_storage_session(&seed_job, seed_job.storage.clone()).await {
                 if task_state == Some(TaskState::Completed) {
                     seed_job.seeding.start_timer();
                 }
@@ -756,7 +769,10 @@ pub fn start_torrent_process(state: &SharedState, id: &str) -> Result<(), String
             return Err("Completed torrent cannot be resumed; use redownload".to_owned());
         }
         if current.is_active() {
-            return Err(format!("Torrent task is already active in state '{}'", current.as_status()));
+            return Err(format!(
+                "Torrent task is already active in state '{}'",
+                current.as_status()
+            ));
         }
         if current != TaskState::Queued {
             transition_task_state(&mut job.task, TaskState::Queued, "start-requested")?;
@@ -1080,13 +1096,7 @@ async fn run_torrent_worker(
                 )
             })
             .and_then(|_| {
-                transition_torrent_task(
-                    &state,
-                    &id,
-                    generation,
-                    TaskState::Completed,
-                    "completed",
-                )
+                transition_torrent_task(&state, &id, generation, TaskState::Completed, "completed")
             })
             .is_err()
             {
@@ -1129,11 +1139,7 @@ async fn run_torrent_worker(
     }
 }
 
-fn start_torrent_seed_services(
-    state: &SharedState,
-    id: &str,
-    storage: TorrentStorageSession,
-) {
+fn start_torrent_seed_services(state: &SharedState, id: &str, storage: TorrentStorageSession) {
     let job = {
         let jobs = lock_or_err!(state.torrent_jobs);
         jobs.get(id).cloned()
@@ -1215,9 +1221,8 @@ fn start_torrent_seed_services(
             };
             if !still_exists
                 || !watch_control.policy().enabled
-                || !task_state.is_some_and(|state| {
-                    state == TaskState::Completed || state.is_active()
-                })
+                || !task_state
+                    .is_some_and(|state| state == TaskState::Completed || state.is_active())
             {
                 watch_cancel.cancel();
                 break;
@@ -1357,7 +1362,11 @@ pub async fn recheck_restored_completed_torrents(state: &SharedState) {
                     current.task.error_message = None;
                     if !current.requires_reauth && current.seeding.policy().enabled {
                         current.seeding.start_timer();
-                        if current.seeding.limit_state(progress.selected_total_bytes).reached() {
+                        if current
+                            .seeding
+                            .limit_state(progress.selected_total_bytes)
+                            .reached()
+                        {
                             current.seeding.stop_timer();
                             current.seed_cancel_token.cancel();
                         } else {
@@ -1440,7 +1449,9 @@ pub async fn shutdown_torrent_tasks(state: &SharedState) {
 pub async fn pause_torrent_task(state: &SharedState, id: &str) -> Result<Task, String> {
     let (storage_slot, generation, active) = {
         let mut jobs = lock_or_err!(state.torrent_jobs);
-        let job = jobs.get_mut(id).ok_or_else(|| "Torrent task not found".to_owned())?;
+        let job = jobs
+            .get_mut(id)
+            .ok_or_else(|| "Torrent task not found".to_owned())?;
         let current = TaskState::from_status(&job.task.status)
             .ok_or_else(|| format!("Torrent task has unknown state '{}'", job.task.status))?;
         if current == TaskState::Completed {
@@ -1479,7 +1490,9 @@ pub async fn pause_torrent_task(state: &SharedState, id: &str) -> Result<Task, S
         }
         let task = {
             let mut jobs = lock_or_err!(state.torrent_jobs);
-            let job = jobs.get_mut(id).ok_or_else(|| "Torrent task not found".to_owned())?;
+            let job = jobs
+                .get_mut(id)
+                .ok_or_else(|| "Torrent task not found".to_owned())?;
             if job.run_generation.load(Ordering::Acquire) == generation
                 && TaskState::from_status(&job.task.status) == Some(TaskState::Pausing)
             {
@@ -1498,7 +1511,9 @@ pub async fn pause_torrent_task(state: &SharedState, id: &str) -> Result<Task, S
 pub async fn resume_torrent_task(state: &SharedState, id: &str) -> Result<Task, String> {
     {
         let mut jobs = lock_or_err!(state.torrent_jobs);
-        let job = jobs.get_mut(id).ok_or_else(|| "Torrent task not found".to_owned())?;
+        let job = jobs
+            .get_mut(id)
+            .ok_or_else(|| "Torrent task not found".to_owned())?;
         if job.requires_reauth {
             return Err(
                 "Torrent tracker authorization is required. Re-authorize the magnet link first."
@@ -1511,7 +1526,10 @@ pub async fn resume_torrent_task(state: &SharedState, id: &str) -> Result<Task, 
             return Err("Completed torrent cannot be resumed".to_owned());
         }
         if current.is_active() {
-            return Err(format!("Torrent task is still active in '{}'", current.as_status()));
+            return Err(format!(
+                "Torrent task is still active in '{}'",
+                current.as_status()
+            ));
         }
         if current == TaskState::Failed {
             restart_task_state(&mut job.task, "resume-requested")?;
@@ -1605,19 +1623,21 @@ pub async fn delete_torrent_task(
 pub async fn redownload_torrent_task(state: &SharedState, id: &str) -> Result<Task, String> {
     let job = {
         let jobs = lock_or_err!(state.torrent_jobs);
-        jobs.get(id).cloned().ok_or_else(|| "Torrent task not found".to_owned())?
+        jobs.get(id)
+            .cloned()
+            .ok_or_else(|| "Torrent task not found".to_owned())?
     };
     if TaskState::from_status(&job.task.status).is_some_and(TaskState::is_active) {
         let _ = pause_torrent_task(state, id).await?;
     }
 
     let storage = ensure_storage_session(&job, job.storage.clone()).await?;
-    let plan = storage.transfer_plan().await.map_err(|error| error.to_string())?;
-    let selection = TorrentSelection::new(
-        &plan.metainfo,
-        plan.file_priorities.clone(),
-    )
-    .map_err(|error| error.to_string())?;
+    let plan = storage
+        .transfer_plan()
+        .await
+        .map_err(|error| error.to_string())?;
+    let selection = TorrentSelection::new(&plan.metainfo, plan.file_priorities.clone())
+        .map_err(|error| error.to_string())?;
     storage
         .delete_owned_payload_and_state()
         .await
@@ -1636,7 +1656,9 @@ pub async fn redownload_torrent_task(state: &SharedState, id: &str) -> Result<Ta
 
     {
         let mut jobs = lock_or_err!(state.torrent_jobs);
-        let current = jobs.get_mut(id).ok_or_else(|| "Torrent task not found".to_owned())?;
+        let current = jobs
+            .get_mut(id)
+            .ok_or_else(|| "Torrent task not found".to_owned())?;
         restart_task_state(&mut current.task, "redownload-requested")?;
         current.task.downloaded_bytes = 0;
         current.task.speed_bytes_per_sec = 0;
@@ -1667,12 +1689,10 @@ pub(crate) async fn ensure_storage_session(
         return Ok(storage.clone());
     }
     let info_hash = info_hash_from_hex(&job.task.engine_id)?;
-    let storage = TorrentStorageSession::resume_from_manifest(
-        PathBuf::from(&job.task.save_path),
-        info_hash,
-    )
-    .await
-    .map_err(|error| format!("Could not restore torrent storage: {error}"))?;
+    let storage =
+        TorrentStorageSession::resume_from_manifest(PathBuf::from(&job.task.save_path), info_hash)
+            .await
+            .map_err(|error| format!("Could not restore torrent storage: {error}"))?;
     *guard = Some(storage.clone());
     Ok(storage)
 }
@@ -1686,7 +1706,9 @@ fn transition_torrent_task(
 ) -> Result<(), String> {
     let task = {
         let mut jobs = lock_or_err!(state.torrent_jobs);
-        let job = jobs.get_mut(id).ok_or_else(|| "Torrent task not found".to_owned())?;
+        let job = jobs
+            .get_mut(id)
+            .ok_or_else(|| "Torrent task not found".to_owned())?;
         if job.run_generation.load(Ordering::Acquire) != generation {
             return Err("Torrent worker generation is stale".to_owned());
         }
@@ -1868,9 +1890,12 @@ fn discovery_source_from_metainfo(metainfo: &TorrentMetainfo) -> String {
     format!("magnet:?{}", query.finish())
 }
 
-pub fn persistable_magnet_source(input: &str, private_torrent: bool) -> Result<(String, bool), String> {
-    let magnet = MagnetLink::parse(input)
-        .map_err(|error| format!("Invalid magnet URI: {error}"))?;
+pub fn persistable_magnet_source(
+    input: &str,
+    private_torrent: bool,
+) -> Result<(String, bool), String> {
+    let magnet =
+        MagnetLink::parse(input).map_err(|error| format!("Invalid magnet URI: {error}"))?;
     let mut query = url::form_urlencoded::Serializer::new(String::new());
     query.append_pair("xt", &format!("urn:btih:{}", magnet.info_hash.to_hex()));
     if let Some(name) = magnet.display_name.as_deref() {

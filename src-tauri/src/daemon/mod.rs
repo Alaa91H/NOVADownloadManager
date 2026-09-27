@@ -5,28 +5,28 @@ pub mod direct;
 pub mod engine;
 pub mod engine_capabilities;
 pub mod external_tools;
+pub mod native_media;
+pub mod native_torrent;
 pub mod persist;
 pub mod postprocess;
 pub mod resource_intelligence;
 pub mod routes;
 pub mod state;
 pub mod telegram;
-pub mod types;
-pub mod utils;
-pub mod native_media;
-pub mod native_torrent;
+pub mod torrent_bandwidth;
+pub mod torrent_dht;
+pub mod torrent_magnet;
 pub mod torrent_peer;
 pub mod torrent_policy;
 pub mod torrent_seed;
 pub mod torrent_seeding;
-pub mod torrent_dht;
-pub mod torrent_bandwidth;
-pub mod torrent_magnet;
 pub mod torrent_storage;
 pub mod torrent_task;
 pub mod torrent_telemetry;
 pub mod torrent_tracker;
 pub mod torrent_transfer;
+pub mod types;
+pub mod utils;
 
 /// Stable Chromium extension origin derived from NOVA's pinned public key.
 /// Chrome and Edge enforce this origin as an extension-identity boundary.
@@ -51,8 +51,7 @@ use tower_http::limit::RequestBodyLimitLayer;
 use crate::daemon::state::{AppState, SharedState};
 use crate::daemon::telegram::start_telegram_bot;
 use crate::daemon::types::{
-    transition_task_state, CreateDownloadBody, CurlJob, NativeMediaJob, TaskState,
-    TelegramConfig,
+    transition_task_state, CreateDownloadBody, CurlJob, NativeMediaJob, TaskState, TelegramConfig,
 };
 use crate::lock_or_err;
 
@@ -512,9 +511,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     let et = state.external_tools.clone();
                     tokio::task::spawn_blocking(move || {
                         let et = lock_or_err!(et);
-                        vec![et.discover(
-                            crate::daemon::external_tools::types::ToolId::Ffmpeg,
-                        )]
+                        vec![et.discover(crate::daemon::external_tools::types::ToolId::Ffmpeg)]
                     })
                     .await
                     .unwrap_or_else(|error| {
@@ -624,12 +621,11 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     let seed_state = state.clone();
                     let seed_cancel = torrent_network_cancel.clone();
                     tokio::spawn(async move {
-                        if let Err(error) =
-                            crate::daemon::torrent_seed::run_inbound_seed_listener(
-                                seed_state,
-                                seed_cancel,
-                            )
-                            .await
+                        if let Err(error) = crate::daemon::torrent_seed::run_inbound_seed_listener(
+                            seed_state,
+                            seed_cancel,
+                        )
+                        .await
                         {
                             log::warn!("Native torrent seeding listener is unavailable: {error}");
                         }
@@ -900,8 +896,7 @@ fn restore_persisted_tasks(
 
         // P0 crash/restart consistency: a persisted completed state must still
         // agree with the filesystem before it is exposed as completed again.
-        if task.status == "completed"
-            && (is_direct_download || task.engine == "nova-media-engine")
+        if task.status == "completed" && (is_direct_download || task.engine == "nova-media-engine")
         {
             if let Err(error) = validate_restored_direct_completion(&task) {
                 log::warn!("Task {}: invalid persisted completion: {error}", task.id);
@@ -1313,7 +1308,9 @@ mod tests {
         drop(jobs);
 
         let snapshot = state.task_snapshot.lock().expect("lock restored snapshot");
-        let restored = snapshot.get("native-media").expect("restored native media task");
+        let restored = snapshot
+            .get("native-media")
+            .expect("restored native media task");
         assert_eq!(restored.status, "paused");
         assert_eq!(restored.engine, "nova-media-engine");
         drop(snapshot);
@@ -1519,13 +1516,20 @@ mod tests {
         restore_persisted_tasks(&state, restored);
 
         let snapshot = state.task_snapshot.lock().expect("lock restored snapshot");
-        let restored_task = snapshot.get("native-media").expect("restored native media task");
+        let restored_task = snapshot
+            .get("native-media")
+            .expect("restored native media task");
         assert_eq!(restored_task.status, "paused");
         assert_eq!(restored_task.engine_status.as_deref(), Some("interrupted"));
         drop(snapshot);
 
-        let jobs = state.native_media_jobs.lock().expect("lock native media jobs");
-        let job = jobs.get("native-media").expect("rehydrated native media job");
+        let jobs = state
+            .native_media_jobs
+            .lock()
+            .expect("lock native media jobs");
+        let job = jobs
+            .get("native-media")
+            .expect("rehydrated native media job");
         assert_eq!(job.protocol, "direct");
         assert_eq!(
             job.request.url.as_deref(),
@@ -1557,9 +1561,14 @@ mod tests {
         restore_persisted_tasks(&state, restored);
 
         let snapshot = state.task_snapshot.lock().expect("lock restored snapshot");
-        let restored_task = snapshot.get("legacy-media").expect("restored legacy media task");
+        let restored_task = snapshot
+            .get("legacy-media")
+            .expect("restored legacy media task");
         assert_eq!(restored_task.status, "error");
-        assert_eq!(restored_task.engine_status.as_deref(), Some("engine-retired"));
+        assert_eq!(
+            restored_task.engine_status.as_deref(),
+            Some("engine-retired")
+        );
         assert!(restored_task
             .error_message
             .as_deref()

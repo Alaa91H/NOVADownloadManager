@@ -220,8 +220,7 @@ impl TorrentSeedingControl {
         let uploaded = u128::from(self.uploaded_bytes());
         let ratio_reached = match (policy.ratio_limit_milli, downloaded_bytes) {
             (Some(limit), total) if total > 0 => {
-                uploaded.saturating_mul(1000)
-                    >= u128::from(total).saturating_mul(u128::from(limit))
+                uploaded.saturating_mul(1000) >= u128::from(total).saturating_mul(u128::from(limit))
             }
             _ => false,
         };

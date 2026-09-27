@@ -87,8 +87,8 @@ fn integration_data_dir() -> PathBuf {
 /// from the former desktop shell does not fork user state.
 #[must_use]
 pub fn native_desktop_data_dir() -> PathBuf {
-    if let Some(override_dir) = std::env::var_os("NOVA_NATIVE_DATA_DIR")
-        .filter(|value| !value.is_empty())
+    if let Some(override_dir) =
+        std::env::var_os("NOVA_NATIVE_DATA_DIR").filter(|value| !value.is_empty())
     {
         return PathBuf::from(override_dir);
     }
@@ -108,9 +108,7 @@ pub fn native_desktop_data_dir() -> PathBuf {
 
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        if let Some(xdg) = std::env::var_os("XDG_DATA_HOME")
-            .filter(|value| !value.is_empty())
-        {
+        if let Some(xdg) = std::env::var_os("XDG_DATA_HOME").filter(|value| !value.is_empty()) {
             return PathBuf::from(xdg).join("com.nova.downloadmanager");
         }
         if let Some(home) = std::env::var_os("HOME").filter(|value| !value.is_empty()) {
@@ -196,10 +194,8 @@ mod tests {
 
     #[test]
     fn native_desktop_data_dir_honors_explicit_override() {
-        let expected = std::env::temp_dir().join(format!(
-            "nova-native-data-test-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let expected =
+            std::env::temp_dir().join(format!("nova-native-data-test-{}", uuid::Uuid::new_v4()));
         std::env::set_var("NOVA_NATIVE_DATA_DIR", &expected);
         assert_eq!(native_desktop_data_dir(), expected);
         std::env::remove_var("NOVA_NATIVE_DATA_DIR");

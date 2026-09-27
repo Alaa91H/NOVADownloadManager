@@ -7,12 +7,11 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use nova_download_core::{fetch_http_bytes_with_context, HttpRequestContext, TransferControl};
 use nova_media_core::{
     assemble_ordered_parts, download_youtube_plan_controlled, mux_mp4_tracks_controlled,
-    resolve_youtube_pending_formats, select_youtube_download_plan,
+    resolve_youtube_pending_formats, select_media_stream, select_youtube_download_plan,
     stage_dash_representation_plan_controlled_with_progress_scoped,
     stage_hls_media_plan_controlled_with_progress_scoped, youtube_video_id, ExtractRequest,
-    select_media_stream, MediaChapter, MediaDescriptor, MediaProtocol, MediaSelectionMode,
-    MediaSelectionPolicy, MediaSortKey, MediaStream, NativeMuxError, YouTubeDownloadPlan,
-    YouTubeExtraction,
+    MediaChapter, MediaDescriptor, MediaProtocol, MediaSelectionMode, MediaSelectionPolicy,
+    MediaSortKey, MediaStream, NativeMuxError, YouTubeDownloadPlan, YouTubeExtraction,
     YouTubeExtractor, YouTubePlayerScriptSolver, YouTubeSelectionPolicy, YouTubeTransferOutput,
     YouTubeTransferProgress, DEFAULT_MANIFEST_MAX_BYTES,
 };
@@ -25,9 +24,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::daemon::browser_cookies::{
-    load_browser_cookie_header, validate_browser_cookie_source,
-};
+use crate::daemon::browser_cookies::{load_browser_cookie_header, validate_browser_cookie_source};
 use crate::daemon::engine::extractor::{EngineStatus, Extractor, ValidateError};
 use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
 use crate::daemon::postprocess::{
@@ -36,8 +33,8 @@ use crate::daemon::postprocess::{
 };
 use crate::daemon::state::SharedState;
 use crate::daemon::types::{
-    transition_task_state, CreateDownloadBody, MediaDownloadOptions, NativeMediaJob, Segment,
-    Task, TaskState,
+    transition_task_state, CreateDownloadBody, MediaDownloadOptions, NativeMediaJob, Segment, Task,
+    TaskState,
 };
 
 pub struct NativeMediaExtractor;
@@ -89,8 +86,8 @@ impl Extractor for NativeMediaExtractor {
 
     fn validate(&self, body: &CreateDownloadBody) -> Result<(), ValidateError> {
         let url = body.url.as_deref().unwrap_or("").trim();
-        let parsed = reqwest::Url::parse(url)
-            .map_err(|_| ValidateError("Invalid media URL".to_owned()))?;
+        let parsed =
+            reqwest::Url::parse(url).map_err(|_| ValidateError("Invalid media URL".to_owned()))?;
         if !matches!(parsed.scheme(), "http" | "https") {
             return Err(ValidateError("Native media requires HTTP(S)".to_owned()));
         }
@@ -299,7 +296,11 @@ async fn create_native_direct_task(
             }
         });
     direct.name = Some(ensure_native_output_name(&base_name, container.as_deref()));
-    if direct.file_type.as_deref().map_or(true, |kind| kind.trim().is_empty()) {
+    if direct
+        .file_type
+        .as_deref()
+        .map_or(true, |kind| kind.trim().is_empty())
+    {
         direct.file_type = container;
     }
     if direct.size_bytes.unwrap_or(0) == 0 {
@@ -344,12 +345,9 @@ async fn create_native_direct_task(
                     .to_owned(),
             ));
         }
-        let cleanup_sidecars = body
-            .media_options
-            .as_ref()
-            .is_some_and(|options| {
-                options.subtitles != Some(true) && options.auto_subtitles != Some(true)
-            });
+        let cleanup_sidecars = body.media_options.as_ref().is_some_and(|options| {
+            options.subtitles != Some(true) && options.auto_subtitles != Some(true)
+        });
         let request = MediaSubtitleEmbedRequest {
             source_path: output_path.clone(),
             subtitles: sidecars.subtitles,
@@ -409,22 +407,24 @@ fn create_native_manifest_task(
             }
         });
     task_body.name = Some(ensure_native_output_name(&base_name, Some(extension)));
-    if task_body.file_type.as_deref().map_or(true, |kind| kind.trim().is_empty()) {
+    if task_body
+        .file_type
+        .as_deref()
+        .map_or(true, |kind| kind.trim().is_empty())
+    {
         task_body.file_type = Some(extension.to_owned());
     }
 
     let source_url = body.url.as_deref().unwrap_or_default();
     let (name, output_path) = crate::daemon::curl::destination_from_body(&task_body, source_url);
-    if let Some(parent) = output_path.parent().filter(|path| !path.as_os_str().is_empty()) {
+    if let Some(parent) = output_path
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+    {
         std::fs::create_dir_all(parent)
             .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
     }
-    prepare_native_sidecars(
-        body,
-        &resolved.descriptor,
-        &resolved.chapters,
-        &output_path,
-    )?;
+    prepare_native_sidecars(body, &resolved.descriptor, &resolved.chapters, &output_path)?;
 
     let id = Uuid::new_v4().to_string();
     let connections = crate::daemon::curl::requested_connections(body.connections);
@@ -432,7 +432,10 @@ fn create_native_manifest_task(
         id: id.clone(),
         name,
         url: source_url.to_owned(),
-        file_type: task_body.file_type.clone().unwrap_or_else(|| "video".to_owned()),
+        file_type: task_body
+            .file_type
+            .clone()
+            .unwrap_or_else(|| "video".to_owned()),
         status: if body.start_immediately.unwrap_or(true) {
             TaskState::Preparing.as_status()
         } else {
@@ -559,8 +562,7 @@ fn create_native_separate_track_task(
     }
 
     let source_url = body.url.as_deref().unwrap_or_default();
-    let (name, output_path) =
-        crate::daemon::curl::destination_from_body(&task_body, source_url);
+    let (name, output_path) = crate::daemon::curl::destination_from_body(&task_body, source_url);
     if let Some(parent) = output_path
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
@@ -582,8 +584,7 @@ fn create_native_separate_track_task(
     let expected_bytes = resolved
         .expected_bytes
         .or_else(|| {
-            (video_total > 0 && audio_total > 0)
-                .then_some(video_total.saturating_add(audio_total))
+            (video_total > 0 && audio_total > 0).then_some(video_total.saturating_add(audio_total))
         })
         .unwrap_or_else(|| body.size_bytes.unwrap_or(0));
 
@@ -733,7 +734,8 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
         ))
     };
 
-    let Some((generation, cancel_token, run_generation, request, task, size_bytes)) = prepared else {
+    let Some((generation, cancel_token, run_generation, request, task, size_bytes)) = prepared
+    else {
         return;
     };
     if let Ok(mut snapshot) = state.task_snapshot.lock() {
@@ -752,14 +754,7 @@ pub fn start_native_media_process(state: &SharedState, id: &str) {
     let state = state.clone();
     let id = id.to_owned();
     std::thread::spawn(move || {
-        run_native_media_worker(
-            state,
-            id,
-            generation,
-            cancel_token,
-            run_generation,
-            request,
-        );
+        run_native_media_worker(state, id, generation, cancel_token, run_generation, request);
     });
 }
 
@@ -792,16 +787,14 @@ fn run_native_media_worker(
         finish_native_cancelled(&state, &id, generation);
         return;
     }
-    if let Err(error) =
-        transition_native_task(&state, &id, generation, TaskState::Probing, "resolving-media")
-    {
-        handle_native_transition_error(
-            &state,
-            &id,
-            generation,
-            error,
-            paused_or_stale(),
-        );
+    if let Err(error) = transition_native_task(
+        &state,
+        &id,
+        generation,
+        TaskState::Probing,
+        "resolving-media",
+    ) {
+        handle_native_transition_error(&state, &id, generation, error, paused_or_stale());
         return;
     }
 
@@ -817,16 +810,14 @@ fn run_native_media_worker(
         finish_native_cancelled(&state, &id, generation);
         return;
     }
-    if let Err(error) =
-        transition_native_task(&state, &id, generation, TaskState::Downloading, "downloading")
-    {
-        handle_native_transition_error(
-            &state,
-            &id,
-            generation,
-            error,
-            paused_or_stale(),
-        );
+    if let Err(error) = transition_native_task(
+        &state,
+        &id,
+        generation,
+        TaskState::Downloading,
+        "downloading",
+    ) {
+        handle_native_transition_error(&state, &id, generation, error, paused_or_stale());
         return;
     }
 
@@ -918,9 +909,7 @@ fn run_native_media_worker(
                                 let _ = std::fs::remove_dir_all(&staging_dir);
                             }
                         }
-                        Err(error) => {
-                            fail_native_task(&state, &id, generation, error.to_string())
-                        }
+                        Err(error) => fail_native_task(&state, &id, generation, error.to_string()),
                     }
                 }
                 Err(_error) if paused_or_stale() => {
@@ -1006,12 +995,7 @@ fn run_native_separate_track_execution(
         connections,
         || control(),
         |progress| {
-            update_native_multitrack_progress(
-                &progress_state,
-                &progress_id,
-                generation,
-                progress,
-            );
+            update_native_multitrack_progress(&progress_state, &progress_id, generation, progress);
         },
     );
 
@@ -1062,13 +1046,7 @@ fn run_native_separate_track_execution(
         TaskState::Verifying,
         "verifying-audio-video-tracks",
     ) {
-        handle_native_transition_error(
-            state,
-            id,
-            generation,
-            error,
-            should_cancel(),
-        );
+        handle_native_transition_error(state, id, generation, error, should_cancel());
         return;
     }
     if let Err(error) = verify_native_track(&output.0, output.2, "video")
@@ -1094,13 +1072,7 @@ fn run_native_separate_track_execution(
             "muxing-audio-video-host"
         },
     ) {
-        handle_native_transition_error(
-            state,
-            id,
-            generation,
-            error,
-            should_cancel(),
-        );
+        handle_native_transition_error(state, id, generation, error, should_cancel());
         return;
     }
 
@@ -1204,11 +1176,11 @@ where
                 staged_bytes,
             })
         }
-        MediaProtocol::Http | MediaProtocol::Https => Err(
-            NativeMediaTaskError::UnsupportedFeature(
+        MediaProtocol::Http | MediaProtocol::Https => {
+            Err(NativeMediaTaskError::UnsupportedFeature(
                 "direct stream reached manifest executor".to_owned(),
-            ),
-        ),
+            ))
+        }
     }
 }
 
@@ -1250,12 +1222,8 @@ where
     F: Fn() -> bool + Sync,
     P: Fn(u64) + Sync,
 {
-    let response = fetch_http_bytes_with_context(
-        manifest_url,
-        context,
-        DEFAULT_MANIFEST_MAX_BYTES,
-    )
-    .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    let response = fetch_http_bytes_with_context(manifest_url, context, DEFAULT_MANIFEST_MAX_BYTES)
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
     let mut media_url = response.effective_url.clone();
     let body = String::from_utf8(response.body)
         .map_err(|_| NativeMediaTaskError::Resolution("HLS manifest is not UTF-8".to_owned()))?;
@@ -1263,31 +1231,27 @@ where
         .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
 
     if manifest.kind == HlsPlaylistKind::Master {
-        let variant = select_best_hls_variant(&manifest)
-            .ok_or_else(|| NativeMediaTaskError::Resolution("HLS master has no variants".to_owned()))?;
-        let variant_context = nova_media_core::scope_http_request_context(
-            context,
-            manifest_url,
-            &variant.uri,
-        );
+        let variant = select_best_hls_variant(&manifest).ok_or_else(|| {
+            NativeMediaTaskError::Resolution("HLS master has no variants".to_owned())
+        })?;
+        let variant_context =
+            nova_media_core::scope_http_request_context(context, manifest_url, &variant.uri);
         let response = fetch_http_bytes_with_context(
             &variant.uri,
             &variant_context,
             DEFAULT_MANIFEST_MAX_BYTES,
         )
         .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
-        let body = String::from_utf8(response.body)
-            .map_err(|_| NativeMediaTaskError::Resolution("HLS media playlist is not UTF-8".to_owned()))?;
+        let body = String::from_utf8(response.body).map_err(|_| {
+            NativeMediaTaskError::Resolution("HLS media playlist is not UTF-8".to_owned())
+        })?;
         media_url = response.effective_url.clone();
         manifest = parse_hls(&media_url, &body)
             .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
     }
 
-    let media_context = nova_media_core::scope_http_request_context(
-        context,
-        manifest_url,
-        &media_url,
-    );
+    let media_context =
+        nova_media_core::scope_http_request_context(context, manifest_url, &media_url);
 
     if !manifest.end_list {
         return stage_hls_live_stream(
@@ -1333,23 +1297,18 @@ where
     F: Fn() -> bool + Sync,
     P: Fn(u64) + Sync,
 {
-    let response = fetch_http_bytes_with_context(
-        manifest_url,
-        context,
-        DEFAULT_MANIFEST_MAX_BYTES,
-    )
-    .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    let response = fetch_http_bytes_with_context(manifest_url, context, DEFAULT_MANIFEST_MAX_BYTES)
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
     let body = String::from_utf8(response.body)
         .map_err(|_| NativeMediaTaskError::Resolution("DASH manifest is not UTF-8".to_owned()))?;
-    let manifest = parse_dash(&body)
-        .map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
+    let manifest =
+        parse_dash(&body).map_err(|error| NativeMediaTaskError::Resolution(error.to_string()))?;
     let (period, adaptation, representation) = best_dash_representation_indices(&manifest)
-        .ok_or_else(|| NativeMediaTaskError::Resolution("DASH manifest has no representations".to_owned()))?;
-    let manifest_context = nova_media_core::scope_http_request_context(
-        context,
-        manifest_url,
-        &response.effective_url,
-    );
+        .ok_or_else(|| {
+            NativeMediaTaskError::Resolution("DASH manifest has no representations".to_owned())
+        })?;
+    let manifest_context =
+        nova_media_core::scope_http_request_context(context, manifest_url, &response.effective_url);
     if manifest.is_dynamic {
         return stage_dash_live_stream(
             &response.effective_url,
@@ -1391,7 +1350,6 @@ where
     Ok((parts, total_bytes))
 }
 
-
 fn stage_hls_live_stream<F, P>(
     media_url: &str,
     initial_manifest: nova_stream_core::HlsManifest,
@@ -1421,12 +1379,9 @@ where
         let manifest = if let Some(manifest) = current_manifest.take() {
             manifest
         } else {
-            let response = fetch_http_bytes_with_context(
-                media_url,
-                context,
-                DEFAULT_MANIFEST_MAX_BYTES,
-            )
-            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+            let response =
+                fetch_http_bytes_with_context(media_url, context, DEFAULT_MANIFEST_MAX_BYTES)
+                    .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
             let body = String::from_utf8(response.body).map_err(|_| {
                 NativeMediaTaskError::Resolution("HLS live manifest is not UTF-8".to_owned())
             })?;
@@ -1443,11 +1398,7 @@ where
                 if unit.kind != HlsTransferUnitKind::Initialization {
                     return true;
                 }
-                let identity = format!(
-                    "{}|{:?}",
-                    unit.uri,
-                    unit.byte_range
-                );
+                let identity = format!("{}|{:?}", unit.uri, unit.byte_range);
                 if last_init.as_deref() == Some(identity.as_str()) {
                     return false;
                 }
@@ -1475,8 +1426,7 @@ where
                     .map(|file| (file.order, file.path))
                     .collect::<Vec<_>>();
                 commit_live_parts(staging_dir, &files, &mut checkpoint.next_order)?;
-                checkpoint.total_bytes =
-                    checkpoint.total_bytes.saturating_add(staged.total_bytes);
+                checkpoint.total_bytes = checkpoint.total_bytes.saturating_add(staged.total_bytes);
                 checkpoint.last_init_identity = last_init;
                 let _ = std::fs::remove_dir_all(tick_dir);
             }
@@ -1487,10 +1437,7 @@ where
         on_progress(checkpoint.total_bytes);
 
         if refresh.ended {
-            return Ok((
-                committed_live_parts(staging_dir)?,
-                checkpoint.total_bytes,
-            ));
+            return Ok((committed_live_parts(staging_dir)?, checkpoint.total_bytes));
         }
 
         tick = tick.saturating_add(1);
@@ -1531,12 +1478,9 @@ where
         let (manifest, effective_url) = if let Some(manifest) = current_manifest.take() {
             (manifest, manifest_url.to_owned())
         } else {
-            let response = fetch_http_bytes_with_context(
-                manifest_url,
-                context,
-                DEFAULT_MANIFEST_MAX_BYTES,
-            )
-            .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+            let response =
+                fetch_http_bytes_with_context(manifest_url, context, DEFAULT_MANIFEST_MAX_BYTES)
+                    .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
             let body = String::from_utf8(response.body).map_err(|_| {
                 NativeMediaTaskError::Resolution("DASH live manifest is not UTF-8".to_owned())
             })?;
@@ -1584,8 +1528,7 @@ where
                 .map(|file| (file.order, file.path))
                 .collect::<Vec<_>>();
             commit_live_parts(staging_dir, &files, &mut checkpoint.next_order)?;
-            checkpoint.total_bytes =
-                checkpoint.total_bytes.saturating_add(staged.total_bytes);
+            checkpoint.total_bytes = checkpoint.total_bytes.saturating_add(staged.total_bytes);
             let _ = std::fs::remove_dir_all(tick_dir);
         }
 
@@ -1624,9 +1567,7 @@ fn commit_live_parts(
     Ok(())
 }
 
-fn committed_live_parts(
-    staging_dir: &Path,
-) -> Result<Vec<(u64, PathBuf)>, NativeMediaTaskError> {
+fn committed_live_parts(staging_dir: &Path) -> Result<Vec<(u64, PathBuf)>, NativeMediaTaskError> {
     let directory = live_parts_dir(staging_dir);
     if !directory.exists() {
         return Ok(Vec::new());
@@ -1687,10 +1628,7 @@ where
     Ok(())
 }
 
-fn sleep_live_refresh<F>(
-    millis: u64,
-    should_cancel: &F,
-) -> Result<(), NativeMediaTaskError>
+fn sleep_live_refresh<F>(millis: u64, should_cancel: &F) -> Result<(), NativeMediaTaskError>
 where
     F: Fn() -> bool + Sync,
 {
@@ -1865,12 +1803,7 @@ fn update_native_multitrack_progress(
     state.mark_dirty();
 }
 
-fn update_track_segment(
-    segment: &mut Segment,
-    downloaded: u64,
-    total: Option<u64>,
-    elapsed: f64,
-) {
+fn update_track_segment(segment: &mut Segment, downloaded: u64, total: Option<u64>, elapsed: f64) {
     segment.downloaded_bytes = downloaded;
     if let Some(total) = total {
         segment.total_bytes = total;
@@ -1888,12 +1821,7 @@ fn update_track_segment(
     segment.speed = (downloaded as f64 / elapsed.max(0.001)) as u64;
 }
 
-fn set_native_track_activity(
-    state: &SharedState,
-    id: &str,
-    generation: u64,
-    active: bool,
-) {
+fn set_native_track_activity(state: &SharedState, id: &str, generation: u64, active: bool) {
     let task = {
         let mut jobs = match state.native_media_jobs.lock() {
             Ok(jobs) => jobs,
@@ -1908,9 +1836,8 @@ fn set_native_track_activity(
         for segment in &mut job.task.segments {
             segment.active = active;
             if !active && segment.total_bytes > 0 {
-                segment.progress =
-                    segment.downloaded_bytes.min(segment.total_bytes) as f64
-                        / segment.total_bytes as f64;
+                segment.progress = segment.downloaded_bytes.min(segment.total_bytes) as f64
+                    / segment.total_bytes as f64;
             }
         }
         job.task.clone()
@@ -2054,8 +1981,7 @@ fn complete_native_task(state: &SharedState, id: &str, generation: u64, bytes: u
             state.priority_queue.stop_download(id);
             if let Ok(mut stats) = state.download_stats.lock() {
                 stats.total_completed = stats.total_completed.saturating_add(1);
-                stats.total_downloaded_bytes =
-                    stats.total_downloaded_bytes.saturating_add(bytes);
+                stats.total_downloaded_bytes = stats.total_downloaded_bytes.saturating_add(bytes);
             }
             state.mark_dirty();
             true
@@ -2145,13 +2071,15 @@ fn native_selection_preferences(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        for raw in expression.split(',').map(str::trim).filter(|value| !value.is_empty()) {
+        for raw in expression
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
             let lower = raw.to_ascii_lowercase();
             match lower.as_str() {
                 "res" | "height" | "quality" => push_sort_key(&mut sort, MediaSortKey::Quality),
-                "br" | "bitrate" | "abr" | "vbr" => {
-                    push_sort_key(&mut sort, MediaSortKey::Bitrate)
-                }
+                "br" | "bitrate" | "abr" | "vbr" => push_sort_key(&mut sort, MediaSortKey::Bitrate),
                 "size" | "filesize" | "filesize_approx" => {
                     push_sort_key(&mut sort, MediaSortKey::Size)
                 }
@@ -2220,7 +2148,9 @@ fn normalize_container_preference(value: &str) -> Result<String, String> {
         "mp4" | "m4a" | "aac" => Ok("mp4".to_owned()),
         "webm" | "opus" | "ogg" => Ok("webm".to_owned()),
         "mkv" | "matroska" => Ok("mkv".to_owned()),
-        other => Err(format!("Native container preference '{other}' is not supported")),
+        other => Err(format!(
+            "Native container preference '{other}' is not supported"
+        )),
     }
 }
 
@@ -2268,7 +2198,12 @@ fn explicit_youtube_plan(
                 "selected format '{id}' still requires an unresolved media challenge"
             )));
         }
-        if !extraction.descriptor.streams.iter().any(|stream| stream.id == *id) {
+        if !extraction
+            .descriptor
+            .streams
+            .iter()
+            .any(|stream| stream.id == *id)
+        {
             return Err(NativeMediaTaskError::InvalidRequest(format!(
                 "native format selector references unknown stream '{id}'"
             )));
@@ -2376,11 +2311,14 @@ fn validate_native_options(options: &MediaDownloadOptions) -> Result<(), String>
             ));
         }
     }
-    let mode = options.mode.as_deref().unwrap_or("video").trim().to_ascii_lowercase();
+    let mode = options
+        .mode
+        .as_deref()
+        .unwrap_or("video")
+        .trim()
+        .to_ascii_lowercase();
     if !matches!(mode.as_str(), "video" | "best" | "auto" | "audio") {
-        return Err(format!(
-            "Native media mode '{mode}' is not migrated yet"
-        ));
+        return Err(format!("Native media mode '{mode}' is not migrated yet"));
     }
 
     if options
@@ -2390,9 +2328,7 @@ fn validate_native_options(options: &MediaDownloadOptions) -> Result<(), String>
         && options.subtitles != Some(true)
         && options.auto_subtitles != Some(true)
     {
-        return Err(
-            "subtitleLanguages requires subtitles=true or autoSubtitles=true".to_owned(),
-        );
+        return Err("subtitleLanguages requires subtitles=true or autoSubtitles=true".to_owned());
     }
 
     if let Some(template) = options.output_template.as_deref().map(str::trim) {
@@ -2588,13 +2524,15 @@ fn resolve_native_media(
                     &default_container,
                     body.media_options.as_ref(),
                 )?;
-                Ok(ResolvedNativeMedia::SeparateTracks(ResolvedSeparateTracks {
-                    extraction,
-                    video_stream_id,
-                    audio_stream_id,
-                    output_container,
-                    expected_bytes,
-                }))
+                Ok(ResolvedNativeMedia::SeparateTracks(
+                    ResolvedSeparateTracks {
+                        extraction,
+                        video_stream_id,
+                        audio_stream_id,
+                        output_container,
+                        expected_bytes,
+                    },
+                ))
             }
         };
     }
@@ -2616,13 +2554,11 @@ fn resolve_native_media(
         },
     )
     .ok_or_else(|| {
-        NativeMediaTaskError::Resolution(
-            if selection.mode == MediaSelectionMode::Audio {
-                "native media result has no audio-only stream".to_owned()
-            } else {
-                "native media result has no playable video stream".to_owned()
-            },
-        )
+        NativeMediaTaskError::Resolution(if selection.mode == MediaSelectionMode::Audio {
+            "native media result has no audio-only stream".to_owned()
+        } else {
+            "native media result has no playable video stream".to_owned()
+        })
     })?;
     ensure_requested_audio_container(stream, body.media_options.as_ref())?;
     ensure_native_remux_policy(stream, body.media_options.as_ref())?;
@@ -2644,8 +2580,8 @@ fn ensure_native_remux_policy(
     if matches!(requested.to_ascii_lowercase().as_str(), "auto" | "best") {
         return Ok(());
     }
-    let requested = normalize_container_preference(requested)
-        .map_err(NativeMediaTaskError::InvalidRequest)?;
+    let requested =
+        normalize_container_preference(requested).map_err(NativeMediaTaskError::InvalidRequest)?;
     let actual = stream
         .container
         .as_deref()
@@ -2674,8 +2610,8 @@ fn requested_separate_track_container(
     if matches!(requested.to_ascii_lowercase().as_str(), "auto" | "best") {
         return Ok(default_container.to_owned());
     }
-    let requested = normalize_container_preference(requested)
-        .map_err(NativeMediaTaskError::InvalidRequest)?;
+    let requested =
+        normalize_container_preference(requested).map_err(NativeMediaTaskError::InvalidRequest)?;
     if requested == "mkv" || requested == default_container {
         Ok(requested)
     } else {
@@ -2745,9 +2681,8 @@ fn prepare_native_sidecars(
         return Ok(NativeSidecarArtifacts::default());
     };
     let wants_embedding = options.embed_subtitles == Some(true);
-    let wants_subtitles = options.subtitles == Some(true)
-        || options.auto_subtitles == Some(true)
-        || wants_embedding;
+    let wants_subtitles =
+        options.subtitles == Some(true) || options.auto_subtitles == Some(true) || wants_embedding;
     let wants_thumbnail = options.write_thumbnail == Some(true);
     let wants_info = options.write_info_json == Some(true);
     let wants_description = options.write_description == Some(true);
@@ -2901,10 +2836,7 @@ fn subtitle_language_matches(language: &str, requested: &[String]) -> bool {
     })
 }
 
-fn safe_descriptor_info_json(
-    descriptor: &MediaDescriptor,
-    chapters: &[MediaChapter],
-) -> Value {
+fn safe_descriptor_info_json(descriptor: &MediaDescriptor, chapters: &[MediaChapter]) -> Value {
     let streams = descriptor
         .streams
         .iter()
@@ -3042,10 +2974,7 @@ fn separate_track_output_container(video: &MediaStream, audio: &MediaStream) -> 
     "mkv".to_owned()
 }
 
-fn attach_native_chapters(
-    resolved: &mut ResolvedNativeMedia,
-    chapters: Vec<MediaChapter>,
-) {
+fn attach_native_chapters(resolved: &mut ResolvedNativeMedia, chapters: Vec<MediaChapter>) {
     match resolved {
         ResolvedNativeMedia::Direct(media) => media.chapters = chapters,
         ResolvedNativeMedia::Manifest(media) => media.chapters = chapters,
@@ -3072,13 +3001,13 @@ fn resolved_from_descriptor(
                 chapters: Vec::new(),
             }))
         }
-        MediaProtocol::Hls | MediaProtocol::Dash => Ok(ResolvedNativeMedia::Manifest(
-            ResolvedManifestMedia {
+        MediaProtocol::Hls | MediaProtocol::Dash => {
+            Ok(ResolvedNativeMedia::Manifest(ResolvedManifestMedia {
                 descriptor: descriptor.clone(),
                 stream: stream.clone(),
                 chapters: Vec::new(),
-            },
-        )),
+            }))
+        }
     }
 }
 
@@ -3120,9 +3049,7 @@ fn build_extract_request(
         .map(str::to_owned)
         .or(parsed_headers.user_agent);
     if let Some(user_agent) = user_agent {
-        request
-            .headers
-            .insert("User-Agent".to_owned(), user_agent);
+        request.headers.insert("User-Agent".to_owned(), user_agent);
     }
 
     let referer = options
@@ -3180,7 +3107,11 @@ fn build_extract_request(
 
 fn parse_native_header_lines(headers: &str) -> Result<ParsedNativeHeaders, String> {
     let mut parsed = ParsedNativeHeaders::default();
-    for line in headers.lines().map(str::trim).filter(|line| !line.is_empty()) {
+    for line in headers
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
         let (name, value) = line
             .split_once(':')
             .ok_or_else(|| format!("Invalid media header line: {line}"))?;
@@ -3200,32 +3131,15 @@ fn parse_native_header_lines(headers: &str) -> Result<ParsedNativeHeaders, Strin
 
         let normalized = name.to_ascii_lowercase();
         match normalized.as_str() {
-            "host"
-            | "content-length"
-            | "transfer-encoding"
-            | "range"
-            | "if-range"
-            | "accept-encoding"
-            | "connection" => {
+            "host" | "content-length" | "transfer-encoding" | "range" | "if-range"
+            | "accept-encoding" | "connection" => {
                 return Err(format!(
                     "Media header '{name}' is owned by the native transport"
                 ));
             }
-            "user-agent" => set_unique_typed_header(
-                &mut parsed.user_agent,
-                value,
-                "User-Agent",
-            )?,
-            "referer" => set_unique_typed_header(
-                &mut parsed.referer,
-                value,
-                "Referer",
-            )?,
-            "cookie" => set_unique_typed_header(
-                &mut parsed.cookie,
-                value,
-                "Cookie",
-            )?,
+            "user-agent" => set_unique_typed_header(&mut parsed.user_agent, value, "User-Agent")?,
+            "referer" => set_unique_typed_header(&mut parsed.referer, value, "Referer")?,
+            "cookie" => set_unique_typed_header(&mut parsed.cookie, value, "Cookie")?,
             _ => {
                 parsed.generic.insert(normalized, value.to_owned());
             }
@@ -3240,9 +3154,7 @@ fn set_unique_typed_header(
     name: &str,
 ) -> Result<(), String> {
     if slot.is_some() {
-        return Err(format!(
-            "Media header '{name}' was supplied more than once"
-        ));
+        return Err(format!("Media header '{name}' was supplied more than once"));
     }
     *slot = Some(value.to_owned());
     Ok(())
@@ -3260,10 +3172,17 @@ fn looks_like_cookie_file(value: &str) -> bool {
 }
 
 fn load_native_cookie_file(path: &Path, target_url: &str) -> Result<String, String> {
-    let metadata = std::fs::metadata(path)
-        .map_err(|error| format!("Could not inspect cookie file '{}': {error}", path.display()))?;
+    let metadata = std::fs::metadata(path).map_err(|error| {
+        format!(
+            "Could not inspect cookie file '{}': {error}",
+            path.display()
+        )
+    })?;
     if !metadata.is_file() {
-        return Err(format!("Cookie path '{}' is not a regular file", path.display()));
+        return Err(format!(
+            "Cookie path '{}' is not a regular file",
+            path.display()
+        ));
     }
     if metadata.len() > NATIVE_COOKIE_FILE_MAX_BYTES {
         return Err(format!(
@@ -3283,7 +3202,11 @@ fn load_native_cookie_file(path: &Path, target_url: &str) -> Result<String, Stri
         .host_str()
         .ok_or_else(|| "Media URL has no host for cookie matching".to_owned())?
         .to_ascii_lowercase();
-    let target_path = if target.path().is_empty() { "/" } else { target.path() };
+    let target_path = if target.path().is_empty() {
+        "/"
+    } else {
+        target.path()
+    };
     let is_https = target.scheme().eq_ignore_ascii_case("https");
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -3310,7 +3233,11 @@ fn load_native_cookie_file(path: &Path, target_url: &str) -> Result<String, Stri
         let include_subdomains = fields[1].trim().eq_ignore_ascii_case("TRUE");
         let cookie_path = {
             let value = fields[2].trim();
-            if value.is_empty() { "/" } else { value }
+            if value.is_empty() {
+                "/"
+            } else {
+                value
+            }
         };
         let secure = fields[3].trim().eq_ignore_ascii_case("TRUE");
         let expires = fields[4].trim().parse::<i64>().map_err(|_| {
@@ -3381,7 +3308,11 @@ fn cookie_domain_matches(host: &str, cookie_domain: &str, include_subdomains: bo
 }
 
 fn cookie_path_matches(target_path: &str, cookie_path: &str) -> bool {
-    let cookie_path = if cookie_path.is_empty() { "/" } else { cookie_path };
+    let cookie_path = if cookie_path.is_empty() {
+        "/"
+    } else {
+        cookie_path
+    };
     if target_path == cookie_path {
         return true;
     }
@@ -3402,10 +3333,7 @@ fn ensure_native_output_name(name: &str, extension: Option<&str>) -> String {
     } else {
         name.to_owned()
     };
-    let Some(extension) = extension
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    else {
+    let Some(extension) = extension.map(str::trim).filter(|value| !value.is_empty()) else {
         return output;
     };
 
@@ -3514,20 +3442,15 @@ mod tests {
     fn raw_headers_supply_typed_context_when_explicit_fields_are_absent() {
         let mut request = body("https://media.example.test/video.mp4");
         let media = request.media_options.as_mut().expect("media");
-        media.headers = Some(
-            "User-Agent: Raw-UA\nReferer: https://raw.example/ref\nCookie: raw=1"
-                .to_owned(),
-        );
+        media.headers =
+            Some("User-Agent: Raw-UA\nReferer: https://raw.example/ref\nCookie: raw=1".to_owned());
 
         let context = build_extract_request(&request)
             .expect("request")
             .request_context()
             .expect("typed context");
         assert_eq!(context.user_agent.as_deref(), Some("Raw-UA"));
-        assert_eq!(
-            context.referer.as_deref(),
-            Some("https://raw.example/ref")
-        );
+        assert_eq!(context.referer.as_deref(), Some("https://raw.example/ref"));
         assert_eq!(context.cookie_header.as_deref(), Some("raw=1"));
     }
 
@@ -3536,8 +3459,7 @@ mod tests {
         let mut request = body("https://media.example.test/video.mp4");
         request.media_options.as_mut().expect("media").headers =
             Some("Range: bytes=0-99".to_owned());
-        let error = build_extract_request(&request)
-            .expect_err("Range must remain transport-owned");
+        let error = build_extract_request(&request).expect_err("Range must remain transport-owned");
         assert!(error.to_string().contains("owned by the native transport"));
     }
 
@@ -3546,8 +3468,8 @@ mod tests {
         let mut request = body("https://media.example.test/video.mp4");
         request.media_options.as_mut().expect("media").headers =
             Some("Cookie: a=1\ncookie: b=2".to_owned());
-        let error = build_extract_request(&request)
-            .expect_err("duplicate Cookie headers must fail");
+        let error =
+            build_extract_request(&request).expect_err("duplicate Cookie headers must fail");
         assert!(error.to_string().contains("supplied more than once"));
     }
 
@@ -3558,20 +3480,18 @@ mod tests {
         NativeMediaExtractor
             .validate(&request)
             .expect("manifest does not require explicit media options");
-        assert!(NativeMediaExtractor.can_handle(
-            "HTTPS://cdn.test/stream.mpd#fragment",
-            false
-        ));
-        assert!(!NativeMediaExtractor.can_handle(
-            "https://cdn.test/file.zip",
-            false
-        ));
+        assert!(NativeMediaExtractor.can_handle("HTTPS://cdn.test/stream.mpd#fragment", false));
+        assert!(!NativeMediaExtractor.can_handle("https://cdn.test/file.zip", false));
     }
 
     #[test]
     fn ffmpeg_toggle_is_a_supported_native_execution_option() {
         let mut request = body("https://cdn.test/video.mp4");
-        request.media_options.as_mut().expect("media").ffmpeg_enabled = Some(true);
+        request
+            .media_options
+            .as_mut()
+            .expect("media")
+            .ffmpeg_enabled = Some(true);
         NativeMediaExtractor
             .validate(&request)
             .expect("ffmpeg toggle should be accepted by native task path");
@@ -3654,8 +3574,7 @@ mod tests {
     #[test]
     fn audio_format_is_not_silently_ignored_in_video_mode() {
         let mut request = body("https://cdn.test/video");
-        request.media_options.as_mut().expect("media").audio_format =
-            Some("m4a".to_owned());
+        request.media_options.as_mut().expect("media").audio_format = Some("m4a".to_owned());
         let error = NativeMediaExtractor
             .validate(&request)
             .expect_err("audioFormat must be meaningful");
@@ -3858,7 +3777,10 @@ mod tests {
         let mut request_headers = BTreeMap::new();
         request_headers.insert("Cookie".to_owned(), "session=secret-cookie".to_owned());
         let mut stream_headers = BTreeMap::new();
-        stream_headers.insert("Authorization".to_owned(), "Bearer secret-header".to_owned());
+        stream_headers.insert(
+            "Authorization".to_owned(),
+            "Bearer secret-header".to_owned(),
+        );
         let descriptor = MediaDescriptor {
             source_kind: nova_media_core::MediaSourceKind::Site,
             metadata: nova_media_core::MediaMetadata {
@@ -3867,9 +3789,7 @@ mod tests {
                 duration_millis: Some(1_000),
                 uploader: Some("uploader".to_owned()),
                 webpage_url: "https://media.test/watch".to_owned(),
-                thumbnail_url: Some(
-                    "https://cdn.test/thumb.jpg?token=secret-thumbnail".to_owned(),
-                ),
+                thumbnail_url: Some("https://cdn.test/thumb.jpg?token=secret-thumbnail".to_owned()),
             },
             streams: vec![MediaStream {
                 id: "stream".to_owned(),
@@ -3899,9 +3819,8 @@ mod tests {
             is_live: false,
         };
 
-        let serialized =
-            serde_json::to_string(&safe_descriptor_info_json(&descriptor, &[]))
-                .expect("metadata json");
+        let serialized = serde_json::to_string(&safe_descriptor_info_json(&descriptor, &[]))
+            .expect("metadata json");
         assert!(serialized.contains("Safe metadata"));
         assert!(!serialized.contains("secret-cookie"));
         assert!(!serialized.contains("secret-header"));
@@ -4024,10 +3943,7 @@ mod tests {
 
         assert_eq!(bytes, 7);
         assert_eq!(parts.len(), 2);
-        assert_eq!(
-            progress.lock().expect("progress").last().copied(),
-            Some(7)
-        );
+        assert_eq!(progress.lock().expect("progress").last().copied(), Some(7));
         let output = dir.join("assembled.ts");
         let assembled = assemble_ordered_parts(&parts, &output).expect("assemble HLS wrapper");
         assert_eq!(assembled.bytes, 7);
@@ -4043,7 +3959,9 @@ mod tests {
             for _ in 0..3 {
                 let (mut stream, _) = listener.accept().expect("accept DASH wrapper request");
                 let mut request = [0_u8; 4096];
-                let read = stream.read(&mut request).expect("read DASH wrapper request");
+                let read = stream
+                    .read(&mut request)
+                    .expect("read DASH wrapper request");
                 let request = String::from_utf8_lossy(&request[..read]);
                 let body: Vec<u8> = if request.contains("GET /stream.mpd ") {
                     b"<MPD mediaPresentationDuration=\"PT2S\"><Period><AdaptationSet contentType=\"video\"><SegmentTemplate timescale=\"1\" duration=\"2\" startNumber=\"1\" initialization=\"init.mp4\" media=\"$Number$.m4s\"/><Representation id=\"v1\" bandwidth=\"1000\" width=\"640\" height=\"360\"/></AdaptationSet></Period></MPD>".to_vec()
@@ -4080,10 +3998,7 @@ mod tests {
 
         assert_eq!(bytes, 9);
         assert_eq!(parts.len(), 2);
-        assert_eq!(
-            progress.lock().expect("progress").last().copied(),
-            Some(9)
-        );
+        assert_eq!(progress.lock().expect("progress").last().copied(), Some(9));
         let output = dir.join("assembled.mp4");
         let assembled = assemble_ordered_parts(&parts, &output).expect("assemble DASH wrapper");
         assert_eq!(assembled.bytes, 9);
@@ -4102,7 +4017,9 @@ mod tests {
             for _ in 0..4 {
                 let (mut stream, _) = listener.accept().expect("accept live HLS task request");
                 let mut request = [0_u8; 4096];
-                let read = stream.read(&mut request).expect("read live HLS task request");
+                let read = stream
+                    .read(&mut request)
+                    .expect("read live HLS task request");
                 let request = String::from_utf8_lossy(&request[..read]);
 
                 let body: Vec<u8> = if request.contains("GET /live.m3u8 ") {
@@ -4162,10 +4079,7 @@ mod tests {
 
         assert_eq!(bytes, 10);
         assert_eq!(parts.len(), 2);
-        assert_eq!(
-            progress.lock().expect("progress").last().copied(),
-            Some(10)
-        );
+        assert_eq!(progress.lock().expect("progress").last().copied(), Some(10));
         let checkpoint: HlsLiveTaskCheckpoint =
             read_live_checkpoint(&dir.join("hls-live-checkpoint.json"))
                 .expect("live HLS checkpoint");
@@ -4174,7 +4088,10 @@ mod tests {
 
         let output = dir.join("live.ts");
         assemble_ordered_parts(&parts, &output).expect("assemble live HLS");
-        assert_eq!(std::fs::read(&output).expect("live HLS output"), b"SEVENEIGHT");
+        assert_eq!(
+            std::fs::read(&output).expect("live HLS output"),
+            b"SEVENEIGHT"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -4187,7 +4104,9 @@ mod tests {
             for _ in 0..3 {
                 let (mut stream, _) = listener.accept().expect("accept dynamic DASH task request");
                 let mut request = [0_u8; 4096];
-                let read = stream.read(&mut request).expect("read dynamic DASH task request");
+                let read = stream
+                    .read(&mut request)
+                    .expect("read dynamic DASH task request");
                 let request = String::from_utf8_lossy(&request[..read]);
                 let body: Vec<u8> = if request.contains("GET /live.mpd ") {
                     b"<MPD type=\"dynamic\" minimumUpdatePeriod=\"PT1S\"><Period><AdaptationSet contentType=\"video\"><SegmentTemplate timescale=\"1\" initialization=\"init.mp4\" media=\"$Time$.m4s\"><SegmentTimeline><S t=\"10\" d=\"2\"/></SegmentTimeline></SegmentTemplate><Representation id=\"v1\" bandwidth=\"1000\" width=\"640\" height=\"360\"/></AdaptationSet></Period></MPD>".to_vec()
@@ -4261,7 +4180,10 @@ mod tests {
         assert_eq!(parts.len(), 2);
         let output = dir.join("live.mp4");
         assemble_ordered_parts(&parts, &output).expect("assemble dynamic DASH snapshot");
-        assert_eq!(std::fs::read(&output).expect("dynamic DASH output"), b"INITMEDIA");
+        assert_eq!(
+            std::fs::read(&output).expect("dynamic DASH output"),
+            b"INITMEDIA"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 

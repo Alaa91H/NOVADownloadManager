@@ -6,15 +6,14 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use nova_torrent_core::{
-    DhtMessage, DhtNodeId, DhtQuery, DhtResponse, InfoHash, MAX_DHT_PACKET_BYTES,
-    MAX_DHT_PEERS,
+    DhtMessage, DhtNodeId, DhtQuery, DhtResponse, InfoHash, MAX_DHT_PACKET_BYTES, MAX_DHT_PEERS,
 };
+use sha1::{Digest, Sha1};
 use tokio::net::{lookup_host, UdpSocket};
 use tokio::sync::{oneshot, Mutex as TokioMutex, RwLock as TokioRwLock};
 use tokio::task::JoinSet;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
-use sha1::{Digest, Sha1};
 
 use crate::daemon::state::SharedState;
 use crate::daemon::utils::{is_internal_ip, private_network_allowed};
@@ -128,7 +127,11 @@ impl DhtRoutingTable {
             .collect()
     }
 
-    fn closest_to_info_hash(&self, target: InfoHash, limit: usize) -> Vec<nova_torrent_core::DhtNode> {
+    fn closest_to_info_hash(
+        &self,
+        target: InfoHash,
+        limit: usize,
+    ) -> Vec<nova_torrent_core::DhtNode> {
         let mut nodes = self
             .buckets
             .iter()
@@ -218,13 +221,7 @@ impl DhtSharedTransport {
             return Err("DHT transaction id collision".to_owned());
         }
         let (sender, receiver) = oneshot::channel();
-        pending.insert(
-            transaction_id,
-            PendingDhtExchange {
-                address,
-                sender,
-            },
-        );
+        pending.insert(transaction_id, PendingDhtExchange { address, sender });
         Ok(receiver)
     }
 
@@ -425,14 +422,12 @@ impl DhtService {
         cancel: CancellationToken,
     ) -> Result<u16, String> {
         let ipv4_port = configured_dht_port();
-        let ipv4_socket = Arc::new(
-            UdpSocket::bind(("0.0.0.0", ipv4_port))
-                .await
-                .map_err(|error| format!("Could not bind torrent DHT IPv4 UDP port {ipv4_port}: {error}"))?,
-        );
-        let ipv4_local = ipv4_socket
-            .local_addr()
-            .map_err(|error| format!("Could not read torrent DHT IPv4 listener address: {error}"))?;
+        let ipv4_socket = Arc::new(UdpSocket::bind(("0.0.0.0", ipv4_port)).await.map_err(
+            |error| format!("Could not bind torrent DHT IPv4 UDP port {ipv4_port}: {error}"),
+        )?);
+        let ipv4_local = ipv4_socket.local_addr().map_err(|error| {
+            format!("Could not read torrent DHT IPv4 listener address: {error}")
+        })?;
         self.engine
             .attach_socket(false, Some(ipv4_socket.clone()))
             .await;
@@ -462,14 +457,12 @@ impl DhtService {
         };
 
         if let Some(socket) = ipv6_socket.as_ref() {
-            let local = socket
-                .local_addr()
-                .map_err(|error| format!("Could not read torrent DHT IPv6 listener address: {error}"))?;
+            let local = socket.local_addr().map_err(|error| {
+                format!("Could not read torrent DHT IPv6 listener address: {error}")
+            })?;
             self.engine.attach_socket(true, Some(socket.clone())).await;
             ACTIVE_TORRENT_DHT_IPV6_PORT.store(local.port(), Ordering::Release);
-            log::info!(
-                "Native torrent DHT server started on IPv4 {ipv4_local} and IPv6 {local}"
-            );
+            log::info!("Native torrent DHT server started on IPv4 {ipv4_local} and IPv6 {local}");
         } else {
             log::info!("Native torrent DHT server started on IPv4 {ipv4_local}");
         }
@@ -726,10 +719,8 @@ impl DhtService {
                         message: "Invalid token".to_owned(),
                     });
                 }
-                let peer = SocketAddr::new(
-                    source.ip(),
-                    if implied_port { source.port() } else { port },
-                );
+                let peer =
+                    SocketAddr::new(source.ip(), if implied_port { source.port() } else { port });
                 if !self.engine.address_allowed(peer) {
                     return Some(DhtMessage::Error {
                         transaction_id,
@@ -853,9 +844,7 @@ pub async fn run_dht_announce_lifecycle(
     let plan = match storage.transfer_plan().await {
         Ok(plan) => plan,
         Err(error) => {
-            log::debug!(
-                "Torrent DHT lifecycle {task_id}: storage plan unavailable: {error}"
-            );
+            log::debug!("Torrent DHT lifecycle {task_id}: storage plan unavailable: {error}");
             return;
         }
     };
@@ -939,11 +928,7 @@ pub async fn run_dht_announce_lifecycle(
     }
 }
 
-fn merge_discovered_dht_peers(
-    state: &SharedState,
-    task_id: &str,
-    discovered: &[SocketAddr],
-) {
+fn merge_discovered_dht_peers(state: &SharedState, task_id: &str, discovered: &[SocketAddr]) {
     let mut jobs = lock_or_err!(state.torrent_jobs);
     let Some(job) = jobs.get_mut(task_id) else {
         return;
@@ -1020,7 +1005,10 @@ pub struct DhtConfig {
 impl Default for DhtConfig {
     fn default() -> Self {
         Self {
-            bootstrap: DEFAULT_BOOTSTRAP.iter().map(|value| (*value).to_owned()).collect(),
+            bootstrap: DEFAULT_BOOTSTRAP
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect(),
             query_timeout: Duration::from_secs(4),
             bootstrap_timeout: Duration::from_secs(5),
             alpha: 3,
@@ -1105,11 +1093,7 @@ impl DhtEngine {
         self.transport.clear_sockets().await;
     }
 
-    async fn deliver_shared_response(
-        &self,
-        source: SocketAddr,
-        message: DhtMessage,
-    ) -> bool {
+    async fn deliver_shared_response(&self, source: SocketAddr, message: DhtMessage) -> bool {
         self.transport.deliver(source, message).await
     }
 
@@ -1359,9 +1343,9 @@ impl DhtEngine {
             .await?
         {
             DhtMessage::Response { response, .. } => Ok(response),
-            DhtMessage::Error { code, message, .. } => {
-                Err(format!("DHT node {address} returned error {code}: {message}"))
-            }
+            DhtMessage::Error { code, message, .. } => Err(format!(
+                "DHT node {address} returned error {code}: {message}"
+            )),
             _ => Err(format!("DHT node {address} returned an unexpected message")),
         }
     }
@@ -1479,7 +1463,9 @@ impl DhtEngine {
             | DhtMessage::Error { transaction_id, .. } => transaction_id,
         };
         if actual_transaction.as_slice() != expected_transaction {
-            return Err(format!("DHT node {address} returned a mismatched transaction id"));
+            return Err(format!(
+                "DHT node {address} returned a mismatched transaction id"
+            ));
         }
         Ok(message)
     }
@@ -1513,9 +1499,9 @@ impl DhtEngine {
             };
 
             if !self.allow_private_network
-                && lookup
-                    .iter()
-                    .any(|address| is_internal_ip(address.ip()) || is_unspecified_or_broadcast(address.ip()))
+                && lookup.iter().any(|address| {
+                    is_internal_ip(address.ip()) || is_unspecified_or_broadcast(address.ip())
+                })
             {
                 continue;
             }
@@ -1652,8 +1638,7 @@ fn local_torrent_dht_blocked(state: &SharedState, info_hash: InfoHash) -> bool {
     let hex = info_hash.to_hex();
     let jobs = lock_or_err!(state.torrent_jobs);
     jobs.values().any(|job| {
-        job.task.engine_id.eq_ignore_ascii_case(&hex)
-            && (job.private || job.requires_reauth)
+        job.task.engine_id.eq_ignore_ascii_case(&hex) && (job.private || job.requires_reauth)
     })
 }
 
@@ -1754,10 +1739,7 @@ mod tests {
 
     #[test]
     fn dht_service_get_peers_token_allows_announce() {
-        let root = std::env::temp_dir().join(format!(
-            "nova-dht-service-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let root = std::env::temp_dir().join(format!("nova-dht-service-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let service = DhtService::for_tests(id(9), root.join(DHT_STATE_FILE_NAME));
         let state = std::sync::Arc::new(crate::daemon::persist::tests::test_state(
@@ -1808,10 +1790,7 @@ mod tests {
         use crate::daemon::torrent_task::restore_torrent_job;
         use crate::daemon::types::{Task, TaskState};
 
-        let root = std::env::temp_dir().join(format!(
-            "nova-dht-private-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let root = std::env::temp_dir().join(format!("nova-dht-private-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let service = DhtService::for_tests(id(9), root.join(DHT_STATE_FILE_NAME));
         let state = std::sync::Arc::new(crate::daemon::persist::tests::test_state(
@@ -1895,10 +1874,7 @@ mod tests {
 
     #[test]
     fn dht_state_round_trip_preserves_node_id_and_routing() {
-        let root = std::env::temp_dir().join(format!(
-            "nova-dht-state-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let root = std::env::temp_dir().join(format!("nova-dht-state-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join(DHT_STATE_FILE_NAME);
         let service = DhtService::for_tests(id(4), path.clone());

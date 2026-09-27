@@ -101,8 +101,8 @@ fn launch_capture_review_window() -> Result<(), String> {
 }
 
 fn resolve_desktop_executable() -> Result<std::path::PathBuf, String> {
-    if let Some(explicit) = std::env::var_os("NOVA_DESKTOP_EXECUTABLE")
-        .filter(|value| !value.is_empty())
+    if let Some(explicit) =
+        std::env::var_os("NOVA_DESKTOP_EXECUTABLE").filter(|value| !value.is_empty())
     {
         let path = std::path::PathBuf::from(explicit);
         if path.is_absolute() && path.is_file() {
@@ -226,12 +226,10 @@ fn parse_pairing_secret(content: &str, expected_port: u16) -> Option<String> {
 fn port_file_paths() -> Vec<std::path::PathBuf> {
     let mut paths = Vec::new();
 
-    if let Some(override_dir) = std::env::var_os("NOVA_NATIVE_DATA_DIR")
-        .filter(|value| !value.is_empty())
+    if let Some(override_dir) =
+        std::env::var_os("NOVA_NATIVE_DATA_DIR").filter(|value| !value.is_empty())
     {
-        paths.push(
-            std::path::PathBuf::from(override_dir).join("nova-daemon.port"),
-        );
+        paths.push(std::path::PathBuf::from(override_dir).join("nova-daemon.port"));
     }
 
     // Windows — Tauri app_data_dir: %APPDATA%\com.nova.downloadmanager
@@ -346,11 +344,7 @@ mod desktop_launch_tests {
             Some("0123456789abcdef0123456789abcdef")
         );
         assert!(parse_pairing_secret(&content, 3200).is_none());
-        assert!(parse_pairing_secret(
-            r#"{"port":3199,"secret":"short"}"#,
-            3199
-        )
-        .is_none());
+        assert!(parse_pairing_secret(r#"{"port":3199,"secret":"short"}"#, 3199).is_none());
     }
 
     #[test]

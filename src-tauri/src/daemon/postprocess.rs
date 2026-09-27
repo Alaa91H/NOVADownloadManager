@@ -129,15 +129,9 @@ impl FfmpegPostProcessor {
             command.arg("-i").arg(&subtitle.path);
         }
 
-        command
-            .arg("-map")
-            .arg("0:v?")
-            .arg("-map")
-            .arg("0:a?");
+        command.arg("-map").arg("0:v?").arg("-map").arg("0:a?");
         for index in 0..request.subtitles.len() {
-            command
-                .arg("-map")
-                .arg(format!("{}:0", index + 1));
+            command.arg("-map").arg(format!("{}:0", index + 1));
         }
 
         command
@@ -356,8 +350,9 @@ impl MediaPostProcessor for FfmpegPostProcessor {
         }
 
         let bytes = ensure_regular_nonempty_file(&temp, "embedded output")?;
-        std::fs::rename(&request.source_path, &backup)
-            .map_err(|error| PostProcessError::Io(format!("could not stage original media: {error}")))?;
+        std::fs::rename(&request.source_path, &backup).map_err(|error| {
+            PostProcessError::Io(format!("could not stage original media: {error}"))
+        })?;
         if let Err(error) = std::fs::rename(&temp, &request.source_path) {
             let _ = std::fs::rename(&backup, &request.source_path);
             let _ = std::fs::remove_file(&temp);
@@ -476,10 +471,7 @@ mod tests {
             audio_path: PathBuf::from("audio.track"),
             destination: PathBuf::from("output.mp4"),
         };
-        let command = processor.build_mux_command(
-            &request,
-            Path::new("output.nova-mux.tmp.mp4"),
-        );
+        let command = processor.build_mux_command(&request, Path::new("output.nova-mux.tmp.mp4"));
         let args = command
             .get_args()
             .map(|value| value.to_string_lossy().to_string())
@@ -534,21 +526,44 @@ mod tests {
             .map(|value| value.to_string_lossy().to_string())
             .collect::<Vec<_>>();
 
-        assert!(args.windows(2).any(|pair| pair[0] == "-i" && pair[1] == "video.mp4"));
-        assert!(args.windows(2).any(|pair| pair[0] == "-i" && pair[1] == "video.en.vtt"));
-        assert!(args.windows(2).any(|pair| pair[0] == "-map" && pair[1] == "1:0"));
-        assert!(args.windows(2).any(|pair| pair[0] == "-map" && pair[1] == "2:0"));
-        assert!(args.windows(2).any(|pair| pair[0] == "-c:v" && pair[1] == "copy"));
-        assert!(args.windows(2).any(|pair| pair[0] == "-c:a" && pair[1] == "copy"));
-        assert!(args.windows(2).any(|pair| pair[0] == "-c:s" && pair[1] == "mov_text"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-i" && pair[1] == "video.mp4"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-i" && pair[1] == "video.en.vtt"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-map" && pair[1] == "1:0"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-map" && pair[1] == "2:0"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-c:v" && pair[1] == "copy"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-c:a" && pair[1] == "copy"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-c:s" && pair[1] == "mov_text"));
         assert!(!args.iter().any(|arg| arg.contains("://")));
     }
 
     #[test]
     fn subtitle_embed_container_policy_is_fail_closed() {
-        assert_eq!(subtitle_codec_for_container(Path::new("video.mp4")).unwrap(), "mov_text");
-        assert_eq!(subtitle_codec_for_container(Path::new("video.mkv")).unwrap(), "srt");
-        assert_eq!(subtitle_codec_for_container(Path::new("video.webm")).unwrap(), "webvtt");
+        assert_eq!(
+            subtitle_codec_for_container(Path::new("video.mp4")).unwrap(),
+            "mov_text"
+        );
+        assert_eq!(
+            subtitle_codec_for_container(Path::new("video.mkv")).unwrap(),
+            "srt"
+        );
+        assert_eq!(
+            subtitle_codec_for_container(Path::new("video.webm")).unwrap(),
+            "webvtt"
+        );
         assert!(subtitle_codec_for_container(Path::new("video.avi")).is_err());
     }
 

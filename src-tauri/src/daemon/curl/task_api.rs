@@ -525,7 +525,9 @@ pub async fn update_task_metadata(
                 let mut source_changed = false;
                 if let Some(ref u) = new_url {
                     if !(u.starts_with("http://") || u.starts_with("https://")) {
-                        return Err("Only http(s) URLs are supported for native media tasks".to_owned());
+                        return Err(
+                            "Only http(s) URLs are supported for native media tasks".to_owned()
+                        );
                     }
                     source_changed = job.task.url != *u;
                     job.task.url = u.clone();
@@ -944,10 +946,7 @@ mod tests {
     #[test]
     fn curl_yields_manifest_urls_to_native_media() {
         let extractor = CurlExtractor;
-        assert!(!extractor.can_handle(
-            "https://cdn.test/master.m3u8?token=abc",
-            false
-        ));
+        assert!(!extractor.can_handle("https://cdn.test/master.m3u8?token=abc", false));
         assert!(!extractor.can_handle("https://cdn.test/stream.mpd", false));
         assert!(extractor.can_handle("https://cdn.test/archive.zip", false));
     }
@@ -976,10 +975,8 @@ mod tests {
     fn destination_appends_name_when_save_path_is_a_directory() {
         let mut body = base_body();
         body.name = Some("video.mp4".to_owned());
-        let temp = std::env::temp_dir().join(format!(
-            "nova-destination-dir-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let temp =
+            std::env::temp_dir().join(format!("nova-destination-dir-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp).expect("temp dir");
         body.save_path = Some(temp.to_string_lossy().into_owned());
 

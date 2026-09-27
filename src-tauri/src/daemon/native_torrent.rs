@@ -212,12 +212,17 @@ impl TrackerTransport {
                 self.config.request_timeout,
                 client
                     .get(current.clone())
-                    .header(reqwest::header::ACCEPT, "text/plain, application/octet-stream;q=0.9, */*;q=0.1")
+                    .header(
+                        reqwest::header::ACCEPT,
+                        "text/plain, application/octet-stream;q=0.9, */*;q=0.1",
+                    )
                     .send(),
             )
             .await
             .map_err(|_| TrackerAttemptError::retryable("HTTP tracker request timed out"))?
-            .map_err(|error| TrackerAttemptError::retryable(format!("HTTP tracker request failed: {error}")))?;
+            .map_err(|error| {
+                TrackerAttemptError::retryable(format!("HTTP tracker request failed: {error}"))
+            })?;
 
             let status = response.status();
             if status.is_redirection() {
@@ -252,9 +257,8 @@ impl TrackerTransport {
             }
 
             if !status.is_success() {
-                let retryable = status.as_u16() == 408
-                    || status.as_u16() == 429
-                    || status.is_server_error();
+                let retryable =
+                    status.as_u16() == 408 || status.as_u16() == 429 || status.is_server_error();
                 let message = format!("HTTP tracker returned status {}", status.as_u16());
                 return Err(if retryable {
                     TrackerAttemptError::retryable(message)
@@ -287,8 +291,9 @@ impl TrackerTransport {
         tracker_url: &str,
         request: &TrackerAnnounceRequest,
     ) -> Result<TrackerAnnounceSuccess, TrackerAttemptError> {
-        let parsed = reqwest::Url::parse(tracker_url)
-            .map_err(|error| TrackerAttemptError::hard(format!("Invalid UDP tracker URL: {error}")))?;
+        let parsed = reqwest::Url::parse(tracker_url).map_err(|error| {
+            TrackerAttemptError::hard(format!("Invalid UDP tracker URL: {error}"))
+        })?;
         if parsed.scheme() != "udp" {
             return Err(TrackerAttemptError::hard(
                 "UDP tracker request used a non-UDP URL",
@@ -309,37 +314,28 @@ impl TrackerTransport {
         } else {
             "[::]:0"
         };
-        let socket = UdpSocket::bind(bind_address)
-            .await
-            .map_err(|error| TrackerAttemptError::retryable(format!(
-                "Could not bind UDP tracker socket: {error}"
-            )))?;
-        socket
-            .connect(endpoint)
-            .await
-            .map_err(|error| TrackerAttemptError::retryable(format!(
-                "Could not connect UDP tracker socket: {error}"
-            )))?;
+        let socket = UdpSocket::bind(bind_address).await.map_err(|error| {
+            TrackerAttemptError::retryable(format!("Could not bind UDP tracker socket: {error}"))
+        })?;
+        socket.connect(endpoint).await.map_err(|error| {
+            TrackerAttemptError::retryable(format!("Could not connect UDP tracker socket: {error}"))
+        })?;
 
         let connect_transaction = random_u32();
         let connect_packet = udp_connect_packet(connect_transaction);
         udp_send(&socket, &connect_packet, self.config.request_timeout).await?;
-        let connect_response =
-            udp_recv(&socket, self.config.request_timeout).await?;
-        let connection =
-            UdpConnectResponse::parse(&connect_response, connect_transaction)
-                .map_err(|error| TrackerAttemptError::hard(error.to_string()))?;
+        let connect_response = udp_recv(&socket, self.config.request_timeout).await?;
+        let connection = UdpConnectResponse::parse(&connect_response, connect_transaction)
+            .map_err(|error| TrackerAttemptError::hard(error.to_string()))?;
 
         let announce_transaction = random_u32();
         let announce_packet = request
             .to_udp_announce_packet(connection.connection_id, announce_transaction)
             .map_err(|error| TrackerAttemptError::hard(error.to_string()))?;
         udp_send(&socket, &announce_packet, self.config.request_timeout).await?;
-        let announce_response =
-            udp_recv(&socket, self.config.request_timeout).await?;
-        let parsed =
-            UdpAnnounceResponse::parse(&announce_response, announce_transaction)
-                .map_err(|error| TrackerAttemptError::hard(error.to_string()))?;
+        let announce_response = udp_recv(&socket, self.config.request_timeout).await?;
+        let parsed = UdpAnnounceResponse::parse(&announce_response, announce_transaction)
+            .map_err(|error| TrackerAttemptError::hard(error.to_string()))?;
 
         Ok(TrackerAnnounceSuccess {
             tracker_url: tracker_display_url(tracker_url),
@@ -391,18 +387,17 @@ impl TrackerTransport {
             return Ok(SocketAddr::new(ip, port));
         }
 
-        let resolved = timeout(
-            self.config.request_timeout,
-            lookup_host((host, port)),
-        )
-        .await
-        .map_err(|_| TrackerAttemptError::retryable(format!(
-            "Timed out resolving tracker host '{host}'"
-        )))?
-        .map_err(|error| TrackerAttemptError::retryable(format!(
-            "Could not resolve tracker host '{host}': {error}"
-        )))?
-        .collect::<Vec<_>>();
+        let resolved = timeout(self.config.request_timeout, lookup_host((host, port)))
+            .await
+            .map_err(|_| {
+                TrackerAttemptError::retryable(format!("Timed out resolving tracker host '{host}'"))
+            })?
+            .map_err(|error| {
+                TrackerAttemptError::retryable(format!(
+                    "Could not resolve tracker host '{host}': {error}"
+                ))
+            })?
+            .collect::<Vec<_>>();
 
         if resolved.is_empty() {
             return Err(TrackerAttemptError::retryable(format!(
@@ -492,19 +487,11 @@ async fn read_tracker_body_limited(
         )));
     }
 
-    let mut body = Vec::with_capacity(
-        response
-            .content_length()
-            .unwrap_or(0)
-            .min(64 * 1024) as usize,
-    );
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| TrackerAttemptError::retryable(format!(
-            "Could not read tracker response: {error}"
-        )))?
-    {
+    let mut body =
+        Vec::with_capacity(response.content_length().unwrap_or(0).min(64 * 1024) as usize);
+    while let Some(chunk) = response.chunk().await.map_err(|error| {
+        TrackerAttemptError::retryable(format!("Could not read tracker response: {error}"))
+    })? {
         let next_len = body
             .len()
             .checked_add(chunk.len())
@@ -528,9 +515,9 @@ async fn udp_send(
     let sent = timeout(request_timeout, socket.send(payload))
         .await
         .map_err(|_| TrackerAttemptError::retryable("UDP tracker send timed out"))?
-        .map_err(|error| TrackerAttemptError::retryable(format!(
-            "UDP tracker send failed: {error}"
-        )))?;
+        .map_err(|error| {
+            TrackerAttemptError::retryable(format!("UDP tracker send failed: {error}"))
+        })?;
     if sent != payload.len() {
         return Err(TrackerAttemptError::retryable(format!(
             "UDP tracker datagram was truncated: sent {sent} of {} bytes",
@@ -548,9 +535,9 @@ async fn udp_recv(
     let received = timeout(request_timeout, socket.recv(&mut buffer))
         .await
         .map_err(|_| TrackerAttemptError::retryable("UDP tracker receive timed out"))?
-        .map_err(|error| TrackerAttemptError::retryable(format!(
-            "UDP tracker receive failed: {error}"
-        )))?;
+        .map_err(|error| {
+            TrackerAttemptError::retryable(format!("UDP tracker receive failed: {error}"))
+        })?;
     buffer.truncate(received);
     Ok(buffer)
 }
@@ -686,7 +673,10 @@ mod tests {
         let destination_server = tokio::spawn(async move {
             let (mut stream, _) = destination.accept().await.expect("accept destination");
             let mut request = vec![0u8; 4096];
-            let read = stream.read(&mut request).await.expect("read destination request");
+            let read = stream
+                .read(&mut request)
+                .await
+                .expect("read destination request");
             let request = String::from_utf8_lossy(&request[..read]);
             assert!(request.contains("token=secret&info_hash=%01%01%01"));
             assert!(request.contains("peer_id=%2D%4E%56%30"));
@@ -789,7 +779,10 @@ mod tests {
                 .await
                 .expect("connect response");
 
-            let (announce_len, peer) = socket.recv_from(&mut buffer).await.expect("announce packet");
+            let (announce_len, peer) = socket
+                .recv_from(&mut buffer)
+                .await
+                .expect("announce packet");
             assert_eq!(announce_len, 98);
             let announce_tx = u32::from_be_bytes(buffer[12..16].try_into().unwrap());
 

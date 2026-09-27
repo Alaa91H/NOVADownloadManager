@@ -58,8 +58,8 @@ pub(super) fn extension_capabilities_from_status(status: &serde_json::Value) -> 
     let media_ready = bool_from_status(status, "/mediaExtractionReady");
     let streaming_ready = bool_from_status(status, "/streamingReady");
     let post_ready = bool_from_status(status, "/postProcessingReady");
-    let hls_ready = streaming_ready
-        && bool_from_status(status, "/engines/media/capabilities/hlsTaskExecution");
+    let hls_ready =
+        streaming_ready && bool_from_status(status, "/engines/media/capabilities/hlsTaskExecution");
     let dash_ready = streaming_ready
         && bool_from_status(status, "/engines/media/capabilities/dashTaskExecution");
     let subtitle_ready =
@@ -1370,7 +1370,6 @@ async fn handle_engine_latest_version(
     }
 }
 
-
 pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
     router
         .route("/api/engines/capabilities", get(handle_engine_capabilities))
@@ -1506,11 +1505,7 @@ mod tests {
             .get("items")
             .and_then(serde_json::Value::as_array)
             .expect("extension capability list");
-        let contains = |value: &str| {
-            items
-                .iter()
-                .any(|item| item.as_str() == Some(value))
-        };
+        let contains = |value: &str| items.iter().any(|item| item.as_str() == Some(value));
         assert!(contains("stream.hls.resolve"));
         assert!(contains("stream.dash.resolve"));
         assert!(contains("stream.subtitles"));

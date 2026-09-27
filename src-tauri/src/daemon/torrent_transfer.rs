@@ -51,7 +51,10 @@ impl TorrentTransferCoordinator {
     }
 
     pub fn production_default() -> Self {
-        Self::new(PeerEngine::production_default(), TorrentTransferConfig::default())
+        Self::new(
+            PeerEngine::production_default(),
+            TorrentTransferConfig::default(),
+        )
     }
 
     pub async fn download_selected_with_nova_policy(
@@ -322,9 +325,7 @@ pub enum TorrentTransferError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::daemon::torrent_peer::{
-        read_peer_frame, PeerEngineConfig, PeerSessionConfig,
-    };
+    use crate::daemon::torrent_peer::{read_peer_frame, PeerEngineConfig, PeerSessionConfig};
     use crate::daemon::torrent_storage::TorrentStorageSession;
     use nova_torrent_core::{
         AllocationMode, InfoHash, PeerHandshake, PeerMessage, TorrentFile, TorrentMetainfo,
@@ -498,7 +499,10 @@ mod tests {
 
         assert_eq!(report.pieces_committed_this_run, 2);
         assert_eq!(report.progress.selected_completed_bytes, 8);
-        assert_eq!(std::fs::read(root.join("complete.bin")).unwrap(), b"abcdefgh");
+        assert_eq!(
+            std::fs::read(root.join("complete.bin")).unwrap(),
+            b"abcdefgh"
+        );
         server.await.unwrap();
         drop(storage);
 

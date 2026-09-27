@@ -1725,7 +1725,10 @@ mod tests {
             status["capabilities"]["separateTrackMuxRequiresPostProcessingReady"],
             false
         );
-        assert_eq!(status["capabilities"]["nativeMp4MuxBackend"], "nova-media-core");
+        assert_eq!(
+            status["capabilities"]["nativeMp4MuxBackend"],
+            "nova-media-core"
+        );
         assert_eq!(status["capabilities"]["formatSorting"], true);
         assert_eq!(status["capabilities"]["requestContextOriginScoped"], true);
         assert_eq!(status["capabilities"]["playlistProbe"], true);

@@ -238,17 +238,13 @@ impl TorrentStorageSession {
         let cancel = lease.cancel.clone();
 
         let result = tokio::task::spawn_blocking(move || {
-            if cancel.is_cancelled()
-                || generation.load(Ordering::Acquire) != run_generation
-            {
+            if cancel.is_cancelled() || generation.load(Ordering::Acquire) != run_generation {
                 return Err(TorrentSessionError::StaleRun(run_generation));
             }
             let mut storage = storage
                 .lock()
                 .map_err(|_| TorrentSessionError::LockPoisoned("storage"))?;
-            if cancel.is_cancelled()
-                || generation.load(Ordering::Acquire) != run_generation
-            {
+            if cancel.is_cancelled() || generation.load(Ordering::Acquire) != run_generation {
                 return Err(TorrentSessionError::StaleRun(run_generation));
             }
             storage
@@ -290,7 +286,9 @@ impl TorrentStorageSession {
             let mut storage = storage
                 .lock()
                 .map_err(|_| TorrentSessionError::LockPoisoned("storage"))?;
-            storage.startup_recheck(mode).map_err(TorrentSessionError::from)
+            storage
+                .startup_recheck(mode)
+                .map_err(TorrentSessionError::from)
         })
         .await
         .map_err(join_error)?
@@ -479,7 +477,10 @@ fn load_metadata_info(storage: &TorrentStorage) -> Option<Arc<Vec<u8>>> {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
         Err(error) => {
-            log::warn!("Could not read torrent metadata info sidecar {}: {error}", path.display());
+            log::warn!(
+                "Could not read torrent metadata info sidecar {}: {error}",
+                path.display()
+            );
             return None;
         }
     };
@@ -665,13 +666,19 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(session.metadata_info_bytes().as_deref().map(Vec::as_slice), Some(info.as_slice()));
+        assert_eq!(
+            session.metadata_info_bytes().as_deref().map(Vec::as_slice),
+            Some(info.as_slice())
+        );
         drop(session);
 
         let resumed = TorrentStorageSession::resume_from_manifest(root.clone(), meta.info_hash)
             .await
             .unwrap();
-        assert_eq!(resumed.metadata_info_bytes().as_deref().map(Vec::as_slice), Some(info.as_slice()));
+        assert_eq!(
+            resumed.metadata_info_bytes().as_deref().map(Vec::as_slice),
+            Some(info.as_slice())
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -691,19 +698,12 @@ mod tests {
                 offset: 4,
             },
         ];
-        let selection = TorrentSelection::new(
-            &meta,
-            vec![FilePriority::Normal, FilePriority::High],
-        )
-        .unwrap();
-        let session = TorrentStorageSession::create(
-            root.clone(),
-            meta,
-            selection,
-            AllocationMode::Sparse,
-        )
-        .await
-        .unwrap();
+        let selection =
+            TorrentSelection::new(&meta, vec![FilePriority::Normal, FilePriority::High]).unwrap();
+        let session =
+            TorrentStorageSession::create(root.clone(), meta, selection, AllocationMode::Sparse)
+                .await
+                .unwrap();
 
         let mut scheduler = session.restored_scheduler().await.unwrap();
         scheduler.peer_connected(&[0b1100_0000]).unwrap();

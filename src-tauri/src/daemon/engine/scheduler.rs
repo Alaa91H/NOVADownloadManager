@@ -91,10 +91,7 @@ fn parse_hhmm(value: Option<&str>, fallback_hour: u32, fallback_minute: u32) -> 
 /// For windows that cross midnight, the early-morning portion belongs to the
 /// weekday on which the window started. This keeps custom-day schedules
 /// intuitive and matches desktop queue semantics.
-pub fn queue_schedule_window_active(
-    queue: &serde_json::Value,
-    now: &DateTime<Local>,
-) -> bool {
+pub fn queue_schedule_window_active(queue: &serde_json::Value, now: &DateTime<Local>) -> bool {
     if !queue
         .get("scheduled")
         .and_then(serde_json::Value::as_bool)
@@ -203,7 +200,10 @@ impl SmartScheduler {
         let Ok(mut runtime) = self.queue_runtime.lock() else {
             return false;
         };
-        match runtime.completion_state.insert(queue_id.to_owned(), completed) {
+        match runtime
+            .completion_state
+            .insert(queue_id.to_owned(), completed)
+        {
             Some(previous) => !previous && completed,
             None => false,
         }
@@ -228,10 +228,13 @@ impl SmartScheduler {
 
         let now = Instant::now();
         let delay = Duration::from_secs(retry_delay_secs.max(1));
-        let entry = runtime.retries.entry(key).or_insert_with(|| QueueRetryRuntime {
-            attempts: 0,
-            next_allowed: now + delay,
-        });
+        let entry = runtime
+            .retries
+            .entry(key)
+            .or_insert_with(|| QueueRetryRuntime {
+                attempts: 0,
+                next_allowed: now + delay,
+            });
 
         if entry.attempts >= max_retries || now < entry.next_allowed {
             return false;
@@ -728,7 +731,10 @@ mod tests {
     #[test]
     fn queue_runtime_edges_and_retry_delay_are_stateful() {
         let sched = SmartScheduler::new();
-        assert_eq!(sched.queue_window_transition("night", false), (false, false));
+        assert_eq!(
+            sched.queue_window_transition("night", false),
+            (false, false)
+        );
         assert_eq!(sched.queue_window_transition("night", true), (true, false));
         assert_eq!(sched.queue_window_transition("night", true), (false, false));
         assert_eq!(sched.queue_window_transition("night", false), (false, true));

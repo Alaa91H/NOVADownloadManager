@@ -824,11 +824,7 @@ pub fn parse_retry_after_date(value: &str) -> Option<u64> {
 /// (RFC 7232 §2.3 / RFC 9110 §8.8.3).
 pub fn is_strong_etag(etag: &str) -> bool {
     let etag = etag.trim();
-    if etag.starts_with("W/")
-        || etag.len() < 2
-        || !etag.starts_with('"')
-        || !etag.ends_with('"')
-    {
+    if etag.starts_with("W/") || etag.len() < 2 || !etag.starts_with('"') || !etag.ends_with('"') {
         return false;
     }
 

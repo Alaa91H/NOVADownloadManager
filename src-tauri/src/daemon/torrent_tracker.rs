@@ -1,8 +1,6 @@
 use std::time::Duration;
 
-use nova_torrent_core::{
-    MagnetLink, TorrentMetainfo, TrackerAnnounceRequest, TrackerEvent,
-};
+use nova_torrent_core::{MagnetLink, TorrentMetainfo, TrackerAnnounceRequest, TrackerEvent};
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::native_torrent::TrackerTransport;
@@ -68,14 +66,15 @@ pub async fn run_tracker_lifecycle(
             break;
         }
 
-        let snapshot = match tracker_snapshot(&state, &task_id, &storage, local_peer_id, port, key).await {
-            Ok(snapshot) => snapshot,
-            Err(error) => {
-                log::debug!("Torrent tracker lifecycle {task_id}: snapshot failed: {error}");
-                next_delay = TRACKER_RETRY_DELAY;
-                continue;
-            }
-        };
+        let snapshot =
+            match tracker_snapshot(&state, &task_id, &storage, local_peer_id, port, key).await {
+                Ok(snapshot) => snapshot,
+                Err(error) => {
+                    log::debug!("Torrent tracker lifecycle {task_id}: snapshot failed: {error}");
+                    next_delay = TRACKER_RETRY_DELAY;
+                    continue;
+                }
+            };
 
         let event = if !started {
             TrackerEvent::Started
@@ -86,10 +85,7 @@ pub async fn run_tracker_lifecycle(
         };
 
         let event_name = tracker_event_name(event);
-        telemetry.tracker_attempt(
-            tiers.iter().flatten().map(String::as_str),
-            event_name,
-        );
+        telemetry.tracker_attempt(tiers.iter().flatten().map(String::as_str), event_name);
         match transport
             .announce_event(&tiers, &snapshot.request, event, &cancel)
             .await
@@ -134,10 +130,7 @@ pub async fn run_tracker_lifecycle(
         if let Ok(snapshot) =
             tracker_snapshot(&state, &task_id, &storage, local_peer_id, port, key).await
         {
-            telemetry.tracker_attempt(
-                tiers.iter().flatten().map(String::as_str),
-                "stopped",
-            );
+            telemetry.tracker_attempt(tiers.iter().flatten().map(String::as_str), "stopped");
             match tokio::time::timeout(
                 STOPPED_ANNOUNCE_TIMEOUT,
                 transport.announce_event(
@@ -322,8 +315,14 @@ mod tests {
     #[test]
     fn tracker_progress_counts_full_payload_not_selected_bytes() {
         let meta = meta();
-        assert_eq!(full_payload_progress(&meta, &[true, false]).unwrap(), (4, 4, false));
-        assert_eq!(full_payload_progress(&meta, &[true, true]).unwrap(), (8, 0, true));
+        assert_eq!(
+            full_payload_progress(&meta, &[true, false]).unwrap(),
+            (4, 4, false)
+        );
+        assert_eq!(
+            full_payload_progress(&meta, &[true, true]).unwrap(),
+            (8, 0, true)
+        );
     }
 
     #[test]

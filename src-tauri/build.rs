@@ -39,5 +39,4 @@ fn main() {
              Native statically-built libcurl not available. Performance and TLS may differ from production."
         );
     }
-
 }
