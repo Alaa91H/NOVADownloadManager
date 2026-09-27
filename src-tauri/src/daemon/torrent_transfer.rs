@@ -57,6 +57,7 @@ impl TorrentTransferCoordinator {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn download_selected_with_nova_policy(
         &self,
         storage: &TorrentStorageSession,
@@ -238,6 +239,7 @@ struct CompletedPiece {
     selected_bytes_written: u64,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_piece(
     tasks: &mut JoinSet<Result<CompletedPiece, TorrentTransferError>>,
     peers: PeerEngine,
