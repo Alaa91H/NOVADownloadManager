@@ -761,7 +761,7 @@
         {
           "file": "src-tauri/src/native_host.rs",
           "allOf": [
-            "pairing_secret_for_base_url",
+            "parse_pairing_secret",
             "native-messaging-secret-proof",
             "candidate.send"
           ]
