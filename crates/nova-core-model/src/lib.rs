@@ -7,6 +7,30 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Version of the runtime capability/lifecycle contract shared by desktop,
+/// browser-extension and mobile clients.
+pub const RUNTIME_CAPABILITIES_CONTRACT_VERSION: u32 = 1;
+
+/// Canonical task states that can appear on the public wire schema.
+///
+/// Cancellation is deliberately not listed: the current API implements cancel
+/// as task removal. Clients must never invent a terminal "cancelled" row.
+pub const TASK_LIFECYCLE_WIRE_STATES: &[&str] = &[
+    "queued",
+    "preparing",
+    "probing",
+    "downloading",
+    "pausing",
+    "paused",
+    "retrying",
+    "recovering",
+    "verifying",
+    "finalizing",
+    "completed",
+    "error",
+    "interrupted",
+];
+
 /// Platform-neutral lifecycle state for a NOVA download task.
 ///
 /// The public `Task.status` field remains a string for wire compatibility,
