@@ -1,0 +1,407 @@
+[
+  {
+    "file": "src/lib.rs",
+    "line": 99,
+    "severity": "CRITICAL",
+    "title": "Infinite/inefficient port scan loop in find_available_daemon_port",
+    "root_cause": "`port.saturating_add(1)` when port == 65535 returns 65535 (saturates at MAX), causing the same port to be retried repeatedly. The full ephemeral range loop only terminates via the 30-failure cap, retrying port 65535 up to 30 times instead of iterating through the range.",
+    "impact": "On port contention, daemon startup blocks for 30 bind attempts on the same saturated port before failing. CPU wasted on repeated bind() calls. Also misses genuinely free ports in the range.",
+    "fix": "Use `port.wrapping_add(1)` so 65535 wraps to 0, which then fails `port > 0`. Or iterate through the range properly: `for port in 49152u16..=65535 { ... }` with the failure limit as a safety break."
+  },
+  {
+    "file": "src/lib.rs",
+    "line": 547,
+    "severity": "CRITICAL",
+    "title": "Kill script uses Get-NetTCPConnection with PID injection surface",
+    "root_cause": "`kill_old_daemon_range` builds a PowerShell script with `format!` embedding `our_pid` (u32) and `port` (u16). While numeric types prevent string injection, the script calls `taskkill /F /PID $p.Id` which could target any process listening on a port in the range 3199-3229. Additionally, `let _ = command...output()` silently ignores ALL errors, including taskkill failures.",
+    "impact": "If another application binds to one of these ports, it gets forcefully killed. The silent error swallowing means administrators have no visibility into failed process kills.",
+    "fix": "Restrict to processes whose PID is known (from the port file). Add error logging. Validate that the process being killed is actually a NOVA daemon (check process name via `Get-Process`)."
+  },
+  {
+    "file": "src/lib.rs",
+    "line": 246,
+    "severity": "CRITICAL",
+    "title": "PowerShell command construction with user-controlled file path in scan_downloaded_file",
+    "root_cause": "The validated file path is passed as an argument to `Start-MpScan -ScanPath $args[0]`. While `validate_file_path` rejects null bytes and basic path traversal, it accepts paths with spaces, special characters, and symlinks. An attacker who controls the download path could point Defender at system files or cause excessive I/O.",
+    "impact": "Denial-of-service via AV scanning of massive system directories. Potential information disclosure if scan timing leaks file existence.",
+    "fix": "Add additional validation: limit scan to the download directory. Use `Resolve-Path` with `-ErrorAction Stop` inside the script to reject non-canonical paths before passing to `Start-MpScan`."
+  },
+  {
+    "file": "src/daemon/mod.rs",
+    "line": 118,
+    "severity": "CRITICAL",
+    "title": "resolve_engine_binary falls back to bare PATH lookup for yt-dlp/ffmpeg",
+    "root_cause": "When the binary is not found in any bundled location, `resolve_engine_binary` returns the bare binary name (e.g., \"yt-dlp\") which is then passed to `Command::new()`. The function logs `\"This may be a security risk if PATH has been tampered with\"` but proceeds anyway. An attacker who has modified PATH can substitute a malicious binary.",
+    "impact": "Arbitrary code execution with the privileges of the NOVA process. An attacker with limited filesystem access (e.g., via a compromised browser extension) who can modify PATH can hijack yt-dlp/ffmpeg execution.",
+    "fix": "After the fallback, verify the resolved binary via Command::new().output() and check its digital signature on Windows (`Get-AuthenticodeSignature`). On all platforms, compute and verify a SHA-256 hash against a known-good value stored in the registry/manifest."
+  },
+  {
+    "file": "src/native_host.rs",
+    "line": 178,
+    "severity": "HIGH",
+    "title": "Auto-pair endpoint returns API token without authentication",
+    "root_cause": "`obtain_api_token` calls `POST /v1/pair/auto` which returns the daemon API token without any authentication. Any process on the local machine that can reach 127.0.0.1:3199 can obtain the token.",
+    "impact": "An attacker with local code execution (e.g., via a malicious browser extension) can obtain the NOVA daemon API token. With the token, they can list/delete downloads, access saved files, modify configurations, and potentially exfiltrate data.",
+    "fix": "Require proof of possession of a per-machine shared secret (e.g., a randomly-generated file in the app data directory that the native host reads before pairing). Or use Windows named pipe authentication that verifies the caller's PID belongs to the browser."
+  },
+  {
+    "file": "src/lib.rs",
+    "line": 356,
+    "severity": "HIGH",
+    "title": "TOCTOU between DNS resolution and TCP connection in check_tcp_endpoint",
+    "root_cause": "DNS resolution happens in a separate thread (lines 362-372). The resolved socket address is checked against internal IPs (line 379), but then `TcpStream::connect_timeout` (line 382) connects to the resolved address. Between resolution and connection, DNS could be updated via fast-flux or the resolution could return multiple addresses — only the first is checked.",
+    "impact": "SSRF bypass: an attacker who controls DNS for the target domain could initially resolve to an external IP (passing the check), then switch to an internal IP after the check passes. Also, only the first resolved address is checked; subsequent addresses could be internal.",
+    "fix": "Check ALL resolved addresses before attempting connection. Pin the connection to the validated IP using a connect-to map. Alternatively, use the pinned address from `is_safe_target_url_pinned` to force the TCP connection to only the validated IP."
+  },
+  {
+    "file": "src/lib.rs",
+    "line": 297,
+    "severity": "HIGH",
+    "title": "open_external_url passes user URL directly to rundll32 without sanitizing URL parameters",
+    "root_cause": "The URL is validated for scheme (http/https), parsed for internal IPs, then passed unchanged to `rundll32.exe url.dll,FileProtocolHandler &url`. A URL like `http://attacker.com/\"&&calc.exe` would be passed to the Windows shell. While rundll32's handler is safer than cmd.exe, URL-encoded payloads in the query string could trigger unexpected behavior.",
+    "impact": "A malicious URL that passes the internal IP check could potentially execute arbitrary commands via the Windows protocol handler, depending on the registered handler for the URL scheme.",
+    "fix": "After all security checks, re-serialize the URL through reqwest::Url to strip any embedded shell metacharacters. Pass through a temp file containing the clean URL rather than inline argument. Consider using `open::that()` from the `open` crate which is cross-platform and safer."
+  },
+  {
+    "file": "src/lib.rs",
+    "line": 454,
+    "severity": "HIGH",
+    "title": "save_config writes unvalidated JSON to disk without size-checked stream",
+    "root_cause": "The JSON is validated as valid JSON syntax but not against a schema. Any valid JSON structure can be written to disk as the app config. When loaded back, unexpected fields could cause deserialization panics or logic errors. The size check is applied before validation, but an attacker could send carefully crafted JSON that is syntactically valid but structurally malicious.",
+    "impact": "A compromised renderer process (webview) could write a malformed config that causes the daemon to crash on restart, or enable/disable security features by setting unexpected values.",
+    "fix": "Define a strict JSON schema for the config. After deserializing via `serde_json::Value`, validate against the schema (e.g., using `jsonschema` crate). Reject any unknown keys. Use `#[serde(deny_unknown_fields)]` in the config struct."
+  },
+  {
+    "file": "src/daemon/external_tools/installer.rs",
+    "line": 210,
+    "severity": "HIGH",
+    "title": "download_and_install does not verify checksum or signature",
+    "root_cause": "The `ToolSource` struct has `requires_checksum: true` but `download_and_install` never computes or verifies a SHA-256 hash, GPG signature, or any integrity check. The file is downloaded from GitHub releases and written directly to disk. An attacker who compromises the GitHub release or performs a MITM attack can replace the binary.",
+    "impact": "Arbitrary code execution when a tool update is performed. The downloaded executable could be replaced with malware. Since the tools are later executed via `Command::new()`, this is a direct RCE vector.",
+    "fix": "Before writing the downloaded file, compute its SHA-256 hash. Compare against a hardcoded or signed manifest hash. Verify GPG signatures if available. On Windows, verify Authenticode signatures of the downloaded EXE."
+  },
+  {
+    "file": "src/daemon/external_tools/installer.rs",
+    "line": 238,
+    "severity": "HIGH",
+    "title": "Filename from URL vulnerable to path traversal in download_and_install",
+    "root_cause": "The filename is derived from `download_url.rsplit('/').next().unwrap_or(\"tool\")`. A download URL containing `..` in the path would result in a filename like `..\\malicious.exe`, which when joined with `install_dir` via `install_dir.join(filename)` could write outside the install directory.",
+    "impact": "Arbitrary file write on disk during tool install/update. An attacker who controls the download URL (via MITM or compromised GitHub) could overwrite critical files outside the intended install directory.",
+    "fix": "Sanitize the filename: reject if it contains path separators (`/`, `\\`), `.`, or `..`. Use a hardcoded filename based on `tool.id()` (e.g., `yt-dlp.exe` for yt-dlp on Windows) instead of deriving from URL."
+  },
+  {
+    "file": "src/daemon/utils.rs",
+    "line": 47,
+    "severity": "HIGH",
+    "title": "TOCTOU in DNS-based SSRF protection across all URL validation functions",
+    "root_cause": "`resolve_and_check_url`, `validate_proxy_url`, and `is_safe_resolve_entry` all use `to_socket_addrs()` to resolve hostnames and check if resolved IPs are internal. By the time the actual HTTP request is made, DNS could return different results. The `is_safe_target_url_pinned` function (line 42) attempts to pin the IP but its output format `\"host:port:ip\"` must be correctly wired into curl's `--resolve` flag by the caller.",
+    "impact": "SSRF bypass: an attacker who can perform fast DNS updates (TTL=0) or who controls the DNS server for the target host can bypass the internal IP check and cause the download engine to connect to internal services.",
+    "fix": "Store the resolved IP alongside the URL in the task metadata. When initiating the actual HTTP request (via curl or reqwest), ALWAYS use `--resolve HOST:PORT:IP` to pin the connection to the validated IP. If the connection fails, re-resolve and re-validate."
+  },
+  {
+    "file": "src/daemon/ytdlp.rs",
+    "line": 128,
+    "severity": "HIGH",
+    "title": "Incomplete argument validation in is_safe_extra_arg allows potential yt-dlp flag injection",
+    "root_cause": "`is_safe_extra_arg` checks for shell metacharacters and rejects `..` in path-value flags. However, it does NOT reject null bytes (`\\0`) which can truncate argument parsing in C-based programs. It also doesn't restrict the VALUE of flags like `--add-header` which could contain HTTP header injection (CRLF). Flags like `--cookies` accept file paths that, while checked for `..`, could contain symlinks to sensitive files.",
+    "impact": "Through `--cookies` pointing to a sensitive file, an attacker could exfiltrate local files. Through `--add-header` with CRLF injection, an attacker could perform HTTP request smuggling against download targets.",
+    "fix": "Reject null bytes in all extra args (`value.contains('\\0')`). Sanitize header values by rejecting CR/LF characters. For `--cookies` and `--cookies-from-browser`, verify the path is within the user's profile directory. Add a deny list of dangerous flag values in addition to the allow list."
+  },
+  {
+    "file": "src/daemon/ytdlp.rs",
+    "line": 161,
+    "severity": "HIGH",
+    "title": "yt-dlp process stdout/stderr reader threads do not propagate errors",
+    "root_cause": "The stdout/stderr reader threads use `.lines().map_while(Result::ok)` which silently swallows I/O errors. If a pipe breaks prematurely (e.g., the child process crashes), the reader thread exits normally without error, and the main join thread waits for all readers before checking child status. This can cause a hang if pipes fill and the child is blocked waiting for pipe drain while the reader has already exited.",
+    "impact": "Hanging yt-dlp processes that never complete, resource exhaustion from orphaned reader threads, and lost error information when the subprocess fails.",
+    "fix": "Collect I/O errors in the reader threads and propagate them via a shared error flag. Set a timeout on join() calls. Use async I/O (tokio::process) instead of blocking threads to eliminate pipe deadlock entirely."
+  },
+  {
+    "file": "src/daemon/ytdlp.rs",
+    "line": 412,
+    "severity": "HIGH",
+    "title": "Two-phase locking in update_ytdlp_progress creates inconsistent task snapshot",
+    "root_cause": "The function locks `media_jobs`, reads/modifies task data, drops the lock (line 468), then locks `task_snapshot` (line 471) and writes a clone. Between the two lock acquisitions, another thread could modify the task in `media_jobs` (e.g., a status change from the scheduler). The snapshot would then be stale/inconsistent with media_jobs.",
+    "impact": "The task_snapshot (served via API) can show different data than what the engine is actually executing. This can cause UI inconsistencies, incorrect progress reporting, and race conditions in state-dependent operations (pause/resume/cancel).",
+    "fix": "Use a single lock scope: hold `media_jobs` across both the read AND the snapshot write. Or use an RwLock with a read lock for the entire operation. Or use an event-driven approach where changes are propagated atomically."
+  },
+  {
+    "file": "src/daemon/mod.rs",
+    "line": 491,
+    "severity": "HIGH",
+    "title": "restore_persisted_tasks acquires locks in inconsistent order with shutdown path",
+    "root_cause": "At startup, `restore_persisted_tasks` acquires `media_jobs.lock()` (line 521), then later `curl_jobs.lock()` (line 578), then `task_snapshot.lock()` (line 602). The shutdown handler in `start_daemon` (line 440) acquires them in order: media_jobs, curl_jobs, task_snapshot. While consistent here, the wider codebase uses `lock_or_err!` which acquires mutexes in different orders depending on the code path, risking deadlock.",
+    "impact": "Potential deadlock between restore (at startup) and any concurrent shutdown signal. Also deadlock risk between concurrent task operations that acquire the same mutexes in different orders throughout the engine.",
+    "fix": "Document a global lock ordering: (1) media_jobs, (2) curl_jobs, (3) task_snapshot, (4) telegram_config, (5) telegram_last_update_id. Enforce via a lint or runtime assertion. Replace `lock_or_err!` calls with scoped accesses that follow the ordering."
+  },
+  {
+    "file": "src/daemon/telegram.rs",
+    "line": 464,
+    "severity": "HIGH",
+    "title": "TOCTOU between path canonicalization and file open in handle_telegram_send_file",
+    "root_cause": "The code canonicalizes the path (line 503), checks `starts_with` data_dir (line 511), THEN opens the file (line 517). While the canonicalize→open window is small, a determined attacker with local filesystem access could swap a symlink between the checks. The `canonicalize()` call adds some protection but does not eliminate the race.",
+    "impact": "An attacker could trick the Telegram bot into sending arbitrary files from outside the data directory, bypassing the access control check and exfiltrating sensitive files.",
+    "fix": "Open the file FIRST via `File::open()`, then call `.canonicalize()` on the opened file descriptor (via `std::fs::metadata` path or platform-specific fd-to-path), then verify the canonicalized path is within `data_dir`. This eliminates the TOCTOU window."
+  },
+  {
+    "file": "src/daemon/telegram.rs",
+    "line": 24,
+    "severity": "HIGH",
+    "title": "Telegram bot token exposed in query parameters and URL paths",
+    "root_cause": "The Telegram bot token is embedded in the API URL path via `format!(\"{base}/bot{token}/{method}\")` at line 118. When requests fail, the error response includes the full URL with the token. The token also appears in log lines if the HTTP client logs at debug level. Additionally, the apiBase is user-configurable (line 61), allowing the token to be sent to attacker-controlled hosts.",
+    "impact": "Telegram bot token leak leads to complete control of the bot: can read all messages, send messages as the bot, and access chat history. An attacker with the token can impersonate the NOVA bot.",
+    "fix": "Normalize apiBase strictly: require `https://api.telegram.org` exactly. Strip token from error messages before logging. Use a local proxy that injects the token at the HTTP layer instead of in the URL."
+  },
+  {
+    "file": "src/daemon/telegram.rs",
+    "line": 179,
+    "severity": "HIGH",
+    "title": "Telegram polling loop is a blocking thread that prevents graceful shutdown",
+    "root_cause": "`start_telegram_bot` spawns a thread with an infinite loop (`loop { ... std::thread::sleep(Duration::from_secs(3)) }`) that never checks any shutdown flag. When the daemon signals shutdown, this thread is abandoned. It continues polling even after the axum server shuts down, holding references to `SharedState` via `state.telegram_config` etc.",
+    "impact": "The Telegram thread becomes a zombie thread after shutdown. It prevents the process from fully cleaning up resources. On subsequent starts, two Telegram polling loops could run simultaneously, causing duplicate message processing.",
+    "fix": "Add a shutdown signal (AtomicBool or channel) that the polling loop checks on each iteration. Pass a CancellationToken from tokio_util. When shutdown is requested, break the loop and exit the thread cleanly."
+  },
+  {
+    "file": "src/daemon/diagnostics.rs",
+    "line": 134,
+    "severity": "HIGH",
+    "title": "PowerShell command construction with user-adjacent host in test_ssl_cert",
+    "root_cause": "The `host` parameter is embedded into a PowerShell command string via format: `'https://{host}:{port}/'`. While `validate_hostname` (line 122) restricts to alphanumeric, `.`, and `-`, the `port` parameter is also user-controlled (u16). PowerShell's `-Command` with inline script is inherently dangerous if any validation is bypassed.",
+    "impact": "If `validate_hostname` is modified or its requirements change, command injection via the host parameter becomes possible. The SSL certificate check itself attempts a network connection which could be used for SSRF.",
+    "fix": "Use the `System.Net.Security.SslStream` .NET API via PowerShell with validated parameters only. Restrict ports to 443. Add a timeout to prevent indefinite hangs. Better yet, use the `rustls` or `native-tls` crate instead of shelling out to PowerShell."
+  },
+  {
+    "file": "src/daemon/external_tools/installer.rs",
+    "line": 49,
+    "severity": "HIGH",
+    "title": "tokio::task::block_in_place inside blocking context risks runtime panic",
+    "root_cause": "`check_ffmpeg_latest` and `check_ytdlp_latest` call `tokio::runtime::Handle::try_current()` and then `tokio::task::block_in_place { handle.block_on(...) }`. If called from a non-tokio thread (e.g., from `check_for_updates` which is called from `tool_state` which is called from `all_tool_states`), `try_current()` will fail and the function returns an empty UpdateInfo. Even when inside the tokio runtime, `block_in_place` + `block_on` is a heavy pattern that can cause runtime deadlocks if the tokio worker pool is exhausted.",
+    "impact": "Spurious update-check failures when called from non-tokio contexts. Runtime panics or deadlocks when tokio worker threads are exhausted by concurrent `block_in_place` calls.",
+    "fix": "Use `reqwest::blocking::Client` instead of async reqwest in these functions since they are called from blocking contexts. Or make the entire call chain async and use `tokio::spawn` with proper await."
+  },
+  {
+    "file": "src/daemon/external_tools/health.rs",
+    "line": 79,
+    "severity": "HIGH",
+    "title": "Version check subprocess with concurrent pipe readers can leak handles on timeout",
+    "root_cause": "`run_version_check` spawns the tool, creates thread-based pipe readers via mpsc channels, then loops on `child.try_wait()` with a timeout. On timeout, `child.kill()` and `child.wait()` are called, but there's no guarantee the reader threads have joined before returning. If they're still blocked on `r.read_to_end(&mut buf)`, their threads leak.",
+    "impact": "On timeout (e.g., a frozen yt-dlp process), reader threads leak indefinitely. Each leak holds an open pipe handle and heap allocation. Repeated timeouts (e.g., from periodic health checks) accumulate leaked threads and memory.",
+    "fix": "After `child.kill()`, close the pipes by dropping stdout/stderr handles (they're already taken via `.take()`, so join the threads with a timeout. If threads don't complete within 5 seconds, detach them (they'll clean up when pipes break from the killed child)."
+  },
+  {
+    "file": "src/daemon/external_tools/discovery.rs",
+    "line": 79,
+    "severity": "HIGH",
+    "title": "which_on_path uses `where` command on Windows which is susceptible to CWD and PATH order attacks",
+    "root_cause": "On Windows, `where.exe` searches the current directory first, then PATH. An attacker who places a malicious `yt-dlp.exe` or `ffmpeg.exe` in the current working directory can hijack tool discovery. The output parsing only takes the first line, which is the first match from `where`.",
+    "impact": "An attacker who can write to the current working directory of the NOVA process can replace the discovered yt-dlp or ffmpeg with a malicious executable, leading to arbitrary code execution.",
+    "fix": "Always use absolute paths from the registry or bundling. When using PATH discovery, verify the executable's digital signature on Windows. Never trust the first `where` result — search in safe system directories first. Explicitly ignore the current directory by removing `.` from the discovery paths."
+  },
+  {
+    "file": "src/lib.rs",
+    "line": 386,
+    "severity": "HIGH",
+    "title": "validate_source_address runs PowerShell with user-supplied IP in command line",
+    "root_cause": "The IP address is parsed and re-stringified via `parsed.to_string()` then passed as a PowerShell argument `$args[0]`. While IP-to-string is safe (only producing valid IP literals), the PowerShell script string is hardcoded. However, if the IP address parse changes in the future to accept non-IP strings via different validation paths, this becomes an injection vector.",
+    "impact": "Currently bounded to valid IP addresses only. Low risk but fragile: any change to the validation logic could open an injection path.",
+    "fix": "Use `Get-NetIPAddress -IPAddress (\"$($args[0])\" -as [System.Net.IPAddress])` to enforce typed parsing inside PowerShell. Also, reject link-local and loopback addresses which can never be valid VPN adapter addresses."
+  },
+  {
+    "file": "src/lib.rs",
+    "line": 276,
+    "severity": "MEDIUM",
+    "title": "open_browser_extensions uses cmd /C start with fixed browser names but bare URLs",
+    "root_cause": "While the `browser` parameter is validated against a fixed enum set, the URLs (like `chrome://extensions`) are hardcoded. This is safe but uses `cmd /C start \"\" chrome.exe chrome://extensions` which opens a new cmd window briefly.",
+    "impact": "Minor: brief console window flash. On systems with strict application whitelisting, `cmd.exe` as an intermediary may be blocked when `chrome.exe` would not be.",
+    "fix": "Use `open::that()` from the `open` crate or directly spawn the browser executable by resolving its path from the registry (Windows) or `which` (Linux/macOS)."
+  },
+  {
+    "file": "src/lib.rs",
+    "line": 604,
+    "severity": "MEDIUM",
+    "title": "run_integration_mode infinite sleep loop prevents clean shutdown",
+    "root_cause": "The integration mode main loop (line 613: `loop { std::thread::sleep(Duration::from_secs(60)) }`) never checks for shutdown signals, SIGTERM, or ctrl-c. The process can only be killed via `taskkill /F` (Windows) or `kill -9` (Unix), preventing graceful shutdown and state saving.",
+    "impact": "On system shutdown or service manager stop, the NOVA daemon in integration mode loses its state (persisted tasks, last download progress). This can cause data loss for in-progress downloads.",
+    "fix": "Replace the infinite sleep with a blocking wait on a shutdown channel: `ctrl_c = tokio::signal::ctrl_c()` or a oneshot receiver. Save state immediately on signal before exiting."
+  },
+  {
+    "file": "src/lib.rs",
+    "line": 507,
+    "severity": "MEDIUM",
+    "title": "kill_old_daemon spawns a thread that reads APPDATA with potential race",
+    "root_cause": "The `kill_old_daemon` spawns a detached background thread. The thread reads APPDATA/USERPROFILE at spawn time. If the daemon was launched in integration mode (where APPDATA may differ from Tauri mode), the thread reads the wrong port file and may fail to kill the old daemon.",
+    "impact": "On restart, the old daemon process might not be killed, causing port conflicts and the dreaded `address in use` error for 5 retries.",
+    "fix": "Pass the expected data_dir as a parameter to `kill_old_daemon` instead of resolving it from environment variables inside the thread."
+  },
+  {
+    "file": "src/daemon/mod.rs",
+    "line": 333,
+    "severity": "MEDIUM",
+    "title": "start_daemon spawns warm-up thread that runs engine_capabilities unsafely",
+    "root_cause": "Line 273-276 spawns a thread that calls `warm_state.engine_capabilities()`. The `let _ = ...` discards any errors. More critically, this runs on a bare `std::thread::spawn` while the tokio runtime has not yet started the axum server. If engine_capabilities calls tokio-blocking functions, it could panic.",
+    "impact": "Silent failure to warm the cache. If the warm-up panics, the thread dies silently and the cache remains cold. The first real request then pays the full initialization latency.",
+    "fix": "Use `tokio::task::spawn_blocking` instead of `std::thread::spawn` to correctly integrate with the tokio runtime. Handle the error by at least logging it."
+  },
+  {
+    "file": "src/daemon/mod.rs",
+    "line": 292,
+    "severity": "MEDIUM",
+    "title": "Debug event subscriber leaks subscription on daemon shutdown",
+    "root_cause": "At line 292, if debug logging is enabled, `state.event_bus.subscribe(|event| { ... })` is called. The returned `Subscription` handle is dropped immediately, which may or may not unsubscribe depending on the EventBus implementation. If it doesn't unsubscribe on drop, the closure continues to receive events for the lifetime of the daemon, holding a reference to the logging infrastructure.",
+    "impact": "In debug builds (or when debug logging is enabled), the event bus accumulates an orphaned subscriber. Over time with 10,000+ events, this is a minor memory leak.",
+    "fix": "Store the subscription handle in a static or state field to control its lifetime. Or ensure EventBus::subscribe returns a handle that unsubscribes on drop. Document the behavior."
+  },
+  {
+    "file": "src/lib.rs",
+    "line": 637,
+    "severity": "MEDIUM",
+    "title": "Daemon startup port wait loop can block Tauri setup indefinitely",
+    "root_cause": "The loop at lines 640-651 polls `is_loopback_port_available(default_port)` every 50ms for up to 2 seconds. This blocks the Tauri `setup` callback, which is synchronous from the Tauri perspective. If the old daemon takes longer than 2s to release the port (TIME_WAIT is 30-120s on Windows), the loop exits unconditionally but `find_available_daemon_port` will find a different port.",
+    "impact": "Delayed Tauri window appearance (up to 2s). If the old daemon hasn't released the port yet, the new daemon binds to a different port, causing the browser extension's cached port to be stale until it re-discovers.",
+    "fix": "Instead of blocking, run port detection in a background task. Let the daemon start on any available port immediately. Notify the webview of the actual port via an event, rather than blocking setup."
+  },
+  {
+    "file": "src/daemon/resource_intelligence/http_probe.rs",
+    "line": 224,
+    "severity": "MEDIUM",
+    "title": "HTTP probe requests do not limit response body size",
+    "root_cause": "The probe methods (`probe_head`, `probe_get_range`, `probe_get`) send HTTP requests but do NOT set `.body_limit()` or use non-body-reading APIs like `.send().await` without reading the body. HEAD requests might not have a body, but GET requests (even with Range: bytes=0-0) could be responded to with a full body by a non-compliant server. reqwest buffers the full response body when dropped.",
+    "impact": "A misconfigured or malicious server could cause the RIE probe to download megabytes of data into memory, causing OOM or excessive memory pressure on the daemon.",
+    "fix": "Use `resp.bytes().limit(max_bytes).await` or convert to a streaming response with `.bytes_stream()` and only take the first N bytes. Set a max body size of 64KB for probe responses."
+  },
+  {
+    "file": "src/daemon/resource_intelligence/http_probe.rs",
+    "line": 500,
+    "severity": "MEDIUM",
+    "title": "header_map_to_string silently drops non-UTF-8 header values",
+    "root_cause": "The function uses `v.to_str().ok()` which returns `None` for non-UTF-8 header values (RFC allows arbitrary byte sequences). These headers are silently dropped. Downstream code that depends on headers like `content-disposition` could make incorrect decisions when the header contains Latin-1 or other non-UTF-8 encodings.",
+    "impact": "Files with non-UTF-8 content-disposition headers (common with Asian-language filenames) get incorrect filenames. The file may be saved with a default name like 'download' instead of the intended filename.",
+    "fix": "Use `v.to_str().unwrap_or_else(|_| ...)` to lossily convert bytes. Or store headers as raw bytes alongside string values. Apply RFC 5987 encoding parsing for content-disposition."
+  },
+  {
+    "file": "src/daemon/resource_intelligence/http_probe.rs",
+    "line": 552,
+    "severity": "MEDIUM",
+    "title": "percent_decode silently falls back to original string on invalid UTF-8",
+    "root_cause": "`String::from_utf8(result).unwrap_or_else(|_| input.to_owned())` silently drops percent-decoded bytes if they're not valid UTF-8. This affects filename extraction from percent-encoded URLs (e.g., `%FF` sequences in URLs).",
+    "impact": "Files with non-UTF-8 percent-encoded filenames (common on international websites) get the raw percent-encoded URL as the filename instead of the decoded version. Silent data corruption.",
+    "fix": "Use `String::from_utf8_lossy(&result).into_owned()` which replaces invalid sequences with U+FFFD replacement characters. Better yet, use the `percent_encoding` crate which handles this correctly."
+  },
+  {
+    "file": "src/daemon/resource_intelligence/retry_intel.rs",
+    "line": 112,
+    "severity": "MEDIUM",
+    "title": "Deterministic 'random' jitter in retry backoff creates thundering herd",
+    "root_cause": "The jitter uses `(attempt as f64 * 7.31).sin().mul_add(0.5, 1.0)` which is purely deterministic based on attempt count. All tasks at the same attempt number get the same jitter value. When multiple downloads fail simultaneously (e.g., during a network outage), they all retry at exactly the same time, overwhelming the server.",
+    "impact": "Thundering herd problem: synchronized retries amplify server load during recovery scenarios. This contradicts the purpose of jitter.",
+    "fix": "Use a proper random number generator (e.g., `rand::thread_rng()` with `Uniform` distribution) for jitter. Store the jitter base in the RetryDecision so it persists across retry attempts."
+  },
+  {
+    "file": "src/daemon/resource_intelligence/stability.rs",
+    "line": 41,
+    "severity": "MEDIUM",
+    "title": "Two-phase mutex lock in record_probe creates inconsistency window",
+    "root_cause": "`record_probe` first acquires `probe_history` lock (line 48), drops it (end of block at line 71), then acquires `profiles` lock (line 75). Between the unlock and the second lock, another thread could read stale profile data that doesn't reflect the just-recorded probe.",
+    "impact": "`get()` calls between the unlock and lock return stale profile data. The `analyze()` function could run between the two locks and get an empty history with the old profile.",
+    "fix": "Use a single lock that protects both `probe_history` and `profiles` together (e.g., a struct inside one Mutex). Or use transactional semantics with RwLock."
+  },
+  {
+    "file": "src/daemon/external_tools/registry.rs",
+    "line": 17,
+    "severity": "MEDIUM",
+    "title": "Registry corruption from partial writes",
+    "root_cause": "`save_registry` uses `std::fs::write` which is NOT atomic. If the process crashes (or power fails) during the write, the registry file is left in a partially-written state. `load_registry` silently defaults to an empty registry on parse failure (`.unwrap_or_default()`), losing all tool registration data.",
+    "impact": "On crash during tool install/update, the registry is corrupted and all tool registrations are lost. The next startup treats all tools as not installed and re-discovers/re-downloads them.",
+    "fix": "Write to a temporary file first, then atomically rename over the target with `std::fs::rename`. Use an atomic write crate like `tempfile` + `fs2` for cross-platform atomic file operations."
+  },
+  {
+    "file": "src/daemon/mod.rs",
+    "line": 148,
+    "severity": "MEDIUM",
+    "title": "Daemon thread panic kills background services silently",
+    "root_cause": "The entire daemon runs in `std::thread::spawn(move || { ... })`. Any unhandled panic inside the tokio runtime (e.g., in a spawned task) propagates to the thread and kills it. The main Tauri thread never checks if the daemon thread is alive. Restart requests via `restart_daemon` would spawn a new thread, but the old one's state is lost.",
+    "impact": "If the daemon thread panics (e.g., from an unwrap in an async task), all downloads stop silently. The user sees a frozen UI. No automatic recovery — user must restart the entire application.",
+    "fix": "Wrap the entire tokio runtime in `std::panic::catch_unwind`. On panic, log the panic info and attempt automatic recovery by restarting the daemon thread. Set an AtomicBool flag that the main thread checks via a watchdog."
+  },
+  {
+    "file": "src/daemon/static_files.rs",
+    "line": 26,
+    "severity": "MEDIUM",
+    "title": "serve_asset has a race condition in path validation",
+    "root_cause": "Lines 33-41 canonicalize `file_path` and `base` separately and then check if canonical starts with base. Between the two canonicalize() calls, a symlink in the path could be swapped. While unlikely, this could allow serving files outside the assets directory.",
+    "impact": "An attacker who can write symlinks to the assets directory (e.g., via a compromised download that writes to resources) could serve arbitrary files from the filesystem via the daemon's HTTP server.",
+    "fix": "Open the file FIRST, then get its canonical path via `std::fs::metadata` + platform API. Or use `std::path::Path::canonicalize` on the parent directory once and verify all child paths resolve under it."
+  },
+  {
+    "file": "src/lib.rs",
+    "line": 88,
+    "severity": "LOW",
+    "title": "DAEMON_PORT_SCAN_LIMIT (30) is arbitrarily small for full ephemeral range",
+    "root_cause": "`DAEMON_PORT_SCAN_LIMIT = 30` is used both as a small offset scan (lines 104-114, iterating 3199..3229) AND as a failure cap for the full ephemeral scan (lines 120-132, iterating 49152..). The full scan only attempts 30 ports due to the failure cap matching the offset range size.",
+    "impact": "The full ephemeral range scan (last-resort case) only probes 30 ports out of 16384 possible, drastically reducing the chance of finding a free port when the preferred range is exhausted.",
+    "fix": "Use separate constants: `PORT_OFFSET_SCAN_LIMIT (30)` for the sequential range scan, and `EPHEMERAL_SCAN_LIMIT (1000)` for the full-range fallback. Or change the full scan to bound by port range exhaustion, not a fixed failure count."
+  },
+  {
+    "file": "src/daemon/utils.rs",
+    "line": 355,
+    "severity": "LOW",
+    "title": "kill_process spawns taskkill but never waits for child exit",
+    "root_cause": "Both `kill_process` implementations call `cmd.spawn()` and ignore the child handle. The spawned `taskkill` (or `kill`) process runs asynchronously. The function returns immediately and the child process handle is dropped. This creates a brief zombie process on Unix, though on Windows the handle is closed and the process reference is lost.",
+    "impact": "On Unix systems, the child `kill` process becomes a zombie until the NOVA process exits (because the child was not waited on). Accumulated zombies if kill_process is called frequently. On Windows, `taskkill` may not complete before the calling code proceeds (e.g., tries to bind the port).",
+    "fix": "Use `.output()` or `.status()` instead of `.spawn()` to synchronously wait for the kill command to complete. On Windows, add a small delay after taskkill to allow port release (TCP TIME_WAIT)."
+  },
+  {
+    "file": "src/lib.rs",
+    "line": 141,
+    "severity": "LOW",
+    "title": "set_daemon_url silently uses fallback on mutex poison",
+    "root_cause": "If the DaemonUrl mutex is poisoned, `set_daemon_url` logs an error but never updates the URL. The Tauri command `get_daemon_url` will return the fallback default URL instead of the actual daemon port.",
+    "impact": "After a poisoned mutex, the webview gets a stale/wrong daemon URL and cannot communicate with the daemon. The user must restart to recover.",
+    "fix": "Recover from poison via `.into_inner()` (as `lock_or_err!` does elsewhere) instead of just logging. Consider using `std::sync::RwLock` for DaemonUrl instead of Mutex since writes are rare and reads are frequent."
+  },
+  {
+    "file": "src/daemon/external_tools/mod.rs",
+    "line": 46,
+    "severity": "LOW",
+    "title": "discover() holds registry lock while calling discovery::find_best_candidate",
+    "root_cause": "The `discover_inner` method holds `self.registry.lock()` (via `lock_or_err!`) while calling `discovery::find_best_candidate(tool, reg)` which can execute subprocesses (`where`/`which` commands on PATH) to find tools. Long-running subprocess execution while holding a mutex blocks all other tool operations.",
+    "impact": "Tool discovery can block for seconds (subprocess timeout), during which `tool_state()`, `check_health()`, and other methods that need the registry lock are stalled.",
+    "fix": "Drop the registry lock before calling `find_best_candidate`. Re-acquire it only for the registry update after discovery completes. Use a copy of the registry for the read-only discovery phase."
+  },
+  {
+    "file": "src/daemon/resource_intelligence/http_probe.rs",
+    "line": 196,
+    "severity": "LOW",
+    "title": "Mirror URL deduplication uses O(n^2) containment check",
+    "root_cause": "The `if !mirrors.contains(&url) { mirrors.push(url); }` pattern (line 201-203) uses `Vec::contains` which is O(n) per insertion. For a small number of mirrors (typically 0-3) this is fine, but it's an O(n^2) pattern that should use a HashSet for deduplication.",
+    "impact": "For the typical case (0-5 mirror URLs), no measurable impact. Code style / performance nit.",
+    "fix": "Use a `HashSet<String>` for deduplication and convert to `Vec<String>` at the end. Or keep the Vec and benchmark if this ever handles 10+ mirrors."
+  },
+  {
+    "file": "src/daemon/resource_intelligence/url_intel.rs",
+    "line": 68,
+    "severity": "LOW",
+    "title": "normalize_url unconditionally prepends https:// to schemeless URLs",
+    "root_cause": "URLs without a scheme get `https://` prepended, even if the resource only supports HTTP. For example, `http://example.com` works fine, but `example.com:8080/file` becomes `https://example.com:8080/file` which may fail if the server only supports HTTP.",
+    "impact": "Some servers that listen on HTTP-only ports (e.g., 8080, 3000, 5000) may fail to respond when NOVA prepends `https://`. This is a usability issue for developers testing against local servers.",
+    "fix": "Keep the scheme empty as `unknown` and let the caller decide. Or use `http://` as default instead of `https://` since it's more broadly compatible. Add a configuration option for the default scheme."
+  },
+  {
+    "file": "src/daemon/external_tools/tools/ffmpeg.rs",
+    "line": 62,
+    "severity": "LOW",
+    "title": "FFmpeg version parsing assumes 3rd whitespace token is version",
+    "root_cause": "`parse_version` takes the 3rd whitespace-separated token from `ffmpeg -version` output. FFmpeg's version output is: `ffmpeg version N.M.M ...`. The 3rd token at index 2 is the version. This is fragile against locale changes or future format changes in FFmpeg.",
+    "impact": "If FFmpeg changes its version string format, NOVA fails to detect the version and the tool is marked as Incompatible/Broken.",
+    "fix": "Use regex to find the version pattern directly: `regex::Regex::new(r\"version (\\d+\\.\\d+\\.\\d+)\")`. This is more robust against whitespace and format changes."
+  },
+  {
+    "file": "src/daemon/external_tools/tools/yt_dlp.rs",
+    "line": 61,
+    "severity": "LOW",
+    "title": "yt-dlp version parsing trusts first line of --version output completely",
+    "root_cause": "`parse_version` takes the first line of `yt-dlp --version` output as-is. If yt-dlp changes its output format or if the user has a wrapper script that modifies output, the version could be any string.",
+    "impact": "Version comparison uses `Version::new()` which parses major.minor.patch from dotted format. yt-dlp versions like `2025.01.15` have a single 'year.month.day' component that doesn't fit the 3-part model. Currently `Version::new()` returns major=2025, minor=0, patch=0 which is compared against `Version::new(\"2024.01.01\")` — the comparison works by major version only.",
+    "fix": "Create a specialized Version parser for yt-dlp's date-based versioning. Compare using the raw date components rather than major/minor/patch which are semantically meaningless for date versions."
+  }
+]

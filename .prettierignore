@@ -1,0 +1,18 @@
+# Generated artifacts
+dist/
+node_modules/
+coverage/
+bin/
+.cache/
+.kilo/
+src-tauri/target/
+src-tauri/gen/
+src-tauri/resources/
+
+# Generated i18n translation dictionaries (produced by scripts/sync-i18n-index.mjs).
+# Keep ESLint (.eslintrc ignores src/lib/i18n) and Prettier in sync: these files
+# are machine-generated and regenerated from source dictionaries on demand.
+src/lib/i18n/
+
+# Extension has its own toolchain
+browser-extension/

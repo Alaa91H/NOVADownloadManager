@@ -1,0 +1,149 @@
+[
+  {
+    "file": "mod.rs",
+    "line": 139,
+    "severity": "low",
+    "type": "logical-bug",
+    "description": "report_speed stores per-connection speed into aggregate_speed atomically, overwriting previous values. snapshot() reads this as 'total_speed', but it is not the sum/total of all connections—it is only the last-reported per-connection speed. The field name 'total_speed' is misleading; consumers expecting an aggregate will see incorrect values."
+  },
+  {
+    "file": "mod.rs",
+    "line": 388,
+    "severity": "medium",
+    "type": "panic-risk",
+    "description": "unwrap() on profiler.get_mut(&host) after get_or_create(&host). While locally safe (same call site creates then fetches), any future refactor that removes or reorders the get_or_create call will cause a panic at runtime. Brittle invariant."
+  },
+  {
+    "file": "mod.rs",
+    "line": 467,
+    "severity": "low",
+    "type": "logical-bug",
+    "description": "agg_speed computed as peak_speed.max(sum-of-alive-connection-speeds). Using peak_speed in this max is semantically wrong: peak_speed is an all-time high, not a current aggregate. Should use sum-of-speeds only (or a current aggregate from the atomic counters if they were correct)."
+  },
+  {
+    "file": "mod.rs",
+    "line": 578,
+    "severity": "low",
+    "type": "clippy-violation",
+    "description": "uninlined_format_args: format!(\"connections {}→{} \", self.current_connections, target) should be format!(\"connections {self.current_connections}→{target} \")"
+  },
+  {
+    "file": "mod.rs",
+    "line": 611,
+    "severity": "low",
+    "type": "logical-bug",
+    "description": "per_connection_limit = total_budget / target.max(1). If profile.per_connection_ceiling is small relative to target, this truncates to 0. A per_connection_limit of 0 would be passed downstream, potentially causing zero-speed downloads or division-by-zero in consumers."
+  },
+  {
+    "file": "buffer_manager.rs",
+    "line": 90,
+    "severity": "low",
+    "type": "code-smell",
+    "description": "memory_factor = 1.0 - (self.memory_pressure * 0.7). If memory_pressure > ~1.428 (caller supplies value > 1.0), this goes negative. The subsequent (adjusted as usize) cast on a negative f64 and .clamp() save it, but the lack of input validation is fragile."
+  },
+  {
+    "file": "convergence.rs",
+    "line": 69,
+    "severity": "low",
+    "type": "code-smell",
+    "description": "improvement_ratio(8) uses a hardcoded magic number 8. Caller record_adjustment derives the window from a hardcoded constant rather than a configurable parameter. This diverges from the improvement_ratio(window) API which accepts a parameter."
+  },
+  {
+    "file": "convergence.rs",
+    "line": 127,
+    "severity": "low",
+    "type": "code-smell",
+    "description": "diminishing_returns() calls improvement_ratio(3) while record_adjustment uses improvement_ratio(8). The window sizes are inconsistent, meaning the two call sites can disagree about whether improvement exists."
+  },
+  {
+    "file": "profile_store.rs",
+    "line": 60,
+    "severity": "low",
+    "type": "code-smell",
+    "description": "Repeated pattern SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs() appears at lines 60-62, 130-133, 233-237, 240-243, and 314-317. Should be extracted into a helper function."
+  },
+  {
+    "file": "profile_store.rs",
+    "line": 327,
+    "severity": "low",
+    "type": "logical-bug",
+    "description": "save() does NOT clear the dirty flag after writing. If save() is called followed by save_if_dirty(), the latter will write again unnecessarily because self.dirty is still true."
+  },
+  {
+    "file": "resource_monitor.rs",
+    "line": 275,
+    "severity": "high",
+    "type": "logical-bug",
+    "description": "disk_write_bytes is initialized to 0 in new() and NEVER updated by any system call. sample_disk_io() always reads disk_write_bytes as 0, computes delta as 0, and sets disk_write_mbps to 0. This makes disk_bottleneck() always return false and disk_write_budget() always return 0. Disk I/O monitoring is entirely non-functional."
+  },
+  {
+    "file": "resource_monitor.rs",
+    "line": 136,
+    "severity": "low",
+    "type": "unsafe-code",
+    "description": "Unsafe FFI calls GetSystemTimes and GlobalMemoryStatusEx with #[repr(C)] structs. Struct layouts appear to match Windows API definitions, but there is no compile-time validation of struct layout alignment or size."
+  },
+  {
+    "file": "resource_monitor.rs",
+    "line": 190,
+    "severity": "low",
+    "type": "code-smell",
+    "description": "Global static OnceLock<Mutex<(u64,u64)>> inside cfg(windows) function for CPU delta tracking. Works correctly but a file-level static would be more idiomatic. The Mutex is uncontended but the poison recovery path uses into_inner() which itself could panic if another thread panicked while holding the lock."
+  },
+  {
+    "file": "segment_controller.rs",
+    "line": 200,
+    "severity": "medium",
+    "type": "panic-risk",
+    "description": "unwrap() on .find(|s| s.id == slow_id). If slow_id comes from the earlier active_segs iteration but a segment is removed between the two accesses (e.g., from apply_plan in a concurrent context, or if IDs somehow diverge), this panics. Applies also to lines 229 and 230."
+  },
+  {
+    "file": "segment_controller.rs",
+    "line": 326,
+    "severity": "medium",
+    "type": "dead-code",
+    "description": "let plans = Vec::new(); is never mutated (no plans.push()). mark_connection_failed always returns an empty Vec despite the return type Vec<SegmentPlan> and the semantic implication of its name. Likely an incomplete implementation—should generate plans for re-scheduling failed segments."
+  },
+  {
+    "file": "segment_controller.rs",
+    "line": 454,
+    "severity": "high",
+    "type": "logical-bug",
+    "description": "Rebalance apply_plan reduces from_seg.end_byte by bytes but does NOT adjust from_seg.downloaded. If downloaded already exceeded the new end_byte-start_byte span, remaining_bytes() returns 0 via saturating_sub, and the segment is spuriously marked Completed. The segment appears fully downloaded even though bytes near the boundary were never fetched."
+  },
+  {
+    "file": "segment_controller.rs",
+    "line": 455,
+    "severity": "medium",
+    "type": "logical-bug",
+    "description": "No guard against from_seg == to_seg in Rebalance apply_plan. If the same ID is passed for both, the segment's start_byte gets set to its own (reduced) end_byte, producing a zero-length or negative-length segment, corrupting the byte-range coverage."
+  },
+  {
+    "file": "segment_controller.rs",
+    "line": 479,
+    "severity": "high",
+    "type": "logical-bug",
+    "description": "split_segment_at pushes the new segment to the end of self.segments (append), but does not insert it in byte-sorted order. The segments Vec is assumed to be sorted by byte position throughout the file (e.g., windows(2) in smallest_adjacent_pair relies on Vec iteration order). After a split, segments are out of order and merge/adjacent logic silently fails to find merge candidates."
+  },
+  {
+    "file": "segment_controller.rs",
+    "line": 494,
+    "severity": "low",
+    "type": "panic-risk",
+    "description": "max().unwrap_or(0) + 1 on segment IDs: if all 2^32 IDs are exhausted, this wraps to 0, creating a duplicate ID. Extremely unlikely in practice but technically an arithmetic overflow."
+  },
+  {
+    "file": "server_profiler.rs",
+    "line": 231,
+    "severity": "low",
+    "type": "clippy-violation",
+    "description": "profile.supports_range.clone() on a TriState which is Copy. The .clone() is unnecessary."
+  },
+  {
+    "file": "server_profiler.rs",
+    "line": 261,
+    "severity": "low",
+    "type": "code-smell",
+    "description": "profile.rtt_samples.remove(0) and throughput_samples.remove(0) for ring-buffer cap at 100. Vec::remove(0) is O(n); VecDeque::pop_front() would be O(1)."
+  }
+]

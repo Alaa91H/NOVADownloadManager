@@ -1,0 +1,2 @@
+msrv = "1.77.0"
+cognitive-complexity-threshold = 30

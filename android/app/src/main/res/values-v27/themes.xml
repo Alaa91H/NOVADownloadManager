@@ -1,0 +1,10 @@
+<resources>
+    <style name="Theme.NOVA" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:colorAccent">@android:color/transparent</item>
+    </style>
+</resources>

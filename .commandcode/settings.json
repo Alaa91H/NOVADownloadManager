@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(pnpm:*)",
+      "Shell(node -e \"const React = require('react'); console.log('react version:', React.version); console.log('React.act type:', typeof React.act); console.log('React keys have act:', Object.keys(React).filter(k=>k.toLowerCase().includes('act')));\" 2>&1)",
+      "Shell(node -e const React = require('react'); console.log('prod React.act:', typeof React.act); 2 >& 1)",
+      "Shell(node -e const React = require('react/development'); console.log('dev React.act:', typeof React.act); 2 >& 1)",
+      "Shell(node -e const ReactDOM = require('react-dom'); console.log('react-dom version:', ReactDOM.version); 2 >& 1)",
+      "Shell(tar:*)",
+      "Shell(node -e const React = require('react'); const fs = require('fs'); const src = fs.readFileSync('package/cjs/react.production.js','utf8'); console.log('has act in prod:', src.includes('act:')); console.log('has act export:', /act\\s*[:=]/.test(src)); 2 >& 1)",
+      "Shell(node -e \"const fs=require('fs'); const src=fs.readFileSync(process.env.COMMANDCODE_SCRATCHPAD + '\\\\package\\\\cjs\\\\react.production.js','utf8'); console.log('act occurrences:', (src.match(/act/g)||[]).length); console.log(src.slice(0, 400));\" 2>&1)",
+      "Shell(node -e \"const fs=require('fs'); const src=fs.readFileSync(process.env.COMMANDCODE_SCRATCHPAD + '\\\\\\\\package\\\\\\\\cjs\\\\\\\\react.production.js','utf8'); const m = src.match(/exports\\s*=\\s*\\{[\\s\\S]*?\\n\\};/); if (m) console.log(m[0].slice(0, 1500));\" 2>&1)"
+    ],
+    "deny": [],
+    "defaultMode": "default"
+  }
+}

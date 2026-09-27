@@ -1,0 +1,2 @@
+export function filenameFromContentDisposition(value?:string):string|undefined { if(!value) return undefined; const utf=/filename\*=UTF-8''([^;]+)/i.exec(value); if(utf) return decodeURIComponent(utf[1] ?? ''); const plain=/filename="?([^";]+)"?/i.exec(value); return plain?.[1]; }
+export function filenameFromUrl(url:string):string|undefined { try{ const base=new URL(url).pathname.split('/').filter(Boolean).pop(); return base ? decodeURIComponent(base) : undefined; }catch{return undefined;} }

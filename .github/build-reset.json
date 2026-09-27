@@ -1,0 +1,10 @@
+{
+  "requested_at": "2026-09-25T12:02:00Z",
+  "action": "cancel-all-stale-runs-and-start-clean-main-ci",
+  "validation": [
+    "native-desktop",
+    "runtime-compatibility",
+    "android-foundation",
+    "codeql"
+  ]
+}

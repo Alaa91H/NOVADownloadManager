@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novabrowserextension.app/contracts/candidate.schema.json",
+  "title": "NOVA Browser Candidate",
+  "type": "object",
+  "required": ["id", "url", "source", "mediaType", "confidence", "createdAt"],
+  "properties": {
+    "id": { "type": "string" },
+    "url": { "type": "string" },
+    "finalUrl": { "type": "string" },
+    "pageUrl": { "type": "string" },
+    "source": { "type": "string" },
+    "mediaType": { "type": "string" },
+    "mimeType": { "type": "string" },
+    "filename": { "type": "string" },
+    "sizeBytes": { "type": "integer", "minimum": 0 },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 100 },
+    "createdAt": { "type": "string" }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,13 @@
+[package]
+name = "nova-core-model"
+version = "2.4.25-alpha"
+description = "Platform-neutral domain models for NOVA Download Manager"
+authors = ["NOVA"]
+license = "MIT"
+repository = "https://github.com/Alaa91H/NOVADownloadManager"
+edition = "2021"
+rust-version = "1.77"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

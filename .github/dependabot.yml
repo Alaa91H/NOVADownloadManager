@@ -1,0 +1,137 @@
+# Dependabot configuration for NOVA Download Manager.
+#
+# Four ecosystems are monitored:
+#   1. npm (root)           — repository scripting only
+#   2. npm (browser-ext)    — WXT, Zod, Dexie, content-script libraries
+#   3. Cargo (src-tauri)    — Rust daemon, curl, tokio, axum, reqwest
+#   4. GitHub Actions       — CI workflows and release automation
+#
+# Groups batch related updates into a single PR to reduce noise.
+# Schedule: every Monday at 06:00 Berlin time (offset by 20 min per ecosystem).
+
+version: 2
+updates:
+  # ── Root repository tooling (npm) ─────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 3
+    versioning-strategy: "increase-if-necessary"
+    rebase-strategy: "auto"
+    labels:
+      - "dependencies"
+      - "tooling"
+    commit-message:
+      prefix: "deps(tooling)"
+      include: "scope"
+
+  # ── Browser extension (npm) ────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/browser-extension"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:20"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 8
+    versioning-strategy: "increase-if-necessary"
+    rebase-strategy: "auto"
+    labels:
+      - "dependencies"
+      - "browser-extension"
+    commit-message:
+      prefix: "deps(extension)"
+      include: "scope"
+    groups:
+      extension-runtime:
+        patterns:
+          - "@wxt-dev/*"
+          - "wxt"
+          - "webextension-polyfill"
+          - "dexie"
+          - "idb-keyval"
+          - "zod"
+      media-parsers:
+        patterns:
+          - "m3u8-parser"
+          - "mpd-parser"
+      extension-react:
+        patterns:
+          - "react"
+          - "react-dom"
+      extension-quality:
+        patterns:
+          - "typescript"
+          - "vitest"
+          - "@vitest/*"
+          - "eslint"
+          - "@typescript-eslint/*"
+          - "@playwright/*"
+          - "playwright"
+          - "tsx"
+          - "prettier"
+          - "cross-env"
+
+  # ── Rust daemon (Cargo) ────────────────────────────────────
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:40"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 8
+    rebase-strategy: "auto"
+    labels:
+      - "dependencies"
+      - "rust"
+      - "engine"
+    commit-message:
+      prefix: "deps(rust)"
+      include: "scope"
+    groups:
+      http-stack:
+        patterns:
+          - "reqwest"
+          - "axum"
+          - "tower-http"
+          - "tokio"
+          - "tokio-util"
+      curl-engine:
+        patterns:
+          - "curl"
+          - "curl-sys"
+      serialization:
+        patterns:
+          - "serde"
+          - "serde_json"
+          - "chrono"
+          - "uuid"
+
+  # ── GitHub Actions ─────────────────────────────────────────
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 5
+    rebase-strategy: "auto"
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "deps(ci)"
+      include: "scope"
+    groups:
+      ci-actions:
+        patterns:
+          - "actions/*"
+          - "pnpm/action-setup"
+          - "dtolnay/rust-toolchain"
+          - "softprops/action-gh-release"

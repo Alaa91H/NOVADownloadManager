@@ -1,0 +1,40 @@
+{
+  "name": "nova",
+  "private": true,
+  "version": "2.4.49-alpha",
+  "description": "NOVA Download Manager native Qt desktop application with Rust download engine and browser companion.",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "packageManager": "pnpm@11.6.0",
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.1": true
+  },
+  "scripts": {
+    "native:configure": "cmake -S desktop-native -B build/native -DCMAKE_BUILD_TYPE=Release -DNOVA_BUILD_TESTS=ON",
+    "native:build": "cmake --build build/native --config Release --parallel",
+    "native:test": "ctest --test-dir build/native -C Release --output-on-failure",
+    "native:check": "node desktop-native/scripts/check-localization.mjs && node desktop-native/scripts/check-release-localization.mjs && node desktop-native/scripts/check-approved-ui.mjs && node desktop-native/scripts/check-native-accessibility.mjs && node desktop-native/scripts/check-native-contrast.mjs && node desktop-native/scripts/check-product-copy.mjs && node desktop-native/scripts/check-parity.mjs",
+    "runtime:check": "cargo check --manifest-path src-tauri/Cargo.toml --bin nova-native-backend --bin nova-native-host",
+    "runtime:test": "cargo test --manifest-path src-tauri/Cargo.toml --lib",
+    "version:apply": "node scripts/apply-version.mjs",
+    "branding:generate": "node scripts/generate-icons.mjs",
+    "branding:verify": "node scripts/verify-branding-assets.mjs",
+    "extension:install": "pnpm install --frozen-lockfile",
+    "extension:build": "pnpm --filter nova-browser-extension build",
+    "extension:package": "pnpm --filter nova-browser-extension build:zip",
+    "fetch-engines": "node scripts/build-native-curl.mjs && node scripts/fetch-engines.mjs",
+    "native-curl:build": "node scripts/build-native-curl.mjs",
+    "native-curl:env": "node scripts/print-native-curl-env.mjs",
+    "native-curl:verify": "node scripts/verify-native-curl.mjs",
+    "security:check": "node scripts/security-check.mjs",
+    "facts:verify": "node scripts/verify-project-facts.mjs",
+    "deps:check-updates": "node scripts/check-updates.mjs"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "tsx": "^4.23.5"
+  }
+}

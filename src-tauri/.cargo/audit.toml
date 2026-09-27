@@ -1,0 +1,35 @@
+[advisories]
+ignore = [
+    # Tauri 2.11.5 -> wry 0.55.1 requires GTK3 0.18 on Linux. These GTK3
+    # bindings are upstream-unmaintained informational advisories; the latest
+    # compatible Tauri/Wry release retains the same constraint.
+    # Revisit when Tauri upgrades the Linux runtime away from this GTK3 stack.
+    "RUSTSEC-2024-0411", # gdkwayland-sys
+    "RUSTSEC-2024-0412", # gdk
+    "RUSTSEC-2024-0413", # atk
+    "RUSTSEC-2024-0414", # gdkx11-sys
+    "RUSTSEC-2024-0415", # gtk
+    "RUSTSEC-2024-0416", # atk-sys
+    "RUSTSEC-2024-0417", # gdkx11
+    "RUSTSEC-2024-0418", # gdk-sys
+    "RUSTSEC-2024-0419", # gtk3-macros
+    "RUSTSEC-2024-0420", # gtk-sys
+
+    # Tauri-utils 2.9.3 -> urlpattern 0.3.0 pulls these unmaintained UNIC
+    # crates. Cargo confirms there is no newer compatible Tauri-utils release.
+    # Revisit when Tauri updates urlpattern or removes this dependency.
+    "RUSTSEC-2025-0075", # unic-char-range
+    "RUSTSEC-2025-0080", # unic-common
+    "RUSTSEC-2025-0081", # unic-char-property
+    "RUSTSEC-2025-0098", # unic-ucd-version
+    "RUSTSEC-2025-0100", # unic-ucd-ident
+
+    # glib 0.18 is forced by wry 0.55.1. The affected VariantStrIter methods
+    # are not referenced by NOVA, Tauri, or Wry (verified source scan), and
+    # no compatible patched GLib exists before 0.20. Revisit on runtime upgrade.
+    "RUSTSEC-2024-0429",
+
+    # Compile-time-only macro transitively required by gtk3-macros. No patched
+    # compatible release exists; there is no runtime exposure.
+    "RUSTSEC-2024-0370",
+]

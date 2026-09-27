@@ -1,0 +1,20 @@
+{
+  "extensionName": {
+    "message": "NOVA Browser Extension"
+  },
+  "extensionNameEdge": {
+    "message": "NOVA Browser Extension for Edge"
+  },
+  "extensionShortName": {
+    "message": "NOVA Browser Extension"
+  },
+  "extensionActionTitle": {
+    "message": "NOVA Browser Extension"
+  },
+  "extensionDescription": {
+    "message": "Detects download and media candidates and sends approved work to NOVA Download Manager through the local desktop bridge."
+  },
+  "commandSendCurrentPageDescription": {
+    "message": "Send the current page URL to NOVA Download Manager"
+  }
+}
