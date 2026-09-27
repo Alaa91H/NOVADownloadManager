@@ -473,10 +473,16 @@ jobs:
       - name: Confirm production parity gate remains closed
         shell: bash
         run: |
-          if node desktop-native/scripts/check-parity.mjs --require-complete; then
+          set -euo pipefail
+          output_file="$(mktemp)"
+          if node desktop-native/scripts/check-parity.mjs --require-complete >"$output_file" 2>&1; then
+            cat "$output_file"
             echo "T00 requires production parity to remain incomplete until all release gates have evidence." >&2
             exit 1
           fi
+          cat "$output_file"
+          grep -F "Native production readiness requires all capabilities covered" "$output_file"
+          grep -F "Native production readiness requires releaseReplacementReady=true" "$output_file"
 
       - name: Install Qt
         if: matrix.arch == 'x64' || runner.os == 'macOS'
