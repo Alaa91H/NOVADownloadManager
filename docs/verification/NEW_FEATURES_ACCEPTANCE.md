@@ -14,6 +14,7 @@
 | T00 | `fd165c58d953e33c6c515918b669fe32d5973d02` | مراجعة شجرة main | parity evidence paths/tokens | تحقق ساكن | 0 مراجع ملفات مفقودة بعد تصحيح manifest؛ الحالات بقيت conservative و`releaseReplacementReady=false` | يحتاج تشغيل `check-parity.mjs` الفعلي ضمن المرشح |
 | T00 | `6da4da2630dad33b7c8c29d3f4b41db55d51301d` | GitHub Actions / Ubuntu | T00 full Rust verification | فشل | run 36344846103: اختبارات `src-tauri` 905/905 نجحت؛ core-model 22/22 نجحت؛ فشل لاحقًا في `nova-media-core` بسبب E0716 في 3 اختبارات selection | إصلاح أعمار fixtures وإعادة تشغيل A بالكامل |
 | T00 | `4d4e1c6f5a8ffec82b283e8231043e2ec8c18073` | GitHub Actions | run 36345124558: مجموعة A + مصفوفة B على 6 أهداف | in-progress / not-run بالكامل | run الحالي بدأ على نفس SHA؛ لا توجد نتيجة نهائية بعد | يجب نجاح A وB على المرشح نفسه، وفشل `--require-complete` المتوقع، ثم مراجعة مستقلة |
+| T00 | `399f90e1671ac93d31721a3a19730d45a63d395d` | GitHub / Remote Desktop check 2026-09-28 | إعادة تحقق من المرشح الحالي بعد إصلاحات Rust/Qt | blocked / not-run | لا توجد Workflow runs أو commit statuses مرتبطة بهذا SHA عبر GitHub؛ جهاز `Alaa-PC` المصرح به offline، لذلك لم تُشغّل A/B محليًا | استعادة تشغيل CI أو بيئة build مصرح بها ثم تشغيل A وB وparity على SHA واحد؛ لا انتقال إلى T01 |
 
 ## ملاحظات T00 المثبتة
 
