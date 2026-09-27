@@ -1126,8 +1126,11 @@ fn run_single_libcurl(
         plan.total_size,
         plan.output_path.display()
     );
-    let resume_end = (plan.total_size > resume_existing && plan.total_size > 0)
-        .then(|| plan.total_size - 1);
+    let resume_end = if plan.total_size > resume_existing && plan.total_size > 0 {
+        Some(plan.total_size - 1)
+    } else {
+        None
+    };
     let capture = Arc::new(Mutex::new(if resume_existing > 0 {
         response_capture_for_range(plan, resume_existing, resume_end, None)
     } else {
