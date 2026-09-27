@@ -49,6 +49,9 @@ pub struct PersistedState {
     pub telegram_last_update_id: i64,
     #[serde(default)]
     pub scheduler_rules: Vec<crate::daemon::engine::scheduler::SchedulerRule>,
+    /// Daemon-owned queue catalog. Empty queues are preserved across restarts.
+    #[serde(default)]
+    pub queue_catalog: Vec<serde_json::Value>,
     #[serde(default)]
     pub stats: DownloadStats,
 }
@@ -355,10 +358,13 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         )
     };
     let scheduler_rules = state.scheduler.rules();
+    // queue_catalog is intentionally acquired only after the transfer locks above
+    // have been released, so queue CRUD cannot participate in transfer lock cycles.
+    let queue_catalog = lock_or_err!(state.queue_catalog).clone();
     let stats = lock_or_err!(state.download_stats).clone();
 
     PersistedState {
-        version: 3,
+        version: 4,
         tasks,
         recovery_checkpoints,
         native_media_requests,
@@ -370,6 +376,7 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         resume_requires_reauth,
         telegram_last_update_id,
         scheduler_rules,
+        queue_catalog,
         stats,
     }
 }
