@@ -886,7 +886,9 @@ Item {
                             border.width: list.activeFocus && list.currentIndex === index
                                 ? 2
                                 : (root.allVisibleSelected || root.selectedIndex === index ? 1 : 0)
-                            border.color: Theme.accent
+                            border.color: list.activeFocus && list.currentIndex === index
+                                ? Theme.focusRing
+                                : Theme.accent
 
                             Rectangle {
                                 anchors.bottom: parent.bottom
