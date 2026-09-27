@@ -7,6 +7,7 @@ pub mod extension;
 pub mod external_tools;
 pub mod logs;
 pub mod probes;
+pub mod queues;
 pub mod telegram_routes;
 pub mod torrent;
 
@@ -21,6 +22,7 @@ pub use self::diagnostics::record_daemon_start;
 
 pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
     let router = downloads::register_routes(router);
+    let router = queues::register_routes(router);
     let router = engine::register_routes(router);
     let router = extension::register_routes(router);
     let router = external_tools::register_routes(router);
