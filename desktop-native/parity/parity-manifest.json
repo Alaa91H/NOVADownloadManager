@@ -96,7 +96,7 @@
     {
       "id": "queue",
       "label": "Queue management",
-      "status": "covered",
+      "status": "partial",
       "evidence": [
         "desktop-native/qml/pages/QueuePage.qml",
         "desktop-native/qml/components/QueueSettingsPanel.qml",
@@ -149,25 +149,6 @@
           ]
         },
         {
-          "file": "src-tauri/src/daemon/routes/engine.rs",
-          "allOf": [
-            "handle_queue_create",
-            "handle_queue_update",
-            "handle_queue_delete",
-            "handle_queue_reorder",
-            "handle_queue_move_task",
-            "handle_queue_reorder_tasks",
-            "reconcile_queue_catalog",
-            "apply_queue_bandwidth_policy"
-          ]
-        },
-        {
-          "file": "src-tauri/src/daemon/curl/task_api.rs",
-          "allOf": [
-            "move_task_to_queue"
-          ]
-        },
-        {
           "file": "desktop-native/tests/NativeParityTests.cpp",
           "allOf": [
             "queueCatalogManagementIsDaemonBacked",
@@ -178,12 +159,13 @@
             "queueIds"
           ]
         }
-      ]
+      ],
+      "blocker": "Qt exposes queue CRUD/reorder/move controls, but the current daemon does not register the /api/queues CRUD/reorder/move contract consumed by NovaApiClient. Real-daemon persistence, execution ordering and restart acceptance remain T02."
     },
     {
       "id": "scheduler",
       "label": "Scheduler",
-      "status": "covered",
+      "status": "partial",
       "evidence": [
         "desktop-native/qml/pages/SchedulerPage.qml",
         "desktop-native/qml/components/QueueSchedulerPanel.qml",
@@ -205,22 +187,6 @@
             "queue_retry_due",
             "request_exit",
             "exit_requested"
-          ]
-        },
-        {
-          "file": "src-tauri/src/daemon/routes/engine.rs",
-          "allOf": [
-            "run_queue_scheduler_tick",
-            "apply_queue_retry_policy",
-            "apply_queue_temporary_bandwidth",
-            "apply_engine_profile",
-            "maxActive",
-            "retryCount",
-            "retryDelay",
-            "shutdownOnComplete",
-            "hangupOnComplete",
-            "exitOnComplete",
-            "profileId"
           ]
         },
         {
@@ -262,20 +228,14 @@
             "schedulerPowerCommandsEnabled",
             "schedulerExitRequested"
           ]
-        },
-        {
-          "file": "src-tauri/src/daemon/mod.rs",
-          "allOf": [
-            "Duration::from_secs(5)",
-            "run_scheduler_tick"
-          ]
         }
-      ]
+      ],
+      "blocker": "Scheduler state/UI helpers exist, but queue-backed runtime scheduling still lacks the real-daemon T02 acceptance for DST, overnight windows, one-shot disable and retry timing. Static presence is not runtime coverage."
     },
     {
       "id": "batch-import",
       "label": "Batch import",
-      "status": "covered",
+      "status": "partial",
       "evidence": [
         "desktop-native/qml/pages/BatchImportPage.qml",
         "desktop-native/src/batch/BatchPatternExpander.h",
@@ -328,15 +288,6 @@
           ]
         },
         {
-          "file": "src-tauri/src/daemon/routes/engine.rs",
-          "allOf": [
-            "handle_queue_catalog_get",
-            "handle_queue_catalog_put",
-            "normalize_queue_catalog",
-            "nova-queue-catalog.json"
-          ]
-        },
-        {
           "file": "desktop-native/tests/NativeParityTests.cpp",
           "allOf": [
             "batchPatternsMatchLegacySyntax",
@@ -346,19 +297,20 @@
             "refreshQueueCatalog"
           ]
         }
-      ]
+      ],
+      "blocker": "Batch expansion and advanced direct options are implemented, but queue assignment depends on the missing real /api/queues catalog contract tracked by T02; fake/static coverage is not full integration."
     },
     {
       "id": "media",
       "label": "Media downloader",
-      "status": "covered",
+      "status": "partial",
       "evidence": [
         "desktop-native/qml/pages/MediaDownloaderPage.qml",
         "desktop-native/qml/components/MediaAdvancedPanel.qml",
         "desktop-native/src/api/NovaApiClient.cpp",
         "desktop-native/tests/NativeParityTests.cpp",
         "src-tauri/src/daemon/engine_capabilities.rs",
-        "src-tauri/src/daemon/ytdlp.rs"
+        "src-tauri/src/daemon/native_media.rs"
       ],
       "contains": [
         {
@@ -406,10 +358,10 @@
           "file": "src-tauri/src/daemon/engine_capabilities.rs",
           "allOf": [
             "supportedMediaOptionKeys",
-            "validate_ytdlp_media_options",
             "formatSelector",
             "downloadSections",
-            "concurrentFragments"
+            "concurrentFragments",
+            "unsupportedMediaOptionKeys"
           ]
         },
         {
@@ -421,8 +373,17 @@
             "sponsorBlock",
             "fragmentRetries"
           ]
+        },
+        {
+          "file": "src-tauri/src/daemon/native_media.rs",
+          "allOf": [
+            "NATIVE_MEDIA_OPTION_KEYS",
+            "validate_native_options",
+            "create_native_media_task"
+          ]
         }
-      ]
+      ],
+      "blocker": "Qt media probing/options and the first-party native task path exist, but end-to-end extraction, stream recovery and native container-processing acceptance required by T06-T08 is not yet complete on the release candidate."
     },
     {
       "id": "link-grabber",
@@ -574,7 +535,7 @@
         "desktop-native/src/platform/DesktopIntegration.cpp",
         "desktop-native/src/platform/MacDockProgress.mm",
         "desktop-native/CMakeLists.txt",
-        ".github/workflows/native-ui.yml"
+        ".github/workflows/nova-ci.yml"
       ],
       "contains": [
         {
@@ -656,7 +617,6 @@
       "status": "covered",
       "evidence": [
         "desktop-native/src/localization/I18nManager.cpp",
-        "desktop-native/src/localization/LegacyI18nCatalog.cpp",
         "desktop-native/src/settings/NativeSettings.cpp",
         "desktop-native/scripts/check-localization.mjs",
         "desktop-native/scripts/check-release-localization.mjs",
@@ -769,7 +729,7 @@
       "id": "browser-integration",
       "label": "Browser integration status and pairing",
       "status": "partial",
-      "blocker": "Packaged previews now execute the real nova-native-host binary through Native Messaging framing on Windows x64/ARM64, Linux x64/ARM64 and macOS Intel/Apple Silicon, verifying pairing proof, protocol v4 and authenticated candidate.send forwarding. A separate CI contract derives the Chromium extension ID from the pinned manifest key and prevents Chrome/Edge origin, Firefox ID or native host-name drift across the extension, Qt and Rust. Remaining parity work is installing the real extension in Chrome/Edge/Firefox and validating browser-origin capture plus OS registration/repair end to end on packaged builds.",
+      "blocker": "The native host and daemon use the current native-host marker/pairing contract, and CI contains the identity and packaged-host smoke gates. Full parity remains blocked on installing the real extension in Chrome/Edge/Firefox and validating browser-origin capture plus OS registration/repair end to end on packaged builds.",
       "evidence": [
         "desktop-native/src/platform/BackendBootstrap.cpp",
         "desktop-native/src/platform/DesktopIntegration.cpp",
@@ -781,10 +741,9 @@
         "browser-extension/src/bridge/pairing-manager.ts",
         "browser-extension/src/tests/unit/pairing-manager.test.ts",
         "browser-extension/src/tests/unit/bridge-manager.test.ts",
-        ".github/workflows/native-ui-rust.yml",
+        ".github/workflows/nova-ci.yml",
         "docs/extension/ZERO_CLICK_PAIRING.md",
         "desktop-native/scripts/smoke-native-messaging.mjs",
-        ".github/workflows/native-ui.yml",
         "desktop-native/scripts/check-browser-native-contract.mjs",
         "browser-extension/src/manifest.json",
         "browser-extension/src/transport/native-transport.ts"
@@ -803,7 +762,6 @@
           "file": "src-tauri/src/native_host.rs",
           "allOf": [
             "pairing_secret_for_base_url",
-            "NATIVE_PAIRING_SECRET_HEADER",
             "native-messaging-secret-proof",
             "candidate.send"
           ]
@@ -829,14 +787,14 @@
           ]
         },
         {
-          "file": ".github/workflows/native-ui-rust.yml",
+          "file": ".github/workflows/nova-ci.yml",
           "allOf": [
             "Browser Native Messaging identity contract",
             "check-browser-native-contract.mjs"
           ]
         },
         {
-          "file": ".github/workflows/native-ui.yml",
+          "file": ".github/workflows/nova-ci.yml",
           "allOf": [
             "Smoke-test packaged Native Messaging bridge",
             "smoke-native-messaging.mjs"
@@ -903,12 +861,12 @@
       "label": "Windows/macOS/Linux architecture validation",
       "status": "partial",
       "evidence": [
-        ".github/workflows/native-ui.yml",
+        ".github/workflows/nova-ci.yml",
         "desktop-native/src/platform/BackendBootstrap.cpp",
         "src-tauri/src/bin/nova-native-backend.rs",
         "src-tauri/src/bin/nova-native-host.rs"
       ],
-      "blocker": "Native CI now includes Windows x64/ARM64, Ubuntu x64/ARM64 and macOS Intel/Apple Silicon jobs with explicit binary-architecture assertions. This remains partial until the newly added ARM64/Intel jobs complete successfully on GitHub-hosted runners."
+      "blocker": "The unified CI declares Windows x64/ARM64, Ubuntu x64/ARM64 and macOS Intel/Apple Silicon jobs with architecture checks. This remains partial until all six native jobs build, test and package successfully on the same candidate SHA."
     },
     {
       "id": "accessibility-hidpi",
@@ -982,13 +940,13 @@
     {
       "id": "large-list-recovery",
       "label": "Large-list performance and crash/error recovery",
-      "status": "covered",
+      "status": "partial",
       "evidence": [
         "desktop-native/tests/NativeParityTests.cpp",
         "desktop-native/src/models/DownloadListModel.cpp",
         "desktop-native/src/api/NovaApiClient.cpp",
         "desktop-native/src/platform/BackendBootstrap.cpp",
-        ".github/workflows/native-ui.yml"
+        ".github/workflows/nova-ci.yml"
       ],
       "contains": [
         {
@@ -1018,13 +976,14 @@
           ]
         },
         {
-          "file": ".github/workflows/native-ui.yml",
+          "file": ".github/workflows/nova-ci.yml",
           "allOf": [
             "Native stress and recovery tests",
             "ctest --test-dir build/native"
           ]
         }
-      ]
+      ],
+      "blocker": "20k-list and reconnect/recovery tests exist, but they have not yet completed across the current six-target native CI candidate; test presence alone is not runtime proof."
     }
   ],
   "releaseReplacementReady": false,
