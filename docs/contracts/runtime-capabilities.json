@@ -1,0 +1,64 @@
+{
+  "contractVersion": 1,
+  "taskLifecycle": {
+    "states": [
+      "queued",
+      "preparing",
+      "probing",
+      "downloading",
+      "pausing",
+      "paused",
+      "retrying",
+      "recovering",
+      "verifying",
+      "finalizing",
+      "completed",
+      "error",
+      "interrupted"
+    ],
+    "terminalStates": ["completed", "error"],
+    "cancelSemantics": "remove",
+    "unknownStatePolicy": "reject"
+  },
+  "fixtures": {
+    "ready": {
+      "contractVersion": 1,
+      "directReady": true,
+      "mediaExtractionReady": true,
+      "streamingReady": true,
+      "postProcessingReady": true,
+      "taskLifecycle": {
+        "states": ["queued", "preparing", "probing", "downloading", "pausing", "paused", "retrying", "recovering", "verifying", "finalizing", "completed", "error", "interrupted"],
+        "terminalStates": ["completed", "error"],
+        "cancelSemantics": "remove",
+        "unknownStatePolicy": "reject"
+      }
+    },
+    "partial": {
+      "contractVersion": 1,
+      "directReady": true,
+      "mediaExtractionReady": true,
+      "streamingReady": true,
+      "postProcessingReady": false,
+      "taskLifecycle": {
+        "states": ["queued", "preparing", "probing", "downloading", "pausing", "paused", "retrying", "recovering", "verifying", "finalizing", "completed", "error", "interrupted"],
+        "terminalStates": ["completed", "error"],
+        "cancelSemantics": "remove",
+        "unknownStatePolicy": "reject"
+      }
+    },
+    "disabled": {
+      "contractVersion": 1,
+      "directReady": false,
+      "mediaExtractionReady": false,
+      "streamingReady": false,
+      "postProcessingReady": false,
+      "taskLifecycle": {
+        "states": ["queued", "preparing", "probing", "downloading", "pausing", "paused", "retrying", "recovering", "verifying", "finalizing", "completed", "error", "interrupted"],
+        "terminalStates": ["completed", "error"],
+        "cancelSemantics": "remove",
+        "unknownStatePolicy": "reject"
+      }
+    }
+  }
+}
