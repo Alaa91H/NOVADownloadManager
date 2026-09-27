@@ -964,8 +964,7 @@ impl PeerSession {
                 | PeerMessage::Request { .. }
                 | PeerMessage::Piece { .. }
                 | PeerMessage::Cancel { .. }
-                | PeerMessage::Port(_)
-                | PeerMessage::Extended { .. } => {
+                | PeerMessage::Port(_) => {
                     control_frames_without_progress =
                         control_frames_without_progress.saturating_add(1);
                 }
