@@ -32,6 +32,9 @@ importers:
       mpd-parser:
         specifier: ^1.4.0
         version: 1.4.0
+      lucide-react:
+        specifier: ^1.47.0
+        version: 1.47.0(react@19.3.0)
       react:
         specifier: ^19.2.7
         version: 19.3.0
@@ -51,6 +54,9 @@ importers:
       '@playwright/test':
         specifier: ^1.61.1
         version: 1.63.0
+      '@testing-library/react':
+        specifier: ^16.3.3
+        version: 16.3.3(@testing-library/dom@10.4.1)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@types/node':
         specifier: ^26.1.2
         version: 26.5.1

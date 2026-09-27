@@ -363,6 +363,8 @@ fn build_snapshot(state: &AppState) -> PersistedState {
         recovery_checkpoints,
         native_media_requests,
         native_media_protocols,
+        torrent_sources,
+        torrent_seeding,
         curl_args,
         curl_direct_options,
         resume_requires_reauth,

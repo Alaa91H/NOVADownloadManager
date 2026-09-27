@@ -321,11 +321,10 @@ fn ping_daemon(client: &reqwest::blocking::Client, base_url: &str) -> bool {
     }
 }
 
-/// Call POST /v1/pair/auto to obtain the daemon's separate native-client
-/// bearer token. The native host must prove possession of the per-daemon
-/// pairing secret published beside the daemon port file.
+/// Call POST /v1/pair/auto to obtain the daemon's native-client bearer token.
+/// The daemon accepts the registered native-host marker only for requests
+/// without a browser Origin, matching the current loopback pairing contract.
 fn obtain_api_token(client: &reqwest::blocking::Client, base_url: &str) -> Option<String> {
-    let pairing_secret = pairing_secret_for_base_url(base_url)?;
     let url = format!("{base_url}/v1/pair/auto");
     let response = client
         .post(&url)
@@ -334,7 +333,6 @@ fn obtain_api_token(client: &reqwest::blocking::Client, base_url: &str) -> Optio
             crate::daemon::NATIVE_HOST_PAIRING_HEADER,
             crate::daemon::NATIVE_HOST_PAIRING_VALUE,
         )
-        .header(crate::daemon::NATIVE_PAIRING_SECRET_HEADER, pairing_secret)
         .json(&json!({}))
         .send()
         .ok()?;

@@ -232,7 +232,7 @@ pub(super) fn browser_ext_response(state: &SharedState) -> Json<serde_json::Valu
         "directEngine": "libcurl-multi",
         "mediaEngine": "nova-media-engine",
         "postProcessor": "ffmpeg",
-        "engineCapabilities": capabilities,
+        "engineCapabilities": capabilities.as_ref().clone(),
         "capabilities": extension_capabilities
     }))
 }

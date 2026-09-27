@@ -8,7 +8,7 @@ import {
   AddTaskResponseSchema,
   AuthCheckResponseSchema,
   PairResponseSchema,
-  YtdlpAddRequestSchema,
+  MediaAddRequestSchema,
 } from '../../contracts/nova.protocol.v4';
 
 // End-to-end of the real flow the extension performs: capture a candidate from a
@@ -129,17 +129,17 @@ describe('capture -> send -> receive', () => {
     }
   }, 20_000);
 
-  it('sends a selected YouTube format as a managed yt-dlp task', async () => {
+  it('sends a selected YouTube format as a managed media task', async () => {
     const daemon = await startFakeNova();
     const restoreFetch = redirectOfficialLoopbackFetch(daemon.baseUrl);
     try {
       const http = new HttpTransport();
       const pair = await http.request('/v1/pair/auto', { clientId: 'youtube-format-test' }, PairResponseSchema, { method: 'POST' });
-      const request = YtdlpAddRequestSchema.parse({
+      const request = MediaAddRequestSchema.parse({
         idempotencyKey: 'youtube-managed-format-0001',
         url: 'https://www.youtube.com/watch?v=BaW_jenozKc',
         pageUrl: 'https://www.youtube.com/watch?v=BaW_jenozKc',
-        title: 'yt-dlp integration test',
+        title: 'media integration test',
         selectedFormat: {
           url: 'https://r1.googlevideo.com/videoplayback?expire=123',
           formatId: '137',

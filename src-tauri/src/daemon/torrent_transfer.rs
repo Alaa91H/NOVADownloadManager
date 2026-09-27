@@ -386,6 +386,7 @@ mod tests {
                 max_metadata_retries: 1,
                 max_control_frames_without_progress: 32,
                 enable_pex: false,
+                enable_dht: false,
             },
             max_outbound_connections: 4,
             download_rate_limit_bytes_per_sec: None,

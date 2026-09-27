@@ -386,6 +386,7 @@ pub async fn handle_create_download(
                 start_immediately: body.start_immediately,
                 file_priorities: None,
                 connections: body.connections,
+                seeding: None,
             },
         )
         .await

@@ -9,6 +9,15 @@ const allowed = new Set([
   "N",
   "NOVA",
   "HTTP",
+  // Syntax samples, format identifiers and units shown verbatim to users.
+  "bestvideo+bestaudio/best",
+  "res,codec:avc:m4a",
+  "duration < 3600",
+  "mp4",
+  "sponsor,selfpromo",
+  "Header-Name: value",
+  "name=value",
+  "KB/s",
 ]);
 
 function walk(directory) {

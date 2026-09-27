@@ -4,7 +4,7 @@ import {
   StreamResolveResponseSchema,
   StreamAddRequestSchema,
   StreamManifestCandidateSchema,
-  YtdlpAddRequestSchema,
+  MediaAddRequestSchema,
 } from '../../contracts/nova.protocol.v4';
 
 // Mirror the qualityLabel helper from QualitySelector for pure-logic testing.
@@ -40,7 +40,7 @@ describe('quality selector — resolve contract', () => {
   });
 });
 
-describe('quality selector — yt-dlp managed download contract', () => {
+describe('quality selector — managed media download contract', () => {
   const selectedYouTubeFormat = {
     url: 'https://r1.googlevideo.com/videoplayback?expire=123',
     formatId: '137',
@@ -53,7 +53,7 @@ describe('quality selector — yt-dlp managed download contract', () => {
     estimatedSizeBytes: 345_000_000,
   };
 
-  it('sends the stable watch URL and the user-selected yt-dlp format', () => {
+  it('sends the stable watch URL and the user-selected media format', () => {
     const request = {
       idempotencyKey: 'y'.repeat(16),
       url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
@@ -62,7 +62,7 @@ describe('quality selector — yt-dlp managed download contract', () => {
       selectedFormat: selectedYouTubeFormat,
       source: 'nova-extension' as const,
     };
-    const parsed = YtdlpAddRequestSchema.safeParse(request);
+    const parsed = MediaAddRequestSchema.safeParse(request);
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
     expect(parsed.data.url).toContain('youtube.com/watch');
@@ -77,7 +77,7 @@ describe('quality selector — yt-dlp managed download contract', () => {
       selectedFormat: { ...selectedYouTubeFormat, url: 'not-a-url' },
       source: 'nova-extension' as const,
     };
-    expect(YtdlpAddRequestSchema.safeParse(request).success).toBe(false);
+    expect(MediaAddRequestSchema.safeParse(request).success).toBe(false);
   });
 });
 
