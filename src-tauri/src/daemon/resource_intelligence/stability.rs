@@ -26,6 +26,12 @@ impl Clone for ProbeRecord {
     }
 }
 
+impl Default for ServerProfileStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ServerProfileStore {
     pub fn new() -> Self {
         Self {
