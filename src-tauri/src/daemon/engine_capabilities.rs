@@ -1659,6 +1659,13 @@ pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
         .cloned()
         .unwrap_or_default();
     json!({
+        "contractVersion": nova_core_model::RUNTIME_CAPABILITIES_CONTRACT_VERSION,
+        "taskLifecycle": {
+            "states": nova_core_model::TASK_LIFECYCLE_WIRE_STATES,
+            "terminalStates": ["completed", "error"],
+            "cancelSemantics": "remove",
+            "unknownStatePolicy": "reject"
+        },
         "status": if direct_ready && media_extraction_ready && streaming_ready { "connected" } else { "degraded" },
         "allReady": direct_ready && media_extraction_ready && streaming_ready,
         "directReady": direct_ready,
@@ -1780,6 +1787,12 @@ mod tests {
     #[test]
     fn media_readiness_does_not_depend_on_compatibility_binary() {
         let status = all_engine_status("__nova_missing_post_processor__");
+        assert_eq!(
+            status["contractVersion"],
+            nova_core_model::RUNTIME_CAPABILITIES_CONTRACT_VERSION
+        );
+        assert_eq!(status["taskLifecycle"]["cancelSemantics"], "remove");
+        assert_eq!(status["taskLifecycle"]["unknownStatePolicy"], "reject");
         assert_eq!(status["mediaExtractionReady"], true);
         assert_eq!(status["streamingReady"], true);
         assert_eq!(status["engines"]["media"]["runtimeCore"], "nova-media-core");
