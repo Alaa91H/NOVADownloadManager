@@ -1798,7 +1798,7 @@ I18nManager::I18nManager(QObject *parent)
     : QObject(parent) {}
 
 bool I18nManager::rtl() const {
-    return LegacyI18nCatalog::instance().rtl(m_language);
+    return normalizeLanguage(m_language) == QStringLiteral("ar");
 }
 
 QString I18nManager::normalizeLanguage(const QString &language) {
