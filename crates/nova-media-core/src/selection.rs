@@ -249,8 +249,9 @@ mod tests {
 
     #[test]
     fn audio_mode_never_selects_muxed_video() {
+        let descriptor = descriptor();
         let selected = select_media_stream(
-            &descriptor(),
+            &descriptor,
             &MediaSelectionPolicy {
                 mode: MediaSelectionMode::Audio,
                 ..MediaSelectionPolicy::default()
@@ -262,8 +263,9 @@ mod tests {
 
     #[test]
     fn container_and_language_preferences_are_deterministic() {
+        let descriptor = descriptor();
         let selected = select_media_stream(
-            &descriptor(),
+            &descriptor,
             &MediaSelectionPolicy {
                 mode: MediaSelectionMode::Audio,
                 preferred_container: Some("webm".to_owned()),
@@ -277,8 +279,9 @@ mod tests {
 
     #[test]
     fn video_height_ceiling_prefers_muxed_stream_with_audio() {
+        let descriptor = descriptor();
         let selected = select_media_stream(
-            &descriptor(),
+            &descriptor,
             &MediaSelectionPolicy {
                 max_height: Some(720),
                 ..MediaSelectionPolicy::default()
