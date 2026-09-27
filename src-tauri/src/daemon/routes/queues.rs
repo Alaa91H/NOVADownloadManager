@@ -144,6 +144,7 @@ fn normalize_queue(
         return Err("Queue name is too long".to_owned());
     }
 
+    let active_default = id == "main";
     let schedule_type = object
         .get("scheduleType")
         .and_then(serde_json::Value::as_str)
@@ -162,7 +163,7 @@ fn normalize_queue(
     Ok(serde_json::json!({
         "id": id,
         "name": name,
-        "active": bool_value(object, "active", id == "main"),
+        "active": bool_value(object, "active", active_default),
         "scheduled": bool_value(object, "scheduled", false),
         "scheduleType": schedule_type,
         "scheduleCompleted": bool_value(object, "scheduleCompleted", false),
