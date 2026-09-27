@@ -5,7 +5,10 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use chrono::Local;
+use nova_core_model::TaskState;
 
+use crate::daemon::engine::scheduler::queue_schedule_window_active;
 use crate::daemon::state::SharedState;
 use crate::lock_or_err;
 
@@ -329,6 +332,315 @@ pub fn reconcile_state_queue_catalog(state: &SharedState) {
     state.mark_dirty();
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct QueueTickActions {
+    pub shutdown: bool,
+    pub sleep: bool,
+    pub exit: bool,
+}
+
+fn set_queue_active(state: &SharedState, queue_id: &str, active: bool) -> Result<(), String> {
+    let mut catalog = lock_or_err!(state.queue_catalog);
+    let Some(queue) = catalog
+        .iter_mut()
+        .find(|queue| queue.get("id").and_then(serde_json::Value::as_str) == Some(queue_id))
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return Err(format!("Queue {queue_id} was not found"));
+    };
+    queue.insert("active".to_owned(), serde_json::Value::Bool(active));
+    drop(catalog);
+    state.mark_dirty();
+    Ok(())
+}
+
+fn mark_once_schedule_completed(state: &SharedState, queue_id: &str) {
+    let mut catalog = lock_or_err!(state.queue_catalog);
+    let Some(queue) = catalog
+        .iter_mut()
+        .find(|queue| queue.get("id").and_then(serde_json::Value::as_str) == Some(queue_id))
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    if queue.get("scheduleType").and_then(serde_json::Value::as_str) == Some("once") {
+        queue.insert("scheduleCompleted".to_owned(), serde_json::Value::Bool(true));
+        queue.insert("active".to_owned(), serde_json::Value::Bool(false));
+        drop(catalog);
+        state.mark_dirty();
+    }
+}
+
+fn ordered_task_ids_for_queue(state: &SharedState, queue_id: &str) -> Vec<String> {
+    let snapshot = lock_or_err!(state.task_snapshot).clone();
+    let configured = lock_or_err!(state.queue_catalog)
+        .iter()
+        .find(|queue| queue.get("id").and_then(serde_json::Value::as_str) == Some(queue_id))
+        .and_then(|queue| queue.get("downloadOrder"))
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    let mut seen = HashSet::new();
+    let mut ordered = configured
+        .into_iter()
+        .filter_map(|value| value.as_str().map(str::to_owned))
+        .filter(|task_id| {
+            snapshot
+                .get(task_id)
+                .is_some_and(|task| task.queue_id == queue_id)
+        })
+        .filter(|task_id| seen.insert(task_id.clone()))
+        .collect::<Vec<_>>();
+
+    let mut extras = snapshot
+        .values()
+        .filter(|task| task.queue_id == queue_id && !seen.contains(&task.id))
+        .map(|task| task.id.clone())
+        .collect::<Vec<_>>();
+    extras.sort();
+    ordered.extend(extras);
+    ordered
+}
+
+async fn fill_queue_slots(
+    state: &SharedState,
+    queue_id: &str,
+    max_active: usize,
+    include_paused: bool,
+) -> Vec<String> {
+    let snapshot = lock_or_err!(state.task_snapshot).clone();
+    let active = snapshot
+        .values()
+        .filter(|task| task.queue_id == queue_id)
+        .filter_map(|task| TaskState::from_status(&task.status))
+        .filter(|state| state.is_active())
+        .count();
+    let mut slots = max_active.saturating_sub(active);
+    if slots == 0 {
+        return Vec::new();
+    }
+
+    let mut resumed = Vec::new();
+    for task_id in ordered_task_ids_for_queue(state, queue_id) {
+        if slots == 0 {
+            break;
+        }
+        let Some(task) = snapshot.get(&task_id) else { continue; };
+        let Some(task_state) = TaskState::from_status(&task.status) else { continue; };
+        let eligible = task_state == TaskState::Queued
+            || (include_paused && task_state == TaskState::Paused);
+        if !eligible {
+            continue;
+        }
+        match crate::daemon::curl::resume_task(state, &task_id).await {
+            Ok(_) => {
+                resumed.push(task_id);
+                slots -= 1;
+            }
+            Err(error) => {
+                log::warn!("Queue {queue_id}: failed to resume {task_id}: {error}");
+            }
+        }
+    }
+    resumed
+}
+
+async fn pause_queue_active_tasks(state: &SharedState, queue_id: &str) -> Vec<String> {
+    let snapshot = lock_or_err!(state.task_snapshot).clone();
+    let task_ids = snapshot
+        .values()
+        .filter(|task| task.queue_id == queue_id)
+        .filter(|task| {
+            TaskState::from_status(&task.status)
+                .is_some_and(TaskState::is_active)
+        })
+        .map(|task| task.id.clone())
+        .collect::<Vec<_>>();
+
+    let mut paused = Vec::new();
+    for task_id in task_ids {
+        match crate::daemon::curl::pause_task(state, &task_id).await {
+            Ok(_) => paused.push(task_id),
+            Err(error) => log::warn!("Queue {queue_id}: failed to pause {task_id}: {error}"),
+        }
+    }
+    paused
+}
+
+fn queue_max_active(queue: &serde_json::Value) -> usize {
+    queue
+        .get("maxActive")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1)
+        .clamp(1, 64) as usize
+}
+
+pub async fn handle_queue_start(
+    State(state): State<SharedState>,
+    Path(queue_id): Path<String>,
+) -> Response {
+    let queue = {
+        let catalog = lock_or_err!(state.queue_catalog);
+        catalog
+            .iter()
+            .find(|queue| queue.get("id").and_then(serde_json::Value::as_str) == Some(queue_id.as_str()))
+            .cloned()
+    };
+    let Some(queue) = queue else {
+        return error_response(StatusCode::NOT_FOUND, "Queue was not found");
+    };
+    if let Err(error) = set_queue_active(&state, &queue_id, true) {
+        return error_response(StatusCode::NOT_FOUND, error);
+    }
+    let resumed = fill_queue_slots(&state, &queue_id, queue_max_active(&queue), true).await;
+    let mut response = catalog_response(&state);
+    if let Some(object) = response.as_object_mut() {
+        object.insert("resumedTaskIds".to_owned(), serde_json::json!(resumed));
+    }
+    success_response(response)
+}
+
+pub async fn handle_queue_stop(
+    State(state): State<SharedState>,
+    Path(queue_id): Path<String>,
+) -> Response {
+    if !queue_exists(&state, &queue_id) {
+        return error_response(StatusCode::NOT_FOUND, "Queue was not found");
+    }
+    if let Err(error) = set_queue_active(&state, &queue_id, false) {
+        return error_response(StatusCode::NOT_FOUND, error);
+    }
+    let paused = pause_queue_active_tasks(&state, &queue_id).await;
+    let mut response = catalog_response(&state);
+    if let Some(object) = response.as_object_mut() {
+        object.insert("pausedTaskIds".to_owned(), serde_json::json!(paused));
+    }
+    success_response(response)
+}
+
+/// Apply daemon-owned queue scheduling, concurrency and retry policy.
+///
+/// This runs on the existing scheduler tick. No UI client is required for
+/// queued work to advance, and schedule windows survive desktop restarts.
+pub async fn run_queue_scheduler_tick(state: &SharedState) -> QueueTickActions {
+    let now = Local::now();
+    let catalog = lock_or_err!(state.queue_catalog).clone();
+    let mut completion_actions = QueueTickActions::default();
+
+    for queue in catalog {
+        let Some(queue_id) = queue.get("id").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let scheduled = queue.get("scheduled").and_then(serde_json::Value::as_bool).unwrap_or(false);
+        let schedule_active = scheduled && queue_schedule_window_active(&queue, &now);
+        let (entered, exited) = if scheduled {
+            state.scheduler.queue_window_transition(queue_id, schedule_active)
+        } else {
+            state.scheduler.queue_window_transition(queue_id, false)
+        };
+
+        if entered {
+            let _ = set_queue_active(state, queue_id, true);
+        }
+        if exited {
+            let _ = set_queue_active(state, queue_id, false);
+            let _ = pause_queue_active_tasks(state, queue_id).await;
+            mark_once_schedule_completed(state, queue_id);
+        }
+
+        let active = if scheduled {
+            schedule_active
+        } else {
+            queue.get("active").and_then(serde_json::Value::as_bool).unwrap_or(false)
+        };
+        if active {
+            let _ = fill_queue_slots(state, queue_id, queue_max_active(&queue), entered).await;
+
+            let retry_count = queue
+                .get("retryCount")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(3)
+                .min(u32::MAX as u64) as u32;
+            let retry_delay = queue
+                .get("retryDelay")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(10)
+                .max(1);
+            let snapshot = lock_or_err!(state.task_snapshot).clone();
+            let active_count = snapshot
+                .values()
+                .filter(|task| task.queue_id == queue_id)
+                .filter_map(|task| TaskState::from_status(&task.status))
+                .filter(|status| status.is_active())
+                .count();
+            let mut remaining_slots = queue_max_active(&queue).saturating_sub(active_count);
+            if remaining_slots > 0 {
+                for task_id in ordered_task_ids_for_queue(state, queue_id) {
+                    if remaining_slots == 0 {
+                        break;
+                    }
+                    let failed = snapshot
+                        .get(&task_id)
+                        .and_then(|task| TaskState::from_status(&task.status))
+                        == Some(TaskState::Failed);
+                    if state.scheduler.queue_retry_due(
+                        queue_id,
+                        &task_id,
+                        failed,
+                        retry_count,
+                        retry_delay,
+                    ) {
+                        match crate::daemon::curl::resume_task(state, &task_id).await {
+                            Ok(_) => remaining_slots -= 1,
+                            Err(error) => log::warn!(
+                                "Queue {queue_id}: retry resume failed for {task_id}: {error}"
+                            ),
+                        }
+                    } else if !failed {
+                        let _ = state.scheduler.queue_retry_due(
+                            queue_id,
+                            &task_id,
+                            false,
+                            retry_count,
+                            retry_delay,
+                        );
+                    }
+                }
+            }
+        }
+
+        let snapshot = lock_or_err!(state.task_snapshot).clone();
+        let members = snapshot
+            .values()
+            .filter(|task| task.queue_id == queue_id)
+            .collect::<Vec<_>>();
+        let completed = !members.is_empty()
+            && members.iter().all(|task| {
+                TaskState::from_status(&task.status) == Some(TaskState::Completed)
+            });
+        if state.scheduler.queue_completion_edge(queue_id, completed) {
+            completion_actions.shutdown |= queue
+                .get("shutdownOnComplete")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            completion_actions.sleep |= queue
+                .get("hangupOnComplete")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            completion_actions.exit |= queue
+                .get("exitOnComplete")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            if queue.get("scheduleType").and_then(serde_json::Value::as_str) == Some("once") {
+                mark_once_schedule_completed(state, queue_id);
+            }
+        }
+    }
+
+    completion_actions
+}
+
 pub async fn handle_queue_list(State(state): State<SharedState>) -> Response {
     success_response(catalog_response(&state))
 }
@@ -593,6 +905,8 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
     router
         .route("/api/queues", get(handle_queue_list).post(handle_queue_create))
         .route("/api/queues/reorder", post(handle_queue_reorder))
+        .route("/api/queues/{queue_id}/start", post(handle_queue_start))
+        .route("/api/queues/{queue_id}/stop", post(handle_queue_stop))
         .route(
             "/api/queues/{queue_id}/tasks/reorder",
             post(handle_queue_reorder_tasks),
