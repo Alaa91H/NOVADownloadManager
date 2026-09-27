@@ -1478,9 +1478,10 @@ fn value_u32(value: Option<&Value>) -> Option<u32> {
 }
 
 fn resolve_youtube_url(value: &str) -> Option<String> {
+    let normalized = value.replace("\\/", "/");
     Url::parse(YOUTUBE_ORIGIN)
         .ok()?
-        .join(value)
+        .join(&normalized)
         .ok()
         .map(|url| url.to_string())
 }

@@ -123,6 +123,9 @@ where
     if plan.units.is_empty() {
         return Err(DashStageError::EmptyPlan);
     }
+    if should_cancel() {
+        return Err(DashStageError::Cancelled);
+    }
 
     fs::create_dir_all(staging_dir).map_err(|error| DashStageError::Io(error.to_string()))?;
 

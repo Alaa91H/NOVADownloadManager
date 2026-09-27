@@ -258,6 +258,8 @@ pub fn download_youtube_plan_controlled<
             let audio_transfer = audio_result
                 .map_err(|_| YouTubeTransferError::WorkerPanic)?
                 .map_err(map_transport_error)?;
+            video_downloaded.store(video_transfer, Ordering::Release);
+            audio_downloaded.store(audio_transfer, Ordering::Release);
             emit_progress();
 
             Ok(YouTubeTransferOutput::SeparateTracks {

@@ -142,6 +142,9 @@ where
     if plan.units.is_empty() {
         return Err(HlsStageError::EmptyPlan);
     }
+    if should_cancel() {
+        return Err(HlsStageError::Cancelled);
+    }
 
     validate_encryption_modes(plan)?;
     fs::create_dir_all(staging_dir).map_err(|error| HlsStageError::Io(error.to_string()))?;
