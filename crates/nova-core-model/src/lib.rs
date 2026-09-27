@@ -159,7 +159,7 @@ impl TaskState {
             Self::Failed => matches!(next, Self::Queued | Self::Paused),
             Self::Interrupted => matches!(
                 next,
-                Self::Paused | Self::Queued | Self::Preparing | Self::Failed
+                Self::Paused | Self::Queued | Self::Failed
             ),
         }
     }
