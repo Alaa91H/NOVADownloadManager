@@ -1226,6 +1226,9 @@ fn media_stream_from_format(
     url: &str,
     request_headers: &BTreeMap<String, String>,
 ) -> MediaStream {
+    // Request authorization remains on MediaDescriptor/HttpRequestContext so it
+    // can be origin-scoped at fetch time instead of copied into signed CDN URLs.
+    let _ = request_headers;
     let mime = format.get("mimeType").and_then(Value::as_str).unwrap_or_default();
     let (container, codecs) = parse_mime_type(mime);
     let width = value_u32(format.get("width"));
@@ -1289,6 +1292,8 @@ fn manifest_stream(
     url: &str,
     request_headers: &BTreeMap<String, String>,
 ) -> MediaStream {
+    // Keep manifest auth in the descriptor request context for origin checks.
+    let _ = request_headers;
     MediaStream {
         id: id.to_owned(),
         kind: MediaTrackKind::AudioVideo,
