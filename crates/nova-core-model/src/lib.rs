@@ -243,8 +243,16 @@ pub struct ByteRange {
 }
 
 impl ByteRange {
+    pub fn is_empty(self) -> bool {
+        self.end < self.start
+    }
+
     pub fn len(self) -> u64 {
-        self.end - self.start + 1
+        if self.is_empty() {
+            0
+        } else {
+            self.end - self.start + 1
+        }
     }
 }
 
@@ -259,7 +267,7 @@ pub fn plan_byte_ranges(total_bytes: u64, requested_connections: u32) -> Vec<Byt
         return Vec::new();
     }
 
-    let requested = requested_connections.max(1).min(MAX_PARALLEL_SEGMENTS) as u64;
+    let requested = requested_connections.clamp(1, MAX_PARALLEL_SEGMENTS) as u64;
     let segment_count = requested.min(total_bytes);
     let base_len = total_bytes / segment_count;
     let remainder = total_bytes % segment_count;
@@ -524,10 +532,11 @@ pub fn plan_http_recovery(
     previous: &ResourceIdentity,
     current: &ResourceIdentity,
 ) -> ResumeAction {
-    if existing_bytes > 0 && previous.has_identity_evidence() {
-        if compare_resource_identity(previous, current) != ResourceContinuity::Confirmed {
-            return ResumeAction::Restart;
-        }
+    if existing_bytes > 0
+        && previous.has_identity_evidence()
+        && compare_resource_identity(previous, current) != ResourceContinuity::Confirmed
+    {
+        return ResumeAction::Restart;
     }
 
     plan_http_resume(existing_bytes, response_status, content_range_start)
