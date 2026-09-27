@@ -595,35 +595,51 @@ pub async fn handle_scheduler_power_commands(
 
 /// Periodic scheduler tick: evaluate all rules and apply triggered actions.
 pub async fn run_scheduler_tick(state: &SharedState) {
+    // Queue catalog policy is daemon-owned: concurrency, schedule windows and
+    // retry timing must continue even when no desktop client is connected.
+    let queue_actions = crate::daemon::routes::queues::run_queue_scheduler_tick(state).await;
+
     // Compute download-state counters for the QueueEmpty/AllComplete
     // triggers. Locks acquired in documented order: media_jobs → curl_jobs →
     // task_snapshot.
     let (active_count, queued_count, total_count) = {
         let media = lock_or_err!(state.native_media_jobs);
+        let torrents = lock_or_err!(state.torrent_jobs);
         let jobs = lock_or_err!(state.curl_jobs);
         let snapshot = lock_or_err!(state.task_snapshot);
         let mut active = 0u32;
         let mut queued = 0u32;
-        for job in media.values() {
-            match job.task.status.as_str() {
-                "downloading" | "active" => active += 1,
-                "queued" | "waiting" => queued += 1,
+        let mut count_task = |status: &str| {
+            match nova_core_model::TaskState::from_status(status) {
+                Some(state) if state.is_active() => active = active.saturating_add(1),
+                Some(nova_core_model::TaskState::Queued) => queued = queued.saturating_add(1),
                 _ => {}
             }
+        };
+        for job in media.values() {
+            count_task(&job.task.status);
+        }
+        for job in torrents.values() {
+            count_task(&job.task.status);
         }
         for job in jobs.values() {
-            match job.task.status.as_str() {
-                "downloading" | "active" => active += 1,
-                "queued" | "waiting" => queued += 1,
-                _ => {}
-            }
+            count_task(&job.task.status);
         }
         (active, queued, snapshot.len() as u32)
     };
     let current_bw = state.bandwidth_manager.effective_global_limit();
-    let actions = state
+    let mut actions = state
         .scheduler
         .evaluate(current_bw, active_count, queued_count, total_count);
+    if queue_actions.shutdown {
+        actions.push(SchedulerAction::Shutdown);
+    }
+    if queue_actions.sleep {
+        actions.push(SchedulerAction::Sleep);
+    }
+    if queue_actions.exit {
+        state.scheduler.request_exit();
+    }
     for action in actions {
         match action {
             SchedulerAction::StartDownload { task_ids } => {
