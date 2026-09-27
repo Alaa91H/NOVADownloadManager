@@ -49,7 +49,7 @@ jobs:
       - name: Detect changed areas
         id: filter
         if: (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')) || github.event_name == 'pull_request'
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           filters: |
             desktop:
@@ -372,10 +372,10 @@ jobs:
           - os: windows-11-arm
             platform: Windows
             arch: arm64
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             platform: Linux
             arch: x64
-          - os: ubuntu-24.04-arm
+          - os: ubuntu-26.04-arm
             platform: Linux
             arch: arm64
           - os: macos-15
