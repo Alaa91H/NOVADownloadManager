@@ -305,6 +305,9 @@ jobs:
       - name: Cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml
 
+      - name: Test every shared Rust core explicitly
+        run: node scripts/run-shared-core-tests.mjs
+
       - name: Check native runtime binaries
         run: cargo check --manifest-path src-tauri/Cargo.toml --bin nova-native-backend --bin nova-native-host
 
@@ -327,6 +330,9 @@ jobs:
 
       - name: Install browser-extension dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Runtime capabilities contract
+        run: node scripts/check-runtime-contract.mjs
 
       - name: Browser Native Messaging identity contract
         run: node desktop-native/scripts/check-browser-native-contract.mjs
