@@ -1224,7 +1224,7 @@ fn normalize_format(
 fn media_stream_from_format(
     format: &Value,
     url: &str,
-    request_headers: &BTreeMap<String, String>,
+    _request_headers: &BTreeMap<String, String>,
 ) -> MediaStream {
     let mime = format.get("mimeType").and_then(Value::as_str).unwrap_or_default();
     let (container, codecs) = parse_mime_type(mime);
@@ -1287,7 +1287,7 @@ fn manifest_stream(
     id: &str,
     protocol: MediaProtocol,
     url: &str,
-    request_headers: &BTreeMap<String, String>,
+    _request_headers: &BTreeMap<String, String>,
 ) -> MediaStream {
     MediaStream {
         id: id.to_owned(),

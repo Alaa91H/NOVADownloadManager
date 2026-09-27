@@ -116,7 +116,7 @@ pub async fn run_tracker_lifecycle(
                     TrackerTransport::next_announce_delay(&success)
                 };
             }
-            Err(error) if cancel.is_cancelled() => break,
+            Err(_) if cancel.is_cancelled() => break,
             Err(error) => {
                 telemetry.tracker_failure(
                     tiers.iter().flatten().map(String::as_str),

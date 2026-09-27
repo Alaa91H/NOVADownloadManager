@@ -5,9 +5,11 @@ use std::time::Duration;
 
 use nova_torrent_core::{
     ExtendedHandshake, InfoHash, MetadataMessage, PeerExchange, PeerHandshake, PeerMessage,
-    EXTENSION_HANDSHAKE_ID, LOCAL_UT_METADATA_ID, LOCAL_UT_PEX_ID, MAX_PEER_FRAME_BYTES,
-    METADATA_PIECE_SIZE, PEER_HANDSHAKE_LEN,
+    EXTENSION_HANDSHAKE_ID, LOCAL_UT_METADATA_ID, MAX_PEER_FRAME_BYTES, METADATA_PIECE_SIZE,
+    PEER_HANDSHAKE_LEN,
 };
+#[cfg(test)]
+use nova_torrent_core::LOCAL_UT_PEX_ID;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;

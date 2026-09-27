@@ -1,7 +1,6 @@
 use axum::http::StatusCode;
 use axum::response::Json;
 use std::process::{Command, Output};
-use std::time::Duration;
 
 use crate::daemon::utils::hide_command_window;
 use crate::daemon::utils::DEFAULT_USER_AGENT;
@@ -27,44 +26,6 @@ pub(super) fn hidden_command(command: &str) -> Command {
 pub(super) fn hidden_output(command: &str, args: &[&str]) -> std::io::Result<Output> {
     let mut cmd = hidden_command(command);
     cmd.args(args).output()
-}
-
-/// Run a hidden child process with a hard wall-clock timeout.
-///
-/// Unlike `tokio::time::timeout(spawn_blocking(hidden_output))`, this variant
-/// spawns the child process with a handle and actively kills it when the
-/// deadline elapses — preventing orphaned yt-dlp/ffmpeg processes from
-/// accumulating when a probe hangs (the `spawn_blocking` task itself cannot be
-/// cancelled, so the child would otherwise keep running).
-pub(super) fn hidden_output_timed(
-    command: &str,
-    args: &[&str],
-    timeout: Duration,
-) -> std::io::Result<Output> {
-    let mut cmd = hidden_command(command);
-    cmd.args(args);
-    let mut child = cmd.spawn()?;
-    let deadline = std::time::Instant::now() + timeout;
-    loop {
-        if let Some(_status) = child.try_wait()? {
-            // Process exited; collect stdout/stderr via wait_with_output on
-            // the already-exited child (non-blocking).
-            return child.wait_with_output();
-        }
-        if std::time::Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                format!(
-                    "Process '{}' exceeded {}s timeout",
-                    command,
-                    timeout.as_secs()
-                ),
-            ));
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
 }
 
 pub(super) fn header_string(headers: &reqwest::header::HeaderMap, key: &str) -> String {

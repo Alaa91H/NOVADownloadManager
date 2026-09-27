@@ -1348,10 +1348,6 @@ pub fn native_media_status() -> Value {
     })
 }
 
-fn ffmpeg_available(ffmpeg_bin: &str) -> bool {
-    hidden_output(ffmpeg_bin, &["-version"]).is_some() || executable_available(ffmpeg_bin)
-}
-
 fn parse_ffmpeg_list(output: &str) -> HashSet<String> {
     let mut values = HashSet::new();
     for line in output.lines() {

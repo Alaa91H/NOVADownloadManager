@@ -202,6 +202,7 @@ fn read_port_file() -> Option<u16> {
     None
 }
 
+#[cfg(test)]
 fn parse_pairing_secret(content: &str, expected_port: u16) -> Option<String> {
     let value = serde_json::from_str::<Value>(content).ok()?;
     if value.get("port").and_then(Value::as_u64) != Some(u64::from(expected_port)) {
@@ -214,26 +215,6 @@ fn parse_pairing_secret(content: &str, expected_port: u16) -> Option<String> {
         .map(str::trim)
         .filter(|secret| secret.len() >= 24)
         .map(str::to_owned)
-}
-
-fn pairing_secret_for_base_url(base_url: &str) -> Option<String> {
-    let port = base_url
-        .rsplit_once(':')
-        .and_then(|(_, value)| value.parse::<u16>().ok())?;
-
-    for port_path in port_file_paths() {
-        let Some(parent) = port_path.parent() else {
-            continue;
-        };
-        let pairing_path = parent.join("nova-daemon.pairing.json");
-        let Ok(content) = std::fs::read_to_string(&pairing_path) else {
-            continue;
-        };
-        if let Some(secret) = parse_pairing_secret(&content, port) {
-            return Some(secret);
-        }
-    }
-    None
 }
 
 /// Compute platform-specific paths where the daemon may have written its port.

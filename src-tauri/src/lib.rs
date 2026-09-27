@@ -4,7 +4,6 @@
 
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 pub mod daemon;
 pub mod logging;
@@ -14,9 +13,6 @@ pub use native_host::{is_native_messaging_launch, run_native_messaging_host};
 
 const DEFAULT_DAEMON_PORT: u16 = 3199;
 const DAEMON_PORT_SCAN_LIMIT: u16 = 30;
-const MAX_CONFIG_SIZE: usize = 1024 * 1024;
-
-pub(crate) static CONFIG_IO_LOCK: Mutex<()> = Mutex::new(());
 
 fn is_loopback_port_available(port: u16) -> bool {
     TcpListener::bind(("127.0.0.1", port)).is_ok()
@@ -126,104 +122,6 @@ pub fn native_desktop_data_dir() -> PathBuf {
     }
 
     std::env::temp_dir().join("com.nova.downloadmanager")
-}
-
-pub(crate) fn read_config_from_disk(
-    data_dir: &Path,
-) -> Result<Option<serde_json::Value>, String> {
-    let config_path = data_dir.join("config.json");
-    let backup_path = data_dir.join("config.json.bak");
-    let bytes = match std::fs::read(&config_path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            match std::fs::read(&backup_path) {
-                Ok(bytes) => bytes,
-                Err(backup_error)
-                    if backup_error.kind() == std::io::ErrorKind::NotFound =>
-                {
-                    return Ok(None);
-                }
-                Err(backup_error) => {
-                    return Err(format!("Failed to read config backup: {backup_error}"));
-                }
-            }
-        }
-        Err(error) => return Err(format!("Failed to read config: {error}")),
-    };
-
-    if bytes.len() > MAX_CONFIG_SIZE {
-        return Err(format!(
-            "Config size ({} bytes) exceeds limit ({} bytes)",
-            bytes.len(),
-            MAX_CONFIG_SIZE
-        ));
-    }
-
-    let parsed: serde_json::Value =
-        serde_json::from_slice(&bytes).map_err(|error| format!("Invalid JSON config: {error}"))?;
-    if !parsed.is_object() {
-        return Err("Config must be a JSON object".to_owned());
-    }
-    Ok(Some(parsed))
-}
-
-pub(crate) fn write_config_atomically(
-    data_dir: &Path,
-    settings: &str,
-) -> Result<(), String> {
-    if settings.len() > MAX_CONFIG_SIZE {
-        return Err(format!(
-            "Config size ({} bytes) exceeds limit ({} bytes)",
-            settings.len(),
-            MAX_CONFIG_SIZE
-        ));
-    }
-
-    std::fs::create_dir_all(data_dir)
-        .map_err(|error| format!("Failed to create app data dir: {error}"))?;
-
-    let config_path = data_dir.join("config.json");
-    let tmp_path = data_dir.join("config.json.tmp");
-    std::fs::write(&tmp_path, settings)
-        .map_err(|error| format!("Failed to save config: {error}"))?;
-
-    std::fs::File::open(&tmp_path)
-        .map_err(|error| format!("Failed to reopen temporary config: {error}"))?
-        .sync_all()
-        .map_err(|error| format!("Failed to sync temporary config: {error}"))?;
-
-    #[cfg(windows)]
-    {
-        let backup_path = data_dir.join("config.json.bak");
-        let had_existing = config_path.exists();
-        let _ = std::fs::remove_file(&backup_path);
-        if had_existing {
-            std::fs::rename(&config_path, &backup_path)
-                .map_err(|error| format!("Failed to prepare config replacement: {error}"))?;
-        }
-        if let Err(error) = std::fs::rename(&tmp_path, &config_path) {
-            if had_existing {
-                let _ = std::fs::rename(&backup_path, &config_path);
-            }
-            let _ = std::fs::remove_file(&tmp_path);
-            return Err(format!("Failed to replace config: {error}"));
-        }
-        let _ = std::fs::remove_file(&backup_path);
-    }
-
-    #[cfg(not(windows))]
-    if let Err(error) = std::fs::rename(&tmp_path, &config_path) {
-        let _ = std::fs::remove_file(&tmp_path);
-        return Err(format!("Failed to atomically replace config: {error}"));
-    }
-
-    if let Some(parent) = config_path.parent().filter(|path| !path.as_os_str().is_empty()) {
-        if let Ok(directory) = std::fs::File::open(parent) {
-            let _ = directory.sync_all();
-        }
-    }
-
-    Ok(())
 }
 
 pub fn run_integration_mode() {
