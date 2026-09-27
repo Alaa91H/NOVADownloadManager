@@ -65,13 +65,14 @@ const ENGINE_CACHE_TTL_SECS: u64 = 120;
 ///   3. `torrent_analyses`
 ///   4. `curl_jobs`
 ///   5. `task_snapshot`
-///   6. `engine_trackers`
-///   7. `mirror_managers`
-///   8. `telegram_config` / `telegram_last_update_id`
-///   9. `download_stats`
-///  10. `watchdog_handles`
-///  11. `external_tools`
-///  12. `policy_engine` / `self_healer` / `die_orchestrator` / `resource_manager`
+///   6. `queue_catalog`
+///   7. `engine_trackers`
+///   8. `mirror_managers`
+///   9. `telegram_config` / `telegram_last_update_id`
+///  10. `download_stats`
+///  11. `watchdog_handles`
+///  12. `external_tools`
+///  13. `policy_engine` / `self_healer` / `die_orchestrator` / `resource_manager`
 ///
 /// Never acquire a lower-numbered lock while holding a higher-numbered one.
 pub struct AppState {
@@ -80,6 +81,8 @@ pub struct AppState {
     pub torrent_analyses: Mutex<HashMap<String, PendingTorrentAnalysis>>,
     pub curl_jobs: Mutex<HashMap<String, CurlJob>>,
     pub task_snapshot: Mutex<HashMap<String, Task>>,
+    /// Persisted daemon-owned queue definitions used by every client.
+    pub queue_catalog: Mutex<Vec<serde_json::Value>>,
     /// Bounded, ephemeral browser captures awaiting explicit desktop approval.
     pub capture_reviews: Mutex<VecDeque<PendingCaptureReview>>,
     pub persist_dirty: AtomicBool,
