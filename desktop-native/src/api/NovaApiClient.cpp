@@ -1060,44 +1060,34 @@ void NovaApiClient::moveQueueTask(
 
 void NovaApiClient::startQueue(const QString &queueIdText) {
     const QString queueId = queueIdText.trimmed();
-    const QVariantMap queue = queueById(queueId);
-    if (queue.isEmpty()) {
+    if (queueId.isEmpty()) {
         emit requestFailed(QStringLiteral("Queue was not found."));
         return;
     }
 
-    const int maxActive = qBound(
-        1,
-        queue.value(QStringLiteral("maxActive"), 1).toInt(),
-        64
+    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(queueId));
+    QNetworkRequest request = makeRequest(
+        QStringLiteral("/api/queues/%1/start").arg(encodedId)
     );
-    int active = 0;
-    QHash<QString, QString> statuses;
-    for (const QJsonValue &value : m_currentDownloads) {
-        const QJsonObject task = value.toObject();
-        if (task.value(QStringLiteral("queueId")).toString() != queueId) {
-            continue;
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    auto *reply = m_network.post(request, QByteArrayLiteral("{}"));
+    connect(reply, &QNetworkReply::finished, this, [this, reply, queueId]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(responseErrorMessage(reply, payload));
+            return;
         }
-        const QString taskId = task.value(QStringLiteral("id")).toString();
-        const QString status = task.value(QStringLiteral("status")).toString();
-        statuses.insert(taskId, status);
-        if (status == QStringLiteral("downloading")) {
-            ++active;
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit requestFailed(QStringLiteral("Unexpected queue-start response."));
+            return;
         }
-    }
-
-    int slots = qMax(0, maxActive - active);
-    for (const QString &taskId : orderedQueueTaskIds(queueId)) {
-        if (slots <= 0) {
-            break;
-        }
-        const QString status = statuses.value(taskId);
-        if (status == QStringLiteral("queued") || status == QStringLiteral("paused")) {
-            resumeDownload(taskId);
-            --slots;
-        }
-    }
-    emit queueCatalogActionCompleted(QStringLiteral("start"), queueId);
+        applyQueueCatalog(document.object().value(QStringLiteral("queues")).toArray());
+        emit queueCatalogActionCompleted(QStringLiteral("start"), queueId);
+        refreshDownloads();
+        refreshQueue();
+    });
 }
 
 void NovaApiClient::stopQueue(const QString &queueIdText) {
@@ -1105,14 +1095,30 @@ void NovaApiClient::stopQueue(const QString &queueIdText) {
     if (queueId.isEmpty()) {
         return;
     }
-    for (const QJsonValue &value : m_currentDownloads) {
-        const QJsonObject task = value.toObject();
-        if (task.value(QStringLiteral("queueId")).toString() == queueId
-            && task.value(QStringLiteral("status")).toString() == QStringLiteral("downloading")) {
-            pauseDownload(task.value(QStringLiteral("id")).toString());
+
+    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(queueId));
+    QNetworkRequest request = makeRequest(
+        QStringLiteral("/api/queues/%1/stop").arg(encodedId)
+    );
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    auto *reply = m_network.post(request, QByteArrayLiteral("{}"));
+    connect(reply, &QNetworkReply::finished, this, [this, reply, queueId]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(responseErrorMessage(reply, payload));
+            return;
         }
-    }
-    emit queueCatalogActionCompleted(QStringLiteral("stop"), queueId);
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            emit requestFailed(QStringLiteral("Unexpected queue-stop response."));
+            return;
+        }
+        applyQueueCatalog(document.object().value(QStringLiteral("queues")).toArray());
+        emit queueCatalogActionCompleted(QStringLiteral("stop"), queueId);
+        refreshDownloads();
+        refreshQueue();
+    });
 }
 
 void NovaApiClient::refreshQueue() {
