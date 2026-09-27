@@ -597,7 +597,7 @@ mod tests {
     use super::{
         compare_resource_identity, plan_byte_ranges, plan_http_recovery, plan_http_resume,
         ByteRange, RecoveryCheckpoint, ResourceContinuity, ResourceIdentity, ResumeAction, Segment,
-        TaskState, MAX_PARALLEL_SEGMENTS, RECOVERY_SCHEMA_VERSION,
+        Task, TaskState, MAX_PARALLEL_SEGMENTS, RECOVERY_SCHEMA_VERSION,
     };
 
     #[test]
