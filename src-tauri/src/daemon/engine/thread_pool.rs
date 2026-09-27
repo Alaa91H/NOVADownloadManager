@@ -13,6 +13,12 @@ pub struct ThreadPool {
     max_size: u32,
 }
 
+impl Default for ThreadPool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ThreadPool {
     pub fn new() -> Self {
         let cfg = global_config();
