@@ -317,6 +317,7 @@ pub async fn serve_inbound_seed_session(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn serve_inbound_seed_session_after_handshake(
     mut stream: TcpStream,
     remote: PeerHandshake,
