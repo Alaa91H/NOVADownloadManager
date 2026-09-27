@@ -17,10 +17,21 @@ export const CapabilitySchema = z.enum([
   'media.analyze',
 ]);
 export type Capability = z.infer<typeof CapabilitySchema>;
+export const TaskLifecycleStateSchema = z.enum([
+  'queued','preparing','probing','downloading','pausing','paused',
+  'retrying','recovering','verifying','finalizing','completed','error','interrupted',
+]);
 export const RuntimeEngineCapabilitiesSchema = z.record(z.string(), z.unknown()).optional();
 export const CapabilitiesSchema = z.object({
+  contractVersion: z.number().int().min(1).default(1),
   items: z.array(CapabilitySchema).default([]),
   engineCapabilities: RuntimeEngineCapabilitiesSchema,
+  taskLifecycle: z.object({
+    states: z.array(TaskLifecycleStateSchema),
+    terminalStates: z.array(TaskLifecycleStateSchema),
+    cancelSemantics: z.literal('remove'),
+    unknownStatePolicy: z.literal('reject'),
+  }).optional(),
   directOptionKeys: z.array(z.string()).default([]).optional(),
   mediaOptionKeys: z.array(z.string()).default([]).optional(),
   directProtocols: z.array(z.string()).default([]).optional(),
