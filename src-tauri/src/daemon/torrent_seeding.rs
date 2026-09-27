@@ -55,7 +55,7 @@ impl TorrentSeedingPolicy {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct TorrentSeedingSnapshot {
     pub policy: TorrentSeedingPolicy,
@@ -63,15 +63,6 @@ pub struct TorrentSeedingSnapshot {
     pub seeded_seconds: u64,
 }
 
-impl Default for TorrentSeedingSnapshot {
-    fn default() -> Self {
-        Self {
-            policy: TorrentSeedingPolicy::default(),
-            uploaded_bytes: 0,
-            seeded_seconds: 0,
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TorrentSeedingLimitState {
