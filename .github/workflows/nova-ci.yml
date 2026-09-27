@@ -369,7 +369,7 @@ jobs:
           - os: windows-latest
             platform: Windows
             arch: x64
-          - os: windows-11-arm
+          - os: windows-11-vs2026-arm
             platform: Windows
             arch: arm64
           - os: ubuntu-26.04
