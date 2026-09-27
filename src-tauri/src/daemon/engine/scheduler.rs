@@ -141,7 +141,7 @@ pub fn queue_schedule_window_active(queue: &serde_json::Value, now: &DateTime<Lo
     }
 
     let schedule_day = if overnight && current < end {
-        (now.clone() - chrono::Duration::days(1))
+        (*now - chrono::Duration::days(1))
             .weekday()
             .num_days_from_sunday() as u64
     } else {
