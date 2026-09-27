@@ -96,14 +96,14 @@
     {
       "id": "queue",
       "label": "Queue management",
-      "status": "covered",
+      "status": "partial",
       "evidence": [
         "desktop-native/qml/pages/QueuePage.qml",
         "desktop-native/qml/components/QueueSettingsPanel.qml",
         "desktop-native/src/api/NovaApiClient.cpp",
         "desktop-native/tests/NativeParityTests.cpp",
-        "src-tauri/src/daemon/routes/engine.rs",
-        "src-tauri/src/daemon/curl/task_api.rs"
+        "src-tauri/src/daemon/routes/queues.rs",
+        "src-tauri/src/daemon/persist.rs"
       ],
       "contains": [
         {
@@ -149,25 +149,6 @@
           ]
         },
         {
-          "file": "src-tauri/src/daemon/routes/engine.rs",
-          "allOf": [
-            "handle_queue_create",
-            "handle_queue_update",
-            "handle_queue_delete",
-            "handle_queue_reorder",
-            "handle_queue_move_task",
-            "handle_queue_reorder_tasks",
-            "reconcile_queue_catalog",
-            "apply_queue_bandwidth_policy"
-          ]
-        },
-        {
-          "file": "src-tauri/src/daemon/curl/task_api.rs",
-          "allOf": [
-            "move_task_to_queue"
-          ]
-        },
-        {
           "file": "desktop-native/tests/NativeParityTests.cpp",
           "allOf": [
             "queueCatalogManagementIsDaemonBacked",
@@ -177,8 +158,23 @@
             "taskIds",
             "queueIds"
           ]
+        },
+        {
+          "file": "src-tauri/src/daemon/routes/queues.rs",
+          "allOf": [
+            "handle_queue_create",
+            "handle_queue_update",
+            "handle_queue_delete",
+            "handle_queue_reorder",
+            "handle_queue_move_task",
+            "handle_queue_reorder_tasks",
+            "reconcile_state_queue_catalog",
+            "set_task_queue",
+            "speedLimitKbs"
+          ]
         }
-      ]
+      ],
+      "blocker": "Daemon-owned /api/queues implementation is present; keep partial until real-daemon contract/restart acceptance runs on CI."
     },
     {
       "id": "scheduler",
