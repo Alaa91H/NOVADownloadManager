@@ -425,7 +425,8 @@ pub fn probe_http_resource_with_context(
     easy.max_redirections(10).map_err(transport_error)?;
     easy.connect_timeout(Duration::from_secs(15))
         .map_err(transport_error)?;
-    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
+    easy.timeout(Duration::from_secs(30))
+        .map_err(transport_error)?;
     easy.accept_encoding("identity").map_err(transport_error)?;
     apply_request_context(&mut easy, context, &[])?;
 
@@ -509,7 +510,8 @@ pub fn fetch_http_bytes_with_context(
     easy.max_redirections(10).map_err(transport_error)?;
     easy.connect_timeout(Duration::from_secs(15))
         .map_err(transport_error)?;
-    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
+    easy.timeout(Duration::from_secs(30))
+        .map_err(transport_error)?;
     easy.accept_encoding("identity").map_err(transport_error)?;
     apply_request_context(&mut easy, context, &[])?;
 
@@ -611,15 +613,13 @@ pub fn post_http_bytes_with_context(
     easy.max_redirections(10).map_err(transport_error)?;
     easy.connect_timeout(Duration::from_secs(15))
         .map_err(transport_error)?;
-    easy.timeout(Duration::from_secs(30)).map_err(transport_error)?;
+    easy.timeout(Duration::from_secs(30))
+        .map_err(transport_error)?;
     easy.accept_encoding("identity").map_err(transport_error)?;
     easy.post(true).map_err(transport_error)?;
-    easy.post_fields_copy(request_body).map_err(transport_error)?;
-    apply_request_context(
-        &mut easy,
-        context,
-        &[("Content-Type", content_type)],
-    )?;
+    easy.post_fields_copy(request_body)
+        .map_err(transport_error)?;
+    apply_request_context(&mut easy, context, &[("Content-Type", content_type)])?;
 
     let header_status = Cell::new(None::<u16>);
     let headers_validated = Cell::new(false);
@@ -703,13 +703,7 @@ pub fn stream_http_range<W: Write>(
     end: u64,
     sink: &mut W,
 ) -> Result<HttpRangeProbe, TransportError> {
-    stream_http_range_with_context(
-        url,
-        start,
-        end,
-        sink,
-        &HttpRequestContext::default(),
-    )
+    stream_http_range_with_context(url, start, end, sink, &HttpRequestContext::default())
 }
 
 pub fn stream_http_range_with_context<W: Write>(
@@ -719,14 +713,9 @@ pub fn stream_http_range_with_context<W: Write>(
     sink: &mut W,
     context: &HttpRequestContext,
 ) -> Result<HttpRangeProbe, TransportError> {
-    stream_http_range_controlled_with_context(
-        url,
-        start,
-        end,
-        sink,
-        context,
-        || TransferControl::Continue,
-    )
+    stream_http_range_controlled_with_context(url, start, end, sink, context, || {
+        TransferControl::Continue
+    })
 }
 
 pub fn stream_http_range_controlled<W: Write, F: FnMut() -> TransferControl>(
@@ -746,10 +735,7 @@ pub fn stream_http_range_controlled<W: Write, F: FnMut() -> TransferControl>(
     )
 }
 
-pub fn stream_http_range_controlled_with_context<
-    W: Write,
-    F: FnMut() -> TransferControl,
->(
+pub fn stream_http_range_controlled_with_context<W: Write, F: FnMut() -> TransferControl>(
     url: &str,
     start: u64,
     end: u64,
@@ -920,11 +906,7 @@ fn stream_http_range_controlled_with_validator<W: Write, F: FnMut() -> TransferC
     })
 }
 
-pub fn probe_http_range(
-    url: &str,
-    start: u64,
-    end: u64,
-) -> Result<HttpRangeProbe, TransportError> {
+pub fn probe_http_range(url: &str, start: u64, end: u64) -> Result<HttpRangeProbe, TransportError> {
     let mut sink = std::io::sink();
     stream_http_range(url, start, end, &mut sink)
 }
@@ -950,18 +932,10 @@ pub fn stream_http_body_with_context<W: Write>(
     sink: &mut W,
     context: &HttpRequestContext,
 ) -> Result<HttpBodyTransfer, TransportError> {
-    stream_http_body_controlled_with_context(
-        url,
-        sink,
-        context,
-        || TransferControl::Continue,
-    )
+    stream_http_body_controlled_with_context(url, sink, context, || TransferControl::Continue)
 }
 
-pub fn stream_http_body_controlled_with_context<
-    W: Write,
-    F: FnMut() -> TransferControl,
->(
+pub fn stream_http_body_controlled_with_context<W: Write, F: FnMut() -> TransferControl>(
     url: &str,
     sink: &mut W,
     context: &HttpRequestContext,
@@ -1098,12 +1072,9 @@ pub fn download_http_to_path_with_context(
     destination: &Path,
     context: &HttpRequestContext,
 ) -> Result<HttpFileTransfer, TransportError> {
-    download_http_to_path_controlled_with_context(
-        url,
-        destination,
-        context,
-        || TransferControl::Continue,
-    )
+    download_http_to_path_controlled_with_context(url, destination, context, || {
+        TransferControl::Continue
+    })
 }
 
 pub fn download_http_to_path_controlled<F: FnMut() -> TransferControl>(
@@ -1125,7 +1096,10 @@ pub fn download_http_to_path_controlled_with_context<F: FnMut() -> TransferContr
     context: &HttpRequestContext,
     mut control: F,
 ) -> Result<HttpFileTransfer, TransportError> {
-    if let Some(parent) = destination.parent().filter(|path| !path.as_os_str().is_empty()) {
+    if let Some(parent) = destination
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+    {
         std::fs::create_dir_all(parent).map_err(|error| TransportError::RequestFailed {
             message: format!("failed to create download staging directory: {error}"),
         })?;
@@ -1163,9 +1137,10 @@ pub fn download_http_to_path_controlled_with_context<F: FnMut() -> TransferContr
             .map_err(|error| TransportError::RequestFailed {
                 message: format!("failed to reset stale staging file: {error}"),
             })?;
-        file.sync_all().map_err(|error| TransportError::RequestFailed {
-            message: format!("failed to sync reset staging file: {error}"),
-        })?;
+        file.sync_all()
+            .map_err(|error| TransportError::RequestFailed {
+                message: format!("failed to sync reset staging file: {error}"),
+            })?;
         existing_bytes = 0;
         remove_resume_identity(destination);
     }
@@ -1180,9 +1155,10 @@ pub fn download_http_to_path_controlled_with_context<F: FnMut() -> TransferContr
                 .map_err(|error| TransportError::RequestFailed {
                     message: format!("failed to reset oversized staging file: {error}"),
                 })?;
-            file.sync_all().map_err(|error| TransportError::RequestFailed {
-                message: format!("failed to sync reset staging file: {error}"),
-            })?;
+            file.sync_all()
+                .map_err(|error| TransportError::RequestFailed {
+                    message: format!("failed to sync reset staging file: {error}"),
+                })?;
             existing_bytes = 0;
             remove_resume_identity(destination);
         }
@@ -1300,10 +1276,7 @@ fn segment_manifest_path(destination: &Path) -> PathBuf {
     append_suffix(destination, ".nova-segments")
 }
 
-fn write_segment_manifest(
-    destination: &Path,
-    ranges: &[ByteRange],
-) -> Result<(), TransportError> {
+fn write_segment_manifest(destination: &Path, ranges: &[ByteRange]) -> Result<(), TransportError> {
     let path = segment_manifest_path(destination);
     let tmp = append_suffix(&path, ".tmp");
     let mut payload = format!("NOVA-SEGMENTS-1\n{}\n", ranges.len());
@@ -1425,9 +1398,10 @@ fn prepare_segment_part(
                 .map_err(|error| TransportError::RequestFailed {
                     message: format!("failed to reset segment {index}: {error}"),
                 })?;
-            file.sync_all().map_err(|error| TransportError::RequestFailed {
-                message: format!("failed to sync reset segment {index}: {error}"),
-            })?;
+            file.sync_all()
+                .map_err(|error| TransportError::RequestFailed {
+                    message: format!("failed to sync reset segment {index}: {error}"),
+                })?;
         }
         0
     } else {
@@ -1513,7 +1487,10 @@ pub fn download_http_to_path_segmented_controlled_with_context<
     control: F,
     progress: P,
 ) -> Result<HttpFileTransfer, TransportError> {
-    if let Some(parent) = destination.parent().filter(|path| !path.as_os_str().is_empty()) {
+    if let Some(parent) = destination
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+    {
         std::fs::create_dir_all(parent).map_err(|error| TransportError::RequestFailed {
             message: format!("failed to create download staging directory: {error}"),
         })?;
@@ -1521,12 +1498,16 @@ pub fn download_http_to_path_segmented_controlled_with_context<
 
     let probe = probe_http_resource_with_context(url, context)?;
     let Some(identity) = ResumeIdentity::from_probe(&probe) else {
-        return download_http_to_path_controlled_with_context(url, destination, context, || control());
+        return download_http_to_path_controlled_with_context(url, destination, context, || {
+            control()
+        });
     };
     let total_bytes = identity.content_length;
     let ranges = plan_transfer_ranges(total_bytes, requested_connections);
     if ranges.len() <= 1 {
-        return download_http_to_path_controlled_with_context(url, destination, context, || control());
+        return download_http_to_path_controlled_with_context(url, destination, context, || {
+            control()
+        });
     }
 
     // A legacy/single-stream partial destination is allowed to finish through
@@ -1534,10 +1515,11 @@ pub fn download_http_to_path_segmented_controlled_with_context<
     let existing_destination = std::fs::metadata(destination)
         .map(|metadata| metadata.len())
         .unwrap_or(0);
-    let has_segments =
-        segment_artifacts_exist(destination, MAX_PARALLEL_SEGMENTS as usize);
+    let has_segments = segment_artifacts_exist(destination, MAX_PARALLEL_SEGMENTS as usize);
     if existing_destination > 0 && !has_segments {
-        return download_http_to_path_controlled_with_context(url, destination, context, || control());
+        return download_http_to_path_controlled_with_context(url, destination, context, || {
+            control()
+        });
     }
 
     let stored_identity = read_resume_identity(destination);
@@ -1561,11 +1543,12 @@ pub fn download_http_to_path_segmented_controlled_with_context<
     for (index, range) in ranges.iter().copied().enumerate() {
         let expected = range.end - range.start + 1;
         let (existing, complete) = prepare_segment_part(destination, index, expected)?;
-        resumed_from = resumed_from
-            .checked_add(existing)
-            .ok_or_else(|| TransportError::RequestFailed {
-                message: "segment resume byte counter overflow".to_owned(),
-            })?;
+        resumed_from =
+            resumed_from
+                .checked_add(existing)
+                .ok_or_else(|| TransportError::RequestFailed {
+                    message: "segment resume byte counter overflow".to_owned(),
+                })?;
         prepared.push((index, range, existing, complete));
     }
 
@@ -1686,7 +1669,9 @@ pub fn download_http_to_path_segmented_controlled_with_context<
         cleanup_segment_artifacts(destination, MAX_PARALLEL_SEGMENTS as usize);
         remove_resume_identity(destination);
         let _ = std::fs::remove_file(destination);
-        return download_http_to_path_controlled_with_context(url, destination, context, || control());
+        return download_http_to_path_controlled_with_context(url, destination, context, || {
+            control()
+        });
     }
 
     if let Some(error) = results.into_iter().find_map(Result::err) {
@@ -1715,12 +1700,11 @@ pub fn download_http_to_path_segmented_controlled_with_context<
                 TransferControl::Cancel => return Err(TransportError::Cancelled),
                 TransferControl::Continue => {}
             }
-            let mut part =
-                File::open(segment_part_path(destination, index)).map_err(|error| {
-                    TransportError::RequestFailed {
-                        message: format!("failed to open segment {index} for merge: {error}"),
-                    }
-                })?;
+            let mut part = File::open(segment_part_path(destination, index)).map_err(|error| {
+                TransportError::RequestFailed {
+                    message: format!("failed to open segment {index} for merge: {error}"),
+                }
+            })?;
             std::io::copy(&mut part, &mut merged).map_err(|error| {
                 TransportError::RequestFailed {
                     message: format!("failed to merge segment {index}: {error}"),
@@ -1825,13 +1809,16 @@ pub fn discard_http_download_artifacts(destination: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Read, Write};
     use std::io::ErrorKind;
+    use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    fn spawn_optional_server(listener: TcpListener, response: &'static [u8]) -> thread::JoinHandle<()> {
+    fn spawn_optional_server(
+        listener: TcpListener,
+        response: &'static [u8],
+    ) -> thread::JoinHandle<()> {
         thread::spawn(move || {
             listener
                 .set_nonblocking(true)
@@ -1886,7 +1873,9 @@ mod tests {
             let read = stream.read(&mut request).expect("read POST");
             let request = String::from_utf8_lossy(&request[..read]);
             assert!(request.starts_with("POST /player HTTP/1.1"));
-            assert!(request.to_ascii_lowercase().contains("content-type: application/json"));
+            assert!(request
+                .to_ascii_lowercase()
+                .contains("content-type: application/json"));
             assert!(request.contains("{\"videoId\":\"abc\"}"));
             stream
                 .write_all(
@@ -1936,12 +1925,9 @@ mod tests {
         context.cookie_header = Some("session=authorized".to_owned());
         context.user_agent = Some("NOVA-Media-Test/1".to_owned());
 
-        let response = fetch_http_bytes_with_context(
-            &format!("http://{address}/master.m3u8"),
-            &context,
-            1024,
-        )
-        .expect("bounded native fetch");
+        let response =
+            fetch_http_bytes_with_context(&format!("http://{address}/master.m3u8"), &context, 1024)
+                .expect("bounded native fetch");
         server.join().expect("context server");
 
         assert_eq!(response.body, b"#EXTM3U\n");
@@ -1961,7 +1947,13 @@ mod tests {
     fn planner_preserves_host_specific_ceiling() {
         let ranges = plan_transfer_ranges_with_limit(1_000_000, 128, 128);
         assert_eq!(ranges.len(), 128);
-        assert_eq!(ranges.iter().map(|range| range.end - range.start + 1).sum::<u64>(), 1_000_000);
+        assert_eq!(
+            ranges
+                .iter()
+                .map(|range| range.end - range.start + 1)
+                .sum::<u64>(),
+            1_000_000
+        );
     }
 
     #[test]
@@ -2001,13 +1993,8 @@ mod tests {
 
         let url = format!("http://{address}/payload.bin");
         let mut payload = Vec::new();
-        let result = stream_http_range_controlled(
-            &url,
-            0,
-            7,
-            &mut payload,
-            || TransferControl::Pause,
-        );
+        let result =
+            stream_http_range_controlled(&url, 0, 7, &mut payload, || TransferControl::Pause);
         server.join().expect("pause server thread");
 
         assert!(matches!(result, Err(TransportError::Paused)));
@@ -2025,13 +2012,8 @@ mod tests {
 
         let url = format!("http://{address}/payload.bin");
         let mut payload = Vec::new();
-        let result = stream_http_range_controlled(
-            &url,
-            0,
-            7,
-            &mut payload,
-            || TransferControl::Cancel,
-        );
+        let result =
+            stream_http_range_controlled(&url, 0, 7, &mut payload, || TransferControl::Cancel);
         server.join().expect("cancel server thread");
 
         assert!(matches!(result, Err(TransportError::Cancelled)));
@@ -2072,7 +2054,9 @@ mod tests {
         let server = thread::spawn(move || {
             let (mut head_stream, _) = listener.accept().expect("accept HEAD connection");
             let mut head_request = [0_u8; 2048];
-            let read = head_stream.read(&mut head_request).expect("read HEAD request");
+            let read = head_stream
+                .read(&mut head_request)
+                .expect("read HEAD request");
             let head_request = String::from_utf8_lossy(&head_request[..read]);
             assert!(head_request.starts_with("HEAD /payload.bin HTTP/"));
             head_stream
@@ -2183,9 +2167,7 @@ mod tests {
             let mut request = [0_u8; 2048];
             let _ = head_stream.read(&mut request).expect("read HEAD request");
             head_stream
-                .write_all(
-                    b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\n",
-                )
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\n")
                 .expect("write HEAD response");
 
             let (mut get_stream, _) = listener.accept().expect("accept full GET");
@@ -2213,7 +2195,10 @@ mod tests {
         server.join().expect("no-validator server");
 
         assert_eq!(result.resumed_from, 0);
-        assert_eq!(std::fs::read(&path).expect("read restarted file"), b"abcdefgh");
+        assert_eq!(
+            std::fs::read(&path).expect("read restarted file"),
+            b"abcdefgh"
+        );
         let _ = std::fs::remove_file(path);
     }
 
@@ -2228,8 +2213,14 @@ mod tests {
         let two_way = plan_transfer_ranges(100, 2);
 
         write_segment_manifest(&path, &four_way).expect("write segment manifest");
-        assert_eq!(read_segment_manifest(&path).as_deref(), Some(four_way.as_slice()));
-        assert_ne!(read_segment_manifest(&path).as_deref(), Some(two_way.as_slice()));
+        assert_eq!(
+            read_segment_manifest(&path).as_deref(),
+            Some(four_way.as_slice())
+        );
+        assert_ne!(
+            read_segment_manifest(&path).as_deref(),
+            Some(two_way.as_slice())
+        );
 
         cleanup_segment_artifacts(&path, MAX_PARALLEL_SEGMENTS as usize);
         assert!(!segment_manifest_path(&path).exists());
@@ -2296,7 +2287,10 @@ mod tests {
         assert_eq!(result.final_bytes, 8);
         assert_eq!(result.resumed_from, 0);
         assert_eq!(latest_progress.load(Ordering::Acquire), 8);
-        assert_eq!(std::fs::read(&path).expect("read merged result"), b"abcdefgh");
+        assert_eq!(
+            std::fs::read(&path).expect("read merged result"),
+            b"abcdefgh"
+        );
         assert!(!resume_identity_path(&path).exists());
         assert!(!segment_part_path(&path, 0).exists());
         assert!(!segment_part_path(&path, 1).exists());
@@ -2310,13 +2304,13 @@ mod tests {
         let server = thread::spawn(move || {
             let (mut head_stream, _) = listener.accept().expect("accept HEAD connection");
             let mut head_request = [0_u8; 2048];
-            let read = head_stream.read(&mut head_request).expect("read HEAD request");
+            let read = head_stream
+                .read(&mut head_request)
+                .expect("read HEAD request");
             let head_request = String::from_utf8_lossy(&head_request[..read]);
             assert!(head_request.starts_with("HEAD /payload.bin HTTP/"));
             head_stream
-                .write_all(
-                    b"HTTP/1.1 405 Method Not Allowed\r\nConnection: close\r\n\r\n",
-                )
+                .write_all(b"HTTP/1.1 405 Method Not Allowed\r\nConnection: close\r\n\r\n")
                 .expect("write HEAD rejection");
 
             let (mut get_stream, _) = listener.accept().expect("accept GET connection");
