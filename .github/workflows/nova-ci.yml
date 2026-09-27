@@ -21,7 +21,7 @@ permissions: {}
 jobs:
   changes:
     name: Detect affected build areas
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -88,7 +88,7 @@ jobs:
     concurrency:
       group: repository-build-reset
       cancel-in-progress: true
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
 
     steps:
@@ -154,7 +154,7 @@ jobs:
     concurrency:
       group: android-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
       cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
 
     steps:
@@ -262,7 +262,7 @@ jobs:
     concurrency:
       group: runtime-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
       cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 40
     permissions:
       contents: read
@@ -677,7 +677,7 @@ jobs:
     concurrency:
       group: codeql-${{ matrix.language }}-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
       cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -758,7 +758,7 @@ jobs:
     concurrency:
       group: nova-release-request
       cancel-in-progress: false
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
 
     steps:
