@@ -111,8 +111,15 @@ pub(super) fn extension_capabilities_from_status(status: &serde_json::Value) -> 
         .unwrap_or_else(|| serde_json::json!([]));
     let stream_resolver_ready = hls_ready || dash_ready;
     serde_json::json!({
+        "contractVersion": status.get("contractVersion").cloned().unwrap_or_else(|| serde_json::json!(nova_core_model::RUNTIME_CAPABILITIES_CONTRACT_VERSION)),
         "items": items,
         "engineCapabilities": status,
+        "taskLifecycle": status.get("taskLifecycle").cloned().unwrap_or_else(|| serde_json::json!({
+            "states": nova_core_model::TASK_LIFECYCLE_WIRE_STATES,
+            "terminalStates": ["completed", "error"],
+            "cancelSemantics": "remove",
+            "unknownStatePolicy": "reject"
+        })),
         "directOptionKeys": status.pointer("/engines/libcurlMulti/supportedDirectOptionKeys").cloned().unwrap_or_else(|| serde_json::json!([])),
         "mediaOptionKeys": status.pointer("/engines/media/supportedMediaOptionKeys").cloned().unwrap_or_else(|| serde_json::json!([])),
         "directProtocols": direct_protocols,
