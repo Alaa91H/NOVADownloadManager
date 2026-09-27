@@ -122,6 +122,12 @@ impl ConnectionSlot {
     }
 }
 
+impl Default for TelemetryBus {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TelemetryBus {
     pub fn new() -> Self {
         let mut connections = Vec::with_capacity(MAX_TRACKED_CONNECTIONS);
