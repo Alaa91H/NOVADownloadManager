@@ -268,11 +268,16 @@ fn move_order_entry(state: &SharedState, task_id: &str, queue_id: &str) {
     let mut catalog = lock_or_err!(state.queue_catalog);
     for queue in catalog.iter_mut() {
         let Some(object) = queue.as_object_mut() else { continue; };
-        let Some(order) = object.get_mut("downloadOrder").and_then(serde_json::Value::as_array_mut) else {
+        let is_target =
+            object.get("id").and_then(serde_json::Value::as_str) == Some(queue_id);
+        let Some(order) = object
+            .get_mut("downloadOrder")
+            .and_then(serde_json::Value::as_array_mut)
+        else {
             continue;
         };
         order.retain(|value| value.as_str() != Some(task_id));
-        if object.get("id").and_then(serde_json::Value::as_str) == Some(queue_id) {
+        if is_target {
             order.push(serde_json::Value::from(task_id));
         }
     }
