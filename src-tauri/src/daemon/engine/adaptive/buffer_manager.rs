@@ -27,6 +27,12 @@ pub struct BufferManager {
     adjustment_interval: Duration,
 }
 
+impl Default for BufferManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BufferManager {
     pub fn new() -> Self {
         let cfg = global_config();
