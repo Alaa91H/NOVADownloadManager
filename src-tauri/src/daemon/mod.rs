@@ -385,6 +385,10 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     log::warn!("Failed to create data directory: {e}");
                 }
                 let restored = persist::load(&data_dir);
+                let restored_queue_catalog =
+                    crate::daemon::routes::queues::normalize_restored_catalog(
+                        restored.queue_catalog.clone(),
+                    );
                 let ffmpeg_binary = if cfg!(windows) {
                     "ffmpeg.exe"
                 } else {
@@ -408,6 +412,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     torrent_analyses: Mutex::new(HashMap::new()),
                     curl_jobs: Mutex::new(HashMap::new()),
                     task_snapshot: Mutex::new(HashMap::new()),
+                    queue_catalog: Mutex::new(restored_queue_catalog),
                     capture_reviews: Mutex::new(std::collections::VecDeque::new()),
                     persist_dirty: std::sync::atomic::AtomicBool::new(false),
                     telegram_config: Mutex::new(TelegramConfig::default()),
@@ -610,6 +615,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
 
                 crate::daemon::routes::record_daemon_start();
                 restore_persisted_tasks(&state, restored);
+                crate::daemon::routes::queues::reconcile_state_queue_catalog(&state);
                 let torrent_recheck_state = state.clone();
                 tokio::spawn(async move {
                     crate::daemon::torrent_task::recheck_restored_completed_torrents(
