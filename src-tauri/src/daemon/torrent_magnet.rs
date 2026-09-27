@@ -257,8 +257,8 @@ impl MagnetResolver {
             .iter()
             .filter(|target| target.address.is_ipv4())
             .take(8)
-            .cloned()
         {
+            let target = target.clone();
             let dht = self.dht.clone();
             let child = cancel.child_token();
             tasks.spawn(async move {
