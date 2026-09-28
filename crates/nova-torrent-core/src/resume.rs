@@ -107,10 +107,7 @@ pub struct TorrentResumeCheckpoint {
 }
 
 impl TorrentResumeCheckpoint {
-    pub fn new(
-        meta: &TorrentMetainfo,
-        selection: &TorrentSelection,
-    ) -> Result<Self, ResumeError> {
+    pub fn new(meta: &TorrentMetainfo, selection: &TorrentSelection) -> Result<Self, ResumeError> {
         if selection.priorities().len() != meta.files.len() {
             return Err(ResumeError::FileCountMismatch {
                 expected: meta.files.len(),
@@ -204,7 +201,9 @@ impl TorrentResumeCheckpoint {
     pub fn parse(input: &str, meta: &TorrentMetainfo) -> Result<Self, ResumeError> {
         let mut lines = input.lines();
         if lines.next() != Some(RESUME_MAGIC) {
-            return Err(ResumeError::InvalidFormat("invalid resume magic".to_owned()));
+            return Err(ResumeError::InvalidFormat(
+                "invalid resume magic".to_owned(),
+            ));
         }
 
         let mut fields = BTreeMap::<&str, &str>::new();
@@ -212,9 +211,9 @@ impl TorrentResumeCheckpoint {
             if line.is_empty() {
                 continue;
             }
-            let (key, value) = line
-                .split_once('=')
-                .ok_or_else(|| ResumeError::InvalidFormat(format!("invalid resume line '{line}'")))?;
+            let (key, value) = line.split_once('=').ok_or_else(|| {
+                ResumeError::InvalidFormat(format!("invalid resume line '{line}'"))
+            })?;
             if fields.insert(key, value).is_some() {
                 return Err(ResumeError::InvalidFormat(format!(
                     "duplicate resume field '{key}'"
@@ -248,14 +247,10 @@ impl TorrentResumeCheckpoint {
             });
         }
 
-        let owned_files = PieceBitmap::from_bytes(
-            file_count,
-            decode_hex(required(&fields, "owned_files")?)?,
-        )?;
-        let verified = PieceBitmap::from_bytes(
-            piece_count,
-            decode_hex(required(&fields, "verified")?)?,
-        )?;
+        let owned_files =
+            PieceBitmap::from_bytes(file_count, decode_hex(required(&fields, "owned_files")?)?)?;
+        let verified =
+            PieceBitmap::from_bytes(piece_count, decode_hex(required(&fields, "verified")?)?)?;
         let boundary_cache = PieceBitmap::from_bytes(
             piece_count,
             decode_hex(required(&fields, "boundary_cache")?)?,
@@ -318,7 +313,10 @@ pub fn save_checkpoint_atomic(
     path: &Path,
     checkpoint: &TorrentResumeCheckpoint,
 ) -> Result<(), ResumeError> {
-    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
         std::fs::create_dir_all(parent)
             .map_err(|error| ResumeError::Io(parent.to_path_buf(), error.to_string()))?;
     }
@@ -371,10 +369,7 @@ fn required<'a>(
         .ok_or(ResumeError::MissingField(key))
 }
 
-fn parse_field<T>(
-    fields: &BTreeMap<&str, &str>,
-    key: &'static str,
-) -> Result<T, ResumeError>
+fn parse_field<T>(fields: &BTreeMap<&str, &str>, key: &'static str) -> Result<T, ResumeError>
 where
     T: std::str::FromStr,
 {
@@ -438,7 +433,10 @@ fn append_suffix(path: &Path, suffix: &str) -> PathBuf {
 }
 
 fn sync_parent(path: &Path) {
-    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
         if let Ok(directory) = File::open(parent) {
             let _ = directory.sync_all();
         }
@@ -534,11 +532,8 @@ mod tests {
     #[test]
     fn checkpoint_text_round_trip_preserves_generation_and_priorities() {
         let meta = meta();
-        let selection = TorrentSelection::new(
-            &meta,
-            vec![FilePriority::High, FilePriority::Skip],
-        )
-        .unwrap();
+        let selection =
+            TorrentSelection::new(&meta, vec![FilePriority::High, FilePriority::Skip]).unwrap();
         let mut checkpoint = TorrentResumeCheckpoint::new(&meta, &selection).unwrap();
         checkpoint.next_generation().unwrap();
         checkpoint.owned_files.set(0, true).unwrap();

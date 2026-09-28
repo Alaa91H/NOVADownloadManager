@@ -154,9 +154,9 @@ impl DhtMessage {
         let mut parser = Parser::new(bytes);
         let value = parser.parse_value(0)?;
         parser.finish()?;
-        let root = value
-            .as_dict()
-            .ok_or_else(|| DhtError::InvalidBencode("DHT packet must be a dictionary".to_owned()))?;
+        let root = value.as_dict().ok_or_else(|| {
+            DhtError::InvalidBencode("DHT packet must be a dictionary".to_owned())
+        })?;
 
         let transaction_id = dict_bytes(root, b"t")
             .ok_or(DhtError::MissingField("t"))?
@@ -314,14 +314,12 @@ fn parse_query(
         b"get_peers" => DhtQuery::GetPeers {
             id,
             info_hash: parse_info_hash(
-                dict_bytes(args, b"info_hash")
-                    .ok_or(DhtError::MissingField("a.info_hash"))?,
+                dict_bytes(args, b"info_hash").ok_or(DhtError::MissingField("a.info_hash"))?,
             )?,
         },
         b"announce_peer" => {
             let info_hash = parse_info_hash(
-                dict_bytes(args, b"info_hash")
-                    .ok_or(DhtError::MissingField("a.info_hash"))?,
+                dict_bytes(args, b"info_hash").ok_or(DhtError::MissingField("a.info_hash"))?,
             )?;
             let implied_port = dict_int(args, b"implied_port").unwrap_or(0) != 0;
             let port = dict_int(args, b"port")
@@ -439,12 +437,8 @@ fn parse_error(
     if values.len() != 2 {
         return Err(DhtError::InvalidErrorResponse);
     }
-    let code = values[0]
-        .as_int()
-        .ok_or(DhtError::InvalidErrorResponse)?;
-    let raw = values[1]
-        .as_bytes()
-        .ok_or(DhtError::InvalidErrorResponse)?;
+    let code = values[0].as_int().ok_or(DhtError::InvalidErrorResponse)?;
+    let raw = values[1].as_bytes().ok_or(DhtError::InvalidErrorResponse)?;
     let message = String::from_utf8_lossy(&raw[..raw.len().min(256)]).into_owned();
     Ok(DhtMessage::Error {
         transaction_id,
@@ -611,10 +605,7 @@ fn dict_get<'a, 'b>(
         .find_map(|(entry_key, value)| (*entry_key == key).then_some(value))
 }
 
-fn dict_bytes<'a>(
-    dictionary: &BTreeMap<&'a [u8], BValue<'a>>,
-    key: &[u8],
-) -> Option<&'a [u8]> {
+fn dict_bytes<'a>(dictionary: &BTreeMap<&'a [u8], BValue<'a>>, key: &[u8]) -> Option<&'a [u8]> {
     dict_get(dictionary, key).and_then(BValue::as_bytes)
 }
 
@@ -657,9 +648,7 @@ impl<'a> Parser<'a> {
         let start = self.position;
         while self.input.get(self.position).copied() != Some(b'e') {
             if self.position >= self.input.len() {
-                return Err(DhtError::InvalidBencode(
-                    "unterminated integer".to_owned(),
-                ));
+                return Err(DhtError::InvalidBencode("unterminated integer".to_owned()));
             }
             self.position += 1;
         }
@@ -670,9 +659,7 @@ impl<'a> Parser<'a> {
             || (raw.len() > 1 && raw[0] == b'0')
             || (raw.len() > 2 && raw[0] == b'-' && raw[1] == b'0')
         {
-            return Err(DhtError::InvalidBencode(
-                "non-canonical integer".to_owned(),
-            ));
+            return Err(DhtError::InvalidBencode("non-canonical integer".to_owned()));
         }
         std::str::from_utf8(raw)
             .ok()
@@ -729,10 +716,7 @@ impl<'a> Parser<'a> {
         Ok(values)
     }
 
-    fn parse_dict(
-        &mut self,
-        depth: usize,
-    ) -> Result<BTreeMap<&'a [u8], BValue<'a>>, DhtError> {
+    fn parse_dict(&mut self, depth: usize) -> Result<BTreeMap<&'a [u8], BValue<'a>>, DhtError> {
         self.expect(b'd')?;
         let mut entries = BTreeMap::new();
         let mut previous: Option<&[u8]> = None;
@@ -879,7 +863,10 @@ mod tests {
             },
         };
         let encoded = message.encode().expect("encode announce");
-        assert_eq!(DhtMessage::parse(&encoded).expect("parse announce"), message);
+        assert_eq!(
+            DhtMessage::parse(&encoded).expect("parse announce"),
+            message
+        );
     }
 
     #[test]

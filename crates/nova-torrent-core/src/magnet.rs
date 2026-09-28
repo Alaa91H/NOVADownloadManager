@@ -51,7 +51,9 @@ impl MagnetLink {
                 }
                 "tr" => {
                     if trackers.len() >= MAX_MAGNET_TRACKERS
-                        && !trackers.iter().any(|existing| existing.as_str() == value.as_ref())
+                        && !trackers
+                            .iter()
+                            .any(|existing| existing.as_str() == value.as_ref())
                     {
                         return Err(MagnetParseError::TooManyTrackers);
                     }
@@ -59,7 +61,9 @@ impl MagnetLink {
                 }
                 "ws" | "as" => {
                     if web_seeds.len() >= MAX_MAGNET_WEB_SEEDS
-                        && !web_seeds.iter().any(|existing| existing.as_str() == value.as_ref())
+                        && !web_seeds
+                            .iter()
+                            .any(|existing| existing.as_str() == value.as_ref())
                     {
                         return Err(MagnetParseError::TooManyWebSeeds);
                     }
@@ -218,10 +222,8 @@ mod tests {
 
     #[test]
     fn parses_base32_btih() {
-        let magnet = MagnetLink::parse(
-            "magnet:?xt=urn:btih:AERUKZ4JVPG66AJDIVTYTK6N54ASGRLH",
-        )
-        .expect("parse base32 hash");
+        let magnet = MagnetLink::parse("magnet:?xt=urn:btih:AERUKZ4JVPG66AJDIVTYTK6N54ASGRLH")
+            .expect("parse base32 hash");
         assert_eq!(
             magnet.info_hash.to_hex(),
             "0123456789abcdef0123456789abcdef01234567"
@@ -263,7 +265,11 @@ mod tests {
 
     #[test]
     fn rejects_oversized_magnet_uri() {
-        let value = format!("magnet:?xt=urn:btih:{}&dn={}", "0".repeat(40), "x".repeat(MAX_MAGNET_URI_BYTES));
+        let value = format!(
+            "magnet:?xt=urn:btih:{}&dn={}",
+            "0".repeat(40),
+            "x".repeat(MAX_MAGNET_URI_BYTES)
+        );
         assert!(matches!(
             MagnetLink::parse(&value),
             Err(MagnetParseError::UriTooLarge(_))

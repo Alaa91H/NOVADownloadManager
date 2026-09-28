@@ -31,29 +31,25 @@ pub use extension::{
     MAX_METADATA_SIZE, MAX_PEX_MESSAGE_BYTES, MAX_PEX_PEERS, METADATA_PIECE_SIZE,
 };
 pub use magnet::{
-    MagnetLink, MagnetParseError, MAX_MAGNET_TRACKERS, MAX_MAGNET_URI_BYTES,
-    MAX_MAGNET_WEB_SEEDS,
+    MagnetLink, MagnetParseError, MAX_MAGNET_TRACKERS, MAX_MAGNET_URI_BYTES, MAX_MAGNET_WEB_SEEDS,
 };
 pub use manifest::{
     load_storage_manifest, load_storage_manifest_recovering, save_storage_manifest_atomic,
-    ManifestError, TorrentStorageManifest,
-    STORAGE_MANIFEST_VERSION,
+    ManifestError, TorrentStorageManifest, STORAGE_MANIFEST_VERSION,
 };
 pub use metainfo::{
-    FileSlice, InfoHash, TorrentFile, TorrentMetainfo, TorrentMetainfoError,
-    MAX_METAINFO_BYTES, MAX_PIECE_LENGTH_BYTES,
+    FileSlice, InfoHash, TorrentFile, TorrentMetainfo, TorrentMetainfoError, MAX_METAINFO_BYTES,
+    MAX_PIECE_LENGTH_BYTES,
 };
 pub use peer::{
-    PeerHandshake, PeerMessage, PeerState, PeerWireError, MAX_PEER_FRAME_BYTES,
-    PEER_HANDSHAKE_LEN,
+    PeerHandshake, PeerMessage, PeerState, PeerWireError, MAX_PEER_FRAME_BYTES, PEER_HANDSHAKE_LEN,
 };
 pub use resume::{
     load_checkpoint_recovering, save_checkpoint_atomic, PieceBitmap, ResumeError,
     TorrentResumeCheckpoint, RESUME_FORMAT_VERSION,
 };
 pub use scheduler::{
-    BlockRequest, PieceLayout, PieceScheduler, SchedulerError,
-    DEFAULT_BLOCK_SIZE,
+    BlockRequest, PieceLayout, PieceScheduler, SchedulerError, DEFAULT_BLOCK_SIZE,
 };
 pub use selection::{FilePriority, SelectionError, TorrentSelection};
 pub use storage::{
@@ -61,8 +57,8 @@ pub use storage::{
 };
 pub use tracker::{
     udp_connect_packet, HttpTrackerResponse, TrackerAnnounceRequest, TrackerEvent, TrackerPeer,
-    TrackerProtocolError, UdpAnnounceResponse, UdpConnectResponse,
-    MAX_TRACKER_PEERS, MAX_TRACKER_RESPONSE_BYTES,
+    TrackerProtocolError, UdpAnnounceResponse, UdpConnectResponse, MAX_TRACKER_PEERS,
+    MAX_TRACKER_RESPONSE_BYTES,
 };
 
 /// Stable engine identifier used when the host exposes torrent tasks through

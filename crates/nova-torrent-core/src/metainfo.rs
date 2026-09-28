@@ -207,9 +207,7 @@ impl TorrentMetainfo {
     ///
     /// BEP 9 serving must return these exact bytes; re-encoding a logically
     /// equivalent dictionary can change the SHA-1 info hash.
-    pub fn parse_with_info_bytes(
-        bytes: &[u8],
-    ) -> Result<(Self, Vec<u8>), TorrentMetainfoError> {
+    pub fn parse_with_info_bytes(bytes: &[u8]) -> Result<(Self, Vec<u8>), TorrentMetainfoError> {
         if bytes.is_empty() {
             return Err(TorrentMetainfoError::InvalidBencode(
                 "metainfo is empty".to_owned(),
@@ -281,31 +279,31 @@ impl TorrentMetainfo {
             return None;
         }
         let start = (index as u64).checked_mul(self.piece_length)?;
-        Some(self.total_length.saturating_sub(start).min(self.piece_length))
+        Some(
+            self.total_length
+                .saturating_sub(start)
+                .min(self.piece_length),
+        )
     }
 
     /// Verify one completed piece against the SHA-1 digest from the metainfo.
     ///
     /// The byte length is checked before hashing so truncated or overlong peer
     /// responses cannot accidentally be accepted as a valid piece.
-    pub fn verify_piece(
-        &self,
-        index: usize,
-        bytes: &[u8],
-    ) -> Result<bool, TorrentMetainfoError> {
-        let expected_hash = self
-            .piece_hashes
-            .get(index)
-            .ok_or(TorrentMetainfoError::PieceOutOfRange {
-                index,
-                count: self.piece_hashes.len(),
-            })?;
-        let expected_length = self
-            .piece_size(index)
-            .ok_or(TorrentMetainfoError::PieceOutOfRange {
-                index,
-                count: self.piece_hashes.len(),
-            })?;
+    pub fn verify_piece(&self, index: usize, bytes: &[u8]) -> Result<bool, TorrentMetainfoError> {
+        let expected_hash =
+            self.piece_hashes
+                .get(index)
+                .ok_or(TorrentMetainfoError::PieceOutOfRange {
+                    index,
+                    count: self.piece_hashes.len(),
+                })?;
+        let expected_length =
+            self.piece_size(index)
+                .ok_or(TorrentMetainfoError::PieceOutOfRange {
+                    index,
+                    count: self.piece_hashes.len(),
+                })?;
         if bytes.len() as u64 != expected_length {
             return Err(TorrentMetainfoError::PieceLengthMismatch {
                 index,
@@ -400,11 +398,10 @@ fn parse_files(
 
     match (single_length, multi_files) {
         (Some(length), None) => {
-            let length =
-                u64::try_from(length).map_err(|_| TorrentMetainfoError::InvalidField {
-                    field: "info.length",
-                    message: "file length cannot be negative".to_owned(),
-                })?;
+            let length = u64::try_from(length).map_err(|_| TorrentMetainfoError::InvalidField {
+                field: "info.length",
+                message: "file length cannot be negative".to_owned(),
+            })?;
             Ok((
                 vec![TorrentFile {
                     path: name.to_owned(),
@@ -425,22 +422,20 @@ fn parse_files(
             let mut parsed = Vec::with_capacity(files.len());
             let mut offset = 0u64;
             for value in files {
-                let file =
-                    value
-                        .as_dict()
-                        .ok_or_else(|| TorrentMetainfoError::InvalidField {
-                            field: "info.files[]",
-                            message: "file entry must be a dictionary".to_owned(),
-                        })?;
+                let file = value
+                    .as_dict()
+                    .ok_or_else(|| TorrentMetainfoError::InvalidField {
+                        field: "info.files[]",
+                        message: "file entry must be a dictionary".to_owned(),
+                    })?;
                 let length_i64 = dict_get(file, b"length")
                     .and_then(BValue::as_int)
                     .ok_or(TorrentMetainfoError::MissingField("info.files[].length"))?;
-                let length = u64::try_from(length_i64).map_err(|_| {
-                    TorrentMetainfoError::InvalidField {
+                let length =
+                    u64::try_from(length_i64).map_err(|_| TorrentMetainfoError::InvalidField {
                         field: "info.files[].length",
                         message: "file length cannot be negative".to_owned(),
-                    }
-                })?;
+                    })?;
                 let path_values = dict_get(file, b"path")
                     .and_then(BValue::as_list)
                     .ok_or(TorrentMetainfoError::MissingField("info.files[].path"))?;
@@ -498,7 +493,9 @@ fn decode_component(bytes: &[u8], field: &'static str) -> Result<String, Torrent
         || value.contains('/')
         || value.contains('\\')
         || value.contains(':')
-        || value.chars().any(|character| character == '\0' || character.is_control())
+        || value
+            .chars()
+            .any(|character| character == '\0' || character.is_control())
         || value.ends_with(' ')
         || value.ends_with('.')
         || is_windows_reserved_component(value)
@@ -580,10 +577,7 @@ fn parse_trackers(
     }
 
     if let Some(announce) = announce {
-        let already_present = tiers
-            .iter()
-            .flatten()
-            .any(|tracker| tracker == &announce);
+        let already_present = tiers.iter().flatten().any(|tracker| tracker == &announce);
         if tiers.is_empty() {
             tiers.push(vec![announce]);
         } else if !already_present {
@@ -602,13 +596,12 @@ fn parse_trackers(
 }
 
 fn parse_tracker_url(raw: &[u8]) -> Result<String, TorrentMetainfoError> {
-    let tracker =
-        std::str::from_utf8(raw).map_err(|_| TorrentMetainfoError::InvalidField {
-            field: "announce",
-            message: "tracker URL must be valid UTF-8".to_owned(),
-        })?;
-    let parsed =
-        Url::parse(tracker).map_err(|_| TorrentMetainfoError::InvalidTracker(tracker.to_owned()))?;
+    let tracker = std::str::from_utf8(raw).map_err(|_| TorrentMetainfoError::InvalidField {
+        field: "announce",
+        message: "tracker URL must be valid UTF-8".to_owned(),
+    })?;
+    let parsed = Url::parse(tracker)
+        .map_err(|_| TorrentMetainfoError::InvalidTracker(tracker.to_owned()))?;
     if !matches!(parsed.scheme(), "http" | "https" | "udp") || parsed.host_str().is_none() {
         return Err(TorrentMetainfoError::InvalidTracker(tracker.to_owned()));
     }
@@ -715,9 +708,7 @@ impl<'a> Parser<'a> {
         Self { input, position: 0 }
     }
 
-    fn parse_top_level(
-        mut self,
-    ) -> Result<(BValue<'a>, Range<usize>), TorrentMetainfoError> {
+    fn parse_top_level(mut self) -> Result<(BValue<'a>, Range<usize>), TorrentMetainfoError> {
         if self.take_byte() != Some(b'd') {
             return Err(TorrentMetainfoError::InvalidBencode(
                 "top-level value must be a dictionary".to_owned(),
@@ -809,8 +800,9 @@ impl<'a> Parser<'a> {
                 "non-canonical bencode integer".to_owned(),
             ));
         }
-        let text = std::str::from_utf8(raw)
-            .map_err(|_| TorrentMetainfoError::InvalidBencode("invalid integer bytes".to_owned()))?;
+        let text = std::str::from_utf8(raw).map_err(|_| {
+            TorrentMetainfoError::InvalidBencode("invalid integer bytes".to_owned())
+        })?;
         text.parse::<i64>()
             .map_err(|_| TorrentMetainfoError::InvalidBencode("integer overflow".to_owned()))
     }
@@ -1022,8 +1014,7 @@ mod tests {
 
     #[test]
     fn rejects_windows_reserved_device_name() {
-        let mut bytes =
-            b"d4:infod6:lengthi1e4:name3:CON12:piece lengthi1e6:pieces20:".to_vec();
+        let mut bytes = b"d4:infod6:lengthi1e4:name3:CON12:piece lengthi1e6:pieces20:".to_vec();
         bytes.extend_from_slice(&[7u8; 20]);
         bytes.extend_from_slice(b"ee");
         assert!(matches!(

@@ -37,9 +37,7 @@ impl PeerHandshake {
                 available: input.len(),
             });
         }
-        if input[0] as usize != BITTORRENT_PROTOCOL.len()
-            || &input[1..20] != BITTORRENT_PROTOCOL
-        {
+        if input[0] as usize != BITTORRENT_PROTOCOL.len() || &input[1..20] != BITTORRENT_PROTOCOL {
             return Err(PeerWireError::InvalidHandshake);
         }
 
@@ -283,13 +281,7 @@ fn encode_empty_message(output: &mut Vec<u8>, id: u8) {
     output.push(id);
 }
 
-fn encode_request_like(
-    output: &mut Vec<u8>,
-    id: u8,
-    piece_index: u32,
-    begin: u32,
-    length: u32,
-) {
+fn encode_request_like(output: &mut Vec<u8>, id: u8, piece_index: u32, begin: u32, length: u32) {
     output.extend_from_slice(&13u32.to_be_bytes());
     output.push(id);
     output.extend_from_slice(&piece_index.to_be_bytes());
@@ -468,10 +460,7 @@ pub enum PeerWireError {
     #[error("unsupported peer message id: {0}")]
     UnsupportedMessage(u8),
     #[error("peer piece index {piece_index} is outside piece count {piece_count}")]
-    PieceOutOfRange {
-        piece_index: u32,
-        piece_count: u32,
-    },
+    PieceOutOfRange { piece_index: u32, piece_count: u32 },
     #[error("peer bitfield length mismatch: expected {expected}, got {actual}")]
     InvalidBitfieldLength { expected: usize, actual: usize },
     #[error("peer bitfield sets padding bits outside the torrent piece count")]

@@ -88,9 +88,9 @@ impl ExtendedHandshake {
         let mut parser = Parser::new(bytes);
         let value = parser.parse_value(0)?;
         parser.finish()?;
-        let dict = value
-            .as_dict()
-            .ok_or_else(|| ExtensionError::InvalidBencode("extended handshake must be a dictionary".to_owned()))?;
+        let dict = value.as_dict().ok_or_else(|| {
+            ExtensionError::InvalidBencode("extended handshake must be a dictionary".to_owned())
+        })?;
 
         let mut handshake = Self::default();
 
@@ -125,8 +125,7 @@ impl ExtendedHandshake {
         }
 
         if let Some(value) = dict_get(dict, b"v").and_then(BValue::as_bytes) {
-            let value = std::str::from_utf8(value)
-                .map_err(|_| ExtensionError::InvalidUtf8("v"))?;
+            let value = std::str::from_utf8(value).map_err(|_| ExtensionError::InvalidUtf8("v"))?;
             handshake.client_name = Some(value.chars().take(128).collect());
         }
 
@@ -136,13 +135,17 @@ impl ExtendedHandshake {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MetadataMessage {
-    Request { piece: u32 },
+    Request {
+        piece: u32,
+    },
     Data {
         piece: u32,
         total_size: usize,
         data: Vec<u8>,
     },
-    Reject { piece: u32 },
+    Reject {
+        piece: u32,
+    },
 }
 
 impl MetadataMessage {
@@ -191,9 +194,9 @@ impl MetadataMessage {
         let mut parser = Parser::new(payload);
         let header = parser.parse_value(0)?;
         let consumed = parser.position;
-        let dict = header
-            .as_dict()
-            .ok_or_else(|| ExtensionError::InvalidBencode("ut_metadata header must be a dictionary".to_owned()))?;
+        let dict = header.as_dict().ok_or_else(|| {
+            ExtensionError::InvalidBencode("ut_metadata header must be a dictionary".to_owned())
+        })?;
         let msg_type = dict_get(dict, b"msg_type")
             .and_then(BValue::as_int)
             .ok_or(ExtensionError::MissingField("msg_type"))?;
@@ -276,9 +279,7 @@ impl MetadataAssembler {
     }
 
     pub fn has_piece(&self, piece: u32) -> bool {
-        self.pieces
-            .get(piece as usize)
-            .is_some_and(Option::is_some)
+        self.pieces.get(piece as usize).is_some_and(Option::is_some)
     }
 
     pub fn missing_pieces(&self) -> Vec<u32> {
@@ -334,11 +335,7 @@ impl MetadataAssembler {
 
         let mut metadata = Vec::with_capacity(self.total_size);
         for piece in self.pieces {
-            metadata.extend_from_slice(
-                piece
-                    .as_deref()
-                    .ok_or(ExtensionError::MetadataIncomplete)?,
-            );
+            metadata.extend_from_slice(piece.as_deref().ok_or(ExtensionError::MetadataIncomplete)?);
         }
         if metadata.len() != self.total_size {
             return Err(ExtensionError::MetadataSizeChanged {
@@ -414,9 +411,9 @@ impl PeerExchange {
         let mut parser = Parser::new(payload);
         let value = parser.parse_value(0)?;
         parser.finish()?;
-        let dict = value
-            .as_dict()
-            .ok_or_else(|| ExtensionError::InvalidBencode("ut_pex payload must be a dictionary".to_owned()))?;
+        let dict = value.as_dict().ok_or_else(|| {
+            ExtensionError::InvalidBencode("ut_pex payload must be a dictionary".to_owned())
+        })?;
 
         let mut added = Vec::new();
         let mut dropped = Vec::new();
@@ -439,11 +436,7 @@ impl PeerExchange {
     }
 }
 
-fn encode_compact_peer(
-    peer: std::net::SocketAddr,
-    ipv4: &mut Vec<u8>,
-    ipv6: &mut Vec<u8>,
-) {
+fn encode_compact_peer(peer: std::net::SocketAddr, ipv4: &mut Vec<u8>, ipv6: &mut Vec<u8>) {
     match peer {
         std::net::SocketAddr::V4(address) => {
             ipv4.extend_from_slice(&address.ip().octets());
@@ -475,10 +468,7 @@ fn validate_metadata_piece(
     let count = total_size.div_ceil(METADATA_PIECE_SIZE);
     let index = piece as usize;
     if index >= count {
-        return Err(ExtensionError::MetadataPieceOutOfRange {
-            piece,
-            count,
-        });
+        return Err(ExtensionError::MetadataPieceOutOfRange { piece, count });
     }
     let expected = if index + 1 == count {
         total_size - index * METADATA_PIECE_SIZE
@@ -678,7 +668,9 @@ impl<'a> Parser<'a> {
         let length = std::str::from_utf8(digits)
             .ok()
             .and_then(|text| text.parse::<usize>().ok())
-            .ok_or_else(|| ExtensionError::InvalidBencode("byte-string length overflow".to_owned()))?;
+            .ok_or_else(|| {
+                ExtensionError::InvalidBencode("byte-string length overflow".to_owned())
+            })?;
         let end = self
             .position
             .checked_add(length)
@@ -823,10 +815,8 @@ mod tests {
 
     #[test]
     fn remote_extension_zero_disables_mapping() {
-        let handshake = ExtendedHandshake::parse(
-            b"d1:md11:ut_metadatai0e6:ut_pexi0eee",
-        )
-        .expect("parse disabled extensions");
+        let handshake = ExtendedHandshake::parse(b"d1:md11:ut_metadatai0e6:ut_pexi0eee")
+            .expect("parse disabled extensions");
         assert_eq!(handshake.ut_metadata, None);
         assert_eq!(handshake.ut_pex, None);
     }
@@ -876,7 +866,8 @@ mod tests {
     #[test]
     fn metadata_assembler_rejects_hash_mismatch() {
         let metadata = b"d4:name1:xe";
-        let mut assembler = MetadataAssembler::new(InfoHash::new([0u8; 20]), metadata.len()).unwrap();
+        let mut assembler =
+            MetadataAssembler::new(InfoHash::new([0u8; 20]), metadata.len()).unwrap();
         assembler
             .insert(0, metadata.len(), metadata.to_vec())
             .unwrap();
@@ -900,7 +891,9 @@ mod tests {
         let decoded = PeerExchange::parse(&encoded).unwrap();
         assert_eq!(decoded.added.len(), 2);
         assert!(decoded.added.contains(&"1.2.3.4:6881".parse().unwrap()));
-        assert!(decoded.added.contains(&"[2001:db8::1]:6882".parse().unwrap()));
+        assert!(decoded
+            .added
+            .contains(&"[2001:db8::1]:6882".parse().unwrap()));
         assert_eq!(decoded.dropped, vec!["9.9.9.9:6883".parse().unwrap()]);
     }
 

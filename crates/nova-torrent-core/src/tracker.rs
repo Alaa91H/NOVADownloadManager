@@ -88,7 +88,10 @@ impl TrackerAnnounceRequest {
         fields.push("no_peer_id=1".to_owned());
         fields.push(format!("key={:08x}", self.key));
         if let Some(num_want) = self.num_want {
-            fields.push(format!("numwant={}", num_want.min(MAX_TRACKER_PEERS as u32)));
+            fields.push(format!(
+                "numwant={}",
+                num_want.min(MAX_TRACKER_PEERS as u32)
+            ));
         }
         if let Some(event) = self.event.http_value() {
             fields.push(format!("event={event}"));
@@ -146,10 +149,7 @@ pub struct UdpConnectResponse {
 }
 
 impl UdpConnectResponse {
-    pub fn parse(
-        bytes: &[u8],
-        expected_transaction_id: u32,
-    ) -> Result<Self, TrackerProtocolError> {
+    pub fn parse(bytes: &[u8], expected_transaction_id: u32) -> Result<Self, TrackerProtocolError> {
         ensure_response_size(bytes)?;
         if bytes.len() < 8 {
             return Err(TrackerProtocolError::TruncatedUdpResponse {
@@ -161,9 +161,9 @@ impl UdpConnectResponse {
         let transaction_id = read_u32(bytes, 4);
         validate_udp_transaction(transaction_id, expected_transaction_id)?;
         if action == UDP_ERROR_ACTION {
-            return Err(TrackerProtocolError::TrackerFailure(
-                decode_udp_error(&bytes[8..]),
-            ));
+            return Err(TrackerProtocolError::TrackerFailure(decode_udp_error(
+                &bytes[8..],
+            )));
         }
         if action != UDP_CONNECT_ACTION {
             return Err(TrackerProtocolError::UnexpectedUdpAction {
@@ -200,10 +200,7 @@ pub struct UdpAnnounceResponse {
 }
 
 impl UdpAnnounceResponse {
-    pub fn parse(
-        bytes: &[u8],
-        expected_transaction_id: u32,
-    ) -> Result<Self, TrackerProtocolError> {
+    pub fn parse(bytes: &[u8], expected_transaction_id: u32) -> Result<Self, TrackerProtocolError> {
         ensure_response_size(bytes)?;
         if bytes.len() < 8 {
             return Err(TrackerProtocolError::TruncatedUdpResponse {
@@ -215,9 +212,9 @@ impl UdpAnnounceResponse {
         let transaction_id = read_u32(bytes, 4);
         validate_udp_transaction(transaction_id, expected_transaction_id)?;
         if action == UDP_ERROR_ACTION {
-            return Err(TrackerProtocolError::TrackerFailure(
-                decode_udp_error(&bytes[8..]),
-            ));
+            return Err(TrackerProtocolError::TrackerFailure(decode_udp_error(
+                &bytes[8..],
+            )));
         }
         if action != UDP_ANNOUNCE_ACTION {
             return Err(TrackerProtocolError::UnexpectedUdpAction {
@@ -272,9 +269,9 @@ impl HttpTrackerResponse {
         };
 
         if let Some(reason) = dict_bytes(&dict, b"failure reason") {
-            return Err(TrackerProtocolError::TrackerFailure(
-                lossy_limited_message(reason),
-            ));
+            return Err(TrackerProtocolError::TrackerFailure(lossy_limited_message(
+                reason,
+            )));
         }
 
         let interval = dict_int(&dict, b"interval")
@@ -319,8 +316,7 @@ impl HttpTrackerResponse {
             incomplete: dict_int(&dict, b"incomplete")
                 .map(|value| bounded_u32(value, "incomplete"))
                 .transpose()?,
-            warning: dict_bytes(&dict, b"warning message")
-                .map(lossy_limited_message),
+            warning: dict_bytes(&dict, b"warning message").map(lossy_limited_message),
             peers,
         })
     }
@@ -389,10 +385,7 @@ fn ensure_response_size(bytes: &[u8]) -> Result<(), TrackerProtocolError> {
     Ok(())
 }
 
-fn validate_udp_transaction(
-    actual: u32,
-    expected: u32,
-) -> Result<(), TrackerProtocolError> {
+fn validate_udp_transaction(actual: u32, expected: u32) -> Result<(), TrackerProtocolError> {
     if actual != expected {
         return Err(TrackerProtocolError::TransactionMismatch { expected, actual });
     }
@@ -547,10 +540,7 @@ pub enum TrackerProtocolError {
         message: String,
     },
     #[error("invalid compact {family} peer list length: {length}")]
-    InvalidCompactPeers {
-        family: &'static str,
-        length: usize,
-    },
+    InvalidCompactPeers { family: &'static str, length: usize },
     #[error("tracker returned too many peers: {0}")]
     TooManyPeers(usize),
     #[error("UDP tracker transaction mismatch: expected {expected}, got {actual}")]

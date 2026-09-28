@@ -186,7 +186,10 @@ pub fn save_storage_manifest_atomic(
     path: &Path,
     manifest: &TorrentStorageManifest,
 ) -> Result<(), ManifestError> {
-    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
         std::fs::create_dir_all(parent)
             .map_err(|error| ManifestError::Io(parent.to_path_buf(), error.to_string()))?;
     }
@@ -209,7 +212,10 @@ pub fn save_storage_manifest_atomic(
     if let Err(first_error) = std::fs::rename(&tmp, path) {
         if !path.exists() {
             let _ = std::fs::remove_file(&tmp);
-            return Err(ManifestError::Io(path.to_path_buf(), first_error.to_string()));
+            return Err(ManifestError::Io(
+                path.to_path_buf(),
+                first_error.to_string(),
+            ));
         }
         let _ = std::fs::remove_file(&backup);
         std::fs::rename(path, &backup)
@@ -232,7 +238,10 @@ pub fn save_storage_manifest_atomic(
 
 fn validate_metainfo(meta: &TorrentMetainfo) -> Result<(), ManifestError> {
     if meta.name.is_empty()
-        || meta.name.chars().any(|value| value == '\0' || value.is_control())
+        || meta
+            .name
+            .chars()
+            .any(|value| value == '\0' || value.is_control())
         || meta.name.contains('/')
         || meta.name.contains('\\')
     {
@@ -360,7 +369,8 @@ fn put_string(output: &mut Vec<u8>, value: &str) -> Result<(), ManifestError> {
     if value.len() > MAX_MANIFEST_STRING_BYTES {
         return Err(ManifestError::StringTooLarge(value.len()));
     }
-    let length = u32::try_from(value.len()).map_err(|_| ManifestError::StringTooLarge(value.len()))?;
+    let length =
+        u32::try_from(value.len()).map_err(|_| ManifestError::StringTooLarge(value.len()))?;
     put_u32(output, length);
     output.extend_from_slice(value.as_bytes());
     Ok(())
@@ -527,10 +537,8 @@ mod tests {
 
     #[test]
     fn recovering_loader_accepts_valid_backup_after_corrupt_primary() {
-        let dir = std::env::temp_dir().join(format!(
-            "nova-manifest-recovery-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("nova-manifest-recovery-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("manifest.bin");
