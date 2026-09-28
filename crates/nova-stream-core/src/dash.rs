@@ -527,6 +527,7 @@ pub fn build_dash_representation_plan(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn append_timeline_units(
     manifest: &DashManifest,
     template: &DashSegmentTemplate,
@@ -607,8 +608,8 @@ fn dash_track_kind(
     let kind = adaptation
         .content_type
         .as_deref()
-        .or_else(|| adaptation.mime_type.as_deref())
-        .or_else(|| representation.mime_type.as_deref())
+        .or(adaptation.mime_type.as_deref())
+        .or(representation.mime_type.as_deref())
         .unwrap_or_default()
         .to_ascii_lowercase();
 
