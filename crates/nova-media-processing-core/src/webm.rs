@@ -439,19 +439,20 @@ pub fn probe_matroska_file(path: &Path) -> Result<MediaProbe, MediaProcessingErr
     MatroskaDemuxer::open(path).map(|demuxer| demuxer.inner.probe)
 }
 
+type EbmlScan = (
+    MediaProbe,
+    Vec<PacketLocator>,
+    BTreeMap<u32, WebmVideoColour>,
+);
+
+type ParsedVideo = (Option<u32>, Option<u32>, Option<WebmVideoColour>);
+
 fn scan_ebml(
     file: &mut File,
     file_len: u64,
     expected_doc_type: &str,
     container: MediaContainer,
-) -> Result<
-    (
-        MediaProbe,
-        Vec<PacketLocator>,
-        BTreeMap<u32, WebmVideoColour>,
-    ),
-    MediaProcessingError,
-> {
+) -> Result<EbmlScan, MediaProcessingError> {
     let mut element_count = 0_usize;
     let ebml = read_element_header(file, 0, file_len)?;
     bump_element_count(&mut element_count)?;
@@ -755,7 +756,7 @@ fn parse_video(
     file: &mut File,
     video: ElementHeader,
     element_count: &mut usize,
-) -> Result<(Option<u32>, Option<u32>, Option<WebmVideoColour>), MediaProcessingError> {
+) -> Result<ParsedVideo, MediaProcessingError> {
     let mut width = None;
     let mut height = None;
     let mut colour = None;

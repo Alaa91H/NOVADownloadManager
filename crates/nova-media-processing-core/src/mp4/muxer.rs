@@ -900,9 +900,9 @@ fn make_ctts(track: &OutputTrack) -> Result<Vec<u8>, MediaProcessingError> {
     Ok(make_full_box(*b"ctts", version, 0, body))
 }
 
-fn make_opus_roll_groups(
-    track: &OutputTrack,
-) -> Result<Option<(Vec<u8>, Vec<u8>)>, MediaProcessingError> {
+type OpusRollGroups = Option<(Vec<u8>, Vec<u8>)>;
+
+fn make_opus_roll_groups(track: &OutputTrack) -> Result<OpusRollGroups, MediaProcessingError> {
     if !matches!(&track.track.codec, MediaCodec::Opus) {
         return Ok(None);
     }

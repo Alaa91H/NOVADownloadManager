@@ -296,18 +296,17 @@ fn parse_handler_kind(data: &[u8]) -> Result<MediaTrackKind, MediaProcessingErro
     }
 }
 
+type SampleDescription = (
+    MediaCodec,
+    Option<VideoParameters>,
+    Option<AudioParameters>,
+    Vec<u8>,
+);
+
 fn parse_sample_description(
     data: &[u8],
     kind: MediaTrackKind,
-) -> Result<
-    (
-        MediaCodec,
-        Option<VideoParameters>,
-        Option<AudioParameters>,
-        Vec<u8>,
-    ),
-    MediaProcessingError,
-> {
+) -> Result<SampleDescription, MediaProcessingError> {
     let (_, _, body) = full_box_body(data)?;
     let entry_count = read_u32(slice(body, 0, 4)?)?;
     if entry_count == 0 {
