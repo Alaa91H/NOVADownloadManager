@@ -61,9 +61,9 @@ pub fn select_media_stream<'a>(
         .iter()
         .filter(|stream| matches_mode(stream, policy.mode))
         .filter(|stream| {
-            policy
-                .max_height
-                .map_or(true, |limit| stream.height.map_or(true, |height| height <= limit))
+            policy.max_height.map_or(true, |limit| {
+                stream.height.map_or(true, |height| height <= limit)
+            })
         })
         .max_by(|left, right| compare_streams(left, right, policy))
 }
@@ -85,23 +85,18 @@ fn compare_streams(
 ) -> std::cmp::Ordering {
     let left_preferences = preference_score(left, policy);
     let right_preferences = preference_score(right, policy);
-    left_preferences
-        .cmp(&right_preferences)
-        .then_with(|| {
-            for key in &policy.sort {
-                let ordering = sort_value(left, *key).cmp(&sort_value(right, *key));
-                if ordering != std::cmp::Ordering::Equal {
-                    return ordering;
-                }
+    left_preferences.cmp(&right_preferences).then_with(|| {
+        for key in &policy.sort {
+            let ordering = sort_value(left, *key).cmp(&sort_value(right, *key));
+            if ordering != std::cmp::Ordering::Equal {
+                return ordering;
             }
-            std::cmp::Ordering::Equal
-        })
+        }
+        std::cmp::Ordering::Equal
+    })
 }
 
-fn preference_score(
-    stream: &MediaStream,
-    policy: &MediaSelectionPolicy,
-) -> (u8, u8, u8, u8, u8) {
+fn preference_score(stream: &MediaStream, policy: &MediaSelectionPolicy) -> (u8, u8, u8, u8, u8) {
     let container = stream.container.as_deref().unwrap_or_default();
     let language = stream.language.as_deref().unwrap_or_default();
     let container_match = policy
@@ -120,8 +115,8 @@ fn preference_score(
         stream.audio_codec.as_deref(),
         policy.preferred_audio_codec.as_deref(),
     );
-    let muxed_video = policy.mode == MediaSelectionMode::Video
-        && stream.kind == MediaTrackKind::AudioVideo;
+    let muxed_video =
+        policy.mode == MediaSelectionMode::Video && stream.kind == MediaTrackKind::AudioVideo;
     (
         u8::from(container_match),
         u8::from(language_match),
@@ -153,10 +148,7 @@ fn sort_value(stream: &MediaStream, key: MediaSortKey) -> u64 {
                     .map(|fps| (fps.max(0.0) * 1_000.0) as u64)
                     .unwrap_or(0),
             ),
-        MediaSortKey::Bitrate => stream
-            .audio_bitrate_bps
-            .or(stream.bitrate_bps)
-            .unwrap_or(0),
+        MediaSortKey::Bitrate => stream.audio_bitrate_bps.or(stream.bitrate_bps).unwrap_or(0),
         MediaSortKey::Size => stream.content_length.unwrap_or(0),
     }
 }
@@ -164,9 +156,7 @@ fn sort_value(stream: &MediaStream, key: MediaSortKey) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        MediaMetadata, MediaProtocol, MediaSourceKind,
-    };
+    use crate::{MediaMetadata, MediaProtocol, MediaSourceKind};
     use std::collections::BTreeMap;
 
     fn stream(

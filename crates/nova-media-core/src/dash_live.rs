@@ -1,9 +1,7 @@
 use std::path::Path;
 
 use nova_download_core::{fetch_http_bytes_with_context, HttpRequestContext};
-use nova_stream_core::{
-    build_dash_live_refresh, parse_dash, DashLiveCursor, DashLiveRefresh,
-};
+use nova_stream_core::{build_dash_live_refresh, parse_dash, DashLiveCursor, DashLiveRefresh};
 use thiserror::Error;
 
 use crate::{stage_dash_representation_plan, DashStageError, DashStageResult};
@@ -40,12 +38,8 @@ pub fn refresh_and_stage_dash_live_once(
     adaptation_index: usize,
     representation_index: usize,
 ) -> Result<DashLiveStageRefresh, DashLiveError> {
-    let response = fetch_http_bytes_with_context(
-        manifest_url,
-        context,
-        max_manifest_bytes,
-    )
-    .map_err(|error| DashLiveError::Transport(error.to_string()))?;
+    let response = fetch_http_bytes_with_context(manifest_url, context, max_manifest_bytes)
+        .map_err(|error| DashLiveError::Transport(error.to_string()))?;
     let body = String::from_utf8(response.body).map_err(|_| DashLiveError::Encoding)?;
     let manifest = parse_dash(&body).map_err(|error| DashLiveError::Parse(error.to_string()))?;
     let refresh = build_dash_live_refresh(
@@ -62,12 +56,7 @@ pub fn refresh_and_stage_dash_live_once(
         .plan
         .as_ref()
         .map(|plan| {
-            stage_dash_representation_plan(
-                plan,
-                context,
-                staging_dir,
-                requested_parallelism,
-            )
+            stage_dash_representation_plan(plan, context, staging_dir, requested_parallelism)
         })
         .transpose()?;
 

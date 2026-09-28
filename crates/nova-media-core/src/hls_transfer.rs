@@ -9,12 +9,11 @@ use aes::Aes128;
 use cbc::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
 use nova_download_core::{
     fetch_http_bytes_with_context, stream_http_body_controlled_with_context,
-    stream_http_range_controlled_with_context, HttpRequestContext, TransferControl,
-    TransportError, MAX_PARALLEL_SEGMENTS,
+    stream_http_range_controlled_with_context, HttpRequestContext, TransferControl, TransportError,
+    MAX_PARALLEL_SEGMENTS,
 };
 use nova_stream_core::{
-    HlsEncryptionMethod, HlsKey, HlsMediaPlan, HlsTransferUnit,
-    HlsTransferUnitKind,
+    HlsEncryptionMethod, HlsKey, HlsMediaPlan, HlsTransferUnit, HlsTransferUnitKind,
 };
 use thiserror::Error;
 
@@ -74,13 +73,7 @@ pub fn stage_hls_media_plan(
     staging_dir: &Path,
     requested_parallelism: u32,
 ) -> Result<HlsStageResult, HlsStageError> {
-    stage_hls_media_plan_controlled(
-        plan,
-        context,
-        staging_dir,
-        requested_parallelism,
-        || false,
-    )
+    stage_hls_media_plan_controlled(plan, context, staging_dir, requested_parallelism, || false)
 }
 
 pub fn stage_hls_media_plan_controlled<F>(
@@ -184,10 +177,8 @@ where
                     HlsTransferUnitKind::Initialization => "init",
                     HlsTransferUnitKind::MediaSegment => "media",
                 };
-                let final_path =
-                    staging_dir.join(format!("{:08}-{suffix}.part", unit.order));
-                let temp_path =
-                    staging_dir.join(format!("{:08}-{suffix}.part.tmp", unit.order));
+                let final_path = staging_dir.join(format!("{:08}-{suffix}.part", unit.order));
+                let temp_path = staging_dir.join(format!("{:08}-{suffix}.part.tmp", unit.order));
 
                 let transfer = stage_one_unit(
                     unit,
@@ -310,9 +301,7 @@ fn stage_one_unit(
         .map_err(|error| HlsStageError::Io(error.to_string()))?;
 
     if let Some(range) = &unit.byte_range {
-        let start = range
-            .offset
-            .ok_or(HlsStageError::MissingByteRangeOffset)?;
+        let start = range.offset.ok_or(HlsStageError::MissingByteRangeOffset)?;
         let end = start
             .checked_add(range.length)
             .and_then(|value| value.checked_sub(1))
@@ -333,18 +322,13 @@ fn stage_one_unit(
         )
         .map_err(map_transport_error)?;
     } else {
-        stream_http_body_controlled_with_context(
-            &unit.uri,
-            &mut file,
-            &request_context,
-            || {
-                if should_cancel() {
-                    TransferControl::Cancel
-                } else {
-                    TransferControl::Continue
-                }
-            },
-        )
+        stream_http_body_controlled_with_context(&unit.uri, &mut file, &request_context, || {
+            if should_cancel() {
+                TransferControl::Cancel
+            } else {
+                TransferControl::Continue
+            }
+        })
         .map_err(map_transport_error)?;
     }
 
@@ -358,14 +342,7 @@ fn stage_one_unit(
         .as_ref()
         .filter(|key| key.method == HlsEncryptionMethod::Aes128)
     {
-        decrypt_staged_unit(
-            unit,
-            key,
-            context,
-            context_origin,
-            key_cache,
-            temp_path,
-        )?
+        decrypt_staged_unit(unit, key, context, context_origin, key_cache, temp_path)?
     } else {
         fs::metadata(temp_path)
             .map(|metadata| metadata.len())
@@ -388,12 +365,7 @@ fn decrypt_staged_unit(
     path: &Path,
 ) -> Result<u64, HlsStageError> {
     let key_uri = key.uri.as_deref().ok_or(HlsStageError::MissingKeyUri)?;
-    let key_bytes = get_aes128_key(
-        key_uri,
-        context,
-        context_origin,
-        key_cache,
-    )?;
+    let key_bytes = get_aes128_key(key_uri, context, context_origin, key_cache)?;
     let iv = resolve_iv(unit, key)?;
 
     let ciphertext = fs::read(path).map_err(|error| HlsStageError::Io(error.to_string()))?;
@@ -476,8 +448,7 @@ fn parse_iv(value: &str) -> Result<[u8; 16], HlsStageError> {
         .map(|chunk| {
             let pair = std::str::from_utf8(chunk)
                 .map_err(|_| HlsStageError::InvalidIv(value.to_owned()))?;
-            u8::from_str_radix(pair, 16)
-                .map_err(|_| HlsStageError::InvalidIv(value.to_owned()))
+            u8::from_str_radix(pair, 16).map_err(|_| HlsStageError::InvalidIv(value.to_owned()))
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -577,9 +548,7 @@ mod tests {
         assert_eq!(&derived[8..], &42_u64.to_be_bytes());
         assert_eq!(
             parse_iv("0x1").expect("explicit IV"),
-            [
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
-            ]
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
         );
     }
 
@@ -685,15 +654,20 @@ mod tests {
             .expect("clock")
             .as_nanos();
         let dir = std::env::temp_dir().join(format!("nova-hls-stage-{unique}"));
-        let result =
-            stage_hls_media_plan(&plan, &HttpRequestContext::default(), &dir, 2)
-                .expect("stage HLS");
+        let result = stage_hls_media_plan(&plan, &HttpRequestContext::default(), &dir, 2)
+            .expect("stage HLS");
         server.join().expect("HLS server");
 
         assert_eq!(result.total_bytes, 9);
         assert_eq!(result.files.len(), 2);
-        assert_eq!(fs::read(&result.files[0].path).expect("first segment"), b"AAAA");
-        assert_eq!(fs::read(&result.files[1].path).expect("second segment"), b"BBBBB");
+        assert_eq!(
+            fs::read(&result.files[0].path).expect("first segment"),
+            b"AAAA"
+        );
+        assert_eq!(
+            fs::read(&result.files[1].path).expect("second segment"),
+            b"BBBBB"
+        );
 
         let _ = fs::remove_dir_all(dir);
     }
@@ -760,9 +734,8 @@ mod tests {
             .expect("clock")
             .as_nanos();
         let dir = std::env::temp_dir().join(format!("nova-hls-aes-{unique}"));
-        let result =
-            stage_hls_media_plan(&plan, &HttpRequestContext::default(), &dir, 1)
-                .expect("stage AES HLS");
+        let result = stage_hls_media_plan(&plan, &HttpRequestContext::default(), &dir, 1)
+            .expect("stage AES HLS");
         server.join().expect("AES HLS server");
 
         assert_eq!(

@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use nova_download_core::{
-    stream_http_body_controlled_with_context, HttpRequestContext, TransferControl,
-    TransportError, MAX_PARALLEL_SEGMENTS,
+    stream_http_body_controlled_with_context, HttpRequestContext, TransferControl, TransportError,
+    MAX_PARALLEL_SEGMENTS,
 };
 use nova_stream_core::DashRepresentationPlan;
 use thiserror::Error;
@@ -160,10 +160,8 @@ where
 
                 let unit = &plan.units[index];
                 let suffix = if unit.initialization { "init" } else { "media" };
-                let final_path =
-                    staging_dir.join(format!("{:08}-{suffix}.part", unit.order));
-                let temp_path =
-                    staging_dir.join(format!("{:08}-{suffix}.part.tmp", unit.order));
+                let final_path = staging_dir.join(format!("{:08}-{suffix}.part", unit.order));
+                let temp_path = staging_dir.join(format!("{:08}-{suffix}.part.tmp", unit.order));
 
                 let transfer = (|| -> Result<u64, DashStageError> {
                     let mut file = OpenOptions::new()
@@ -174,9 +172,7 @@ where
                         .map_err(|error| DashStageError::Io(error.to_string()))?;
 
                     let request_context = context_origin
-                        .map(|origin| {
-                            crate::scope_http_request_context(context, origin, &unit.url)
-                        })
+                        .map(|origin| crate::scope_http_request_context(context, origin, &unit.url))
                         .unwrap_or_else(|| context.clone());
                     let bytes = stream_http_body_controlled_with_context(
                         &unit.url,
@@ -348,13 +344,8 @@ mod tests {
             .as_nanos();
         let dir = std::env::temp_dir().join(format!("nova-dash-stage-{unique}"));
 
-        let result = stage_dash_representation_plan(
-            &plan,
-            &HttpRequestContext::default(),
-            &dir,
-            2,
-        )
-        .expect("stage DASH");
+        let result = stage_dash_representation_plan(&plan, &HttpRequestContext::default(), &dir, 2)
+            .expect("stage DASH");
         server.join().expect("DASH server");
 
         assert_eq!(result.total_bytes, 9);

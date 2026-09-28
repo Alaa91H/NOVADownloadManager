@@ -114,8 +114,7 @@ function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
         .transform_throttling_parameter(compound_return, "abcdef")
         .is_err());
 
-    let no_verified_call_site =
-        r#"NT=function(a){a=a.split("");a.reverse();return a.join("")};"#;
+    let no_verified_call_site = r#"NT=function(a){a=a.split("");a.reverse();return a.join("")};"#;
     assert!(solver
         .transform_throttling_parameter(no_verified_call_site, "abcdef")
         .is_err());

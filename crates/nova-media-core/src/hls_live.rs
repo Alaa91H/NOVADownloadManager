@@ -1,9 +1,7 @@
 use std::path::Path;
 
 use nova_download_core::{fetch_http_bytes_with_context, HttpRequestContext};
-use nova_stream_core::{
-    build_hls_live_refresh, parse_hls, HlsLiveCursor, HlsLiveRefresh,
-};
+use nova_stream_core::{build_hls_live_refresh, parse_hls, HlsLiveCursor, HlsLiveRefresh};
 use thiserror::Error;
 
 use crate::{stage_hls_media_plan, HlsStageError, HlsStageResult};
@@ -40,12 +38,8 @@ pub fn refresh_and_stage_hls_live_once(
     requested_parallelism: u32,
     max_manifest_bytes: usize,
 ) -> Result<HlsLiveStageRefresh, HlsLiveError> {
-    let response = fetch_http_bytes_with_context(
-        manifest_url,
-        context,
-        max_manifest_bytes,
-    )
-    .map_err(|error| HlsLiveError::Transport(error.to_string()))?;
+    let response = fetch_http_bytes_with_context(manifest_url, context, max_manifest_bytes)
+        .map_err(|error| HlsLiveError::Transport(error.to_string()))?;
     let body = String::from_utf8(response.body).map_err(|_| HlsLiveError::Encoding)?;
     let manifest = parse_hls(&response.effective_url, &body)
         .map_err(|error| HlsLiveError::Parse(error.to_string()))?;
@@ -55,14 +49,7 @@ pub fn refresh_and_stage_hls_live_once(
     let staged = refresh
         .plan
         .as_ref()
-        .map(|plan| {
-            stage_hls_media_plan(
-                plan,
-                context,
-                staging_dir,
-                requested_parallelism,
-            )
-        })
+        .map(|plan| stage_hls_media_plan(plan, context, staging_dir, requested_parallelism))
         .transpose()?;
 
     Ok(HlsLiveStageRefresh { refresh, staged })
@@ -128,15 +115,7 @@ mod tests {
 
         assert_eq!(refresh.refresh.next_cursor.next_sequence, Some(8));
         assert_eq!(refresh.refresh.reload_after_millis, 2000);
-        assert_eq!(
-            refresh
-                .staged
-                .as_ref()
-                .expect("staged")
-                .files
-                .len(),
-            1
-        );
+        assert_eq!(refresh.staged.as_ref().expect("staged").files.len(), 1);
         let staged = refresh.staged.expect("staged");
         assert_eq!(
             std::fs::read(&staged.files[0].path).expect("segment"),

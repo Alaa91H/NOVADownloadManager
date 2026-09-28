@@ -8,9 +8,7 @@ use nova_download_core::{
 };
 use thiserror::Error;
 
-use crate::{
-    MediaDescriptor, MediaProtocol, MediaStream, YouTubeDownloadPlan, YouTubeExtraction,
-};
+use crate::{MediaDescriptor, MediaProtocol, MediaStream, YouTubeDownloadPlan, YouTubeExtraction};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum YouTubeTransferOutput {
@@ -317,9 +315,7 @@ fn reusable_completed_track(stream: &MediaStream, destination: &Path) -> Option<
     {
         return None;
     }
-    if let (Some(expected), Some(recorded)) =
-        (stream.content_length, checkpoint.content_length)
-    {
+    if let (Some(expected), Some(recorded)) = (stream.content_length, checkpoint.content_length) {
         if expected != recorded {
             return None;
         }
@@ -351,18 +347,20 @@ fn write_track_checkpoint(
 ) -> Result<(), TransportError> {
     let path = track_checkpoint_path(destination);
     let temp = append_suffix(&path, ".tmp");
-    let payload = serde_json::to_vec(checkpoint).map_err(|error| TransportError::RequestFailed {
-        message: format!("failed to serialize native track checkpoint: {error}"),
-    })?;
+    let payload =
+        serde_json::to_vec(checkpoint).map_err(|error| TransportError::RequestFailed {
+            message: format!("failed to serialize native track checkpoint: {error}"),
+        })?;
     std::fs::write(&temp, payload).map_err(|error| TransportError::RequestFailed {
         message: format!("failed to write native track checkpoint: {error}"),
     })?;
     let file = std::fs::File::open(&temp).map_err(|error| TransportError::RequestFailed {
         message: format!("failed to open native track checkpoint: {error}"),
     })?;
-    file.sync_all().map_err(|error| TransportError::RequestFailed {
-        message: format!("failed to sync native track checkpoint: {error}"),
-    })?;
+    file.sync_all()
+        .map_err(|error| TransportError::RequestFailed {
+            message: format!("failed to sync native track checkpoint: {error}"),
+        })?;
     drop(file);
     if path.exists() {
         std::fs::remove_file(&path).map_err(|error| TransportError::RequestFailed {
@@ -411,9 +409,7 @@ fn append_suffix(path: &Path, suffix: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        MediaMetadata, MediaSourceKind, MediaTrackKind, YouTubePendingFormat,
-    };
+    use crate::{MediaMetadata, MediaSourceKind, MediaTrackKind, YouTubePendingFormat};
     use std::collections::BTreeMap;
     use std::io::{Read, Write};
     use std::net::TcpListener;
@@ -550,7 +546,10 @@ mod tests {
 
         assert_eq!(video_bytes, 10);
         assert_eq!(audio_bytes, 5);
-        assert_eq!(std::fs::read(video_path).expect("video track"), b"VIDEO-DATA");
+        assert_eq!(
+            std::fs::read(video_path).expect("video track"),
+            b"VIDEO-DATA"
+        );
         assert_eq!(std::fs::read(audio_path).expect("audio track"), b"AUDIO");
         let progress = observed.lock().expect("progress lock");
         let last = progress.last().copied().expect("final progress");
@@ -568,7 +567,9 @@ mod tests {
             for _ in 0..3 {
                 let (mut socket, _) = listener.accept().expect("accept audio resume request");
                 let mut request = [0_u8; 4096];
-                let read = socket.read(&mut request).expect("read audio resume request");
+                let read = socket
+                    .read(&mut request)
+                    .expect("read audio resume request");
                 let request = String::from_utf8_lossy(&request[..read]);
                 assert!(request.contains(" /audio "));
                 let body = b"AUDIO";
@@ -640,7 +641,10 @@ mod tests {
         };
         assert_eq!(video_bytes, 10);
         assert_eq!(audio_bytes, 5);
-        assert_eq!(std::fs::read(video_path).expect("reused video"), b"VIDEO-DATA");
+        assert_eq!(
+            std::fs::read(video_path).expect("reused video"),
+            b"VIDEO-DATA"
+        );
         assert_eq!(std::fs::read(audio_path).expect("resumed audio"), b"AUDIO");
 
         let _ = std::fs::remove_dir_all(dir);

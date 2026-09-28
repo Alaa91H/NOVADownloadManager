@@ -42,7 +42,10 @@ pub fn assemble_ordered_parts(
         }
     }
 
-    if let Some(parent) = destination.parent().filter(|path| !path.as_os_str().is_empty()) {
+    if let Some(parent) = destination
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+    {
         fs::create_dir_all(parent).map_err(|error| AssemblyError::Io(error.to_string()))?;
     }
 
@@ -58,8 +61,8 @@ pub fn assemble_ordered_parts(
     for (_, path) in &ordered {
         let mut input =
             fs::File::open(path).map_err(|error| AssemblyError::Io(error.to_string()))?;
-        let copied =
-            std::io::copy(&mut input, &mut output).map_err(|error| AssemblyError::Io(error.to_string()))?;
+        let copied = std::io::copy(&mut input, &mut output)
+            .map_err(|error| AssemblyError::Io(error.to_string()))?;
         total = total
             .checked_add(copied)
             .ok_or_else(|| AssemblyError::Io("assembled byte counter overflow".to_owned()))?;
@@ -109,11 +112,8 @@ mod tests {
         fs::write(&second, b"BBBB").expect("second");
 
         let destination = dir.join("output.bin");
-        let result = assemble_ordered_parts(
-            &[(1, second), (0, first)],
-            &destination,
-        )
-        .expect("assemble");
+        let result =
+            assemble_ordered_parts(&[(1, second), (0, first)], &destination).expect("assemble");
 
         assert_eq!(result.bytes, 7);
         assert_eq!(result.parts, 2);
@@ -126,10 +126,7 @@ mod tests {
     #[test]
     fn rejects_duplicate_order_values() {
         let result = assemble_ordered_parts(
-            &[
-                (1, PathBuf::from("a")),
-                (1, PathBuf::from("b")),
-            ],
+            &[(1, PathBuf::from("a")), (1, PathBuf::from("b"))],
             Path::new("out"),
         );
         assert_eq!(result, Err(AssemblyError::DuplicateOrder(1)));
