@@ -2,13 +2,13 @@ use std::collections::BTreeSet;
 
 use crate::{
     flac::{native_flac_codec_private_from_dfla, parse_native_flac_codec_private},
-    AudioParameters, MediaCodec, MediaContainer, MediaProbe, MediaProcessingError,
-    MediaTimeBase, MediaTrack, MediaTrackKind, VideoParameters,
+    AudioParameters, MediaCodec, MediaContainer, MediaProbe, MediaProcessingError, MediaTimeBase,
+    MediaTrack, MediaTrackKind, VideoParameters,
 };
 
 use super::boxes::{
-    child, demux_error, full_box_body, parse_boxes, read_i32, read_u16, read_u32,
-    read_u64, slice, FourCc, Mp4Box,
+    child, demux_error, full_box_body, parse_boxes, read_i32, read_u16, read_u32, read_u64, slice,
+    FourCc, Mp4Box,
 };
 
 const MAX_SAMPLES_PER_TRACK: usize = 10_000_000;
@@ -65,7 +65,10 @@ struct TrackMetadata {
     codec_private: Vec<u8>,
 }
 
-pub fn parse_movie(moov_payload: &[u8], fragmented: bool) -> Result<ParsedMp4, MediaProcessingError> {
+pub fn parse_movie(
+    moov_payload: &[u8],
+    fragmented: bool,
+) -> Result<ParsedMp4, MediaProcessingError> {
     let moov_children = parse_boxes(moov_payload)?;
     let movie_duration = child(&moov_children, *b"mvhd")
         .map(|mvhd| parse_mvhd_duration(mvhd.payload))
@@ -73,7 +76,10 @@ pub fn parse_movie(moov_payload: &[u8], fragmented: bool) -> Result<ParsedMp4, M
         .flatten();
 
     let mut tracks = Vec::new();
-    for trak in moov_children.iter().filter(|item| item.kind == FourCc::new(*b"trak")) {
+    for trak in moov_children
+        .iter()
+        .filter(|item| item.kind == FourCc::new(*b"trak"))
+    {
         tracks.push(parse_track(trak.payload)?);
     }
 
@@ -115,31 +121,31 @@ pub fn parse_movie(moov_payload: &[u8], fragmented: bool) -> Result<ParsedMp4, M
 
 fn parse_track(trak_payload: &[u8]) -> Result<Mp4TrackIndex, MediaProcessingError> {
     let trak_children = parse_boxes(trak_payload)?;
-    let tkhd = child(&trak_children, *b"tkhd")
-        .ok_or_else(|| demux_error("MP4 track is missing tkhd"))?;
+    let tkhd =
+        child(&trak_children, *b"tkhd").ok_or_else(|| demux_error("MP4 track is missing tkhd"))?;
     let (track_id, tkhd_width, tkhd_height) = parse_tkhd(tkhd.payload)?;
 
-    let mdia = child(&trak_children, *b"mdia")
-        .ok_or_else(|| demux_error("MP4 track is missing mdia"))?;
+    let mdia =
+        child(&trak_children, *b"mdia").ok_or_else(|| demux_error("MP4 track is missing mdia"))?;
     let mdia_children = parse_boxes(mdia.payload)?;
 
-    let mdhd = child(&mdia_children, *b"mdhd")
-        .ok_or_else(|| demux_error("MP4 track is missing mdhd"))?;
+    let mdhd =
+        child(&mdia_children, *b"mdhd").ok_or_else(|| demux_error("MP4 track is missing mdhd"))?;
     let (timescale, duration, language) = parse_mdhd(mdhd.payload)?;
 
-    let hdlr = child(&mdia_children, *b"hdlr")
-        .ok_or_else(|| demux_error("MP4 track is missing hdlr"))?;
+    let hdlr =
+        child(&mdia_children, *b"hdlr").ok_or_else(|| demux_error("MP4 track is missing hdlr"))?;
     let kind = parse_handler_kind(hdlr.payload)?;
 
-    let minf = child(&mdia_children, *b"minf")
-        .ok_or_else(|| demux_error("MP4 track is missing minf"))?;
+    let minf =
+        child(&mdia_children, *b"minf").ok_or_else(|| demux_error("MP4 track is missing minf"))?;
     let minf_children = parse_boxes(minf.payload)?;
-    let stbl = child(&minf_children, *b"stbl")
-        .ok_or_else(|| demux_error("MP4 track is missing stbl"))?;
+    let stbl =
+        child(&minf_children, *b"stbl").ok_or_else(|| demux_error("MP4 track is missing stbl"))?;
     let stbl_children = parse_boxes(stbl.payload)?;
 
-    let stsd = child(&stbl_children, *b"stsd")
-        .ok_or_else(|| demux_error("MP4 track is missing stsd"))?;
+    let stsd =
+        child(&stbl_children, *b"stsd").ok_or_else(|| demux_error("MP4 track is missing stsd"))?;
     let (codec, sample_video, sample_audio, codec_private) =
         parse_sample_description(stsd.payload, kind)?;
 
@@ -184,9 +190,7 @@ fn parse_track(trak_payload: &[u8]) -> Result<Mp4TrackIndex, MediaProcessingErro
     let table = parse_sample_table(&stbl_children)?;
     let track = media_track(&metadata)?;
     let samples = build_sample_index(&table, metadata.timescale)?;
-    let duration_millis = if metadata.duration == u32::MAX as u64
-        || metadata.duration == u64::MAX
-    {
+    let duration_millis = if metadata.duration == u32::MAX as u64 || metadata.duration == u64::MAX {
         None
     } else {
         Some(scale_to_millis(metadata.duration, metadata.timescale))
@@ -218,8 +222,14 @@ fn media_track(metadata: &TrackMetadata) -> Result<MediaTrack, MediaProcessingEr
 fn parse_mvhd_duration(data: &[u8]) -> Result<Option<u64>, MediaProcessingError> {
     let (version, _, body) = full_box_body(data)?;
     let (timescale, duration) = match version {
-        0 => (read_u32(slice(body, 8, 4)?)?, read_u32(slice(body, 12, 4)?)? as u64),
-        1 => (read_u32(slice(body, 16, 4)?)?, read_u64(slice(body, 20, 8)?)?),
+        0 => (
+            read_u32(slice(body, 8, 4)?)?,
+            read_u32(slice(body, 12, 4)?)? as u64,
+        ),
+        1 => (
+            read_u32(slice(body, 16, 4)?)?,
+            read_u64(slice(body, 20, 8)?)?,
+        ),
         other => return Err(demux_error(format!("unsupported mvhd version {other}"))),
     };
     if timescale == 0 || duration == u32::MAX as u64 || duration == u64::MAX {
@@ -289,7 +299,15 @@ fn parse_handler_kind(data: &[u8]) -> Result<MediaTrackKind, MediaProcessingErro
 fn parse_sample_description(
     data: &[u8],
     kind: MediaTrackKind,
-) -> Result<(MediaCodec, Option<VideoParameters>, Option<AudioParameters>, Vec<u8>), MediaProcessingError> {
+) -> Result<
+    (
+        MediaCodec,
+        Option<VideoParameters>,
+        Option<AudioParameters>,
+        Vec<u8>,
+    ),
+    MediaProcessingError,
+> {
     let (_, _, body) = full_box_body(data)?;
     let entry_count = read_u32(slice(body, 0, 4)?)?;
     if entry_count == 0 {
@@ -327,8 +345,7 @@ fn parse_sample_description(
             let mut sample_rate_hz = sample_rate_fixed >> 16;
             let private = parse_codec_private(entry.payload.get(28..).unwrap_or_default(), &codec)?;
             if matches!(&codec, MediaCodec::Flac) {
-                let info = parse_native_flac_codec_private(&private)
-                    .map_err(demux_error)?;
+                let info = parse_native_flac_codec_private(&private).map_err(demux_error)?;
                 sample_rate_hz = info.sample_rate_hz;
                 channels = info.channels;
             }
@@ -370,8 +387,7 @@ fn parse_codec_private(data: &[u8], codec: &MediaCodec) -> Result<Vec<u8>, Media
     if matches!(codec, MediaCodec::Flac) {
         let dfla = child(&children, *b"dfLa")
             .ok_or_else(|| demux_error("FLAC sample entry is missing dfLa"))?;
-        return native_flac_codec_private_from_dfla(dfla.payload)
-            .map_err(demux_error);
+        return native_flac_codec_private_from_dfla(dfla.payload).map_err(demux_error);
     }
 
     let wanted = match codec {
@@ -427,7 +443,13 @@ fn parse_stsz(data: &[u8]) -> Result<Vec<u32>, MediaProcessingError> {
     if fixed_size != 0 {
         return Ok(vec![fixed_size; count]);
     }
-    let bytes = slice(body, 8, count.checked_mul(4).ok_or_else(|| demux_error("stsz size overflow"))?)?;
+    let bytes = slice(
+        body,
+        8,
+        count
+            .checked_mul(4)
+            .ok_or_else(|| demux_error("stsz size overflow"))?,
+    )?;
     (0..count)
         .map(|index| read_u32(&bytes[index * 4..index * 4 + 4]))
         .collect()
@@ -435,9 +457,13 @@ fn parse_stsz(data: &[u8]) -> Result<Vec<u32>, MediaProcessingError> {
 
 fn parse_stz2(data: &[u8]) -> Result<Vec<u32>, MediaProcessingError> {
     let (_, _, body) = full_box_body(data)?;
-    let field_size = *body.get(3).ok_or_else(|| demux_error("truncated stz2 field size"))?;
+    let field_size = *body
+        .get(3)
+        .ok_or_else(|| demux_error("truncated stz2 field size"))?;
     let count = checked_sample_count(read_u32(slice(body, 4, 4)?)?)?;
-    let packed = body.get(8..).ok_or_else(|| demux_error("truncated stz2 sample table"))?;
+    let packed = body
+        .get(8..)
+        .ok_or_else(|| demux_error("truncated stz2 sample table"))?;
     match field_size {
         4 => {
             if packed.len() < count.div_ceil(2) {
@@ -462,7 +488,9 @@ fn parse_stz2(data: &[u8]) -> Result<Vec<u32>, MediaProcessingError> {
             let bytes = slice(
                 packed,
                 0,
-                count.checked_mul(2).ok_or_else(|| demux_error("stz2 size overflow"))?,
+                count
+                    .checked_mul(2)
+                    .ok_or_else(|| demux_error("stz2 size overflow"))?,
             )?;
             (0..count)
                 .map(|index| read_u16(&bytes[index * 2..index * 2 + 2]).map(u32::from))
@@ -473,7 +501,8 @@ fn parse_stz2(data: &[u8]) -> Result<Vec<u32>, MediaProcessingError> {
 }
 
 fn checked_sample_count(count: u32) -> Result<usize, MediaProcessingError> {
-    let count = usize::try_from(count).map_err(|_| demux_error("sample count does not fit platform"))?;
+    let count =
+        usize::try_from(count).map_err(|_| demux_error("sample count does not fit platform"))?;
     if count > MAX_SAMPLES_PER_TRACK {
         return Err(demux_error(format!(
             "MP4 sample count {count} exceeds safety limit {MAX_SAMPLES_PER_TRACK}"
@@ -486,7 +515,13 @@ fn parse_stco(data: &[u8]) -> Result<Vec<u64>, MediaProcessingError> {
     let (_, _, body) = full_box_body(data)?;
     let count = usize::try_from(read_u32(slice(body, 0, 4)?)?)
         .map_err(|_| demux_error("stco count does not fit platform"))?;
-    let bytes = slice(body, 4, count.checked_mul(4).ok_or_else(|| demux_error("stco size overflow"))?)?;
+    let bytes = slice(
+        body,
+        4,
+        count
+            .checked_mul(4)
+            .ok_or_else(|| demux_error("stco size overflow"))?,
+    )?;
     (0..count)
         .map(|index| read_u32(&bytes[index * 4..index * 4 + 4]).map(u64::from))
         .collect()
@@ -496,7 +531,13 @@ fn parse_co64(data: &[u8]) -> Result<Vec<u64>, MediaProcessingError> {
     let (_, _, body) = full_box_body(data)?;
     let count = usize::try_from(read_u32(slice(body, 0, 4)?)?)
         .map_err(|_| demux_error("co64 count does not fit platform"))?;
-    let bytes = slice(body, 4, count.checked_mul(8).ok_or_else(|| demux_error("co64 size overflow"))?)?;
+    let bytes = slice(
+        body,
+        4,
+        count
+            .checked_mul(8)
+            .ok_or_else(|| demux_error("co64 size overflow"))?,
+    )?;
     (0..count)
         .map(|index| read_u64(&bytes[index * 8..index * 8 + 8]))
         .collect()
@@ -506,7 +547,13 @@ fn parse_stsc(data: &[u8]) -> Result<Vec<SampleToChunk>, MediaProcessingError> {
     let (_, _, body) = full_box_body(data)?;
     let count = usize::try_from(read_u32(slice(body, 0, 4)?)?)
         .map_err(|_| demux_error("stsc count does not fit platform"))?;
-    let bytes = slice(body, 4, count.checked_mul(12).ok_or_else(|| demux_error("stsc size overflow"))?)?;
+    let bytes = slice(
+        body,
+        4,
+        count
+            .checked_mul(12)
+            .ok_or_else(|| demux_error("stsc size overflow"))?,
+    )?;
     let mut result = Vec::with_capacity(count);
     for index in 0..count {
         let base = index * 12;
@@ -520,8 +567,13 @@ fn parse_stsc(data: &[u8]) -> Result<Vec<SampleToChunk>, MediaProcessingError> {
             samples_per_chunk,
         });
     }
-    if !result.windows(2).all(|pair| pair[0].first_chunk < pair[1].first_chunk) {
-        return Err(demux_error("stsc first_chunk values are not strictly increasing"));
+    if !result
+        .windows(2)
+        .all(|pair| pair[0].first_chunk < pair[1].first_chunk)
+    {
+        return Err(demux_error(
+            "stsc first_chunk values are not strictly increasing",
+        ));
     }
     Ok(result)
 }
@@ -530,7 +582,13 @@ fn parse_time_runs(data: &[u8]) -> Result<Vec<(u32, u32)>, MediaProcessingError>
     let (_, _, body) = full_box_body(data)?;
     let count = usize::try_from(read_u32(slice(body, 0, 4)?)?)
         .map_err(|_| demux_error("time-entry count does not fit platform"))?;
-    let bytes = slice(body, 4, count.checked_mul(8).ok_or_else(|| demux_error("time table overflow"))?)?;
+    let bytes = slice(
+        body,
+        4,
+        count
+            .checked_mul(8)
+            .ok_or_else(|| demux_error("time table overflow"))?,
+    )?;
     let mut result = Vec::with_capacity(count);
     for index in 0..count {
         let base = index * 8;
@@ -551,7 +609,13 @@ fn parse_ctts(data: &[u8]) -> Result<Vec<(u32, i64)>, MediaProcessingError> {
     }
     let count = usize::try_from(read_u32(slice(body, 0, 4)?)?)
         .map_err(|_| demux_error("ctts count does not fit platform"))?;
-    let bytes = slice(body, 4, count.checked_mul(8).ok_or_else(|| demux_error("ctts size overflow"))?)?;
+    let bytes = slice(
+        body,
+        4,
+        count
+            .checked_mul(8)
+            .ok_or_else(|| demux_error("ctts size overflow"))?,
+    )?;
     let mut result = Vec::with_capacity(count);
     for index in 0..count {
         let base = index * 8;
@@ -573,7 +637,13 @@ fn parse_stss(data: &[u8]) -> Result<BTreeSet<u32>, MediaProcessingError> {
     let (_, _, body) = full_box_body(data)?;
     let count = usize::try_from(read_u32(slice(body, 0, 4)?)?)
         .map_err(|_| demux_error("stss count does not fit platform"))?;
-    let bytes = slice(body, 4, count.checked_mul(4).ok_or_else(|| demux_error("stss size overflow"))?)?;
+    let bytes = slice(
+        body,
+        4,
+        count
+            .checked_mul(4)
+            .ok_or_else(|| demux_error("stss size overflow"))?,
+    )?;
     let mut result = BTreeSet::new();
     for index in 0..count {
         let sample = read_u32(&bytes[index * 4..index * 4 + 4])?;
@@ -585,12 +655,18 @@ fn parse_stss(data: &[u8]) -> Result<BTreeSet<u32>, MediaProcessingError> {
     Ok(result)
 }
 
-fn build_sample_index(table: &SampleTable, _timescale: u32) -> Result<Vec<Mp4Sample>, MediaProcessingError> {
+fn build_sample_index(
+    table: &SampleTable,
+    _timescale: u32,
+) -> Result<Vec<Mp4Sample>, MediaProcessingError> {
     let sample_count = table.sample_sizes.len();
     if sample_count == 0 {
         return Ok(Vec::new());
     }
-    if table.chunk_offsets.is_empty() || table.sample_to_chunk.is_empty() || table.decode_times.is_empty() {
+    if table.chunk_offsets.is_empty()
+        || table.sample_to_chunk.is_empty()
+        || table.decode_times.is_empty()
+    {
         return Err(demux_error("classic MP4 sample table is incomplete"));
     }
 
@@ -600,8 +676,8 @@ fn build_sample_index(table: &SampleTable, _timescale: u32) -> Result<Vec<Mp4Sam
 
     let mut samples = Vec::with_capacity(sample_count);
     for index in 0..sample_count {
-        let sample_number = u32::try_from(index + 1)
-            .map_err(|_| demux_error("sample number overflow"))?;
+        let sample_number =
+            u32::try_from(index + 1).map_err(|_| demux_error("sample number overflow"))?;
         let dts = decode_times[index];
         let pts = dts
             .checked_add(composition[index])
@@ -622,7 +698,10 @@ fn build_sample_index(table: &SampleTable, _timescale: u32) -> Result<Vec<Mp4Sam
     Ok(samples)
 }
 
-fn build_sample_offsets(table: &SampleTable, sample_count: usize) -> Result<Vec<u64>, MediaProcessingError> {
+fn build_sample_offsets(
+    table: &SampleTable,
+    sample_count: usize,
+) -> Result<Vec<u64>, MediaProcessingError> {
     let mut result = Vec::with_capacity(sample_count);
     let mut sample_index = 0_usize;
 
@@ -803,10 +882,7 @@ mod tests {
         stss_payload.extend_from_slice(&1_u32.to_be_bytes());
         let stss = box_bytes(b"stss", full_box(0, stss_payload));
 
-        let stbl = box_bytes(
-            b"stbl",
-            [stsd, stts, stsc, stsz, stco, stss].concat(),
-        );
+        let stbl = box_bytes(b"stbl", [stsd, stts, stsc, stsz, stco, stss].concat());
         let minf = box_bytes(b"minf", stbl);
         let mdia = box_bytes(b"mdia", [mdhd, hdlr, minf].concat());
         let trak = box_bytes(b"trak", [tkhd, mdia].concat());

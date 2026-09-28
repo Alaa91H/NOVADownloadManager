@@ -5,9 +5,8 @@ use std::path::{Path, PathBuf};
 
 use crate::{
     flac::{flac_metadata_blocks, flac_sample_entry_rate, parse_native_flac_codec_private},
-    MediaCodec, MediaDemuxer, MediaMuxResult, MediaMuxer, MediaPacket,
-    MediaProcessingControl, MediaProcessingError, MediaTimeBase, MediaTrack,
-    MediaTrackKind, MediaTimestamp,
+    MediaCodec, MediaDemuxer, MediaMuxResult, MediaMuxer, MediaPacket, MediaProcessingControl,
+    MediaProcessingError, MediaTimeBase, MediaTimestamp, MediaTrack, MediaTrackKind,
 };
 
 const MOVIE_TIMESCALE: u32 = 48_000;
@@ -43,7 +42,10 @@ pub struct Mp4Muxer {
 
 impl Mp4Muxer {
     pub fn create(destination: &Path) -> Result<Self, MediaProcessingError> {
-        if let Some(parent) = destination.parent().filter(|path| !path.as_os_str().is_empty()) {
+        if let Some(parent) = destination
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+        {
             fs::create_dir_all(parent).map_err(io_error)?;
         }
 
@@ -147,15 +149,12 @@ impl MediaMuxer for Mp4Muxer {
             .map_err(|_| mux_error("MP4 packet exceeds 32-bit sample size"))?;
 
         let (track_time_base, previous_sample_count, expected_dts) = {
-            let track = self
-                .tracks
-                .get(&packet.track_id)
-                .ok_or_else(|| {
-                    mux_error(format!(
-                        "packet references unknown output track {}",
-                        packet.track_id
-                    ))
-                })?;
+            let track = self.tracks.get(&packet.track_id).ok_or_else(|| {
+                mux_error(format!(
+                    "packet references unknown output track {}",
+                    packet.track_id
+                ))
+            })?;
             let expected_dts = track
                 .samples
                 .last()
@@ -181,9 +180,7 @@ impl MediaMuxer for Mp4Muxer {
         let composition_offset = pts
             .checked_sub(dts)
             .ok_or_else(|| mux_error("MP4 composition timestamp overflow"))?;
-        if composition_offset < i64::from(i32::MIN)
-            || composition_offset > i64::from(u32::MAX)
-        {
+        if composition_offset < i64::from(i32::MIN) || composition_offset > i64::from(u32::MAX) {
             return Err(MediaProcessingError::UnsupportedOperation(
                 "MP4 composition offset exceeds ctts v0/v1 range".to_owned(),
             ));
@@ -192,8 +189,7 @@ impl MediaMuxer for Mp4Muxer {
 
         if previous_sample_count == 0 && dts != 0 {
             return Err(MediaProcessingError::UnsupportedOperation(
-                "MP4 muxing currently requires each track DTS timeline to begin at zero"
-                    .to_owned(),
+                "MP4 muxing currently requires each track DTS timeline to begin at zero".to_owned(),
             ));
         }
         if let Some(expected) = expected_dts {
@@ -207,14 +203,16 @@ impl MediaMuxer for Mp4Muxer {
         let offset = self.file_mut()?.stream_position().map_err(io_error)?;
         self.file_mut()?.write_all(&packet.data).map_err(io_error)?;
 
-        self.track_mut(packet.track_id)?.samples.push(WrittenSample {
-            offset,
-            size: packet_size,
-            dts,
-            pts,
-            duration,
-            keyframe: packet.flags.keyframe,
-        });
+        self.track_mut(packet.track_id)?
+            .samples
+            .push(WrittenSample {
+                offset,
+                size: packet_size,
+                dts,
+                pts,
+                duration,
+                keyframe: packet.flags.keyframe,
+            });
 
         self.packets_written = self
             .packets_written
@@ -258,11 +256,7 @@ impl MediaMuxer for Mp4Muxer {
         self.file_mut()?.flush().map_err(io_error)?;
         self.file_mut()?.sync_all().map_err(io_error)?;
 
-        let final_bytes = self
-            .file_mut()?
-            .metadata()
-            .map_err(io_error)?
-            .len();
+        let final_bytes = self.file_mut()?.metadata().map_err(io_error)?.len();
 
         drop(self.file.take());
 
@@ -344,12 +338,15 @@ where
             let Some(mut packet) = demuxer.next_packet()? else {
                 break;
             };
-            let output_id = mappings[index].get(&packet.track_id).copied().ok_or_else(|| {
-                mux_error(format!(
-                    "input demuxer emitted unregistered track {}",
-                    packet.track_id
-                ))
-            })?;
+            let output_id = mappings[index]
+                .get(&packet.track_id)
+                .copied()
+                .ok_or_else(|| {
+                    mux_error(format!(
+                        "input demuxer emitted unregistered track {}",
+                        packet.track_id
+                    ))
+                })?;
             packet.track_id = output_id;
             processed_bytes = processed_bytes
                 .checked_add(packet.data.len() as u64)
@@ -376,11 +373,11 @@ fn validate_track(track: &MediaTrack) -> Result<(), MediaProcessingError> {
     match track.kind {
         MediaTrackKind::Video => validate_video_track(track),
         MediaTrackKind::Audio => validate_audio_track(track),
-        MediaTrackKind::Subtitle | MediaTrackKind::Data => Err(
-            MediaProcessingError::UnsupportedOperation(
+        MediaTrackKind::Subtitle | MediaTrackKind::Data => {
+            Err(MediaProcessingError::UnsupportedOperation(
                 "MP4 subtitle/data muxing is not implemented yet".to_owned(),
-            ),
-        ),
+            ))
+        }
     }
 }
 
@@ -389,8 +386,14 @@ fn validate_video_track(track: &MediaTrack) -> Result<(), MediaProcessingError> 
         .video
         .as_ref()
         .ok_or_else(|| mux_error("video track is missing video parameters"))?;
-    if video.width == 0 || video.height == 0 || video.width > u16::MAX as u32 || video.height > u16::MAX as u32 {
-        return Err(mux_error("video dimensions are invalid for MP4 sample entry"));
+    if video.width == 0
+        || video.height == 0
+        || video.width > u16::MAX as u32
+        || video.height > u16::MAX as u32
+    {
+        return Err(mux_error(
+            "video dimensions are invalid for MP4 sample entry",
+        ));
     }
 
     match &track.codec {
@@ -407,7 +410,9 @@ fn validate_video_track(track: &MediaTrack) -> Result<(), MediaProcessingError> 
             }
             Ok(())
         }
-        _ => Err(MediaProcessingError::UnsupportedCodec(codec_name(&track.codec))),
+        _ => Err(MediaProcessingError::UnsupportedCodec(codec_name(
+            &track.codec,
+        ))),
     }
 }
 
@@ -417,7 +422,9 @@ fn validate_audio_track(track: &MediaTrack) -> Result<(), MediaProcessingError> 
         .as_ref()
         .ok_or_else(|| mux_error("audio track is missing audio parameters"))?;
     if audio.channels == 0 || audio.sample_rate_hz == 0 {
-        return Err(mux_error("audio parameters are invalid for MP4 sample entry"));
+        return Err(mux_error(
+            "audio parameters are invalid for MP4 sample entry",
+        ));
     }
 
     match &track.codec {
@@ -426,7 +433,9 @@ fn validate_audio_track(track: &MediaTrack) -> Result<(), MediaProcessingError> 
                 return Err(mux_error("aac audio track is missing codec configuration"));
             }
             if audio.sample_rate_hz > u32::from(u16::MAX) {
-                return Err(mux_error("AAC sample rate exceeds classic MP4 sample entry"));
+                return Err(mux_error(
+                    "AAC sample rate exceeds classic MP4 sample entry",
+                ));
             }
             Ok(())
         }
@@ -435,20 +444,23 @@ fn validate_audio_track(track: &MediaTrack) -> Result<(), MediaProcessingError> 
                 return Err(mux_error("opus audio track is missing codec configuration"));
             }
             if audio.sample_rate_hz > u32::from(u16::MAX) {
-                return Err(mux_error("Opus sample rate exceeds classic MP4 sample entry"));
+                return Err(mux_error(
+                    "Opus sample rate exceeds classic MP4 sample entry",
+                ));
             }
             let _ = opus_pre_skip_media_units(track)?;
             Ok(())
         }
         MediaCodec::Mp3 => {
             if audio.sample_rate_hz > u32::from(u16::MAX) {
-                return Err(mux_error("MP3 sample rate exceeds classic MP4 sample entry"));
+                return Err(mux_error(
+                    "MP3 sample rate exceeds classic MP4 sample entry",
+                ));
             }
             Ok(())
         }
         MediaCodec::Flac => {
-            let info = parse_native_flac_codec_private(&track.codec_private)
-                .map_err(mux_error)?;
+            let info = parse_native_flac_codec_private(&track.codec_private).map_err(mux_error)?;
             if audio.sample_rate_hz != info.sample_rate_hz || audio.channels != info.channels {
                 return Err(mux_error(
                     "FLAC STREAMINFO does not match MediaTrack audio parameters",
@@ -456,7 +468,9 @@ fn validate_audio_track(track: &MediaTrack) -> Result<(), MediaProcessingError> 
             }
             Ok(())
         }
-        _ => Err(MediaProcessingError::UnsupportedCodec(codec_name(&track.codec))),
+        _ => Err(MediaProcessingError::UnsupportedCodec(codec_name(
+            &track.codec,
+        ))),
     }
 }
 
@@ -579,8 +593,7 @@ fn make_opus_edts(track: &OutputTrack) -> Result<Option<Vec<u8>>, MediaProcessin
     }
 
     let segment_duration = track_duration_movie_timescale(track)?;
-    let media_time =
-        i64::try_from(pre_skip).map_err(|_| mux_error("Opus pre-skip exceeds i64"))?;
+    let media_time = i64::try_from(pre_skip).map_err(|_| mux_error("Opus pre-skip exceeds i64"))?;
 
     let mut body = 1_u32.to_be_bytes().to_vec(); // entry_count
     body.extend_from_slice(&segment_duration.to_be_bytes());
@@ -591,10 +604,7 @@ fn make_opus_edts(track: &OutputTrack) -> Result<Option<Vec<u8>>, MediaProcessin
     Ok(Some(make_box(*b"edts", elst)))
 }
 
-fn make_tkhd(
-    track: &OutputTrack,
-    movie_duration: u64,
-) -> Result<Vec<u8>, MediaProcessingError> {
+fn make_tkhd(track: &OutputTrack, movie_duration: u64) -> Result<Vec<u8>, MediaProcessingError> {
     let mut body = Vec::with_capacity(92);
     body.extend_from_slice(&0_u64.to_be_bytes());
     body.extend_from_slice(&0_u64.to_be_bytes());
@@ -704,10 +714,7 @@ fn make_dinf() -> Vec<u8> {
 }
 
 fn make_stbl(track: &OutputTrack) -> Result<Vec<u8>, MediaProcessingError> {
-    let mut boxes = vec![
-        make_stsd(&track.track)?,
-        make_stts(track)?,
-    ];
+    let mut boxes = vec![make_stsd(&track.track)?, make_stts(track)?];
 
     if track.samples.iter().any(|sample| sample.pts != sample.dts) {
         boxes.push(make_ctts(track)?);
@@ -760,7 +767,11 @@ fn make_video_sample_entry(track: &MediaTrack) -> Result<Vec<u8>, MediaProcessin
         MediaCodec::Av1 => (*b"av01", *b"av1C"),
         MediaCodec::Vp9 => (*b"vp09", *b"vpcC"),
         MediaCodec::Vp8 => (*b"vp08", *b"vpcC"),
-        _ => return Err(MediaProcessingError::UnsupportedCodec(codec_name(&track.codec))),
+        _ => {
+            return Err(MediaProcessingError::UnsupportedCodec(codec_name(
+                &track.codec,
+            )))
+        }
     };
 
     let mut payload = vec![0_u8; 6];
@@ -812,10 +823,8 @@ fn make_audio_sample_entry(track: &MediaTrack) -> Result<Vec<u8>, MediaProcessin
             16_u16,
         ),
         MediaCodec::Flac => {
-            let info = parse_native_flac_codec_private(&track.codec_private)
-                .map_err(mux_error)?;
-            let metadata = flac_metadata_blocks(&track.codec_private)
-                .map_err(mux_error)?;
+            let info = parse_native_flac_codec_private(&track.codec_private).map_err(mux_error)?;
+            let metadata = flac_metadata_blocks(&track.codec_private).map_err(mux_error)?;
             (
                 *b"fLaC",
                 Some(make_full_box(*b"dfLa", 0, 0, metadata.to_vec())),
@@ -824,7 +833,11 @@ fn make_audio_sample_entry(track: &MediaTrack) -> Result<Vec<u8>, MediaProcessin
                 info.bits_per_sample,
             )
         }
-        _ => return Err(MediaProcessingError::UnsupportedCodec(codec_name(&track.codec))),
+        _ => {
+            return Err(MediaProcessingError::UnsupportedCodec(codec_name(
+                &track.codec,
+            )))
+        }
     };
 
     let mut payload = vec![0_u8; 6];
@@ -1112,17 +1125,7 @@ fn make_box(kind: [u8; 4], payload: Vec<u8>) -> Vec<u8> {
 }
 
 fn unity_matrix() -> [u8; 36] {
-    let values = [
-        0x0001_0000_i32,
-        0,
-        0,
-        0,
-        0x0001_0000,
-        0,
-        0,
-        0,
-        0x4000_0000,
-    ];
+    let values = [0x0001_0000_i32, 0, 0, 0, 0x0001_0000, 0, 0, 0, 0x4000_0000];
     let mut result = [0_u8; 36];
     for (index, value) in values.into_iter().enumerate() {
         result[index * 4..index * 4 + 4].copy_from_slice(&value.to_be_bytes());
@@ -1223,12 +1226,27 @@ mod tests {
         }
     }
 
-    fn packet(track_id: u32, time_base: MediaTimeBase, dts: i64, duration: i64, data: &[u8]) -> MediaPacket {
+    fn packet(
+        track_id: u32,
+        time_base: MediaTimeBase,
+        dts: i64,
+        duration: i64,
+        data: &[u8],
+    ) -> MediaPacket {
         MediaPacket {
             track_id,
-            pts: Some(MediaTimestamp { value: dts, time_base }),
-            dts: Some(MediaTimestamp { value: dts, time_base }),
-            duration: Some(MediaTimestamp { value: duration, time_base }),
+            pts: Some(MediaTimestamp {
+                value: dts,
+                time_base,
+            }),
+            dts: Some(MediaTimestamp {
+                value: dts,
+                time_base,
+            }),
+            duration: Some(MediaTimestamp {
+                value: duration,
+                time_base,
+            }),
             flags: MediaPacketFlags {
                 keyframe: true,
                 discontinuity: false,
@@ -1267,30 +1285,16 @@ mod tests {
                 channels: 2,
                 bitrate_bps: None,
             }),
-            codec_private: vec![
-                0, 2, 0x01, 0x38, 0x00, 0x00, 0xbb, 0x80, 0x00, 0x00, 0,
-            ],
+            codec_private: vec![0, 2, 0x01, 0x38, 0x00, 0x00, 0xbb, 0x80, 0x00, 0x00, 0],
         };
 
         let mut muxer = Mp4Muxer::create(&path).expect("muxer");
         let output_track = muxer.add_track(&track).expect("track");
         muxer
-            .write_packet(&packet(
-                output_track,
-                track.time_base,
-                0,
-                960,
-                b"OPUS-A",
-            ))
+            .write_packet(&packet(output_track, track.time_base, 0, 960, b"OPUS-A"))
             .expect("packet 1");
         muxer
-            .write_packet(&packet(
-                output_track,
-                track.time_base,
-                960,
-                960,
-                b"OPUS-B",
-            ))
+            .write_packet(&packet(output_track, track.time_base, 960, 960, b"OPUS-B"))
             .expect("packet 2");
         muxer.finalize().expect("finalize");
 
@@ -1300,7 +1304,9 @@ mod tests {
         assert!(bytes.windows(4).any(|window| window == b"sgpd"));
         assert!(bytes.windows(4).any(|window| window == b"sbgp"));
         assert!(bytes.windows(4).any(|window| window == b"iso2"));
-        assert!(bytes.windows(2).any(|window| window == (-4_i16).to_be_bytes()));
+        assert!(bytes
+            .windows(2)
+            .any(|window| window == (-4_i16).to_be_bytes()));
 
         let _ = fs::remove_file(path);
     }
@@ -1359,11 +1365,18 @@ mod tests {
         let mut demuxer = super::super::Mp4Demuxer::open(&path).expect("read FLAC MP4");
         let parsed = &demuxer.probe().tracks[0];
         assert_eq!(parsed.codec, MediaCodec::Flac);
-        assert_eq!(parsed.audio.as_ref().expect("audio").sample_rate_hz, 192_000);
+        assert_eq!(
+            parsed.audio.as_ref().expect("audio").sample_rate_hz,
+            192_000
+        );
         assert_eq!(parsed.audio.as_ref().expect("audio").channels, 2);
         assert_eq!(parsed.codec_private, private);
         assert_eq!(
-            demuxer.next_packet().expect("packet").expect("FLAC frame").data,
+            demuxer
+                .next_packet()
+                .expect("packet")
+                .expect("FLAC frame")
+                .data,
             b"FLAC-FRAME"
         );
 
@@ -1445,8 +1458,7 @@ mod tests {
                 .collect(),
         };
 
-        let mut inputs: [&mut dyn MediaDemuxer; 2] =
-            [&mut video_demuxer, &mut audio_demuxer];
+        let mut inputs: [&mut dyn MediaDemuxer; 2] = [&mut video_demuxer, &mut audio_demuxer];
         let result = mux_demuxers_to_mp4(&path, &mut inputs).expect("merge");
         assert_eq!(result.tracks_written, 2);
 
@@ -1502,7 +1514,10 @@ mod tests {
         let error = muxer
             .write_packet(&packet(output_track, time_base, 200, 100, b"B"))
             .expect_err("gap must fail");
-        assert!(matches!(error, MediaProcessingError::UnsupportedOperation(_)));
+        assert!(matches!(
+            error,
+            MediaProcessingError::UnsupportedOperation(_)
+        ));
 
         drop(muxer);
         assert!(!path.exists());

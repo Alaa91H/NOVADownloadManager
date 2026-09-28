@@ -157,11 +157,7 @@ pub fn read_u64(data: &[u8]) -> Result<u64, MediaProcessingError> {
     Ok(u64::from_be_bytes(bytes))
 }
 
-pub fn slice(
-    data: &[u8],
-    start: usize,
-    length: usize,
-) -> Result<&[u8], MediaProcessingError> {
+pub fn slice(data: &[u8], start: usize, length: usize) -> Result<&[u8], MediaProcessingError> {
     let end = start
         .checked_add(length)
         .ok_or_else(|| demux_error("ISO-BMFF field range overflow"))?;

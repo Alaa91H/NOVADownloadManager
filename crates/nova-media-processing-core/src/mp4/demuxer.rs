@@ -4,8 +4,8 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 use crate::{
-    MediaDemuxer, MediaPacket, MediaPacketFlags, MediaProbe, MediaProcessingError,
-    MediaTimeBase, MediaTimestamp,
+    MediaDemuxer, MediaPacket, MediaPacketFlags, MediaProbe, MediaProcessingError, MediaTimeBase,
+    MediaTimestamp,
 };
 
 use super::boxes::{demux_error, parse_boxes, FourCc};
@@ -53,11 +53,7 @@ impl Mp4Demuxer {
         let mut packets = Vec::new();
         if scanned.parsed.fragmented {
             for packet in &scanned.fragment_packets {
-                validate_sample_bounds(
-                    &packet.sample,
-                    scanned.file_len,
-                    &scanned.mdat_ranges,
-                )?;
+                validate_sample_bounds(&packet.sample, scanned.file_len, &scanned.mdat_ranges)?;
                 packets.push(PacketLocator {
                     track_id: packet.track_id,
                     time_base: packet.time_base,
@@ -72,11 +68,7 @@ impl Mp4Demuxer {
         } else {
             for track in &scanned.parsed.tracks {
                 for sample in &track.samples {
-                    validate_sample_bounds(
-                        sample,
-                        scanned.file_len,
-                        &scanned.mdat_ranges,
-                    )?;
+                    validate_sample_bounds(sample, scanned.file_len, &scanned.mdat_ranges)?;
                     packets.push(PacketLocator {
                         track_id: track.track.id,
                         time_base: track.track.time_base,
@@ -467,7 +459,10 @@ mod tests {
         assert_eq!(demuxer.probe().tracks[0].codec, MediaCodec::H264);
         assert_eq!(demuxer.packet_count(), 1);
 
-        let packet = demuxer.next_packet().expect("packet result").expect("packet");
+        let packet = demuxer
+            .next_packet()
+            .expect("packet result")
+            .expect("packet");
         assert_eq!(packet.track_id, 7);
         assert_eq!(packet.data, b"NOVA");
         assert!(packet.flags.keyframe);
@@ -483,26 +478,19 @@ mod tests {
         let original_moov_size = u32::from_be_bytes(moov[0..4].try_into().expect("size"));
         let mvex = box_bytes(b"mvex", Vec::new());
         moov.extend_from_slice(&mvex);
-        let new_moov_size =
-            original_moov_size + u32::try_from(mvex.len()).expect("mvex size");
+        let new_moov_size = original_moov_size + u32::try_from(mvex.len()).expect("mvex size");
         moov[0..4].copy_from_slice(&new_moov_size.to_be_bytes());
 
         let mut tfhd_body = 7_u32.to_be_bytes().to_vec();
         tfhd_body.extend_from_slice(&1000_u32.to_be_bytes());
         tfhd_body.extend_from_slice(&4_u32.to_be_bytes());
-        let tfhd = box_bytes(
-            b"tfhd",
-            full_box_with_flags(0x000008 | 0x000010, tfhd_body),
-        );
+        let tfhd = box_bytes(b"tfhd", full_box_with_flags(0x000008 | 0x000010, tfhd_body));
         let tfdt = box_bytes(b"tfdt", full_box(0_u32.to_be_bytes().to_vec()));
 
         let make_moof = |data_offset: i32| {
             let mut trun_body = 1_u32.to_be_bytes().to_vec();
             trun_body.extend_from_slice(&data_offset.to_be_bytes());
-            let trun = box_bytes(
-                b"trun",
-                full_box_with_flags(0x000001, trun_body),
-            );
+            let trun = box_bytes(b"trun", full_box_with_flags(0x000001, trun_body));
             let traf = box_bytes(b"traf", [tfhd.clone(), tfdt.clone(), trun].concat());
             box_bytes(b"moof", traf)
         };

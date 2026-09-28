@@ -5,9 +5,7 @@ pub(crate) struct FlacStreamInfo {
     pub bits_per_sample: u16,
 }
 
-pub(crate) fn parse_native_flac_codec_private(
-    data: &[u8],
-) -> Result<FlacStreamInfo, String> {
+pub(crate) fn parse_native_flac_codec_private(data: &[u8]) -> Result<FlacStreamInfo, String> {
     if data.len() < 42 || !data.starts_with(b"fLaC") {
         return Err(
             "FLAC CodecPrivate must begin with the fLaC signature and STREAMINFO".to_owned(),
@@ -18,9 +16,8 @@ pub(crate) fn parse_native_flac_codec_private(
     if header[0] & 0x7f != 0 {
         return Err("FLAC CodecPrivate first metadata block must be STREAMINFO".to_owned());
     }
-    let length = (usize::from(header[1]) << 16)
-        | (usize::from(header[2]) << 8)
-        | usize::from(header[3]);
+    let length =
+        (usize::from(header[1]) << 16) | (usize::from(header[2]) << 8) | usize::from(header[3]);
     if length != 34 {
         return Err(format!(
             "FLAC STREAMINFO metadata block must be 34 bytes, got {length}"
@@ -41,8 +38,7 @@ pub(crate) fn parse_native_flac_codec_private(
     }
 
     let channels = u16::from(((streaminfo[12] >> 1) & 0x07) + 1);
-    let bits_per_sample =
-        u16::from((((streaminfo[12] & 0x01) << 4) | (streaminfo[13] >> 4)) + 1);
+    let bits_per_sample = u16::from((((streaminfo[12] & 0x01) << 4) | (streaminfo[13] >> 4)) + 1);
     if !(1..=8).contains(&channels) {
         return Err("FLAC STREAMINFO channel count is outside 1..=8".to_owned());
     }
@@ -77,9 +73,8 @@ fn validate_metadata_blocks(data: &[u8]) -> Result<(), String> {
         if block_index > 0 && block_type == 0 {
             return Err("FLAC CodecPrivate contains more than one STREAMINFO block".to_owned());
         }
-        let length = (usize::from(header[1]) << 16)
-            | (usize::from(header[2]) << 8)
-            | usize::from(header[3]);
+        let length =
+            (usize::from(header[1]) << 16) | (usize::from(header[2]) << 8) | usize::from(header[3]);
         cursor = cursor
             .checked_add(4)
             .and_then(|value| value.checked_add(length))
@@ -100,9 +95,7 @@ pub(crate) fn flac_metadata_blocks(data: &[u8]) -> Result<&[u8], String> {
     Ok(&data[4..])
 }
 
-pub(crate) fn native_flac_codec_private_from_dfla(
-    data: &[u8],
-) -> Result<Vec<u8>, String> {
+pub(crate) fn native_flac_codec_private_from_dfla(data: &[u8]) -> Result<Vec<u8>, String> {
     if data.len() < 8 {
         return Err("FLAC dfLa box is too short".to_owned());
     }

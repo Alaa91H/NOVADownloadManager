@@ -12,8 +12,8 @@ mod ebml_muxer;
 mod error;
 mod flac;
 mod job;
-mod mux;
 mod mp4;
+mod mux;
 mod pipeline;
 mod probe;
 mod progress;
@@ -21,29 +21,27 @@ mod remux;
 mod types;
 mod webm;
 
+pub use capabilities::{native_media_processing_capabilities, NativeMediaProcessingCapabilities};
 pub use demux::MediaDemuxer;
 pub use ebml_muxer::{
-    mux_demuxers_to_matroska, mux_demuxers_to_matroska_controlled,
-    mux_demuxers_to_webm, mux_demuxers_to_webm_controlled, MatroskaMuxer, WebmMuxer,
-};
-pub use mux::{MediaMuxResult, MediaMuxer};
-pub use mp4::{
-    mux_demuxers_to_mp4, mux_demuxers_to_mp4_controlled, probe_mp4_file, Mp4Demuxer, Mp4Muxer,
-    Mp4Sample, Mp4TrackIndex, ParsedMp4,
-};
-pub use capabilities::{
-    native_media_processing_capabilities, NativeMediaProcessingCapabilities,
+    mux_demuxers_to_matroska, mux_demuxers_to_matroska_controlled, mux_demuxers_to_webm,
+    mux_demuxers_to_webm_controlled, MatroskaMuxer, WebmMuxer,
 };
 pub use error::MediaProcessingError;
 pub use job::{
     MediaInput, MediaOutput, MediaProcessingJob, MediaProcessingOperation, TranscodeSettings,
 };
+pub use mp4::{
+    mux_demuxers_to_mp4, mux_demuxers_to_mp4_controlled, probe_mp4_file, Mp4Demuxer, Mp4Muxer,
+    Mp4Sample, Mp4TrackIndex, ParsedMp4,
+};
+pub use mux::{MediaMuxResult, MediaMuxer};
 pub use pipeline::{plan_media_pipeline, MediaPipelinePlan, MediaPipelineStage};
 pub use probe::{probe_file_container, sniff_media_container};
-pub use remux::open_mp4_remux_demuxer;
 pub use progress::{
     MediaProcessingControl, MediaProcessingPhase, MediaProcessingProgress, MediaProgressSink,
 };
+pub use remux::open_mp4_remux_demuxer;
 pub use types::{
     AudioParameters, MediaCodec, MediaContainer, MediaPacket, MediaPacketFlags, MediaProbe,
     MediaTimeBase, MediaTimestamp, MediaTrack, MediaTrackKind, VideoParameters,

@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    MediaProcessingError, MediaProcessingJob, MediaProcessingOperation,
-};
+use crate::{MediaProcessingError, MediaProcessingJob, MediaProcessingOperation};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
