@@ -26,18 +26,14 @@ pub use dash_transfer::{
 };
 pub use generic::{GenericDirectMediaExtractor, GenericManifestExtractor};
 pub use hls_live::{refresh_and_stage_hls_live_once, HlsLiveError, HlsLiveStageRefresh};
-pub use native_mux::{
-    mux_mp4_tracks, mux_mp4_tracks_controlled, NativeMuxError, NativeMuxResult,
-};
 pub use hls_transfer::{
     stage_hls_media_plan, stage_hls_media_plan_controlled,
     stage_hls_media_plan_controlled_with_progress,
     stage_hls_media_plan_controlled_with_progress_scoped, HlsStageError, HlsStageFile,
     HlsStageResult,
 };
-pub use selection::{
-    select_media_stream, MediaSelectionMode, MediaSelectionPolicy, MediaSortKey,
-};
+pub use native_mux::{mux_mp4_tracks, mux_mp4_tracks_controlled, NativeMuxError, NativeMuxResult};
+pub use selection::{select_media_stream, MediaSelectionMode, MediaSelectionPolicy, MediaSortKey};
 pub use youtube::{
     resolve_youtube_pending_formats, resolve_youtube_playlist, select_youtube_download_plan,
     youtube_playlist_id, youtube_video_id, MediaChapter, YouTubeChallengeKind,
@@ -212,11 +208,7 @@ impl MediaDescriptor {
         target_url: &str,
     ) -> Result<HttpRequestContext, MediaError> {
         let context = self.request_context()?;
-        let scoped = scope_http_request_context(
-            &context,
-            &self.metadata.webpage_url,
-            target_url,
-        );
+        let scoped = scope_http_request_context(&context, &self.metadata.webpage_url, target_url);
         scoped
             .validate()
             .map_err(|error| MediaError::Transport(error.to_string()))?;
@@ -262,9 +254,9 @@ pub fn scope_http_request_context(
 
     let mut scoped = context.clone();
     scoped.cookie_header = None;
-    scoped.headers.retain(|name, _| {
-        cross_origin_header_allowed(&name.to_ascii_lowercase())
-    });
+    scoped
+        .headers
+        .retain(|name, _| cross_origin_header_allowed(&name.to_ascii_lowercase()));
     scoped
 }
 
@@ -329,8 +321,10 @@ pub fn fetch_native_manifest(
     let kind = match stream.protocol {
         MediaProtocol::Hls => StreamManifestKind::Hls,
         MediaProtocol::Dash => StreamManifestKind::Dash,
-        MediaProtocol::Http | MediaProtocol::Https => detect_manifest_kind(&response.effective_url, &body)
-            .ok_or(MediaError::UnsupportedManifest)?,
+        MediaProtocol::Http | MediaProtocol::Https => {
+            detect_manifest_kind(&response.effective_url, &body)
+                .ok_or(MediaError::UnsupportedManifest)?
+        }
     };
 
     match kind {
@@ -474,7 +468,10 @@ impl ExtractorRegistry {
     }
 
     pub fn ids(&self) -> Vec<&'static str> {
-        self.extractors.iter().map(|extractor| extractor.id()).collect()
+        self.extractors
+            .iter()
+            .map(|extractor| extractor.id())
+            .collect()
     }
 }
 
@@ -525,10 +522,7 @@ mod tests {
             .keys()
             .any(|name| name.eq_ignore_ascii_case("authorization")));
         assert_eq!(cross.user_agent.as_deref(), Some("NOVA-UA"));
-        assert_eq!(
-            cross.referer.as_deref(),
-            Some("https://site.test/watch")
-        );
+        assert_eq!(cross.referer.as_deref(), Some("https://site.test/watch"));
         assert_eq!(
             cross.headers.get("Accept-Language").map(String::as_str),
             Some("en")
@@ -696,10 +690,7 @@ mod tests {
             .expect("native request context");
 
         assert_eq!(context.user_agent.as_deref(), Some("NOVA-Stream/2"));
-        assert_eq!(
-            context.referer.as_deref(),
-            Some("https://site.test/watch")
-        );
+        assert_eq!(context.referer.as_deref(), Some("https://site.test/watch"));
         assert_eq!(context.cookie_header.as_deref(), Some("session=ok"));
         assert_eq!(context.headers.len(), 1);
         assert_eq!(

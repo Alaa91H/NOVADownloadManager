@@ -235,10 +235,7 @@ impl WebmDemuxer {
             .tracks
             .iter()
             .map(|track| {
-                prepare_webm_track_for_mp4_with_colour(
-                    track,
-                    video_colours.get(&track.id).copied(),
-                )
+                prepare_webm_track_for_mp4_with_colour(track, video_colours.get(&track.id).copied())
             })
             .collect::<Result<Vec<_>, _>>()?;
         demuxer.packet_time_bases = demuxer
@@ -269,14 +266,12 @@ impl WebmDemuxer {
             };
             if !matches!(codecs.get(&packet.track_id), Some(MediaCodec::Opus)) {
                 return Err(MediaProcessingError::UnsupportedOperation(
-                    "EBML DiscardPadding remux is currently implemented only for Opus"
-                        .to_owned(),
+                    "EBML DiscardPadding remux is currently implemented only for Opus".to_owned(),
                 ));
             }
             if padding < 0 {
                 return Err(MediaProcessingError::UnsupportedOperation(
-                    "negative EBML DiscardPadding requires start-trim timeline handling"
-                        .to_owned(),
+                    "negative EBML DiscardPadding requires start-trim timeline handling".to_owned(),
                 ));
             }
             if last_packet_by_track.get(&packet.track_id) != Some(&index) {
@@ -311,11 +306,7 @@ pub struct MatroskaDemuxer {
 impl MatroskaDemuxer {
     pub fn open(path: &Path) -> Result<Self, MediaProcessingError> {
         Ok(Self {
-            inner: WebmDemuxer::open_container(
-                path,
-                "matroska",
-                MediaContainer::Matroska,
-            )?,
+            inner: WebmDemuxer::open_container(path, "matroska", MediaContainer::Matroska)?,
         })
     }
 
@@ -330,11 +321,7 @@ impl MatroskaDemuxer {
     /// the MP4 `esds` box. Video DTS is reconstructed from Matroska coding
     /// order while the block timestamps remain the presentation timestamps.
     pub fn open_for_mp4_remux(path: &Path) -> Result<Self, MediaProcessingError> {
-        let mut inner = WebmDemuxer::open_container(
-            path,
-            "matroska",
-            MediaContainer::Matroska,
-        )?;
+        let mut inner = WebmDemuxer::open_container(path, "matroska", MediaContainer::Matroska)?;
         let video_colours = inner.video_colours.clone();
         inner.probe.tracks = inner
             .probe
@@ -409,7 +396,9 @@ impl MediaDemuxer for WebmDemuxer {
         };
         let duration_ns = match (
             locator.duration_ns,
-            self.apply_discard_padding.then_some(locator.discard_padding_ns).flatten(),
+            self.apply_discard_padding
+                .then_some(locator.discard_padding_ns)
+                .flatten(),
         ) {
             (Some(duration), Some(padding)) if padding > 0 => Some(
                 duration
@@ -450,19 +439,20 @@ pub fn probe_matroska_file(path: &Path) -> Result<MediaProbe, MediaProcessingErr
     MatroskaDemuxer::open(path).map(|demuxer| demuxer.inner.probe)
 }
 
+type EbmlScan = (
+    MediaProbe,
+    Vec<PacketLocator>,
+    BTreeMap<u32, WebmVideoColour>,
+);
+
+type ParsedVideo = (Option<u32>, Option<u32>, Option<WebmVideoColour>);
+
 fn scan_ebml(
     file: &mut File,
     file_len: u64,
     expected_doc_type: &str,
     container: MediaContainer,
-) -> Result<
-    (
-        MediaProbe,
-        Vec<PacketLocator>,
-        BTreeMap<u32, WebmVideoColour>,
-    ),
-    MediaProcessingError,
-> {
+) -> Result<EbmlScan, MediaProcessingError> {
     let mut element_count = 0_usize;
     let ebml = read_element_header(file, 0, file_len)?;
     bump_element_count(&mut element_count)?;
@@ -695,8 +685,7 @@ fn parse_track_entry(
                 colour = parsed_colour;
             }
             ID_AUDIO => {
-                let (parsed_rate, parsed_channels) =
-                    parse_audio(file, child, element_count)?;
+                let (parsed_rate, parsed_channels) = parse_audio(file, child, element_count)?;
                 sample_rate = parsed_rate;
                 channels = parsed_channels;
             }
@@ -767,14 +756,7 @@ fn parse_video(
     file: &mut File,
     video: ElementHeader,
     element_count: &mut usize,
-) -> Result<
-    (
-        Option<u32>,
-        Option<u32>,
-        Option<WebmVideoColour>,
-    ),
-    MediaProcessingError,
-> {
+) -> Result<ParsedVideo, MediaProcessingError> {
     let mut width = None;
     let mut height = None;
     let mut colour = None;
@@ -820,12 +802,10 @@ fn parse_video_colour(
         bump_element_count(element_count)?;
         match child.id {
             ID_MATRIX_COEFFICIENTS => {
-                colour.matrix_coefficients =
-                    read_colour_u8(file, child, "MatrixCoefficients")?;
+                colour.matrix_coefficients = read_colour_u8(file, child, "MatrixCoefficients")?;
             }
             ID_BITS_PER_CHANNEL => {
-                colour.bits_per_channel =
-                    read_colour_u8(file, child, "BitsPerChannel")?;
+                colour.bits_per_channel = read_colour_u8(file, child, "BitsPerChannel")?;
             }
             ID_COLOUR_RANGE => {
                 colour.range = read_colour_u8(file, child, "Range")?;
@@ -898,14 +878,7 @@ fn parse_cluster(
             ID_CLUSTER_TIMECODE => cluster_timecode = read_uint(file, child)?,
             ID_SIMPLE_BLOCK => {
                 let parsed = parse_block(file, child, true)?;
-                push_block_packets(
-                    parsed,
-                    cluster_timecode,
-                    None,
-                    None,
-                    packets,
-                    block_id,
-                )?;
+                push_block_packets(parsed, cluster_timecode, None, None, packets, block_id)?;
             }
             ID_BLOCK_GROUP => {
                 parse_block_group(
@@ -1227,8 +1200,9 @@ fn finalize_packet_timing(
                 inferred_units
                     .map(|duration| {
                         scale_unsigned_units(
-                            u64::try_from(duration)
-                                .map_err(|_| demux_error("WebM block duration conversion failed"))?,
+                            u64::try_from(duration).map_err(|_| {
+                                demux_error("WebM block duration conversion failed")
+                            })?,
                             timecode_scale_ns,
                         )
                     })
@@ -1238,8 +1212,7 @@ fn finalize_packet_timing(
             let frame_duration_ns = total_duration_ns
                 .map(|duration| duration / lace_count)
                 .filter(|duration| *duration > 0);
-            let block_pts_ns =
-                scale_signed_units(packet.block_timecode_units, timecode_scale_ns)?;
+            let block_pts_ns = scale_signed_units(packet.block_timecode_units, timecode_scale_ns)?;
             let lace_offset_ns = frame_duration_ns
                 .unwrap_or(0)
                 .checked_mul(u64::from(packet.lace_index))
@@ -1305,9 +1278,7 @@ fn prepare_matroska_track_for_mp4_with_colour(
         | MediaCodec::Vp9
         | MediaCodec::Av1
         | MediaCodec::Opus
-        | MediaCodec::Mp3 => {
-            return prepare_webm_track_for_mp4_with_colour(track, colour)
-        }
+        | MediaCodec::Mp3 => return prepare_webm_track_for_mp4_with_colour(track, colour),
         _ => {
             return Err(MediaProcessingError::UnsupportedCodec(format!(
                 "{:?} Matroska-to-MP4 remux",
@@ -1318,9 +1289,7 @@ fn prepare_matroska_track_for_mp4_with_colour(
     Ok(converted)
 }
 
-fn reconstruct_matroska_video_dts(
-    demuxer: &mut WebmDemuxer,
-) -> Result<(), MediaProcessingError> {
+fn reconstruct_matroska_video_dts(demuxer: &mut WebmDemuxer) -> Result<(), MediaProcessingError> {
     let video_track_ids = demuxer
         .probe
         .tracks
@@ -1380,9 +1349,7 @@ fn reconstruct_matroska_video_dts(
     Ok(())
 }
 
-fn validate_avc_decoder_configuration_record(
-    data: &[u8],
-) -> Result<&[u8], MediaProcessingError> {
+fn validate_avc_decoder_configuration_record(data: &[u8]) -> Result<&[u8], MediaProcessingError> {
     if data.len() < 7 || data[0] != 1 {
         return Err(demux_error(
             "Matroska AVC CodecPrivate is not an AVCDecoderConfigurationRecord",
@@ -1471,9 +1438,7 @@ fn skip_length_prefixed_nal(
         .ok_or_else(|| demux_error(format!("truncated {name} payload")))
 }
 
-fn validate_hevc_decoder_configuration_record(
-    data: &[u8],
-) -> Result<&[u8], MediaProcessingError> {
+fn validate_hevc_decoder_configuration_record(data: &[u8]) -> Result<&[u8], MediaProcessingError> {
     if data.len() < 23 || data[0] != 1 {
         return Err(demux_error(
             "Matroska HEVC CodecPrivate is not an HEVCDecoderConfigurationRecord",
@@ -1535,8 +1500,7 @@ fn make_aac_esds_payload(track: &MediaTrack) -> Result<Vec<u8>, MediaProcessingE
         })?
         .unwrap_or(0);
 
-    let decoder_specific =
-        make_mpeg4_descriptor(0x05, track.codec_private.clone())?;
+    let decoder_specific = make_mpeg4_descriptor(0x05, track.codec_private.clone())?;
 
     let mut decoder_config = Vec::with_capacity(13 + decoder_specific.len());
     decoder_config.push(0x40); // MPEG-4 Audio objectTypeIndication
@@ -1579,10 +1543,7 @@ fn validate_audio_specific_config(data: &[u8]) -> Result<(), MediaProcessingErro
     Ok(())
 }
 
-fn read_aac_object_type(
-    data: &[u8],
-    bit_offset: &mut usize,
-) -> Result<u32, MediaProcessingError> {
+fn read_aac_object_type(data: &[u8], bit_offset: &mut usize) -> Result<u32, MediaProcessingError> {
     let object_type = read_bits(data, bit_offset, 5)?;
     let object_type = if object_type == 31 {
         32 + read_bits(data, bit_offset, 6)?
@@ -1641,10 +1602,7 @@ fn read_bits(
     Ok(value)
 }
 
-fn make_mpeg4_descriptor(
-    tag: u8,
-    payload: Vec<u8>,
-) -> Result<Vec<u8>, MediaProcessingError> {
+fn make_mpeg4_descriptor(tag: u8, payload: Vec<u8>) -> Result<Vec<u8>, MediaProcessingError> {
     let mut descriptor = Vec::with_capacity(payload.len().saturating_add(5));
     descriptor.push(tag);
     append_mpeg4_descriptor_length(&mut descriptor, payload.len())?;
@@ -1656,8 +1614,8 @@ fn append_mpeg4_descriptor_length(
     output: &mut Vec<u8>,
     length: usize,
 ) -> Result<(), MediaProcessingError> {
-    let mut value = u32::try_from(length)
-        .map_err(|_| demux_error("MPEG-4 descriptor length exceeds u32"))?;
+    let mut value =
+        u32::try_from(length).map_err(|_| demux_error("MPEG-4 descriptor length exceeds u32"))?;
     if value > 0x0fff_ffff {
         return Err(demux_error("MPEG-4 descriptor length exceeds 28 bits"));
     }
@@ -1686,9 +1644,7 @@ fn append_mpeg4_descriptor_length(
 /// When this function is used without a WebM demuxer, VP colour fields use the
 /// ISO binding defaults; `open_for_mp4_remux` additionally preserves WebM
 /// `Colour` metadata.
-pub fn prepare_webm_track_for_mp4(
-    track: &MediaTrack,
-) -> Result<MediaTrack, MediaProcessingError> {
+pub fn prepare_webm_track_for_mp4(track: &MediaTrack) -> Result<MediaTrack, MediaProcessingError> {
     prepare_webm_track_for_mp4_with_colour(track, None)
 }
 
@@ -1698,13 +1654,7 @@ fn prepare_webm_track_for_mp4_with_colour(
 ) -> Result<MediaTrack, MediaProcessingError> {
     let mut converted = track.clone();
     converted.codec_private = match &track.codec {
-        MediaCodec::Vp8 => make_vpcc(
-            0,
-            0,
-            8,
-            1,
-            vp_colour_configuration(colour, 8, 1)?,
-        )?,
+        MediaCodec::Vp8 => make_vpcc(0, 0, 8, 1, vp_colour_configuration(colour, 8, 1)?)?,
         MediaCodec::Vp9 => vp9_webm_private_to_vpcc(&track.codec_private, colour)?,
         MediaCodec::Av1 => validate_webm_av1c(&track.codec_private)?.to_vec(),
         MediaCodec::Opus => {
@@ -1741,7 +1691,9 @@ fn validate_webm_av1c(data: &[u8]) -> Result<&[u8], MediaProcessingError> {
     }
     let seq_profile = data[1] >> 5;
     if seq_profile > 2 {
-        return Err(demux_error("WebM AV1 CodecPrivate has invalid sequence profile"));
+        return Err(demux_error(
+            "WebM AV1 CodecPrivate has invalid sequence profile",
+        ));
     }
     if data[3] & 0xe0 != 0 {
         return Err(demux_error(
@@ -1775,7 +1727,9 @@ fn vp9_webm_private_to_vpcc(
 
     while cursor < data.len() {
         if data.len() - cursor < 2 {
-            return Err(demux_error("truncated VP9 WebM CodecPrivate feature header"));
+            return Err(demux_error(
+                "truncated VP9 WebM CodecPrivate feature header",
+            ));
         }
         let raw_id = data[cursor];
         let length = usize::from(data[cursor + 1]);
@@ -1904,7 +1858,10 @@ fn make_vpcc(
     if profile > 3
         || !matches!(bit_depth, 8 | 10 | 12)
         || chroma_subsampling > 3
-        || !matches!(level, 0 | 10 | 11 | 20 | 21 | 30 | 31 | 40 | 41 | 50 | 51 | 52 | 60 | 61 | 62)
+        || !matches!(
+            level,
+            0 | 10 | 11 | 20 | 21 | 30 | 31 | 40 | 41 | 50 | 51 | 52 | 60 | 61 | 62
+        )
     {
         return Err(demux_error("invalid VP codec configuration for MP4"));
     }
@@ -1946,7 +1903,9 @@ fn opus_head_to_dops(
 
     let channels = data[9];
     if channels == 0 {
-        return Err(demux_error("OpusHead output channel count must be positive"));
+        return Err(demux_error(
+            "OpusHead output channel count must be positive",
+        ));
     }
     if let Some(audio) = audio {
         if audio.channels != u16::from(channels) {
@@ -1989,7 +1948,9 @@ fn opus_head_to_dops(
             || coupled_count > stream_count
             || u16::from(stream_count) + u16::from(coupled_count) != u16::from(channels)
         {
-            return Err(demux_error("invalid OpusHead stream/coupled channel counts"));
+            return Err(demux_error(
+                "invalid OpusHead stream/coupled channel counts",
+            ));
         }
         dops.push(stream_count);
         dops.push(coupled_count);
@@ -2124,7 +2085,9 @@ fn read_value_vint_cursor(
 fn read_uint(file: &mut File, header: ElementHeader) -> Result<u64, MediaProcessingError> {
     let size = header.size();
     if size == 0 || size > 8 {
-        return Err(demux_error("EBML unsigned integer must contain 1..=8 bytes"));
+        return Err(demux_error(
+            "EBML unsigned integer must contain 1..=8 bytes",
+        ));
     }
     file.seek(SeekFrom::Start(header.data_offset))
         .map_err(io_error)?;
@@ -2146,7 +2109,9 @@ fn read_signed_int(file: &mut File, header: ElementHeader) -> Result<i64, MediaP
         .map_err(io_error)?;
     let mut bytes = [0_u8; 8];
     let start = 8_usize
-        .checked_sub(usize::try_from(size).map_err(|_| demux_error("signed integer size overflow"))?)
+        .checked_sub(
+            usize::try_from(size).map_err(|_| demux_error("signed integer size overflow"))?,
+        )
         .ok_or_else(|| demux_error("signed integer size underflow"))?;
     file.read_exact(&mut bytes[start..]).map_err(io_error)?;
     if bytes[start] & 0x80 != 0 {
@@ -2187,10 +2152,7 @@ fn read_text(
     String::from_utf8(bytes).map_err(|_| demux_error(format!("WebM {name} is not valid UTF-8")))
 }
 
-fn read_bytes(
-    file: &mut File,
-    header: ElementHeader,
-) -> Result<Vec<u8>, MediaProcessingError> {
+fn read_bytes(file: &mut File, header: ElementHeader) -> Result<Vec<u8>, MediaProcessingError> {
     let size = usize::try_from(header.size())
         .map_err(|_| demux_error("EBML element size does not fit platform"))?;
     let mut bytes = vec![0_u8; size];
@@ -2200,11 +2162,7 @@ fn read_bytes(
     Ok(bytes)
 }
 
-fn read_u8_cursor(
-    file: &mut File,
-    cursor: &mut u64,
-    end: u64,
-) -> Result<u8, MediaProcessingError> {
+fn read_u8_cursor(file: &mut File, cursor: &mut u64, end: u64) -> Result<u8, MediaProcessingError> {
     let mut byte = [0_u8; 1];
     read_exact_cursor(file, cursor, end, &mut byte)?;
     Ok(byte[0])
@@ -2216,8 +2174,8 @@ fn read_exact_cursor(
     end: u64,
     bytes: &mut [u8],
 ) -> Result<(), MediaProcessingError> {
-    let len = u64::try_from(bytes.len())
-        .map_err(|_| demux_error("buffer length conversion failed"))?;
+    let len =
+        u64::try_from(bytes.len()).map_err(|_| demux_error("buffer length conversion failed"))?;
     let next = cursor
         .checked_add(len)
         .filter(|next| *next <= end)
@@ -2229,12 +2187,11 @@ fn read_exact_cursor(
     Ok(())
 }
 
-fn rescale_nanoseconds(
-    value: i64,
-    target: MediaTimeBase,
-) -> Result<i64, MediaProcessingError> {
+fn rescale_nanoseconds(value: i64, target: MediaTimeBase) -> Result<i64, MediaProcessingError> {
     if target.numerator != 1 || target.denominator == 0 {
-        return Err(demux_error("WebM packet target time base must be 1/timescale"));
+        return Err(demux_error(
+            "WebM packet target time base must be 1/timescale",
+        ));
     }
     if target == NANOSECOND_TIME_BASE {
         return Ok(value);
@@ -2259,8 +2216,8 @@ fn rescale_nanoseconds(
 }
 
 fn scale_signed_units(value: i64, scale_ns: u64) -> Result<i64, MediaProcessingError> {
-    let scale = i64::try_from(scale_ns)
-        .map_err(|_| demux_error("WebM TimecodeScale exceeds i64"))?;
+    let scale =
+        i64::try_from(scale_ns).map_err(|_| demux_error("WebM TimecodeScale exceeds i64"))?;
     value
         .checked_mul(scale)
         .ok_or_else(|| demux_error("WebM timestamp overflow"))
@@ -2329,7 +2286,10 @@ mod tests {
     }
 
     fn webm_fixture(block_payload: Vec<u8>, default_duration_ns: u64) -> Vec<u8> {
-        let ebml = element(&[0x1A, 0x45, 0xDF, 0xA3], element(&[0x42, 0x82], b"webm".to_vec()));
+        let ebml = element(
+            &[0x1A, 0x45, 0xDF, 0xA3],
+            element(&[0x42, 0x82], b"webm".to_vec()),
+        );
         let info = element(
             &[0x15, 0x49, 0xA9, 0x66],
             uint_element(&[0x2A, 0xD7, 0xB1], 1_000_000, 3),
@@ -2337,11 +2297,7 @@ mod tests {
 
         let video = element(
             &[0xE0],
-            [
-                uint_element(&[0xB0], 640, 2),
-                uint_element(&[0xBA], 360, 2),
-            ]
-            .concat(),
+            [uint_element(&[0xB0], 640, 2), uint_element(&[0xBA], 360, 2)].concat(),
         );
         let track_entry = element(
             &[0xAE],
@@ -2358,16 +2314,9 @@ mod tests {
         let tracks = element(&[0x16, 0x54, 0xAE, 0x6B], track_entry);
         let cluster = element(
             &[0x1F, 0x43, 0xB6, 0x75],
-            [
-                uint_element(&[0xE7], 0, 1),
-                element(&[0xA3], block_payload),
-            ]
-            .concat(),
+            [uint_element(&[0xE7], 0, 1), element(&[0xA3], block_payload)].concat(),
         );
-        let segment = element(
-            &[0x18, 0x53, 0x80, 0x67],
-            [info, tracks, cluster].concat(),
-        );
+        let segment = element(&[0x18, 0x53, 0x80, 0x67], [info, tracks, cluster].concat());
         [ebml, segment].concat()
     }
 
@@ -2391,7 +2340,14 @@ mod tests {
         assert_eq!(demuxer.probe().container, MediaContainer::WebM);
         assert_eq!(demuxer.probe().tracks.len(), 1);
         assert_eq!(demuxer.probe().tracks[0].codec, MediaCodec::Vp9);
-        assert_eq!(demuxer.probe().tracks[0].video.as_ref().expect("video").width, 640);
+        assert_eq!(
+            demuxer.probe().tracks[0]
+                .video
+                .as_ref()
+                .expect("video")
+                .width,
+            640
+        );
         assert_eq!(demuxer.packet_count(), 1);
 
         let packet = demuxer.next_packet().expect("packet").expect("frame");
@@ -2541,16 +2497,9 @@ mod tests {
         block.extend_from_slice(b"HDR");
         let cluster = element(
             &[0x1F, 0x43, 0xB6, 0x75],
-            [
-                uint_element(&[0xE7], 0, 1),
-                element(&[0xA3], block),
-            ]
-            .concat(),
+            [uint_element(&[0xE7], 0, 1), element(&[0xA3], block)].concat(),
         );
-        let segment = element(
-            &[0x18, 0x53, 0x80, 0x67],
-            [info, tracks, cluster].concat(),
-        );
+        let segment = element(&[0x18, 0x53, 0x80, 0x67], [info, tracks, cluster].concat());
         let path = temp_path();
         fs::write(&path, [ebml, segment].concat()).expect("fixture");
 
@@ -2567,16 +2516,14 @@ mod tests {
     fn rejects_vp9_colour_bit_depth_conflict() {
         let data = vec![
             1, 1, 2, // profile 2
-            2, 1, 41,
-            3, 1, 10,
-            4, 1, 1,
+            2, 1, 41, 3, 1, 10, 4, 1, 1,
         ];
         let colour = WebmVideoColour {
             bits_per_channel: 12,
             ..WebmVideoColour::default()
         };
-        let error = vp9_webm_private_to_vpcc(&data, Some(colour))
-            .expect_err("conflicting colour metadata");
+        let error =
+            vp9_webm_private_to_vpcc(&data, Some(colour)).expect_err("conflicting colour metadata");
         assert!(matches!(
             error,
             MediaProcessingError::UnsupportedOperation(_)
@@ -2634,10 +2581,7 @@ mod tests {
             converted.codec_private,
             vec![0, 2, 0x01, 0x38, 0x00, 0x00, 0xbb, 0x80, 0xff, 0x00, 0]
         );
-        assert_eq!(
-            converted.audio.expect("audio").sample_rate_hz,
-            48_000
-        );
+        assert_eq!(converted.audio.expect("audio").sample_rate_hz, 48_000);
         assert_eq!(converted.time_base.denominator, 48_000);
     }
 
@@ -2694,10 +2638,7 @@ mod tests {
             &[0x1F, 0x43, 0xB6, 0x75],
             [uint_element(&[0xE7], 0, 1), block_group].concat(),
         );
-        let segment = element(
-            &[0x18, 0x53, 0x80, 0x67],
-            [info, tracks, cluster].concat(),
-        );
+        let segment = element(&[0x18, 0x53, 0x80, 0x67], [info, tracks, cluster].concat());
         let path = temp_path();
         fs::write(&path, [ebml, segment].concat()).expect("fixture");
 
@@ -2744,15 +2685,7 @@ mod tests {
                 uint_element(&[0xD7], 1, 1),
                 uint_element(&[0x83], 1, 1),
                 element(&[0x86], b"V_VP9".to_vec()),
-                element(
-                    &[0x63, 0xA2],
-                    vec![
-                        1, 1, 2,
-                        2, 1, 41,
-                        3, 1, 10,
-                        4, 1, 1,
-                    ],
-                ),
+                element(&[0x63, 0xA2], vec![1, 1, 2, 2, 1, 41, 3, 1, 10, 4, 1, 1]),
                 uint_element(&[0x23, 0xE3, 0x83], 33_333_333, 4),
                 video,
             ]
@@ -2763,21 +2696,13 @@ mod tests {
         block.extend_from_slice(b"HDR");
         let cluster = element(
             &[0x1F, 0x43, 0xB6, 0x75],
-            [
-                uint_element(&[0xE7], 0, 1),
-                element(&[0xA3], block),
-            ]
-            .concat(),
+            [uint_element(&[0xE7], 0, 1), element(&[0xA3], block)].concat(),
         );
-        let segment = element(
-            &[0x18, 0x53, 0x80, 0x67],
-            [info, tracks, cluster].concat(),
-        );
+        let segment = element(&[0x18, 0x53, 0x80, 0x67], [info, tracks, cluster].concat());
         let path = temp_path();
         fs::write(&path, [ebml, segment].concat()).expect("fixture");
 
-        let mut demuxer =
-            MatroskaDemuxer::open_for_mp4_remux(&path).expect("Matroska VP9 remux");
+        let mut demuxer = MatroskaDemuxer::open_for_mp4_remux(&path).expect("Matroska VP9 remux");
         assert_eq!(demuxer.probe().tracks[0].codec, MediaCodec::Vp9);
         assert_eq!(
             demuxer.probe().tracks[0].codec_private,
@@ -2791,8 +2716,7 @@ mod tests {
         let mut bridged =
             crate::open_mp4_remux_demuxer(&path).expect("content-sniffed Matroska VP9 bridge");
         let mut inputs: [&mut dyn MediaDemuxer; 1] = [bridged.as_mut()];
-        crate::mux_demuxers_to_mp4(&destination, &mut inputs)
-            .expect("Matroska VP9 to MP4 remux");
+        crate::mux_demuxers_to_mp4(&destination, &mut inputs).expect("Matroska VP9 to MP4 remux");
         let output = crate::Mp4Demuxer::open(&destination).expect("remuxed MP4");
         assert_eq!(output.probe().tracks[0].codec, MediaCodec::Vp9);
 
@@ -2853,15 +2777,11 @@ mod tests {
             &[0x1F, 0x43, 0xB6, 0x75],
             [uint_element(&[0xE7], 0, 1), block_group].concat(),
         );
-        let segment = element(
-            &[0x18, 0x53, 0x80, 0x67],
-            [info, tracks, cluster].concat(),
-        );
+        let segment = element(&[0x18, 0x53, 0x80, 0x67], [info, tracks, cluster].concat());
         let path = temp_path();
         fs::write(&path, [ebml, segment].concat()).expect("fixture");
 
-        let mut demuxer =
-            MatroskaDemuxer::open_for_mp4_remux(&path).expect("Matroska Opus remux");
+        let mut demuxer = MatroskaDemuxer::open_for_mp4_remux(&path).expect("Matroska Opus remux");
         assert_eq!(demuxer.probe().tracks[0].codec, MediaCodec::Opus);
         assert_eq!(demuxer.probe().tracks[0].time_base.denominator, 48_000);
         let packet = demuxer.next_packet().expect("packet").expect("frame");
@@ -2915,49 +2835,52 @@ mod tests {
         block.extend_from_slice(b"FLAC-FRAME");
         let block_group = element(
             &[0xA0],
-            [
-                element(&[0xA1], block),
-                uint_element(&[0x9B], 21, 1),
-            ]
-            .concat(),
+            [element(&[0xA1], block), uint_element(&[0x9B], 21, 1)].concat(),
         );
         let cluster = element(
             &[0x1F, 0x43, 0xB6, 0x75],
             [uint_element(&[0xE7], 0, 1), block_group].concat(),
         );
-        let segment = element(
-            &[0x18, 0x53, 0x80, 0x67],
-            [info, tracks, cluster].concat(),
-        );
+        let segment = element(&[0x18, 0x53, 0x80, 0x67], [info, tracks, cluster].concat());
 
         let path = temp_path();
         let destination = path.with_extension("mp4");
         fs::write(&path, [ebml, segment].concat()).expect("fixture");
 
-        let mut bridged =
-            crate::open_mp4_remux_demuxer(&path).expect("Matroska FLAC bridge");
+        let mut bridged = crate::open_mp4_remux_demuxer(&path).expect("Matroska FLAC bridge");
         let source_track = &bridged.probe().tracks[0];
         assert_eq!(source_track.codec, MediaCodec::Flac);
         assert_eq!(
-            source_track.audio.as_ref().expect("FLAC audio").sample_rate_hz,
+            source_track
+                .audio
+                .as_ref()
+                .expect("FLAC audio")
+                .sample_rate_hz,
             192_000
         );
         assert_eq!(source_track.codec_private, flac_private);
 
         let mut inputs: [&mut dyn MediaDemuxer; 1] = [bridged.as_mut()];
-        crate::mux_demuxers_to_mp4(&destination, &mut inputs)
-            .expect("Matroska FLAC to MP4");
+        crate::mux_demuxers_to_mp4(&destination, &mut inputs).expect("Matroska FLAC to MP4");
 
         let mut output = crate::Mp4Demuxer::open(&destination).expect("FLAC MP4 output");
         let output_track = &output.probe().tracks[0];
         assert_eq!(output_track.codec, MediaCodec::Flac);
         assert_eq!(
-            output_track.audio.as_ref().expect("MP4 FLAC audio").sample_rate_hz,
+            output_track
+                .audio
+                .as_ref()
+                .expect("MP4 FLAC audio")
+                .sample_rate_hz,
             192_000
         );
         assert_eq!(output_track.codec_private, flac_private);
         assert_eq!(
-            output.next_packet().expect("packet").expect("FLAC frame").data,
+            output
+                .next_packet()
+                .expect("packet")
+                .expect("FLAC frame")
+                .data,
             b"FLAC-FRAME"
         );
 
@@ -3001,16 +2924,9 @@ mod tests {
         block.extend_from_slice(b"NALU");
         let cluster = element(
             &[0x1F, 0x43, 0xB6, 0x75],
-            [
-                uint_element(&[0xE7], 0, 1),
-                element(&[0xA3], block),
-            ]
-            .concat(),
+            [uint_element(&[0xE7], 0, 1), element(&[0xA3], block)].concat(),
         );
-        let segment = element(
-            &[0x18, 0x53, 0x80, 0x67],
-            [info, tracks, cluster].concat(),
-        );
+        let segment = element(&[0x18, 0x53, 0x80, 0x67], [info, tracks, cluster].concat());
         let path = temp_path();
         fs::write(&path, [ebml, segment].concat()).expect("fixture");
 
@@ -3041,18 +2957,9 @@ mod tests {
         );
         let video = element(
             &[0xE0],
-            [
-                uint_element(&[0xB0], 640, 2),
-                uint_element(&[0xBA], 360, 2),
-            ]
-            .concat(),
+            [uint_element(&[0xB0], 640, 2), uint_element(&[0xBA], 360, 2)].concat(),
         );
-        let avcc = vec![
-            1, 66, 0, 30, 0xff, 0xe1,
-            0, 1, 0x67,
-            1,
-            0, 1, 0x68,
-        ];
+        let avcc = vec![1, 66, 0, 30, 0xff, 0xe1, 0, 1, 0x67, 1, 0, 1, 0x68];
         let track = element(
             &[0xAE],
             [
@@ -3084,15 +2991,11 @@ mod tests {
             ]
             .concat(),
         );
-        let segment = element(
-            &[0x18, 0x53, 0x80, 0x67],
-            [info, tracks, cluster].concat(),
-        );
+        let segment = element(&[0x18, 0x53, 0x80, 0x67], [info, tracks, cluster].concat());
         let path = temp_path();
         fs::write(&path, [ebml, segment].concat()).expect("fixture");
 
-        let mut demuxer =
-            MatroskaDemuxer::open_for_mp4_remux(&path).expect("Matroska H264 remux");
+        let mut demuxer = MatroskaDemuxer::open_for_mp4_remux(&path).expect("Matroska H264 remux");
         let mut pts = Vec::new();
         let mut dts = Vec::new();
         while let Some(packet) = demuxer.next_packet().expect("packet") {
@@ -3139,8 +3042,7 @@ mod tests {
             }),
             codec_private: vec![0x11, 0x90], // AAC-LC, 48 kHz, stereo
         };
-        let converted =
-            prepare_matroska_track_for_mp4(&track).expect("AAC Matroska bridge");
+        let converted = prepare_matroska_track_for_mp4(&track).expect("AAC Matroska bridge");
         assert_eq!(&converted.codec_private[..4], &[0, 0, 0, 0]);
         assert_eq!(converted.codec_private[4], 0x03);
         assert!(converted
@@ -3175,8 +3077,7 @@ mod tests {
             audio: None,
             codec_private: hvcc.clone(),
         };
-        let converted =
-            prepare_matroska_track_for_mp4(&track).expect("HEVC Matroska bridge");
+        let converted = prepare_matroska_track_for_mp4(&track).expect("HEVC Matroska bridge");
         assert_eq!(converted.codec_private, hvcc);
     }
 

@@ -820,10 +820,19 @@ pub fn parse_retry_after_date(value: &str) -> Option<u64> {
     }
 }
 
-/// Check whether an `ETag` is a strong validator (RFC 7232 §2.3).
-/// Strong `ETags` do NOT start with the `W/` prefix.
+/// Check whether an `ETag` is a syntactically valid strong validator
+/// (RFC 7232 §2.3 / RFC 9110 §8.8.3).
 pub fn is_strong_etag(etag: &str) -> bool {
-    !etag.trim().starts_with("W/")
+    let etag = etag.trim();
+    if etag.starts_with("W/") || etag.len() < 2 || !etag.starts_with('"') || !etag.ends_with('"') {
+        return false;
+    }
+
+    // entity-tag = [ weak ] opaque-tag
+    // opaque-tag = DQUOTE *etagc DQUOTE
+    etag.as_bytes()[1..etag.len() - 1]
+        .iter()
+        .all(|byte| matches!(*byte, 0x21 | 0x23..=0x7e | 0x80..=0xff))
 }
 
 // ── HTML meta-refresh helpers (moved from routes.rs to break circular dependency) ──
@@ -2154,6 +2163,12 @@ mod tests {
     #[test]
     fn weak_etag() {
         assert!(!is_strong_etag(r#"W/"abc123""#));
+    }
+
+    #[test]
+    fn unquoted_or_malformed_etag_is_not_strong() {
+        assert!(!is_strong_etag("abc123"));
+        assert!(!is_strong_etag(r#""a"b""#));
     }
 
     // ── parse_retry_after_date ───────────────────────────────────────────

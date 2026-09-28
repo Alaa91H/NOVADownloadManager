@@ -8,17 +8,15 @@ mod hls;
 
 pub use dash::{
     build_dash_live_refresh, build_dash_representation_plan, parse_dash,
-    select_best_dash_representation, DashAdaptationSet, DashError, DashLiveCursor,
-    DashLiveRefresh, DashManifest, DashPeriod, DashPlanError, DashRepresentation,
-    DashRepresentationPlan, DashSegmentTemplate, DashTimelineEntry, DashTrackKind,
-    DashTransferUnit,
+    select_best_dash_representation, DashAdaptationSet, DashError, DashLiveCursor, DashLiveRefresh,
+    DashManifest, DashPeriod, DashPlanError, DashRepresentation, DashRepresentationPlan,
+    DashSegmentTemplate, DashTimelineEntry, DashTrackKind, DashTransferUnit,
 };
 pub use hls::{
-    build_hls_live_refresh, build_hls_media_plan, parse_hls, select_best_hls_variant,
-    HlsByteRange, HlsEncryptionMethod, HlsError, HlsInitMap, HlsKey, HlsLiveCursor,
-    HlsLiveRefresh, HlsManifest, HlsMediaPlan, HlsPlanError, HlsPlaylistKind,
-    HlsRendition, HlsRenditionKind, HlsSegment, HlsTransferUnit,
-    HlsTransferUnitKind, HlsVariant,
+    build_hls_live_refresh, build_hls_media_plan, parse_hls, select_best_hls_variant, HlsByteRange,
+    HlsEncryptionMethod, HlsError, HlsInitMap, HlsKey, HlsLiveCursor, HlsLiveRefresh, HlsManifest,
+    HlsMediaPlan, HlsPlanError, HlsPlaylistKind, HlsRendition, HlsRenditionKind, HlsSegment,
+    HlsTransferUnit, HlsTransferUnitKind, HlsVariant,
 };
 
 use serde::{Deserialize, Serialize};
@@ -46,7 +44,11 @@ pub fn detect_manifest_kind(source_url: &str, body: &str) -> Option<StreamManife
         return Some(StreamManifestKind::Dash);
     }
 
-    let path = source_url.split('?').next().unwrap_or(source_url).to_ascii_lowercase();
+    let path = source_url
+        .split('?')
+        .next()
+        .unwrap_or(source_url)
+        .to_ascii_lowercase();
     if path.ends_with(".m3u8") {
         return Some(StreamManifestKind::Hls);
     }

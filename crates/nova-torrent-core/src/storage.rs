@@ -1,7 +1,8 @@
 use crate::{
-    FilePriority, InfoHash, ManifestError, ResumeError, TorrentMetainfo, TorrentSelection,
-    TorrentResumeCheckpoint, TorrentStorageManifest, DEFAULT_BLOCK_SIZE, load_checkpoint_recovering,
-    load_storage_manifest_recovering, save_checkpoint_atomic, save_storage_manifest_atomic,
+    load_checkpoint_recovering, load_storage_manifest_recovering, save_checkpoint_atomic,
+    save_storage_manifest_atomic, FilePriority, InfoHash, ManifestError, ResumeError,
+    TorrentMetainfo, TorrentResumeCheckpoint, TorrentSelection, TorrentStorageManifest,
+    DEFAULT_BLOCK_SIZE,
 };
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -109,10 +110,7 @@ impl TorrentStorage {
         })
     }
 
-    pub fn resume(
-        root: impl AsRef<Path>,
-        meta: TorrentMetainfo,
-    ) -> Result<Self, StorageError> {
+    pub fn resume(root: impl AsRef<Path>, meta: TorrentMetainfo) -> Result<Self, StorageError> {
         let root = prepare_root(root.as_ref())?;
         reject_reserved_collision(&meta)?;
         let control_dir = control_dir(&root, meta.info_hash.to_hex());
@@ -187,8 +185,8 @@ impl TorrentStorage {
         let root_path = root.as_ref();
         let prepared_root = prepare_root(root_path)?;
         reject_reserved_collision(&meta)?;
-        let checkpoint_path = control_dir(&prepared_root, meta.info_hash.to_hex())
-            .join(RESUME_FILE_NAME);
+        let checkpoint_path =
+            control_dir(&prepared_root, meta.info_hash.to_hex()).join(RESUME_FILE_NAME);
 
         if checkpoint_path.exists()
             || append_suffix(&checkpoint_path, ".tmp").exists()
@@ -238,10 +236,7 @@ impl TorrentStorage {
         self.begin_run()
     }
 
-    pub fn update_selection(
-        &mut self,
-        selection: TorrentSelection,
-    ) -> Result<u64, StorageError> {
+    pub fn update_selection(&mut self, selection: TorrentSelection) -> Result<u64, StorageError> {
         validate_selection(&self.meta, &selection)?;
 
         prepare_selected_files_owned(
@@ -314,7 +309,8 @@ impl TorrentStorage {
             let relative_end = relative_start
                 .checked_add(slice.length)
                 .ok_or(StorageError::LengthOverflow)?;
-            let start = usize::try_from(relative_start).map_err(|_| StorageError::LengthOverflow)?;
+            let start =
+                usize::try_from(relative_start).map_err(|_| StorageError::LengthOverflow)?;
             let end = usize::try_from(relative_end).map_err(|_| StorageError::LengthOverflow)?;
             let data = bytes
                 .get(start..end)
@@ -403,10 +399,7 @@ impl TorrentStorage {
             .ok_or(StorageError::PieceSliceOutsideBuffer(piece_index))
     }
 
-    pub fn startup_recheck(
-        &mut self,
-        mode: RecheckMode,
-    ) -> Result<RecheckReport, StorageError> {
+    pub fn startup_recheck(&mut self, mode: RecheckMode) -> Result<RecheckReport, StorageError> {
         let mut report = RecheckReport::default();
         let mut changed = false;
 
@@ -661,11 +654,7 @@ impl TorrentStorage {
             .map_err(|error| StorageError::Io(path, error.to_string()))
     }
 
-    fn write_boundary_cache(
-        &self,
-        piece_index: usize,
-        bytes: &[u8],
-    ) -> Result<(), StorageError> {
+    fn write_boundary_cache(&self, piece_index: usize, bytes: &[u8]) -> Result<(), StorageError> {
         ensure_safe_directory(&self.root, &self.boundary_dir)?;
         let path = self.boundary_piece_path(piece_index);
         let tmp = append_suffix(&path, ".tmp");
@@ -747,7 +736,9 @@ impl TorrentStorage {
                 .ok_or(StorageError::LengthOverflow)?;
             let start = usize::try_from(relative).map_err(|_| StorageError::LengthOverflow)?;
             let length = usize::try_from(slice.length).map_err(|_| StorageError::LengthOverflow)?;
-            let end = start.checked_add(length).ok_or(StorageError::LengthOverflow)?;
+            let end = start
+                .checked_add(length)
+                .ok_or(StorageError::LengthOverflow)?;
             let destination = piece
                 .get_mut(start..end)
                 .ok_or(StorageError::PieceSliceOutsideBuffer(piece_index))?;
@@ -926,11 +917,7 @@ fn prepare_selected_files_owned(
     Ok(())
 }
 
-fn allocate_file(
-    file: &mut File,
-    length: u64,
-    allocation: AllocationMode,
-) -> std::io::Result<()> {
+fn allocate_file(file: &mut File, length: u64, allocation: AllocationMode) -> std::io::Result<()> {
     match allocation {
         AllocationMode::None => Ok(()),
         AllocationMode::Sparse => {
@@ -1071,7 +1058,9 @@ pub enum StorageError {
     PieceSliceOutsideBuffer(usize),
     #[error("torrent boundary piece {0} has no durable cache")]
     MissingBoundaryCache(usize),
-    #[error("cached torrent piece {piece_index} length mismatch: expected {expected}, got {actual}")]
+    #[error(
+        "cached torrent piece {piece_index} length mismatch: expected {expected}, got {actual}"
+    )]
     CachedPieceLengthMismatch {
         piece_index: usize,
         expected: usize,
@@ -1161,11 +1150,12 @@ mod tests {
         let meta = multi_meta();
         let selection = TorrentSelection::all(&meta);
         let mut storage =
-            TorrentStorage::create(&root, meta.clone(), selection, AllocationMode::Sparse)
-                .unwrap();
+            TorrentStorage::create(&root, meta.clone(), selection, AllocationMode::Sparse).unwrap();
         let generation = storage.begin_run().unwrap();
 
-        storage.write_verified_piece(generation, 0, b"abcd").unwrap();
+        storage
+            .write_verified_piece(generation, 0, b"abcd")
+            .unwrap();
         assert_eq!(
             storage.read_verified_block(0, 1, 2).unwrap(),
             b"bc".to_vec()
@@ -1211,14 +1201,10 @@ mod tests {
     fn boundary_piece_writes_only_selected_file_and_caches_full_verified_piece() {
         let root = temp_root("boundary");
         let meta = multi_meta();
-        let selection = TorrentSelection::new(
-            &meta,
-            vec![FilePriority::Skip, FilePriority::High],
-        )
-        .unwrap();
+        let selection =
+            TorrentSelection::new(&meta, vec![FilePriority::Skip, FilePriority::High]).unwrap();
         let mut storage =
-            TorrentStorage::create(&root, meta.clone(), selection, AllocationMode::Sparse)
-                .unwrap();
+            TorrentStorage::create(&root, meta.clone(), selection, AllocationMode::Sparse).unwrap();
         let generation = storage.begin_run().unwrap();
 
         let commit = storage
@@ -1235,7 +1221,9 @@ mod tests {
             .unwrap();
         assert_eq!(selected[0], b'd');
 
-        let report = storage.startup_recheck(RecheckMode::CheckpointOnly).unwrap();
+        let report = storage
+            .startup_recheck(RecheckMode::CheckpointOnly)
+            .unwrap();
         assert_eq!(report.valid_pieces, 1);
 
         let _ = std::fs::remove_dir_all(root);
@@ -1247,8 +1235,7 @@ mod tests {
         let meta = multi_meta();
         let selection = TorrentSelection::all(&meta);
         let mut storage =
-            TorrentStorage::create(&root, meta.clone(), selection, AllocationMode::Sparse)
-                .unwrap();
+            TorrentStorage::create(&root, meta.clone(), selection, AllocationMode::Sparse).unwrap();
 
         let path_a = root.join("bundle/a.bin");
         let path_b = root.join("bundle/b.bin");
@@ -1274,8 +1261,7 @@ mod tests {
         let meta = multi_meta();
         let selection = TorrentSelection::all(&meta);
         let mut storage =
-            TorrentStorage::create(&root, meta.clone(), selection, AllocationMode::Sparse)
-                .unwrap();
+            TorrentStorage::create(&root, meta.clone(), selection, AllocationMode::Sparse).unwrap();
         let generation = storage.begin_run().unwrap();
         storage
             .write_verified_piece(generation, 1, b"efgh")
@@ -1305,18 +1291,16 @@ mod tests {
         let meta = multi_meta();
         let selection = TorrentSelection::all(&meta);
         let mut storage =
-            TorrentStorage::create(&root, meta.clone(), selection, AllocationMode::Sparse)
-                .unwrap();
+            TorrentStorage::create(&root, meta.clone(), selection, AllocationMode::Sparse).unwrap();
         let generation = storage.begin_run().unwrap();
-        storage.write_verified_piece(generation, 1, b"efgh").unwrap();
+        storage
+            .write_verified_piece(generation, 1, b"efgh")
+            .unwrap();
 
         storage
             .update_selection(
-                TorrentSelection::new(
-                    &meta,
-                    vec![FilePriority::Normal, FilePriority::High],
-                )
-                .unwrap(),
+                TorrentSelection::new(&meta, vec![FilePriority::Normal, FilePriority::High])
+                    .unwrap(),
             )
             .unwrap();
         assert!(storage.checkpoint().verified.is_set(1).unwrap());
@@ -1327,14 +1311,10 @@ mod tests {
     fn selecting_previously_skipped_existing_path_refuses_clobber() {
         let root = temp_root("select-existing");
         let meta = multi_meta();
-        let selection = TorrentSelection::new(
-            &meta,
-            vec![FilePriority::Skip, FilePriority::Normal],
-        )
-        .unwrap();
+        let selection =
+            TorrentSelection::new(&meta, vec![FilePriority::Skip, FilePriority::Normal]).unwrap();
         let mut storage =
-            TorrentStorage::create(&root, meta.clone(), selection, AllocationMode::Sparse)
-                .unwrap();
+            TorrentStorage::create(&root, meta.clone(), selection, AllocationMode::Sparse).unwrap();
 
         std::fs::create_dir_all(root.join("bundle")).unwrap();
         std::fs::write(root.join("bundle/a.bin"), b"user-data").unwrap();
@@ -1392,8 +1372,7 @@ mod tests {
         let meta = multi_meta();
         let selection = TorrentSelection::all(&meta);
         let storage =
-            TorrentStorage::create(&root, meta.clone(), selection, AllocationMode::Sparse)
-                .unwrap();
+            TorrentStorage::create(&root, meta.clone(), selection, AllocationMode::Sparse).unwrap();
         let checkpoint_path = storage.checkpoint_path.clone();
         let mut checkpoint = storage.checkpoint.clone();
         checkpoint.owned_files.set(0, false).unwrap();
@@ -1411,11 +1390,8 @@ mod tests {
     fn delete_owned_payload_removes_only_checkpoint_owned_files() {
         let root = temp_root("delete-owned");
         let meta = multi_meta();
-        let selection = TorrentSelection::new(
-            &meta,
-            vec![FilePriority::Skip, FilePriority::Normal],
-        )
-        .unwrap();
+        let selection =
+            TorrentSelection::new(&meta, vec![FilePriority::Skip, FilePriority::Normal]).unwrap();
         let mut storage =
             TorrentStorage::create(&root, meta, selection, AllocationMode::Sparse).unwrap();
 

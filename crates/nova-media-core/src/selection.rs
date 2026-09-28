@@ -2,17 +2,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::{MediaDescriptor, MediaStream, MediaTrackKind};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum MediaSelectionMode {
+    #[default]
     Video,
     Audio,
-}
-
-impl Default for MediaSelectionMode {
-    fn default() -> Self {
-        Self::Video
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -61,9 +56,9 @@ pub fn select_media_stream<'a>(
         .iter()
         .filter(|stream| matches_mode(stream, policy.mode))
         .filter(|stream| {
-            policy
-                .max_height
-                .map_or(true, |limit| stream.height.map_or(true, |height| height <= limit))
+            policy.max_height.map_or(true, |limit| {
+                stream.height.map_or(true, |height| height <= limit)
+            })
         })
         .max_by(|left, right| compare_streams(left, right, policy))
 }
@@ -85,33 +80,28 @@ fn compare_streams(
 ) -> std::cmp::Ordering {
     let left_preferences = preference_score(left, policy);
     let right_preferences = preference_score(right, policy);
-    left_preferences
-        .cmp(&right_preferences)
-        .then_with(|| {
-            for key in &policy.sort {
-                let ordering = sort_value(left, *key).cmp(&sort_value(right, *key));
-                if ordering != std::cmp::Ordering::Equal {
-                    return ordering;
-                }
+    left_preferences.cmp(&right_preferences).then_with(|| {
+        for key in &policy.sort {
+            let ordering = sort_value(left, *key).cmp(&sort_value(right, *key));
+            if ordering != std::cmp::Ordering::Equal {
+                return ordering;
             }
-            std::cmp::Ordering::Equal
-        })
+        }
+        std::cmp::Ordering::Equal
+    })
 }
 
-fn preference_score(
-    stream: &MediaStream,
-    policy: &MediaSelectionPolicy,
-) -> (u8, u8, u8, u8, u8) {
+fn preference_score(stream: &MediaStream, policy: &MediaSelectionPolicy) -> (u8, u8, u8, u8, u8) {
     let container = stream.container.as_deref().unwrap_or_default();
     let language = stream.language.as_deref().unwrap_or_default();
     let container_match = policy
         .preferred_container
         .as_deref()
-        .map_or(false, |wanted| container.eq_ignore_ascii_case(wanted));
+        .is_some_and(|wanted| container.eq_ignore_ascii_case(wanted));
     let language_match = policy
         .preferred_language
         .as_deref()
-        .map_or(false, |wanted| language.eq_ignore_ascii_case(wanted));
+        .is_some_and(|wanted| language.eq_ignore_ascii_case(wanted));
     let video_codec_match = codec_matches(
         stream.video_codec.as_deref(),
         policy.preferred_video_codec.as_deref(),
@@ -120,8 +110,8 @@ fn preference_score(
         stream.audio_codec.as_deref(),
         policy.preferred_audio_codec.as_deref(),
     );
-    let muxed_video = policy.mode == MediaSelectionMode::Video
-        && stream.kind == MediaTrackKind::AudioVideo;
+    let muxed_video =
+        policy.mode == MediaSelectionMode::Video && stream.kind == MediaTrackKind::AudioVideo;
     (
         u8::from(container_match),
         u8::from(language_match),
@@ -153,10 +143,7 @@ fn sort_value(stream: &MediaStream, key: MediaSortKey) -> u64 {
                     .map(|fps| (fps.max(0.0) * 1_000.0) as u64)
                     .unwrap_or(0),
             ),
-        MediaSortKey::Bitrate => stream
-            .audio_bitrate_bps
-            .or(stream.bitrate_bps)
-            .unwrap_or(0),
+        MediaSortKey::Bitrate => stream.audio_bitrate_bps.or(stream.bitrate_bps).unwrap_or(0),
         MediaSortKey::Size => stream.content_length.unwrap_or(0),
     }
 }
@@ -164,9 +151,7 @@ fn sort_value(stream: &MediaStream, key: MediaSortKey) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        MediaMetadata, MediaProtocol, MediaSourceKind,
-    };
+    use crate::{MediaMetadata, MediaProtocol, MediaSourceKind};
     use std::collections::BTreeMap;
 
     fn stream(
@@ -249,8 +234,9 @@ mod tests {
 
     #[test]
     fn audio_mode_never_selects_muxed_video() {
+        let descriptor = descriptor();
         let selected = select_media_stream(
-            &descriptor(),
+            &descriptor,
             &MediaSelectionPolicy {
                 mode: MediaSelectionMode::Audio,
                 ..MediaSelectionPolicy::default()
@@ -262,8 +248,9 @@ mod tests {
 
     #[test]
     fn container_and_language_preferences_are_deterministic() {
+        let descriptor = descriptor();
         let selected = select_media_stream(
-            &descriptor(),
+            &descriptor,
             &MediaSelectionPolicy {
                 mode: MediaSelectionMode::Audio,
                 preferred_container: Some("webm".to_owned()),
@@ -277,8 +264,9 @@ mod tests {
 
     #[test]
     fn video_height_ceiling_prefers_muxed_stream_with_audio() {
+        let descriptor = descriptor();
         let selected = select_media_stream(
-            &descriptor(),
+            &descriptor,
             &MediaSelectionPolicy {
                 max_height: Some(720),
                 ..MediaSelectionPolicy::default()

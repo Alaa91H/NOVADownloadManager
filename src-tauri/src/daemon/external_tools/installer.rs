@@ -540,8 +540,8 @@ pub fn uninstall_tool(
 #[cfg(test)]
 mod tests {
     use super::{
-        archive_entry_matches, asset_sha256, is_ffmpeg_static_asset,
-        is_trusted_release_asset_url, sha256_hex,
+        archive_entry_matches, asset_sha256, is_ffmpeg_static_asset, is_trusted_release_asset_url,
+        sha256_hex,
     };
     use std::path::Path;
 
@@ -598,6 +598,4 @@ mod tests {
             "ffmpeg"
         ));
     }
-
-
 }

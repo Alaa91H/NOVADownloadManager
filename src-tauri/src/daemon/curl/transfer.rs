@@ -1126,8 +1126,11 @@ fn run_single_libcurl(
         plan.total_size,
         plan.output_path.display()
     );
-    let resume_end =
-        (plan.total_size > resume_existing && plan.total_size > 0).then_some(plan.total_size - 1);
+    let resume_end = if plan.total_size > resume_existing && plan.total_size > 0 {
+        Some(plan.total_size - 1)
+    } else {
+        None
+    };
     let capture = Arc::new(Mutex::new(if resume_existing > 0 {
         response_capture_for_range(plan, resume_existing, resume_end, None)
     } else {
@@ -2420,6 +2423,16 @@ fn run_libcurl_download(
         plan.link_mirrors.len(),
         plan.output_path.display()
     );
+
+    // Bytes from a previous segmented run are trustworthy only when they are
+    // bound to a validator persisted before this run. A validator learned by
+    // the new preflight cannot authenticate anonymous bytes already on disk.
+    if plan.validator.is_none() && FileWriter::has_stale_parts_for(&plan.output_path) {
+        log::warn!(
+            "Task {id}: discarding anonymous segment checkpoints before preflight identity adoption"
+        );
+        discard_anonymous_segment_checkpoints(state, id, &plan.output_path);
+    }
     // Register every candidate before the first attempt. Link analysis can
     // populate `link_mirrors` without visiting the explicit mirror-management
     // route, so lazy creation inside the failure branch used to leave that
@@ -3861,7 +3874,7 @@ mod tests {
         std::fs::write(&output, b"nova").unwrap();
 
         let body = download_body("http://127.0.0.1:1/complete.bin", "complete.bin", 4, 1);
-        let job = task_from_body(
+        let mut job = task_from_body(
             &body,
             id,
             "complete.bin".to_owned(),
@@ -3869,6 +3882,8 @@ mod tests {
             std::collections::HashMap::new(),
             Vec::new(),
         );
+        transition_task_state(&mut job.task, TaskState::Downloading, "test-downloading")
+            .expect("test task must enter downloading before completion");
         job.run_generation.store(1, Ordering::Release);
         state
             .task_snapshot
@@ -3913,7 +3928,7 @@ mod tests {
         let id = "completion-missing";
         let output = dir.join("missing.bin");
         let body = download_body("http://127.0.0.1:1/missing.bin", "missing.bin", 4, 1);
-        let job = task_from_body(
+        let mut job = task_from_body(
             &body,
             id,
             "missing.bin".to_owned(),
@@ -3921,6 +3936,8 @@ mod tests {
             std::collections::HashMap::new(),
             Vec::new(),
         );
+        transition_task_state(&mut job.task, TaskState::Downloading, "test-downloading")
+            .expect("test task must enter downloading before completion");
         job.run_generation.store(1, Ordering::Release);
         state
             .task_snapshot
@@ -3973,7 +3990,7 @@ mod tests {
             "digestSha256".to_owned(),
             serde_json::Value::String(wrong_digest),
         );
-        let job = task_from_body(
+        let mut job = task_from_body(
             &body,
             id,
             "digest.bin".to_owned(),
@@ -3981,6 +3998,8 @@ mod tests {
             options,
             Vec::new(),
         );
+        transition_task_state(&mut job.task, TaskState::Downloading, "test-downloading")
+            .expect("test task must enter downloading before completion");
         job.run_generation.store(1, Ordering::Release);
         state
             .task_snapshot

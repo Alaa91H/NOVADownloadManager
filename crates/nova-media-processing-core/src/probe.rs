@@ -159,17 +159,14 @@ mod tests {
 
     #[test]
     fn sniffs_iso_bmff_mp4() {
-        let bytes = [
-            0, 0, 0, 24, b'f', b't', b'y', b'p', b'i', b's', b'o', b'm',
-        ];
+        let bytes = [0, 0, 0, 24, b'f', b't', b'y', b'p', b'i', b's', b'o', b'm'];
         assert_eq!(sniff_media_container(&bytes), Some(MediaContainer::Mp4));
     }
 
     #[test]
     fn distinguishes_webm_ebml_header() {
         let bytes = [
-            0x1A, 0x45, 0xDF, 0xA3, 0x87,
-            0x42, 0x82, 0x84, b'w', b'e', b'b', b'm',
+            0x1A, 0x45, 0xDF, 0xA3, 0x87, 0x42, 0x82, 0x84, b'w', b'e', b'b', b'm',
         ];
         assert_eq!(sniff_media_container(&bytes), Some(MediaContainer::WebM));
     }
@@ -177,8 +174,8 @@ mod tests {
     #[test]
     fn distinguishes_matroska_ebml_header() {
         let bytes = [
-            0x1A, 0x45, 0xDF, 0xA3, 0x8B,
-            0x42, 0x82, 0x88, b'm', b'a', b't', b'r', b'o', b's', b'k', b'a',
+            0x1A, 0x45, 0xDF, 0xA3, 0x8B, 0x42, 0x82, 0x88, b'm', b'a', b't', b'r', b'o', b's',
+            b'k', b'a',
         ];
         assert_eq!(
             sniff_media_container(&bytes),
@@ -189,8 +186,7 @@ mod tests {
     #[test]
     fn unknown_ebml_doctype_is_not_guessed_as_matroska() {
         let bytes = [
-            0x1A, 0x45, 0xDF, 0xA3, 0x86,
-            0x42, 0x82, 0x83, b'f', b'o', b'o',
+            0x1A, 0x45, 0xDF, 0xA3, 0x86, 0x42, 0x82, 0x83, b'f', b'o', b'o',
         ];
         assert_eq!(sniff_media_container(&bytes), None);
     }
@@ -200,10 +196,7 @@ mod tests {
         let mut bytes = vec![0_u8; 376];
         bytes[0] = 0x47;
         bytes[188] = 0x47;
-        assert_eq!(
-            sniff_media_container(&bytes),
-            Some(MediaContainer::MpegTs)
-        );
+        assert_eq!(sniff_media_container(&bytes), Some(MediaContainer::MpegTs));
     }
 
     #[test]

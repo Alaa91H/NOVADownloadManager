@@ -55,22 +55,12 @@ impl TorrentSeedingPolicy {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct TorrentSeedingSnapshot {
     pub policy: TorrentSeedingPolicy,
     pub uploaded_bytes: u64,
     pub seeded_seconds: u64,
-}
-
-impl Default for TorrentSeedingSnapshot {
-    fn default() -> Self {
-        Self {
-            policy: TorrentSeedingPolicy::default(),
-            uploaded_bytes: 0,
-            seeded_seconds: 0,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -220,8 +210,7 @@ impl TorrentSeedingControl {
         let uploaded = u128::from(self.uploaded_bytes());
         let ratio_reached = match (policy.ratio_limit_milli, downloaded_bytes) {
             (Some(limit), total) if total > 0 => {
-                uploaded.saturating_mul(1000)
-                    >= u128::from(total).saturating_mul(u128::from(limit))
+                uploaded.saturating_mul(1000) >= u128::from(total).saturating_mul(u128::from(limit))
             }
             _ => false,
         };

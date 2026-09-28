@@ -1,9 +1,7 @@
 use crate::{TorrentMetainfo, TorrentMetainfoError};
 use serde::{Deserialize, Serialize};
 
-#[derive(
-    Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize,
-)]
+#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FilePriority {
     Skip,
@@ -201,11 +199,8 @@ mod tests {
     #[test]
     fn piece_priority_uses_highest_overlapping_file_priority() {
         let meta = meta();
-        let selection = TorrentSelection::new(
-            &meta,
-            vec![FilePriority::Skip, FilePriority::High],
-        )
-        .unwrap();
+        let selection =
+            TorrentSelection::new(&meta, vec![FilePriority::Skip, FilePriority::High]).unwrap();
         assert_eq!(selection.piece_priority(&meta, 0), Ok(FilePriority::High));
         assert_eq!(selection.piece_priority(&meta, 1), Ok(FilePriority::High));
         assert_eq!(selection.piece_is_boundary(&meta, 0), Ok(true));
@@ -227,11 +222,8 @@ mod tests {
                 offset: 4,
             },
         ];
-        let selection = TorrentSelection::new(
-            &meta,
-            vec![FilePriority::Skip, FilePriority::Normal],
-        )
-        .unwrap();
+        let selection =
+            TorrentSelection::new(&meta, vec![FilePriority::Skip, FilePriority::Normal]).unwrap();
         assert_eq!(selection.piece_priority(&meta, 0), Ok(FilePriority::Skip));
         assert_eq!(selection.piece_priority(&meta, 1), Ok(FilePriority::Normal));
         assert_eq!(selection.selected_bytes(&meta), Ok(4));

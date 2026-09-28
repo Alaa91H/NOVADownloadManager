@@ -225,11 +225,7 @@ impl TorrentSwarmTelemetry {
         }
     }
 
-    pub fn tracker_attempt<'a>(
-        &self,
-        trackers: impl IntoIterator<Item = &'a str>,
-        event: &str,
-    ) {
+    pub fn tracker_attempt<'a>(&self, trackers: impl IntoIterator<Item = &'a str>, event: &str) {
         for tracker in trackers {
             let endpoint = tracker_endpoint(tracker);
             self.update_tracker(endpoint, |record| {
@@ -285,7 +281,12 @@ impl TorrentSwarmTelemetry {
         };
         TorrentSwarmTelemetrySnapshot {
             peers: state.peers.iter().rev().map(PeerRecord::view).collect(),
-            trackers: state.trackers.iter().rev().map(TrackerRecord::view).collect(),
+            trackers: state
+                .trackers
+                .iter()
+                .rev()
+                .map(TrackerRecord::view)
+                .collect(),
         }
     }
 

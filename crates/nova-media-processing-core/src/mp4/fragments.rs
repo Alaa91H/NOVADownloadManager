@@ -3,8 +3,7 @@ use std::collections::BTreeMap;
 use crate::{MediaProcessingError, MediaTimeBase};
 
 use super::boxes::{
-    child, demux_error, full_box_body, parse_boxes, read_i32, read_u32, read_u64,
-    slice, FourCc,
+    child, demux_error, full_box_body, parse_boxes, read_i32, read_u32, read_u64, slice, FourCc,
 };
 use super::parser::Mp4Sample;
 
@@ -243,9 +242,7 @@ fn parse_trun(
         None
     };
 
-    if flags & TRUN_FIRST_SAMPLE_FLAGS_PRESENT != 0
-        && flags & TRUN_SAMPLE_FLAGS_PRESENT != 0
-    {
+    if flags & TRUN_FIRST_SAMPLE_FLAGS_PRESENT != 0 && flags & TRUN_SAMPLE_FLAGS_PRESENT != 0 {
         return Err(demux_error(
             "trun cannot contain both first-sample-flags and per-sample flags",
         ));
@@ -410,8 +407,7 @@ mod tests {
         let traf = box_bytes(b"traf", [tfhd, tfdt, trun].concat());
         let time_base = MediaTimeBase::new(1, 1000).expect("time base");
         let tracks = BTreeMap::from([(1_u32, time_base)]);
-        let packets =
-            parse_moof_packets(&traf, 5000, &tracks, &BTreeMap::new()).expect("fragment");
+        let packets = parse_moof_packets(&traf, 5000, &tracks, &BTreeMap::new()).expect("fragment");
 
         assert_eq!(packets.len(), 2);
         assert_eq!(packets[0].sample.offset, 5100);

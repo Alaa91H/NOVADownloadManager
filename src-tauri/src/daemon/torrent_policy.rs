@@ -3,9 +3,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::daemon::engine::bandwidth::BandwidthManager;
-use crate::daemon::engine::priority_queue::{
-    DownloadPriority, PriorityBandwidthQueue, QueueEntry,
-};
+use crate::daemon::engine::priority_queue::{DownloadPriority, PriorityBandwidthQueue, QueueEntry};
 use crate::daemon::torrent_bandwidth::TorrentBandwidthLimiter;
 
 pub struct TorrentNovaPolicyLease {
@@ -27,11 +25,7 @@ impl TorrentNovaPolicyLease {
         if task_id.trim().is_empty() {
             return Err("Torrent task id cannot be empty".to_owned());
         }
-        if queue
-            .entries()
-            .iter()
-            .any(|entry| entry.task_id == task_id)
-        {
+        if queue.entries().iter().any(|entry| entry.task_id == task_id) {
             return Err(format!(
                 "Torrent task {task_id} is already registered in the priority queue"
             ));

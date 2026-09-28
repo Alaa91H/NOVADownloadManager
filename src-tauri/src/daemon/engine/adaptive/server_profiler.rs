@@ -205,6 +205,12 @@ pub struct ServerProfiler {
     profiles: HashMap<String, ServerProfile>,
 }
 
+impl Default for ServerProfiler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ServerProfiler {
     pub fn new() -> Self {
         Self {

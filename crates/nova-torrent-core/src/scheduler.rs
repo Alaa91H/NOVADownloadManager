@@ -195,12 +195,7 @@ impl PieceScheduler {
                 FilePriority::Normal => 1,
                 FilePriority::Skip => 2,
             };
-            let candidate = (
-                priority_rank,
-                self.availability[index],
-                distance,
-                index,
-            );
+            let candidate = (priority_rank, self.availability[index], distance, index);
             if best.map_or(true, |current| candidate < current) {
                 best = Some(candidate);
             }
@@ -322,10 +317,7 @@ pub enum SchedulerError {
     #[error("torrent has too many pieces for peer protocol: {0}")]
     TooManyPieces(u64),
     #[error("piece {piece_index} is outside piece count {piece_count}")]
-    PieceOutOfRange {
-        piece_index: u32,
-        piece_count: u32,
-    },
+    PieceOutOfRange { piece_index: u32, piece_count: u32 },
     #[error("piece {0} is already complete")]
     PieceAlreadyComplete(u32),
     #[error("piece availability overflow for piece {0}")]
@@ -349,7 +341,9 @@ mod tests {
         assert_eq!(layout.piece_size(0), Ok(32_768));
         assert_eq!(layout.piece_size(1), Ok(7_232));
         assert_eq!(
-            layout.block_requests(0, DEFAULT_BLOCK_SIZE).expect("blocks"),
+            layout
+                .block_requests(0, DEFAULT_BLOCK_SIZE)
+                .expect("blocks"),
             vec![
                 BlockRequest {
                     piece_index: 0,
@@ -391,11 +385,7 @@ mod tests {
         let mut scheduler = PieceScheduler::new(layout);
         scheduler.peer_connected(&[0b1110_0000]).unwrap();
         scheduler
-            .set_piece_priorities(&[
-                FilePriority::Normal,
-                FilePriority::High,
-                FilePriority::Skip,
-            ])
+            .set_piece_priorities(&[FilePriority::Normal, FilePriority::High, FilePriority::Skip])
             .unwrap();
 
         assert_eq!(scheduler.select_rarest(&[0b1110_0000]), Some(1));

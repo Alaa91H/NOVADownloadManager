@@ -125,12 +125,8 @@ fn extension(url: &Url) -> Option<String> {
 
 fn direct_kind(extension: &str) -> Option<MediaTrackKind> {
     match extension {
-        "mp4" | "webm" | "mkv" | "mov" | "m4v" | "avi" | "ts" => {
-            Some(MediaTrackKind::AudioVideo)
-        }
-        "mp3" | "m4a" | "aac" | "flac" | "ogg" | "opus" | "wav" => {
-            Some(MediaTrackKind::Audio)
-        }
+        "mp4" | "webm" | "mkv" | "mov" | "m4v" | "avi" | "ts" => Some(MediaTrackKind::AudioVideo),
+        "mp3" | "m4a" | "aac" | "flac" | "ogg" | "opus" | "wav" => Some(MediaTrackKind::Audio),
         _ => None,
     }
 }
@@ -170,7 +166,10 @@ mod tests {
         let dash = ExtractRequest::new("https://cdn.test/video.mpd?sig=123");
         assert!(extractor.supports(&dash));
         assert_eq!(
-            extractor.extract(&dash).expect("DASH descriptor").source_kind,
+            extractor
+                .extract(&dash)
+                .expect("DASH descriptor")
+                .source_kind,
             MediaSourceKind::Dash
         );
     }

@@ -1348,10 +1348,6 @@ pub fn native_media_status() -> Value {
     })
 }
 
-fn ffmpeg_available(ffmpeg_bin: &str) -> bool {
-    hidden_output(ffmpeg_bin, &["-version"]).is_some() || executable_available(ffmpeg_bin)
-}
-
 fn parse_ffmpeg_list(output: &str) -> HashSet<String> {
     let mut values = HashSet::new();
     for line in output.lines() {
@@ -1736,7 +1732,10 @@ mod tests {
             status["capabilities"]["separateTrackMuxRequiresPostProcessingReady"],
             false
         );
-        assert_eq!(status["capabilities"]["nativeMp4MuxBackend"], "nova-media-core");
+        assert_eq!(
+            status["capabilities"]["nativeMp4MuxBackend"],
+            "nova-media-core"
+        );
         assert_eq!(status["capabilities"]["formatSorting"], true);
         assert_eq!(status["capabilities"]["requestContextOriginScoped"], true);
         assert_eq!(status["capabilities"]["playlistProbe"], true);
@@ -1764,10 +1763,18 @@ mod tests {
         );
         assert_eq!(
             status["capabilities"]["separateTrackMuxBackend"],
-            "nova-media-postprocess"
+            "container-dependent"
         );
         assert_eq!(
             status["capabilities"]["separateTrackMuxRequiresPostProcessingReady"],
+            false
+        );
+        assert_eq!(
+            status["capabilities"]["nonMp4MuxBackend"],
+            "nova-media-postprocess"
+        );
+        assert_eq!(
+            status["capabilities"]["nonMp4MuxRequiresPostProcessingReady"],
             true
         );
         let supported = status["supportedMediaOptionKeys"]

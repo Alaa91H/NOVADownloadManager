@@ -1,6 +1,4 @@
-use crate::{
-    MediaPacket, MediaProbe, MediaProcessingError, MediaTimestamp,
-};
+use crate::{MediaPacket, MediaProbe, MediaProcessingError, MediaTimestamp};
 
 /// Container-neutral packet reader used by native remux and transcode
 /// pipelines. Implementations own container parsing but never perform network

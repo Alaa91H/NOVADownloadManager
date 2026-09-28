@@ -42,9 +42,7 @@ fn parse_browser_cookie_source(spec: &str) -> Result<(&str, Option<&str>), Strin
         return Err("Browser cookie source is missing a browser name".to_owned());
     }
     if browser.contains('+') || browser.contains(',') {
-        return Err(
-            "Native browser-cookie import accepts one browser source at a time".to_owned(),
-        );
+        return Err("Native browser-cookie import accepts one browser source at a time".to_owned());
     }
     let profile = profile.map(str::trim).filter(|value| !value.is_empty());
     Ok((browser, profile))
@@ -91,15 +89,14 @@ fn discover_firefox_cookie_database(profile: Option<&str>) -> Result<PathBuf, St
             .and_then(|value| value.to_str())
             .unwrap_or_default()
             .to_ascii_lowercase();
-        let score = if profile_name.ends_with(".default-release")
-            || profile_name == "default-release"
-        {
-            3_u8
-        } else if profile_name.ends_with(".default") || profile_name == "default" {
-            2
-        } else {
-            1
-        };
+        let score =
+            if profile_name.ends_with(".default-release") || profile_name == "default-release" {
+                3_u8
+            } else if profile_name.ends_with(".default") || profile_name == "default" {
+                2
+            } else {
+                1
+            };
         let modified = fs::metadata(candidate)
             .and_then(|metadata| metadata.modified())
             .ok()
@@ -258,7 +255,8 @@ fn load_firefox_cookie_header_from_database(
 
     let mut matching = Vec::new();
     for row in rows {
-        let cookie = row.map_err(|error| format!("Could not decode Firefox cookie row: {error}"))?;
+        let cookie =
+            row.map_err(|error| format!("Could not decode Firefox cookie row: {error}"))?;
         if cookie.expiry > 0 && cookie.expiry <= now {
             continue;
         }
@@ -326,7 +324,11 @@ fn cookie_domain_matches(host: &str, cookie_domain: &str) -> bool {
 }
 
 fn cookie_path_matches(target_path: &str, cookie_path: &str) -> bool {
-    let cookie_path = if cookie_path.is_empty() { "/" } else { cookie_path };
+    let cookie_path = if cookie_path.is_empty() {
+        "/"
+    } else {
+        cookie_path
+    };
     if target_path == cookie_path {
         return true;
     }
@@ -378,7 +380,14 @@ mod tests {
             + 3600;
         let past = future - 7200;
         for (host, path, secure, expiry, name, value) in [
-            (".example.test", "/private", 1_i64, future, "session", "secret"),
+            (
+                ".example.test",
+                "/private",
+                1_i64,
+                future,
+                "session",
+                "secret",
+            ),
             (".example.test", "/", 0_i64, future, "pref", "wide"),
             (".example.test", "/admin", 0_i64, future, "admin", "hidden"),
             (".other.test", "/", 0_i64, future, "other", "ignored"),

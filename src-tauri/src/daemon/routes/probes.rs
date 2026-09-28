@@ -14,8 +14,8 @@ use crate::daemon::utils::infer_file_type;
 
 use super::common::{
     content_disposition_filename, extract_best_size, extract_sha256_digest, fallback_file_name,
-    header_string, hidden_output, is_cloudflare_challenge,
-    PROBE_HEAD_TIMEOUT_SECS, PROBE_RANGE_TIMEOUT_SECS, PROBE_USER_AGENT,
+    header_string, hidden_output, is_cloudflare_challenge, PROBE_HEAD_TIMEOUT_SECS,
+    PROBE_RANGE_TIMEOUT_SECS, PROBE_USER_AGENT,
 };
 use crate::daemon::utils::{parse_meta_refresh_url, refreshed_url};
 
@@ -778,7 +778,11 @@ fn parse_native_media_header_lines(
     request: &mut nova_media_core::ExtractRequest,
     headers: &str,
 ) -> Result<(), String> {
-    for line in headers.lines().map(str::trim).filter(|line| !line.is_empty()) {
+    for line in headers
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
         let (name, value) = line
             .split_once(':')
             .ok_or_else(|| format!("Invalid media header line: {line}"))?;
@@ -801,19 +805,35 @@ fn native_extract_request_from_body(
     }
 
     let mut request = nova_media_core::ExtractRequest::new(url);
-    if let Some(referer) = body.referer.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
-        request.headers.insert("Referer".to_owned(), referer.to_owned());
+    if let Some(referer) = body
+        .referer
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        request
+            .headers
+            .insert("Referer".to_owned(), referer.to_owned());
     }
 
     if let Some(media) = body.media_options.as_ref() {
-        if media.cookies_from_browser.as_deref().is_some_and(|value| !value.trim().is_empty()) {
+        if media
+            .cookies_from_browser
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+        {
             return Err(
                 "Native media resolver does not import browser cookies yet; provide an explicit Cookie header instead"
                     .to_owned(),
             );
         }
 
-        if let Some(cookies) = media.cookies.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        if let Some(cookies) = media
+            .cookies
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
             let looks_like_cookie_header =
                 cookies.contains('=') && !cookies.ends_with(".txt") && !cookies.contains('\\');
             if !looks_like_cookie_header {
@@ -822,7 +842,9 @@ fn native_extract_request_from_body(
                         .to_owned(),
                 );
             }
-            request.headers.insert("Cookie".to_owned(), cookies.to_owned());
+            request
+                .headers
+                .insert("Cookie".to_owned(), cookies.to_owned());
         }
 
         if let Some(user_agent) = media
@@ -880,7 +902,9 @@ pub(super) fn resolve_native_media_request(
         let challenge_resolution = if extraction.pending_formats.is_empty() {
             serde_json::Value::Null
         } else {
-            let context = request.request_context().map_err(|error| error.to_string())?;
+            let context = request
+                .request_context()
+                .map_err(|error| error.to_string())?;
             let solver = YouTubePlayerScriptSolver;
             match resolve_youtube_pending_formats(&mut extraction, &context, &solver) {
                 Ok(resolution) => serde_json::json!({
@@ -892,10 +916,8 @@ pub(super) fn resolve_native_media_request(
             }
         };
 
-        let selection = select_youtube_download_plan(
-            &extraction,
-            YouTubeSelectionPolicy::default(),
-        );
+        let selection =
+            select_youtube_download_plan(&extraction, YouTubeSelectionPolicy::default());
 
         return Ok(serde_json::json!({
             "engine": "nova-native",
@@ -913,7 +935,9 @@ pub(super) fn resolve_native_media_request(
     }
 
     let registry = ExtractorRegistry::with_native_defaults();
-    let descriptor = registry.resolve(&request).map_err(|error| error.to_string())?;
+    let descriptor = registry
+        .resolve(&request)
+        .map_err(|error| error.to_string())?;
     Ok(serde_json::json!({
         "engine": "nova-native",
         "extractor": "registry",
@@ -986,7 +1010,6 @@ pub async fn handle_native_media_resolve_post(
     run_native_media_resolve(request).await
 }
 
-
 pub(super) fn native_media_probe_payload(
     resolved: &serde_json::Value,
     url: &str,
@@ -994,7 +1017,9 @@ pub(super) fn native_media_probe_payload(
     let descriptor = resolved
         .get("descriptor")
         .ok_or_else(|| "Native media descriptor missing".to_owned())?;
-    let metadata = descriptor.get("metadata").unwrap_or(&serde_json::Value::Null);
+    let metadata = descriptor
+        .get("metadata")
+        .unwrap_or(&serde_json::Value::Null);
     let duration_millis = metadata
         .get("duration_millis")
         .and_then(serde_json::Value::as_u64)
@@ -1020,7 +1045,9 @@ pub(super) fn native_media_probe_payload(
             streams
                 .iter()
                 .map(|stream| {
-                    let bitrate = stream.get("bitrate_bps").and_then(serde_json::Value::as_u64);
+                    let bitrate = stream
+                        .get("bitrate_bps")
+                        .and_then(serde_json::Value::as_u64);
                     let audio_bitrate = stream
                         .get("audio_bitrate_bps")
                         .and_then(serde_json::Value::as_u64);
@@ -1041,9 +1068,7 @@ pub(super) fn native_media_probe_payload(
                     let has_audio =
                         audio_codec != "none" || matches!(kind, "audio" | "audio-video");
                     let height = stream.get("height").and_then(serde_json::Value::as_u64);
-                    let language = stream
-                        .get("language")
-                        .and_then(serde_json::Value::as_str);
+                    let language = stream.get("language").and_then(serde_json::Value::as_str);
                     let label = height
                         .map(|value| format!("{value}p"))
                         .or_else(|| language.map(str::to_owned))
@@ -1065,58 +1090,46 @@ pub(super) fn native_media_probe_payload(
                     format.insert("url".to_owned(), serde_json::json!(stable_page_url));
                     format.insert(
                         "formatId".to_owned(),
-                        serde_json::json!(
-                            stream
-                                .get("id")
-                                .and_then(serde_json::Value::as_str)
-                                .unwrap_or("native")
-                        ),
+                        serde_json::json!(stream
+                            .get("id")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("native")),
                     );
                     format.insert("label".to_owned(), serde_json::json!(label));
                     format.insert(
                         "ext".to_owned(),
-                        serde_json::json!(
-                            stream
-                                .get("container")
-                                .and_then(serde_json::Value::as_str)
-                                .unwrap_or("")
-                        ),
+                        serde_json::json!(stream
+                            .get("container")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("")),
                     );
                     format.insert(
                         "container".to_owned(),
-                        serde_json::json!(
-                            stream
-                                .get("container")
-                                .and_then(serde_json::Value::as_str)
-                                .unwrap_or("")
-                        ),
+                        serde_json::json!(stream
+                            .get("container")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("")),
                     );
                     format.insert(
                         "filesize".to_owned(),
-                        serde_json::json!(
-                            stream
-                                .get("content_length")
-                                .and_then(serde_json::Value::as_u64)
-                                .unwrap_or(0)
-                        ),
+                        serde_json::json!(stream
+                            .get("content_length")
+                            .and_then(serde_json::Value::as_u64)
+                            .unwrap_or(0)),
                     );
                     format.insert(
                         "filesizeApprox".to_owned(),
-                        serde_json::json!(
-                            stream
-                                .get("content_length")
-                                .and_then(serde_json::Value::as_u64)
-                                .unwrap_or(0)
-                        ),
+                        serde_json::json!(stream
+                            .get("content_length")
+                            .and_then(serde_json::Value::as_u64)
+                            .unwrap_or(0)),
                     );
                     format.insert(
                         "estimatedSizeBytes".to_owned(),
-                        serde_json::json!(
-                            stream
-                                .get("content_length")
-                                .and_then(serde_json::Value::as_u64)
-                                .unwrap_or(0)
-                        ),
+                        serde_json::json!(stream
+                            .get("content_length")
+                            .and_then(serde_json::Value::as_u64)
+                            .unwrap_or(0)),
                     );
                     format.insert("vcodec".to_owned(), serde_json::json!(video_codec));
                     format.insert("acodec".to_owned(), serde_json::json!(audio_codec));
@@ -1234,8 +1247,7 @@ pub async fn handle_native_media_probe_playlist(
 
     let request = nova_media_core::ExtractRequest::new(url);
     let playlist = tokio::task::spawn_blocking(move || {
-        nova_media_core::resolve_youtube_playlist(&request)
-            .map_err(|error| error.to_string())
+        nova_media_core::resolve_youtube_playlist(&request).map_err(|error| error.to_string())
     })
     .await
     .map_err(|error| {

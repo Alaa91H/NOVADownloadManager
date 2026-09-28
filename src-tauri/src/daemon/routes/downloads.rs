@@ -18,13 +18,13 @@ use crate::daemon::direct::DirectUrl;
 use crate::daemon::engine::mirror::{MirrorManager, MirrorSource};
 use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
 use crate::daemon::engine::rules::RuleAction;
+use crate::daemon::native_media::create_native_media_task;
 use crate::daemon::state::SharedState;
 use crate::daemon::telegram::telegram_notify;
 use crate::daemon::torrent_task::{analyze_magnet, create_torrent_task, CreateTorrentBody};
 use crate::daemon::types::{
     transition_task_state, CreateDownloadBody, MediaDownloadOptions, Task, TaskState,
 };
-use crate::daemon::native_media::create_native_media_task;
 use crate::lock_or_err;
 
 use super::common::{daemon_error, fallback_file_name};

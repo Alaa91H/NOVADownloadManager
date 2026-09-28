@@ -19,6 +19,12 @@ pub struct ConvergenceDetector {
     cooldown_until: Option<Instant>,
 }
 
+impl Default for ConvergenceDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConvergenceDetector {
     pub fn new() -> Self {
         Self {

@@ -29,10 +29,8 @@ use crate::daemon::engine::retry::RetryState;
 use crate::daemon::engine::rules::DownloadRuleEngine;
 use crate::daemon::engine::scheduler::SmartScheduler;
 use crate::daemon::engine::self_healing::SelfHealer;
-use crate::daemon::types::{
-    CreateDownloadBody, CurlJob, NativeMediaJob, Task, TelegramConfig,
-};
 use crate::daemon::torrent_task::{PendingTorrentAnalysis, TorrentJob};
+use crate::daemon::types::{CreateDownloadBody, CurlJob, NativeMediaJob, Task, TelegramConfig};
 
 /// Browser-originated download data that has passed daemon URL validation but
 /// still requires an explicit user decision in the desktop confirmation dialog.

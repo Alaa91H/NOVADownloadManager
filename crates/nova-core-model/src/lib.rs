@@ -121,17 +121,10 @@ impl TaskState {
             return true;
         }
         match self {
-            Self::Queued => matches!(
-                next,
-                Self::Preparing | Self::Paused | Self::Failed
-            ),
+            Self::Queued => matches!(next, Self::Preparing | Self::Paused | Self::Failed),
             Self::Preparing => matches!(
                 next,
-                Self::Probing
-                    | Self::Downloading
-                    | Self::Pausing
-                    | Self::Paused
-                    | Self::Failed
+                Self::Probing | Self::Downloading | Self::Pausing | Self::Paused | Self::Failed
             ),
             Self::Probing => matches!(
                 next,
@@ -181,10 +174,7 @@ impl TaskState {
             ),
             Self::Completed => false,
             Self::Failed => matches!(next, Self::Queued | Self::Paused),
-            Self::Interrupted => matches!(
-                next,
-                Self::Paused | Self::Queued | Self::Preparing | Self::Failed
-            ),
+            Self::Interrupted => matches!(next, Self::Paused | Self::Queued | Self::Failed),
         }
     }
 
@@ -277,8 +267,16 @@ pub struct ByteRange {
 }
 
 impl ByteRange {
+    pub fn is_empty(self) -> bool {
+        self.end < self.start
+    }
+
     pub fn len(self) -> u64 {
-        self.end - self.start + 1
+        if self.is_empty() {
+            0
+        } else {
+            self.end - self.start + 1
+        }
     }
 }
 
@@ -293,7 +291,7 @@ pub fn plan_byte_ranges(total_bytes: u64, requested_connections: u32) -> Vec<Byt
         return Vec::new();
     }
 
-    let requested = requested_connections.max(1).min(MAX_PARALLEL_SEGMENTS) as u64;
+    let requested = requested_connections.clamp(1, MAX_PARALLEL_SEGMENTS) as u64;
     let segment_count = requested.min(total_bytes);
     let base_len = total_bytes / segment_count;
     let remainder = total_bytes % segment_count;
@@ -393,9 +391,7 @@ pub fn compare_resource_identity(
     if let Some(old_etag) = previous.etag.as_deref() {
         match current.etag.as_deref() {
             Some(new_etag) if new_etag != old_etag => return ResourceContinuity::Changed,
-            Some(new_etag)
-                if new_etag == old_etag && !old_etag.trim_start().starts_with("W/") =>
-            {
+            Some(new_etag) if new_etag == old_etag && !old_etag.trim_start().starts_with("W/") => {
                 return ResourceContinuity::Confirmed;
             }
             Some(_) => {}
@@ -560,10 +556,11 @@ pub fn plan_http_recovery(
     previous: &ResourceIdentity,
     current: &ResourceIdentity,
 ) -> ResumeAction {
-    if existing_bytes > 0 && previous.has_identity_evidence() {
-        if compare_resource_identity(previous, current) != ResourceContinuity::Confirmed {
-            return ResumeAction::Restart;
-        }
+    if existing_bytes > 0
+        && previous.has_identity_evidence()
+        && compare_resource_identity(previous, current) != ResourceContinuity::Confirmed
+    {
+        return ResumeAction::Restart;
     }
 
     plan_http_resume(existing_bytes, response_status, content_range_start)
@@ -656,7 +653,13 @@ mod tests {
     fn range_planner_clamps_parallelism_to_shared_ceiling() {
         let ranges = plan_byte_ranges(1_000_000, u32::MAX);
         assert_eq!(ranges.len(), MAX_PARALLEL_SEGMENTS as usize);
-        assert_eq!(ranges.first().copied(), Some(ByteRange { start: 0, end: 31_249 }));
+        assert_eq!(
+            ranges.first().copied(),
+            Some(ByteRange {
+                start: 0,
+                end: 31_249
+            })
+        );
         assert_eq!(
             ranges.last().copied(),
             Some(ByteRange {
@@ -685,7 +688,10 @@ mod tests {
 
     #[test]
     fn full_response_during_resume_forces_restart() {
-        assert_eq!(plan_http_resume(1_048_576, 200, None), ResumeAction::Restart);
+        assert_eq!(
+            plan_http_resume(1_048_576, 200, None),
+            ResumeAction::Restart
+        );
     }
 
     #[test]
@@ -698,7 +704,10 @@ mod tests {
 
     #[test]
     fn missing_content_range_forces_restart() {
-        assert_eq!(plan_http_resume(1_048_576, 206, None), ResumeAction::Restart);
+        assert_eq!(
+            plan_http_resume(1_048_576, 206, None),
+            ResumeAction::Restart
+        );
     }
 
     #[test]
@@ -819,8 +828,7 @@ mod tests {
             engine_status: None,
             error_message: None,
         };
-        let checkpoint =
-            RecoveryCheckpoint::from_task(&task, ResourceIdentity::default());
+        let checkpoint = RecoveryCheckpoint::from_task(&task, ResourceIdentity::default());
         let mut restored = task.clone();
         restored.segments.clear();
         assert!(checkpoint.apply_to_task(&mut restored));
@@ -922,9 +930,15 @@ mod tests {
         assert_eq!(TaskState::from_status("error"), Some(TaskState::Failed));
         assert_eq!(TaskState::from_status("failed"), Some(TaskState::Failed));
         assert_eq!(TaskState::from_status("waiting"), Some(TaskState::Queued));
-        assert_eq!(TaskState::from_status("starting"), Some(TaskState::Preparing));
+        assert_eq!(
+            TaskState::from_status("starting"),
+            Some(TaskState::Preparing)
+        );
         assert_eq!(TaskState::from_status("stopping"), Some(TaskState::Pausing));
-        assert_eq!(TaskState::from_status("merging"), Some(TaskState::Finalizing));
+        assert_eq!(
+            TaskState::from_status("merging"),
+            Some(TaskState::Finalizing)
+        );
         assert_eq!(TaskState::from_status("unknown-state"), None);
     }
 

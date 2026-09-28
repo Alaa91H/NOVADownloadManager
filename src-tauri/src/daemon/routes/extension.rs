@@ -15,10 +15,10 @@ use crate::daemon::curl::{
     create_curl_task as direct_create, delete_task, get_task, list_all_tasks, pause_task,
     resume_task,
 };
+use crate::daemon::native_media::create_native_media_task;
 use crate::daemon::state::{
     PendingCaptureReview, SharedState, CAPTURE_REVIEW_TTL, MAX_PENDING_CAPTURE_REVIEWS,
 };
-use crate::daemon::native_media::create_native_media_task;
 use crate::daemon::types::{CreateDownloadBody, Task};
 
 use super::engine::extension_capabilities_from_status;
@@ -444,7 +444,10 @@ pub(super) fn extension_candidate_to_download_body(
         media_type == "manifest" || source == "hls-manifest" || source == "dash-manifest";
     if is_stream_manifest {
         if !(url.starts_with("http://") || url.starts_with("https://")) {
-            return Err("Only http(s) HLS/DASH manifests can be handed off to NOVA Media Engine.".to_owned());
+            return Err(
+                "Only http(s) HLS/DASH manifests can be handed off to NOVA Media Engine."
+                    .to_owned(),
+            );
         }
     } else if !(url.starts_with("http://")
         || url.starts_with("https://")
@@ -833,9 +836,7 @@ async fn native_media_probe_for_extension(
     let owned = url.to_owned();
     let resolved = tokio::time::timeout(
         Duration::from_secs(35),
-        tokio::task::spawn_blocking(move || {
-            super::probes::resolve_native_media_request(request)
-        }),
+        tokio::task::spawn_blocking(move || super::probes::resolve_native_media_request(request)),
     )
     .await
     .map_err(|_| "Native media analysis timed out".to_owned())?
@@ -845,9 +846,7 @@ async fn native_media_probe_for_extension(
     super::probes::native_media_probe_payload(&resolved, &owned)
 }
 
-fn normalized_native_catalog_formats(
-    info: &serde_json::Value,
-) -> Vec<serde_json::Value> {
+fn normalized_native_catalog_formats(info: &serde_json::Value) -> Vec<serde_json::Value> {
     let mut formats = info
         .get("formats")
         .and_then(serde_json::Value::as_array)
@@ -859,66 +858,53 @@ fn normalized_native_catalog_formats(
             item.insert("url".to_owned(), serde_json::json!(url));
             item.insert(
                 "formatId".to_owned(),
-                serde_json::json!(
-                    format
-                        .get("formatId")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("native")
-                ),
+                serde_json::json!(format
+                    .get("formatId")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("native")),
             );
             item.insert(
                 "label".to_owned(),
-                serde_json::json!(
-                    format
-                        .get("label")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("Native")
-                ),
+                serde_json::json!(format
+                    .get("label")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("Native")),
             );
             item.insert(
                 "codecs".to_owned(),
-                serde_json::json!(
-                    format
-                        .get("codecs")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("")
-                ),
+                serde_json::json!(format
+                    .get("codecs")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")),
             );
             item.insert(
                 "container".to_owned(),
-                serde_json::json!(
-                    format
-                        .get("container")
-                        .or_else(|| format.get("ext"))
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("")
-                ),
+                serde_json::json!(format
+                    .get("container")
+                    .or_else(|| format.get("ext"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")),
             );
             item.insert(
                 "hasVideo".to_owned(),
-                serde_json::json!(
-                    format
-                        .get("hasVideo")
-                        .and_then(serde_json::Value::as_bool)
-                        .unwrap_or(false)
-                ),
+                serde_json::json!(format
+                    .get("hasVideo")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false)),
             );
             item.insert(
                 "hasAudio".to_owned(),
-                serde_json::json!(
-                    format
-                        .get("hasAudio")
-                        .and_then(serde_json::Value::as_bool)
-                        .unwrap_or(false)
-                ),
+                serde_json::json!(format
+                    .get("hasAudio")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false)),
             );
 
             for key in ["width", "height", "bandwidth", "estimatedSizeBytes"] {
                 if let Some(value) = format.get(key).and_then(serde_json::Value::as_u64) {
                     item.insert(key.to_owned(), serde_json::json!(value));
                 } else if key == "estimatedSizeBytes" {
-                    if let Some(value) =
-                        format.get("filesize").and_then(serde_json::Value::as_u64)
+                    if let Some(value) = format.get("filesize").and_then(serde_json::Value::as_u64)
                     {
                         item.insert(key.to_owned(), serde_json::json!(value));
                     }
@@ -967,8 +953,7 @@ fn normalized_native_catalog_formats(
         })
     });
     formats.dedup_by(|left, right| {
-        left.get("formatId") == right.get("formatId")
-            && left.get("height") == right.get("height")
+        left.get("formatId") == right.get("formatId") && left.get("height") == right.get("height")
     });
     formats
 }
@@ -1036,20 +1021,16 @@ pub async fn handle_v1_stream_resolve(
     payload.insert("qualities".to_owned(), json!(qualities));
     payload.insert(
         "isLive".to_owned(),
-        json!(
-            info.get("isLive")
-                .and_then(serde_json::Value::as_bool)
-                .unwrap_or(false)
-        ),
+        json!(info
+            .get("isLive")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)),
     );
     payload.insert("drmProtected".to_owned(), json!(false));
     payload.insert("subtitleTracks".to_owned(), json!([]));
     payload.insert("audioTracks".to_owned(), json!([]));
     payload.insert("engine".to_owned(), json!("nova-media-engine"));
-    if let Some(duration) = info
-        .get("duration")
-        .and_then(serde_json::Value::as_f64)
-    {
+    if let Some(duration) = info.get("duration").and_then(serde_json::Value::as_f64) {
         payload.insert("durationSec".to_owned(), json!(duration));
     }
     if let Some(size) = estimated_size {
@@ -1093,7 +1074,9 @@ pub async fn handle_v1_media_add(
     let selected = body
         .get("selectedFormat")
         .unwrap_or(&serde_json::Value::Null);
-    let (format_selector, has_video, has_audio) = match native_selector_for_selected_format(selected) {
+    let (format_selector, has_video, has_audio) = match native_selector_for_selected_format(
+        selected,
+    ) {
         Ok(selection) => selection,
         Err(message) => {
             return Json(
@@ -1290,9 +1273,7 @@ pub async fn handle_v1_analyze(
         .trim()
         .to_owned();
     if url.is_empty() || url.starts_with('-') {
-        return Json(
-            serde_json::json!({"ok": false, "stage": "init", "message": "Invalid url"}),
-        );
+        return Json(serde_json::json!({"ok": false, "stage": "init", "message": "Invalid url"}));
     }
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Json(
@@ -1301,9 +1282,7 @@ pub async fn handle_v1_analyze(
     }
     if let Err(error) = crate::daemon::utils::is_safe_target_url(&url) {
         log::warn!("Blocked SSRF in v1/analyze for {url}: {error}");
-        return Json(
-            serde_json::json!({"ok": false, "stage": "init", "message": error}),
-        );
+        return Json(serde_json::json!({"ok": false, "stage": "init", "message": error}));
     }
 
     let context = body.get("context").cloned().unwrap_or_else(|| json!({}));
@@ -1418,7 +1397,6 @@ pub async fn handle_v1_analyze(
 
     Json(serde_json::Value::Object(result))
 }
-
 
 /// Guard that cancels a `CancellationToken` on drop. Placed inside the SSE
 /// stream so that when the client disconnects (and the stream is dropped),
@@ -1560,7 +1538,6 @@ async fn http_probe_for_analyze(
         }
     }
 }
-
 
 fn content_type_to_ext(content_type: &str) -> &str {
     let ct = content_type.split(';').next().unwrap_or("").trim();
@@ -1747,13 +1724,14 @@ mod tests {
 
     #[test]
     fn native_selected_video_only_format_preserves_exact_id() {
-        let (selector, has_video, has_audio) = native_selector_for_selected_format(&serde_json::json!({
-            "formatId": "137",
-            "height": 1080,
-            "hasVideo": true,
-            "hasAudio": false,
-        }))
-        .expect("video-only format should be selectable");
+        let (selector, has_video, has_audio) =
+            native_selector_for_selected_format(&serde_json::json!({
+                "formatId": "137",
+                "height": 1080,
+                "hasVideo": true,
+                "hasAudio": false,
+            }))
+            .expect("video-only format should be selectable");
         assert!(has_video);
         assert!(!has_audio);
         assert_eq!(selector, "137");
@@ -1761,22 +1739,24 @@ mod tests {
 
     #[test]
     fn native_selected_muxed_or_audio_format_preserves_format_id() {
-        let (muxed, muxed_is_video, muxed_has_audio) = native_selector_for_selected_format(&serde_json::json!({
-            "formatId": "22",
-            "hasVideo": true,
-            "hasAudio": true,
-        }))
-        .expect("muxed format should be selectable");
+        let (muxed, muxed_is_video, muxed_has_audio) =
+            native_selector_for_selected_format(&serde_json::json!({
+                "formatId": "22",
+                "hasVideo": true,
+                "hasAudio": true,
+            }))
+            .expect("muxed format should be selectable");
         assert!(muxed_is_video);
         assert!(muxed_has_audio);
         assert_eq!(muxed, "22");
 
-        let (audio, audio_is_video, audio_has_audio) = native_selector_for_selected_format(&serde_json::json!({
-            "formatId": "251",
-            "hasVideo": false,
-            "hasAudio": true,
-        }))
-        .expect("audio format should be selectable");
+        let (audio, audio_is_video, audio_has_audio) =
+            native_selector_for_selected_format(&serde_json::json!({
+                "formatId": "251",
+                "hasVideo": false,
+                "hasAudio": true,
+            }))
+            .expect("audio format should be selectable");
         assert!(!audio_is_video);
         assert!(audio_has_audio);
         assert_eq!(audio, "251");

@@ -67,10 +67,10 @@ where
         ))
     })?;
 
-    let mut video_reader =
-        Mp4Reader::open(video_file).map_err(|error| NativeMuxError::Container(error.to_string()))?;
-    let mut audio_reader =
-        Mp4Reader::open(audio_file).map_err(|error| NativeMuxError::Container(error.to_string()))?;
+    let mut video_reader = Mp4Reader::open(video_file)
+        .map_err(|error| NativeMuxError::Container(error.to_string()))?;
+    let mut audio_reader = Mp4Reader::open(audio_file)
+        .map_err(|error| NativeMuxError::Container(error.to_string()))?;
 
     let video_track = select_single_track(&video_reader, TrackKind::Video, "video")?;
     let audio_track = select_single_track(&audio_reader, TrackKind::Audio, "audio")?;
@@ -78,7 +78,10 @@ where
     validate_sample_descriptions(&video_reader, video_track.id)?;
     validate_sample_descriptions(&audio_reader, audio_track.id)?;
 
-    if let Some(parent) = destination.parent().filter(|path| !path.as_os_str().is_empty()) {
+    if let Some(parent) = destination
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+    {
         fs::create_dir_all(parent).map_err(|error| NativeMuxError::Io(error.to_string()))?;
     }
 
@@ -141,7 +144,8 @@ fn mux_into_file<F>(
 where
     F: Fn() -> bool,
 {
-    let output_file = File::create(output).map_err(|error| NativeMuxError::Io(error.to_string()))?;
+    let output_file =
+        File::create(output).map_err(|error| NativeMuxError::Io(error.to_string()))?;
     let mut writer = Mp4Writer::new(output_file, WriterConfig::default())
         .map_err(|error| NativeMuxError::Container(error.to_string()))?;
 
@@ -295,8 +299,7 @@ fn sample_time_le(
     right: SampleInfo,
     right_timescale: u32,
 ) -> bool {
-    (left.dts as u128) * (right_timescale as u128)
-        <= (right.dts as u128) * (left_timescale as u128)
+    (left.dts as u128) * (right_timescale as u128) <= (right.dts as u128) * (left_timescale as u128)
 }
 
 fn append_suffix(path: &Path, suffix: &str) -> PathBuf {
@@ -308,7 +311,9 @@ fn append_suffix(path: &Path, suffix: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mp4_track::{Codec, FourCc, Mp4Reader, Mp4Writer, SampleInput, TrackConfig, TrackKind, WriterConfig};
+    use mp4_track::{
+        Codec, FourCc, Mp4Reader, Mp4Writer, SampleInput, TrackConfig, TrackKind, WriterConfig,
+    };
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn unique_temp_dir(label: &str) -> PathBuf {
@@ -396,9 +401,24 @@ mod tests {
 
     #[test]
     fn interleave_order_uses_track_timescales_without_float_rounding() {
-        assert!(sample_time_le(sample(45_000), 90_000, sample(24_000), 48_000));
-        assert!(sample_time_le(sample(90_000), 90_000, sample(48_000), 48_000));
-        assert!(!sample_time_le(sample(90_001), 90_000, sample(48_000), 48_000));
+        assert!(sample_time_le(
+            sample(45_000),
+            90_000,
+            sample(24_000),
+            48_000
+        ));
+        assert!(sample_time_le(
+            sample(90_000),
+            90_000,
+            sample(48_000),
+            48_000
+        ));
+        assert!(!sample_time_le(
+            sample(90_001),
+            90_000,
+            sample(48_000),
+            48_000
+        ));
     }
 
     #[test]

@@ -103,9 +103,7 @@ impl TorrentBandwidthLimiter {
                 match bandwidth.rate_limit_for(task_id) {
                     RateLimit::Paused => TorrentRateLimit::Paused,
                     RateLimit::Unlimited if allocated == 0 => TorrentRateLimit::Unlimited,
-                    RateLimit::Unlimited => {
-                        TorrentRateLimit::Limit(allocated.saturating_mul(1024))
-                    }
+                    RateLimit::Unlimited => TorrentRateLimit::Limit(allocated.saturating_mul(1024)),
                     RateLimit::Limit(task_kbps) => {
                         let effective_kbps = if allocated == 0 {
                             task_kbps
@@ -133,11 +131,7 @@ impl TorrentBandwidthLimiter {
         }
     }
 
-    pub async fn acquire(
-        &self,
-        bytes: u64,
-        cancel: &CancellationToken,
-    ) -> Result<(), String> {
+    pub async fn acquire(&self, bytes: u64, cancel: &CancellationToken) -> Result<(), String> {
         if bytes == 0 {
             return Ok(());
         }
@@ -259,10 +253,7 @@ mod tests {
         );
 
         bandwidth.set_task_limit("torrent-upload".to_owned(), 96);
-        assert_eq!(
-            limiter.effective_rate(),
-            TorrentRateLimit::Limit(96 * 1024)
-        );
+        assert_eq!(limiter.effective_rate(), TorrentRateLimit::Limit(96 * 1024));
 
         bandwidth.pause_all();
         assert_eq!(limiter.effective_rate(), TorrentRateLimit::Paused);

@@ -167,8 +167,7 @@ pub fn discard_app_private_transfer(
     app_private_root: &Path,
     relative_destination: &Path,
 ) -> Result<(), MobileTransferError> {
-    let destination =
-        validated_app_private_destination(app_private_root, relative_destination)?;
+    let destination = validated_app_private_destination(app_private_root, relative_destination)?;
     nova_download_core::discard_http_download_artifacts(&destination);
     Ok(())
 }
@@ -201,14 +200,15 @@ pub fn download_to_app_private_path_with_connections(
         });
     }
 
-    let destination =
-        validated_app_private_destination(app_private_root, relative_destination)?;
+    let destination = validated_app_private_destination(app_private_root, relative_destination)?;
     let state = Arc::new(SessionState::new());
 
     {
-        let mut map = sessions().lock().map_err(|_| MobileTransferError::TransferFailed {
-            message: "native transfer session registry is unavailable".to_owned(),
-        })?;
+        let mut map = sessions()
+            .lock()
+            .map_err(|_| MobileTransferError::TransferFailed {
+                message: "native transfer session registry is unavailable".to_owned(),
+            })?;
         if map.contains_key(task_id) {
             return Err(MobileTransferError::TransferFailed {
                 message: "native transfer session is already active".to_owned(),
@@ -247,9 +247,7 @@ pub fn download_to_app_private_path_with_connections(
 
     let transfer = match transfer_result {
         Ok(transfer) => transfer,
-        Err(nova_download_core::TransportError::Paused) => {
-            return Err(MobileTransferError::Paused)
-        }
+        Err(nova_download_core::TransportError::Paused) => return Err(MobileTransferError::Paused),
         Err(nova_download_core::TransportError::Cancelled) => {
             nova_download_core::discard_http_download_artifacts(&destination);
             return Err(MobileTransferError::Cancelled);
@@ -297,22 +295,20 @@ mod tests {
     #[test]
     fn accepts_nested_relative_staging_destination() {
         let root = Path::new("/app/files");
-        let destination = validated_app_private_destination(
-            root,
-            Path::new("nova-staging/task-1.part"),
-        )
-        .expect("valid app-private destination");
+        let destination =
+            validated_app_private_destination(root, Path::new("nova-staging/task-1.part"))
+                .expect("valid app-private destination");
 
-        assert_eq!(destination, Path::new("/app/files/nova-staging/task-1.part"));
+        assert_eq!(
+            destination,
+            Path::new("/app/files/nova-staging/task-1.part")
+        );
     }
 
     #[test]
     fn discard_rejects_path_traversal() {
         assert!(matches!(
-            discard_app_private_transfer(
-                Path::new("/app/files"),
-                Path::new("../outside.part"),
-            ),
+            discard_app_private_transfer(Path::new("/app/files"), Path::new("../outside.part"),),
             Err(MobileTransferError::InvalidRelativeDestination)
         ));
     }

@@ -120,14 +120,15 @@ pub fn resolve_youtube_pending_formats(
         });
     }
 
-    let player_js_url = extraction
-        .player_js_url
-        .as_deref()
-        .ok_or_else(|| MediaError::ExtractorFailed {
-            extractor: "youtube-native",
-            message: "YouTube player JavaScript URL is unavailable for challenge resolution"
-                .to_owned(),
-        })?;
+    let player_js_url =
+        extraction
+            .player_js_url
+            .as_deref()
+            .ok_or_else(|| MediaError::ExtractorFailed {
+                extractor: "youtube-native",
+                message: "YouTube player JavaScript URL is unavailable for challenge resolution"
+                    .to_owned(),
+            })?;
 
     let mut player_context = crate::scope_http_request_context(
         context,
@@ -141,17 +142,13 @@ pub fn resolve_youtube_pending_formats(
         player_context.referer = Some(extraction.descriptor.metadata.webpage_url.clone());
     }
 
-    let player_js = fetch_http_bytes_with_context(
-        player_js_url,
-        &player_context,
-        PLAYER_RESPONSE_MAX_BYTES,
-    )
-    .map_err(|error| MediaError::Transport(error.to_string()))?;
     let player_js =
-        String::from_utf8(player_js.body).map_err(|_| MediaError::ExtractorFailed {
-            extractor: "youtube-native",
-            message: "YouTube player JavaScript is not valid UTF-8".to_owned(),
-        })?;
+        fetch_http_bytes_with_context(player_js_url, &player_context, PLAYER_RESPONSE_MAX_BYTES)
+            .map_err(|error| MediaError::Transport(error.to_string()))?;
+    let player_js = String::from_utf8(player_js.body).map_err(|_| MediaError::ExtractorFailed {
+        extractor: "youtube-native",
+        message: "YouTube player JavaScript is not valid UTF-8".to_owned(),
+    })?;
 
     let pending = std::mem::take(&mut extraction.pending_formats);
     let mut unresolved = Vec::new();
@@ -210,8 +207,7 @@ fn resolve_one_pending_format(
     }
 
     if let Some(throttling) = format.throttling_parameter.as_deref() {
-        let transformed =
-            solver.transform_throttling_parameter(player_javascript, throttling)?;
+        let transformed = solver.transform_throttling_parameter(player_javascript, throttling)?;
         set_query_parameter(&mut url, "n", &transformed);
     }
 
@@ -298,9 +294,9 @@ pub fn select_youtube_download_plan(
                 .unwrap_or(true)
         })
         .filter(|stream| {
-            policy
-                .max_height
-                .map_or(true, |limit| stream.height.map_or(true, |height| height <= limit))
+            policy.max_height.map_or(true, |limit| {
+                stream.height.map_or(true, |height| height <= limit)
+            })
         })
         .collect::<Vec<_>>();
 
@@ -389,24 +385,18 @@ fn youtube_preference_score(
     stream: &MediaStream,
     policy: &YouTubeSelectionPolicy,
 ) -> (u8, u8, u8, u8) {
-    let container_match = policy
-        .preferred_container
-        .as_deref()
-        .map_or(false, |wanted| {
-            stream
-                .container
-                .as_deref()
-                .is_some_and(|actual| actual.eq_ignore_ascii_case(wanted))
-        });
-    let language_match = policy
-        .preferred_language
-        .as_deref()
-        .map_or(false, |wanted| {
-            stream
-                .language
-                .as_deref()
-                .is_some_and(|actual| actual.eq_ignore_ascii_case(wanted))
-        });
+    let container_match = policy.preferred_container.as_deref().is_some_and(|wanted| {
+        stream
+            .container
+            .as_deref()
+            .is_some_and(|actual| actual.eq_ignore_ascii_case(wanted))
+    });
+    let language_match = policy.preferred_language.as_deref().is_some_and(|wanted| {
+        stream
+            .language
+            .as_deref()
+            .is_some_and(|actual| actual.eq_ignore_ascii_case(wanted))
+    });
     let video_codec_match = youtube_codec_matches(
         stream.video_codec.as_deref(),
         policy.preferred_video_codec.as_deref(),
@@ -445,10 +435,7 @@ fn youtube_sort_value(stream: &MediaStream, key: MediaSortKey) -> u64 {
                     .map(|fps| (fps.max(0.0) * 1_000.0) as u64)
                     .unwrap_or(0),
             ),
-        MediaSortKey::Bitrate => stream
-            .audio_bitrate_bps
-            .or(stream.bitrate_bps)
-            .unwrap_or(0),
+        MediaSortKey::Bitrate => stream.audio_bitrate_bps.or(stream.bitrate_bps).unwrap_or(0),
         MediaSortKey::Size => stream.content_length.unwrap_or(0),
     }
 }
@@ -460,7 +447,6 @@ fn stream_itag(stream: &MediaStream) -> Option<u64> {
         .and_then(|value| value.parse().ok())
 }
 
-
 pub struct YouTubeExtractor;
 
 impl YouTubeExtractor {
@@ -468,11 +454,12 @@ impl YouTubeExtractor {
         &self,
         request: &ExtractRequest,
     ) -> Result<YouTubeExtraction, MediaError> {
-        let video_id = youtube_video_id(&request.parsed_url()?)
-            .ok_or_else(|| MediaError::ExtractorFailed {
+        let video_id = youtube_video_id(&request.parsed_url()?).ok_or_else(|| {
+            MediaError::ExtractorFailed {
                 extractor: self.id(),
                 message: "YouTube URL does not contain a supported video id".to_owned(),
-            })?;
+            }
+        })?;
 
         let mut context = request.request_context()?;
         if context.user_agent.is_none() {
@@ -494,17 +481,9 @@ impl YouTubeExtractor {
         let player_response = extract_initial_player_response(&html)
             .filter(player_response_has_details)
             .or_else(|| {
-                bootstrap
-                    .as_ref()
-                    .and_then(|bootstrap| {
-                        fetch_innertube_player(
-                            &video_id,
-                            bootstrap,
-                            &watch_url,
-                            &context,
-                        )
-                        .ok()
-                    })
+                bootstrap.as_ref().and_then(|bootstrap| {
+                    fetch_innertube_player(&video_id, bootstrap, &watch_url, &context).ok()
+                })
             })
             .ok_or_else(|| MediaError::ExtractorFailed {
                 extractor: self.id(),
@@ -544,12 +523,16 @@ impl MediaExtractor for YouTubeExtractor {
     }
 
     fn extract(&self, request: &ExtractRequest) -> Result<MediaDescriptor, MediaError> {
-        self.extract_native(request).map(|extraction| extraction.descriptor)
+        self.extract_native(request)
+            .map(|extraction| extraction.descriptor)
     }
 }
 
 pub fn youtube_video_id(url: &Url) -> Option<String> {
-    let host = url.host_str()?.trim_start_matches("www.").to_ascii_lowercase();
+    let host = url
+        .host_str()?
+        .trim_start_matches("www.")
+        .to_ascii_lowercase();
     let candidate = match host.as_str() {
         "youtu.be" => url.path_segments()?.next()?.to_owned(),
         "youtube.com" | "m.youtube.com" | "music.youtube.com" => {
@@ -574,7 +557,10 @@ pub fn youtube_video_id(url: &Url) -> Option<String> {
 }
 
 pub fn youtube_playlist_id(url: &Url) -> Option<String> {
-    let host = url.host_str()?.trim_start_matches("www.").to_ascii_lowercase();
+    let host = url
+        .host_str()?
+        .trim_start_matches("www.")
+        .to_ascii_lowercase();
     if !matches!(
         host.as_str(),
         "youtube.com" | "m.youtube.com" | "music.youtube.com"
@@ -593,9 +579,7 @@ pub fn youtube_playlist_id(url: &Url) -> Option<String> {
     .then(|| id.to_owned())
 }
 
-pub fn resolve_youtube_playlist(
-    request: &ExtractRequest,
-) -> Result<YouTubePlaylist, MediaError> {
+pub fn resolve_youtube_playlist(request: &ExtractRequest) -> Result<YouTubePlaylist, MediaError> {
     let parsed = request.parsed_url()?;
     let playlist_id = youtube_playlist_id(&parsed).ok_or_else(|| MediaError::ExtractorFailed {
         extractor: "youtube-native-playlist",
@@ -641,12 +625,7 @@ pub fn resolve_youtube_playlist(
             playlist.truncated = true;
             break;
         };
-        let page = fetch_innertube_browse(
-            &token,
-            bootstrap,
-            &playlist_url,
-            &context,
-        )?;
+        let page = fetch_innertube_browse(&token, bootstrap, &playlist_url, &context)?;
         page_count = page_count.saturating_add(1);
 
         let page_playlist = normalize_playlist_payload(&playlist_id, &playlist_url, &page);
@@ -690,11 +669,7 @@ fn fetch_innertube_browse(
         message: format!("failed to encode playlist continuation request: {error}"),
     })?;
 
-    let mut context = crate::scope_http_request_context(
-        base_context,
-        source_url,
-        &endpoint,
-    );
+    let mut context = crate::scope_http_request_context(base_context, source_url, &endpoint);
     context
         .headers
         .insert("Origin".to_owned(), YOUTUBE_ORIGIN.to_owned());
@@ -704,9 +679,10 @@ fn fetch_innertube_browse(
             .insert("X-Youtube-Client-Name".to_owned(), client_name.clone());
     }
     if let Some(client_version) = &bootstrap.client_version {
-        context
-            .headers
-            .insert("X-Youtube-Client-Version".to_owned(), client_version.clone());
+        context.headers.insert(
+            "X-Youtube-Client-Version".to_owned(),
+            client_version.clone(),
+        );
     }
 
     let response = post_http_bytes_with_context(
@@ -762,7 +738,10 @@ fn find_playlist_title(value: &Value, title: &mut String) {
     match value {
         Value::Object(map) => {
             for (key, child) in map {
-                if matches!(key.as_str(), "playlistMetadataRenderer" | "playlistHeaderRenderer") {
+                if matches!(
+                    key.as_str(),
+                    "playlistMetadataRenderer" | "playlistHeaderRenderer"
+                ) {
                     if let Some(found) = child
                         .get("title")
                         .and_then(text_value)
@@ -907,12 +886,10 @@ fn text_value(value: &Value) -> Option<String> {
 }
 
 fn parse_clock_seconds(value: &str) -> Option<u64> {
-    value
-        .split(':')
-        .try_fold(0_u64, |total, part| {
-            let value = part.trim().parse::<u64>().ok()?;
-            total.checked_mul(60)?.checked_add(value)
-        })
+    value.split(':').try_fold(0_u64, |total, part| {
+        let value = part.trim().parse::<u64>().ok()?;
+        total.checked_mul(60)?.checked_add(value)
+    })
 }
 
 fn extract_bootstrap(html: &str) -> Option<YouTubeBootstrap> {
@@ -920,7 +897,9 @@ fn extract_bootstrap(html: &str) -> Option<YouTubeBootstrap> {
         .iter()
         .flat_map(|marker| extract_json_objects_after_marker(html, marker))
         .find(|cfg| {
-            cfg.get("INNERTUBE_API_KEY").and_then(Value::as_str).is_some()
+            cfg.get("INNERTUBE_API_KEY")
+                .and_then(Value::as_str)
+                .is_some()
                 && cfg.get("INNERTUBE_CONTEXT").is_some()
         })?;
 
@@ -986,11 +965,7 @@ fn fetch_innertube_player(
         message: format!("failed to encode Innertube request: {error}"),
     })?;
 
-    let mut context = crate::scope_http_request_context(
-        base_context,
-        source_url,
-        &endpoint,
-    );
+    let mut context = crate::scope_http_request_context(base_context, source_url, &endpoint);
     context
         .headers
         .insert("Origin".to_owned(), YOUTUBE_ORIGIN.to_owned());
@@ -1000,9 +975,10 @@ fn fetch_innertube_player(
             .insert("X-Youtube-Client-Name".to_owned(), client_name.clone());
     }
     if let Some(client_version) = &bootstrap.client_version {
-        context
-            .headers
-            .insert("X-Youtube-Client-Version".to_owned(), client_version.clone());
+        context.headers.insert(
+            "X-Youtube-Client-Version".to_owned(),
+            client_version.clone(),
+        );
     }
 
     let response = post_http_bytes_with_context(
@@ -1196,13 +1172,11 @@ fn normalize_format(
         return;
     };
 
-    let throttling_parameter = Url::parse(url)
-        .ok()
-        .and_then(|parsed| {
-            parsed
-                .query_pairs()
-                .find_map(|(key, value)| (key == "n").then(|| value.into_owned()))
-        });
+    let throttling_parameter = Url::parse(url).ok().and_then(|parsed| {
+        parsed
+            .query_pairs()
+            .find_map(|(key, value)| (key == "n").then(|| value.into_owned()))
+    });
 
     if throttling_parameter.is_some() {
         pending_formats.push(YouTubePendingFormat {
@@ -1224,16 +1198,19 @@ fn normalize_format(
 fn media_stream_from_format(
     format: &Value,
     url: &str,
-    request_headers: &BTreeMap<String, String>,
+    _request_headers: &BTreeMap<String, String>,
 ) -> MediaStream {
-    // Request authorization remains on MediaDescriptor/HttpRequestContext so it
-    // can be origin-scoped at fetch time instead of copied into signed CDN URLs.
-    let _ = request_headers;
-    let mime = format.get("mimeType").and_then(Value::as_str).unwrap_or_default();
+    let mime = format
+        .get("mimeType")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let (container, codecs) = parse_mime_type(mime);
     let width = value_u32(format.get("width"));
     let height = value_u32(format.get("height"));
-    let fps = format.get("fps").and_then(Value::as_f64).map(|value| value as f32);
+    let fps = format
+        .get("fps")
+        .and_then(Value::as_f64)
+        .map(|value| value as f32);
     let audio_bitrate_bps = format
         .get("audioSampleRate")
         .and_then(Value::as_str)
@@ -1290,7 +1267,7 @@ fn manifest_stream(
     id: &str,
     protocol: MediaProtocol,
     url: &str,
-    request_headers: &BTreeMap<String, String>,
+    _request_headers: &BTreeMap<String, String>,
 ) -> MediaStream {
     // Keep manifest auth in the descriptor request context for origin checks.
     let _ = request_headers;
@@ -1483,9 +1460,10 @@ fn value_u32(value: Option<&Value>) -> Option<u32> {
 }
 
 fn resolve_youtube_url(value: &str) -> Option<String> {
+    let normalized = value.replace("\\/", "/");
     Url::parse(YOUTUBE_ORIGIN)
         .ok()?
-        .join(value)
+        .join(&normalized)
         .ok()
         .map(|url| url.to_string())
 }
@@ -1633,7 +1611,10 @@ mod tests {
             ("https://youtu.be/dQw4w9WgXcQ?t=1", "dQw4w9WgXcQ"),
             ("https://youtube.com/shorts/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
             ("https://youtube.com/live/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
-            ("https://music.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+            (
+                "https://music.youtube.com/watch?v=dQw4w9WgXcQ",
+                "dQw4w9WgXcQ",
+            ),
         ] {
             assert_eq!(
                 youtube_video_id(&Url::parse(url).expect("URL")).as_deref(),
@@ -1651,9 +1632,7 @@ mod tests {
             None
         );
         assert_eq!(
-            youtube_video_id(
-                &Url::parse("https://www.youtube.com/watch?v=short").expect("URL")
-            ),
+            youtube_video_id(&Url::parse("https://www.youtube.com/watch?v=short").expect("URL")),
             None
         );
     }
@@ -1765,7 +1744,9 @@ var ytInitialPlayerResponse = {"videoDetails":{"title":"NOVA","videoId":"dQw4w9W
 
         let player = extract_initial_player_response(html).expect("player");
         assert_eq!(
-            player.pointer("/videoDetails/title").and_then(Value::as_str),
+            player
+                .pointer("/videoDetails/title")
+                .and_then(Value::as_str),
             Some("NOVA")
         );
     }
@@ -1972,12 +1953,9 @@ function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
             },
         };
 
-        let stream = resolve_one_pending_format(
-            &pending,
-            "function player(){}",
-            &FakeChallengeSolver,
-        )
-        .expect("resolved challenge");
+        let stream =
+            resolve_one_pending_format(&pending, "function player(){}", &FakeChallengeSolver)
+                .expect("resolved challenge");
         let url = Url::parse(&stream.url).expect("resolved URL");
         let query: BTreeMap<_, _> = url.query_pairs().into_owned().collect();
 
@@ -2064,10 +2042,7 @@ function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
         };
 
         assert_eq!(
-            select_youtube_download_plan(
-                &extraction,
-                YouTubeSelectionPolicy::default(),
-            ),
+            select_youtube_download_plan(&extraction, YouTubeSelectionPolicy::default(),),
             Some(YouTubeDownloadPlan::SeparateTracks {
                 video_stream_id: "youtube-itag-137".to_owned(),
                 audio_stream_id: "youtube-itag-140".to_owned(),
@@ -2102,10 +2077,7 @@ function apply(p){var x=p.get("n");x&&(x=NT(x),p.set("n",x))}
         });
 
         assert_eq!(
-            select_youtube_download_plan(
-                &extraction,
-                YouTubeSelectionPolicy::default(),
-            ),
+            select_youtube_download_plan(&extraction, YouTubeSelectionPolicy::default(),),
             Some(YouTubeDownloadPlan::SingleStream {
                 stream_id: "youtube-itag-18".to_owned(),
             })

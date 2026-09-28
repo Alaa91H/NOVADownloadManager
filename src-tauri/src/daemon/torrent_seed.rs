@@ -3,10 +3,12 @@ use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(test)]
+use nova_torrent_core::LOCAL_UT_PEX_ID;
 use nova_torrent_core::{
     ExtendedHandshake, InfoHash, MetadataMessage, PeerExchange, PeerHandshake, PeerMessage,
-    EXTENSION_HANDSHAKE_ID, LOCAL_UT_METADATA_ID, MAX_PEER_FRAME_BYTES,
-    METADATA_PIECE_SIZE, PEER_HANDSHAKE_LEN,
+    EXTENSION_HANDSHAKE_ID, LOCAL_UT_METADATA_ID, MAX_PEER_FRAME_BYTES, METADATA_PIECE_SIZE,
+    PEER_HANDSHAKE_LEN,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -67,7 +69,9 @@ pub async fn run_inbound_seed_listener(
     let port = configured_seed_port();
     let listener = TcpListener::bind(("0.0.0.0", port))
         .await
-        .map_err(|error| format!("Could not bind native torrent seed listener on port {port}: {error}"))?;
+        .map_err(|error| {
+            format!("Could not bind native torrent seed listener on port {port}: {error}")
+        })?;
     let local = listener
         .local_addr()
         .map_err(|error| format!("Could not read native torrent seed listener address: {error}"))?;
@@ -169,13 +173,14 @@ async fn serve_state_peer(
         .progress()
         .await
         .map_err(|error| format!("Could not read torrent seed progress: {error}"))?;
-    let completed =
-        TaskState::from_status(&job.task.status) == Some(TaskState::Completed);
+    let completed = TaskState::from_status(&job.task.status) == Some(TaskState::Completed);
     if !job
         .seeding
         .upload_allowed(completed, progress.selected_total_bytes)
     {
-        return Err("Inbound torrent seeding is disabled or its configured limit was reached".to_owned());
+        return Err(
+            "Inbound torrent seeding is disabled or its configured limit was reached".to_owned(),
+        );
     }
 
     job.telemetry.inbound_peer_connected(
@@ -241,9 +246,8 @@ impl SeedExtensionService {
     }
 
     fn local_handshake(&self) -> ExtendedHandshake {
-        let mut handshake = ExtendedHandshake::local(
-            self.metadata_info.as_ref().map(|bytes| bytes.len()),
-        );
+        let mut handshake =
+            ExtendedHandshake::local(self.metadata_info.as_ref().map(|bytes| bytes.len()));
         if self.metadata_info.is_none() {
             handshake.ut_metadata = None;
         }
@@ -313,6 +317,7 @@ pub async fn serve_inbound_seed_session(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn serve_inbound_seed_session_after_handshake(
     mut stream: TcpStream,
     remote: PeerHandshake,
@@ -415,12 +420,7 @@ async fn serve_inbound_seed_session_after_handshake(
     let mut stats = SeedSessionStats::default();
 
     loop {
-        let message = read_peer_frame(
-            &mut stream,
-            config.frame_timeout,
-            cancel,
-        )
-        .await?;
+        let message = read_peer_frame(&mut stream, config.frame_timeout, cancel).await?;
 
         match message {
             PeerMessage::KeepAlive => {}
@@ -456,7 +456,9 @@ async fn serve_inbound_seed_session_after_handshake(
                 length,
             } => {
                 if !interested || !unchoked {
-                    return Err("Inbound peer requested data while choked or not interested".to_owned());
+                    return Err(
+                        "Inbound peer requested data while choked or not interested".to_owned()
+                    );
                 }
                 if stats.requests_served >= config.max_requests {
                     return Err("Inbound peer exceeded the per-session request limit".to_owned());
@@ -484,7 +486,9 @@ async fn serve_inbound_seed_session_after_handshake(
                     .checked_add(block_len)
                     .ok_or_else(|| "Inbound upload byte accounting overflow".to_owned())?;
                 if next_uploaded > config.max_uploaded_bytes {
-                    return Err("Inbound peer exceeded the per-session upload byte limit".to_owned());
+                    return Err(
+                        "Inbound peer exceeded the per-session upload byte limit".to_owned()
+                    );
                 }
                 if let Some(limiter) = upload_limiter.as_ref() {
                     limiter.acquire(block_len, cancel).await?;
@@ -524,8 +528,9 @@ async fn serve_inbound_seed_session_after_handshake(
                 extension_id: EXTENSION_HANDSHAKE_ID,
                 payload,
             } if extensions.enabled() && remote.supports_extension_protocol() => {
-                let handshake = ExtendedHandshake::parse(&payload)
-                    .map_err(|error| format!("Inbound peer sent invalid extended handshake: {error}"))?;
+                let handshake = ExtendedHandshake::parse(&payload).map_err(|error| {
+                    format!("Inbound peer sent invalid extended handshake: {error}")
+                })?;
                 remote_extensions = Some(handshake.clone());
 
                 if !pex_sent && extensions.allow_pex {
@@ -535,7 +540,9 @@ async fn serve_inbound_seed_session_after_handshake(
                             dropped: Vec::new(),
                         }
                         .encode()
-                        .map_err(|error| format!("Could not encode inbound ut_pex response: {error}"))?;
+                        .map_err(|error| {
+                            format!("Could not encode inbound ut_pex response: {error}")
+                        })?;
                         if let Some(limiter) = upload_limiter.as_ref() {
                             limiter.acquire(payload.len() as u64, cancel).await?;
                         }
@@ -577,9 +584,9 @@ async fn serve_inbound_seed_session_after_handshake(
                     return Err("Inbound peer exceeded the metadata request limit".to_owned());
                 }
 
-                match MetadataMessage::parse(&payload)
-                    .map_err(|error| format!("Inbound peer sent invalid ut_metadata payload: {error}"))?
-                {
+                match MetadataMessage::parse(&payload).map_err(|error| {
+                    format!("Inbound peer sent invalid ut_metadata payload: {error}")
+                })? {
                     MetadataMessage::Request { piece } => {
                         let info = extensions
                             .metadata_info
@@ -598,11 +605,13 @@ async fn serve_inbound_seed_session_after_handshake(
                                 data: info[start..end].to_vec(),
                             }
                         };
-                        let response_payload = response
-                            .encode()
-                            .map_err(|error| format!("Could not encode ut_metadata response: {error}"))?;
+                        let response_payload = response.encode().map_err(|error| {
+                            format!("Could not encode ut_metadata response: {error}")
+                        })?;
                         if let Some(limiter) = upload_limiter.as_ref() {
-                            limiter.acquire(response_payload.len() as u64, cancel).await?;
+                            limiter
+                                .acquire(response_payload.len() as u64, cancel)
+                                .await?;
                         }
                         send_message(
                             &mut stream,
@@ -617,11 +626,11 @@ async fn serve_inbound_seed_session_after_handshake(
                         stats.metadata_requests_served =
                             stats.metadata_requests_served.saturating_add(1);
                         if start < info.len() {
-                            stats.metadata_bytes_served = stats.metadata_bytes_served.saturating_add(
-                                info.len()
-                                    .saturating_sub(start)
-                                    .min(METADATA_PIECE_SIZE) as u64,
-                            );
+                            stats.metadata_bytes_served =
+                                stats.metadata_bytes_served.saturating_add(
+                                    info.len().saturating_sub(start).min(METADATA_PIECE_SIZE)
+                                        as u64,
+                                );
                         }
                     }
                     MetadataMessage::Data { .. } | MetadataMessage::Reject { .. } => {
@@ -652,9 +661,7 @@ fn build_pex_peers(candidates: &[SocketAddr], remote: SocketAddr) -> Vec<SocketA
         .iter()
         .copied()
         .filter(|peer| {
-            peer.port() != 0
-                && *peer != remote
-                && (allow_private || !is_internal_ip(peer.ip()))
+            peer.port() != 0 && *peer != remote && (allow_private || !is_internal_ip(peer.ip()))
         })
         .collect::<Vec<_>>();
     peers.sort_unstable();
@@ -840,13 +847,9 @@ mod tests {
     }
 
     async fn read_test_message(stream: &mut TcpStream) -> PeerMessage {
-        read_peer_frame(
-            stream,
-            Duration::from_secs(2),
-            &CancellationToken::new(),
-        )
-        .await
-        .unwrap()
+        read_peer_frame(stream, Duration::from_secs(2), &CancellationToken::new())
+            .await
+            .unwrap()
     }
 
     #[test]
@@ -893,9 +896,7 @@ mod tests {
 
         let mut client = TcpStream::connect(address).await.unwrap();
         client
-            .write_all(
-                &PeerHandshake::new(info_hash, *b"-NVTEST-SEEDCLIENT01").encode(),
-            )
+            .write_all(&PeerHandshake::new(info_hash, *b"-NVTEST-SEEDCLIENT01").encode())
             .await
             .unwrap();
 
@@ -904,7 +905,10 @@ mod tests {
         let response = PeerHandshake::decode(&handshake).unwrap();
         assert_eq!(response.info_hash, info_hash);
 
-        assert_eq!(read_test_message(&mut client).await, PeerMessage::Bitfield(vec![0x80]));
+        assert_eq!(
+            read_test_message(&mut client).await,
+            PeerMessage::Bitfield(vec![0x80])
+        );
         client
             .write_all(&PeerMessage::Interested.encode().unwrap())
             .await
@@ -971,14 +975,15 @@ mod tests {
 
         let mut client = TcpStream::connect(address).await.unwrap();
         client
-            .write_all(
-                &PeerHandshake::new(info_hash, *b"-NVTEST-SEEDCLIENT01").encode(),
-            )
+            .write_all(&PeerHandshake::new(info_hash, *b"-NVTEST-SEEDCLIENT01").encode())
             .await
             .unwrap();
         let mut handshake = [0u8; PEER_HANDSHAKE_LEN];
         client.read_exact(&mut handshake).await.unwrap();
-        assert_eq!(read_test_message(&mut client).await, PeerMessage::Bitfield(vec![0x00]));
+        assert_eq!(
+            read_test_message(&mut client).await,
+            PeerMessage::Bitfield(vec![0x00])
+        );
         client
             .write_all(&PeerMessage::Interested.encode().unwrap())
             .await

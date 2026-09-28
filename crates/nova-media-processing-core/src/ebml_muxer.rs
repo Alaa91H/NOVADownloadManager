@@ -140,7 +140,10 @@ struct EbmlMuxer {
 
 impl EbmlMuxer {
     fn create(destination: &Path, kind: EbmlOutputKind) -> Result<Self, MediaProcessingError> {
-        if let Some(parent) = destination.parent().filter(|path| !path.as_os_str().is_empty()) {
+        if let Some(parent) = destination
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+        {
             fs::create_dir_all(parent).map_err(io_error)?;
         }
 
@@ -186,7 +189,9 @@ impl EbmlMuxer {
             return Ok(());
         }
         if self.tracks.is_empty() {
-            return Err(mux_error("EBML output requires at least one registered track"));
+            return Err(mux_error(
+                "EBML output requires at least one registered track",
+            ));
         }
 
         let ebml_header = make_ebml_header(self.kind)?;
@@ -301,11 +306,15 @@ impl EbmlMuxer {
             .ok_or_else(|| mux_error("EBML Cluster precedes Segment data"))?;
 
         self.file_mut()?.write_all(ID_CLUSTER).map_err(io_error)?;
-        self.file_mut()?.write_all(&cluster_size).map_err(io_error)?;
+        self.file_mut()?
+            .write_all(&cluster_size)
+            .map_err(io_error)?;
         self.file_mut()?
             .write_all(&timestamp_element)
             .map_err(io_error)?;
-        self.file_mut()?.write_all(ID_BLOCK_GROUP).map_err(io_error)?;
+        self.file_mut()?
+            .write_all(ID_BLOCK_GROUP)
+            .map_err(io_error)?;
         self.file_mut()?.write_all(&group_size).map_err(io_error)?;
         self.file_mut()?.write_all(ID_BLOCK).map_err(io_error)?;
         self.file_mut()?.write_all(&block_size).map_err(io_error)?;
@@ -368,7 +377,9 @@ impl MediaMuxer for EbmlMuxer {
             )));
         }
         if packet.flags.corrupted {
-            return Err(mux_error("corrupted packets are rejected by the EBML muxer"));
+            return Err(mux_error(
+                "corrupted packets are rejected by the EBML muxer",
+            ));
         }
         if packet.flags.discontinuity {
             return Err(MediaProcessingError::UnsupportedOperation(
@@ -496,11 +507,7 @@ impl MediaMuxer for EbmlMuxer {
         if self.tracks.is_empty() {
             return Err(mux_error("EBML output requires at least one track"));
         }
-        if self.packets_written == 0
-            || self
-                .tracks
-                .values()
-                .any(|track| track.packets_written == 0)
+        if self.packets_written == 0 || self.tracks.values().any(|track| track.packets_written == 0)
         {
             return Err(mux_error(
                 "every registered EBML track must contain at least one packet",
@@ -724,9 +731,10 @@ where
             let Some(packet) = packet.as_ref() else {
                 continue;
             };
-            let timestamp = packet.dts.or(packet.pts).ok_or_else(|| {
-                mux_error("EBML interleaver requires DTS or PTS on every packet")
-            })?;
+            let timestamp = packet
+                .dts
+                .or(packet.pts)
+                .ok_or_else(|| mux_error("EBML interleaver requires DTS or PTS on every packet"))?;
             let timestamp_ns = timestamp_to_nanoseconds(timestamp)?;
             let kind_priority = match kinds[index].get(&packet.track_id) {
                 Some(MediaTrackKind::Audio) => 0,
@@ -845,7 +853,9 @@ fn prepare_output_track(
         (MediaTrackKind::Audio, MediaCodec::Flac) if kind == EbmlOutputKind::Matroska => {
             validate_audio_parameters(&track)?;
             if source.codec_private.is_empty() {
-                return Err(mux_error("Matroska FLAC track is missing codec initialization data"));
+                return Err(mux_error(
+                    "Matroska FLAC track is missing codec initialization data",
+                ));
             }
             ("A_FLAC", source.codec_private.clone())
         }
@@ -1014,14 +1024,9 @@ fn make_track_entry(track: &OutputTrack) -> Result<Vec<u8>, MediaProcessingError
                 .as_ref()
                 .ok_or_else(|| mux_error("EBML video track parameters disappeared"))?;
             let mut video_payload = Vec::new();
-            video_payload.extend_from_slice(&uint_element(
-                ID_PIXEL_WIDTH,
-                u64::from(video.width),
-            )?);
-            video_payload.extend_from_slice(&uint_element(
-                ID_PIXEL_HEIGHT,
-                u64::from(video.height),
-            )?);
+            video_payload.extend_from_slice(&uint_element(ID_PIXEL_WIDTH, u64::from(video.width))?);
+            video_payload
+                .extend_from_slice(&uint_element(ID_PIXEL_HEIGHT, u64::from(video.height))?);
             if let Some(colour) = track.colour {
                 let colour_payload = [
                     uint_element(
@@ -1073,11 +1078,7 @@ fn make_cues(cues: &[CueRecord]) -> Result<Vec<u8>, MediaProcessingError> {
         )?;
         let point = element(
             ID_CUE_POINT,
-            [
-                uint_element(ID_CUE_TIME, cue.time_ticks)?,
-                track_positions,
-            ]
-            .concat(),
+            [uint_element(ID_CUE_TIME, cue.time_ticks)?, track_positions].concat(),
         )?;
         payload.extend_from_slice(&point);
     }
@@ -1128,14 +1129,18 @@ fn looks_like_vpcc(data: &[u8]) -> bool {
 
 fn parse_vpcc(data: &[u8]) -> Result<ParsedVpcc, MediaProcessingError> {
     if !looks_like_vpcc(data) {
-        return Err(mux_error("VP codec private data is not a vpcC version-1 payload"));
+        return Err(mux_error(
+            "VP codec private data is not a vpcC version-1 payload",
+        ));
     }
     let initialization_size = usize::from(u16::from_be_bytes([data[10], data[11]]));
     let expected = 12_usize
         .checked_add(initialization_size)
         .ok_or_else(|| mux_error("vpcC initialization data length overflow"))?;
     if data.len() != expected {
-        return Err(mux_error("vpcC initialization data length does not match payload"));
+        return Err(mux_error(
+            "vpcC initialization data length does not match payload",
+        ));
     }
     if initialization_size != 0 {
         return Err(MediaProcessingError::UnsupportedOperation(
@@ -1146,7 +1151,9 @@ fn parse_vpcc(data: &[u8]) -> Result<ParsedVpcc, MediaProcessingError> {
     let bit_depth = data[6] >> 4;
     let chroma_subsampling = (data[6] >> 1) & 0x07;
     if !matches!(bit_depth, 8 | 10 | 12) || chroma_subsampling > 3 {
-        return Err(mux_error("vpcC contains invalid bit depth or chroma subsampling"));
+        return Err(mux_error(
+            "vpcC contains invalid bit depth or chroma subsampling",
+        ));
     }
     Ok(ParsedVpcc {
         profile: data[4],
@@ -1180,7 +1187,9 @@ fn validate_vp9_feature_private(data: &[u8]) -> Result<(), MediaProcessingError>
         let len = usize::from(data[cursor + 1]);
         cursor += 2;
         if id & 0x80 != 0 {
-            return Err(mux_error("VP9 CodecPrivate extended feature ids are unsupported"));
+            return Err(mux_error(
+                "VP9 CodecPrivate extended feature ids are unsupported",
+            ));
         }
         let end = cursor
             .checked_add(len)
@@ -1317,7 +1326,9 @@ fn validate_opus_mapping(data: &[u8], channels: u8) -> Result<(), MediaProcessin
         || coupled_count > stream_count
         || u16::from(stream_count) + u16::from(coupled_count) != u16::from(channels)
     {
-        return Err(mux_error("invalid OpusHead stream and coupled channel counts"));
+        return Err(mux_error(
+            "invalid OpusHead stream and coupled channel counts",
+        ));
     }
     Ok(())
 }
@@ -1399,7 +1410,9 @@ fn extract_aac_asc_from_esds(data: &[u8]) -> Result<Vec<u8>, MediaProcessingErro
     while cursor < decoder_end {
         let (nested_tag, nested_start, nested_end) = descriptor_header(data, cursor)?;
         if nested_end > decoder_end {
-            return Err(mux_error("AAC nested descriptor exceeds DecoderConfigDescriptor"));
+            return Err(mux_error(
+                "AAC nested descriptor exceeds DecoderConfigDescriptor",
+            ));
         }
         if nested_tag == 0x05 {
             let asc = data
@@ -1464,10 +1477,7 @@ fn validate_aac_asc(data: &[u8]) -> Result<(), MediaProcessingError> {
     Ok(())
 }
 
-fn read_aac_object_type(
-    data: &[u8],
-    bit_offset: &mut usize,
-) -> Result<u32, MediaProcessingError> {
+fn read_aac_object_type(data: &[u8], bit_offset: &mut usize) -> Result<u32, MediaProcessingError> {
     let object_type = read_bits(data, bit_offset, 5)?;
     let object_type = if object_type == 31 {
         32 + read_bits(data, bit_offset, 6)?
@@ -1683,9 +1693,7 @@ fn io_error(error: std::io::Error) -> MediaProcessingError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        AudioParameters, MatroskaDemuxer, MediaPacketFlags, VideoParameters, WebmDemuxer,
-    };
+    use crate::{AudioParameters, MatroskaDemuxer, MediaPacketFlags, VideoParameters, WebmDemuxer};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_path(extension: &str) -> PathBuf {
@@ -1734,9 +1742,7 @@ mod tests {
                 channels: 2,
                 bitrate_bps: None,
             }),
-            codec_private: vec![
-                0, 2, 0x01, 0x38, 0x00, 0x00, 0xbb, 0x80, 0x00, 0x00, 0,
-            ],
+            codec_private: vec![0, 2, 0x01, 0x38, 0x00, 0x00, 0xbb, 0x80, 0x00, 0x00, 0],
         };
 
         let video_id = muxer.add_track(&video).expect("video track");
@@ -1835,9 +1841,7 @@ mod tests {
                 bitrate_bps: None,
             }),
             audio: None,
-            codec_private: vec![
-                1, 66, 0, 30, 0xff, 0xe1, 0, 1, 0x67, 1, 0, 1, 0x68,
-            ],
+            codec_private: vec![1, 66, 0, 30, 0xff, 0xe1, 0, 1, 0x67, 1, 0, 1, 0x68],
         };
         let id = muxer.add_track(&track).expect("H264 track");
         for (pts, dts, keyframe, data) in [

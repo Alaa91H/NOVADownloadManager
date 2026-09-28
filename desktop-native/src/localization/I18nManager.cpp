@@ -449,7 +449,7 @@ const Dictionary &english() {
         {QStringLiteral("settings.best"), QStringLiteral("Best available")},
         {QStringLiteral("settings.downloadSubtitles"), QStringLiteral("Download subtitles by default")},
         {QStringLiteral("settings.subtitleLanguage"), QStringLiteral("Subtitle language")},
-        {QStringLiteral("settings.ffmpegPath"), QStringLiteral("External media tool path")},
+        {QStringLiteral("settings.ffmpegPath"), QStringLiteral("External media processor path")},
         {QStringLiteral("settings.ffmpegAutoMerge"), QStringLiteral("Automatically merge media")},
         {QStringLiteral("settings.executableFiles"), QStringLiteral("Executable files")},
         {QStringLiteral("settings.externalTools"), QStringLiteral("External tools")},
@@ -1053,7 +1053,7 @@ const Dictionary &arabic() {
         {QStringLiteral("settings.best"), QStringLiteral("أفضل جودة متاحة")},
         {QStringLiteral("settings.downloadSubtitles"), QStringLiteral("تنزيل الترجمات افتراضيًا")},
         {QStringLiteral("settings.subtitleLanguage"), QStringLiteral("لغة الترجمة")},
-        {QStringLiteral("settings.ffmpegPath"), QStringLiteral("مسار أداة الوسائط الخارجية")},
+        {QStringLiteral("settings.ffmpegPath"), QStringLiteral("مسار معالج الوسائط الخارجي")},
         {QStringLiteral("settings.ffmpegAutoMerge"), QStringLiteral("دمج الوسائط تلقائيًا")},
         {QStringLiteral("settings.executableFiles"), QStringLiteral("ملفات تنفيذية")},
         {QStringLiteral("settings.externalTools"), QStringLiteral("الأدوات الخارجية")},
@@ -1631,7 +1631,7 @@ const Dictionary &german() {
         {QStringLiteral("settings.best"), QStringLiteral("Beste verfügbare Qualität")},
         {QStringLiteral("settings.downloadSubtitles"), QStringLiteral("Untertitel standardmäßig laden")},
         {QStringLiteral("settings.subtitleLanguage"), QStringLiteral("Untertitelsprache")},
-        {QStringLiteral("settings.ffmpegPath"), QStringLiteral("Pfad zum externen Medienwerkzeug")},
+        {QStringLiteral("settings.ffmpegPath"), QStringLiteral("Pfad zum externen Medienprozessor")},
         {QStringLiteral("settings.ffmpegAutoMerge"), QStringLiteral("Medien automatisch zusammenführen")},
         {QStringLiteral("settings.executableFiles"), QStringLiteral("Ausführbare Dateien")},
         {QStringLiteral("settings.externalTools"), QStringLiteral("Externe Werkzeuge")},
@@ -1798,7 +1798,7 @@ I18nManager::I18nManager(QObject *parent)
     : QObject(parent) {}
 
 bool I18nManager::rtl() const {
-    return normalizeLanguage(m_language) == QStringLiteral("ar");
+    return m_language == QStringLiteral("ar");
 }
 
 QString I18nManager::normalizeLanguage(const QString &language) {

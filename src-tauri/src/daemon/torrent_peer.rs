@@ -97,8 +97,7 @@ impl PeerReputation {
     }
 
     pub fn record_metadata_success(&mut self) {
-        self.successful_metadata_exchanges =
-            self.successful_metadata_exchanges.saturating_add(1);
+        self.successful_metadata_exchanges = self.successful_metadata_exchanges.saturating_add(1);
         self.timeouts = self.timeouts.saturating_sub(1);
     }
 
@@ -218,10 +217,7 @@ impl PeerEngine {
         Self::new(PeerEngineConfig::default())
     }
 
-    pub fn with_download_limiter(
-        &self,
-        limiter: Arc<TorrentBandwidthLimiter>,
-    ) -> Self {
+    pub fn with_download_limiter(&self, limiter: Arc<TorrentBandwidthLimiter>) -> Self {
         let mut engine = self.clone();
         engine.download_limiter = Some(limiter);
         engine
@@ -374,7 +370,7 @@ impl PeerEngine {
                         );
                     }
                     session
-                },
+                }
                 Err(error) => {
                     self.record_failure(address, &error).await;
                     failures.push(format!("{address}: {}", limit_peer_error(&error)));
@@ -475,10 +471,7 @@ impl PeerEngine {
                 continue;
             }
 
-            match session
-                .fetch_metadata(info_hash, trackers, cancel)
-                .await
-            {
+            match session.fetch_metadata(info_hash, trackers, cancel).await {
                 Ok(result) => {
                     self.reputation
                         .lock()
@@ -674,7 +667,9 @@ impl PeerSession {
             .map_err(|error| format!("Peer {address} sent an invalid handshake: {error}"))?;
 
         if remote.info_hash != info_hash {
-            return Err(format!("Peer {address} returned the wrong torrent info hash"));
+            return Err(format!(
+                "Peer {address} returned the wrong torrent info hash"
+            ));
         }
         if remote.peer_id == local_peer_id {
             return Err(format!("Peer {address} returned our own peer id"));
@@ -699,9 +694,7 @@ impl PeerSession {
 
         if remote_supports_dht {
             if let Some(port) = local_dht_port {
-                session
-                    .send(&PeerMessage::Port(port), cancel)
-                    .await?;
+                session.send(&PeerMessage::Port(port), cancel).await?;
             }
         }
 
@@ -735,7 +728,6 @@ impl PeerSession {
         self.download_limiter = Some(limiter);
     }
 
-
     pub const fn address(&self) -> SocketAddr {
         self.address
     }
@@ -764,8 +756,11 @@ impl PeerSession {
         self.discovered_pex_peers.drain(..).collect()
     }
 
-
-    pub async fn send(&mut self, message: &PeerMessage, cancel: &CancellationToken) -> Result<(), String> {
+    pub async fn send(
+        &mut self,
+        message: &PeerMessage,
+        cancel: &CancellationToken,
+    ) -> Result<(), String> {
         let encoded = message
             .encode()
             .map_err(|error| format!("Could not encode peer message: {error}"))?;
@@ -780,12 +775,7 @@ impl PeerSession {
     }
 
     pub async fn receive(&mut self, cancel: &CancellationToken) -> Result<PeerMessage, String> {
-        let message = read_peer_frame(
-            &mut self.stream,
-            self.config.frame_timeout,
-            cancel,
-        )
-        .await?;
+        let message = read_peer_frame(&mut self.stream, self.config.frame_timeout, cancel).await?;
         self.state
             .apply(&message)
             .map_err(|error| format!("Peer {} protocol state error: {error}", self.address))?;
@@ -796,12 +786,17 @@ impl PeerSession {
         } = &message
         {
             if *extension_id == EXTENSION_HANDSHAKE_ID {
-                let handshake = ExtendedHandshake::parse(payload)
-                    .map_err(|error| format!("Peer {} sent invalid extended handshake: {error}", self.address))?;
+                let handshake = ExtendedHandshake::parse(payload).map_err(|error| {
+                    format!(
+                        "Peer {} sent invalid extended handshake: {error}",
+                        self.address
+                    )
+                })?;
                 self.remote_extensions = Some(handshake);
             } else if *extension_id == LOCAL_UT_PEX_ID && self.config.enable_pex {
-                let pex = PeerExchange::parse(payload)
-                    .map_err(|error| format!("Peer {} sent invalid ut_pex payload: {error}", self.address))?;
+                let pex = PeerExchange::parse(payload).map_err(|error| {
+                    format!("Peer {} sent invalid ut_pex payload: {error}", self.address)
+                })?;
                 for peer in pex.added {
                     if self.discovered_pex_peers.len() >= MAX_PEX_PEERS {
                         break;
@@ -838,19 +833,25 @@ impl PeerSession {
             self.wait_for_extended_handshake(cancel),
         )
         .await
-        .map_err(|_| format!(
-            "Peer {} timed out before providing an extended handshake",
-            self.address
-        ))??;
-        let remote_metadata_id = remote.ut_metadata.ok_or_else(|| {
-            format!("Peer {} does not advertise ut_metadata", self.address)
-        })?;
-        let total_size = remote.metadata_size.ok_or_else(|| {
-            format!("Peer {} did not advertise metadata_size", self.address)
-        })?;
+        .map_err(|_| {
+            format!(
+                "Peer {} timed out before providing an extended handshake",
+                self.address
+            )
+        })??;
+        let remote_metadata_id = remote
+            .ut_metadata
+            .ok_or_else(|| format!("Peer {} does not advertise ut_metadata", self.address))?;
+        let total_size = remote
+            .metadata_size
+            .ok_or_else(|| format!("Peer {} did not advertise metadata_size", self.address))?;
 
-        let mut assembler = MetadataAssembler::new(info_hash, total_size)
-            .map_err(|error| format!("Invalid metadata geometry from peer {}: {error}", self.address))?;
+        let mut assembler = MetadataAssembler::new(info_hash, total_size).map_err(|error| {
+            format!(
+                "Invalid metadata geometry from peer {}: {error}",
+                self.address
+            )
+        })?;
         let mut pending = VecDeque::from(
             (0..assembler.piece_count())
                 .map(|piece| piece as u32)
@@ -902,9 +903,12 @@ impl PeerSession {
                     extension_id,
                     payload,
                 } if extension_id == LOCAL_UT_METADATA_ID => {
-                    match MetadataMessage::parse(&payload)
-                        .map_err(|error| format!("Peer {} sent invalid ut_metadata payload: {error}", self.address))?
-                    {
+                    match MetadataMessage::parse(&payload).map_err(|error| {
+                        format!(
+                            "Peer {} sent invalid ut_metadata payload: {error}",
+                            self.address
+                        )
+                    })? {
                         MetadataMessage::Data {
                             piece,
                             total_size,
@@ -916,12 +920,13 @@ impl PeerSession {
                                     self.address, piece
                                 ));
                             }
-                            let complete = assembler
-                                .insert(piece, total_size, data)
-                                .map_err(|error| format!(
-                                    "Peer {} metadata assembly failed: {error}",
-                                    self.address
-                                ))?;
+                            let complete =
+                                assembler.insert(piece, total_size, data).map_err(|error| {
+                                    format!(
+                                        "Peer {} metadata assembly failed: {error}",
+                                        self.address
+                                    )
+                                })?;
                             control_frames_without_progress = 0;
                             if complete {
                                 break;
@@ -935,11 +940,12 @@ impl PeerSession {
                             ));
                         }
                         MetadataMessage::Request { piece } => {
-                            let payload = MetadataMessage::Reject { piece }
-                                .encode()
-                                .map_err(|error| format!(
-                                    "Could not encode metadata rejection: {error}"
-                                ))?;
+                            let payload =
+                                MetadataMessage::Reject { piece }
+                                    .encode()
+                                    .map_err(|error| {
+                                        format!("Could not encode metadata rejection: {error}")
+                                    })?;
                             self.send(
                                 &PeerMessage::Extended {
                                     extension_id: remote_metadata_id,
@@ -978,11 +984,18 @@ impl PeerSession {
             }
         }
 
-        let raw_info = assembler
-            .finish()
-            .map_err(|error| format!("Peer {} metadata verification failed: {error}", self.address))?;
-        let metainfo = TorrentMetainfo::from_info_bytes(&raw_info, trackers)
-            .map_err(|error| format!("Peer {} returned invalid torrent metadata: {error}", self.address))?;
+        let raw_info = assembler.finish().map_err(|error| {
+            format!(
+                "Peer {} metadata verification failed: {error}",
+                self.address
+            )
+        })?;
+        let metainfo = TorrentMetainfo::from_info_bytes(&raw_info, trackers).map_err(|error| {
+            format!(
+                "Peer {} returned invalid torrent metadata: {error}",
+                self.address
+            )
+        })?;
         if metainfo.info_hash != info_hash {
             return Err(format!(
                 "Peer {} metadata info hash changed after validation",
@@ -1232,9 +1245,7 @@ impl PeerSession {
                 }
             }
 
-            if control_frames_without_progress
-                > self.config.max_control_frames_without_progress
-            {
+            if control_frames_without_progress > self.config.max_control_frames_without_progress {
                 return Err(format!(
                     "Peer {} produced too many frames without download progress",
                     self.address
@@ -1322,9 +1333,7 @@ impl PeerSession {
         outstanding: &mut BTreeMap<u32, OutstandingBlock>,
         cancel: &CancellationToken,
     ) -> Result<(), String> {
-        let Some((&begin, oldest)) = outstanding
-            .iter()
-            .min_by_key(|(_, block)| block.last_sent)
+        let Some((&begin, oldest)) = outstanding.iter().min_by_key(|(_, block)| block.last_sent)
         else {
             return Err(format!(
                 "Peer {} timed out without any outstanding requests",
@@ -1465,8 +1474,8 @@ mod tests {
             name: "piece.bin".to_owned(),
             piece_length: 8,
             piece_hashes: vec![[
-                0x42, 0x5a, 0xf1, 0x2a, 0x07, 0x43, 0x50, 0x2b, 0x32, 0x2e,
-                0x93, 0xa0, 0x15, 0xbc, 0xf8, 0x68, 0xe3, 0x24, 0xd5, 0x6a,
+                0x42, 0x5a, 0xf1, 0x2a, 0x07, 0x43, 0x50, 0x2b, 0x32, 0x2e, 0x93, 0xa0, 0x15, 0xbc,
+                0xf8, 0x68, 0xe3, 0x24, 0xd5, 0x6a,
             ]],
             files: vec![TorrentFile {
                 path: "piece.bin".to_owned(),
@@ -1527,8 +1536,7 @@ mod tests {
             let mut handshake = [0u8; PEER_HANDSHAKE_LEN];
             stream.read_exact(&mut handshake).await.unwrap();
 
-            let mut remote =
-                PeerHandshake::new(info_hash, *b"-NVTEST-REMOTE-00001");
+            let mut remote = PeerHandshake::new(info_hash, *b"-NVTEST-REMOTE-00001");
             remote.reserved[5] |= 0x10;
             stream.write_all(&remote.encode()).await.unwrap();
 
@@ -1589,8 +1597,8 @@ mod tests {
     async fn peer_session_fetches_verified_bep9_metadata_and_collects_pex() {
         let mut info = b"d6:lengthi8e4:name9:piece.bin12:piece lengthi8e6:pieces20:".to_vec();
         info.extend_from_slice(&[
-            0x42, 0x5a, 0xf1, 0x2a, 0x07, 0x43, 0x50, 0x2b, 0x32, 0x2e,
-            0x93, 0xa0, 0x15, 0xbc, 0xf8, 0x68, 0xe3, 0x24, 0xd5, 0x6a,
+            0x42, 0x5a, 0xf1, 0x2a, 0x07, 0x43, 0x50, 0x2b, 0x32, 0x2e, 0x93, 0xa0, 0x15, 0xbc,
+            0xf8, 0x68, 0xe3, 0x24, 0xd5, 0x6a,
         ]);
         info.push(b'e');
         let expected = TorrentMetainfo::from_info_bytes(&info, &[]).unwrap();
@@ -1607,8 +1615,7 @@ mod tests {
             let client = PeerHandshake::decode(&handshake).unwrap();
             assert!(client.supports_extension_protocol());
 
-            let mut remote =
-                PeerHandshake::new(info_hash, *b"-NVTEST-REMOTE-00001");
+            let mut remote = PeerHandshake::new(info_hash, *b"-NVTEST-REMOTE-00001");
             remote.reserved[5] |= 0x10;
             stream.write_all(&remote.encode()).await.unwrap();
 
@@ -1822,10 +1829,7 @@ mod tests {
             let (mut stream, _) = listener.accept().await.unwrap();
             let mut handshake = [0u8; PEER_HANDSHAKE_LEN];
             stream.read_exact(&mut handshake).await.unwrap();
-            let wrong = PeerHandshake::new(
-                InfoHash::new([9u8; 20]),
-                *b"-NVTEST-REMOTE-00001",
-            );
+            let wrong = PeerHandshake::new(InfoHash::new([9u8; 20]), *b"-NVTEST-REMOTE-00001");
             stream.write_all(&wrong.encode()).await.unwrap();
         });
 
@@ -1854,10 +1858,7 @@ mod tests {
             let (mut stream, _) = listener.accept().await.unwrap();
             let mut handshake = [0u8; PEER_HANDSHAKE_LEN];
             stream.read_exact(&mut handshake).await.unwrap();
-            let remote = PeerHandshake::new(
-                info_hash,
-                *b"-NVTEST-REMOTE-00001",
-            );
+            let remote = PeerHandshake::new(info_hash, *b"-NVTEST-REMOTE-00001");
             stream.write_all(&remote.encode()).await.unwrap();
 
             let interested = read_peer_frame(
@@ -1890,9 +1891,7 @@ mod tests {
             assert_eq!(first, retry);
 
             let PeerMessage::Request {
-                piece_index,
-                begin,
-                ..
+                piece_index, begin, ..
             } = retry
             else {
                 panic!("expected retried request");
@@ -1946,10 +1945,7 @@ mod tests {
             let (mut stream, _) = listener.accept().await.unwrap();
             let mut handshake = [0u8; PEER_HANDSHAKE_LEN];
             stream.read_exact(&mut handshake).await.unwrap();
-            let remote = PeerHandshake::new(
-                info_hash,
-                *b"-NVTEST-REMOTE-00001",
-            );
+            let remote = PeerHandshake::new(info_hash, *b"-NVTEST-REMOTE-00001");
             stream.write_all(&remote.encode()).await.unwrap();
             let _ = read_peer_frame(
                 &mut stream,
@@ -2061,19 +2057,16 @@ mod tests {
         let address_a = listener_a.local_addr().unwrap();
         let address_b = listener_b.local_addr().unwrap();
 
-        let (bad_listener, bad_address, good_listener, good_address) =
-            if address_a < address_b {
-                (listener_a, address_a, listener_b, address_b)
-            } else {
-                (listener_b, address_b, listener_a, address_a)
-            };
+        let (bad_listener, bad_address, good_listener, good_address) = if address_a < address_b {
+            (listener_a, address_a, listener_b, address_b)
+        } else {
+            (listener_b, address_b, listener_a, address_a)
+        };
 
         let bad_hash = metainfo.info_hash;
         let good_hash = metainfo.info_hash;
-        let bad_server =
-            tokio::spawn(serve_single_piece(bad_listener, bad_hash, b"XXXXXXXX"));
-        let good_server =
-            tokio::spawn(serve_single_piece(good_listener, good_hash, b"abcdefgh"));
+        let bad_server = tokio::spawn(serve_single_piece(bad_listener, bad_hash, b"XXXXXXXX"));
+        let good_server = tokio::spawn(serve_single_piece(good_listener, good_hash, b"abcdefgh"));
 
         let engine = PeerEngine::for_tests(PeerEngineConfig {
             session: test_config(),

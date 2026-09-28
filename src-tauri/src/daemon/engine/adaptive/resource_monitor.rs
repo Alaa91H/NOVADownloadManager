@@ -47,6 +47,12 @@ pub struct ResourceMonitor {
     fallback_warned: bool,
 }
 
+impl Default for ResourceMonitor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ResourceMonitor {
     pub fn new() -> Self {
         let cpu_count = ResourceSnapshot::detect_cpu_count();
