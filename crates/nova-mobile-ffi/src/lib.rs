@@ -63,7 +63,6 @@ impl From<RecoveryIdentity> for nova_core_model::ResourceIdentity {
     }
 }
 
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Record)]
 pub struct NativeTransferProgress {
     pub downloaded_bytes: u64,
@@ -299,7 +298,8 @@ pub fn plan_http_resume(
     response_status: u16,
     content_range_start: Option<u64>,
 ) -> ResumeAction {
-    match nova_download_core::plan_http_resume(existing_bytes, response_status, content_range_start) {
+    match nova_download_core::plan_http_resume(existing_bytes, response_status, content_range_start)
+    {
         nova_download_core::ResumeAction::Append => ResumeAction::Append,
         nova_download_core::ResumeAction::Restart => ResumeAction::Restart,
     }
@@ -328,10 +328,7 @@ pub fn plan_http_recovery(
     }
 }
 
-
-fn mobile_media_descriptor(
-    descriptor: nova_media_core::MediaDescriptor,
-) -> MobileMediaDescriptor {
+fn mobile_media_descriptor(descriptor: nova_media_core::MediaDescriptor) -> MobileMediaDescriptor {
     let source_kind = match descriptor.source_kind {
         nova_media_core::MediaSourceKind::Direct => "direct",
         nova_media_core::MediaSourceKind::Hls => "hls",
@@ -437,26 +434,23 @@ fn resolve_mobile_media_descriptor(
 
     let descriptor = if nova_media_core::youtube_video_id(&parsed).is_some() {
         let extractor = nova_media_core::YouTubeExtractor;
-        let mut extraction = extractor
-            .extract_native(&extract)
-            .map_err(|error| MediaResolveError::ResolveFailed {
+        let mut extraction = extractor.extract_native(&extract).map_err(|error| {
+            MediaResolveError::ResolveFailed {
                 message: error.to_string(),
-            })?;
+            }
+        })?;
         if !extraction.pending_formats.is_empty() {
-            let context = extract
-                .request_context()
-                .map_err(|error| MediaResolveError::InvalidRequest {
+            let context =
+                extract
+                    .request_context()
+                    .map_err(|error| MediaResolveError::InvalidRequest {
+                        message: error.to_string(),
+                    })?;
+            let solver = nova_media_core::YouTubePlayerScriptSolver;
+            nova_media_core::resolve_youtube_pending_formats(&mut extraction, &context, &solver)
+                .map_err(|error| MediaResolveError::ResolveFailed {
                     message: error.to_string(),
                 })?;
-            let solver = nova_media_core::YouTubePlayerScriptSolver;
-            nova_media_core::resolve_youtube_pending_formats(
-                &mut extraction,
-                &context,
-                &solver,
-            )
-            .map_err(|error| MediaResolveError::ResolveFailed {
-                message: error.to_string(),
-            })?;
         }
         extraction.descriptor
     } else {
@@ -885,7 +879,6 @@ pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeC
     }
 }
 
-
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "system" fn Java_com_nova_downloadmanager_core_NovaNativeCore_nativeTransferDownloadedBytes(
@@ -1190,7 +1183,10 @@ mod tests {
             result,
             Err(nova_download_core::TransportError::RangeResponseRejected { .. })
         ));
-        assert!(payload.is_empty(), "rejected body must never reach the sink");
+        assert!(
+            payload.is_empty(),
+            "rejected body must never reach the sink"
+        );
     }
 
     #[test]
@@ -1217,7 +1213,10 @@ mod tests {
             result,
             Err(nova_download_core::TransportError::RangeResponseRejected { .. })
         ));
-        assert!(payload.is_empty(), "mismatched range must never reach the sink");
+        assert!(
+            payload.is_empty(),
+            "mismatched range must never reach the sink"
+        );
     }
 
     #[test]
