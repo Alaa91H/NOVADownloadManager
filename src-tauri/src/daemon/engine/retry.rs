@@ -271,8 +271,9 @@ mod tests {
         // With symmetric jitter the first delay sits in the ±12.5% band
         // around 500ms rather than at the exact value.
         let d1 = policy.delay_for_attempt(1);
-        let lo = (500.0 * 0.875) as u128 * 1_000_000; // 437.5ms in ns
-        let hi = (500.0 * 1.125) as u128 * 1_000_000; // 562.5ms in ns
+        let base_nanos = Duration::from_millis(500).as_nanos();
+        let lo = base_nanos * 875 / 1_000;
+        let hi = base_nanos * 1_125 / 1_000;
         assert!(
             d1.as_nanos() >= lo && d1.as_nanos() <= hi,
             "a1={d1:?} outside 500ms±12.5%"
