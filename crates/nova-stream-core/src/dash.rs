@@ -153,7 +153,9 @@ pub fn parse_dash(body: &str) -> Result<DashManifest, DashError> {
                 }
                 b"Representation" => {
                     if let Some(adaptation) = current_adaptation.as_mut() {
-                        adaptation.representations.push(parse_representation(&event));
+                        adaptation
+                            .representations
+                            .push(parse_representation(&event));
                     }
                 }
                 b"S" if inside_segment_timeline => {
@@ -191,10 +193,9 @@ pub fn parse_dash(body: &str) -> Result<DashManifest, DashError> {
                 b"BaseURL" => base_url_target = None,
                 b"SegmentTimeline" => inside_segment_timeline = false,
                 b"Representation" => {
-                    if let (Some(representation), Some(adaptation)) = (
-                        current_representation.take(),
-                        current_adaptation.as_mut(),
-                    ) {
+                    if let (Some(representation), Some(adaptation)) =
+                        (current_representation.take(), current_adaptation.as_mut())
+                    {
                         adaptation.representations.push(representation);
                     }
                 }
@@ -226,8 +227,8 @@ pub fn parse_dash(body: &str) -> Result<DashManifest, DashError> {
 }
 
 fn apply_mpd_attributes(event: &BytesStart<'_>, manifest: &mut DashManifest) {
-    manifest.is_dynamic = attribute(event, b"type")
-        .is_some_and(|value| value.eq_ignore_ascii_case("dynamic"));
+    manifest.is_dynamic =
+        attribute(event, b"type").is_some_and(|value| value.eq_ignore_ascii_case("dynamic"));
     manifest.minimum_update_period = attribute(event, b"minimumUpdatePeriod");
     manifest.media_presentation_duration = attribute(event, b"mediaPresentationDuration");
 }
@@ -364,13 +365,16 @@ pub enum DashPlanError {
 pub fn select_best_dash_representation(
     adaptation: &DashAdaptationSet,
 ) -> Option<&DashRepresentation> {
-    adaptation.representations.iter().max_by_key(|representation| {
-        (
-            u64::from(representation.width.unwrap_or(0))
-                * u64::from(representation.height.unwrap_or(0)),
-            representation.bandwidth.unwrap_or(0),
-        )
-    })
+    adaptation
+        .representations
+        .iter()
+        .max_by_key(|representation| {
+            (
+                u64::from(representation.width.unwrap_or(0))
+                    * u64::from(representation.height.unwrap_or(0)),
+                representation.bandwidth.unwrap_or(0),
+            )
+        })
 }
 
 /// Build a native transfer plan for a static DASH representation.
@@ -398,8 +402,7 @@ pub fn build_dash_representation_plan(
         .get(representation_index)
         .ok_or(DashPlanError::MissingRepresentation)?;
 
-    let mut base =
-        Url::parse(manifest_url).map_err(|_| DashPlanError::InvalidManifestUrl)?;
+    let mut base = Url::parse(manifest_url).map_err(|_| DashPlanError::InvalidManifestUrl)?;
     if let Some(adaptation_base) = &adaptation.base_url {
         base = base
             .join(adaptation_base)
@@ -479,7 +482,9 @@ pub fn build_dash_representation_plan(
         if manifest.is_dynamic {
             return Err(DashPlanError::DynamicManifest);
         }
-        let segment_duration = template.duration.ok_or(DashPlanError::MissingSegmentTiming)?;
+        let segment_duration = template
+            .duration
+            .ok_or(DashPlanError::MissingSegmentTiming)?;
         if segment_duration == 0 {
             return Err(DashPlanError::MissingSegmentTiming);
         }
@@ -492,9 +497,7 @@ pub fn build_dash_representation_plan(
             .ok_or_else(|| DashPlanError::InvalidPresentationDuration(duration_text.to_owned()))?;
         let numerator = u128::from(total_millis) * u128::from(timescale);
         let denominator = u128::from(segment_duration) * 1000;
-        let segment_count = numerator
-            .saturating_add(denominator.saturating_sub(1))
-            / denominator;
+        let segment_count = numerator.saturating_add(denominator.saturating_sub(1)) / denominator;
         let segment_count = u64::try_from(segment_count).unwrap_or(u64::MAX);
 
         for offset in 0..segment_count {
@@ -565,10 +568,7 @@ fn append_timeline_units(
             if boundary <= current_time {
                 return Err(DashPlanError::InvalidTimelineRepeat);
             }
-            boundary
-                .saturating_sub(current_time)
-                .saturating_sub(1)
-                / entry.duration
+            boundary.saturating_sub(current_time).saturating_sub(1) / entry.duration
         } else {
             return Err(DashPlanError::InvalidTimelineRepeat);
         };
@@ -798,11 +798,7 @@ pub fn build_dash_live_refresh(
                 );
             }
             if let Some(time) = unit.time {
-                state.last_time = Some(
-                    state
-                        .last_time
-                        .map_or(time, |current| current.max(time)),
-                );
+                state.last_time = Some(state.last_time.map_or(time, |current| current.max(time)));
             }
             state
         });
@@ -860,7 +856,10 @@ mod tests {
         assert_eq!(video.content_type.as_deref(), Some("video"));
         assert_eq!(video.representations[0].height, Some(1080));
         assert_eq!(
-            video.segment_template.as_ref().and_then(|template| template.duration),
+            video
+                .segment_template
+                .as_ref()
+                .and_then(|template| template.duration),
             Some(5000)
         );
 
@@ -874,10 +873,9 @@ mod tests {
 
     #[test]
     fn parses_dynamic_mpd_metadata() {
-        let manifest = parse_dash(
-            r#"<MPD type="dynamic" minimumUpdatePeriod="PT5S"><Period/></MPD>"#,
-        )
-        .expect("dynamic dash");
+        let manifest =
+            parse_dash(r#"<MPD type="dynamic" minimumUpdatePeriod="PT5S"><Period/></MPD>"#)
+                .expect("dynamic dash");
 
         assert!(manifest.is_dynamic);
         assert_eq!(manifest.minimum_update_period.as_deref(), Some("PT5S"));
@@ -885,10 +883,7 @@ mod tests {
 
     #[test]
     fn rejects_non_mpd_xml() {
-        assert_eq!(
-            parse_dash("<root/>"),
-            Err(DashError::MissingMpd)
-        );
+        assert_eq!(parse_dash("<root/>"), Err(DashError::MissingMpd));
     }
 
     #[test]
@@ -944,10 +939,7 @@ mod tests {
         .expect("DASH plan");
 
         assert_eq!(plan.units.len(), 4);
-        assert_eq!(
-            plan.units[0].url,
-            "https://cdn.test/path/init-v1.mp4"
-        );
+        assert_eq!(plan.units[0].url, "https://cdn.test/path/init-v1.mp4");
         assert_eq!(
             plan.units[1].url,
             "https://cdn.test/path/chunk-005-2000.m4s"
@@ -993,10 +985,7 @@ mod tests {
         assert_eq!(plan.units.len(), 5);
         assert_eq!(plan.units[1].time, Some(0));
         assert_eq!(plan.units[2].time, Some(2000));
-        assert_eq!(
-            plan.units[3].url,
-            "https://cdn.test/live/chunk-4000-12.m4s"
-        );
+        assert_eq!(plan.units[3].url, "https://cdn.test/live/chunk-4000-12.m4s");
         assert_eq!(plan.units[4].time, Some(6000));
     }
 
@@ -1013,20 +1002,11 @@ mod tests {
         )
         .expect("dynamic timeline");
 
-        let plan = build_dash_representation_plan(
-            &manifest,
-            "https://cdn.test/manifest.mpd",
-            0,
-            0,
-            0,
-        )
-        .expect("dynamic timeline snapshot");
+        let plan =
+            build_dash_representation_plan(&manifest, "https://cdn.test/manifest.mpd", 0, 0, 0)
+                .expect("dynamic timeline snapshot");
 
-        let times: Vec<_> = plan
-            .units
-            .iter()
-            .filter_map(|unit| unit.time)
-            .collect();
+        let times: Vec<_> = plan.units.iter().filter_map(|unit| unit.time).collect();
         assert_eq!(times, vec![10, 12, 14, 16]);
     }
 
