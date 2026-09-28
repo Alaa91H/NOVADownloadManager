@@ -202,9 +202,11 @@ pub fn parse_hls(base_url: &str, body: &str) -> Result<HlsManifest, HlsError> {
         }
 
         let byte_range = pending_byte_range.take();
-        next_implicit_offset = byte_range
-            .as_ref()
-            .and_then(|range| range.offset.map(|offset| offset.saturating_add(range.length)));
+        next_implicit_offset = byte_range.as_ref().and_then(|range| {
+            range
+                .offset
+                .map(|offset| offset.saturating_add(range.length))
+        });
 
         segments.push(HlsSegment {
             uri: resolved,
@@ -253,12 +255,12 @@ fn parse_variant(attributes: &str, uri: String) -> HlsVariant {
             "BANDWIDTH" => variant.bandwidth = value.parse().ok(),
             "AVERAGE-BANDWIDTH" => variant.average_bandwidth = value.parse().ok(),
             "RESOLUTION" => {
-                variant.resolution = value
-                    .split_once('x')
-                    .and_then(|(width, height)| match (width.parse(), height.parse()) {
+                variant.resolution = value.split_once('x').and_then(|(width, height)| {
+                    match (width.parse(), height.parse()) {
                         (Ok(width), Ok(height)) => Some((width, height)),
                         _ => None,
-                    });
+                    }
+                });
             }
             "CODECS" => {
                 variant.codecs = value
@@ -309,7 +311,8 @@ fn parse_rendition(base: &Url, attributes: &str) -> Option<HlsRendition> {
 fn parse_init_map(base: &Url, attributes: &str) -> Option<HlsInitMap> {
     let attrs = split_attributes(attributes);
     let uri = attr(&attrs, "URI")?;
-    let byte_range = attr(&attrs, "BYTERANGE").and_then(|value| parse_byte_range(unquote(value)).ok());
+    let byte_range =
+        attr(&attrs, "BYTERANGE").and_then(|value| parse_byte_range(unquote(value)).ok());
 
     Some(HlsInitMap {
         uri: resolve_uri(base, unquote(uri)),
@@ -633,7 +636,10 @@ mod tests {
             })
         );
         assert_eq!(
-            manifest.segments[0].init_map.as_ref().map(|map| map.uri.as_str()),
+            manifest.segments[0]
+                .init_map
+                .as_ref()
+                .map(|map| map.uri.as_str()),
             Some("https://cdn.test/vod/init.mp4")
         );
         assert_eq!(
@@ -659,8 +665,8 @@ mod tests {
             "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:10\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\n10.ts\n#EXTINF:4,\n11.ts\n",
         )
         .expect("first live manifest");
-        let refresh = build_hls_live_refresh(&first, HlsLiveCursor::default())
-            .expect("first refresh");
+        let refresh =
+            build_hls_live_refresh(&first, HlsLiveCursor::default()).expect("first refresh");
 
         assert_eq!(refresh.reload_after_millis, 4000);
         assert_eq!(refresh.next_cursor.next_sequence, Some(12));
@@ -681,8 +687,7 @@ mod tests {
             "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:11\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\n11.ts\n#EXTINF:4,\n12.ts\n#EXT-X-ENDLIST\n",
         )
         .expect("second live manifest");
-        let refresh = build_hls_live_refresh(&second, refresh.next_cursor)
-            .expect("second refresh");
+        let refresh = build_hls_live_refresh(&second, refresh.next_cursor).expect("second refresh");
 
         assert!(refresh.ended);
         assert_eq!(refresh.next_cursor.next_sequence, Some(13));
