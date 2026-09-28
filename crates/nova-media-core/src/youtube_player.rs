@@ -1163,8 +1163,7 @@ fn balanced_block(source: &str, opening_index: usize, open: u8, close: u8) -> Op
     let mut in_string: Option<u8> = None;
     let mut escaped = false;
 
-    for index in opening_index..bytes.len() {
-        let byte = bytes[index];
+    for (index, &byte) in bytes.iter().enumerate().skip(opening_index) {
         if let Some(quote) = in_string {
             if escaped {
                 escaped = false;

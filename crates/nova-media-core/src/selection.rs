@@ -2,17 +2,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::{MediaDescriptor, MediaStream, MediaTrackKind};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum MediaSelectionMode {
+    #[default]
     Video,
     Audio,
-}
-
-impl Default for MediaSelectionMode {
-    fn default() -> Self {
-        Self::Video
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -102,11 +97,11 @@ fn preference_score(stream: &MediaStream, policy: &MediaSelectionPolicy) -> (u8,
     let container_match = policy
         .preferred_container
         .as_deref()
-        .map_or(false, |wanted| container.eq_ignore_ascii_case(wanted));
+        .is_some_and(|wanted| container.eq_ignore_ascii_case(wanted));
     let language_match = policy
         .preferred_language
         .as_deref()
-        .map_or(false, |wanted| language.eq_ignore_ascii_case(wanted));
+        .is_some_and(|wanted| language.eq_ignore_ascii_case(wanted));
     let video_codec_match = codec_matches(
         stream.video_codec.as_deref(),
         policy.preferred_video_codec.as_deref(),

@@ -27,6 +27,7 @@ pub enum DashLiveError {
 }
 
 /// Execute one dynamic-DASH refresh tick entirely through NOVA's Rust core.
+#[allow(clippy::too_many_arguments)]
 pub fn refresh_and_stage_dash_live_once(
     manifest_url: &str,
     context: &HttpRequestContext,
@@ -83,10 +84,7 @@ mod tests {
                 let request = String::from_utf8_lossy(&request[..read]);
 
                 let body: Vec<u8> = if request.contains("GET /live.mpd ") {
-                    format!(
-                        "<MPD type=\"dynamic\" minimumUpdatePeriod=\"PT2S\"><Period><AdaptationSet contentType=\"video\"><SegmentTemplate timescale=\"1\" initialization=\"init.mp4\" media=\"$Time$.m4s\"><SegmentTimeline><S t=\"10\" d=\"2\"/></SegmentTimeline></SegmentTemplate><Representation id=\"v1\" bandwidth=\"1000\"/></AdaptationSet></Period></MPD>"
-                    )
-                    .into_bytes()
+                    "<MPD type=\"dynamic\" minimumUpdatePeriod=\"PT2S\"><Period><AdaptationSet contentType=\"video\"><SegmentTemplate timescale=\"1\" initialization=\"init.mp4\" media=\"$Time$.m4s\"><SegmentTimeline><S t=\"10\" d=\"2\"/></SegmentTimeline></SegmentTemplate><Representation id=\"v1\" bandwidth=\"1000\"/></AdaptationSet></Period></MPD>".as_bytes().to_vec()
                 } else if request.contains("GET /init.mp4 ") {
                     b"INIT".to_vec()
                 } else if request.contains("GET /10.m4s ") {

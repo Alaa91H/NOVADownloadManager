@@ -130,8 +130,7 @@ where
     fs::create_dir_all(staging_dir).map_err(|error| DashStageError::Io(error.to_string()))?;
 
     let workers = requested_parallelism
-        .max(1)
-        .min(MAX_PARALLEL_SEGMENTS)
+        .clamp(1, MAX_PARALLEL_SEGMENTS)
         .min(plan.units.len() as u32) as usize;
     let next_index = AtomicUsize::new(0);
     let total_bytes = AtomicU64::new(0);

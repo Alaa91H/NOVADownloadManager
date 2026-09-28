@@ -125,7 +125,7 @@ pub fn download_youtube_plan_controlled<
                 destination,
                 requested_connections.max(1),
                 &context,
-                || control(),
+                &control,
                 |downloaded, total| {
                     progress(YouTubeTransferProgress {
                         video_downloaded: downloaded,
@@ -162,7 +162,7 @@ pub fn download_youtube_plan_controlled<
                 .map_err(|error| YouTubeTransferError::Transport(error.to_string()))?;
             let video_path = append_suffix(destination, ".nova-video.part");
             let audio_path = append_suffix(destination, ".nova-audio.part");
-            let per_track_connections = (requested_connections.max(2) + 1) / 2;
+            let per_track_connections = requested_connections.max(2).div_ceil(2);
 
             let video_downloaded = AtomicU64::new(0);
             let audio_downloaded = AtomicU64::new(0);

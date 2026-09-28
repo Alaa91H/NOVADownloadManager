@@ -388,7 +388,7 @@ fn youtube_preference_score(
     let container_match = policy
         .preferred_container
         .as_deref()
-        .map_or(false, |wanted| {
+        .is_some_and(|wanted| {
             stream
                 .container
                 .as_deref()
@@ -397,7 +397,7 @@ fn youtube_preference_score(
     let language_match = policy
         .preferred_language
         .as_deref()
-        .map_or(false, |wanted| {
+        .is_some_and(|wanted| {
             stream
                 .language
                 .as_deref()
