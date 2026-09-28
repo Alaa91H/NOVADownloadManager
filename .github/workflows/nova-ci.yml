@@ -580,6 +580,13 @@ jobs:
       - name: Native stress and recovery tests
         run: ctest --test-dir build/native -C Release --output-on-failure
 
+      - name: Diagnose native parity failure (Windows)
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "build/native/Release/nova-native-tests.exe" -o -,txt
+          exit 0
+
       - name: Install preview bundle
         run: cmake --install build/native --config Release --prefix "preview/NOVA-Native-${{ runner.os }}"
 
@@ -671,7 +678,7 @@ jobs:
           for _ in $(seq 1 40); do
             response="$(curl -fsS -X POST \
               -H 'Content-Type: application/json' \
-              -H 'x-nova-native-desktop: 1' \
+              -H 'x-nova-native-host: 1' \
               -d '{}' \
               http://127.0.0.1:3299/v1/pair/auto 2>/dev/null || true)"
             if printf '%s' "$response" | grep -q '"pairToken"'; then
