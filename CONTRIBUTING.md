@@ -2,6 +2,17 @@
 
 Thanks for contributing to NOVA. The desktop application is native Qt/QML; the Rust runtime and browser extension are separate runtime surfaces in the same repository.
 
+## Where to start
+
+If you want to help but do not already have a specific change in mind:
+
+- browse issues labeled [**help wanted**](https://github.com/Alaa91H/NOVADownloadManager/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22);
+- browse [**good first issue**](https://github.com/Alaa91H/NOVADownloadManager/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) tasks;
+- join [**GitHub Discussions**](https://github.com/Alaa91H/NOVADownloadManager/discussions) for questions, ideas and feedback;
+- help test NOVA on Windows, Linux or macOS and report reproducible issues.
+
+Useful contribution areas include Qt/QML, C++20, Rust, browser integration, packaging, accessibility, English/Arabic localization, documentation and real-world download testing.
+
 ## Project layout
 
 - `desktop-native/` — Qt 6/QML/C++ desktop application and native UI tests.
