@@ -385,24 +385,18 @@ fn youtube_preference_score(
     stream: &MediaStream,
     policy: &YouTubeSelectionPolicy,
 ) -> (u8, u8, u8, u8) {
-    let container_match = policy
-        .preferred_container
-        .as_deref()
-        .is_some_and(|wanted| {
-            stream
-                .container
-                .as_deref()
-                .is_some_and(|actual| actual.eq_ignore_ascii_case(wanted))
-        });
-    let language_match = policy
-        .preferred_language
-        .as_deref()
-        .is_some_and(|wanted| {
-            stream
-                .language
-                .as_deref()
-                .is_some_and(|actual| actual.eq_ignore_ascii_case(wanted))
-        });
+    let container_match = policy.preferred_container.as_deref().is_some_and(|wanted| {
+        stream
+            .container
+            .as_deref()
+            .is_some_and(|actual| actual.eq_ignore_ascii_case(wanted))
+    });
+    let language_match = policy.preferred_language.as_deref().is_some_and(|wanted| {
+        stream
+            .language
+            .as_deref()
+            .is_some_and(|actual| actual.eq_ignore_ascii_case(wanted))
+    });
     let video_codec_match = youtube_codec_matches(
         stream.video_codec.as_deref(),
         policy.preferred_video_codec.as_deref(),
