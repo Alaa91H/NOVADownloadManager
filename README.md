@@ -12,12 +12,14 @@ A modern, open-source download manager built around a **Qt 6 / QML / C++20 deskt
 [![Latest release](https://img.shields.io/github/v/release/Alaa91H/NOVADownloadManager?include_prereleases&sort=semver&label=release)](https://github.com/Alaa91H/NOVADownloadManager/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f.svg)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/Alaa91H/NOVADownloadManager?style=flat&logo=github)](https://github.com/Alaa91H/NOVADownloadManager/stargazers)
+[![Support on Ko-fi](https://img.shields.io/badge/Support-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/alaa91h)
 [![Windows](https://img.shields.io/badge/Windows-x64%20%7C%20ARM64-0078D4?logo=windows11&logoColor=white)](#platforms)
 [![Linux](https://img.shields.io/badge/Linux-x64%20%7C%20ARM64-FCC624?logo=linux&logoColor=black)](#platforms)
 [![macOS](https://img.shields.io/badge/macOS-Intel%20%7C%20Apple%20Silicon-000000?logo=apple&logoColor=white)](#platforms)
 
 **[Download](https://github.com/Alaa91H/NOVADownloadManager/releases/latest)** ·
 **[Documentation](docs/README.md)** ·
+**[Discussions](https://github.com/Alaa91H/NOVADownloadManager/discussions)** ·
 **[Report a bug](https://github.com/Alaa91H/NOVADownloadManager/issues/new/choose)** ·
 **[Contribute](CONTRIBUTING.md)** ·
 **[Security](SECURITY.md)**
@@ -265,6 +267,8 @@ Contributions, bug reports, testing feedback, and documentation improvements are
 
 Please read **[CONTRIBUTING.md](CONTRIBUTING.md)** before opening a pull request, and use the repository's issue templates when reporting problems.
 
+Looking for a place to start? Browse **[help wanted](https://github.com/Alaa91H/NOVADownloadManager/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22)**, **[good first issue](https://github.com/Alaa91H/NOVADownloadManager/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)**, or join the **[Discussions](https://github.com/Alaa91H/NOVADownloadManager/discussions)**.
+
 When reporting a download issue, include:
 
 - NOVA version;
@@ -289,6 +293,7 @@ If NOVA is useful to you:
 Useful starting points:
 
 - [Documentation index](docs/README.md)
+- [Community launch kit](docs/COMMUNITY_LAUNCH_KIT.md)
 - [Native UI replacement record](docs/NATIVE_UI_MIGRATION.md)
 - [Browser extension](docs/extension/README.md)
 - [Security policy](SECURITY.md)
