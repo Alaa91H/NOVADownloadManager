@@ -200,8 +200,7 @@ pub fn download_to_app_private_path_with_connections(
         });
     }
 
-    let destination =
-        validated_app_private_destination(app_private_root, relative_destination)?;
+    let destination = validated_app_private_destination(app_private_root, relative_destination)?;
     let state = Arc::new(SessionState::new());
 
     {
