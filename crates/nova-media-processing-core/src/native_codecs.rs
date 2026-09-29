@@ -1394,7 +1394,7 @@ mod tests {
         let error = transcode_local_media(
             &job,
             &|| MediaProcessingControl::Cancel,
-            &|_| {},
+            &|_: &MediaProcessingProgress| {},
         )
         .expect_err("cancel before touching output");
         assert_eq!(error, MediaProcessingError::Cancelled);
