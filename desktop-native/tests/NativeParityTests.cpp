@@ -20,6 +20,129 @@
 #include "localization/I18nManager.h"
 #include "settings/NativeSettings.h"
 
+namespace {
+
+QStringList testSupportedControlPlaneCommands() {
+    return {
+        QStringLiteral("addDownload"),
+        QStringLiteral("addMediaDownload"),
+        QStringLiteral("addMediaPlaylist"),
+        QStringLiteral("pauseTask"),
+        QStringLiteral("resumeTask"),
+        QStringLiteral("retryTask"),
+        QStringLiteral("redownloadTask"),
+        QStringLiteral("deleteTask"),
+        QStringLiteral("moveTask"),
+        QStringLiteral("setTaskPriority"),
+        QStringLiteral("startQueue"),
+        QStringLiteral("createQueue"),
+        QStringLiteral("updateQueue"),
+        QStringLiteral("deleteQueue"),
+        QStringLiteral("reorderQueues"),
+        QStringLiteral("reorderQueueTasks"),
+        QStringLiteral("stopQueue"),
+        QStringLiteral("setSchedulerPowerCommands"),
+        QStringLiteral("setActiveProfile"),
+        QStringLiteral("upsertProfile"),
+        QStringLiteral("deleteProfile"),
+        QStringLiteral("addRule"),
+        QStringLiteral("deleteRule"),
+        QStringLiteral("addSchedule"),
+        QStringLiteral("updateSchedule"),
+        QStringLiteral("deleteSchedule"),
+        QStringLiteral("batch.bestEffort"),
+    };
+}
+
+QByteArray testEngineCapabilities(
+    QStringList commandIds = testSupportedControlPlaneCommands(),
+    QStringList directOptionKeys = {
+        QStringLiteral("referer"), QStringLiteral("userAgent"), QStringLiteral("proxy"),
+        QStringLiteral("proxyUser"), QStringLiteral("proxyPassword"), QStringLiteral("headers"),
+        QStringLiteral("cookies"), QStringLiteral("retryCount"), QStringLiteral("timeoutSec"),
+        QStringLiteral("connectTimeoutSec"), QStringLiteral("retryDelaySec"),
+        QStringLiteral("dnsServers"), QStringLiteral("bufferSize"),
+        QStringLiteral("keepaliveTimeSec"), QStringLiteral("httpVersion"),
+        QStringLiteral("insecure"), QStringLiteral("caCert"), QStringLiteral("cert"),
+        QStringLiteral("key"), QStringLiteral("tlsMin"), QStringLiteral("ciphers"),
+        QStringLiteral("segmented"), QStringLiteral("range"),
+    },
+    QStringList mediaOptionKeys = {
+        QStringLiteral("mode"), QStringLiteral("quality"), QStringLiteral("formatSelector"),
+        QStringLiteral("formatSort"), QStringLiteral("audioFormat"), QStringLiteral("bitrate"),
+        QStringLiteral("outputTemplate"), QStringLiteral("playlist"),
+        QStringLiteral("playlistItems"), QStringLiteral("subtitles"),
+        QStringLiteral("subtitleLanguages"), QStringLiteral("autoSubtitles"),
+        QStringLiteral("embedSubtitles"), QStringLiteral("writeThumbnail"),
+        QStringLiteral("embedThumbnail"), QStringLiteral("writeInfoJson"),
+        QStringLiteral("writeDescription"), QStringLiteral("splitChapters"),
+        QStringLiteral("sponsorBlock"), QStringLiteral("proxy"),
+        QStringLiteral("sourceAddress"), QStringLiteral("cookiesFromBrowser"),
+        QStringLiteral("userAgent"), QStringLiteral("referer"), QStringLiteral("headers"),
+        QStringLiteral("cookies"), QStringLiteral("rateLimitKbs"), QStringLiteral("retries"),
+        QStringLiteral("fragmentRetries"), QStringLiteral("concurrentFragments"),
+        QStringLiteral("sleepIntervalSec"), QStringLiteral("maxSleepIntervalSec"),
+        QStringLiteral("downloadSections"), QStringLiteral("matchFilter"),
+        QStringLiteral("remuxFormat"),
+    },
+    QStringList directProtocols = {
+        QStringLiteral("http"), QStringLiteral("https"), QStringLiteral("ftp"),
+    }
+) {
+    QJsonArray commands;
+    for (const QString &id : commandIds) {
+        commands.append(QJsonObject{
+            {QStringLiteral("id"), id},
+            {QStringLiteral("status"), QStringLiteral("supported")},
+        });
+    }
+
+    const auto jsonStrings = [](const QStringList &values) {
+        QJsonArray result;
+        for (const QString &value : values) result.append(value);
+        return result;
+    };
+
+    const QJsonObject body{
+        {QStringLiteral("directReady"), true},
+        {QStringLiteral("mediaExtractionReady"), true},
+        {QStringLiteral("postProcessingReady"), true},
+        {QStringLiteral("directProtocols"), jsonStrings(directProtocols)},
+        {QStringLiteral("engines"), QJsonObject{
+            {QStringLiteral("curl"), QJsonObject{
+                {QStringLiteral("supportedDirectOptionKeys"), jsonStrings(directOptionKeys)},
+            }},
+            {QStringLiteral("media"), QJsonObject{
+                {QStringLiteral("supportedMediaOptionKeys"), jsonStrings(mediaOptionKeys)},
+            }},
+        }},
+        {QStringLiteral("controlPlane"), QJsonObject{
+            {QStringLiteral("commandCapabilities"), commands},
+        }},
+    };
+    return QJsonDocument(body).toJson(QJsonDocument::Compact);
+}
+
+QByteArray testControlResponse(const QJsonObject &result) {
+    return QJsonDocument(QJsonObject{
+        {QStringLiteral("contractVersion"), 1},
+        {QStringLiteral("requestId"), QStringLiteral("native-test")},
+        {QStringLiteral("result"), result},
+    }).toJson(QJsonDocument::Compact);
+}
+
+QJsonObject controlCommandFromBody(const QByteArray &body) {
+    return QJsonDocument::fromJson(body).object()
+        .value(QStringLiteral("command")).toObject();
+}
+
+QJsonObject controlQueryFromBody(const QByteArray &body) {
+    return QJsonDocument::fromJson(body).object()
+        .value(QStringLiteral("query")).toObject();
+}
+
+} // namespace
+
 class NativeParityTests final : public QObject {
     Q_OBJECT
 
@@ -485,12 +608,8 @@ void NativeParityTests::batchImportCarriesAdvancedOptions() {
 
                 const QByteArray headers = buffer->left(headerEnd);
                 const QByteArray requestLine = headers.left(headers.indexOf("\r\n"));
-                if (requestLine.startsWith("GET /api/queues ")) {
-                    const QByteArray responseBody =
-                        "{\"ok\":true,\"version\":1,\"queues\":["
-                        "{\"id\":\"main\",\"name\":\"Main Queue\"},"
-                        "{\"id\":\"night\",\"name\":\"Night Queue\",\"downloadOrder\":[]}"
-                        "]}";
+                if (requestLine.startsWith("GET /api/engines/capabilities ")) {
+                    const QByteArray responseBody = testEngineCapabilities();
                     socket->write(
                         "HTTP/1.1 200 OK\r\n"
                         "Content-Type: application/json\r\n"
@@ -519,8 +638,28 @@ void NativeParityTests::batchImportCarriesAdvancedOptions() {
                     return;
                 }
 
-                capturedBody = buffer->mid(bodyStart, contentLength);
-                const QByteArray responseBody = "{\"id\":\"task-1\"}";
+                const QByteArray requestBody = buffer->mid(bodyStart, contentLength);
+                QByteArray responseBody;
+                if (requestLine.startsWith("POST /api/v1/queries ")) {
+                    const QJsonArray queues{
+                        QJsonObject{{QStringLiteral("id"), QStringLiteral("main")},
+                                    {QStringLiteral("name"), QStringLiteral("Main Queue")}},
+                        QJsonObject{{QStringLiteral("id"), QStringLiteral("night")},
+                                    {QStringLiteral("name"), QStringLiteral("Night Queue")},
+                                    {QStringLiteral("downloadOrder"), QJsonArray{}}},
+                    };
+                    responseBody = testControlResponse(QJsonObject{
+                        {QStringLiteral("queues"), queues},
+                    });
+                } else {
+                    capturedBody = requestBody;
+                    const QJsonObject command = controlCommandFromBody(requestBody);
+                    const int commandCount = command.value(QStringLiteral("commands")).toArray().size();
+                    responseBody = testControlResponse(QJsonObject{
+                        {QStringLiteral("succeeded"), commandCount},
+                        {QStringLiteral("failed"), 0},
+                    });
+                }
                 socket->write(
                     "HTTP/1.1 200 OK\r\n"
                     "Content-Type: application/json\r\n"
@@ -539,6 +678,9 @@ void NativeParityTests::batchImportCarriesAdvancedOptions() {
         QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort()))
     );
 
+    QSignalSpy capabilitySpy(&client, &NovaApiClient::engineManagementChanged);
+    client.refreshEngineCapabilities();
+    QTRY_VERIFY_WITH_TIMEOUT(capabilitySpy.count() >= 1, 3000);
     client.refreshQueueCatalog();
     QTRY_VERIFY_WITH_TIMEOUT(client.knownQueueIds().contains(QStringLiteral("night")), 3000);
     QCOMPARE(client.queueCatalog().size(), 2);
@@ -579,9 +721,12 @@ void NativeParityTests::batchImportCarriesAdvancedOptions() {
     QCOMPARE(batchStartedSpy.at(0).at(0).toInt(), 1);
     QCOMPARE(batchStartedSpy.at(0).at(1).toInt(), 1);
 
-    const QJsonDocument request = QJsonDocument::fromJson(capturedBody);
-    QVERIFY(request.isObject());
-    const QJsonObject body = request.object();
+    const QJsonObject command = controlCommandFromBody(capturedBody);
+    QCOMPARE(command.value(QStringLiteral("type")).toString(), QStringLiteral("batch"));
+    const QJsonArray commands = command.value(QStringLiteral("commands")).toArray();
+    QCOMPARE(commands.size(), 1);
+    const QJsonObject body = commands.at(0).toObject()
+        .value(QStringLiteral("request")).toObject();
     QCOMPARE(body.value(QStringLiteral("queueId")).toString(), QStringLiteral("night"));
     QCOMPARE(body.value(QStringLiteral("connections")).toInt(), 8);
     QVERIFY(!body.value(QStringLiteral("startImmediately")).toBool());
@@ -635,13 +780,12 @@ void NativeParityTests::batchImportHonorsRuntimeCapabilities() {
                 const QByteArray headers = buffer->left(headerEnd);
                 const QByteArray requestLine = headers.left(headers.indexOf("\r\n"));
                 if (requestLine.startsWith("GET /api/engines/capabilities ")) {
-                    const QByteArray responseBody =
-                        "{"
-                        "\"directProtocols\":[\"https\"],"
-                        "\"engines\":{\"curl\":{\"supportedDirectOptionKeys\":["
-                        "\"referer\",\"retryCount\""
-                        "]}}"
-                        "}";
+                    const QByteArray responseBody = testEngineCapabilities(
+                        {QStringLiteral("addDownload")},
+                        {QStringLiteral("referer"), QStringLiteral("retryCount")},
+                        {},
+                        {QStringLiteral("https")}
+                    );
                     socket->write(
                         "HTTP/1.1 200 OK\r\n"
                         "Content-Type: application/json\r\n"
@@ -671,7 +815,12 @@ void NativeParityTests::batchImportHonorsRuntimeCapabilities() {
                 }
 
                 capturedBody = buffer->mid(bodyStart, contentLength);
-                const QByteArray responseBody = "{\"id\":\"task-2\"}";
+                const QJsonObject command = controlCommandFromBody(capturedBody);
+                const int commandCount = command.value(QStringLiteral("commands")).toArray().size();
+                const QByteArray responseBody = testControlResponse(QJsonObject{
+                    {QStringLiteral("succeeded"), commandCount},
+                    {QStringLiteral("failed"), 0},
+                });
                 socket->write(
                     "HTTP/1.1 200 OK\r\n"
                     "Content-Type: application/json\r\n"
@@ -727,7 +876,12 @@ void NativeParityTests::batchImportHonorsRuntimeCapabilities() {
     QCOMPARE(batchStartedSpy.at(0).at(0).toInt(), 4);
     QCOMPARE(batchStartedSpy.at(0).at(1).toInt(), 0);
 
-    const QJsonObject body = QJsonDocument::fromJson(capturedBody).object();
+    const QJsonObject command = controlCommandFromBody(capturedBody);
+    QCOMPARE(command.value(QStringLiteral("type")).toString(), QStringLiteral("batch"));
+    const QJsonArray commands = command.value(QStringLiteral("commands")).toArray();
+    QCOMPARE(commands.size(), 4);
+    const QJsonObject body = commands.at(0).toObject()
+        .value(QStringLiteral("request")).toObject();
     QCOMPARE(body.value(QStringLiteral("connections")).toInt(), 1);
     const QJsonObject direct = body.value(QStringLiteral("directOptions")).toObject();
     QCOMPARE(
@@ -764,6 +918,15 @@ void NativeParityTests::mediaDownloadCarriesAdvancedOptions() {
                 if (requestLine.startsWith("POST "))
                     capturedRequestLine = requestLine;
 
+                if (requestLine.startsWith("GET /api/engines/capabilities ")) {
+                    const QByteArray responseBody = testEngineCapabilities();
+                    socket->write(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
+                        + QByteArray::number(responseBody.size()) + "\r\n\r\n" + responseBody
+                    );
+                    socket->disconnectFromHost();
+                    return;
+                }
                 if (requestLine.startsWith("GET /api/downloads ")) {
                     const QByteArray body = "[]";
                     socket->write(
@@ -795,9 +958,16 @@ void NativeParityTests::mediaDownloadCarriesAdvancedOptions() {
                 if (buffer->size() < bodyStart + contentLength) return;
 
                 capturedBody = buffer->mid(bodyStart, contentLength);
-                const QByteArray responseBody =
-                    "{\"accepted\":2,\"failed\":1,\"failures\":["
-                    "{\"title\":\"Unavailable clip\",\"error\":\"unsupported format\"}]}";
+                const QByteArray responseBody = testControlResponse(QJsonObject{
+                    {QStringLiteral("accepted"), 2},
+                    {QStringLiteral("failed"), 1},
+                    {QStringLiteral("failures"), QJsonArray{
+                        QJsonObject{
+                            {QStringLiteral("title"), QStringLiteral("Unavailable clip")},
+                            {QStringLiteral("error"), QStringLiteral("unsupported format")},
+                        },
+                    }},
+                });
                 socket->write(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
                     + QByteArray::number(responseBody.size()) + "\r\n\r\n" + responseBody
@@ -810,6 +980,9 @@ void NativeParityTests::mediaDownloadCarriesAdvancedOptions() {
     NovaApiClient client;
     client.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())));
     QSignalSpy playlistCreatedSpy(&client, &NovaApiClient::mediaPlaylistDownloadsCreated);
+    QSignalSpy capabilitySpy(&client, &NovaApiClient::engineManagementChanged);
+    client.refreshEngineCapabilities();
+    QTRY_VERIFY_WITH_TIMEOUT(capabilitySpy.count() >= 1, 3000);
 
     const QVariantMap options{
         {QStringLiteral("mode"), QStringLiteral("video")},
@@ -859,11 +1032,13 @@ void NativeParityTests::mediaDownloadCarriesAdvancedOptions() {
 
     QTRY_VERIFY_WITH_TIMEOUT(!capturedBody.isEmpty(), 3000);
     QTRY_COMPARE_WITH_TIMEOUT(playlistCreatedSpy.count(), 1, 3000);
-    QVERIFY(capturedRequestLine.startsWith("POST /api/media/playlist/download "));
+    QVERIFY(capturedRequestLine.startsWith("POST /api/v1/commands "));
     QCOMPARE(playlistCreatedSpy.at(0).at(0).toInt(), 2);
     QCOMPARE(playlistCreatedSpy.at(0).at(1).toInt(), 1);
     QVERIFY(playlistCreatedSpy.at(0).at(2).toString().contains(QStringLiteral("Unavailable clip")));
-    const QJsonObject body = QJsonDocument::fromJson(capturedBody).object();
+    const QJsonObject command = controlCommandFromBody(capturedBody);
+    QCOMPARE(command.value(QStringLiteral("type")).toString(), QStringLiteral("addMediaPlaylist"));
+    const QJsonObject body = command.value(QStringLiteral("request")).toObject();
     QCOMPARE(body.value(QStringLiteral("fileType")).toString(), QStringLiteral("video"));
     QVERIFY(!body.value(QStringLiteral("startImmediately")).toBool());
 
@@ -908,14 +1083,16 @@ void NativeParityTests::mediaDownloadHonorsRuntimeCapabilities() {
                 const QByteArray requestLine = headers.left(headers.indexOf("\r\n"));
 
                 if (requestLine.startsWith("GET /api/engines/capabilities ")) {
-                    const QByteArray responseBody =
-                        "{"
-                        "\"mediaExtractionReady\":true,"
-                        "\"postProcessingReady\":true,"
-                        "\"engines\":{\"media\":{\"supportedMediaOptionKeys\":["
-                        "\"mode\",\"quality\",\"formatSelector\",\"headers\",\"retries\",\"cookies\",\"remuxFormat\""
-                        "]}}"
-                        "}";
+                    const QByteArray responseBody = testEngineCapabilities(
+                        {QStringLiteral("addMediaDownload")},
+                        {},
+                        {
+                            QStringLiteral("mode"), QStringLiteral("quality"),
+                            QStringLiteral("formatSelector"), QStringLiteral("headers"),
+                            QStringLiteral("retries"), QStringLiteral("cookies"),
+                            QStringLiteral("remuxFormat"),
+                        }
+                    );
                     socket->write(
                         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
                         + QByteArray::number(responseBody.size()) + "\r\n\r\n" + responseBody
@@ -955,7 +1132,9 @@ void NativeParityTests::mediaDownloadHonorsRuntimeCapabilities() {
                 if (buffer->size() < bodyStart + contentLength) return;
 
                 capturedBody = buffer->mid(bodyStart, contentLength);
-                const QByteArray responseBody = "{\"id\":\"media-task-2\"}";
+                const QByteArray responseBody = testControlResponse(QJsonObject{
+                    {QStringLiteral("id"), QStringLiteral("media-task-2")},
+                });
                 socket->write(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
                     + QByteArray::number(responseBody.size()) + "\r\n\r\n" + responseBody
@@ -998,9 +1177,10 @@ void NativeParityTests::mediaDownloadHonorsRuntimeCapabilities() {
     );
 
     QTRY_VERIFY_WITH_TIMEOUT(!capturedBody.isEmpty(), 3000);
-    const QJsonObject media =
-        QJsonDocument::fromJson(capturedBody).object()
-            .value(QStringLiteral("mediaOptions")).toObject();
+    const QJsonObject command = controlCommandFromBody(capturedBody);
+    QCOMPARE(command.value(QStringLiteral("type")).toString(), QStringLiteral("addMediaDownload"));
+    const QJsonObject media = command.value(QStringLiteral("request")).toObject()
+        .value(QStringLiteral("mediaOptions")).toObject();
 
     QCOMPARE(media.value(QStringLiteral("formatSelector")).toString(), QStringLiteral("bv*+ba/b"));
     QCOMPARE(media.value(QStringLiteral("headers")).toString(), QStringLiteral("X-Test: allowed"));
@@ -1028,6 +1208,12 @@ void NativeParityTests::queueCatalogManagementIsDaemonBacked() {
         body += "}";
         return body;
     };
+    auto controlQueuePayload = [queuePayload](
+        const QByteArray &queues,
+        const QByteArray &extra = QByteArray()
+    ) {
+        return testControlResponse(QJsonDocument::fromJson(queuePayload(queues, extra)).object());
+    };
 
     connect(&server, &QTcpServer::newConnection, &server, [&]() {
         while (server.hasPendingConnections()) {
@@ -1035,7 +1221,7 @@ void NativeParityTests::queueCatalogManagementIsDaemonBacked() {
             auto *buffer = new QByteArray();
             QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
             QObject::connect(socket, &QTcpSocket::disconnected, socket, [buffer]() { delete buffer; });
-            QObject::connect(socket, &QTcpSocket::readyRead, socket, [&, socket, buffer, queuePayload]() {
+            QObject::connect(socket, &QTcpSocket::readyRead, socket, [&, socket, buffer, queuePayload, controlQueuePayload]() {
                 buffer->append(socket->readAll());
                 const int headerEnd = buffer->indexOf("\r\n\r\n");
                 if (headerEnd < 0) return;
@@ -1077,30 +1263,44 @@ void NativeParityTests::queueCatalogManagementIsDaemonBacked() {
                     "{\"id\":\"night\",\"name\":\"Night Queue\",\"downloadOrder\":[]}]";
 
                 QByteArray responseBody;
-                if (requestLine.startsWith("GET /api/queues ")) {
-                    responseBody = "{\"ok\":true,\"version\":1,\"queues\":" + baseQueues + "}";
-                } else if (requestLine.startsWith("POST /api/queues HTTP")) {
-                    responseBody = queuePayload(
+                const QJsonObject controlCommand = controlCommandFromBody(requestBody);
+                const QString commandType = controlCommand.value(QStringLiteral("type")).toString();
+                const QJsonObject controlQuery = controlQueryFromBody(requestBody);
+                const QString queryType = controlQuery.value(QStringLiteral("type")).toString();
+                if (requestLine.startsWith("GET /api/engines/capabilities ")) {
+                    responseBody = testEngineCapabilities();
+                } else if (requestLine.startsWith("POST /api/v1/queries ")
+                           && queryType == QStringLiteral("listQueues")) {
+                    responseBody = controlQueuePayload(baseQueues);
+                } else if (requestLine.startsWith("POST /api/v1/commands ")
+                           && commandType == QStringLiteral("createQueue")) {
+                    responseBody = controlQueuePayload(
                         withArchive,
                         "\"queue\":{\"id\":\"archive\",\"name\":\"Archive\",\"downloadOrder\":[]}"
                     );
-                } else if (requestLine.startsWith("POST /api/queues/archive/tasks/task-1 ")) {
-                    responseBody = queuePayload(archiveOne);
-                } else if (requestLine.startsWith("POST /api/queues/archive/tasks/task-2 ")) {
-                    responseBody = queuePayload(archiveTwo);
-                } else if (requestLine.startsWith("POST /api/queues/archive/tasks/reorder ")) {
-                    responseBody = queuePayload(archiveReordered);
-                } else if (requestLine.startsWith("POST /api/queues/reorder ")) {
-                    responseBody = queuePayload(archiveReordered);
-                } else if (requestLine.startsWith("POST /api/queues/archive ")) {
-                    responseBody = queuePayload(
+                } else if (requestLine.startsWith("POST /api/v1/commands ")
+                           && commandType == QStringLiteral("updateQueue")) {
+                    responseBody = controlQueuePayload(
                         withArchive,
                         "\"queue\":{\"id\":\"archive\",\"name\":\"Archive\",\"maxActive\":3,"
                         "\"limitSpeed\":true,\"speedLimitKbs\":2048,\"retryCount\":9999,\"retryDelay\":120,"
                         "\"downloadOrder\":[]}"
                     );
-                } else if (requestLine.startsWith("DELETE /api/queues/archive ")) {
-                    responseBody = queuePayload(baseQueues);
+                } else if (requestLine.startsWith("POST /api/v1/commands ")
+                           && commandType == QStringLiteral("moveTask")) {
+                    const QString taskId = controlCommand.value(QStringLiteral("taskId")).toString();
+                    responseBody = controlQueuePayload(
+                        taskId == QStringLiteral("task-1") ? archiveOne : archiveTwo
+                    );
+                } else if (requestLine.startsWith("POST /api/v1/commands ")
+                           && commandType == QStringLiteral("reorderQueueTasks")) {
+                    responseBody = controlQueuePayload(archiveReordered);
+                } else if (requestLine.startsWith("POST /api/v1/commands ")
+                           && commandType == QStringLiteral("reorderQueues")) {
+                    responseBody = controlQueuePayload(archiveReordered);
+                } else if (requestLine.startsWith("POST /api/v1/commands ")
+                           && commandType == QStringLiteral("deleteQueue")) {
+                    responseBody = controlQueuePayload(baseQueues);
                 } else if (requestLine.startsWith("GET /api/downloads ")) {
                     responseBody = "[]";
                 } else if (requestLine.startsWith("GET /api/engine/queue ")) {
@@ -1123,7 +1323,10 @@ void NativeParityTests::queueCatalogManagementIsDaemonBacked() {
     NovaApiClient client;
     client.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())));
     QSignalSpy catalogSpy(&client, &NovaApiClient::queueCatalogActionCompleted);
+    QSignalSpy capabilitySpy(&client, &NovaApiClient::engineManagementChanged);
 
+    client.refreshEngineCapabilities();
+    QTRY_VERIFY_WITH_TIMEOUT(capabilitySpy.count() >= 1, 3000);
     client.refreshQueueCatalog();
     QTRY_COMPARE_WITH_TIMEOUT(client.queueCatalog().size(), 2, 3000);
 
@@ -1173,21 +1376,24 @@ void NativeParityTests::queueCatalogManagementIsDaemonBacked() {
     bool sawDelete = false;
     for (int i = 0; i < requestLines.size(); ++i) {
         const QByteArray &line = requestLines.at(i);
-        if (line.startsWith("POST /api/queues HTTP")) {
-            sawCreate = requestBodies.at(i).contains("\"name\":\"Archive\"");
-        } else if (line.startsWith("POST /api/queues/archive HTTP")) {
-            sawUpdate = requestBodies.at(i).contains("\"retryCount\":9999")
-                && requestBodies.at(i).contains("\"speedLimitKbs\":2048");
-        } else if (line.startsWith("POST /api/queues/reorder ")) {
-            sawQueueReorder = requestBodies.at(i).contains("\"queueIds\"");
-        } else if (line.startsWith("POST /api/queues/archive/tasks/reorder ")) {
-            sawTaskReorder = requestBodies.at(i).contains(
-                "\"taskIds\":[\"task-2\",\"task-1\"]"
-            );
-        } else if (line.startsWith("POST /api/queues/archive/tasks/task-1 ")) {
-            sawMove = true;
-        } else if (line.startsWith("DELETE /api/queues/archive ")) {
-            sawDelete = true;
+        const QJsonObject command = controlCommandFromBody(requestBodies.at(i));
+        const QString commandType = command.value(QStringLiteral("type")).toString();
+        if (line.startsWith("POST /api/v1/commands ")
+            && commandType == QStringLiteral("createQueue")) {
+            sawCreate = command.value(QStringLiteral("name")).toString() == QStringLiteral("Archive");
+        } else if (commandType == QStringLiteral("updateQueue")) {
+            const QJsonObject queue = command.value(QStringLiteral("queue")).toObject();
+            sawUpdate = queue.value(QStringLiteral("retryCount")).toInt() == 9999
+                && queue.value(QStringLiteral("speedLimitKbs")).toInt() == 2048;
+        } else if (commandType == QStringLiteral("reorderQueues")) {
+            sawQueueReorder = command.value(QStringLiteral("queueIds")).isArray();
+        } else if (commandType == QStringLiteral("reorderQueueTasks")) {
+            const QJsonArray taskIds = command.value(QStringLiteral("taskIds")).toArray();
+            sawTaskReorder = taskIds == QJsonArray{QStringLiteral("task-2"), QStringLiteral("task-1")};
+        } else if (commandType == QStringLiteral("moveTask")) {
+            sawMove = command.value(QStringLiteral("taskId")).toString() == QStringLiteral("task-1");
+        } else if (commandType == QStringLiteral("deleteQueue")) {
+            sawDelete = command.value(QStringLiteral("queueId")).toString() == QStringLiteral("archive");
         }
     }
 
@@ -1204,6 +1410,7 @@ void NativeParityTests::queueStartStopIsDaemonBacked() {
     QVERIFY(server.listen(QHostAddress::LocalHost, 0));
 
     QList<QByteArray> requestLines;
+    QList<QByteArray> requestBodies;
     connect(&server, &QTcpServer::newConnection, &server, [&]() {
         while (server.hasPendingConnections()) {
             QTcpSocket *socket = server.nextPendingConnection();
@@ -1226,12 +1433,28 @@ void NativeParityTests::queueStartStopIsDaemonBacked() {
                 const int bodyStart = headerEnd + 4;
                 if (buffer->size() < bodyStart + contentLength) return;
                 requestLines.append(requestLine);
+                const QByteArray requestBody = buffer->mid(bodyStart, contentLength);
+                requestBodies.append(requestBody);
+                const QJsonObject command = controlCommandFromBody(requestBody);
+                const QJsonObject query = controlQueryFromBody(requestBody);
 
                 QByteArray responseBody;
-                if (requestLine.startsWith("GET /api/queues ")) {
-                    responseBody =
-                        "{\"ok\":true,\"queues\":[{\"id\":\"main\",\"name\":\"Main Queue\","
-                        "\"maxActive\":2,\"downloadOrder\":[\"active\",\"queued\",\"paused\"]}]}";
+                if (requestLine.startsWith("GET /api/engines/capabilities ")) {
+                    responseBody = testEngineCapabilities();
+                } else if (requestLine.startsWith("POST /api/v1/queries ")
+                           && query.value(QStringLiteral("type")).toString() == QStringLiteral("listQueues")) {
+                    responseBody = testControlResponse(QJsonObject{
+                        {QStringLiteral("queues"), QJsonArray{
+                            QJsonObject{
+                                {QStringLiteral("id"), QStringLiteral("main")},
+                                {QStringLiteral("name"), QStringLiteral("Main Queue")},
+                                {QStringLiteral("maxActive"), 2},
+                                {QStringLiteral("downloadOrder"), QJsonArray{
+                                    QStringLiteral("active"), QStringLiteral("queued"), QStringLiteral("paused")
+                                }},
+                            },
+                        }},
+                    });
                 } else if (requestLine.startsWith("GET /api/downloads ")) {
                     responseBody =
                         "["
@@ -1239,12 +1462,21 @@ void NativeParityTests::queueStartStopIsDaemonBacked() {
                         "{\"id\":\"queued\",\"name\":\"queued.bin\",\"queueId\":\"main\",\"status\":\"queued\"},"
                         "{\"id\":\"paused\",\"name\":\"paused.bin\",\"queueId\":\"main\",\"status\":\"paused\"}"
                         "]";
-                } else if (requestLine.startsWith("POST /api/queues/main/start ")) {
-                    responseBody =
-                        "{\"id\":\"queued\",\"name\":\"queued.bin\",\"queueId\":\"main\",\"status\":\"downloading\"}";
-                } else if (requestLine.startsWith("POST /api/queues/main/stop ")) {
-                    responseBody =
-                        "{\"id\":\"active\",\"name\":\"active.bin\",\"queueId\":\"main\",\"status\":\"paused\"}";
+                } else if (requestLine.startsWith("POST /api/v1/commands ")
+                           && (command.value(QStringLiteral("type")).toString() == QStringLiteral("startQueue")
+                               || command.value(QStringLiteral("type")).toString() == QStringLiteral("stopQueue"))) {
+                    responseBody = testControlResponse(QJsonObject{
+                        {QStringLiteral("queues"), QJsonArray{
+                            QJsonObject{
+                                {QStringLiteral("id"), QStringLiteral("main")},
+                                {QStringLiteral("name"), QStringLiteral("Main Queue")},
+                                {QStringLiteral("maxActive"), 2},
+                                {QStringLiteral("downloadOrder"), QJsonArray{
+                                    QStringLiteral("active"), QStringLiteral("queued"), QStringLiteral("paused")
+                                }},
+                            },
+                        }},
+                    });
                 } else if (requestLine.startsWith("GET /api/engine/queue ")) {
                     responseBody =
                         "{\"ok\":true,\"entries\":[],\"active_count\":1,"
@@ -1265,6 +1497,9 @@ void NativeParityTests::queueStartStopIsDaemonBacked() {
     NovaApiClient client;
     client.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())));
     QSignalSpy downloadsSpy(&client, &NovaApiClient::downloadsLoaded);
+    QSignalSpy capabilitySpy(&client, &NovaApiClient::engineManagementChanged);
+    client.refreshEngineCapabilities();
+    QTRY_VERIFY_WITH_TIMEOUT(capabilitySpy.count() >= 1, 3000);
     client.refreshQueueCatalog();
     client.refreshDownloads();
 
@@ -1272,13 +1507,15 @@ void NativeParityTests::queueStartStopIsDaemonBacked() {
     QTRY_VERIFY_WITH_TIMEOUT(downloadsSpy.count() >= 1, 3000);
 
     requestLines.clear();
+    requestBodies.clear();
     client.startQueue(QStringLiteral("main"));
     QTRY_VERIFY_WITH_TIMEOUT(
         std::any_of(
-            requestLines.cbegin(),
-            requestLines.cend(),
-            [](const QByteArray &line) {
-                return line.startsWith("POST /api/queues/main/start ");
+            requestBodies.cbegin(),
+            requestBodies.cend(),
+            [](const QByteArray &body) {
+                return controlCommandFromBody(body)
+                           .value(QStringLiteral("type")).toString() == QStringLiteral("startQueue");
             }
         ),
         3000
@@ -1298,13 +1535,15 @@ void NativeParityTests::queueStartStopIsDaemonBacked() {
     ));
 
     requestLines.clear();
+    requestBodies.clear();
     client.stopQueue(QStringLiteral("main"));
     QTRY_VERIFY_WITH_TIMEOUT(
         std::any_of(
-            requestLines.cbegin(),
-            requestLines.cend(),
-            [](const QByteArray &line) {
-                return line.startsWith("POST /api/queues/main/stop ");
+            requestBodies.cbegin(),
+            requestBodies.cend(),
+            [](const QByteArray &body) {
+                return controlCommandFromBody(body)
+                           .value(QStringLiteral("type")).toString() == QStringLiteral("stopQueue");
             }
         ),
         3000
@@ -1344,22 +1583,29 @@ void NativeParityTests::schedulerStatusCarriesCompletionControls() {
 
                 const QByteArray body = buffer->mid(bodyStart, contentLength);
                 QByteArray responseBody;
-                if (requestLine.startsWith("GET /api/engine/scheduler ")) {
-                    responseBody = QByteArray(
-                        "{\"ok\":true,\"rules\":[],\"active_rule_ids\":[],"
-                        "\"powerCommandsEnabled\":"
-                    ) + (powerEnabled ? "true" : "false")
-                        + ",\"exitRequested\":"
-                        + (exitRequested ? "true" : "false") + "}";
-                } else if (requestLine.startsWith("POST /api/engine/scheduler/power-commands ")) {
+                const QJsonObject command = controlCommandFromBody(body);
+                const QJsonObject query = controlQueryFromBody(body);
+                if (requestLine.startsWith("GET /api/engines/capabilities ")) {
+                    responseBody = testEngineCapabilities();
+                } else if (requestLine.startsWith("POST /api/v1/queries ")
+                           && query.value(QStringLiteral("type")).toString() == QStringLiteral("listSchedules")) {
+                    responseBody = testControlResponse(QJsonObject{
+                        {QStringLiteral("rules"), QJsonArray{}},
+                        {QStringLiteral("active_rule_ids"), QJsonArray{}},
+                        {QStringLiteral("powerCommandsEnabled"), powerEnabled},
+                        {QStringLiteral("exitRequested"), exitRequested},
+                    });
+                } else if (requestLine.startsWith("POST /api/v1/commands ")
+                           && command.value(QStringLiteral("type")).toString()
+                                  == QStringLiteral("setSchedulerPowerCommands")) {
                     requestBodies.append(body);
-                    const QJsonObject request = QJsonDocument::fromJson(body).object();
-                    powerEnabled = request.value(QStringLiteral("enabled")).toBool();
-                    responseBody = QByteArray(
-                        "{\"ok\":true,\"powerCommandsEnabled\":"
-                    ) + (powerEnabled ? "true}" : "false}");
+                    powerEnabled = command.value(QStringLiteral("enabled")).toBool();
+                    responseBody = testControlResponse(QJsonObject{
+                        {QStringLiteral("ok"), true},
+                        {QStringLiteral("powerCommandsEnabled"), powerEnabled},
+                    });
                 } else {
-                    responseBody = "{\"ok\":true}";
+                    responseBody = testControlResponse(QJsonObject{{QStringLiteral("ok"), true}});
                 }
 
                 socket->write(
@@ -1375,7 +1621,10 @@ void NativeParityTests::schedulerStatusCarriesCompletionControls() {
     client.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())));
     QSignalSpy schedulerSpy(&client, &NovaApiClient::schedulerChanged);
     QSignalSpy exitSpy(&client, &NovaApiClient::schedulerExitRequested);
+    QSignalSpy capabilitySpy(&client, &NovaApiClient::engineManagementChanged);
 
+    client.refreshEngineCapabilities();
+    QTRY_VERIFY_WITH_TIMEOUT(capabilitySpy.count() >= 1, 3000);
     client.refreshScheduler();
     QTRY_VERIFY_WITH_TIMEOUT(schedulerSpy.count() >= 1, 3000);
     QCOMPARE(client.schedulerPowerCommandsEnabled(), true);
@@ -1597,13 +1846,24 @@ void NativeParityTests::advancedDownloadCarriesNetworkDefaults() {
                 const int bodyStart = headerEnd + 4;
                 if (buffer->size() < bodyStart + contentLength) return;
 
-                if (requestLine.startsWith("POST /api/downloads ")) {
-                    capturedBody = buffer->mid(bodyStart, contentLength);
+                if (requestLine.startsWith("GET /api/engines/capabilities ")) {
+                    const QByteArray responseBody = testEngineCapabilities();
+                    socket->write(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
+                        + QByteArray::number(responseBody.size()) + "\r\n\r\n" + responseBody
+                    );
+                    socket->disconnectFromHost();
+                    return;
                 }
 
-                const QByteArray responseBody = requestLine.startsWith("POST /api/downloads ")
-                    ? "{\"id\":\"task-network\"}"
-                    : "[]";
+                const QByteArray requestBody = buffer->mid(bodyStart, contentLength);
+                if (requestLine.startsWith("POST /api/v1/commands ")) {
+                    capturedBody = requestBody;
+                }
+
+                const QByteArray responseBody = requestLine.startsWith("POST /api/v1/commands ")
+                    ? testControlResponse(QJsonObject{{QStringLiteral("id"), QStringLiteral("task-network")}})
+                    : QByteArray("[]");
                 socket->write(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "
                     + QByteArray::number(responseBody.size()) + "\r\n\r\n" + responseBody
@@ -1616,6 +1876,9 @@ void NativeParityTests::advancedDownloadCarriesNetworkDefaults() {
     NovaApiClient client;
     client.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())));
     QSignalSpy createdSpy(&client, &NovaApiClient::downloadCreated);
+    QSignalSpy capabilitySpy(&client, &NovaApiClient::engineManagementChanged);
+    client.refreshEngineCapabilities();
+    QTRY_VERIFY_WITH_TIMEOUT(capabilitySpy.count() >= 1, 3000);
 
     client.createDownloadAdvanced(
         QStringLiteral("https://example.test/file.bin"),
@@ -1648,7 +1911,9 @@ void NativeParityTests::advancedDownloadCarriesNetworkDefaults() {
     QTRY_VERIFY_WITH_TIMEOUT(createdSpy.count() >= 1, 3000);
     QVERIFY(!capturedBody.isEmpty());
 
-    const QJsonObject body = QJsonDocument::fromJson(capturedBody).object();
+    const QJsonObject command = controlCommandFromBody(capturedBody);
+    QCOMPARE(command.value(QStringLiteral("type")).toString(), QStringLiteral("addDownload"));
+    const QJsonObject body = command.value(QStringLiteral("request")).toObject();
     QCOMPARE(body.value(QStringLiteral("connections")).toInt(), 0);
     const QJsonObject options = body.value(QStringLiteral("directOptions")).toObject();
     QCOMPARE(options.value(QStringLiteral("proxy")).toString(), QStringLiteral("http://proxy.test:8080"));
@@ -1784,6 +2049,7 @@ void NativeParityTests::bulkShortcutActionsRespectTaskLifecycle() {
     QVERIFY(server.listen(QHostAddress::LocalHost, 0));
 
     QList<QByteArray> requestLines;
+    QList<QByteArray> requestBodies;
     connect(&server, &QTcpServer::newConnection, &server, [&]() {
         while (server.hasPendingConnections()) {
             QTcpSocket *socket = server.nextPendingConnection();
@@ -1807,8 +2073,12 @@ void NativeParityTests::bulkShortcutActionsRespectTaskLifecycle() {
                 if (buffer->size() < bodyStart + contentLength) return;
 
                 requestLines.append(requestLine);
+                const QByteArray requestBody = buffer->mid(bodyStart, contentLength);
+                requestBodies.append(requestBody);
                 QByteArray responseBody;
-                if (requestLine.startsWith("GET /api/downloads ")) {
+                if (requestLine.startsWith("GET /api/engines/capabilities ")) {
+                    responseBody = testEngineCapabilities();
+                } else if (requestLine.startsWith("GET /api/downloads ")) {
                     responseBody =
                         "["
                         "{\"id\":\"active\",\"name\":\"active.bin\",\"status\":\"downloading\"},"
@@ -1816,9 +2086,9 @@ void NativeParityTests::bulkShortcutActionsRespectTaskLifecycle() {
                         "{\"id\":\"failed\",\"name\":\"failed.bin\",\"status\":\"error\"},"
                         "{\"id\":\"done\",\"name\":\"done.bin\",\"status\":\"completed\"}"
                         "]";
-                } else if (requestLine.startsWith("POST /api/downloads/")) {
-                    responseBody = "{\"ok\":true}";
-                } else if (requestLine.startsWith("DELETE /api/downloads/")) {
+                } else if (requestLine.startsWith("POST /api/v1/commands ")) {
+                    responseBody = testControlResponse(QJsonObject{{QStringLiteral("ok"), true}});
+                } else if (requestLine.startsWith("POST /api/downloads/live-task/finish ")) {
                     responseBody = "{\"ok\":true}";
                 } else {
                     responseBody = "[]";
@@ -1836,79 +2106,55 @@ void NativeParityTests::bulkShortcutActionsRespectTaskLifecycle() {
     NovaApiClient client;
     client.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())));
     QSignalSpy downloadsSpy(&client, &NovaApiClient::downloadsLoaded);
+    QSignalSpy capabilitySpy(&client, &NovaApiClient::engineManagementChanged);
+    client.refreshEngineCapabilities();
+    QTRY_VERIFY_WITH_TIMEOUT(capabilitySpy.count() >= 1, 3000);
     client.refreshDownloads();
     QTRY_VERIFY_WITH_TIMEOUT(downloadsSpy.count() >= 1, 3000);
 
+    const auto hasTaskCommand = [&requestBodies](const QString &type, const QString &taskId) {
+        return std::any_of(requestBodies.cbegin(), requestBodies.cend(), [&](const QByteArray &body) {
+            const QJsonObject command = controlCommandFromBody(body);
+            return command.value(QStringLiteral("type")).toString() == type
+                && command.value(QStringLiteral("taskId")).toString() == taskId;
+        });
+    };
+
     requestLines.clear();
+    requestBodies.clear();
     client.resumeAllDownloads();
     QTRY_VERIFY_WITH_TIMEOUT(
-        std::any_of(
-            requestLines.cbegin(),
-            requestLines.cend(),
-            [](const QByteArray &line) {
-                return line.startsWith("POST /api/downloads/paused/resume ");
-            }
-        ),
+        hasTaskCommand(QStringLiteral("resumeTask"), QStringLiteral("paused"))
+            && hasTaskCommand(QStringLiteral("resumeTask"), QStringLiteral("failed")),
         3000
     );
-    QVERIFY(std::any_of(
-        requestLines.cbegin(),
-        requestLines.cend(),
-        [](const QByteArray &line) {
-            return line.startsWith("POST /api/downloads/failed/resume ");
-        }
-    ));
-    QVERIFY(std::none_of(
-        requestLines.cbegin(),
-        requestLines.cend(),
-        [](const QByteArray &line) {
-            return line.startsWith("POST /api/downloads/active/resume ")
-                || line.startsWith("POST /api/downloads/done/resume ");
-        }
-    ));
+    QVERIFY(!hasTaskCommand(QStringLiteral("resumeTask"), QStringLiteral("active")));
+    QVERIFY(!hasTaskCommand(QStringLiteral("resumeTask"), QStringLiteral("done")));
+    QTRY_VERIFY_WITH_TIMEOUT(downloadsSpy.count() >= 3, 3000);
 
     requestLines.clear();
+    requestBodies.clear();
     client.pauseAllDownloads();
     QTRY_VERIFY_WITH_TIMEOUT(
-        std::any_of(
-            requestLines.cbegin(),
-            requestLines.cend(),
-            [](const QByteArray &line) {
-                return line.startsWith("POST /api/downloads/active/pause ");
-            }
-        ),
+        hasTaskCommand(QStringLiteral("pauseTask"), QStringLiteral("active"))
+            && hasTaskCommand(QStringLiteral("pauseTask"), QStringLiteral("failed")),
         3000
     );
-    QVERIFY(std::none_of(
-        requestLines.cbegin(),
-        requestLines.cend(),
-        [](const QByteArray &line) {
-            return line.startsWith("POST /api/downloads/paused/pause ")
-                || line.startsWith("POST /api/downloads/done/pause ");
-        }
-    ));
+    QVERIFY(!hasTaskCommand(QStringLiteral("pauseTask"), QStringLiteral("paused")));
+    QVERIFY(!hasTaskCommand(QStringLiteral("pauseTask"), QStringLiteral("done")));
+    QTRY_VERIFY_WITH_TIMEOUT(downloadsSpy.count() >= 5, 3000);
 
     requestLines.clear();
+    requestBodies.clear();
     client.deleteCompletedDownloads();
     QTRY_VERIFY_WITH_TIMEOUT(
-        std::any_of(
-            requestLines.cbegin(),
-            requestLines.cend(),
-            [](const QByteArray &line) {
-                return line.startsWith("DELETE /api/downloads/done ");
-            }
-        ),
+        hasTaskCommand(QStringLiteral("deleteTask"), QStringLiteral("done")),
         3000
     );
-    QVERIFY(std::none_of(
-        requestLines.cbegin(),
-        requestLines.cend(),
-        [](const QByteArray &line) {
-            return line.startsWith("DELETE /api/downloads/active ")
-                || line.startsWith("DELETE /api/downloads/paused ")
-                || line.startsWith("DELETE /api/downloads/failed ");
-        }
-    ));
+    QVERIFY(!hasTaskCommand(QStringLiteral("deleteTask"), QStringLiteral("active")));
+    QVERIFY(!hasTaskCommand(QStringLiteral("deleteTask"), QStringLiteral("paused")));
+    QVERIFY(!hasTaskCommand(QStringLiteral("deleteTask"), QStringLiteral("failed")));
+    QTRY_VERIFY_WITH_TIMEOUT(downloadsSpy.count() >= 6, 3000);
 
     requestLines.clear();
     QSignalSpy actionSpy(&client, &NovaApiClient::taskActionCompleted);

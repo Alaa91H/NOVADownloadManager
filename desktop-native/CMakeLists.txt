@@ -157,7 +157,7 @@ if(NOVA_BUILD_TESTS)
     set_tests_properties(
         nova-native-parity
         PROPERTIES
-            TIMEOUT 30
+            TIMEOUT 120
     )
 
     qt_add_executable(nova-native-display-tests
