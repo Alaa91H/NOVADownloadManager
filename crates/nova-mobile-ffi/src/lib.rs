@@ -834,14 +834,15 @@ fn mux_mobile_media_tracks(
     session: &nova_mobile_core::MobileTransferSession,
 ) -> Result<u64, MediaDownloadError> {
     check_mobile_media_control(session)?;
-    let output_extension = media_mux_output_extension(request.output_container).ok_or_else(|| {
-        MediaDownloadError::DownloadFailed {
-            message: format!(
-                "separate audio/video streams require a native muxer for .{}",
-                request.output_container
-            ),
-        }
-    })?;
+    let output_extension =
+        media_mux_output_extension(request.output_container).ok_or_else(|| {
+            MediaDownloadError::DownloadFailed {
+                message: format!(
+                    "separate audio/video streams require a native muxer for .{}",
+                    request.output_container
+                ),
+            }
+        })?;
     let muxed = request
         .staging_dir
         .join(format!("muxed-{}.{output_extension}", request.task_id));
