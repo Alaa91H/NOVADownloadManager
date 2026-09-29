@@ -65,10 +65,6 @@ pub struct MediaDownloadOptions {
     pub format_sort: Option<String>,
     #[serde(rename = "audioFormat")]
     pub audio_format: Option<String>,
-    #[serde(rename = "ffmpegEnabled")]
-    pub ffmpeg_enabled: Option<bool>,
-    #[serde(rename = "ffmpegLocation")]
-    pub ffmpeg_location: Option<String>,
     pub bitrate: Option<String>,
     #[serde(rename = "outputTemplate")]
     pub output_template: Option<String>,
@@ -187,6 +183,28 @@ pub struct MediaDownloadOptions {
     pub match_filter: Option<String>,
     #[serde(rename = "remuxFormat")]
     pub remux_format: Option<String>,
+    #[serde(rename = "videoCodec")]
+    pub video_codec: Option<String>,
+    #[serde(rename = "audioCodec")]
+    pub audio_codec: Option<String>,
+    #[serde(rename = "videoBitrateBps")]
+    pub video_bitrate_bps: Option<u64>,
+    #[serde(rename = "audioBitrateBps")]
+    pub audio_bitrate_bps: Option<u64>,
+    #[serde(rename = "transcodeCrf")]
+    pub transcode_crf: Option<u8>,
+    #[serde(rename = "transcodePreset")]
+    pub transcode_preset: Option<String>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    #[serde(rename = "frameRateMilli")]
+    pub frame_rate_milli: Option<u32>,
+    #[serde(rename = "audioSampleRateHz")]
+    pub audio_sample_rate_hz: Option<u32>,
+    #[serde(rename = "audioChannels")]
+    pub audio_channels: Option<u8>,
+    #[serde(rename = "processingThreads")]
+    pub processing_threads: Option<u8>,
     #[serde(rename = "extraArgs")]
     pub extra_args: Option<String>,
 }

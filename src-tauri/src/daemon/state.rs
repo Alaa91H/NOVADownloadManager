@@ -41,6 +41,9 @@ pub struct PendingCaptureReview {
     pub idempotency_key: Option<String>,
     pub created_at: Instant,
     pub download: CreateDownloadBody,
+    /// A torrent analysis is scoped to this review so a caller cannot approve
+    /// one browser-captured source using metadata analyzed for another source.
+    pub torrent_analysis_id: Option<String>,
 }
 
 pub const MAX_PENDING_CAPTURE_REVIEWS: usize = 64;
@@ -58,6 +61,8 @@ pub struct TaskEngineTracker {
 const ENGINE_CACHE_TTL_SECS: u64 = 120;
 
 /// Lock ordering (acquire in this order to prevent deadlocks):
+///   `torrent_task_creation_gate` is acquired before the numbered locks and
+///   is never acquired while holding one of them.
 ///   1. `native_media_jobs`
 ///   2. `torrent_jobs`
 ///   3. `torrent_analyses`
@@ -77,6 +82,9 @@ pub struct AppState {
     pub native_media_jobs: Mutex<HashMap<String, NativeMediaJob>>,
     pub torrent_jobs: Mutex<HashMap<String, TorrentJob>>,
     pub torrent_analyses: Mutex<HashMap<String, PendingTorrentAnalysis>>,
+    /// Serializes info-hash duplicate checks with torrent task creation so two
+    /// concurrent requests cannot both pass the preflight check.
+    pub torrent_task_creation_gate: tokio::sync::Mutex<()>,
     pub curl_jobs: Mutex<HashMap<String, CurlJob>>,
     pub task_snapshot: Mutex<HashMap<String, Task>>,
     /// Persisted daemon-owned queue definitions used by every client.

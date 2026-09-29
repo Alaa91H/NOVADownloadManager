@@ -11,6 +11,8 @@ import com.nova.downloadmanager.service.NovaTransferScheduler
 interface DownloadsRepository {
     fun coreReadiness(): CoreReadiness
     fun enqueue(url: String): Result<DownloadSummary>
+    fun enqueueMedia(pageUrl: String, streamId: String, title: String, container: String?): Result<DownloadSummary> =
+        unsupported("native media download")
     fun pause(taskId: String): Result<DownloadSummary> = unsupported("pause")
     fun resume(taskId: String): Result<DownloadSummary> = unsupported("resume")
     fun cancel(taskId: String): Result<DownloadSummary> = unsupported("cancel")
@@ -33,6 +35,15 @@ class UnpackagedRustDownloadsRepository : DownloadsRepository {
         IllegalStateException("Android download service is unavailable"),
     )
 
+    override fun enqueueMedia(
+        pageUrl: String,
+        streamId: String,
+        title: String,
+        container: String?,
+    ): Result<DownloadSummary> = Result.failure(
+        IllegalStateException("Android native media service is unavailable"),
+    )
+
     override fun refresh(taskIds: Collection<String>): List<DownloadSummary> = emptyList()
 }
 
@@ -47,6 +58,13 @@ class PlatformDownloadsRepository(context: Context) : DownloadsRepository {
 
     override fun enqueue(url: String): Result<DownloadSummary> =
         core.enqueue(url).flatMapScheduled()
+
+    override fun enqueueMedia(
+        pageUrl: String,
+        streamId: String,
+        title: String,
+        container: String?,
+    ): Result<DownloadSummary> = core.enqueueMedia(pageUrl, streamId, title, container).flatMapScheduled()
 
     override fun pause(taskId: String): Result<DownloadSummary> {
         val wasActive = core.isActive(taskId)

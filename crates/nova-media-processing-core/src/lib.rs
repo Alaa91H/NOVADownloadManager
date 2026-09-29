@@ -7,10 +7,12 @@
 //! shell, subprocess, network resolver, or UI dependency.
 
 mod capabilities;
+mod native_codecs;
 mod demux;
 mod ebml_muxer;
 mod error;
 mod flac;
+mod local_audio;
 mod job;
 mod mp4;
 mod mux;
@@ -22,6 +24,14 @@ mod types;
 mod webm;
 
 pub use capabilities::{native_media_processing_capabilities, NativeMediaProcessingCapabilities};
+pub use native_codecs::{
+    mux_local_media_tracks, native_media_codec_capabilities, transcode_local_media,
+    embed_local_media_subtitles, validate_local_media_mux_job,
+    validate_local_media_subtitle_embed_job, validate_local_media_transcode_job,
+    NativeMediaCodecCapabilities, NativeMediaCodecTrackCapabilities, NativeMediaMuxJob,
+    NativeMediaMuxResult, NativeMediaSubtitleEmbedJob, NativeMediaTranscodeJob,
+    NativeMediaTranscodeResult,
+};
 pub use demux::MediaDemuxer;
 pub use ebml_muxer::{
     mux_demuxers_to_matroska, mux_demuxers_to_matroska_controlled, mux_demuxers_to_webm,
@@ -31,6 +41,7 @@ pub use error::MediaProcessingError;
 pub use job::{
     MediaInput, MediaOutput, MediaProcessingJob, MediaProcessingOperation, TranscodeSettings,
 };
+pub use local_audio::{transcode_audio_to_wav, NativeAudioTranscodeResult};
 pub use mp4::{
     mux_demuxers_to_mp4, mux_demuxers_to_mp4_controlled, probe_mp4_file, Mp4Demuxer, Mp4Muxer,
     Mp4Sample, Mp4TrackIndex, ParsedMp4,

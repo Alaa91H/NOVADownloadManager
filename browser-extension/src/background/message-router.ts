@@ -428,31 +428,70 @@ async function addOverlayAnalyzedFormat(formatId: string, sender: RuntimeMessage
 }
 
 async function addMedia(message: Extract<RuntimeMessage, { type: 'ADD_MEDIA' }>): Promise<unknown> {
-  const format = message.selectedFormat;
+  const pageUrl = message.pageUrl ?? message.url;
+  const analysis = await bridgeManager.analyzeMedia(pageUrl, {
+    pageUrl,
+    referrer: message.referrer,
+    title: message.title,
+  });
+  if (!analysis.ok || analysis.drmProtected) {
+    throw new NovaExtensionError({
+      code: 'VALIDATION_FAILED',
+      message: 'The current media cannot be submitted for managed download.',
+      retryable: false,
+      repairHint: 'Review the media in the NOVA popup.',
+    });
+  }
+  const format = analysis.formats.find((item) => item.formatId === message.formatId);
+  if (!format?.formatId) {
+    throw new NovaExtensionError({
+      code: 'VALIDATION_FAILED',
+      message: 'The selected format is no longer available.',
+      retryable: true,
+      repairHint: 'Refresh video information and select a current format.',
+    });
+  }
   const mediaType: 'video' | 'audio' =
     format.hasVideo === false && format.hasAudio !== false ? 'audio' : 'video';
   const seed = {
-    id: `media-${format.formatId ?? format.url}`,
-    url: message.url,
-    pageUrl: message.pageUrl,
+    id: `media-${format.formatId}`,
+    url: pageUrl,
+    pageUrl,
     source: 'platform' as const,
     mediaType,
     width: format.width,
     height: format.height,
     bitrate: format.bandwidth,
-    sizeBytes: format.estimatedSizeBytes ?? format.filesize,
+    sizeBytes: format.estimatedSizeBytes,
     confidence: 100,
     createdAt: new Date().toISOString(),
   };
   const idempotencyKey = await idempotencyKeyFor([seed]);
+  const selectedFormat = {
+    url: pageUrl,
+    formatId: format.formatId,
+    label: format.label,
+    width: format.width,
+    height: format.height,
+    bandwidth: format.bandwidth && format.bandwidth > 0 ? format.bandwidth : undefined,
+    codecs: format.codecs,
+    container: format.container,
+    fps: format.fps,
+    hasAudio: format.hasAudio,
+    hasVideo: format.hasVideo,
+    estimatedSizeBytes: format.estimatedSizeBytes,
+    tbr: format.tbr,
+    abr: format.abr,
+    vbr: format.vbr,
+  };
   const result = await bridgeManager.addMedia({
     idempotencyKey,
-    url: message.url,
-    title: message.title,
-    pageUrl: message.pageUrl,
-    referrer: message.referrer,
-    selectedFormat: format,
-    drmProtected: false,
+    url: pageUrl,
+    title: message.title ?? analysis.title,
+    pageUrl,
+    referrer: message.referrer ?? pageUrl,
+    selectedFormat,
+    drmProtected: analysis.drmProtected,
     source: 'nova-extension',
   });
   // The quality click is already an explicit user confirmation. Open NOVA

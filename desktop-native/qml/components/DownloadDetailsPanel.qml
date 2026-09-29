@@ -6,6 +6,7 @@ import Nova.Native
 Rectangle {
     id: root
 
+    required property var api
     property var item: ({})
     property var speedHistory: []
     property string languageToken: i18n.language
@@ -17,6 +18,9 @@ Rectangle {
     readonly property bool hasItem: item && item.taskId !== undefined && item.taskId !== ""
     readonly property bool completed: (item.status || "").toLowerCase() === "completed"
     readonly property bool hasSavePath: (item.savePath || "").length > 0
+    readonly property bool isTorrent: String(item.engine || "") === "native-torrent"
+        || String(item.category || "").toLowerCase() === "torrent"
+        || String(item.fileType || "").toLowerCase() === "torrent"
 
     function t(key) {
         const token = root.languageToken
@@ -94,6 +98,8 @@ Rectangle {
     onItemChanged: {
         root.speedHistory = []
         speedCanvas.requestPaint()
+        if (!root.isTorrent && tabs.currentIndex === 3)
+            tabs.currentIndex = 0
     }
 
     Timer {
@@ -196,6 +202,12 @@ Rectangle {
             TabButton { text: root.t("settings.general") }
             TabButton { text: root.t("details.title") }
             TabButton { text: root.t("nav.media") }
+            TabButton {
+                text: root.t("torrent.tab")
+                visible: root.isTorrent
+                ToolTip.visible: hovered
+                ToolTip.text: root.t("torrent.statusTitle")
+            }
         }
 
         Rectangle {
@@ -481,6 +493,14 @@ Rectangle {
                         }
                     }
                 }
+            }
+
+            TorrentDetailsPanel {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                api: root.api
+                downloadItem: root.item
+                active: root.isTorrent && tabs.currentIndex === 3
             }
         }
     }

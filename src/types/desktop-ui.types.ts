@@ -87,8 +87,6 @@ export interface MediaDownloadOptions {
   formatSelector?: string;
   formatSort?: string;
   audioFormat?: string;
-  ffmpegEnabled?: boolean;
-  ffmpegLocation?: string;
   bitrate?: string;
   outputTemplate?: string;
   playlist?: boolean;

@@ -1,10 +1,10 @@
 # Third-Party Notices
 
 NOVA Download Manager is licensed under the MIT License (see [LICENSE](LICENSE)).
-It also **bundles, links against, or invokes** third-party components that are
-distributed under their own license terms. Those terms are independent of NOVA's
-MIT license and **must be preserved in every redistribution** of NOVA release
-artifacts (installer, portable bundle, or extracted application directory).
+It also bundles or links against third-party components distributed under
+their own license terms. Those terms are independent of NOVA's MIT license and
+**must be preserved in every redistribution** of NOVA release artifacts
+(installer, portable bundle, or extracted application directory).
 
 This file documents the primary bundled engines. License texts for individual
 npm and Cargo dependencies are resolvable from `pnpm-lock.yaml` and
@@ -14,6 +14,25 @@ to regenerate a full dependency SBOM for a formal release.
 ---
 
 ## Bundled engines
+
+### remade-ffmpeg (Rust codec engine)
+
+- **Role in NOVA:** in-process desktop audio/video decoding, encoding,
+  filtering, remuxing, and container conversion. The Android FFI dependency
+  graph also includes the crate. NOVA vendors the published `remade-ffmpeg`
+  0.2.0 crate and its Rust dependency graph; native media tasks do not launch
+  an `ffmpeg`-named executable.
+- **License:** Apache-2.0. The upstream license text is preserved at
+  `vendor/remade-ffmpeg-0.2.0/LICENSE-APACHE`.
+- **Copyright:** Copyright 2026 Mata Network and contributors.
+- **Project:** https://github.com/Remade-With-Rust/remade_ffmpeg_rs ·
+  **Published crate:** https://crates.io/crates/remade-ffmpeg/0.2.0
+- **Local changes:** NOVA adds a packet-boundary controlled transcoder with
+  pause/cancel/progress callbacks in the vendored `src/transcode.rs`.
+- **Notes:** The upstream release identifies itself as pre-1.0 and not yet
+  independently audited. Codec and output-container availability is checked
+  against the embedded registries at runtime. See
+  [NATIVE_CODEC_BACKENDS.md](docs/architecture/NATIVE_CODEC_BACKENDS.md).
 
 ### curl / libcurl
 
@@ -29,33 +48,20 @@ to regenerate a full dependency SBOM for a formal release.
   notice appear in all copies. NOVA satisfies this by shipping this notice and
   the upstream `COPYING` file alongside the linked/bundled binary.
 
-### yt-dlp
+### Legacy optional FFmpeg tool manager
 
-- **Role in NOVA:** media-download engine for HLS/DASH and site-specific media
-  workflows. Bundled as a standalone executable in the application `bin/`
-  directory and invoked as a subprocess.
-- **License:** The Unlicense (public domain dedication).
-- **Project:** https://github.com/yt-dlp/yt-dlp · **License text:** https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE
-- **Notes:** yt-dlp itself carries no redistribution restrictions, but the sites
-  it interacts with may impose their own terms of use. NOVA does not modify
-  yt-dlp; it ships the upstream build unchanged.
-
-### FFmpeg
-
-- **Role in NOVA:** post-processing for merge, remux, metadata, thumbnails,
-  subtitles, chapters, and audio extraction. Bundled as a standalone executable
-  in the application `bin/` directory and invoked as a subprocess.
+- **Role in NOVA:** legacy optional tool-management API only. The native media
+  extraction, mux, subtitle, and conversion paths do not require or invoke this
+  executable. Standard NOVA release workflows do not bundle it.
 - **License:** LGPL-2.1-or-later for the core libraries; **individual builds may
   be GPL-2.0-or-later** depending on the enabled components (e.g. `--enable-gpl`,
-  `libx264`). NOVA's release pipeline bundles a system/prebuilt FFmpeg
-  (`NOVA_BUNDLE_SYSTEM_FFMPEG=1`); the exact license of a given release is
-  determined by the specific FFmpeg build that is bundled.
+  `libx264`). If an administrator uses the legacy tool-management API to install
+  or provide an FFmpeg build, the exact license depends on that build.
 - **Copyright:** © the FFmpeg developers.
 - **Project:** https://ffmpeg.org/ · **License text:** https://ffmpeg.org/legal.html
-- **Redistribution obligation:** When a GPL/LGPL FFmpeg build is bundled, the
-  corresponding license text **and an offer of / link to the corresponding
-  source** for that exact build must accompany the release artifact. Record the
-  source URL and build flags of the bundled FFmpeg in the release notes.
+- **Redistribution obligation:** If a distribution later bundles a specific
+  FFmpeg build, include that build's license text and corresponding source offer
+  or link, and record the build source and flags with that distribution.
 
 ---
 
@@ -79,11 +85,9 @@ covered by the same preservation requirement above.
 
 Before publishing a binary release:
 
-1. Confirm the bundled FFmpeg build's license and source URL, and record them in
-   the release notes.
-2. Ship this `THIRD_PARTY_NOTICES.md`, the root `LICENSE`, and upstream license
-   texts for curl and FFmpeg inside the installed application directory (NOVA
-   stages these into `src-tauri/resources/` at build time — see
+1. Ship this `THIRD_PARTY_NOTICES.md`, the root `LICENSE`, and upstream license
+   texts for linked dependencies inside the installed application directory
+   (NOVA stages these into `src-tauri/resources/` at build time — see
    `scripts/build-tauri-assets.mjs`).
-3. Optionally regenerate a full SBOM with `pnpm licenses list` and a Cargo
+2. Optionally regenerate a full SBOM with `pnpm licenses list` and a Cargo
    license tool for a complete dependency-level attribution list.

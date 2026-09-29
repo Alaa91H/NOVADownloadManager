@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.Uri
 import android.util.Base64
 import com.nova.downloadmanager.core.NovaNativeCore
+import com.nova.downloadmanager.storage.DownloadDestinationStore
+import org.json.JSONObject
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -26,6 +28,7 @@ class NovaTransferCore(context: Context) {
     private val nativeBridgeApiVersion = NovaNativeCore.requireCompatible()
     private val preferences = appContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
     private val intentStore = SecureTransferIntentStore(appContext)
+    private val destinationStore = DownloadDestinationStore(appContext)
     private val appPrivateRoot = appContext.filesDir
 
     fun enqueue(url: String): Result<DownloadSummary> = runCatching {
@@ -49,8 +52,41 @@ class NovaTransferCore(context: Context) {
             totalBytes = 0,
             createdAtMillis = System.currentTimeMillis(),
         )
-        remember(record)
-        intentStore.put(record.id, source.toString())
+        persistNewTask(record, source.toString())
+        summary(record)
+    }
+
+    /** Store only the original media page and selected format, encrypted. Rust re-resolves
+     * the representation and applies origin-scoped request credentials in the worker. */
+    fun enqueueMedia(
+        webpageUrl: String,
+        streamId: String,
+        title: String,
+        container: String?,
+    ): Result<DownloadSummary> = runCatching {
+        check(nativeBridgeApiVersion > 0) { "NOVA native core is not initialized" }
+        val source = Uri.parse(webpageUrl.trim())
+        require(source.scheme.equals("http", ignoreCase = true) || source.scheme.equals("https", ignoreCase = true)) {
+            "Only HTTP(S) media pages are supported"
+        }
+        require(!source.host.isNullOrBlank()) { "A media page host is required" }
+        require(streamId.isNotBlank()) { "A media stream must be selected" }
+
+        val id = UUID.randomUUID().toString()
+        val extension = safeMediaExtension(container)
+        val safeTitle = safeMediaTitle(title, extension)
+        val fileName = "$safeTitle.$extension".take(MAX_FILE_NAME_CHARS)
+        val record = TransferRecord(
+            id = id,
+            name = fileName.ifBlank { "$DEFAULT_FILE_NAME.$extension" },
+            stagingRelativePath = "$STAGING_DIRECTORY/$id.part",
+            finalRelativePath = "$FINAL_DIRECTORY/$id-$fileName",
+            status = DownloadStatus.Queued.wireValue,
+            downloadedBytes = 0,
+            totalBytes = 0,
+            createdAtMillis = System.currentTimeMillis(),
+        )
+        persistNewTask(record, encodeMediaIntent(source.toString(), streamId, extension))
         summary(record)
     }
 
@@ -90,6 +126,11 @@ class NovaTransferCore(context: Context) {
         requireNotNull(intentStore.get(taskId)) {
             "Encrypted NOVA transfer intent is unavailable"
         }
+        if (record.status == DownloadStatus.Failed.wireValue) {
+            destinationStore.rebindTaskToSelected(taskId)
+        } else {
+            destinationStore.recoverRevokedTaskDestination(taskId)
+        }
         check(!ACTIVE_TRANSFER_IDS.contains(taskId)) { "NOVA native transfer is still active" }
 
         val queued = record.copy(status = DownloadStatus.Queued.wireValue)
@@ -99,6 +140,9 @@ class NovaTransferCore(context: Context) {
 
     fun cancel(taskId: String): Result<DownloadSummary> = runCatching {
         val record = requireRecord(taskId)
+        require(record.status !in TERMINAL_DOWNLOAD_STATUSES) {
+            "Transfer cannot be cancelled from state ${record.status}"
+        }
         val active = ACTIVE_TRANSFER_IDS.contains(taskId)
         if (active) {
             check(NovaNativeCore.cancelTransfer(taskId)) { "NOVA native transfer is not active" }
@@ -109,14 +153,21 @@ class NovaTransferCore(context: Context) {
                     record.stagingRelativePath,
                 ),
             ) { "NOVA native staging cleanup failed" }
-            NovaNativeCore.forgetTransferProgress(taskId)
-            intentStore.remove(taskId)
-            updateRecord(
-                record.copy(
-                    status = DownloadStatus.Cancelled.wireValue,
-                    downloadedBytes = 0,
+            check(
+                NovaNativeCore.discardAppPrivateMediaStaging(
+                    appPrivateRoot.absolutePath,
+                    taskId,
                 ),
+            ) { "NOVA native media staging cleanup failed" }
+            val cancelled = record.copy(
+                status = DownloadStatus.Cancelled.wireValue,
+                downloadedBytes = 0,
             )
+            updateRecord(cancelled)
+            runCatching { NovaNativeCore.forgetTransferProgress(taskId) }
+            runCatching { intentStore.remove(taskId) }
+            runCatching { destinationStore.cancelPending(taskId) }
+            runCatching { File(appPrivateRoot, record.finalRelativePath).delete() }
         }
         summary(requireRecord(taskId))
     }
@@ -174,6 +225,23 @@ class NovaTransferCore(context: Context) {
     fun isActive(taskId: String): Boolean = ACTIVE_TRANSFER_IDS.contains(taskId)
 
     private fun runNativeTransfer(record: TransferRecord, url: String) {
+        val existingFinal = File(appPrivateRoot, record.finalRelativePath)
+        if (record.status in EXECUTABLE_DOWNLOAD_STATUSES && existingFinal.isFile) {
+            try {
+                publishCompletedFile(record, existingFinal)
+            } catch (_: Throwable) {
+                val finalBytes = existingFinal.length().coerceAtLeast(0)
+                updateRecord(
+                    record.copy(
+                        status = DownloadStatus.Failed.wireValue,
+                        downloadedBytes = finalBytes,
+                        totalBytes = maxOf(record.totalBytes, finalBytes),
+                    ),
+                )
+            }
+            return
+        }
+
         // A new native execution may discover that the remote representation
         // changed and restart from byte zero. Do not carry stale counters into
         // that generation; the native progress snapshot becomes authoritative.
@@ -184,8 +252,18 @@ class NovaTransferCore(context: Context) {
         )
         updateRecord(current)
 
+        var completionPersisted = false
         try {
-            val outcome = NovaNativeCore.downloadToAppPrivate(
+            val outcome = decodeMediaIntent(url)?.let { media ->
+                NovaNativeCore.downloadMediaStreamToAppPrivate(
+                    taskId = current.id,
+                    webpageUrl = media.webpageUrl,
+                    streamId = media.streamId,
+                    outputContainer = media.outputContainer,
+                    appPrivateRoot = appPrivateRoot.absolutePath,
+                    relativeDestination = current.stagingRelativePath,
+                )
+            } ?: NovaNativeCore.downloadToAppPrivate(
                 taskId = current.id,
                 url = url,
                 appPrivateRoot = appPrivateRoot.absolutePath,
@@ -196,17 +274,12 @@ class NovaTransferCore(context: Context) {
             when (outcome.status) {
                 NovaNativeCore.NativeTransferStatus.COMPLETED -> {
                     finalizeStaging(current)
-                    intentStore.remove(current.id)
-                    current = current.copy(
-                        status = DownloadStatus.Completed.wireValue,
-                        downloadedBytes = outcome.finalBytes,
-                        totalBytes = maxOf(
-                            current.totalBytes,
-                            progress?.totalBytes ?: 0,
-                            outcome.finalBytes,
-                        ),
+                    current = publishCompletedFile(
+                        record = current,
+                        file = File(appPrivateRoot, current.finalRelativePath),
+                        totalBytes = maxOf(current.totalBytes, progress?.totalBytes ?: 0, outcome.finalBytes),
                     )
-                    NovaNativeCore.forgetTransferProgress(current.id)
+                    completionPersisted = true
                 }
                 NovaNativeCore.NativeTransferStatus.PAUSED -> {
                     val stagingBytes = File(appPrivateRoot, current.stagingRelativePath)
@@ -224,16 +297,18 @@ class NovaTransferCore(context: Context) {
                     )
                 }
                 NovaNativeCore.NativeTransferStatus.CANCELLED -> {
-                    intentStore.remove(current.id)
                     current = current.copy(
                         status = DownloadStatus.Cancelled.wireValue,
                         downloadedBytes = 0,
                     )
-                    NovaNativeCore.forgetTransferProgress(current.id)
                 }
             }
-            updateRecord(current)
-            NovaNativeCore.forgetTransferProgress(current.id)
+            if (!completionPersisted) updateRecord(current)
+            runCatching { NovaNativeCore.forgetTransferProgress(current.id) }
+            if (current.status == DownloadStatus.Cancelled.wireValue) {
+                runCatching { intentStore.remove(current.id) }
+                runCatching { destinationStore.cancelPending(current.id) }
+            }
         } catch (_: Throwable) {
             val progress = runCatching {
                 NovaNativeCore.transferProgress(current.id)
@@ -278,6 +353,26 @@ class NovaTransferCore(context: Context) {
         }.getOrThrow()
     }
 
+    /** Keep the verified private file until external publication has committed. */
+    private fun publishCompletedFile(
+        record: TransferRecord,
+        file: File,
+        totalBytes: Long = record.totalBytes,
+    ): TransferRecord {
+        val finalBytes = file.length().coerceAtLeast(0)
+        destinationStore.publish(record.id, file, record.name)
+        val completed = record.copy(
+            status = DownloadStatus.Completed.wireValue,
+            downloadedBytes = finalBytes,
+            totalBytes = maxOf(totalBytes, finalBytes),
+        )
+        updateRecord(completed)
+        runCatching { intentStore.remove(record.id) }
+        if (!destinationStore.retainsPrivateCopy(record.id)) runCatching { file.delete() }
+        runCatching { NovaNativeCore.forgetTransferProgress(record.id) }
+        return completed
+    }
+
     private fun reconcileOrphanedSessions() {
         records()
             .filter { record ->
@@ -293,8 +388,17 @@ class NovaTransferCore(context: Context) {
             ?: error("Unknown NOVA transfer task: $taskId")
 
     private fun summary(record: TransferRecord): DownloadSummary {
+        val completedFile = File(appPrivateRoot, record.finalRelativePath)
+        val completedUri = if (record.status == DownloadStatus.Completed.wireValue) {
+            destinationStore.completedUri(record.id)
+                ?: runCatching {
+                    destinationStore.restoreLegacyPrivateCompletion(record.id, completedFile)
+                }.getOrNull()
+        } else {
+            null
+        }
         val payload = when (record.status) {
-            DownloadStatus.Completed.wireValue -> File(appPrivateRoot, record.finalRelativePath)
+            DownloadStatus.Completed.wireValue -> completedFile
             DownloadStatus.Cancelled.wireValue -> null
             else -> File(appPrivateRoot, record.stagingRelativePath)
         }
@@ -331,6 +435,11 @@ class NovaTransferCore(context: Context) {
             status = record.status,
             downloadedBytes = downloadedBytes,
             totalBytes = totalBytes,
+            completedUri = if (record.status == DownloadStatus.Completed.wireValue) {
+                completedUri?.toString()
+            } else {
+                null
+            },
         )
     }
 
@@ -340,6 +449,23 @@ class NovaTransferCore(context: Context) {
             .sortedByDescending(TransferRecord::createdAtMillis)
             .take(MAX_RETAINED_TASKS)
         writeRecords(next)
+    }
+
+    private fun forget(taskId: String) = synchronized(CATALOG_LOCK) {
+        writeRecords(recordsUnlocked().filterNot { it.id == taskId })
+    }
+
+    private fun persistNewTask(record: TransferRecord, encryptedIntent: String) {
+        try {
+            intentStore.put(record.id, encryptedIntent)
+            destinationStore.bindTask(record.id)
+            remember(record)
+        } catch (error: Throwable) {
+            runCatching { forget(record.id) }
+            runCatching { intentStore.remove(record.id) }
+            runCatching { destinationStore.rollbackTaskBinding(record.id) }
+            throw error
+        }
     }
 
     private fun updateRecord(record: TransferRecord) = synchronized(CATALOG_LOCK) {
@@ -380,6 +506,64 @@ class NovaTransferCore(context: Context) {
             .trim('.', '_', ' ')
             .take(MAX_FILE_NAME_CHARS)
         return sanitized.ifBlank { DEFAULT_FILE_NAME }
+    }
+
+    private data class MediaTransferIntent(
+        val webpageUrl: String,
+        val streamId: String,
+        val outputContainer: String,
+    )
+
+    private fun encodeMediaIntent(webpageUrl: String, streamId: String, outputContainer: String): String =
+        MEDIA_INTENT_PREFIX + JSONObject()
+            .put("webpageUrl", webpageUrl)
+            .put("streamId", streamId)
+            .put("outputContainer", outputContainer)
+            .toString()
+
+    private fun decodeMediaIntent(raw: String): MediaTransferIntent? {
+        if (!raw.startsWith(MEDIA_INTENT_PREFIX)) return null
+        val payload = JSONObject(raw.removePrefix(MEDIA_INTENT_PREFIX))
+        val intent = MediaTransferIntent(
+            webpageUrl = payload.getString("webpageUrl"),
+            streamId = payload.getString("streamId"),
+            outputContainer = payload.optString("outputContainer", "mp4")
+                .takeIf { it.matches(Regex("[a-z0-9]{1,8}")) }
+                ?: "mp4",
+        )
+        val source = Uri.parse(intent.webpageUrl)
+        require(source.scheme.equals("http", ignoreCase = true) || source.scheme.equals("https", ignoreCase = true)) {
+            "Invalid stored NOVA media page"
+        }
+        require(!source.host.isNullOrBlank() && intent.streamId.isNotBlank()) {
+            "Invalid stored NOVA media format"
+        }
+        return intent
+    }
+
+    private fun safeMediaTitle(title: String, extension: String): String = title
+        .trim()
+        .let { value ->
+            if (value.substringAfterLast('.', "").equals(extension, ignoreCase = true)) {
+                value.substringBeforeLast('.')
+            } else value
+        }
+        .replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_")
+        .trim('.', '_', ' ')
+        .take(MAX_FILE_NAME_CHARS - 12)
+        .ifBlank { DEFAULT_FILE_NAME }
+
+    private fun safeMediaExtension(container: String?): String = when (
+        container.orEmpty().substringAfterLast('.', "").lowercase()
+    ) {
+        "matroska" -> "mkv"
+        "mpegts", "mpeg-ts" -> "ts"
+        "yuv4mpegpipe" -> "y4m"
+        else -> container.orEmpty()
+            .substringAfterLast('.', "")
+            .lowercase()
+            .takeIf { it.matches(Regex("[a-z0-9]{1,8}")) }
+            ?: "bin"
     }
 
     private data class TransferRecord(
@@ -443,6 +627,7 @@ class NovaTransferCore(context: Context) {
         const val MAX_RETAINED_TASKS = 100
         const val MAX_FILE_NAME_CHARS = 120
         const val DEFAULT_FILE_NAME = "download"
+        const val MEDIA_INTENT_PREFIX = "nova-media-v1:"
         const val STAGING_DIRECTORY = "nova-staging"
         const val FINAL_DIRECTORY = "downloads"
         const val RECORD_SEPARATOR = "|"
@@ -460,6 +645,10 @@ class NovaTransferCore(context: Context) {
         val EXECUTABLE_DOWNLOAD_STATUSES = setOf(
             DownloadStatus.Queued.wireValue,
             DownloadStatus.Failed.wireValue,
+        )
+        val TERMINAL_DOWNLOAD_STATUSES = setOf(
+            DownloadStatus.Completed.wireValue,
+            DownloadStatus.Cancelled.wireValue,
         )
         val CATALOG_LOCK = Any()
         val ACTIVE_TRANSFER_IDS = ConcurrentHashMap.newKeySet<String>()

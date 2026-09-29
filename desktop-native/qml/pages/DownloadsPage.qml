@@ -21,6 +21,7 @@ Item {
     property string pendingRedownloadId: ""
     property string pendingRedownloadName: ""
     property bool pendingRedownloadRetryMode: false
+    property string lastCaptureReviewId: ""
     property string noticeText: ""
     property bool noticeIsError: false
     signal focusSearchRequested()
@@ -65,6 +66,39 @@ Item {
         nativeSettings.downloadColumns = [
             "name", "size", "progress", "speed", "eta", "status"
         ]
+    }
+
+    function presentCaptureReview() {
+        if (!root.api.connected
+            || !(root.page === "downloads" || root.page === "active"
+                 || root.page === "queued" || root.page === "completed"
+                 || root.page === "failed")
+            || addDownloadDialog.visible
+            || torrentAddDialog.visible
+            || deleteDialog.visible
+            || redownloadDialog.visible
+            || propertiesDialog.visible
+            || captureReviewDialog.visible) {
+            return
+        }
+
+        const reviews = root.api.captureReviews || []
+        for (let i = 0; i < reviews.length; ++i) {
+            const review = reviews[i]
+            const id = String(review.reviewId || "")
+            if (id.length === 0 || id === root.lastCaptureReviewId)
+                continue
+            root.lastCaptureReviewId = id
+            const fileType = String(review.fileType || "").toLowerCase()
+            const source = String(review.url || "").toLowerCase()
+            const torrentUrl = /^https?:\/\//.test(source)
+                && /\.torrent(?:[?#]|$)/.test(source)
+            if (fileType.indexOf("torrent") >= 0 || source.startsWith("magnet:") || torrentUrl)
+                torrentAddDialog.openForReview(review)
+            else
+                captureReviewDialog.openForReview(review)
+            return
+        }
     }
 
     function requestSort(key) {
@@ -119,6 +153,8 @@ Item {
 
     function openClipboardUrl(url) {
         if (addDownloadDialog.visible
+            || torrentAddDialog.visible
+            || captureReviewDialog.visible
             || deleteDialog.visible
             || redownloadDialog.visible
             || propertiesDialog.visible) {
@@ -469,6 +505,8 @@ Item {
             ? String(nativeSettings.shortcutBindings.focusSearch || "Ctrl+F")
             : ""
         enabled: !addDownloadDialog.visible
+            && !torrentAddDialog.visible
+            && !captureReviewDialog.visible
         onActivated: root.focusSearchRequested()
     }
 
@@ -476,7 +514,10 @@ Item {
         sequence: nativeSettings.shortcutsEnabled
             ? String(nativeSettings.shortcutBindings.selectAllDownloads || "Ctrl+A")
             : ""
-        enabled: !addDownloadDialog.visible && downloads.count > 0
+        enabled: !addDownloadDialog.visible
+            && !torrentAddDialog.visible
+            && !captureReviewDialog.visible
+            && downloads.count > 0
         onActivated: root.selectAllVisible()
     }
 
@@ -535,6 +576,8 @@ Item {
         sequence: "Escape"
         enabled: (root.selectedIndex >= 0 || root.allVisibleSelected)
             && !addDownloadDialog.visible
+            && !torrentAddDialog.visible
+            && !captureReviewDialog.visible
             && !deleteDialog.visible
             && !redownloadDialog.visible
             && !propertiesDialog.visible
@@ -629,6 +672,7 @@ Item {
             hasSavePath: (root.selectedItem.savePath || "").length > 0
 
             onNewDownloadRequested: addDownloadDialog.openNew()
+            onNewTorrentRequested: torrentAddDialog.openNew()
             onColumnsRequested: columnsMenu.popup()
             onRefreshRequested: root.api.refreshDownloads()
             onPauseRequested: {
@@ -1249,6 +1293,7 @@ Item {
                 Layout.preferredWidth: root.selectedIndex >= 0
                     && nativeSettings.detailsPanelVisible ? Theme.detailsWidth : 0
                 visible: root.selectedIndex >= 0 && nativeSettings.detailsPanelVisible
+                api: root.api
                 item: root.selectedItem
                 onCloseRequested: root.clearSelection()
                 onOpenFileRequested: root.openSelectedFile()
@@ -1367,6 +1412,36 @@ Item {
         parent: Overlay.overlay
         x: parent ? Math.round((parent.width - width) / 2) : 0
         y: parent ? Math.round((parent.height - height) / 2) : 0
+    }
+
+    BrowserCaptureReviewDialog {
+        id: captureReviewDialog
+        api: root.api
+        desktop: desktopIntegration
+        settings: nativeSettings
+        parent: Overlay.overlay
+        x: parent ? Math.round((parent.width - width) / 2) : 0
+        y: parent ? Math.round((parent.height - height) / 2) : 0
+    }
+
+    TorrentAddDialog {
+        id: torrentAddDialog
+        api: root.api
+        desktop: desktopIntegration
+        settings: nativeSettings
+        parent: Overlay.overlay
+        x: parent ? Math.round((parent.width - width) / 2) : 0
+        y: parent ? Math.round((parent.height - height) / 2) : 0
+    }
+
+    Timer {
+        interval: 900
+        repeat: true
+        running: root.api.connected && root.page !== "settings"
+        onTriggered: {
+            root.api.refreshCaptureReviews()
+            root.presentCaptureReview()
+        }
     }
 
     DownloadPropertiesDialog {

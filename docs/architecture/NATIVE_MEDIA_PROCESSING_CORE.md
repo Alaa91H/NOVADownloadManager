@@ -1,8 +1,8 @@
 # NOVA Native Media Processing Core
 
-The `nova-media-processing-core` crate is the in-process media container and
-codec-processing layer for NOVA Download Manager. It must not spawn FFmpeg,
-FFprobe, yt-dlp, or any other post-processing executable.
+The `nova-media-processing-core` crate is NOVA Download Manager's in-process
+media container and codec-processing layer. It does not spawn FFmpeg, FFprobe,
+yt-dlp, or another post-processing executable.
 
 ## Current execution surface
 
@@ -91,7 +91,13 @@ BitsPerChannel validation from WebM `Colour`; and WebM AV1
 movie timescale for sample-accurate trimming, and writes `roll` sample groups
 (`sgpd/sbgp`) with a conservative 80 ms random-access pre-roll. The MP4
 `ftyp` also advertises `iso2` compatibility for roll-group support.
-Audio transcoding, video transcoding, subtitles/data muxing,
-general edit-list timeline handling beyond Opus pre-skip, and hardware
-acceleration remain disabled until their implementations are present and
-covered by native tests.
+The desktop daemon uses the pinned Rust codec engine for local transcode,
+compatible mux, and supported subtitle jobs. The Android FFI dependency graph
+includes the same crate, but the Kotlin app does not yet expose a media-task
+execution API; dependency inclusion is not Android feature parity. Runtime
+capabilities must come from the registries used to execute each job. Hardware
+encoding, explicit multi-thread limits, and several advanced timeline and
+subtitle/data operations remain unsupported. Cross-target Android build and
+real-device codec acceptance are still pending. See
+[NATIVE_CODEC_BACKENDS.md](NATIVE_CODEC_BACKENDS.md) for the platform boundary
+and evidence limits.

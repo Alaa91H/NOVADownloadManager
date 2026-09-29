@@ -19,7 +19,11 @@ use crate::daemon::native_media::create_native_media_task;
 use crate::daemon::state::{
     PendingCaptureReview, SharedState, CAPTURE_REVIEW_TTL, MAX_PENDING_CAPTURE_REVIEWS,
 };
+use crate::daemon::torrent_task::{
+    analyze_magnet, analyze_metainfo, create_torrent_task, CreateTorrentBody,
+};
 use crate::daemon::types::{CreateDownloadBody, Task};
+use nova_torrent_core::MagnetLink;
 
 use super::engine::extension_capabilities_from_status;
 
@@ -169,15 +173,25 @@ pub async fn handle_v1_extension_settings(
     State(state): State<SharedState>,
 ) -> Json<serde_json::Value> {
     let status = engine_capabilities_async(state).await;
+    let capabilities = extension_capabilities_from_status(&status);
+    let magnet_ready = capabilities
+        .get("torrentMagnetReady")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    let torrent_file_ready = capabilities
+        .get("torrentMetainfoUrlReady")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
     Json(serde_json::json!({
         "ok": true,
-        "capabilities": extension_capabilities_from_status(&status),
+        "capabilities": capabilities,
         "settings": {
             "captureEndpoint": "/captures",
             "directEngine": "libcurl-multi",
             "mediaEngine": "nova-media-engine",
-            "postProcessor": "ffmpeg",
-            "torrentMagnet": false
+            "postProcessor": "nova-media-processing-core",
+            "torrentMagnet": magnet_ready,
+            "torrentFileLink": torrent_file_ready
         }
     }))
 }
@@ -231,7 +245,7 @@ pub(super) fn browser_ext_response(state: &SharedState) -> Json<serde_json::Valu
         "postProcessing": capabilities.get("postProcessingReady").cloned().unwrap_or(serde_json::Value::Bool(false)),
         "directEngine": "libcurl-multi",
         "mediaEngine": "nova-media-engine",
-        "postProcessor": "ffmpeg",
+        "postProcessor": "nova-media-processing-core",
         "engineCapabilities": capabilities.as_ref().clone(),
         "capabilities": extension_capabilities
     }))
@@ -414,6 +428,132 @@ pub(super) fn map_candidate_file_type(media_type: &str, extension: Option<&str>)
     }
 }
 
+fn validate_capture_candidate_url(url: &str) -> Result<(), String> {
+    if url.trim().to_ascii_lowercase().starts_with("magnet:") {
+        MagnetLink::parse(url.trim())
+            .map(|_| ())
+            .map_err(|error| format!("Invalid magnet candidate: {error}"))
+    } else {
+        crate::daemon::utils::is_safe_target_url(url)
+            .map_err(|error| format!("Unsafe browser capture URL: {error}"))
+    }
+}
+
+pub(super) fn is_torrent_metainfo_url(raw: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(raw) else {
+        return false;
+    };
+    matches!(url.scheme(), "http" | "https")
+        && url.path().to_ascii_lowercase().ends_with(".torrent")
+        && url.username().is_empty()
+        && url.password().is_none()
+}
+
+pub(super) async fn fetch_torrent_metainfo_url(raw_url: &str) -> Result<Vec<u8>, String> {
+    const MAX_REDIRECTS: usize = 5;
+    let mut current = reqwest::Url::parse(raw_url)
+        .map_err(|_| "Invalid torrent metainfo URL.".to_owned())?;
+
+    for redirect_count in 0..=MAX_REDIRECTS {
+        if !matches!(current.scheme(), "http" | "https")
+            || !current.username().is_empty()
+            || current.password().is_some()
+        {
+            return Err("Torrent metainfo redirects must use credential-free HTTP(S).".to_owned());
+        }
+
+        let request_url = current.to_string();
+        let (pinned_ip, _) = tokio::task::spawn_blocking(move || {
+            crate::daemon::utils::is_safe_target_url_pinned(&request_url)
+        })
+        .await
+        .map_err(|_| "Could not validate the torrent metainfo host.".to_owned())?
+        .map_err(|error| format!("Unsafe torrent metainfo URL: {error}"))?;
+        let host = current
+            .host_str()
+            .ok_or_else(|| "Torrent metainfo URL has no host.".to_owned())?;
+        let port = current
+            .port_or_known_default()
+            .ok_or_else(|| "Torrent metainfo URL has no supported port.".to_owned())?;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
+            .resolve(host, std::net::SocketAddr::new(pinned_ip, port))
+            .build()
+            .map_err(|_| "Could not prepare a safe torrent metainfo request.".to_owned())?;
+        let response = client
+            .get(current.clone())
+            .header(reqwest::header::ACCEPT, "application/x-bittorrent, application/octet-stream")
+            .header(
+                reqwest::header::USER_AGENT,
+                crate::daemon::utils::DEFAULT_USER_AGENT,
+            )
+            .send()
+            .await
+            .map_err(|_| "Could not retrieve torrent metainfo from the approved URL.".to_owned())?;
+
+        if matches!(
+            response.status(),
+            reqwest::StatusCode::MOVED_PERMANENTLY
+                | reqwest::StatusCode::FOUND
+                | reqwest::StatusCode::SEE_OTHER
+                | reqwest::StatusCode::TEMPORARY_REDIRECT
+                | reqwest::StatusCode::PERMANENT_REDIRECT
+        ) {
+            if redirect_count == MAX_REDIRECTS {
+                return Err("Torrent metainfo URL exceeded the redirect limit.".to_owned());
+            }
+            let location = response
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|value| value.to_str().ok())
+                .ok_or_else(|| "Torrent metainfo redirect has no valid location.".to_owned())?;
+            let next = current
+                .join(location)
+                .map_err(|_| "Torrent metainfo redirect location is invalid.".to_owned())?;
+            if current.scheme() == "https" && next.scheme() != "https" {
+                return Err("Torrent metainfo redirects cannot downgrade HTTPS.".to_owned());
+            }
+            current = next;
+            continue;
+        }
+
+        if !response.status().is_success() {
+            return Err(format!(
+                "Torrent metainfo server returned HTTP {}.",
+                response.status().as_u16()
+            ));
+        }
+        if response
+            .content_length()
+            .is_some_and(|length| length > nova_torrent_core::MAX_METAINFO_BYTES as u64)
+        {
+            return Err("Torrent metainfo exceeds the 32 MiB size limit.".to_owned());
+        }
+
+        let mut response = response;
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|_| "Torrent metainfo response was interrupted.".to_owned())?
+        {
+            if bytes.len().saturating_add(chunk.len()) > nova_torrent_core::MAX_METAINFO_BYTES {
+                return Err("Torrent metainfo exceeds the 32 MiB size limit.".to_owned());
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        if bytes.is_empty() {
+            return Err("Torrent metainfo response is empty.".to_owned());
+        }
+        return Ok(bytes);
+    }
+
+    Err("Torrent metainfo URL could not be retrieved.".to_owned())
+}
+
 pub(super) fn extension_candidate_to_download_body(
     body: &serde_json::Value,
     start_immediately: bool,
@@ -427,12 +567,6 @@ pub(super) fn extension_candidate_to_download_body(
         .get("source")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    if matches!(media_type, "torrent" | "magnet") {
-        return Err(
-            "Torrent and magnet candidates are not supported by the libcurl direct engine."
-                .to_owned(),
-        );
-    }
     let url = candidate
         .get("finalUrl")
         .or_else(|| candidate.get("url"))
@@ -440,6 +574,68 @@ pub(super) fn extension_candidate_to_download_body(
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .ok_or_else(|| "Missing candidate URL".to_owned())?;
+    if media_type == "magnet" {
+        if !url.to_ascii_lowercase().starts_with("magnet:") {
+            return Err("Magnet candidates must contain a magnet URI.".to_owned());
+        }
+        MagnetLink::parse(url).map_err(|error| format!("Invalid magnet candidate: {error}"))?;
+        let referer = candidate
+            .get("referrer")
+            .or_else(|| candidate.get("pageUrl"))
+            .and_then(|v| v.as_str())
+            .map(std::borrow::ToOwned::to_owned);
+        return Ok(CreateDownloadBody {
+            url: Some(url.to_owned()),
+            name: json_str(candidate, "filename").or_else(|| json_str(body, "name")),
+            file_type: Some("torrent".to_owned()),
+            size_bytes: candidate
+                .get("sizeBytes")
+                .and_then(serde_json::Value::as_u64),
+            category: Some("torrent".to_owned()),
+            queue_id: json_str(body, "queueId"),
+            connections: body
+                .get("connections")
+                .and_then(serde_json::Value::as_u64)
+                .map(|value| value as u32),
+            resumable: None,
+            save_path: json_str(body, "savePath"),
+            description: Some("Browser magnet capture via NOVA Torrent Engine".to_owned()),
+            referer,
+            start_immediately: Some(start_immediately),
+            direct_options: None,
+            media_options: None,
+        });
+    }
+    if media_type == "torrent" {
+        if !is_torrent_metainfo_url(url) {
+            return Err("Torrent candidates must be credential-free HTTP(S) .torrent URLs.".to_owned());
+        }
+        return Ok(CreateDownloadBody {
+            url: Some(url.to_owned()),
+            name: json_str(candidate, "filename").or_else(|| json_str(body, "name")),
+            file_type: Some("torrent".to_owned()),
+            size_bytes: candidate
+                .get("sizeBytes")
+                .and_then(serde_json::Value::as_u64),
+            category: Some("torrent".to_owned()),
+            queue_id: json_str(body, "queueId"),
+            connections: body
+                .get("connections")
+                .and_then(serde_json::Value::as_u64)
+                .map(|value| value as u32),
+            resumable: None,
+            save_path: json_str(body, "savePath"),
+            description: Some("Browser .torrent capture via NOVA Torrent Engine".to_owned()),
+            referer: candidate
+                .get("referrer")
+                .or_else(|| candidate.get("pageUrl"))
+                .and_then(|value| value.as_str())
+                .map(std::borrow::ToOwned::to_owned),
+            start_immediately: Some(start_immediately),
+            direct_options: None,
+            media_options: None,
+        });
+    }
     let is_stream_manifest =
         media_type == "manifest" || source == "hls-manifest" || source == "dash-manifest";
     if is_stream_manifest {
@@ -607,8 +803,7 @@ pub(super) fn queue_capture_review(
         .url
         .as_deref()
         .ok_or_else(|| "Missing candidate URL".to_owned())?;
-    crate::daemon::utils::is_safe_target_url(url)
-        .map_err(|error| format!("Unsafe browser capture URL: {error}"))?;
+    validate_capture_candidate_url(url)?;
 
     let mut reviews = state
         .capture_reviews
@@ -635,6 +830,7 @@ pub(super) fn queue_capture_review(
         idempotency_key,
         created_at: std::time::Instant::now(),
         download,
+        torrent_analysis_id: None,
     });
     Ok((review_id, false))
 }
@@ -647,6 +843,41 @@ async fn create_download_from_body(
         .url
         .as_deref()
         .ok_or_else(|| "Missing candidate URL".to_owned())?;
+    let is_magnet = url.trim().to_ascii_lowercase().starts_with("magnet:");
+    let is_torrent_metainfo = download_body.file_type.as_deref() == Some("torrent")
+        && !is_magnet;
+    if is_magnet || is_torrent_metainfo {
+        if is_magnet {
+        MagnetLink::parse(url.trim()).map_err(|error| format!("Invalid magnet URI: {error}"))?;
+        } else if !is_torrent_metainfo_url(url) {
+            return Err("Torrent metainfo must use a credential-free HTTP(S) .torrent URL.".to_owned());
+        }
+        let save_path = download_body
+            .save_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .ok_or_else(|| "Choose a destination directory for the torrent.".to_owned())?;
+        let analysis = if is_magnet {
+            analyze_magnet(state, url).await?
+        } else {
+            let bytes = fetch_torrent_metainfo_url(url).await?;
+            analyze_metainfo(state, &bytes).await?
+        };
+        return create_torrent_task(
+            state,
+            CreateTorrentBody {
+                analysis_id: analysis.analysis_id,
+                save_path: save_path.to_owned(),
+                allow_duplicate: false,
+                start_immediately: download_body.start_immediately,
+                file_priorities: None,
+                connections: download_body.connections,
+                seeding: None,
+            },
+        )
+        .await;
+    }
     crate::daemon::utils::is_safe_target_url(url)?;
 
     if download_body.media_options.is_some() {
@@ -744,6 +975,112 @@ pub async fn handle_discard_capture_review(
     let original_len = reviews.len();
     reviews.retain(|review| review.id != review_id);
     Json(serde_json::json!({"ok": true, "discarded": reviews.len() != original_len}))
+}
+
+pub async fn handle_analyze_capture_review_torrent(
+    State(state): State<SharedState>,
+    Path(review_id): Path<String>,
+) -> Json<serde_json::Value> {
+    let source = {
+        let mut reviews = state
+            .capture_reviews
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        prune_capture_reviews(&mut reviews);
+        let Some(review) = reviews.iter().find(|review| review.id == review_id) else {
+            return Json(serde_json::json!({
+                "ok": false,
+                "message": "Capture review was not found or has expired."
+            }));
+        };
+        review.download.url.clone().unwrap_or_default()
+    };
+
+    let analysis = if source.trim().to_ascii_lowercase().starts_with("magnet:") {
+        analyze_magnet(&state, &source).await
+    } else if is_torrent_metainfo_url(&source) {
+        match fetch_torrent_metainfo_url(&source).await {
+            Ok(bytes) => analyze_metainfo(&state, &bytes).await,
+            Err(error) => Err(error),
+        }
+    } else {
+        Err("This capture is not a supported torrent source.".to_owned())
+    };
+
+    let analysis = match analysis {
+        Ok(analysis) => analysis,
+        Err(error) => {
+            return Json(serde_json::json!({ "ok": false, "message": error }));
+        }
+    };
+
+    let mut reviews = state
+        .capture_reviews
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    prune_capture_reviews(&mut reviews);
+    let Some(review) = reviews.iter_mut().find(|review| review.id == review_id) else {
+        return Json(serde_json::json!({
+            "ok": false,
+            "message": "Capture review expired while torrent metadata was being analyzed."
+        }));
+    };
+    review.torrent_analysis_id = Some(analysis.analysis_id.clone());
+    Json(serde_json::to_value(analysis).unwrap_or_else(|_| {
+        serde_json::json!({ "ok": false, "message": "Could not serialize torrent analysis." })
+    }))
+}
+
+pub async fn handle_consume_capture_review_torrent(
+    State(state): State<SharedState>,
+    Path(review_id): Path<String>,
+    Json(body): Json<CreateTorrentBody>,
+) -> Json<serde_json::Value> {
+    let pending = {
+        let mut reviews = state
+            .capture_reviews
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        prune_capture_reviews(&mut reviews);
+        let Some(position) = reviews.iter().position(|review| review.id == review_id) else {
+            return Json(serde_json::json!({
+                "ok": false,
+                "accepted": false,
+                "message": "Capture review was not found or has expired."
+            }));
+        };
+        if reviews[position].torrent_analysis_id.as_deref() != Some(body.analysis_id.trim()) {
+            return Json(serde_json::json!({
+                "ok": false,
+                "accepted": false,
+                "message": "Analyze this capture before creating its torrent task."
+            }));
+        }
+        reviews.remove(position).expect("capture review position must remain valid")
+    };
+
+    match create_torrent_task(&state, body).await {
+        Ok(task) => Json(serde_json::json!({
+            "ok": true,
+            "accepted": true,
+            "task": task,
+            "taskId": task.id,
+            "taskIds": [task.id],
+            "message": "Torrent approved and added"
+        })),
+        Err(message) => {
+            let mut reviews = state
+                .capture_reviews
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            prune_capture_reviews(&mut reviews);
+            while reviews.len() >= MAX_PENDING_CAPTURE_REVIEWS {
+                reviews.pop_front();
+            }
+            reviews.push_front(pending);
+            Json(serde_json::json!({ "ok": false, "accepted": false, "message": message }))
+        }
+    }
 }
 
 pub async fn handle_consume_capture_review(
@@ -1086,7 +1423,6 @@ pub async fn handle_v1_media_add(
     };
     let mut media_options = crate::daemon::types::MediaDownloadOptions {
         mode: Some(if has_video { "video" } else { "audio" }.to_owned()),
-        ffmpeg_enabled: Some(has_video && !has_audio),
         format_selector: Some(format_selector),
         referer: body
             .get("referrer")
@@ -1602,6 +1938,14 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
             delete(handle_discard_capture_review),
         )
         .route(
+            "/v1/capture-reviews/{id}/analyze-torrent",
+            post(handle_analyze_capture_review_torrent),
+        )
+        .route(
+            "/v1/capture-reviews/{id}/consume-torrent",
+            post(handle_consume_capture_review_torrent),
+        )
+        .route(
             "/v1/capture-reviews/{id}/consume",
             post(handle_consume_capture_review),
         )
@@ -1643,6 +1987,93 @@ mod tests {
         Arc::new(crate::daemon::persist::tests::test_state(
             &path.display().to_string(),
         ))
+    }
+
+    #[test]
+    fn browser_magnet_candidate_maps_to_torrent_review_without_network_side_effects() {
+        let body = serde_json::json!({
+            "candidate": {
+                "url": "magnet:?xt=urn:btih:0123456789012345678901234567890123456789&dn=Example",
+                "mediaType": "magnet",
+                "source": "context-menu",
+                "filename": "Example",
+                "pageUrl": "https://example.test/watch"
+            }
+        });
+        let download = extension_candidate_to_download_body(&body, true)
+            .expect("valid magnet candidate should be accepted");
+
+        assert_eq!(download.url.as_deref(), Some("magnet:?xt=urn:btih:0123456789012345678901234567890123456789&dn=Example"));
+        assert_eq!(download.file_type.as_deref(), Some("torrent"));
+        assert_eq!(download.category.as_deref(), Some("torrent"));
+        assert_eq!(download.referer.as_deref(), Some("https://example.test/watch"));
+        assert!(download.media_options.is_none());
+    }
+
+    #[test]
+    fn browser_torrent_candidate_maps_to_verified_metainfo_review() {
+        let body = serde_json::json!({
+            "candidate": {
+                "url": "https://example.test/file.torrent",
+                "mediaType": "torrent",
+                "source": "dom"
+            }
+        });
+        let download = extension_candidate_to_download_body(&body, true)
+            .expect("credential-free HTTP(S) metainfo link should enter review");
+        assert_eq!(download.url.as_deref(), Some("https://example.test/file.torrent"));
+        assert_eq!(download.file_type.as_deref(), Some("torrent"));
+        assert_eq!(download.category.as_deref(), Some("torrent"));
+        assert!(download.media_options.is_none());
+    }
+
+    #[test]
+    fn browser_torrent_candidate_requires_a_credential_free_http_torrent_url() {
+        let body = serde_json::json!({
+            "candidate": {
+                "url": "https://example.test/watch",
+                "mediaType": "torrent",
+                "source": "dom"
+            }
+        });
+        assert!(matches!(
+            extension_candidate_to_download_body(&body, true),
+            Err(error) if error.contains("credential-free HTTP(S) .torrent URLs")
+        ));
+    }
+
+    #[test]
+    fn torrent_metainfo_url_requires_http_path_suffix_without_userinfo() {
+        assert!(is_torrent_metainfo_url(
+            "https://example.test/file.torrent?signature=redacted"
+        ));
+        assert!(!is_torrent_metainfo_url(
+            "https://user:password@example.test/file.torrent"
+        ));
+        assert!(!is_torrent_metainfo_url("https://example.test/file.torrent/next"));
+        assert!(!is_torrent_metainfo_url("magnet:?xt=urn:btih:abcd"));
+    }
+
+    #[test]
+    fn browser_torrent_review_rejects_loopback_before_fetch() {
+        let state = review_test_state();
+        let mut review = pending_capture_body("http://127.0.0.1/private.torrent");
+        review.file_type = Some("torrent".to_owned());
+        assert!(queue_capture_review(&state, review, None).is_err());
+    }
+
+    #[test]
+    fn magnet_capture_review_validates_btih_before_queueing() {
+        let state = review_test_state();
+        let valid = pending_capture_body(
+            "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
+        );
+        assert!(queue_capture_review(&state, valid, None).is_ok());
+
+        let invalid = pending_capture_body("magnet:?xt=urn:btih:not-a-hash");
+        let error = queue_capture_review(&state, invalid, None)
+            .expect_err("malformed magnet must not enter the desktop review queue");
+        assert!(error.contains("Invalid magnet candidate"));
     }
 
     #[tokio::test]

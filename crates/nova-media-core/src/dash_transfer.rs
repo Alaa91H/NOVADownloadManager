@@ -36,11 +36,14 @@ pub enum DashStageError {
     Transport(String),
     #[error("native DASH staging was cancelled")]
     Cancelled,
+    #[error("native DASH staging was paused")]
+    Paused,
 }
 
 fn map_transport_error(error: TransportError) -> DashStageError {
     match error {
         TransportError::Cancelled => DashStageError::Cancelled,
+        TransportError::Paused => DashStageError::Paused,
         other => DashStageError::Transport(other.to_string()),
     }
 }
@@ -120,11 +123,46 @@ where
     F: Fn() -> bool + Sync,
     P: Fn(u64) + Sync,
 {
+    let control = || {
+        if should_cancel() {
+            TransferControl::Cancel
+        } else {
+            TransferControl::Continue
+        }
+    };
+    stage_dash_representation_plan_controlled_with_transfer_control_scoped(
+        plan,
+        context,
+        context_origin,
+        staging_dir,
+        requested_parallelism,
+        control,
+        on_progress,
+    )
+}
+
+/// Stage a static DASH representation while preserving pause and cancellation
+/// as distinct task lifecycle states.
+pub fn stage_dash_representation_plan_controlled_with_transfer_control_scoped<F, P>(
+    plan: &DashRepresentationPlan,
+    context: &HttpRequestContext,
+    context_origin: Option<&str>,
+    staging_dir: &Path,
+    requested_parallelism: u32,
+    control: F,
+    on_progress: P,
+) -> Result<DashStageResult, DashStageError>
+where
+    F: Fn() -> TransferControl + Sync,
+    P: Fn(u64) + Sync,
+{
     if plan.units.is_empty() {
         return Err(DashStageError::EmptyPlan);
     }
-    if should_cancel() {
-        return Err(DashStageError::Cancelled);
+    match control() {
+        TransferControl::Continue => {}
+        TransferControl::Pause => return Err(DashStageError::Paused),
+        TransferControl::Cancel => return Err(DashStageError::Cancelled),
     }
 
     fs::create_dir_all(staging_dir).map_err(|error| DashStageError::Io(error.to_string()))?;
@@ -140,13 +178,21 @@ where
     std::thread::scope(|scope| {
         for _ in 0..workers {
             scope.spawn(|| loop {
-                if should_cancel() {
-                    if let Ok(mut slot) = first_error.lock() {
-                        if slot.is_none() {
-                            *slot = Some(DashStageError::Cancelled);
+                let current_control = control();
+                match current_control {
+                    TransferControl::Continue => {}
+                    TransferControl::Pause | TransferControl::Cancel => {
+                        if let Ok(mut slot) = first_error.lock() {
+                            if slot.is_none() {
+                                *slot = Some(if current_control == TransferControl::Pause {
+                                    DashStageError::Paused
+                                } else {
+                                    DashStageError::Cancelled
+                                });
+                            }
                         }
+                        break;
                     }
-                    break;
                 }
                 if first_error.lock().ok().is_some_and(|error| error.is_some()) {
                     break;
@@ -177,13 +223,7 @@ where
                         &unit.url,
                         &mut file,
                         &request_context,
-                        || {
-                            if should_cancel() {
-                                TransferControl::Cancel
-                            } else {
-                                TransferControl::Continue
-                            }
-                        },
+                        || control(),
                     )
                     .map_err(map_transport_error)?
                     .bytes_received;
@@ -284,6 +324,33 @@ mod tests {
             || true,
         );
         assert_eq!(result, Err(DashStageError::Cancelled));
+    }
+
+    #[test]
+    fn transfer_controlled_dash_staging_preserves_pause_before_network_io() {
+        let plan = DashRepresentationPlan {
+            representation_id: Some("v1".to_owned()),
+            track_kind: DashTrackKind::Video,
+            bandwidth: Some(1_000_000),
+            units: vec![DashTransferUnit {
+                order: 0,
+                url: "https://example.invalid/1.m4s".to_owned(),
+                initialization: false,
+                number: Some(1),
+                time: None,
+            }],
+        };
+
+        let result = stage_dash_representation_plan_controlled_with_transfer_control_scoped(
+            &plan,
+            &HttpRequestContext::default(),
+            None,
+            Path::new("/unused"),
+            1,
+            || TransferControl::Pause,
+            |_| {},
+        );
+        assert_eq!(result, Err(DashStageError::Paused));
     }
 
     #[test]

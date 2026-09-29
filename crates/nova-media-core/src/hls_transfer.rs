@@ -59,6 +59,8 @@ pub enum HlsStageError {
     Transport(String),
     #[error("native HLS staging was cancelled")]
     Cancelled,
+    #[error("native HLS staging was paused")]
+    Paused,
 }
 
 /// Download all units of one parsed HLS media playlist into deterministic
@@ -132,11 +134,46 @@ where
     F: Fn() -> bool + Sync,
     P: Fn(u64) + Sync,
 {
+    let control = || {
+        if should_cancel() {
+            TransferControl::Cancel
+        } else {
+            TransferControl::Continue
+        }
+    };
+    stage_hls_media_plan_controlled_with_transfer_control_scoped(
+        plan,
+        context,
+        context_origin,
+        staging_dir,
+        requested_parallelism,
+        control,
+        on_progress,
+    )
+}
+
+/// Like the compatibility control wrapper, but preserves the paused state
+/// from each native HTTP segment request.
+pub fn stage_hls_media_plan_controlled_with_transfer_control_scoped<F, P>(
+    plan: &HlsMediaPlan,
+    context: &HttpRequestContext,
+    context_origin: Option<&str>,
+    staging_dir: &Path,
+    requested_parallelism: u32,
+    control: F,
+    on_progress: P,
+) -> Result<HlsStageResult, HlsStageError>
+where
+    F: Fn() -> TransferControl + Sync,
+    P: Fn(u64) + Sync,
+{
     if plan.units.is_empty() {
         return Err(HlsStageError::EmptyPlan);
     }
-    if should_cancel() {
-        return Err(HlsStageError::Cancelled);
+    match control() {
+        TransferControl::Cancel => return Err(HlsStageError::Cancelled),
+        TransferControl::Pause => return Err(HlsStageError::Paused),
+        TransferControl::Continue => {}
     }
 
     validate_encryption_modes(plan)?;
@@ -154,13 +191,21 @@ where
     std::thread::scope(|scope| {
         for _ in 0..workers {
             scope.spawn(|| loop {
-                if should_cancel() {
-                    if let Ok(mut slot) = first_error.lock() {
-                        if slot.is_none() {
-                            *slot = Some(HlsStageError::Cancelled);
+                let current_control = control();
+                match current_control {
+                    TransferControl::Continue => {}
+                    TransferControl::Pause | TransferControl::Cancel => {
+                        if let Ok(mut slot) = first_error.lock() {
+                            if slot.is_none() {
+                                *slot = Some(if current_control == TransferControl::Pause {
+                                    HlsStageError::Paused
+                                } else {
+                                    HlsStageError::Cancelled
+                                });
+                            }
                         }
+                        break;
                     }
-                    break;
                 }
                 if first_error.lock().ok().is_some_and(|error| error.is_some()) {
                     break;
@@ -186,7 +231,7 @@ where
                     &key_cache,
                     &temp_path,
                     &final_path,
-                    &should_cancel,
+                    &control,
                 );
 
                 match transfer {
@@ -242,6 +287,7 @@ where
 fn map_transport_error(error: TransportError) -> HlsStageError {
     match error {
         TransportError::Cancelled => HlsStageError::Cancelled,
+        TransportError::Paused => HlsStageError::Paused,
         other => HlsStageError::Transport(other.to_string()),
     }
 }
@@ -283,10 +329,12 @@ fn stage_one_unit(
     key_cache: &Mutex<HashMap<String, [u8; 16]>>,
     temp_path: &Path,
     final_path: &Path,
-    should_cancel: &(dyn Fn() -> bool + Sync),
+    control: &(dyn Fn() -> TransferControl + Sync),
 ) -> Result<u64, HlsStageError> {
-    if should_cancel() {
-        return Err(HlsStageError::Cancelled);
+    match control() {
+        TransferControl::Cancel => return Err(HlsStageError::Cancelled),
+        TransferControl::Pause => return Err(HlsStageError::Paused),
+        TransferControl::Continue => {}
     }
     let request_context = context_origin
         .map(|origin| crate::scope_http_request_context(context, origin, &unit.uri))
@@ -311,23 +359,11 @@ fn stage_one_unit(
             end,
             &mut file,
             &request_context,
-            || {
-                if should_cancel() {
-                    TransferControl::Cancel
-                } else {
-                    TransferControl::Continue
-                }
-            },
+            || control(),
         )
         .map_err(map_transport_error)?;
     } else {
-        stream_http_body_controlled_with_context(&unit.uri, &mut file, &request_context, || {
-            if should_cancel() {
-                TransferControl::Cancel
-            } else {
-                TransferControl::Continue
-            }
-        })
+        stream_http_body_controlled_with_context(&unit.uri, &mut file, &request_context, || control())
         .map_err(map_transport_error)?;
     }
 
@@ -523,6 +559,34 @@ mod tests {
             || true,
         );
         assert_eq!(result, Err(HlsStageError::Cancelled));
+    }
+
+    #[test]
+    fn transfer_controlled_hls_staging_preserves_pause_before_network_io() {
+        let plan = HlsMediaPlan {
+            units: vec![HlsTransferUnit {
+                order: 0,
+                kind: HlsTransferUnitKind::MediaSegment,
+                uri: "https://example.invalid/segment.ts".to_owned(),
+                byte_range: None,
+                sequence: Some(1),
+                discontinuity: false,
+                key: None,
+            }],
+            end_list: true,
+            target_duration_seconds: Some(6),
+        };
+
+        let result = stage_hls_media_plan_controlled_with_transfer_control_scoped(
+            &plan,
+            &HttpRequestContext::default(),
+            None,
+            Path::new("/unused"),
+            1,
+            || TransferControl::Pause,
+            |_| {},
+        );
+        assert_eq!(result, Err(HlsStageError::Paused));
     }
 
     #[test]

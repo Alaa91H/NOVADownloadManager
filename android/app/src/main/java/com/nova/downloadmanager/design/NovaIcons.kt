@@ -6,6 +6,7 @@ import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Share
@@ -18,6 +19,7 @@ object NOVAIcons {
     val Queue: ImageVector = Icons.Outlined.Schedule
     val Settings: ImageVector = Icons.Outlined.Settings
     val Browser: ImageVector = Icons.Outlined.Language
+    val Media: ImageVector = Icons.Outlined.Movie
     val Diagnostics: ImageVector = Icons.Outlined.BugReport
     val Share: ImageVector = Icons.Outlined.Share
     val Dismiss: ImageVector = Icons.Outlined.Close

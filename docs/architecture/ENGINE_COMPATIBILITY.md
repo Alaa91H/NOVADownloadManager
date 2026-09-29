@@ -7,7 +7,7 @@ NOVA uses one product-owned execution model:
 - direct file downloads use `nova-download-core` and in-process libcurl multi;
 - media extraction, selection and transfer planning use `nova-media-core`;
 - HLS/DASH protocol modeling uses `nova-stream-core`;
-- post-processing is a separate local-file capability owned by `nova-media-postprocess`;
+- local media mux/transcode/subtitle operations use `nova-media-processing-core` when that binary reports the requested codec/container capability;
 - the retired Media Bridge is not registered, discovered, executed or exposed by the runtime.
 
 Legacy persisted tasks that still carry the historical `media-bridge` engine id are decode-only migration records. Unfinished tasks are marked `engine-retired` and instruct the user to re-add the original media URL; no bridge runtime is reconstructed.
@@ -19,7 +19,7 @@ The daemon exposes NOVA-owned identities:
 - `native-transfer`
 - `libcurl-multi`
 - `nova-media-engine`
-- `nova-media-postprocess`
+- `nova-media-processing-core`
 
 Frontend and companion clients consume `engines.media` and capability fields instead of implementation-vendor names.
 
@@ -62,7 +62,7 @@ HLS/DASH candidates are handed to NOVA Media Engine. The extension does not choo
 
 ## Diagnostics
 
-Diagnostics report NOVA capability identities and native job counts. External executable details are limited to capabilities that genuinely require a local executable, such as the temporary FFmpeg post-processing adapter.
+Diagnostics report NOVA capability identities and native job counts. Media extraction and local media post-processing use in-process NOVA Rust cores and do not require an installed media executable. The external-tool manager remains a compatibility surface for unrelated or legacy integrations, not a media-task dependency.
 
 ## Compatibility policy
 

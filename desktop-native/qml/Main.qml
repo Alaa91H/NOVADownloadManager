@@ -72,12 +72,31 @@ ApplicationWindow {
             window.showMaximized()
     }
 
-    Component.onCompleted: syncUiPreferences()
+    Component.onCompleted: {
+        syncUiPreferences()
+        if (captureReviewRequested) {
+            currentPage = "downloads"
+            Qt.callLater(function() { novaApi.refreshCaptureReviews() })
+        }
+    }
 
     Connections {
         target: nativeSettings
         function onSettingsChanged() {
             window.syncUiPreferences()
+        }
+    }
+
+    Connections {
+        target: novaApi
+        function onCaptureReviewsChanged() {
+            if (!novaApi.captureReviews || novaApi.captureReviews.length === 0)
+                return
+            window.currentPage = "downloads"
+            if (!window.visible)
+                window.show()
+            window.raise()
+            window.requestActivate()
         }
     }
 

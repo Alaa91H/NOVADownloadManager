@@ -684,18 +684,11 @@ export function PopupApp() {
     setBusy(true);
     try {
       const result = await runtimeRequest<{ accepted?: boolean; message?: string }>({
-        type: 'ADD_YTDLP_MEDIA',
+        type: 'ADD_MEDIA',
         url: sourceUrl,
         title: analyzeResult?.title,
         pageUrl: sourceUrl,
-        selectedFormat: {
-          ...format,
-          // The desktop deliberately receives the stable page URL and a format
-          // identifier. A CDN delivery URL can expire and is never used as the
-          // managed-media task URL.
-          url: format.url || sourceUrl,
-        },
-        drmProtected: Boolean(analyzeResult?.drmProtected),
+        formatId: format.formatId,
       });
       if (!result?.accepted) {
         throw new Error(result?.message || t('quality.novaNotAccepted'));

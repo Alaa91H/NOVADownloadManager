@@ -9,6 +9,7 @@ This matrix is a roadmap and audit artifact, not a marketing claim. A capability
 | Desktop only | Exists in the current Tauri/Axum desktop host and has no Android analogue yet. |
 | Extracted foundation | A portable model/contract has been extracted or a narrow ABI proof exists; no end-user Android feature is implied. |
 | Android foundation | Android UI/input/lifecycle scaffolding exists, but no core task execution is wired. |
+| Implemented, unverified | Source code owns the end-to-end path, but required Android ABI/device acceptance has not run. |
 | Planned | Architecture is documented; source has not been implemented. |
 | Deferred | Intentionally excluded pending a separate design, policy, or packaging decision. |
 | Verified | Implemented and tested at the stated Android evidence level. |
@@ -34,7 +35,7 @@ This matrix is a roadmap and audit artifact, not a marketing claim. A capability
 | MediaStore Downloads | Desktop filesystem destination | Pending MediaStore item then finalization | Planned | Pending/finalized/cancelled item tests. |
 | Desktop browser extension pairing | Native Messaging + loopback API | Not applicable; Android share/deep-link inputs | Android-specific replacement | Intent security and user-flow tests. |
 | Tauri/Axum local daemon | Tauri + Axum loopback server | No Android loopback control plane | Intentionally excluded | N/A; must remain excluded from Android bridge. |
-| External yt-dlp/FFmpeg | Desktop executable discovery/subprocesses | Separate Android capability design | Deferred | Legal/policy/ABI/backend and device resource review. |
+| Native media tasks | Shared Rust extractor/codec crates; desktop daemon task execution | Android JNI resolver, encrypted selected-format intent, native progressive/HLS/static-DASH transfer, linked codec conversion, and local conversion UI | Implemented, unverified for progressive/finite-HLS/static-single-period-DASH and local conversion; live manifests, playlists, subtitles, and torrent deferred | ABI/device runtime, process-death, output playback, codec, encryption, and resource acceptance. |
 | Telegram automation | Daemon-oriented automation | Separate background integration decision | Deferred | Security, lifecycle, and policy design. |
 | Secure credential storage | Desktop keyring | Android platform-backed secure store | Planned | Secret redaction and restore behavior tests. |
 | Diagnostics/log export | Desktop diagnostics | Typed redacted snapshot + Android share flow | Planned | Secret/PII redaction and export-permission tests. |

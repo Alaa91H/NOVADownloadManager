@@ -743,11 +743,15 @@
       "id": "browser-integration",
       "label": "Browser integration status and pairing",
       "status": "partial",
-      "blocker": "The native host and daemon use the current native-host marker/pairing contract, and CI contains the identity and packaged-host smoke gates. Full parity remains blocked on installing the real extension in Chrome/Edge/Firefox and validating browser-origin capture plus OS registration/repair end to end on packaged builds.",
+      "blocker": "Browser handoffs now appear in the native review dialog and require an explicit user action. Full parity remains blocked on installing the real extension in Chrome/Edge/Firefox and validating browser-origin capture plus OS registration/repair end to end on packaged builds.",
       "evidence": [
         "desktop-native/src/platform/BackendBootstrap.cpp",
         "desktop-native/src/platform/DesktopIntegration.cpp",
         "desktop-native/qml/components/BrowserIntegrationPanel.qml",
+        "desktop-native/qml/components/BrowserCaptureReviewDialog.qml",
+        "desktop-native/qml/pages/DownloadsPage.qml",
+        "desktop-native/src/api/NovaApiClient.cpp",
+        "desktop-native/src/main.cpp",
         "src-tauri/src/daemon/mod.rs",
         "src-tauri/src/daemon/state.rs",
         "src-tauri/src/daemon/routes/extension.rs",
@@ -778,6 +782,29 @@
             "parse_pairing_secret",
             "native-messaging-secret-proof",
             "candidate.send"
+          ]
+        },
+        {
+          "file": "desktop-native/src/api/NovaApiClient.cpp",
+          "allOf": [
+            "/v1/capture-reviews",
+            "consumeCaptureReview",
+            "discardCaptureReview"
+          ]
+        },
+        {
+          "file": "desktop-native/qml/components/BrowserCaptureReviewDialog.qml",
+          "allOf": [
+            "openForReview",
+            "consumeCaptureReview",
+            "chooseDirectory"
+          ]
+        },
+        {
+          "file": "desktop-native/qml/pages/DownloadsPage.qml",
+          "allOf": [
+            "presentCaptureReview",
+            "captureReviewDialog.openForReview"
           ]
         },
         {
@@ -812,6 +839,60 @@
           "allOf": [
             "Smoke-test packaged Native Messaging bridge",
             "smoke-native-messaging.mjs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "torrent-magnet-handoff",
+      "label": "Torrent magnet browser handoff",
+      "status": "partial",
+      "blocker": "Magnet candidates and bounded, SSRF-checked HTTP(S) .torrent links are capability-gated and reviewed in Qt. The torrent dialog exposes local metainfo import, metadata review, per-file priorities, connection limits, seeding policy and an explicit duplicate-info-hash opt-in. Keep partial until the desktop runtime flow and torrent swarm acceptance are validated.",
+      "evidence": [
+        "src-tauri/src/daemon/routes/extension.rs",
+        "src-tauri/src/daemon/routes/engine.rs",
+        "src-tauri/src/daemon/torrent_task.rs",
+        "desktop-native/src/api/NovaApiClient.cpp",
+        "desktop-native/qml/components/TorrentAddDialog.qml",
+        "desktop-native/qml/components/BrowserCaptureReviewDialog.qml",
+        "browser-extension/src/bridge/bridge-manager.ts"
+      ],
+      "contains": [
+        {
+          "file": "desktop-native/qml/components/TorrentAddDialog.qml",
+          "allOf": [
+            "analyzeTorrentFile",
+            "setFilePriority",
+            "createTorrent",
+            "ratioLimit",
+            "timeLimitSeconds",
+            "allowDuplicate"
+          ]
+        },
+        {
+          "file": "src-tauri/src/daemon/routes/extension.rs",
+          "allOf": [
+            "MagnetLink::parse",
+            "analyze_magnet",
+            "fetch_torrent_metainfo_url",
+            "create_torrent_task"
+          ]
+        },
+        {
+          "file": "src-tauri/src/daemon/routes/engine.rs",
+          "allOf": [
+            "candidate.magnet",
+            "candidate.torrent",
+            "torrentMagnetReady"
+          ]
+        },
+        {
+          "file": "desktop-native/qml/components/BrowserCaptureReviewDialog.qml",
+          "allOf": [
+            "root.isMagnet",
+            "root.isTorrent",
+            "destinationDirectory",
+            "torrentNote"
           ]
         }
       ]

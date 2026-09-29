@@ -23,6 +23,7 @@ int main(int argc, char *argv[]) {
     );
 
     QApplication app(argc, argv);
+    const bool captureReviewLaunch = app.arguments().contains(QStringLiteral("--capture-review"));
     QCoreApplication::setOrganizationName(QStringLiteral("NOVA"));
     QCoreApplication::setApplicationName(QStringLiteral("NOVA Download Manager Native"));
 #ifdef NOVA_NATIVE_VERSION
@@ -73,14 +74,9 @@ int main(int argc, char *argv[]) {
         &apiClient,
         &NovaApiClient::settingsServiceActionCompleted,
         &app,
-        [&nativeSettings](const QString &action, const QString &message) {
+        [&nativeSettings](const QString &action, const QString &) {
             if (action == QStringLiteral("telegram")) {
                 nativeSettings.completeDaemonMigration(QStringLiteral("telegram"));
-            } else if (action == QStringLiteral("external-tool")
-                       && message.startsWith(QStringLiteral("ffmpeg:set-path"))) {
-                nativeSettings.completeDaemonMigration(
-                    QStringLiteral("external-tools")
-                );
             }
         }
     );
@@ -100,6 +96,10 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty(QStringLiteral("nativeSettings"), &nativeSettings);
     engine.rootContext()->setContextProperty(QStringLiteral("trayManager"), &trayManager);
     engine.rootContext()->setContextProperty(QStringLiteral("updaterManager"), &updaterManager);
+    engine.rootContext()->setContextProperty(
+        QStringLiteral("captureReviewRequested"),
+        captureReviewLaunch
+    );
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
                      &app, []() { QCoreApplication::exit(-1); },
@@ -110,6 +110,11 @@ int main(int argc, char *argv[]) {
     if (!engine.rootObjects().isEmpty()) {
         if (auto *window = qobject_cast<QWindow *>(engine.rootObjects().constFirst())) {
             desktopIntegration.setWindow(window);
+            if (captureReviewLaunch) {
+                window->show();
+                window->raise();
+                window->requestActivate();
+            }
         }
     }
 
@@ -139,6 +144,15 @@ int main(int argc, char *argv[]) {
         &NovaApiClient::refreshBrowserIntegration
     );
 
+    QTimer captureReviewTimer;
+    captureReviewTimer.setInterval(750);
+    QObject::connect(
+        &captureReviewTimer,
+        &QTimer::timeout,
+        &apiClient,
+        &NovaApiClient::refreshCaptureReviews
+    );
+
     QObject::connect(
         &apiClient,
         &NovaApiClient::connectionChanged,
@@ -156,6 +170,7 @@ int main(int argc, char *argv[]) {
         &healthTimer,
         &schedulerTimer,
         &browserIntegrationTimer,
+        &captureReviewTimer,
         &nativeSettings
     ](const QUrl &baseUrl, const QString &token) {
         if (!baseUrl.isValid() || token.trimmed().isEmpty()) {
@@ -169,11 +184,13 @@ int main(int argc, char *argv[]) {
         healthTimer.start();
         schedulerTimer.start();
         browserIntegrationTimer.start();
+        captureReviewTimer.start();
 
         apiClient.checkHealth();
         apiClient.refreshDownloads();
         apiClient.refreshScheduler();
         apiClient.refreshBrowserIntegration();
+        apiClient.refreshCaptureReviews();
         apiClient.refreshSettingsServices();
 
         const QVariantMap advanced = nativeSettings.advancedSettings();
@@ -186,21 +203,8 @@ int main(int argc, char *argv[]) {
             advanced.value(QStringLiteral("logLevel")).toString().trimmed()
         );
 
-        if (nativeSettings.daemonMigrationPending(QStringLiteral("external-tools"))) {
-            const QString ffmpegPath =
-                advanced.value(QStringLiteral("ffmpegPath")).toString().trimmed();
-            if (ffmpegPath.isEmpty()) {
-                nativeSettings.completeDaemonMigration(
-                    QStringLiteral("external-tools")
-                );
-            } else {
-                apiClient.runExternalToolAction(
-                    QStringLiteral("ffmpeg"),
-                    QStringLiteral("set-path"),
-                    ffmpegPath
-                );
-            }
-        }
+        if (nativeSettings.daemonMigrationPending(QStringLiteral("external-tools")))
+            nativeSettings.completeDaemonMigration(QStringLiteral("external-tools"));
 
         if (nativeSettings.daemonMigrationPending(QStringLiteral("telegram"))) {
             const QString tokenValue =

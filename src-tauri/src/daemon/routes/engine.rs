@@ -58,6 +58,12 @@ pub(super) fn extension_capabilities_from_status(status: &serde_json::Value) -> 
     let media_ready = bool_from_status(status, "/mediaExtractionReady");
     let streaming_ready = bool_from_status(status, "/streamingReady");
     let post_ready = bool_from_status(status, "/postProcessingReady");
+    let torrent_magnet_ready = bool_from_status(status, "/engines/torrent/available")
+        && bool_from_status(status, "/engines/torrent/capabilities/magnetResolver")
+        && bool_from_status(status, "/engines/torrent/capabilities/torrentTaskLifecycleApi");
+    let torrent_file_ready = bool_from_status(status, "/engines/torrent/available")
+        && bool_from_status(status, "/engines/torrent/capabilities/torrentMetainfoUrlFetch")
+        && bool_from_status(status, "/engines/torrent/capabilities/torrentTaskLifecycleApi");
     let hls_ready =
         streaming_ready && bool_from_status(status, "/engines/media/capabilities/hlsTaskExecution");
     let dash_ready = streaming_ready
@@ -70,7 +76,13 @@ pub(super) fn extension_capabilities_from_status(status: &serde_json::Value) -> 
     if direct_ready {
         items.push("candidate.directUrl");
     }
-    if direct_ready || media_ready {
+    if torrent_magnet_ready {
+        items.push("candidate.magnet");
+    }
+    if torrent_file_ready {
+        items.push("candidate.torrent");
+    }
+    if direct_ready || media_ready || torrent_magnet_ready || torrent_file_ready {
         items.push("task.add");
         items.push("task.addBatch");
         items.push("task.pause");
@@ -110,6 +122,13 @@ pub(super) fn extension_capabilities_from_status(status: &serde_json::Value) -> 
         .cloned()
         .unwrap_or_else(|| serde_json::json!([]));
     let stream_resolver_ready = hls_ready || dash_ready;
+    let mut unsupported_candidate_types = Vec::new();
+    if !torrent_file_ready {
+        unsupported_candidate_types.push("torrent");
+    }
+    if !torrent_magnet_ready {
+        unsupported_candidate_types.push("magnet");
+    }
     serde_json::json!({
         "contractVersion": status.get("contractVersion").cloned().unwrap_or_else(|| serde_json::json!(nova_core_model::RUNTIME_CAPABILITIES_CONTRACT_VERSION)),
         "items": items,
@@ -126,7 +145,9 @@ pub(super) fn extension_capabilities_from_status(status: &serde_json::Value) -> 
         "streamResolverReady": stream_resolver_ready,
         "mediaAnalyzeReady": media_ready,
         "postProcessingReady": post_ready,
-        "unsupportedCandidateMediaTypes": ["torrent", "magnet"],
+        "unsupportedCandidateMediaTypes": unsupported_candidate_types,
+        "torrentMagnetReady": torrent_magnet_ready,
+        "torrentMetainfoUrlReady": torrent_file_ready,
         "sourceOfTruth": "daemon-runtime-linked-libcurl-and-engine-probes"
     })
 }
@@ -1539,6 +1560,45 @@ mod tests {
                 .get("postProcessingReady")
                 .and_then(serde_json::Value::as_bool),
             Some(false)
+        );
+    }
+
+    #[test]
+    fn extension_advertises_magnets_only_when_the_torrent_path_is_live() {
+        let ready_status = serde_json::json!({
+            "directReady": false,
+            "mediaExtractionReady": false,
+            "engines": {
+                "torrent": {
+                    "available": true,
+                    "capabilities": {
+                        "magnetResolver": true,
+                        "torrentMetainfoUrlFetch": true,
+                        "torrentTaskLifecycleApi": true
+                    }
+                }
+            }
+        });
+        let ready = extension_capabilities_from_status(&ready_status);
+        let items = ready["items"].as_array().expect("capability items");
+        assert!(items.iter().any(|item| item == "candidate.magnet"));
+        assert!(items.iter().any(|item| item == "candidate.torrent"));
+        assert!(items.iter().any(|item| item == "task.add"));
+        assert_eq!(ready["unsupportedCandidateMediaTypes"], serde_json::json!([]));
+        assert_eq!(ready["torrentMetainfoUrlReady"], true);
+
+        let unavailable_status = serde_json::json!({
+            "engines": { "torrent": { "available": false } }
+        });
+        let unavailable = extension_capabilities_from_status(&unavailable_status);
+        assert!(!unavailable["items"]
+            .as_array()
+            .expect("capability items")
+            .iter()
+            .any(|item| item == "candidate.magnet"));
+        assert_eq!(
+            unavailable["unsupportedCandidateMediaTypes"],
+            serde_json::json!(["torrent", "magnet"])
         );
     }
 

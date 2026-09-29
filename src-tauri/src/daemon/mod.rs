@@ -409,6 +409,7 @@ pub fn start_daemon(resource_dir: String, data_dir: String, port: u16) {
                     native_media_jobs: Mutex::new(HashMap::new()),
                     torrent_jobs: Mutex::new(HashMap::new()),
                     torrent_analyses: Mutex::new(HashMap::new()),
+                    torrent_task_creation_gate: tokio::sync::Mutex::new(()),
                     curl_jobs: Mutex::new(HashMap::new()),
                     task_snapshot: Mutex::new(HashMap::new()),
                     queue_catalog: Mutex::new(restored_queue_catalog),

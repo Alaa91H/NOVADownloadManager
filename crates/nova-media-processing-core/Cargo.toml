@@ -6,8 +6,13 @@ authors = ["NOVA"]
 license = "MIT"
 repository = "https://github.com/Alaa91H/NOVADownloadManager"
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.85"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 thiserror = "2"
+symphonia = { version = "0.5.5", default-features = false, features = ["aac", "adpcm", "alac", "flac", "isomp4", "mkv", "mp3", "ogg", "pcm", "vorbis", "wav", "aiff", "caf"] }
+# Bundled pure-Rust codecs and containers for local media processing on desktop
+# and Android. The upstream crate is vendored so NOVA can add task controls.
+remade-ffmpeg = { path = "../../vendor/remade-ffmpeg-0.2.0", default-features = false }

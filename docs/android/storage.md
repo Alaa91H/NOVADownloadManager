@@ -11,15 +11,25 @@ This design preserves Rust ownership of transfer and integrity semantics while k
 | User destination | Android adapter | Core-facing descriptor | Permission scope | Recovery behavior | Milestone status |
 |---|---|---|---|---|---|
 | Temporary/staging data | App-specific internal storage | Private staging session ID | App-private only | Restore checkpoint on next app session when staging survives. | Required first real-transfer destination. |
-| User-selected folder | Storage Access Framework document tree | Persisted tree URI + document handle capability | Exact user-selected tree | Report recoverable `DestinationPermissionRevoked`; request reselection. | Deferred. |
-| Standard Downloads/media | MediaStore | Content URI + file-descriptor/writer capability | NOVA-owned MediaStore item | Leave item pending until validated finalization; clean up safely on cancellation. | Deferred. |
-| Removable/external provider | SAF | Provider-backed opaque handle | Provider's explicit grant | Treat provider/network loss as an error; never fall back to an arbitrary path. | Deferred. |
+| User-selected folder | Storage Access Framework document tree | Persisted tree URI + document handle capability | Exact user-selected tree | Retain the native-complete file; retry after failure adopts the current selection and clears any old pending document. | Implemented; GitHub and provider/device checks pending. |
+| Standard Downloads/media | MediaStore | Content URI + file-descriptor/writer capability | NOVA-owned MediaStore item | Write as pending, verify copied bytes with SHA-256, then publish; remove pending items on cancellation. | Implemented on Android 10+; GitHub and device checks pending. |
+| Removable/external provider | SAF | Provider-backed opaque handle | Provider's explicit grant | Treat provider/network loss as a recoverable task error; never fall back to an arbitrary path. | Covered by the SAF path; provider-specific checks pending. |
 
 The Storage Access Framework lets a user choose a document or directory and supports persistable URI access where the provider allows it.[1] On Android 10 and later, an app can contribute files it owns to `MediaStore.Downloads` without broad storage permissions; other apps' downloads are not automatically readable and must be accessed through a user-mediated mechanism such as SAF.[2]
 
 ## Proposed core contract
 
-A future Rust API must operate on semantic capabilities rather than raw strings:
+The current Rust core writes only to app-private staging. Android freezes the selected destination per task and owns final publication through a persisted, task-scoped URI grant:
+
+```text
+enqueue(url) -> private staging task
+complete(staging) -> verified private file
+publish(task_id, file, destination capability) -> content URI
+```
+
+Publication retains the private complete file until Android has committed the external item. A process restart can repeat a pending publication; completed URIs are journalled for the task and exposed to the UI's Open action. A revoked SAF grant leaves the transfer retryable. Retrying a failed task uses the current destination setting; resuming a paused task preserves its destination unless its grant was revoked.
+
+A future direct Rust API should continue to operate on semantic capabilities rather than raw strings:
 
 ```text
 DestinationDescriptor {
@@ -43,7 +53,7 @@ Remote filenames, `Content-Disposition`, MIME types, archive names, extension hi
 | Input | Safe handling |
 |---|---|
 | Remote filename | Normalize as a display suggestion; generate a stable internal task ID separately. |
-| Existing target conflict | Require an explicit typed policy: replace, rename, skip, or resume after identity validation. |
+| Existing target conflict | Task IDs are part of generated target names, avoiding replacement of another task's output. |
 | SAF provider error | Retain durable task state and surface a recoverable destination error. |
 | Partial data | Keep private staging until checksum/finalization succeeds; do not present as complete. |
 | Cancellation | Close descriptors and follow the selected cleanup policy; never delete outside the capability. |
@@ -57,8 +67,8 @@ Logs and diagnostics must redact persisted URI grants, absolute app-private path
 | Destination | Minimum test cases |
 |---|---|
 | App-private staging | Resume after process kill; collision handling; checksum failure; cancellation cleanup. |
-| SAF tree | Persist grant; revoke grant; provider unavailable; partial file; rename/conflict policy. |
-| MediaStore | Pending visibility; successful finalization; cancellation cleanup; device storage pressure. |
+| SAF tree | Persist grant; revoke and replace grant on retry; provider unavailable; partial file; publication recovery. |
+| MediaStore | Pending visibility; SHA-256 verification; successful finalization; cancellation cleanup; device storage pressure. |
 | External provider | Disconnection; capacity error; inaccessible provider; no path fallback. |
 
 ## References

@@ -83,6 +83,8 @@ pub struct CreateTorrentBody {
     pub analysis_id: String,
     pub save_path: String,
     #[serde(default)]
+    pub allow_duplicate: bool,
+    #[serde(default)]
     pub start_immediately: Option<bool>,
     #[serde(default)]
     pub file_priorities: Option<Vec<FilePriority>>,
@@ -263,18 +265,41 @@ pub async fn create_torrent_task(
     state: &SharedState,
     body: CreateTorrentBody,
 ) -> Result<Task, String> {
-    let analysis = {
-        let mut analyses = lock_or_err!(state.torrent_analyses);
-        analyses.retain(|_, item| item.created_at.elapsed() <= TORRENT_ANALYSIS_TTL);
-        analyses
-            .remove(body.analysis_id.trim())
-            .ok_or_else(|| "Torrent analysis expired or was not found".to_owned())?
-    };
-
+    let _creation_guard = state.torrent_task_creation_gate.lock().await;
     let root = body.save_path.trim();
     if root.is_empty() {
         return Err("Torrent destination directory cannot be empty".to_owned());
     }
+
+    let analysis_id = body.analysis_id.trim();
+    let info_hash = {
+        let mut analyses = lock_or_err!(state.torrent_analyses);
+        analyses.retain(|_, item| item.created_at.elapsed() <= TORRENT_ANALYSIS_TTL);
+        analyses
+            .get(analysis_id)
+            .map(|analysis| analysis.resolution.metainfo.info_hash.to_hex())
+            .ok_or_else(|| "Torrent analysis expired or was not found".to_owned())?
+    };
+
+    let duplicate_error = {
+        let jobs = lock_or_err!(state.torrent_jobs);
+        torrent_duplicate_error(
+            jobs.values().map(|job| &job.task),
+            &info_hash,
+            body.allow_duplicate,
+        )
+    };
+    if let Some(error) = duplicate_error {
+        return Err(error);
+    }
+
+    let analysis = {
+        let mut analyses = lock_or_err!(state.torrent_analyses);
+        analyses.retain(|_, item| item.created_at.elapsed() <= TORRENT_ANALYSIS_TTL);
+        analyses
+            .remove(analysis_id)
+            .ok_or_else(|| "Torrent analysis expired or was not found".to_owned())?
+    };
 
     let metainfo = analysis.resolution.metainfo.clone();
     let seeding_policy = body
@@ -391,6 +416,32 @@ pub async fn create_torrent_task(
     }
 
     get_torrent_task(state, &id).ok_or_else(|| "Torrent task disappeared after creation".to_owned())
+}
+
+fn existing_torrent_task_id<'a>(
+    tasks: impl Iterator<Item = &'a Task>,
+    info_hash: &str,
+) -> Option<&'a str> {
+    tasks
+        .find(|task| {
+            task.engine == TORRENT_ENGINE_ID && task.engine_id.eq_ignore_ascii_case(info_hash)
+        })
+        .map(|task| task.id.as_str())
+}
+
+fn torrent_duplicate_error<'a>(
+    tasks: impl Iterator<Item = &'a Task>,
+    info_hash: &str,
+    allow_duplicate: bool,
+) -> Option<String> {
+    if allow_duplicate {
+        return None;
+    }
+    existing_torrent_task_id(tasks, info_hash).map(|id| {
+        format!(
+            "Torrent info hash is already in task {id}. Enable the duplicate option only if you intend to keep another copy."
+        )
+    })
 }
 
 pub fn restore_torrent_job(
@@ -1959,6 +2010,69 @@ fn limit_error(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn task_for_duplicate_check(id: &str, engine: &str, engine_id: &str) -> Task {
+        Task {
+            id: id.to_owned(),
+            name: String::new(),
+            url: String::new(),
+            file_type: String::new(),
+            status: "queued".to_owned(),
+            size_bytes: 0,
+            downloaded_bytes: 0,
+            speed_bytes_per_sec: 0,
+            time_left_seconds: 0,
+            elapsed_seconds: 0,
+            date_added: String::new(),
+            category: String::new(),
+            queue_id: String::new(),
+            connections: 1,
+            resumable: true,
+            save_path: String::new(),
+            description: String::new(),
+            segments: Vec::new(),
+            referer: None,
+            engine: engine.to_owned(),
+            engine_id: engine_id.to_owned(),
+            engine_status: None,
+            error_message: None,
+        }
+    }
+
+    #[test]
+    fn torrent_duplicate_check_matches_only_the_native_torrent_info_hash() {
+        let tasks = vec![
+            task_for_duplicate_check("ordinary", "curl", "same-hash"),
+            task_for_duplicate_check("different", TORRENT_ENGINE_ID, "different-hash"),
+            task_for_duplicate_check("torrent-existing", TORRENT_ENGINE_ID, "ABCDEF"),
+        ];
+
+        assert_eq!(
+            existing_torrent_task_id(tasks.iter(), "abcdef"),
+            Some("torrent-existing")
+        );
+        assert_eq!(existing_torrent_task_id(tasks.iter(), "missing"), None);
+        assert!(torrent_duplicate_error(tasks.iter(), "abcdef", false).is_some());
+        assert_eq!(torrent_duplicate_error(tasks.iter(), "abcdef", true), None);
+    }
+
+    #[test]
+    fn torrent_duplicate_creation_is_opt_in_for_older_clients_by_default() {
+        let body: CreateTorrentBody = serde_json::from_value(serde_json::json!({
+            "analysisId": "analysis",
+            "savePath": "destination"
+        }))
+        .unwrap();
+        assert!(!body.allow_duplicate);
+
+        let opted_in: CreateTorrentBody = serde_json::from_value(serde_json::json!({
+            "analysisId": "analysis",
+            "savePath": "destination",
+            "allowDuplicate": true
+        }))
+        .unwrap();
+        assert!(opted_in.allow_duplicate);
+    }
 
     #[test]
     fn seeding_policy_input_rounds_ratio_to_milli_units() {

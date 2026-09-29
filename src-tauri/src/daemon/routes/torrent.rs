@@ -4,6 +4,7 @@ use axum::http::StatusCode;
 use axum::response::Json;
 use axum::routing::{get, patch, post};
 use axum::Router;
+use serde::Deserialize;
 
 use crate::daemon::state::SharedState;
 use crate::daemon::torrent_task::{
@@ -16,11 +17,18 @@ use crate::daemon::types::Task;
 
 type ApiError = (StatusCode, Json<serde_json::Value>);
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AnalyzeTorrentUrlBody {
+    url: String,
+}
+
 fn torrent_error(message: String) -> ApiError {
     let lower = message.to_ascii_lowercase();
     let status = if lower.contains("not found") || lower.contains("expired") {
         StatusCode::NOT_FOUND
     } else if lower.contains("already active")
+        || lower.contains("already in task")
         || lower.contains("pause the torrent")
         || lower.contains("completed torrent")
     {
@@ -46,6 +54,24 @@ async fn handle_analyze_torrent_file(
     body: Bytes,
 ) -> Result<Json<TorrentAnalysisView>, ApiError> {
     analyze_metainfo(&state, &body)
+        .await
+        .map(Json)
+        .map_err(torrent_error)
+}
+
+async fn handle_analyze_torrent_url(
+    State(state): State<SharedState>,
+    Json(body): Json<AnalyzeTorrentUrlBody>,
+) -> Result<Json<TorrentAnalysisView>, ApiError> {
+    if !super::extension::is_torrent_metainfo_url(&body.url) {
+        return Err(torrent_error(
+            "Torrent metainfo must be a credential-free HTTP(S) .torrent URL.".to_owned(),
+        ));
+    }
+    let bytes = super::extension::fetch_torrent_metainfo_url(&body.url)
+        .await
+        .map_err(torrent_error)?;
+    analyze_metainfo(&state, &bytes)
         .await
         .map(Json)
         .map_err(torrent_error)
@@ -112,6 +138,7 @@ pub fn register_routes(router: Router<SharedState>) -> Router<SharedState> {
             post(handle_analyze_torrent_file)
                 .layer(DefaultBodyLimit::max(nova_torrent_core::MAX_METAINFO_BYTES)),
         )
+        .route("/api/torrents/analyze-url", post(handle_analyze_torrent_url))
         .route("/api/torrents", post(handle_create_torrent))
         .route("/api/torrents/{id}", get(handle_torrent_details))
         .route(
@@ -140,6 +167,10 @@ mod tests {
         );
         assert_eq!(
             torrent_error("Torrent task is already active".to_owned()).0,
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            torrent_error("Torrent info hash is already in task abc".to_owned()).0,
             StatusCode::CONFLICT
         );
         assert_eq!(

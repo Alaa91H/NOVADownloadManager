@@ -29,6 +29,7 @@ data class DownloadSummary(
     val status: String,
     val downloadedBytes: Long,
     val totalBytes: Long,
+    val completedUri: String? = null,
 )
 
 class DownloadsViewModel(
@@ -73,6 +74,37 @@ class DownloadsViewModel(
         }
 
         repository.enqueue(normalizedUrl)
+            .onSuccess { summary ->
+                mutableUiState.value = mutableUiState.value.copy(
+                    pendingSharedUrl = null,
+                    statusMessageRes = R.string.nova_download_captured,
+                    tasks = listOf(summary) + mutableUiState.value.tasks.filterNot { it.id == summary.id },
+                )
+            }
+            .onFailure {
+                mutableUiState.value = mutableUiState.value.copy(statusMessageRes = R.string.nova_download_unavailable)
+            }
+    }
+
+    fun requestMediaDownload(
+        webpageUrl: String,
+        streamId: String,
+        title: String,
+        container: String?,
+    ) {
+        val normalizedUrl = webpageUrl.trim()
+        if (SharedUrlValidator.firstHttpUrl(normalizedUrl) != normalizedUrl || streamId.isBlank()) {
+            mutableUiState.value = mutableUiState.value.copy(
+                statusMessageRes = R.string.nova_download_invalid_url,
+            )
+            return
+        }
+        if (mutableUiState.value.readiness != CoreReadiness.Ready) {
+            mutableUiState.value = mutableUiState.value.copy(statusMessageRes = R.string.nova_download_unavailable)
+            return
+        }
+
+        repository.enqueueMedia(normalizedUrl, streamId, title, container)
             .onSuccess { summary ->
                 mutableUiState.value = mutableUiState.value.copy(
                     pendingSharedUrl = null,

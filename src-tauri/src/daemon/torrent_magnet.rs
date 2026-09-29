@@ -249,15 +249,13 @@ impl MagnetResolver {
         info_hash: InfoHash,
         cancel: &CancellationToken,
     ) {
-        let Some(port) = crate::daemon::torrent_seed::active_seed_port() else {
-            return;
-        };
         let mut tasks = JoinSet::new();
-        for target in targets
-            .iter()
-            .filter(|target| target.address.is_ipv4())
-            .take(8)
-        {
+        for target in targets.iter().take(16) {
+            let Some(port) = crate::daemon::torrent_seed::active_seed_port_for(
+                target.address.ip(),
+            ) else {
+                continue;
+            };
             let target = target.clone();
             let dht = self.dht.clone();
             let child = cancel.child_token();

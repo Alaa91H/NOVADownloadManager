@@ -21,6 +21,7 @@ enum class AppDestination(
     Downloads(R.string.nova_navigation_downloads, NOVAIcons.Downloads),
     Queue(R.string.nova_navigation_queue, NOVAIcons.Queue),
     Browser(R.string.nova_navigation_browser, NOVAIcons.Browser),
+    Media(R.string.nova_navigation_media, NOVAIcons.Media),
     Settings(R.string.nova_navigation_settings, NOVAIcons.Settings),
 }
 

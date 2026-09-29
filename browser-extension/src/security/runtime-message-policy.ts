@@ -15,6 +15,8 @@ const UI_ONLY_MESSAGES = new Set<RuntimeMessage['type']>([
   'RESOLVE_STREAM',
   'SEND_STREAM',
   'PROBE_MEDIA',
+  'ANALYZE_MEDIA',
+  'ADD_MEDIA',
   'DOWNLOAD_DIRECT',
   'GET_OUTBOX_STATUS',
   'RUN_OUTBOX_RETRY',

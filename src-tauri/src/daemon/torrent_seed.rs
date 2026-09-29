@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,7 +11,7 @@ use nova_torrent_core::{
     PEER_HANDSHAKE_LEN,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::sync::Semaphore;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
@@ -31,11 +31,34 @@ const MAX_SEED_CONTROL_FRAME_BYTES: usize = 64 * 1024;
 const MAX_INBOUND_SEED_CONNECTIONS: usize = 64;
 const MAX_METADATA_REQUESTS_PER_SESSION: u64 = 1_024;
 const MAX_PEX_PEERS_PER_MESSAGE: usize = 50;
-static ACTIVE_TORRENT_SEED_PORT: AtomicU16 = AtomicU16::new(0);
+static ACTIVE_TORRENT_SEED_IPV4_PORT: AtomicU16 = AtomicU16::new(0);
+static ACTIVE_TORRENT_SEED_IPV6_PORT: AtomicU16 = AtomicU16::new(0);
 
 pub fn active_seed_port() -> Option<u16> {
-    let port = ACTIVE_TORRENT_SEED_PORT.load(Ordering::Acquire);
-    (port != 0).then_some(port)
+    active_seed_port_for_family(false).or_else(|| active_seed_port_for_family(true))
+}
+
+pub fn active_seed_port_for(address: IpAddr) -> Option<u16> {
+    active_seed_port_for_family(address.is_ipv6())
+}
+
+pub fn active_seed_ipv6_port() -> Option<u16> {
+    active_seed_port_for_family(true)
+}
+
+fn active_seed_port_for_family(ipv6: bool) -> Option<u16> {
+    let ipv4_port = ACTIVE_TORRENT_SEED_IPV4_PORT.load(Ordering::Acquire);
+    let ipv6_port = ACTIVE_TORRENT_SEED_IPV6_PORT.load(Ordering::Acquire);
+    seed_port_for_family(
+        ipv6,
+        (ipv4_port != 0).then_some(ipv4_port),
+        (ipv6_port != 0).then_some(ipv6_port),
+    )
+}
+
+fn seed_port_for_family(ipv6: bool, ipv4_port: Option<u16>, ipv6_port: Option<u16>) -> Option<u16> {
+    let port = if ipv6 { ipv6_port } else { ipv4_port };
+    port.filter(|port| *port != 0)
 }
 
 pub fn configured_seed_port() -> u16 {
@@ -67,18 +90,107 @@ pub async fn run_inbound_seed_listener(
     }
 
     let port = configured_seed_port();
-    let listener = TcpListener::bind(("0.0.0.0", port))
+    let ipv4_listener = TcpListener::bind(("0.0.0.0", port))
         .await
         .map_err(|error| {
-            format!("Could not bind native torrent seed listener on port {port}: {error}")
+            format!("Could not bind native torrent IPv4 seed listener on port {port}: {error}")
         })?;
-    let local = listener
+    let local = ipv4_listener
         .local_addr()
         .map_err(|error| format!("Could not read native torrent seed listener address: {error}"))?;
-    ACTIVE_TORRENT_SEED_PORT.store(local.port(), Ordering::Release);
-    log::info!("Native torrent inbound seeding listener started on {local}");
+    let ipv6_listener = bind_ipv6_seed_listener(port).await;
+    if ipv6_listener.is_none() {
+        log::info!("Native torrent IPv6 inbound seeding is unavailable on port {port}; IPv4 remains active");
+    }
+    let ipv6_local = ipv6_listener
+        .as_ref()
+        .and_then(|listener| listener.local_addr().ok());
+    ACTIVE_TORRENT_SEED_IPV4_PORT.store(local.port(), Ordering::Release);
+    ACTIVE_TORRENT_SEED_IPV6_PORT.store(ipv6_local.map_or(0, |address| address.port()), Ordering::Release);
+    log::info!("Native torrent IPv4 inbound seeding listener started on {local}");
 
     let slots = Arc::new(Semaphore::new(MAX_INBOUND_SEED_CONNECTIONS));
+    let ipv4_cancel = cancel.child_token();
+    let ipv4_state = state.clone();
+    let ipv4_slots = slots.clone();
+    let ipv4_task = tokio::spawn(async move {
+        run_seed_accept_loop(
+            ipv4_listener,
+            ipv4_state,
+            ipv4_cancel,
+            ipv4_slots,
+            "IPv4",
+        )
+        .await
+    });
+    let ipv6_task = ipv6_listener.map(|listener| {
+        let ipv6_cancel = cancel.child_token();
+        let ipv6_slots = slots;
+        tokio::spawn(async move {
+            run_seed_accept_loop(listener, state, ipv6_cancel, ipv6_slots, "IPv6").await
+        })
+    });
+
+    cancel.cancelled().await;
+    if let Err(error) = ipv4_task.await {
+        log::warn!("Native torrent IPv4 seed listener stopped unexpectedly: {error}");
+    }
+    if let Some(task) = ipv6_task {
+        if let Err(error) = task.await {
+            log::warn!("Native torrent IPv6 seed listener stopped unexpectedly: {error}");
+        }
+    }
+
+    ACTIVE_TORRENT_SEED_IPV4_PORT.store(0, Ordering::Release);
+    ACTIVE_TORRENT_SEED_IPV6_PORT.store(0, Ordering::Release);
+    Ok(port)
+}
+
+#[cfg(test)]
+mod seed_port_tests {
+    use super::*;
+
+    #[test]
+    fn dht_peer_port_is_reported_only_for_a_bound_address_family() {
+        assert_eq!(seed_port_for_family(false, Some(6881), None), Some(6881));
+        assert_eq!(seed_port_for_family(true, Some(6881), Some(6882)), Some(6882));
+        assert_eq!(seed_port_for_family(true, Some(6881), None), None);
+        assert_eq!(seed_port_for_family(false, Some(0), Some(6882)), None);
+    }
+}
+
+async fn bind_ipv6_seed_listener(port: u16) -> Option<TcpListener> {
+    let result = async {
+        let socket = TcpSocket::new_v6().map_err(|error| error.to_string())?;
+        socket
+            .set_only_v6(true)
+            .map_err(|error| error.to_string())?;
+        socket
+            .set_reuseaddr(true)
+            .map_err(|error| error.to_string())?;
+        socket
+            .bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, port)))
+            .map_err(|error| error.to_string())?;
+        socket.listen(1024).map_err(|error| error.to_string())
+    }
+    .await;
+
+    match result {
+        Ok(listener) => Some(listener),
+        Err(error) => {
+            log::debug!("Could not bind native torrent IPv6 seed listener on port {port}: {error}");
+            None
+        }
+    }
+}
+
+async fn run_seed_accept_loop(
+    listener: TcpListener,
+    state: SharedState,
+    cancel: CancellationToken,
+    slots: Arc<Semaphore>,
+    family: &'static str,
+) {
     loop {
         let accepted = tokio::select! {
             _ = cancel.cancelled() => break,
@@ -87,7 +199,7 @@ pub async fn run_inbound_seed_listener(
         let (stream, address) = match accepted {
             Ok(value) => value,
             Err(error) => {
-                log::warn!("Native torrent seed listener accept failed: {error}");
+                log::warn!("Native torrent {family} seed listener accept failed: {error}");
                 continue;
             }
         };
@@ -117,9 +229,6 @@ pub async fn run_inbound_seed_listener(
             }
         });
     }
-
-    ACTIVE_TORRENT_SEED_PORT.store(0, Ordering::Release);
-    Ok(port)
 }
 
 async fn serve_state_peer(

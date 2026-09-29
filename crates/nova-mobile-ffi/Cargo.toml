@@ -6,7 +6,7 @@ authors = ["NOVA"]
 license = "MIT"
 repository = "https://github.com/Alaa91H/NOVADownloadManager"
 edition = "2021"
-rust-version = "1.81"
+rust-version = "1.85"
 
 [lib]
 name = "nova_mobile_ffi"
@@ -16,7 +16,10 @@ crate-type = ["lib", "cdylib", "staticlib"]
 nova-core-model = { path = "../nova-core-model" }
 nova-download-core = { path = "../nova-download-core", features = ["http2", "rustls", "static-curl"] }
 nova-media-core = { path = "../nova-media-core" }
+nova-media-processing-core = { path = "../nova-media-processing-core" }
 nova-mobile-core = { path = "../nova-mobile-core", features = ["http2", "rustls", "static-curl"] }
+nova-stream-core = { path = "../nova-stream-core" }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 uniffi = "0.32.0"

@@ -21,15 +21,17 @@ pub use dash_live::{refresh_and_stage_dash_live_once, DashLiveError, DashLiveSta
 pub use dash_transfer::{
     stage_dash_representation_plan, stage_dash_representation_plan_controlled,
     stage_dash_representation_plan_controlled_with_progress,
-    stage_dash_representation_plan_controlled_with_progress_scoped, DashStageError, DashStageFile,
-    DashStageResult,
+    stage_dash_representation_plan_controlled_with_progress_scoped,
+    stage_dash_representation_plan_controlled_with_transfer_control_scoped, DashStageError,
+    DashStageFile, DashStageResult,
 };
 pub use generic::{GenericDirectMediaExtractor, GenericManifestExtractor};
 pub use hls_live::{refresh_and_stage_hls_live_once, HlsLiveError, HlsLiveStageRefresh};
 pub use hls_transfer::{
     stage_hls_media_plan, stage_hls_media_plan_controlled,
     stage_hls_media_plan_controlled_with_progress,
-    stage_hls_media_plan_controlled_with_progress_scoped, HlsStageError, HlsStageFile,
+    stage_hls_media_plan_controlled_with_progress_scoped,
+    stage_hls_media_plan_controlled_with_transfer_control_scoped, HlsStageError, HlsStageFile,
     HlsStageResult,
 };
 pub use native_mux::{mux_mp4_tracks, mux_mp4_tracks_controlled, NativeMuxError, NativeMuxResult};

@@ -1,10 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
-use std::process::{Command, Stdio};
 
 use serde_json::{json, Value};
-
-use crate::daemon::utils::hide_command_window;
 
 /// High-level direct-option keys the UI can set. Several overlap semantically
 /// with the raw CLI flags in `CANDIDATE_CURL_RAW_OPTIONS` (L18) — e.g.
@@ -172,6 +168,18 @@ const MEDIA_OPTION_KEYS: &[&str] = &[
     "downloadSections",
     "matchFilter",
     "remuxFormat",
+    "videoCodec",
+    "audioCodec",
+    "videoBitrateBps",
+    "audioBitrateBps",
+    "transcodeCrf",
+    "transcodePreset",
+    "width",
+    "height",
+    "frameRateMilli",
+    "audioSampleRateHz",
+    "audioChannels",
+    "processingThreads",
     "ffmpegEnabled",
     "ffmpegLocation",
     "externalDownloader",
@@ -294,68 +302,6 @@ const CANDIDATE_CURL_RAW_OPTIONS: &[&str] = &[
     "--xattr",
     "--create-dirs",
 ];
-
-fn hidden_output(command: &str, args: &[&str]) -> Option<String> {
-    if command.trim().is_empty() {
-        return None;
-    }
-    let mut cmd = Command::new(command);
-    hide_command_window(&mut cmd);
-    let output = cmd
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let mut text = String::from_utf8_lossy(&output.stdout).to_string();
-    if text.trim().is_empty() {
-        text = String::from_utf8_lossy(&output.stderr).to_string();
-    }
-    Some(text)
-}
-
-fn hidden_output_any(command: &str, args: &[&str]) -> Option<String> {
-    if command.trim().is_empty() {
-        return None;
-    }
-    let mut cmd = Command::new(command);
-    hide_command_window(&mut cmd);
-    let output = cmd
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .ok()?;
-    let mut text = String::from_utf8_lossy(&output.stdout).to_string();
-    if text.trim().is_empty() {
-        text = String::from_utf8_lossy(&output.stderr).to_string();
-    }
-    if text.trim().is_empty() {
-        None
-    } else {
-        Some(text)
-    }
-}
-
-fn executable_available(command: &str) -> bool {
-    if command.trim().is_empty() {
-        return false;
-    }
-    if Path::new(command).exists() {
-        return true;
-    }
-    hidden_output(command, &["--version"]).is_some()
-        || hidden_output(command, &["-version"]).is_some()
-}
-
-fn first_line(text: &str) -> String {
-    text.lines().next().unwrap_or("unknown").trim().to_owned()
-}
 
 fn second_token(line: &str) -> String {
     line.split_whitespace()
@@ -1244,6 +1190,24 @@ pub fn validate_curl_direct_options(
 
 pub fn native_media_status() -> Value {
     let core = nova_media_core::native_media_core_capabilities();
+    let processing = nova_media_core::processing::native_media_processing_capabilities();
+    let (local_codecs, subtitle_embed_available, non_mp4_mux_available) = {
+        let available = nova_media_core::processing::native_media_codec_capabilities();
+        let subtitle_embed_available = !available.subtitle_containers.is_empty();
+        let non_mp4_mux_available = has_non_mp4_mux_pair(
+            &available.video.output_containers,
+            &available.audio.output_containers,
+        );
+        (
+            json!({
+                "audio": available.audio,
+                "video": available.video,
+                "subtitleContainers": available.subtitle_containers
+            }),
+            subtitle_embed_available,
+            non_mp4_mux_available,
+        )
+    };
     let supported_keys: HashSet<String> = crate::daemon::native_media::NATIVE_MEDIA_OPTION_KEYS
         .iter()
         .map(|key| (*key).to_owned())
@@ -1262,7 +1226,7 @@ pub fn native_media_status() -> Value {
         "version": env!("CARGO_PKG_VERSION"),
         "source": "in-process Rust media core",
         "runtimeCore": "nova-media-core",
-        "verifiedBy": ["compiled native core", "native media unit tests"],
+        "implementedBy": ["nova-media-core", "nova-media-processing-core"],
         "capabilities": {
             "siteExtraction": core.youtube_extraction,
             "nativeResolution": true,
@@ -1300,8 +1264,8 @@ pub fn native_media_status() -> Value {
             "separateTrackMuxRequiresPostProcessingReady": false,
             "nativeMp4MuxBackend": "nova-media-core",
             "nativeMp4MuxRequiresPostProcessingReady": false,
-            "nonMp4MuxBackend": "nova-media-postprocess",
-            "nonMp4MuxRequiresPostProcessingReady": true,
+            "nonMp4MuxBackend": if non_mp4_mux_available { "nova-in-process-rust" } else { "unsupported" },
+            "nonMp4MuxRequiresPostProcessingReady": false,
             "playlistProbe": true,
             "playlistPagination": true,
             "playlists": true,
@@ -1310,10 +1274,13 @@ pub fn native_media_status() -> Value {
             "formatSelector": "stream-id-or-itag",
             "audioExtraction": true,
             "audioExtractionMode": "existing-source-representation",
-            "audioTranscoding": false,
+            "audioTranscoding": processing.native_audio_transcode,
+            "videoTranscoding": processing.native_video_transcode,
+            "codecBackend": if processing.native_audio_transcode || processing.native_video_transcode { "nova-in-process-rust" } else { "none" },
+            "localCodecs": local_codecs,
             "subtitles": true,
             "autoSubtitles": true,
-            "subtitleEmbed": false,
+            "subtitleEmbed": subtitle_embed_available,
             "thumbnailWrite": true,
             "thumbnailEmbed": false,
             "thumbnailWriteEmbed": false,
@@ -1321,7 +1288,7 @@ pub fn native_media_status() -> Value {
             "descriptionSidecar": true,
             "metadataWriteEmbed": false,
             "remuxPolicy": true,
-            "remuxRequiresPostProcessingWhenContainerChanges": true,
+            "remuxRequiresPostProcessingWhenContainerChanges": false,
             "chapterMetadata": true,
             "chapterSplit": false,
             "sponsorBlock": false,
@@ -1340,7 +1307,7 @@ pub fn native_media_status() -> Value {
             "retrySleep": false,
             "downloadArchive": false,
             "liveFromStart": false,
-            "postProcessing": false,
+            "postProcessing": processing.native_audio_transcode || processing.native_video_transcode || subtitle_embed_available,
             "plugins": false
         },
         "supportedMediaOptionKeys": sorted_vec(supported_keys),
@@ -1348,167 +1315,46 @@ pub fn native_media_status() -> Value {
     })
 }
 
-fn parse_ffmpeg_list(output: &str) -> HashSet<String> {
-    let mut values = HashSet::new();
-    for line in output.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty()
-            || trimmed.starts_with('-')
-            || trimmed.starts_with("File formats")
-            || trimmed.starts_with("Codecs")
-            || trimmed.starts_with("Filters")
-            || trimmed.starts_with("DEV")
-            || trimmed.starts_with("D..")
-            || trimmed.starts_with("Input:")
-            || trimmed.starts_with("Output:")
-        {
-            continue;
-        }
-        let mut parts = trimmed.split_whitespace();
-        let first = parts.next().unwrap_or("");
-        if first
-            .chars()
-            .any(|c| c == 'D' || c == 'E' || c == 'A' || c == 'V' || c == 'S' || c == '.')
-        {
-            if let Some(name) = parts.next() {
-                for item in name.split(',') {
-                    let item = item.trim();
-                    if !item.is_empty()
-                        && item
-                            .chars()
-                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
-                    {
-                        values.insert(item.to_owned());
-                    }
+fn has_non_mp4_mux_pair(video_containers: &[String], audio_containers: &[String]) -> bool {
+    video_containers.iter().any(|video_container| {
+        video_container != "mp4"
+            && audio_containers.iter().any(|audio_container| {
+                if video_container == "mkv" {
+                    matches!(audio_container.as_str(), "mkv" | "mka")
+                } else {
+                    audio_container == video_container
                 }
-            }
-        }
-    }
-    values
-}
-
-fn parse_ffmpeg_protocols(output: &str) -> (HashSet<String>, HashSet<String>) {
-    let mut input = HashSet::new();
-    let mut output_set = HashSet::new();
-    let mut target: Option<&str> = None;
-    for line in output.lines() {
-        let trimmed = line.trim();
-        match trimmed {
-            "Input:" => {
-                target = Some("input");
-                continue;
-            }
-            "Output:" => {
-                target = Some("output");
-                continue;
-            }
-            _ => {}
-        }
-        if trimmed.is_empty() || trimmed.starts_with("Supported") {
-            continue;
-        }
-        if let Some(target_name) = target {
-            for item in trimmed.split_whitespace() {
-                if item
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
-                {
-                    if target_name == "input" {
-                        input.insert(item.to_owned());
-                    } else {
-                        output_set.insert(item.to_owned());
-                    }
-                }
-            }
-        }
-    }
-    (input, output_set)
-}
-
-/// H3: whether the ffmpeg demuxer can read HLS/DASH manifests or a common
-/// container. `formats` is a set of individual tokens (from `ffmpeg -formats`),
-/// so each candidate must be checked separately — never the literal
-/// comma-joined string.
-fn hls_dash_supported(
-    formats: &std::collections::HashSet<String>,
-    input_protocols: &std::collections::HashSet<String>,
-) -> bool {
-    input_protocols.contains("http")
-        && (formats.contains("hls")
-            || formats.contains("dash")
-            || ["mov", "mp4", "m4a", "3gp", "3g2", "mj2"]
-                .iter()
-                .any(|f| formats.contains(*f)))
-}
-
-pub fn ffmpeg_status(ffmpeg_bin: &str) -> Value {
-    let output = hidden_output(ffmpeg_bin, &["-version"]);
-    let available = output.is_some() || executable_available(ffmpeg_bin);
-    let version_text = output
-        .as_deref()
-        .map_or_else(|| "unknown".to_owned(), first_line);
-    let formats = if available {
-        parse_ffmpeg_list(&hidden_output_any(ffmpeg_bin, &["-formats"]).unwrap_or_default())
-    } else {
-        HashSet::new()
-    };
-    let codecs = if available {
-        parse_ffmpeg_list(&hidden_output_any(ffmpeg_bin, &["-codecs"]).unwrap_or_default())
-    } else {
-        HashSet::new()
-    };
-    let filters = if available {
-        parse_ffmpeg_list(&hidden_output_any(ffmpeg_bin, &["-filters"]).unwrap_or_default())
-    } else {
-        HashSet::new()
-    };
-    let (input_protocols, output_protocols) = if available {
-        parse_ffmpeg_protocols(&hidden_output_any(ffmpeg_bin, &["-protocols"]).unwrap_or_default())
-    } else {
-        (HashSet::new(), HashSet::new())
-    };
-    let remux_formats = [
-        "mp4", "matroska", "webm", "mov", "m4a", "mp3", "flac", "ogg",
-    ];
-    let remux = remux_formats.iter().any(|name| formats.contains(*name));
-    let subtitle_codecs = ["srt", "ass", "webvtt", "mov_text"];
-    let subtitle_support = subtitle_codecs.iter().any(|name| codecs.contains(*name));
-
-    json!({
-        "id": "ffmpeg",
-        "name": "FFmpeg",
-        "role": "media-postprocessing-engine",
-        "available": available,
-        "binary": ffmpeg_bin,
-        "versionText": version_text,
-        "source": "https://ffmpeg.org/",
-        "verifiedBy": ["ffmpeg -version", "ffmpeg -formats", "ffmpeg -codecs", "ffmpeg -protocols", "ffmpeg -filters"],
-        "formats": sorted_vec(formats.clone()),
-        "codecs": sorted_vec(codecs.clone()),
-        "inputProtocols": sorted_vec(input_protocols.clone()),
-        "outputProtocols": sorted_vec(output_protocols),
-        "filters": sorted_vec(filters),
-        "capabilities": {
-            "mergeVideoAudio": available && remux,
-            "remux": available && remux,
-            "recode": available && !codecs.is_empty(),
-            "audioExtraction": available && (codecs.contains("mp3") || codecs.contains("aac") || codecs.contains("flac") || codecs.contains("opus")),
-            "embedSubtitles": available && subtitle_support,
-            "embedThumbnail": available && remux,
-            "embedMetadata": available && remux,
-            "splitChapters": available && remux,
-            // H3: `formats` is a set of individual tokens, so check each token
-            // of the container list rather than the literal comma-joined
-            // string (which never appears in the set). HLS/DASH download is
-            // supported whenever the demuxer can read HLS/DASH manifests or a
-            // common container.
-            "hlsDashDownload": available && hls_dash_supported(&formats, &input_protocols)
-        }
+            })
     })
 }
 
+pub fn ffmpeg_status(_ffmpeg_bin: &str) -> Value {
+    json!({
+        "id": "ffmpeg",
+        "name": "FFmpeg compatibility tool",
+        "role": "optional-legacy-external-tool",
+        "available": false,
+        "required": false,
+        "legacyOnly": true,
+        "runtimeCore": "nova-media-processing-core",
+        "execution": "native Rust media pipeline; external process is not invoked",
+        "capabilities": {
+            "videoTranscoding": false,
+            "audioTranscoding": false,
+            "subtitleEmbedding": false,
+            "separateTrackMuxing": false
+        }
+    })
+}
 pub fn native_torrent_status() -> Value {
     let capabilities = nova_torrent_core::TorrentCoreCapabilities::native_foundation();
+    let ipv4_seed_listener = crate::daemon::torrent_seed::active_seed_port_for(
+        std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+    )
+    .is_some();
+    let ipv6_seed_listener = crate::daemon::torrent_seed::active_seed_ipv6_port().is_some();
+    let dht_ipv6_peer_announce = ipv6_seed_listener
+        && crate::daemon::torrent_dht::active_dht_ipv6_port().is_some();
     json!({
         "id": nova_torrent_core::ENGINE_ID,
         "name": "NOVA Torrent Engine",
@@ -1560,7 +1406,9 @@ pub fn native_torrent_status() -> Value {
             "dhtSharedSocketTransport": true,
             "dhtPersistentRoutingTable": true,
             "dhtPeriodicAnnounce": true,
-            "dhtIpv6PeerAnnounce": false,
+            "dhtIpv4InboundSeeding": ipv4_seed_listener,
+            "dhtIpv6InboundSeeding": ipv6_seed_listener,
+            "dhtIpv6PeerAnnounce": dht_ipv6_peer_announce,
             "livePeerTelemetry": true,
             "liveTrackerTelemetry": true,
             "telemetryCredentialRedaction": true,
@@ -1611,6 +1459,7 @@ pub fn native_torrent_status() -> Value {
             "torrentTaskLifecycleApi": true,
             "torrentAnalysisApi": true,
             "torrentMetainfoFileImport": true,
+            "torrentMetainfoUrlFetch": true,
             "torrentFilePriorityApi": true,
             "torrentReauthorizationApi": true,
             "genericMagnetCreateRouting": true
@@ -1620,9 +1469,63 @@ pub fn native_torrent_status() -> Value {
 
 pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
     let curl = curl_status();
-    let media = native_media_status();
+    let mut media = native_media_status();
     let ffmpeg = ffmpeg_status(ffmpeg_bin);
     let torrent = native_torrent_status();
+    let video_transcoding = media
+        .pointer("/capabilities/videoTranscoding")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let audio_transcoding = media
+        .pointer("/capabilities/audioTranscoding")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if let Some(capabilities) = media.get_mut("capabilities").and_then(Value::as_object_mut) {
+        capabilities.insert("videoTranscoding".to_owned(), json!(video_transcoding));
+        capabilities.insert("audioTranscoding".to_owned(), json!(audio_transcoding));
+        capabilities.insert(
+            "codecBackend".to_owned(),
+            json!(if video_transcoding || audio_transcoding { "nova-in-process-rust" } else { "none" }),
+        );
+    }
+    let codec_options = [
+        "bitrate",
+        "videoCodec",
+        "audioCodec",
+        "videoBitrateBps",
+        "audioBitrateBps",
+        "transcodeCrf",
+        "transcodePreset",
+        "width",
+        "height",
+        "frameRateMilli",
+        "audioSampleRateHz",
+        "audioChannels",
+        "processingThreads",
+    ];
+    if let Some(options) = media
+        .get_mut("supportedMediaOptionKeys")
+        .and_then(Value::as_array_mut)
+    {
+        options.retain(|option| {
+            let Some(option) = option.as_str() else {
+                return false;
+            };
+            if option == "audioFormat" || option == "audioCodec" {
+                return audio_transcoding;
+            }
+            if ["bitrate", "audioBitrateBps", "audioSampleRateHz", "audioChannels"]
+                .contains(&option)
+            {
+                return false;
+            }
+            if codec_options.contains(&option) {
+                return video_transcoding;
+            }
+            true
+        });
+        options.sort_by(|left, right| left.as_str().cmp(&right.as_str()));
+    }
     let media_extraction_ready = media
         .get("available")
         .and_then(Value::as_bool)
@@ -1636,10 +1539,6 @@ pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let streaming_ready = media_extraction_ready && (hls_ready || dash_ready);
-    let ffmpeg_available = ffmpeg
-        .get("available")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
     let direct_ready = curl
         .pointer("/capabilities/directDownloads")
         .and_then(Value::as_bool)
@@ -1648,7 +1547,15 @@ pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
         .pointer("/capabilities/nativeMp4MultitrackMux")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let post_processing_ready = ffmpeg_available;
+    let subtitle_embed_ready = media
+        .pointer("/capabilities/subtitleEmbed")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let non_mp4_mux_ready = media
+        .pointer("/capabilities/nonMp4MuxBackend")
+        .and_then(Value::as_str)
+        .is_some_and(|backend| backend == "nova-in-process-rust");
+    let post_processing_ready = audio_transcoding || video_transcoding || subtitle_embed_ready || non_mp4_mux_ready;
     let direct_protocols = curl
         .get("protocols")
         .and_then(Value::as_array)
@@ -1682,9 +1589,9 @@ pub fn all_engine_status(ffmpeg_bin: &str) -> Value {
             "mediaExtraction": if media_extraction_ready { json!("nova-media-engine") } else { Value::Null },
             "streaming": if streaming_ready { json!("nova-media-engine") } else { Value::Null },
             "nativeMp4Mux": if native_mux_ready { json!("nova-media-engine") } else { Value::Null },
-            "postProcessing": if post_processing_ready { json!("nova-media-postprocess") } else { Value::Null },
+            "postProcessing": if post_processing_ready { json!("nova-media-processing-core") } else { Value::Null },
             "webMediaAndPlaylists": if media_extraction_ready { json!("nova-media-engine") } else { Value::Null },
-            "mergeRemuxExtractSubtitles": if post_processing_ready { json!("nova-media-postprocess") } else { Value::Null },
+            "mergeRemuxExtractSubtitles": if post_processing_ready { json!("nova-media-processing-core") } else { Value::Null },
             "torrentMagnet": json!(nova_torrent_core::ENGINE_ID)
         },
         "engines": {
@@ -1771,11 +1678,14 @@ mod tests {
         );
         assert_eq!(
             status["capabilities"]["nonMp4MuxBackend"],
-            "nova-media-postprocess"
+            if has_non_mp4_mux_pair(
+                &serde_json::from_value(status["capabilities"]["localCodecs"]["video"]["outputContainers"].clone()).expect("video output containers"),
+                &serde_json::from_value(status["capabilities"]["localCodecs"]["audio"]["outputContainers"].clone()).expect("audio output containers"),
+            ) { "nova-in-process-rust" } else { "unsupported" }
         );
         assert_eq!(
             status["capabilities"]["nonMp4MuxRequiresPostProcessingReady"],
-            true
+            false
         );
         let supported = status["supportedMediaOptionKeys"]
             .as_array()
@@ -1784,11 +1694,12 @@ mod tests {
         assert!(supported.iter().any(|value| value == "formatSelector"));
         assert!(supported.iter().any(|value| value == "formatSort"));
         assert!(supported.iter().any(|value| value == "audioFormat"));
-        assert!(supported.iter().any(|value| value == "ffmpegEnabled"));
+        assert!(!supported.iter().any(|value| value == "ffmpegEnabled"));
         let unsupported = status["unsupportedMediaOptionKeys"]
             .as_array()
             .expect("unsupportedMediaOptionKeys");
         assert!(unsupported.iter().any(|value| value == "proxy"));
+        assert!(unsupported.iter().any(|value| value == "ffmpegEnabled"));
     }
 
     #[test]
@@ -1803,12 +1714,12 @@ mod tests {
         assert_eq!(status["mediaExtractionReady"], true);
         assert_eq!(status["streamingReady"], true);
         assert_eq!(status["engines"]["media"]["runtimeCore"], "nova-media-core");
-        assert_eq!(status["postProcessingReady"], false);
+        assert_eq!(status["postProcessingReady"], true);
         assert_eq!(status["mediaApi"]["resolve"], "/api/media/resolve");
         assert_eq!(status["mediaApi"]["download"], "/api/media/download");
         assert_eq!(status["routing"]["mediaExtraction"], "nova-media-engine");
         assert_eq!(status["routing"]["streaming"], "nova-media-engine");
-        assert_eq!(status["routing"]["postProcessing"], serde_json::Value::Null);
+        assert_eq!(status["routing"]["postProcessing"], "nova-media-processing-core");
     }
 
     #[test]
@@ -1935,30 +1846,18 @@ mod tests {
     }
 
     #[test]
-    fn hls_dash_download_declared_when_mp4_demuxer_present() {
-        // H3 regression: formats is a set of individual tokens; the literal
-        // comma-joined container string never appears in it, so the old check
-        // could never fire. With `mp4` present the capability must be true.
-        let formats: std::collections::HashSet<String> = ["mp4", "mov", "m4a", "matroska"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        let input_protocols: std::collections::HashSet<String> = ["http", "https", "tcp"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        let hls_dash = hls_dash_supported(&formats, &input_protocols);
-        assert!(
-            hls_dash,
-            "hlsDashDownload must be true when mp4 is in formats"
+    fn optional_ffmpeg_status_never_gates_native_media_capabilities() {
+        let status = ffmpeg_status("external-ffmpeg-is-not-probed");
+        assert_eq!(status["available"], false);
+        assert_eq!(status["required"], false);
+        assert_eq!(status["legacyOnly"], true);
+        assert_eq!(
+            status["runtimeCore"],
+            "nova-media-processing-core"
         );
-
-        // Without any HLS/DASH/container token it must be false.
-        let formats2: std::collections::HashSet<String> = ["pcm_s16le", "flac"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        assert!(!hls_dash_supported(&formats2, &input_protocols));
+        let media = native_media_status();
+        assert_eq!(media["capabilities"]["hlsTaskExecution"], true);
+        assert_eq!(media["capabilities"]["dashTaskExecution"], true);
     }
 
     #[test]
@@ -2037,4 +1936,6 @@ mod tests {
             assert!(!tf);
         }
     }
+
+    #[test]
 }

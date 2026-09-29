@@ -383,6 +383,7 @@ pub async fn handle_create_download(
             CreateTorrentBody {
                 analysis_id: analysis.analysis_id,
                 save_path,
+                allow_duplicate: false,
                 start_immediately: body.start_immediately,
                 file_priorities: None,
                 connections: body.connections,

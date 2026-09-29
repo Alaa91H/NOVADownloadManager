@@ -1,15 +1,6 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::Duration;
 
-use crate::daemon::utils::hide_command_window;
-
-#[derive(Clone, Debug)]
-pub struct MediaMuxRequest {
-    pub video_path: PathBuf,
-    pub audio_path: PathBuf,
-    pub destination: PathBuf,
-}
+use nova_media_core::processing::{MediaProcessingControl, MediaProcessingProgress};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct MediaSubtitleInput {
@@ -24,13 +15,163 @@ pub struct MediaSubtitleEmbedRequest {
     pub cleanup_sidecars: bool,
 }
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct MediaTranscodeRequest {
+    pub media_path: PathBuf,
+    #[serde(default)]
+    pub input_container: Option<String>,
+    #[serde(default)]
+    pub source_video_codec: Option<String>,
+    #[serde(default)]
+    pub source_audio_codec: Option<String>,
+    pub video_codec: Option<String>,
+    pub audio_codec: Option<String>,
+    pub video_bitrate_bps: Option<u64>,
+    pub audio_bitrate_bps: Option<u64>,
+    pub quality_crf: Option<u8>,
+    pub preset: Option<String>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub frame_rate_milli: Option<u32>,
+    pub audio_sample_rate_hz: Option<u32>,
+    pub audio_channels: Option<u8>,
+    pub threads: Option<u8>,
+    pub include_video: bool,
+    pub include_audio: bool,
+    pub duration_millis: Option<u64>,
+}
+
 pub const MEDIA_SUBTITLE_EMBED_OPTION: &str = "__novaMediaSubtitleEmbed";
+pub const MEDIA_TRANSCODE_OPTION: &str = "__novaMediaTranscode";
+
+/// Run a supported conversion using codecs compiled into NOVA's Rust media
+/// core. Unsupported local codec/container combinations fail explicitly and
+/// are never silently redirected to the host FFmpeg executable.
+pub fn transcode_with_native_codecs(
+    request: &MediaTranscodeRequest,
+    control: &(dyn Fn() -> MediaProcessingControl + Sync),
+    on_progress: &(dyn Fn(Option<f64>) + Sync),
+) -> Result<u64, PostProcessError> {
+    validate_native_transcode_request(request)?;
+    ensure_local_path(&request.media_path, "media source")?;
+    ensure_regular_nonempty_file(&request.media_path, "media source")?;
+
+    let job = native_transcode_job(request)?;
+    let progress_sink = |update: &MediaProcessingProgress| {
+        on_progress(update.fraction.map(f64::from));
+    };
+    let result = nova_media_core::processing::transcode_local_media(
+        &job,
+        control,
+        &progress_sink,
+    )
+    .map_err(map_native_media_error)?;
+    Ok(result.output_bytes)
+}
+
+pub fn validate_native_transcode_request(
+    request: &MediaTranscodeRequest,
+) -> Result<(), PostProcessError> {
+    validate_transcode_request(request)?;
+    let job = native_transcode_job(request)?;
+    nova_media_core::processing::validate_local_media_transcode_job(&job)
+        .map_err(map_native_media_error)
+}
+
+/// Embed supported local text subtitle files with NOVA's linked codec engine.
+/// Unsupported subtitle/container combinations fail before replacing the
+/// downloaded media and are never routed to an external executable.
+pub fn embed_subtitles_with_native_codecs(
+    request: &MediaSubtitleEmbedRequest,
+    control: &(dyn Fn() -> MediaProcessingControl + Sync),
+    on_progress: &(dyn Fn(Option<f64>) + Sync),
+) -> Result<u64, PostProcessError> {
+    ensure_local_path(&request.source_path, "media source")?;
+    ensure_regular_nonempty_file(&request.source_path, "media source")?;
+    for subtitle in &request.subtitles {
+        ensure_local_path(&subtitle.path, "subtitle")?;
+        ensure_regular_nonempty_file(&subtitle.path, "subtitle")?;
+    }
+    let job = nova_media_core::processing::NativeMediaSubtitleEmbedJob {
+        media_source: request.source_path.clone(),
+        subtitles: request
+            .subtitles
+            .iter()
+            .map(|subtitle| subtitle.path.clone())
+            .collect(),
+    };
+    nova_media_core::processing::validate_local_media_subtitle_embed_job(&job)
+        .map_err(map_native_media_error)?;
+    let progress_sink = |update: &MediaProcessingProgress| {
+        on_progress(update.fraction.map(f64::from));
+    };
+    let result = nova_media_core::processing::embed_local_media_subtitles(
+        &job,
+        control,
+        &progress_sink,
+    )
+    .map_err(map_native_media_error)?;
+    if request.cleanup_sidecars {
+        for subtitle in &request.subtitles {
+            let _ = std::fs::remove_file(&subtitle.path);
+        }
+    }
+    Ok(result.output_bytes)
+}
+
+fn native_transcode_job(
+    request: &MediaTranscodeRequest,
+) -> Result<nova_media_core::processing::NativeMediaTranscodeJob, PostProcessError> {
+    let input_container = request
+        .input_container
+        .as_deref()
+        .or_else(|| request.media_path.extension().and_then(|value| value.to_str()))
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| PostProcessError::InvalidInput("source container is required for local conversion".to_owned()))?
+        .to_owned();
+    Ok(nova_media_core::processing::NativeMediaTranscodeJob {
+        source: request.media_path.clone(),
+        destination: request.media_path.clone(),
+        input_container,
+        source_video_codec: request.source_video_codec.clone(),
+        source_audio_codec: request.source_audio_codec.clone(),
+        video_codec: request.video_codec.clone(),
+        audio_codec: request.audio_codec.clone(),
+        video_bitrate_bps: request.video_bitrate_bps,
+        audio_bitrate_bps: request.audio_bitrate_bps,
+        quality_crf: request.quality_crf,
+        preset: request.preset.clone(),
+        width: request.width,
+        height: request.height,
+        frame_rate_milli: request.frame_rate_milli,
+        audio_sample_rate_hz: request.audio_sample_rate_hz,
+        audio_channels: request.audio_channels,
+        threads: request.threads,
+        include_video: request.include_video,
+        include_audio: request.include_audio,
+    })
+}
+
+fn map_native_media_error(
+    error: nova_media_core::processing::MediaProcessingError,
+) -> PostProcessError {
+    let message = error.to_string();
+    match error {
+        nova_media_core::processing::MediaProcessingError::Cancelled
+        | nova_media_core::processing::MediaProcessingError::Paused => PostProcessError::Cancelled,
+        nova_media_core::processing::MediaProcessingError::InvalidJob(_)
+        | nova_media_core::processing::MediaProcessingError::UnsupportedCodec(_)
+        | nova_media_core::processing::MediaProcessingError::UnsupportedContainer(_)
+        | nova_media_core::processing::MediaProcessingError::UnsupportedOperation(_) => {
+            PostProcessError::InvalidInput(message)
+        }
+        _ => PostProcessError::Failed(message),
+    }
+}
 
 #[derive(Debug)]
 pub enum PostProcessError {
-    Unavailable(String),
     InvalidInput(String),
-    Io(String),
     Failed(String),
     Cancelled,
 }
@@ -38,9 +179,7 @@ pub enum PostProcessError {
 impl std::fmt::Display for PostProcessError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Unavailable(message) => write!(f, "post-processor unavailable: {message}"),
             Self::InvalidInput(message) => write!(f, "invalid post-processing input: {message}"),
-            Self::Io(message) => write!(f, "post-processing I/O failed: {message}"),
             Self::Failed(message) => write!(f, "post-processing failed: {message}"),
             Self::Cancelled => write!(f, "post-processing was cancelled"),
         }
@@ -49,328 +188,20 @@ impl std::fmt::Display for PostProcessError {
 
 impl std::error::Error for PostProcessError {}
 
-pub trait MediaPostProcessor: Send + Sync {
-    fn id(&self) -> &'static str;
-    fn is_available(&self) -> bool;
-    fn mux(
-        &self,
-        request: &MediaMuxRequest,
-        should_cancel: &(dyn Fn() -> bool + Sync),
-    ) -> Result<u64, PostProcessError>;
-
-    fn embed_subtitles(
-        &self,
-        request: &MediaSubtitleEmbedRequest,
-        should_cancel: &(dyn Fn() -> bool + Sync),
-    ) -> Result<u64, PostProcessError>;
+fn validate_transcode_request(request: &MediaTranscodeRequest) -> Result<(), PostProcessError> {
+    if !request.include_video && !request.include_audio {
+        return Err(PostProcessError::InvalidInput(
+            "transcoding requires at least one selected audio or video stream".to_owned(),
+        ));
+    }
+    ensure_local_path(&request.media_path, "media source")?;
+    if request.media_path.extension().is_none() {
+        return Err(PostProcessError::InvalidInput(
+            "media source must include a known container extension".to_owned(),
+        ));
+    }
+    Ok(())
 }
-
-/// Temporary host adapter for lossless container muxing.
-///
-/// Extraction and stream selection remain entirely inside NOVA's Rust media
-/// core. This adapter receives only local staged files and is deliberately
-/// isolated from URL resolution, probing, cookies and network access.
-#[derive(Clone, Debug)]
-pub struct FfmpegPostProcessor {
-    program: String,
-}
-
-impl FfmpegPostProcessor {
-    pub fn new(program: impl Into<String>) -> Self {
-        Self {
-            program: program.into(),
-        }
-    }
-
-    fn build_mux_command(&self, request: &MediaMuxRequest, output: &Path) -> Command {
-        let mut command = Command::new(&self.program);
-        hide_command_window(&mut command);
-        command
-            .arg("-hide_banner")
-            .arg("-loglevel")
-            .arg("error")
-            .arg("-nostdin")
-            .arg("-y")
-            .arg("-i")
-            .arg(&request.video_path)
-            .arg("-i")
-            .arg(&request.audio_path)
-            .arg("-map")
-            .arg("0:v:0")
-            .arg("-map")
-            .arg("1:a:0")
-            .arg("-c")
-            .arg("copy")
-            .arg(output)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        command
-    }
-
-    fn build_subtitle_embed_command(
-        &self,
-        request: &MediaSubtitleEmbedRequest,
-        output: &Path,
-        subtitle_codec: &str,
-    ) -> Command {
-        let mut command = Command::new(&self.program);
-        hide_command_window(&mut command);
-        command
-            .arg("-hide_banner")
-            .arg("-loglevel")
-            .arg("error")
-            .arg("-nostdin")
-            .arg("-y")
-            .arg("-i")
-            .arg(&request.source_path);
-
-        for subtitle in &request.subtitles {
-            command.arg("-i").arg(&subtitle.path);
-        }
-
-        command.arg("-map").arg("0:v?").arg("-map").arg("0:a?");
-        for index in 0..request.subtitles.len() {
-            command.arg("-map").arg(format!("{}:0", index + 1));
-        }
-
-        command
-            .arg("-map_metadata")
-            .arg("0")
-            .arg("-map_chapters")
-            .arg("0")
-            .arg("-c:v")
-            .arg("copy")
-            .arg("-c:a")
-            .arg("copy")
-            .arg("-c:s")
-            .arg(subtitle_codec);
-
-        for (index, subtitle) in request.subtitles.iter().enumerate() {
-            let language = safe_ffmpeg_metadata_value(&subtitle.language);
-            if !language.is_empty() {
-                command
-                    .arg(format!("-metadata:s:s:{index}"))
-                    .arg(format!("language={language}"));
-            }
-        }
-
-        command
-            .arg(output)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        command
-    }
-}
-
-impl MediaPostProcessor for FfmpegPostProcessor {
-    fn id(&self) -> &'static str {
-        "ffmpeg-mux"
-    }
-
-    fn is_available(&self) -> bool {
-        if self.program.trim().is_empty() {
-            return false;
-        }
-        let mut command = Command::new(&self.program);
-        hide_command_window(&mut command);
-        command
-            .arg("-version")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success())
-    }
-
-    fn mux(
-        &self,
-        request: &MediaMuxRequest,
-        should_cancel: &(dyn Fn() -> bool + Sync),
-    ) -> Result<u64, PostProcessError> {
-        for (label, path) in [
-            ("video", request.video_path.as_path()),
-            ("audio", request.audio_path.as_path()),
-            ("destination", request.destination.as_path()),
-        ] {
-            ensure_local_path(path, label)?;
-        }
-
-        for (label, path) in [
-            ("video", request.video_path.as_path()),
-            ("audio", request.audio_path.as_path()),
-        ] {
-            let metadata = std::fs::metadata(path).map_err(|error| {
-                PostProcessError::InvalidInput(format!(
-                    "{label} track '{}' is unavailable: {error}",
-                    path.display()
-                ))
-            })?;
-            if !metadata.is_file() || metadata.len() == 0 {
-                return Err(PostProcessError::InvalidInput(format!(
-                    "{label} track '{}' is empty or is not a regular file",
-                    path.display()
-                )));
-            }
-        }
-
-        if should_cancel() {
-            return Err(PostProcessError::Cancelled);
-        }
-
-        if let Some(parent) = request
-            .destination
-            .parent()
-            .filter(|path| !path.as_os_str().is_empty())
-        {
-            std::fs::create_dir_all(parent)
-                .map_err(|error| PostProcessError::Io(error.to_string()))?;
-        }
-
-        let temp = mux_temp_path(&request.destination);
-        let _ = std::fs::remove_file(&temp);
-        let mut child = self
-            .build_mux_command(request, &temp)
-            .spawn()
-            .map_err(|error| PostProcessError::Unavailable(error.to_string()))?;
-
-        loop {
-            if should_cancel() {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = std::fs::remove_file(&temp);
-                return Err(PostProcessError::Cancelled);
-            }
-
-            match child.try_wait() {
-                Ok(Some(status)) if status.success() => break,
-                Ok(Some(status)) => {
-                    let _ = std::fs::remove_file(&temp);
-                    return Err(PostProcessError::Failed(format!(
-                        "{} exited with status {status}",
-                        self.id()
-                    )));
-                }
-                Ok(None) => std::thread::sleep(Duration::from_millis(100)),
-                Err(error) => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    let _ = std::fs::remove_file(&temp);
-                    return Err(PostProcessError::Io(error.to_string()));
-                }
-            }
-        }
-
-        if should_cancel() {
-            let _ = std::fs::remove_file(&temp);
-            return Err(PostProcessError::Cancelled);
-        }
-
-        let bytes = std::fs::metadata(&temp)
-            .map_err(|error| PostProcessError::Io(error.to_string()))?
-            .len();
-        if bytes == 0 {
-            let _ = std::fs::remove_file(&temp);
-            return Err(PostProcessError::Failed(
-                "muxer produced an empty output".to_owned(),
-            ));
-        }
-
-        if request.destination.exists() {
-            std::fs::remove_file(&request.destination)
-                .map_err(|error| PostProcessError::Io(error.to_string()))?;
-        }
-        std::fs::rename(&temp, &request.destination)
-            .map_err(|error| PostProcessError::Io(error.to_string()))?;
-        Ok(bytes)
-    }
-
-    fn embed_subtitles(
-        &self,
-        request: &MediaSubtitleEmbedRequest,
-        should_cancel: &(dyn Fn() -> bool + Sync),
-    ) -> Result<u64, PostProcessError> {
-        ensure_local_path(&request.source_path, "media source")?;
-        if request.subtitles.is_empty() {
-            return Err(PostProcessError::InvalidInput(
-                "subtitle embedding requires at least one local subtitle".to_owned(),
-            ));
-        }
-
-        ensure_regular_nonempty_file(&request.source_path, "media source")?;
-        for subtitle in &request.subtitles {
-            ensure_local_path(&subtitle.path, "subtitle")?;
-            ensure_regular_nonempty_file(&subtitle.path, "subtitle")?;
-        }
-        if should_cancel() {
-            return Err(PostProcessError::Cancelled);
-        }
-
-        let subtitle_codec = subtitle_codec_for_container(&request.source_path)?;
-        let temp = mux_temp_path_with_tag(&request.source_path, "embed");
-        let backup = mux_temp_path_with_tag(&request.source_path, "embed-backup");
-        let _ = std::fs::remove_file(&temp);
-        let _ = std::fs::remove_file(&backup);
-
-        let mut child = self
-            .build_subtitle_embed_command(request, &temp, subtitle_codec)
-            .spawn()
-            .map_err(|error| PostProcessError::Unavailable(error.to_string()))?;
-
-        loop {
-            if should_cancel() {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = std::fs::remove_file(&temp);
-                return Err(PostProcessError::Cancelled);
-            }
-            match child.try_wait() {
-                Ok(Some(status)) if status.success() => break,
-                Ok(Some(status)) => {
-                    let _ = std::fs::remove_file(&temp);
-                    return Err(PostProcessError::Failed(format!(
-                        "{} subtitle embedding exited with status {status}",
-                        self.id()
-                    )));
-                }
-                Ok(None) => std::thread::sleep(Duration::from_millis(100)),
-                Err(error) => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    let _ = std::fs::remove_file(&temp);
-                    return Err(PostProcessError::Io(error.to_string()));
-                }
-            }
-        }
-
-        if should_cancel() {
-            let _ = std::fs::remove_file(&temp);
-            return Err(PostProcessError::Cancelled);
-        }
-
-        let bytes = ensure_regular_nonempty_file(&temp, "embedded output")?;
-        std::fs::rename(&request.source_path, &backup).map_err(|error| {
-            PostProcessError::Io(format!("could not stage original media: {error}"))
-        })?;
-        if let Err(error) = std::fs::rename(&temp, &request.source_path) {
-            let _ = std::fs::rename(&backup, &request.source_path);
-            let _ = std::fs::remove_file(&temp);
-            return Err(PostProcessError::Io(format!(
-                "could not commit embedded media: {error}"
-            )));
-        }
-        let _ = std::fs::remove_file(&backup);
-
-        if request.cleanup_sidecars {
-            for subtitle in &request.subtitles {
-                let _ = std::fs::remove_file(&subtitle.path);
-            }
-        }
-        Ok(bytes)
-    }
-}
-
 fn ensure_local_path(path: &Path, label: &str) -> Result<(), PostProcessError> {
     let value = path.to_string_lossy();
     let lower = value.trim().to_ascii_lowercase();
@@ -404,227 +235,45 @@ fn ensure_regular_nonempty_file(path: &Path, label: &str) -> Result<u64, PostPro
     Ok(metadata.len())
 }
 
-fn subtitle_codec_for_container(path: &Path) -> Result<&'static str, PostProcessError> {
-    let extension = path
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    match extension.as_str() {
-        "mp4" | "m4v" | "mov" | "m4a" | "3gp" => Ok("mov_text"),
-        "mkv" | "mka" => Ok("srt"),
-        "webm" => Ok("webvtt"),
-        _ => Err(PostProcessError::InvalidInput(format!(
-            "subtitle embedding is not supported for '.{extension}' output"
-        ))),
-    }
-}
-
-fn safe_ffmpeg_metadata_value(value: &str) -> String {
-    value
-        .chars()
-        .filter(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
-        .take(32)
-        .collect()
-}
-
-fn mux_temp_path(destination: &Path) -> PathBuf {
-    mux_temp_path_with_tag(destination, "mux")
-}
-
-fn mux_temp_path_with_tag(destination: &Path, tag: &str) -> PathBuf {
-    let parent = destination.parent().unwrap_or_else(|| Path::new(""));
-    let stem = destination
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .filter(|value| !value.is_empty())
-        .unwrap_or("nova-media");
-    match destination.extension().and_then(|value| value.to_str()) {
-        Some(extension) if !extension.is_empty() => {
-            parent.join(format!("{stem}.nova-{tag}.tmp.{extension}"))
-        }
-        _ => parent.join(format!("{stem}.nova-{tag}.tmp")),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn mux_temp_path_preserves_container_extension() {
-        assert_eq!(
-            mux_temp_path(Path::new("/tmp/video.mp4")),
-            PathBuf::from("/tmp/video.nova-mux.tmp.mp4")
-        );
-        assert_eq!(
-            mux_temp_path(Path::new("clip.webm")),
-            PathBuf::from("clip.nova-mux.tmp.webm")
-        );
+    fn request(path: &str, include_video: bool, include_audio: bool) -> MediaTranscodeRequest {
+        MediaTranscodeRequest {
+            media_path: PathBuf::from(path),
+            input_container: Some("mp4".to_owned()),
+            source_video_codec: None,
+            source_audio_codec: None,
+            video_codec: None,
+            audio_codec: None,
+            video_bitrate_bps: None,
+            audio_bitrate_bps: None,
+            quality_crf: None,
+            preset: None,
+            width: None,
+            height: None,
+            frame_rate_milli: None,
+            audio_sample_rate_hz: None,
+            audio_channels: None,
+            threads: None,
+            include_video,
+            include_audio,
+            duration_millis: None,
+        }
     }
 
     #[test]
-    fn mux_command_is_copy_only_and_uses_explicit_track_mapping() {
-        let processor = FfmpegPostProcessor::new("ffmpeg");
-        let request = MediaMuxRequest {
-            video_path: PathBuf::from("video.track"),
-            audio_path: PathBuf::from("audio.track"),
-            destination: PathBuf::from("output.mp4"),
-        };
-        let command = processor.build_mux_command(&request, Path::new("output.nova-mux.tmp.mp4"));
-        let args = command
-            .get_args()
-            .map(|value| value.to_string_lossy().to_string())
-            .collect::<Vec<_>>();
-
-        assert!(args
-            .windows(2)
-            .any(|pair| pair[0] == "-i" && pair[1] == "video.track"));
-        assert!(args
-            .windows(2)
-            .any(|pair| pair[0] == "-i" && pair[1] == "audio.track"));
-        assert!(args
-            .windows(2)
-            .any(|pair| pair[0] == "-map" && pair[1] == "0:v:0"));
-        assert!(args
-            .windows(2)
-            .any(|pair| pair[0] == "-map" && pair[1] == "1:a:0"));
-        assert!(args
-            .windows(2)
-            .any(|pair| pair[0] == "-c" && pair[1] == "copy"));
-        assert!(!args.iter().any(|arg| arg == "-filter_complex"));
-        assert_eq!(
-            args.last().map(String::as_str),
-            Some("output.nova-mux.tmp.mp4")
-        );
-    }
-
-    #[test]
-    fn subtitle_embed_command_maps_only_local_media_and_subtitle_inputs() {
-        let processor = FfmpegPostProcessor::new("ffmpeg");
-        let request = MediaSubtitleEmbedRequest {
-            source_path: PathBuf::from("video.mp4"),
-            subtitles: vec![
-                MediaSubtitleInput {
-                    path: PathBuf::from("video.en.vtt"),
-                    language: "en-US".to_owned(),
-                },
-                MediaSubtitleInput {
-                    path: PathBuf::from("video.ar.vtt"),
-                    language: "ar".to_owned(),
-                },
-            ],
-            cleanup_sidecars: true,
-        };
-        let command = processor.build_subtitle_embed_command(
-            &request,
-            Path::new("video.nova-embed.tmp.mp4"),
-            "mov_text",
-        );
-        let args = command
-            .get_args()
-            .map(|value| value.to_string_lossy().to_string())
-            .collect::<Vec<_>>();
-
-        assert!(args
-            .windows(2)
-            .any(|pair| pair[0] == "-i" && pair[1] == "video.mp4"));
-        assert!(args
-            .windows(2)
-            .any(|pair| pair[0] == "-i" && pair[1] == "video.en.vtt"));
-        assert!(args
-            .windows(2)
-            .any(|pair| pair[0] == "-map" && pair[1] == "1:0"));
-        assert!(args
-            .windows(2)
-            .any(|pair| pair[0] == "-map" && pair[1] == "2:0"));
-        assert!(args
-            .windows(2)
-            .any(|pair| pair[0] == "-c:v" && pair[1] == "copy"));
-        assert!(args
-            .windows(2)
-            .any(|pair| pair[0] == "-c:a" && pair[1] == "copy"));
-        assert!(args
-            .windows(2)
-            .any(|pair| pair[0] == "-c:s" && pair[1] == "mov_text"));
-        assert!(!args.iter().any(|arg| arg.contains("://")));
-    }
-
-    #[test]
-    fn subtitle_embed_container_policy_is_fail_closed() {
-        assert_eq!(
-            subtitle_codec_for_container(Path::new("video.mp4")).unwrap(),
-            "mov_text"
-        );
-        assert_eq!(
-            subtitle_codec_for_container(Path::new("video.mkv")).unwrap(),
-            "srt"
-        );
-        assert_eq!(
-            subtitle_codec_for_container(Path::new("video.webm")).unwrap(),
-            "webvtt"
-        );
-        assert!(subtitle_codec_for_container(Path::new("video.avi")).is_err());
-    }
-
-    #[test]
-    fn mux_honors_cancellation_before_process_spawn() {
-        let unique = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("nova-postprocess-cancel-{unique}"));
-        std::fs::create_dir_all(&dir).expect("create postprocess dir");
-        let video = dir.join("video.part");
-        let audio = dir.join("audio.part");
-        std::fs::write(&video, b"video").expect("video input");
-        std::fs::write(&audio, b"audio").expect("audio input");
-
-        let processor = FfmpegPostProcessor::new("__must_not_spawn__");
-        let error = processor
-            .mux(
-                &MediaMuxRequest {
-                    video_path: video,
-                    audio_path: audio,
-                    destination: dir.join("output.mp4"),
-                },
-                &|| true,
-            )
-            .expect_err("cancelled mux");
-        assert!(matches!(error, PostProcessError::Cancelled));
-
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn mux_rejects_protocol_like_paths() {
-        let processor = FfmpegPostProcessor::new("unused");
-        let error = processor
-            .mux(
-                &MediaMuxRequest {
-                    video_path: PathBuf::from("https://example.test/video"),
-                    audio_path: PathBuf::from("audio.part"),
-                    destination: PathBuf::from("out.mp4"),
-                },
-                &|| false,
-            )
-            .expect_err("network-like input must be rejected");
+    fn validation_rejects_jobs_without_audio_or_video() {
+        let error = validate_transcode_request(&request("input.mp4", false, false))
+            .expect_err("at least one stream kind must be selected");
         assert!(matches!(error, PostProcessError::InvalidInput(_)));
     }
 
     #[test]
-    fn mux_rejects_missing_inputs_before_spawning_process() {
-        let processor = FfmpegPostProcessor::new("unused");
-        let error = processor
-            .mux(
-                &MediaMuxRequest {
-                    video_path: PathBuf::from("missing-video"),
-                    audio_path: PathBuf::from("missing-audio"),
-                    destination: PathBuf::from("out.mp4"),
-                },
-                &|| false,
-            )
-            .expect_err("missing inputs");
+    fn validation_rejects_network_urls_as_media_paths() {
+        let error = validate_transcode_request(&request("https://example.test/media.mp4", true, true))
+            .expect_err("the native codec backend only accepts local paths");
         assert!(matches!(error, PostProcessError::InvalidInput(_)));
     }
 }

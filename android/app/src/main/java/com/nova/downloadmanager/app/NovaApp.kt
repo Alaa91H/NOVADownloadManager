@@ -1,6 +1,7 @@
 package com.nova.downloadmanager.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -15,12 +16,15 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.HorizontalDivider
@@ -52,6 +56,7 @@ import com.nova.downloadmanager.R
 import com.nova.downloadmanager.browser.BrowserScreen
 import com.nova.downloadmanager.browser.BrowserSettingsSection
 import com.nova.downloadmanager.design.NOVADimens
+import com.nova.downloadmanager.media.MediaSelectionScreen
 import com.nova.downloadmanager.downloads.CoreReadiness
 import com.nova.downloadmanager.downloads.DownloadSummary
 import com.nova.downloadmanager.downloads.DownloadsUiState
@@ -128,6 +133,9 @@ fun NOVAApp(
             viewModel.requestDownload(url)
         }
     }
+    val onRequestMediaDownload: (String, String, String, String?) -> Unit = { pageUrl, streamId, title, container ->
+        viewModel.requestMediaDownload(pageUrl, streamId, title, container)
+    }
 
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { innerPadding ->
         BoxWithConstraints(
@@ -148,6 +156,7 @@ fun NOVAApp(
                         uiState = uiState,
                         onDismissSharedUrl = viewModel::clearSharedUrl,
                         onRequestDownload = onRequestDownload,
+                        onRequestMediaDownload = onRequestMediaDownload,
                         onPauseTask = viewModel::pauseTask,
                         onResumeTask = viewModel::resumeTask,
                         onCancelTask = viewModel::cancelTask,
@@ -167,6 +176,7 @@ fun NOVAApp(
                         uiState = uiState,
                         onDismissSharedUrl = viewModel::clearSharedUrl,
                         onRequestDownload = onRequestDownload,
+                        onRequestMediaDownload = onRequestMediaDownload,
                         onPauseTask = viewModel::pauseTask,
                         onResumeTask = viewModel::resumeTask,
                         onCancelTask = viewModel::cancelTask,
@@ -193,6 +203,7 @@ private fun NOVAContent(
     uiState: DownloadsUiState,
     onDismissSharedUrl: () -> Unit,
     onRequestDownload: (String) -> Unit,
+    onRequestMediaDownload: (String, String, String, String?) -> Unit,
     onPauseTask: (String) -> Unit,
     onResumeTask: (String) -> Unit,
     onCancelTask: (String) -> Unit,
@@ -218,7 +229,23 @@ private fun NOVAContent(
             onDownloadCaptured = onBrowserCaptured,
             modifier = modifier,
         )
-        AppDestination.Settings -> BrowserSettingsSection(modifier = modifier)
+        AppDestination.Media -> MediaSelectionScreen(
+            onRequestMediaDownload = onRequestMediaDownload,
+            modifier = modifier,
+        )
+        AppDestination.Settings -> SettingsScreen(modifier = modifier)
+    }
+}
+
+@Composable
+private fun SettingsScreen(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+    ) {
+        BrowserSettingsSection(modifier = Modifier.fillMaxWidth())
+        DownloadDestinationSettingsSection(modifier = Modifier.fillMaxWidth())
     }
 }
 
@@ -391,6 +418,7 @@ private fun DownloadTaskList(
     onResumeTask: (String) -> Unit,
     onCancelTask: (String) -> Unit,
 ) {
+    val context = LocalContext.current
     Column(verticalArrangement = Arrangement.spacedBy(NOVADimens.CompactGap)) {
         tasks.forEach { task ->
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -439,10 +467,33 @@ private fun DownloadTaskList(
                             }
                         }
                     }
+                    task.completedUri?.let { rawUri ->
+                        IconButton(onClick = {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW).apply {
+                                        setDataAndType(Uri.parse(rawUri), mimeTypeFor(task.name))
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    },
+                                )
+                            }
+                        }) {
+                            Icon(
+                                imageVector = Icons.Filled.OpenInNew,
+                                contentDescription = stringResource(R.string.nova_action_open),
+                            )
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+private fun mimeTypeFor(name: String): String {
+    val extension = name.substringAfterLast('.', "").lowercase()
+    return android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+        ?: "application/octet-stream"
 }
 
 private fun statusResource(status: String): Int = when (status) {

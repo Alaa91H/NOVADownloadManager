@@ -5,6 +5,7 @@
     <string name="nova_navigation_downloads" formatted="false">All Downloads</string>
     <string name="nova_navigation_queue" formatted="false">Queued for Download</string>
     <string name="nova_navigation_browser" formatted="false">Web Browser</string>
+    <string name="nova_navigation_media" formatted="false">Media &amp; Codecs</string>
     <string name="nova_navigation_settings" formatted="false">Settings</string>
     <string name="nova_filter_all" formatted="false">All</string>
     <string name="nova_filter_active" formatted="false">Active</string>
@@ -50,4 +51,57 @@
     <string name="nova_dns_invalid" formatted="false">Failed to test DNS.</string>
     <string name="nova_security_privacy" formatted="false">Security &amp; Privacy</string>
     <string name="nova_not_supported" formatted="false">Not supported</string>
+    <string name="nova_action_open" formatted="false">Open</string>
+    <string name="nova_storage_title" formatted="false">Download destination</string>
+    <string name="nova_storage_description" formatted="false">Choose where completed downloads are saved. The choice is recorded when each download is added.</string>
+    <string name="nova_storage_app_private" formatted="false">App storage</string>
+    <string name="nova_storage_app_private_detail" formatted="false">Save inside NOVA. Other apps cannot browse this folder.</string>
+    <string name="nova_storage_public_downloads" formatted="false">Public Downloads</string>
+    <string name="nova_storage_public_downloads_detail" formatted="false">Save in the device Downloads library.</string>
+    <string name="nova_storage_selected_folder" formatted="false">Choose a folder</string>
+    <string name="nova_storage_selected_folder_detail" formatted="false">Save to a folder selected from device storage.</string>
+    <string name="nova_storage_choose_folder" formatted="false">Select folder</string>
+    <string name="nova_storage_permission_error" formatted="false">The folder permission could not be saved. Select the folder again.</string>
+    <string name="nova_media_title" formatted="false">Native media studio</string>
+    <string name="nova_media_detail" formatted="false">Analyze supported media pages and convert local audio or video with NOVA’s bundled codecs.</string>
+    <string name="nova_media_resolve_title" formatted="false">Analyze a media page</string>
+    <string name="nova_media_source_url" formatted="false">Media page URL</string>
+    <string name="nova_media_analyze" formatted="false">Analyze</string>
+    <string name="nova_media_resolving" formatted="false">Analyzing with NOVA Media Engine…</string>
+    <string name="nova_media_streams" formatted="false">Available streams</string>
+    <string name="nova_media_no_streams" formatted="false">No downloadable streams were found.</string>
+    <string name="nova_media_download_stream" formatted="false">Add direct stream to downloads</string>
+    <string name="nova_media_direct_only" formatted="false">This stream is HLS or DASH. It needs a manifest task and cannot be treated as a single file.</string>
+    <string name="nova_media_codec_title" formatted="false">Convert a local media file</string>
+    <string name="nova_media_codec_detail" formatted="false">Choose a file and a supported output. Conversion runs in NOVA’s Rust codec engine without an external application.</string>
+    <string name="nova_media_choose_file" formatted="false">Choose audio or video</string>
+    <string name="nova_media_source_empty" formatted="false">Choose a supported media file to begin.</string>
+    <string name="nova_media_codec_unavailable" formatted="false">NOVA’s native codec engine is unavailable in this build.</string>
+    <string name="nova_media_include_video" formatted="false">Video track</string>
+    <string name="nova_media_include_audio" formatted="false">Audio track</string>
+    <string name="nova_media_output_container" formatted="false">Output container</string>
+    <string name="nova_media_video_codec" formatted="false">Video encoder</string>
+    <string name="nova_media_audio_codec" formatted="false">Audio encoder</string>
+    <string name="nova_media_start_conversion" formatted="false">Convert with NOVA</string>
+    <string name="nova_media_conversion_running" formatted="false">Converting locally…</string>
+    <string name="nova_media_conversion_done" formatted="false">Native conversion completed. Save the converted file to a folder.</string>
+    <string name="nova_media_save_converted" formatted="false">Save converted file</string>
+    <string name="nova_media_saved" formatted="false">Converted file saved.</string>
+    <string name="nova_media_paused" formatted="false">Conversion paused. Starting again reads the source from the beginning.</string>
+    <string name="nova_media_cancelled" formatted="false">Conversion cancelled.</string>
+    <string name="nova_media_invalid_url" formatted="false">Enter a valid HTTP or HTTPS media page.</string>
+    <string name="nova_media_supported_formats" formatted="false">Supported local inputs and encoders are reported by this native build.</string>
+    <string name="nova_media_output_track_required" formatted="false">Select at least one output track and encoder.</string>
+    <string name="nova_media_source_imported" formatted="false">Source copied to NOVA private staging.</string>
+    <string name="nova_media_resume_conversion" formatted="false">Resume</string>
+    <string name="nova_media_phase_planning" formatted="false">Planning</string>
+    <string name="nova_media_phase_probing" formatted="false">Probing</string>
+    <string name="nova_media_phase_demuxing" formatted="false">Demuxing</string>
+    <string name="nova_media_phase_decoding" formatted="false">Decoding</string>
+    <string name="nova_media_phase_filtering" formatted="false">Filtering</string>
+    <string name="nova_media_phase_encoding" formatted="false">Encoding</string>
+    <string name="nova_media_phase_muxing" formatted="false">Muxing</string>
+    <string name="nova_media_phase_finalizing" formatted="false">Finalizing</string>
+    <string name="nova_media_phase_completed" formatted="false">Completed</string>
+    <string name="nova_media_frames_count" formatted="false">%1$d frames</string>
 </resources>

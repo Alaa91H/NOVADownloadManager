@@ -27,13 +27,17 @@ class NovaApiClient final : public QObject {
     Q_PROPERTY(QVariantList activeSchedulerRuleIds READ activeSchedulerRuleIds NOTIFY schedulerChanged)
     Q_PROPERTY(bool schedulerPowerCommandsEnabled READ schedulerPowerCommandsEnabled NOTIFY schedulerChanged)
     Q_PROPERTY(bool batchRunning READ batchRunning NOTIFY batchStateChanged)
+    Q_PROPERTY(bool torrentAnalysisBusy READ torrentAnalysisBusy NOTIFY torrentAnalysisChanged)
+    Q_PROPERTY(QVariantMap torrentAnalysis READ torrentAnalysis NOTIFY torrentAnalysisChanged)
+    Q_PROPERTY(bool torrentDetailsBusy READ torrentDetailsBusy NOTIFY torrentDetailsChanged)
+    Q_PROPERTY(QString torrentDetailsTaskId READ torrentDetailsTaskId NOTIFY torrentDetailsChanged)
+    Q_PROPERTY(QVariantMap torrentDetails READ torrentDetails NOTIFY torrentDetailsChanged)
     Q_PROPERTY(bool mediaProbeBusy READ mediaProbeBusy NOTIFY mediaProbeChanged)
     Q_PROPERTY(QVariantMap mediaProbe READ mediaProbe NOTIFY mediaProbeChanged)
     Q_PROPERTY(QVariantList mediaFormats READ mediaFormats NOTIFY mediaProbeChanged)
     Q_PROPERTY(bool mediaPlaylistBusy READ mediaPlaylistBusy NOTIFY mediaPlaylistChanged)
     Q_PROPERTY(QString mediaPlaylistTitle READ mediaPlaylistTitle NOTIFY mediaPlaylistChanged)
     Q_PROPERTY(QVariantList mediaPlaylistEntries READ mediaPlaylistEntries NOTIFY mediaPlaylistChanged)
-    Q_PROPERTY(bool ffmpegAvailable READ ffmpegAvailable NOTIFY ffmpegChanged)
     Q_PROPERTY(bool directProbeBusy READ directProbeBusy NOTIFY directProbeChanged)
     Q_PROPERTY(QVariantMap directProbe READ directProbe NOTIFY directProbeChanged)
     Q_PROPERTY(QVariantMap engineCapabilities READ engineCapabilities NOTIFY engineManagementChanged)
@@ -51,6 +55,7 @@ class NovaApiClient final : public QObject {
     Q_PROPERTY(QString logDirectory READ logDirectory NOTIFY logsChanged)
     Q_PROPERTY(bool browserIntegrationBusy READ browserIntegrationBusy NOTIFY browserIntegrationChanged)
     Q_PROPERTY(QVariantMap browserIntegrationHealth READ browserIntegrationHealth NOTIFY browserIntegrationChanged)
+    Q_PROPERTY(QVariantList captureReviews READ captureReviews NOTIFY captureReviewsChanged)
     Q_PROPERTY(bool liveUpdatesConnected READ liveUpdatesConnected NOTIFY liveUpdatesChanged)
 
 public:
@@ -69,13 +74,17 @@ public:
     QVariantList activeSchedulerRuleIds() const { return m_activeSchedulerRuleIds; }
     bool schedulerPowerCommandsEnabled() const noexcept { return m_schedulerPowerCommandsEnabled; }
     bool batchRunning() const noexcept { return m_batchRunning; }
+    bool torrentAnalysisBusy() const noexcept { return m_torrentAnalysisBusy; }
+    QVariantMap torrentAnalysis() const { return m_torrentAnalysis; }
+    bool torrentDetailsBusy() const noexcept { return m_torrentDetailsBusy; }
+    QString torrentDetailsTaskId() const { return m_torrentDetailsTaskId; }
+    QVariantMap torrentDetails() const { return m_torrentDetails; }
     bool mediaProbeBusy() const noexcept { return m_mediaProbeBusy; }
     QVariantMap mediaProbe() const { return m_mediaProbe; }
     QVariantList mediaFormats() const { return m_mediaFormats; }
     bool mediaPlaylistBusy() const noexcept { return m_mediaPlaylistBusy; }
     QString mediaPlaylistTitle() const { return m_mediaPlaylistTitle; }
     QVariantList mediaPlaylistEntries() const { return m_mediaPlaylistEntries; }
-    bool ffmpegAvailable() const noexcept { return m_ffmpegAvailable; }
     bool directProbeBusy() const noexcept { return m_directProbeBusy; }
     QVariantMap directProbe() const { return m_directProbe; }
     QVariantMap engineCapabilities() const { return m_engineCapabilities; }
@@ -93,6 +102,7 @@ public:
     QString logDirectory() const { return m_logDirectory; }
     bool browserIntegrationBusy() const noexcept { return m_browserIntegrationBusy; }
     QVariantMap browserIntegrationHealth() const { return m_browserIntegrationHealth; }
+    QVariantList captureReviews() const { return m_captureReviews; }
     bool liveUpdatesConnected() const noexcept { return m_liveUpdatesConnected; }
 
     static int streamReconnectDelayForAttempt(int attempt) noexcept;
@@ -162,7 +172,6 @@ public:
 
     Q_INVOKABLE void probeMedia(const QString &url);
     Q_INVOKABLE void probeMediaPlaylist(const QString &url);
-    Q_INVOKABLE void refreshFfmpegStatus();
     Q_INVOKABLE void createMediaDownload(
         const QString &url,
         const QString &name,
@@ -206,6 +215,44 @@ public:
 
     Q_INVOKABLE void refreshBrowserIntegration();
     Q_INVOKABLE void setBrowserCaptureEnabled(bool enabled);
+    Q_INVOKABLE void refreshCaptureReviews();
+    Q_INVOKABLE void consumeCaptureReview(
+        const QString &reviewId,
+        const QString &name,
+        const QString &savePath,
+        bool startImmediately,
+        int connections
+    );
+    Q_INVOKABLE void discardCaptureReview(const QString &reviewId);
+    Q_INVOKABLE void clearTorrentAnalysis();
+    Q_INVOKABLE void clearTorrentDetails();
+    Q_INVOKABLE void refreshTorrentDetails(const QString &taskId);
+    Q_INVOKABLE void updateTorrentFilePriorities(
+        const QString &taskId,
+        const QVariantList &filePriorities
+    );
+    Q_INVOKABLE void updateTorrentSeedingPolicy(
+        const QString &taskId,
+        const QVariantMap &policy
+    );
+    Q_INVOKABLE void reauthorizeTorrentTask(
+        const QString &taskId,
+        const QString &magnetUri
+    );
+    Q_INVOKABLE void analyzeTorrentMagnet(const QString &magnetUri);
+    Q_INVOKABLE void analyzeTorrentUrl(const QString &url);
+    Q_INVOKABLE void analyzeTorrentFile(const QString &path);
+    Q_INVOKABLE void analyzeCaptureReviewTorrent(const QString &reviewId);
+    Q_INVOKABLE void createTorrent(
+        const QString &analysisId,
+        const QString &savePath,
+        bool startImmediately,
+        const QVariantList &filePriorities,
+        int connections,
+        const QVariantMap &seeding,
+        bool allowDuplicate,
+        const QString &captureReviewId = QString()
+    );
 
 signals:
     void connectionChanged();
@@ -234,7 +281,6 @@ signals:
     void mediaProbeFailed(const QString &message);
     void mediaPlaylistChanged();
     void mediaPlaylistFailed(const QString &message);
-    void ffmpegChanged();
     void mediaDownloadCreated(const QString &taskId);
 
     void directProbeChanged();
@@ -254,6 +300,21 @@ signals:
 
     void browserIntegrationChanged();
     void browserIntegrationFailed(const QString &message);
+
+    void captureReviewsChanged();
+    void captureReviewConsumed(const QString &reviewId, const QString &taskId);
+    void captureReviewDiscarded(const QString &reviewId);
+    void captureReviewActionFailed(const QString &reviewId, const QString &message);
+    void captureReviewListFailed(const QString &message);
+
+    void torrentAnalysisChanged();
+    void torrentAnalysisFailed(const QString &message);
+    void torrentTaskCreated(const QString &taskId);
+    void torrentTaskCreationFailed(const QString &message);
+    void torrentDetailsChanged();
+    void torrentDetailsFailed(const QString &taskId, const QString &message);
+    void torrentDetailsActionCompleted(const QString &action, const QString &taskId);
+    void torrentDetailsActionFailed(const QString &taskId, const QString &message);
 
     void liveUpdatesChanged();
     void streamReconnectScheduled(int delayMs);
@@ -276,6 +337,16 @@ private:
     QVariantMap queueById(const QString &queueId) const;
     QStringList orderedQueueTaskIds(const QString &queueId) const;
     QVariantMap sanitizeMediaOptions(const QVariantMap &options) const;
+    void sendTorrentAnalysis(
+        const QString &path,
+        const QByteArray &payload,
+        const QByteArray &contentType
+    );
+    void sendTorrentDetailsUpdate(
+        const QString &taskId,
+        const QString &action,
+        const QByteArray &payload
+    );
 
     QNetworkAccessManager m_network;
     QUrl m_baseUrl{QStringLiteral("http://127.0.0.1:3199")};
@@ -327,7 +398,6 @@ private:
     bool m_mediaPlaylistBusy{false};
     QString m_mediaPlaylistTitle;
     QVariantList m_mediaPlaylistEntries;
-    bool m_ffmpegAvailable{false};
 
     bool m_directProbeBusy{false};
     QVariantMap m_directProbe;
@@ -350,4 +420,12 @@ private:
 
     bool m_browserIntegrationBusy{false};
     QVariantMap m_browserIntegrationHealth;
+    QVariantList m_captureReviews;
+    bool m_captureReviewsRequestInFlight{false};
+    bool m_torrentAnalysisBusy{false};
+    QVariantMap m_torrentAnalysis;
+    bool m_torrentDetailsBusy{false};
+    QString m_torrentDetailsTaskId;
+    QVariantMap m_torrentDetails;
+    quint64 m_torrentDetailsGeneration{0};
 };

@@ -39,8 +39,8 @@ pub const fn native_media_processing_capabilities() -> NativeMediaProcessingCapa
         matroska_demux: true,
         matroska_mux: true,
         native_remux: true,
-        native_audio_transcode: false,
-        native_video_transcode: false,
+        native_audio_transcode: true,
+        native_video_transcode: true,
         hardware_acceleration: false,
     }
 }
@@ -63,7 +63,7 @@ mod tests {
         assert!(caps.matroska_demux);
         assert!(caps.matroska_mux);
         assert!(caps.native_remux);
-        assert!(!caps.native_audio_transcode);
-        assert!(!caps.native_video_transcode);
+        assert!(caps.native_audio_transcode);
+        assert!(caps.native_video_transcode);
     }
 }

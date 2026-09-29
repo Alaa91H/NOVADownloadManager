@@ -16,7 +16,7 @@ The new UI uses:
 - CMake 3.24+
 - The existing NOVA Rust daemon and download engines
 
-It does **not** reimplement libcurl multi, yt-dlp/FFmpeg routing, queue execution, scheduler execution, browser capture, or the Rust core.
+It does **not** reimplement libcurl multi, native media extraction and codec processing, queue execution, scheduler execution, browser capture, or the Rust core.
 
 ## Build
 

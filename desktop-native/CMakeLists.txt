@@ -50,17 +50,20 @@ qt_add_qml_module(nova-native
         qml/Main.qml
         qml/Theme.qml
         qml/components/AddDownloadDialog.qml
+        qml/components/BrowserCaptureReviewDialog.qml
         qml/components/BrowserIntegrationPanel.qml
         qml/components/CommandBar.qml
         qml/components/CustomizationPanel.qml
         qml/components/ConfirmDeleteDialog.qml
         qml/components/ConfirmRedownloadDialog.qml
         qml/components/DownloadDetailsPanel.qml
+        qml/components/TorrentDetailsPanel.qml
         qml/components/DownloadPropertiesDialog.qml
         qml/components/MediaAdvancedPanel.qml
         qml/components/QueueSettingsPanel.qml
         qml/components/QueueSchedulerPanel.qml
         qml/components/SettingsAdvancedPanel.qml
+        qml/components/TorrentAddDialog.qml
         qml/components/NavigationRail.qml
         qml/components/StatusBar.qml
         qml/pages/BatchImportPage.qml

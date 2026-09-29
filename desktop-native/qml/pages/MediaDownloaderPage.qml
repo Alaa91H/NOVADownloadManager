@@ -14,7 +14,6 @@ Item {
     property string statusText: ""
     property bool playlistMode: false
     property var capabilitySnapshot: api.engineCapabilities
-    property bool ffmpegTouched: false
     property bool selectAllPlaylist: true
     property bool defaultsApplied: false
     property var selectedPlaylistIndexes: ({})
@@ -78,6 +77,106 @@ Item {
         return bytes + " B"
     }
 
+    function outputContainerOptions(track) {
+        const options = [{ label: root.t("media.sourceFormat"), value: "auto" }]
+        const engines = api.engineCapabilities.engines || ({})
+        const media = engines.media || ({})
+        const capabilities = media.capabilities || ({})
+        const localCodecs = capabilities.localCodecs || ({})
+        const codec = track === "video" ? localCodecs.video || ({}) : localCodecs.audio || ({})
+        const values = codec.outputContainers
+        if (Array.isArray(values)) {
+            for (let i = 0; i < values.length; ++i) {
+                const value = String(values[i] || "").trim()
+                if (value.length > 0)
+                    options.push({ label: value.toUpperCase(), value: value })
+            }
+        }
+        return options
+    }
+
+    function encoderOptions(track, container) {
+        const options = [{ label: root.t("media.streamCopy"), value: "copy" }]
+        if (String(container || "auto") === "auto")
+            return options
+        const engines = api.engineCapabilities.engines || ({})
+        const media = engines.media || ({})
+        const capabilities = media.capabilities || ({})
+        const localCodecs = capabilities.localCodecs || ({})
+        const codec = track === "video" ? localCodecs.video || ({}) : localCodecs.audio || ({})
+        const encoders = codec.encoders
+        if (!Array.isArray(encoders))
+            return options
+        const byContainer = codec.encodersByContainer || ({})
+        const allowed = byContainer[String(container)] || []
+        for (let i = 0; i < encoders.length; ++i) {
+            const encoder = String(encoders[i] || "").trim()
+            if (encoder.length > 0 && allowed.indexOf(encoder) >= 0)
+                options.push({ label: encoder, value: encoder })
+        }
+        return options
+    }
+
+    function supportsCrf(encoder) {
+        return ["h264", "vp9"]
+            .indexOf(String(encoder || "")) >= 0
+    }
+
+    function supportsAudioBitrate(encoder) {
+        return ["aac", "mp3", "opus", "vorbis"]
+            .indexOf(String(encoder || "")) >= 0
+    }
+
+    function localCodecAvailable() {
+        const engines = api.engineCapabilities.engines || ({})
+        const media = engines.media || ({})
+        const capabilities = media.capabilities || ({})
+        const codecs = capabilities.localCodecs || ({})
+        const audio = codecs.audio || ({})
+        const video = codecs.video || ({})
+        return (Array.isArray(audio.encoders) && audio.encoders.length > 0)
+            || (Array.isArray(video.encoders) && video.encoders.length > 0)
+    }
+
+    function localSubtitleContainerAvailable(container) {
+        const engines = api.engineCapabilities.engines || ({})
+        const media = engines.media || ({})
+        const capabilities = media.capabilities || ({})
+        const codecs = capabilities.localCodecs || ({})
+        const containers = codecs.subtitleContainers || []
+        return Array.isArray(containers) && containers.indexOf(String(container || "")) >= 0
+    }
+
+    function selectEncoder(choices, preferred) {
+        if (!Array.isArray(choices))
+            return 0
+        for (let i = 0; i < choices.length; ++i) {
+            if (String(choices[i].value || "") === preferred)
+                return i
+        }
+        return preferred === "copy" || choices.length < 2 ? 0 : 1
+    }
+
+    function preferredVideoEncoder(container) {
+        if (String(container || "auto") === "auto")
+            return "copy"
+        return "h264"
+    }
+
+    function preferredAudioEncoder(container) {
+        switch (String(container || "auto")) {
+        case "m4a": return "aac"
+        case "aac": return "aac"
+        case "mp3": return "mp3"
+        case "opus": return "opus"
+        case "ogg": return "vorbis"
+        case "flac": return "flac"
+        case "wav": return "pcm_s16le"
+        case "auto": return "copy"
+        default: return "aac"
+        }
+    }
+
     function rebuildQualityModel() {
         qualityModel.clear()
         qualityModel.append({ label: root.t("media.bestAvailable"), value: "best", size: 0 })
@@ -127,7 +226,6 @@ Item {
 
         subtitlesCheck.checked = Boolean(a.downloadSubtitles)
         subtitleLanguages.text = String(a.subtitleLanguage || "")
-        ffmpegCheck.checked = api.ffmpegAvailable && Boolean(a.ffmpegAutoMerge !== false)
         defaultsApplied = true
     }
 
@@ -160,21 +258,18 @@ Item {
             errorText = root.t("media.noPlaylistSelection")
             return
         }
-        if (api.engineCapabilities.mediaReady !== true) {
+        if (api.engineCapabilities.mediaExtractionReady !== true) {
             errorText = root.t("media.engineUnavailable")
             return
         }
-        if (isAudio && api.engineCapabilities.postProcessingReady !== true) {
-            errorText = root.t("media.audioRequiresPostProcessing")
+        if (isAudio && (audioFormatBox.count === 0 || audioCodecBox.count === 0)) {
+            errorText = root.t("media.audioConversionUnavailable")
             return
         }
 
         const options = {
             mode: isAudio ? "audio" : "video",
             quality: qualityValue,
-            audioFormat: audioFormatBox.currentValue || "m4a",
-            ffmpegEnabled: ffmpegCheck.checked,
-            bitrate: bitrateBox.currentValue || "320K",
             outputTemplate: outputTemplate.text.trim().length > 0
                 ? outputTemplate.text.trim()
                 : "%(title)s.%(ext)s",
@@ -191,6 +286,47 @@ Item {
             embedThumbnail: thumbnailCheck.checked && embedThumbnailCheck.checked,
             writeInfoJson: infoJsonCheck.checked,
             writeDescription: descriptionCheck.checked
+        }
+        if (isAudio) {
+            options.audioFormat = audioFormatBox.currentValue || "m4a"
+            options.bitrate = audioCodecBox.currentValue === "copy"
+                || !root.supportsAudioBitrate(audioCodecBox.currentValue)
+                || Number(bitrateBox.currentValue || 0) === 0
+                ? "0"
+                : String(Number(bitrateBox.currentValue) / 1000) + "K"
+        } else if (videoContainerBox.currentValue && videoContainerBox.currentValue !== "auto") {
+            options.remuxFormat = String(videoContainerBox.currentValue)
+        }
+        if (!isAudio && videoCodecBox.currentValue !== "copy")
+            options.videoCodec = String(videoCodecBox.currentValue || "")
+        if (audioCodecBox.currentValue)
+            options.audioCodec = String(audioCodecBox.currentValue)
+        if (!isAudio && videoCodecBox.currentValue !== "copy") {
+            const videoBitrate = Number(videoBitrateBox.currentValue || 0)
+            const crf = Number(videoCrfBox.currentValue || 0)
+            const height = Number(outputHeightBox.currentValue || 0)
+            const frameRate = Number(frameRateBox.currentValue || 0)
+            if (videoBitrate > 0)
+                options.videoBitrateBps = videoBitrate
+            if (crf > 0 && root.supportsCrf(videoCodecBox.currentValue))
+                options.transcodeCrf = crf
+            if (height > 0)
+                options.height = height
+            if (frameRate > 0)
+                options.frameRateMilli = frameRate
+            if (String(videoCodecBox.currentValue) === "h264")
+                options.transcodePreset = String(presetBox.currentValue || "medium")
+        }
+        const audioBitrate = Number(bitrateBox.currentValue || 0)
+        if (!isAudio && audioBitrate > 0 && root.supportsAudioBitrate(audioCodecBox.currentValue))
+            options.audioBitrateBps = audioBitrate
+        const sampleRate = Number(audioSampleRateBox.currentValue || 0)
+        const audioChannels = Number(audioChannelsBox.currentValue || 0)
+        if (audioCodecBox.currentValue !== "copy") {
+            if (sampleRate > 0)
+                options.audioSampleRateHz = sampleRate
+            if (audioChannels > 0)
+                options.audioChannels = audioChannels
         }
 
         const defaults = settings.advancedSettings || ({})
@@ -249,7 +385,6 @@ Item {
 
     Component.onCompleted: {
         api.refreshEngineCapabilities()
-        api.refreshFfmpegStatus()
         rebuildQualityModel()
         saveDirectory.text = settings.defaultSaveDirectory
         startImmediately.checked = settings.startImmediately
@@ -262,17 +397,7 @@ Item {
         function onConnectionChanged() {
             if (api.connected) {
                 api.refreshEngineCapabilities()
-                api.refreshFfmpegStatus()
             }
-        }
-
-        function onFfmpegChanged() {
-            if (!root.ffmpegTouched) {
-                const a = settings.advancedSettings || ({})
-                ffmpegCheck.checked = api.ffmpegAvailable && Boolean(a.ffmpegAutoMerge !== false)
-            }
-            if (!api.ffmpegAvailable)
-                ffmpegCheck.checked = false
         }
 
         function onMediaProbeChanged() {
@@ -340,17 +465,17 @@ Item {
             Item { Layout.fillWidth: true }
 
             Rectangle {
-                implicitWidth: ffmpegLabel.implicitWidth + 20
+                implicitWidth: localCodecLabel.implicitWidth + 20
                 implicitHeight: 26
                 radius: 13
-                color: api.ffmpegAvailable ? Qt.rgba(0.25, 0.73, 0.31, 0.12) : Theme.surface
-                border.color: api.ffmpegAvailable ? Theme.success : Theme.border
+                color: root.localCodecAvailable() ? Qt.rgba(0.25, 0.73, 0.31, 0.12) : Theme.surface
+                border.color: root.localCodecAvailable() ? Theme.success : Theme.border
 
                 Text {
-                    id: ffmpegLabel
+                    id: localCodecLabel
                     anchors.centerIn: parent
-                    text: api.ffmpegAvailable ? root.t("media.ffmpegReady") : root.t("media.ffmpegUnavailable")
-                    color: api.ffmpegAvailable ? Theme.success : Theme.textMuted
+                    text: root.localCodecAvailable() ? root.t("media.localCodecsReady") : root.t("media.localCodecsUnavailable")
+                    color: root.localCodecAvailable() ? Theme.success : Theme.textMuted
                     font.pixelSize: Theme.fontTiny
                     font.weight: Font.DemiBold
                 }
@@ -456,7 +581,7 @@ Item {
                                     id: modeBox
                                     Layout.fillWidth: true
                                     Accessible.name: root.t("media.mode")
-                                    enabled: api.engineCapabilities.mediaReady === true
+                                    enabled: api.engineCapabilities.mediaExtractionReady === true
                                     model: [root.t("media.videoAudio"), root.t("media.audioOnly")]
                                 }
                             }
@@ -481,6 +606,34 @@ Item {
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 spacing: 4
+                                visible: modeBox.currentIndex === 0
+
+                                Text { text: root.t("media.outputContainer"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
+                                ComboBox {
+                                    id: videoContainerBox
+                                    Layout.fillWidth: true
+                                    Accessible.name: root.t("media.outputContainer")
+                                    enabled: api.mediaOptionSupported("remuxFormat")
+                                    model: root.outputContainerOptions("video")
+                                    textRole: "label"
+                                    valueRole: "value"
+                                    currentIndex: 0
+                                    onCurrentIndexChanged: {
+                                        videoCodecBox.currentIndex = root.selectEncoder(
+                                            root.encoderOptions("video", currentValue),
+                                            root.preferredVideoEncoder(currentValue)
+                                        )
+                                        audioCodecBox.currentIndex = root.selectEncoder(
+                                            root.encoderOptions("audio", currentValue),
+                                            root.preferredAudioEncoder(currentValue)
+                                        )
+                                    }
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
                                 visible: modeBox.currentIndex === 1
 
                                 Text { text: root.t("media.audioFormat"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
@@ -489,13 +642,134 @@ Item {
                                     Layout.fillWidth: true
                                     Accessible.name: root.t("media.audioFormat")
                                     enabled: api.mediaOptionSupported("audioFormat")
-                                        && api.engineCapabilities.postProcessingReady === true
+                                    model: root.outputContainerOptions("audio")
+                                    textRole: "label"
+                                    valueRole: "value"
+                                    onCurrentIndexChanged: {
+                                        audioCodecBox.currentIndex = root.selectEncoder(
+                                            root.encoderOptions("audio", currentValue),
+                                            root.preferredAudioEncoder(currentValue)
+                                        )
+                                    }
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+                                visible: modeBox.currentIndex === 0
+
+                                Text { text: root.t("media.videoCodec"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
+                                ComboBox {
+                                    id: videoCodecBox
+                                    Layout.fillWidth: true
+                                    Accessible.name: root.t("media.videoCodec")
+                                    enabled: api.mediaOptionSupported("videoCodec")
+                                    model: root.encoderOptions("video", videoContainerBox.currentValue)
+                                    textRole: "label"
+                                    valueRole: "value"
+                                    currentIndex: 0
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+                                Text { text: root.t("media.audioCodec"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
+                                ComboBox {
+                                    id: audioCodecBox
+                                    Layout.fillWidth: true
+                                    Accessible.name: root.t("media.audioCodec")
+                                    enabled: modeBox.currentIndex === 1
+                                        && String(audioFormatBox.currentValue || "auto") !== "auto"
+                                        && api.mediaOptionSupported("audioCodec")
+                                    model: root.encoderOptions(
+                                        "audio",
+                                        modeBox.currentIndex === 1
+                                            ? audioFormatBox.currentValue
+                                            : videoContainerBox.currentValue
+                                    )
+                                    textRole: "label"
+                                    valueRole: "value"
+                                    currentIndex: 0
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+                                visible: modeBox.currentIndex === 0
+
+                                Text { text: root.t("media.videoBitrate"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
+                                ComboBox {
+                                    id: videoBitrateBox
+                                    Layout.fillWidth: true
+                                    Accessible.name: root.t("media.videoBitrate")
+                                    enabled: videoCodecBox.currentValue !== "copy"
+                                        && api.mediaOptionSupported("videoBitrateBps")
                                     model: [
-                                        { label: "M4A", value: "m4a" },
-                                        { label: "MP3", value: "mp3" },
-                                        { label: "Opus", value: "opus" },
-                                        { label: "FLAC", value: "flac" },
-                                        { label: "WAV", value: "wav" }
+                                        { label: root.t("media.encoderDefault"), value: 0 },
+                                        { label: "1 Mbps", value: 1000000 },
+                                        { label: "2.5 Mbps", value: 2500000 },
+                                        { label: "5 Mbps", value: 5000000 },
+                                        { label: "8 Mbps", value: 8000000 },
+                                        { label: "12 Mbps", value: 12000000 }
+                                    ]
+                                    textRole: "label"
+                                    valueRole: "value"
+                                    onCurrentIndexChanged: {
+                                        if (Number(currentValue || 0) > 0 && videoCrfBox.currentIndex > 0)
+                                            videoCrfBox.currentIndex = 0
+                                    }
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+                                visible: modeBox.currentIndex === 0
+
+                                Text { text: root.t("media.videoQuality"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
+                                ComboBox {
+                                    id: videoCrfBox
+                                    Layout.fillWidth: true
+                                    Accessible.name: root.t("media.videoQuality")
+                                    enabled: videoCodecBox.currentValue !== "copy"
+                                        && root.supportsCrf(videoCodecBox.currentValue)
+                                    model: [
+                                        { label: root.t("media.encoderDefault"), value: 0 },
+                                        { label: root.t("media.crfHigh"), value: 18 },
+                                        { label: root.t("media.crfBalanced"), value: 23 },
+                                        { label: root.t("media.crfSmaller"), value: 28 }
+                                    ]
+                                    textRole: "label"
+                                    valueRole: "value"
+                                    onCurrentIndexChanged: {
+                                        if (Number(currentValue || 0) > 0 && videoBitrateBox.currentIndex > 0)
+                                            videoBitrateBox.currentIndex = 0
+                                    }
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+                                visible: modeBox.currentIndex === 0
+
+                                Text { text: root.t("media.outputResolution"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
+                                ComboBox {
+                                    id: outputHeightBox
+                                    Layout.fillWidth: true
+                                    Accessible.name: root.t("media.outputResolution")
+                                    enabled: videoCodecBox.currentValue !== "copy"
+                                        && api.mediaOptionSupported("height")
+                                    model: [
+                                        { label: root.t("media.sourceResolution"), value: 0 },
+                                        { label: "480p", value: 480 },
+                                        { label: "720p", value: 720 },
+                                        { label: "1080p", value: 1080 },
+                                        { label: "1440p", value: 1440 },
+                                        { label: "2160p", value: 2160 }
                                     ]
                                     textRole: "label"
                                     valueRole: "value"
@@ -505,21 +779,103 @@ Item {
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 spacing: 4
-                                visible: modeBox.currentIndex === 1
+                                visible: modeBox.currentIndex === 0
 
-                                Text { text: root.t("media.audioQuality"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
+                                Text { text: root.t("media.frameRate"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
+                                ComboBox {
+                                    id: frameRateBox
+                                    Layout.fillWidth: true
+                                    Accessible.name: root.t("media.frameRate")
+                                    enabled: videoCodecBox.currentValue !== "copy"
+                                        && api.mediaOptionSupported("frameRateMilli")
+                                    model: [
+                                        { label: root.t("media.sourceFrameRate"), value: 0 },
+                                        { label: "24 fps", value: 24000 },
+                                        { label: "30 fps", value: 30000 },
+                                        { label: "60 fps", value: 60000 }
+                                    ]
+                                    textRole: "label"
+                                    valueRole: "value"
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+                                visible: modeBox.currentIndex === 0
+
+                                Text { text: root.t("media.encoderPreset"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
+                                ComboBox {
+                                    id: presetBox
+                                    Layout.fillWidth: true
+                                    Accessible.name: root.t("media.encoderPreset")
+                                    enabled: String(videoCodecBox.currentValue) === "h264"
+                                        && api.mediaOptionSupported("transcodePreset")
+                                    model: ["ultrafast", "fast", "medium", "slow", "veryslow"]
+                                    currentIndex: 2
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+
+                                Text { text: root.t("media.audioBitrate"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
                                 ComboBox {
                                     id: bitrateBox
                                     Layout.fillWidth: true
-                                    Accessible.name: root.t("media.audioQuality")
+                                    Accessible.name: root.t("media.audioBitrate")
                                     enabled: api.mediaOptionSupported("bitrate")
-                                        && api.engineCapabilities.postProcessingReady === true
+                                        && root.supportsAudioBitrate(audioCodecBox.currentValue)
                                     model: [
-                                        { label: "Best", value: "0" },
-                                        { label: "320K", value: "320K" },
-                                        { label: "256K", value: "256K" },
-                                        { label: "192K", value: "192K" },
-                                        { label: "128K", value: "128K" }
+                                        { label: root.t("media.encoderDefault"), value: 0 },
+                                        { label: "320K", value: 320000 },
+                                        { label: "256K", value: 256000 },
+                                        { label: "192K", value: 192000 },
+                                        { label: "128K", value: 128000 }
+                                    ]
+                                    textRole: "label"
+                                    valueRole: "value"
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+
+                                Text { text: root.t("media.audioSampleRate"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
+                                ComboBox {
+                                    id: audioSampleRateBox
+                                    Layout.fillWidth: true
+                                    Accessible.name: root.t("media.audioSampleRate")
+                                    enabled: audioCodecBox.currentValue !== "copy"
+                                        && api.mediaOptionSupported("audioSampleRateHz")
+                                    model: [
+                                        { label: root.t("media.encoderDefault"), value: 0 },
+                                        { label: "44.1 kHz", value: 44100 },
+                                        { label: "48 kHz", value: 48000 },
+                                        { label: "96 kHz", value: 96000 }
+                                    ]
+                                    textRole: "label"
+                                    valueRole: "value"
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+
+                                Text { text: root.t("media.audioChannels"); color: Theme.textMuted; font.pixelSize: Theme.fontTiny }
+                                ComboBox {
+                                    id: audioChannelsBox
+                                    Layout.fillWidth: true
+                                    Accessible.name: root.t("media.audioChannels")
+                                    enabled: audioCodecBox.currentValue !== "copy"
+                                        && api.mediaOptionSupported("audioChannels")
+                                    model: [
+                                        { label: root.t("media.encoderDefault"), value: 0 },
+                                        { label: root.t("media.mono"), value: 1 },
+                                        { label: root.t("media.stereo"), value: 2 }
                                     ]
                                     textRole: "label"
                                     valueRole: "value"
@@ -623,16 +979,6 @@ Item {
                             spacing: 8
 
                             CheckBox {
-                                id: ffmpegCheck
-                                text: root.t("media.useFfmpeg")
-                                Accessible.name: text
-                                checked: false
-                                enabled: api.ffmpegAvailable
-                                    && api.mediaOptionSupported("ffmpegEnabled")
-                                onClicked: root.ffmpegTouched = true
-                            }
-
-                            CheckBox {
                                 id: subtitlesCheck
                                 text: root.t("media.subtitles")
                                 Accessible.name: text
@@ -644,7 +990,8 @@ Item {
                                 text: root.t("media.embedSubtitles")
                                 Accessible.name: text
                                 enabled: subtitlesCheck.checked
-                                    && ffmpegCheck.checked
+                                    && modeBox.currentIndex === 0
+                                    && root.localSubtitleContainerAvailable(videoContainerBox.currentValue)
                                     && api.mediaOptionSupported("embedSubtitles")
                             }
 
@@ -660,7 +1007,6 @@ Item {
                                 text: root.t("media.embedThumbnail")
                                 Accessible.name: text
                                 enabled: thumbnailCheck.checked
-                                    && ffmpegCheck.checked
                                     && api.mediaOptionSupported("embedThumbnail")
                             }
 
@@ -990,7 +1336,7 @@ Item {
             Button {
                 text: root.t("media.start")
                 enabled: api.connected
-                    && api.engineCapabilities.mediaReady === true
+                    && api.engineCapabilities.mediaExtractionReady === true
                     && !api.mediaProbeBusy
                     && !api.mediaPlaylistBusy
                     && urlField.text.trim().length > 0

@@ -66,6 +66,15 @@ describe('message-router dispatch + policy', () => {
     expect(response.code).toBe('PERMISSION_MISSING');
   });
 
+  it('accepts managed media analysis only from an extension UI sender', async () => {
+    const response = (await harness.invoke(
+      { type: 'ANALYZE_MEDIA', url: 'https://example.com/watch' },
+      harness.pageSender,
+    )) as { ok: boolean; code: string };
+    expect(response.ok).toBe(false);
+    expect(response.code).toBe('PERMISSION_MISSING');
+  });
+
   it('rejects a send-batch from an untrusted sender before reaching the bridge', async () => {
     const response = (await harness.invoke(
       { type: 'SEND_BATCH', candidates: [{ id: 'c1', url: 'https://example.com/a.zip', source: 'dom', mediaType: 'archive', confidence: 75, createdAt: '2026-01-01T00:00:00.000Z' }] },
@@ -176,5 +185,73 @@ describe('message-router dispatch + policy', () => {
     const response = (await harness.invoke({ type: 'OVERLAY_ANALYZE_MEDIA' }, { url: 'https://example.com/no-tab' })) as { ok: boolean; code?: string };
     expect(response.ok).toBe(false);
     expect(response.code).toBe('PERMISSION_MISSING');
+  });
+
+  it('re-analyzes the stable page and forwards only its current selected media format', async () => {
+    const pageUrl = 'https://example.com/watch?v=video';
+    const analyzeMedia = vi.spyOn(bridgeManager, 'analyzeMedia').mockResolvedValue({
+      ok: true,
+      url: pageUrl,
+      title: 'Example video',
+      formats: [{
+        url: 'https://cdn.example.com/video?expires=123',
+        formatId: '137',
+        height: 1080,
+        hasVideo: true,
+        hasAudio: false,
+      }],
+      drmProtected: false,
+      isLive: false,
+      detectedType: 'video',
+    });
+    const addMedia = vi.spyOn(bridgeManager, 'addMedia').mockResolvedValue({
+      ok: true,
+      accepted: true,
+      taskId: 'media-task',
+      taskIds: ['media-task'],
+    } as never);
+
+    await harness.invoke(
+      { type: 'ADD_MEDIA', url: pageUrl, pageUrl, formatId: '137' },
+      harness.uiSender,
+    );
+
+    expect(analyzeMedia).toHaveBeenCalledWith(pageUrl, {
+      pageUrl,
+      referrer: undefined,
+      title: undefined,
+    });
+    expect(addMedia).toHaveBeenCalledWith(expect.objectContaining({
+      url: pageUrl,
+      selectedFormat: expect.objectContaining({ url: pageUrl, formatId: '137' }),
+      drmProtected: false,
+    }));
+    expect(JSON.stringify(addMedia.mock.calls[0]?.[0])).not.toContain('cdn.example.com');
+    analyzeMedia.mockRestore();
+    addMedia.mockRestore();
+  });
+
+  it('rejects a managed-media selection when current analysis detects DRM', async () => {
+    const pageUrl = 'https://example.com/watch?v=protected';
+    const analyzeMedia = vi.spyOn(bridgeManager, 'analyzeMedia').mockResolvedValue({
+      ok: true,
+      url: pageUrl,
+      formats: [{ url: 'https://cdn.example.com/protected', formatId: '137', hasVideo: true, hasAudio: false }],
+      drmProtected: true,
+      isLive: false,
+      detectedType: 'video',
+    });
+    const addMedia = vi.spyOn(bridgeManager, 'addMedia');
+
+    const response = (await harness.invoke(
+      { type: 'ADD_MEDIA', url: pageUrl, pageUrl, formatId: '137' },
+      harness.uiSender,
+    )) as { ok: boolean; code: string };
+
+    expect(response.ok).toBe(false);
+    expect(response.code).toBe('VALIDATION_FAILED');
+    expect(addMedia).not.toHaveBeenCalled();
+    analyzeMedia.mockRestore();
+    addMedia.mockRestore();
   });
 });

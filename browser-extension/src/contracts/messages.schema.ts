@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { CandidateSchema } from './candidate.schema';
-import { StreamQualitySchema, MediaCatalogFormatSchema } from './nova.protocol.v4';
+import { StreamQualitySchema } from './nova.protocol.v4';
 import { SettingsSchema } from './settings.schema';
 import { DrmIndicatorsSchema, DrmInfoSchema } from './drm.schema';
 import { SiteRuleSchema } from '../rules/site-rules';
@@ -56,7 +56,9 @@ export const RuntimeMessageSchema = z.discriminatedUnion('type', [
     title: z.string().trim().min(1).max(512).optional(),
     pageUrl: z.string().url().optional(),
     referrer: z.string().url().optional(),
-    selectedFormat: MediaCatalogFormatSchema,
+    // The background re-analyzes this stable page URL and accepts only a
+    // current format id. Delivery URLs and UI-provided format objects stay local.
+    formatId: z.string().trim().min(1).max(128),
   }),
   // The overlay proves the selected format against a fresh bounded analysis in
   // the background. It submits no media URL or untrusted format object.

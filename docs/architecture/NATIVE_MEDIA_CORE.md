@@ -122,10 +122,12 @@ request URL + authorized headers/cookies
 - native manifest tasks integrated with the shared task lifecycle, cancellation generation, queue accounting and persisted snapshots;
 - native separate audio/video task execution with parallel track staging, per-track progress and durable completed-track checkpoints;
 - native progressive MP4 multi-track muxing in `nova-media-core`, preserving source codec/sample metadata and interleaving video/audio by decode time without transcoding;
-- 1080p/1440p/2160p quality selection can choose compatible MP4 video/audio tracks even when the host FFmpeg adapter is unavailable;
-- non-MP4 copy-mux and embedding operations remain isolated behind the `NOVA Post-Processing` host interface; the temporary FFmpeg adapter receives local files only and never participates in URL resolution, extraction or authentication;
+- 1080p/1440p/2160p quality selection can choose compatible MP4 video/audio tracks for the in-process native muxer;
+- separate-track mux, local transcode, and supported text-subtitle embedding use the in-process `nova-media-processing-core`; each output combination is preflighted against the codecs and containers registered by that binary;
 - pause/resume during separate-track transfer preserves native partial artifacts, while completed tracks are reused after restart without unnecessary re-download;
 - native audio-only representation selection without transcoding, including source-container preference and bounded format sorting;
+- media-task finalization uses a bundled in-process Rust codec engine for compatible audio/video re-encoding and container conversion; its encoder/container pairs are returned by `/api/engines/capabilities`;
+- conversion controls include stream copy, locally registered software encoders, bitrate/quality, resolution, frame rate, presets, sample rate and mono/stereo output; output templates are sanitized before they become task names;
 - explicit native stream/itag selection for one stream or a video+audio pair;
 - native subtitle and automatic-subtitle sidecar download with language filtering;
 - native thumbnail, description and redacted info-JSON sidecars; transport headers, cookies and signed stream URLs are excluded from info JSON;
@@ -163,7 +165,7 @@ Still isolated behind typed interfaces:
 - HLS/DASH manifests that require composing separate audio/video representations into one output;
 - subtitle/thumbnail/metadata embedding into the final container;
 - chapter splitting and time-based partial-section extraction;
-- audio transcoding targets such as MP3/FLAC/WAV when no matching source representation exists;
+- Android app-level media-task execution and codec UI; the codec crate is linked through the mobile FFI dependency, but no Android task API or end-to-end transfer/publish path is exposed yet;
 - advanced live crash recovery beyond the persisted cursor/committed-part checkpoint implemented by the task path;
 - Chromium-family browser-cookie import (Chrome/Edge) pending native OS credential decryption; Firefox import is native;
 - additional site adapters;
@@ -173,7 +175,7 @@ Unknown transforms and unsupported protected-media modes fail closed. They are n
 
 ### Post-processing boundary
 
-The temporary FFmpeg adapter is **not** a media resolver. Compatible MP4 video/audio pairs are muxed directly by `nova-media-core`; the adapter is reserved for container/embedding cases that the native muxer does not yet cover. NOVA resolves and downloads every selected track first. The adapter receives only local staged file paths and a destination path, uses explicit stream mapping with copy-only muxing, accepts no user-supplied command fragments, and can be cancelled by the task lifecycle. Unsupported non-MP4/embedding requests fail closed when the host post-processor is unavailable.
+Compatible MP4 video/audio pairs are muxed directly by `nova-media-core`. Other local mux and conversion work runs through `nova-media-processing-core` only when the selected codec/container pair is supported by that binary. Subtitle embedding currently accepts supported SRT/WebVTT sidecars and preserves media packets; it does not promise embedded-subtitle stream copying, styled ASS rendering, chapters, or thumbnail embedding. No media task falls back to an external executable. Android currently exposes media resolution only; media transfer, processing, and public-storage publication still need an Android task API and acceptance coverage.
 
 ## Post-removal native acceptance matrix
 

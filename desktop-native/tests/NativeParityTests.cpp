@@ -806,7 +806,6 @@ void NativeParityTests::mediaDownloadCarriesAdvancedOptions() {
         {QStringLiteral("formatSelector"), QStringLiteral("bv*+ba/b")},
         {QStringLiteral("formatSort"), QStringLiteral("res,codec:avc:m4a")},
         {QStringLiteral("audioFormat"), QStringLiteral("m4a")},
-        {QStringLiteral("ffmpegEnabled"), true},
         {QStringLiteral("bitrate"), QStringLiteral("320K")},
         {QStringLiteral("outputTemplate"), QStringLiteral("%(title)s.%(ext)s")},
         {QStringLiteral("playlist"), true},
@@ -895,10 +894,10 @@ void NativeParityTests::mediaDownloadHonorsRuntimeCapabilities() {
                 if (requestLine.startsWith("GET /api/engines/capabilities ")) {
                     const QByteArray responseBody =
                         "{"
-                        "\"mediaReady\":true,"
+                        "\"mediaExtractionReady\":true,"
                         "\"postProcessingReady\":true,"
-                        "\"engines\":{\"ytdlp\":{\"supportedMediaOptionKeys\":["
-                        "\"mode\",\"quality\",\"formatSelector\",\"headers\",\"retries\",\"ffmpegEnabled\""
+                        "\"engines\":{\"media\":{\"supportedMediaOptionKeys\":["
+                        "\"mode\",\"quality\",\"formatSelector\",\"headers\",\"retries\",\"cookies\",\"remuxFormat\""
                         "]}}"
                         "}";
                     socket->write(
@@ -960,9 +959,9 @@ void NativeParityTests::mediaDownloadHonorsRuntimeCapabilities() {
     QVERIFY(client.mediaOptionSupported(QStringLiteral("formatSelector")));
     QVERIFY(client.mediaOptionSupported(QStringLiteral("headers")));
     QVERIFY(client.mediaOptionSupported(QStringLiteral("retries")));
+    QVERIFY(client.mediaOptionSupported(QStringLiteral("cookies")));
+    QVERIFY(client.mediaOptionSupported(QStringLiteral("remuxFormat")));
     QVERIFY(!client.mediaOptionSupported(QStringLiteral("proxy")));
-    QVERIFY(!client.mediaOptionSupported(QStringLiteral("cookies")));
-    QVERIFY(!client.mediaOptionSupported(QStringLiteral("remuxFormat")));
 
     client.createMediaDownload(
         QStringLiteral("https://example.test/watch?v=abc"),
@@ -974,7 +973,6 @@ void NativeParityTests::mediaDownloadHonorsRuntimeCapabilities() {
             {QStringLiteral("formatSelector"), QStringLiteral("bv*+ba/b")},
             {QStringLiteral("headers"), QStringLiteral("X-Test: allowed")},
             {QStringLiteral("retries"), 4},
-            {QStringLiteral("ffmpegEnabled"), true},
             {QStringLiteral("proxy"), QStringLiteral("https://8.8.8.8:8080")},
             {QStringLiteral("cookies"), QStringLiteral("sid=blocked")},
             {QStringLiteral("remuxFormat"), QStringLiteral("mp4")},
@@ -991,7 +989,7 @@ void NativeParityTests::mediaDownloadHonorsRuntimeCapabilities() {
     QCOMPARE(media.value(QStringLiteral("formatSelector")).toString(), QStringLiteral("bv*+ba/b"));
     QCOMPARE(media.value(QStringLiteral("headers")).toString(), QStringLiteral("X-Test: allowed"));
     QCOMPARE(media.value(QStringLiteral("retries")).toInt(), 4);
-    QVERIFY(media.value(QStringLiteral("ffmpegEnabled")).toBool());
+    QVERIFY(!media.contains(QStringLiteral("ffmpegEnabled")));
     QVERIFY(!media.contains(QStringLiteral("proxy")));
     QVERIFY(!media.contains(QStringLiteral("cookies")));
     QVERIFY(!media.contains(QStringLiteral("remuxFormat")));

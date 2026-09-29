@@ -36,7 +36,7 @@ Created → Queued → Eligible → Running → Pausing → Paused
 | OS stops work | Call stop/cancellation bridge without assuming a process callback. | Persist checkpoint and retry eligibility. | Resume only under shared policy and current Android constraints. |
 | User pauses/cancels from notification | Send a typed command, then update notification only after state confirmation. | Own state transition and cleanup policy. | Avoid relying on UI process state. |
 | Process dies | No cleanup assumption. | Restore from durable storage next session. | Android reconciles stale notifications/jobs. |
-| Destination grant is revoked | Surface a recoverable task error. | Preserve task metadata; do not write elsewhere. | Ask user to select destination again. |
+| Destination grant is revoked | Surface a recoverable task error. | Preserve the verified private file and task metadata; use the newly selected destination on retry. | Ask user to select a replacement destination, then resume the task. |
 
 ## Notification policy
 
@@ -52,7 +52,7 @@ A real transfer implementation must create the `Downloads` notification channel,
 
 ## Explicit non-goals in this milestone
 
-UIDT/WorkManager now own the execution envelope, native pause/cancel are connected to notification actions, and resume intent remains Android-Keystore encrypted. This milestone still does not claim physical-device verification, SAF/MediaStore destination support, Wi-Fi-only scheduling policy, or full generated UniFFI task bindings.
+UIDT/WorkManager own the execution envelope, native pause/cancel are connected to notification actions, and resume intent remains Android-Keystore encrypted. SAF and MediaStore publication are implemented, with provider and device evidence pending. This milestone still does not claim physical-device verification, Wi-Fi-only scheduling policy, or full generated UniFFI task bindings.
 
 ## Acceptance tests before enabling a real transfer
 

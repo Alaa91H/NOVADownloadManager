@@ -10,7 +10,7 @@ package com.nova.downloadmanager.core
  */
 internal object NovaNativeCore {
     private const val LIBRARY_NAME = "nova_mobile_ffi"
-    private const val CLIENT_BRIDGE_API_VERSION = 3
+    private const val CLIENT_BRIDGE_API_VERSION = 4
     private const val RESUME_APPEND = 0
     private const val RESUME_RESTART = 1
     private const val MISSING_CONTENT_RANGE = -1L
@@ -91,6 +91,61 @@ internal object NovaNativeCore {
         val engine: String,
     )
 
+    internal data class NativeMediaCodecContainer(
+        val extension: String,
+        val encoders: List<String>,
+    )
+
+    internal data class NativeMediaCodecTrackCapabilities(
+        val decoders: List<String>,
+        val encoders: List<String>,
+        val inputContainers: List<String>,
+        val outputContainers: List<String>,
+        val encodersByContainer: Map<String, List<String>>,
+    )
+
+    internal data class NativeMediaCodecCapabilities(
+        val audio: NativeMediaCodecTrackCapabilities,
+        val video: NativeMediaCodecTrackCapabilities,
+        val subtitleContainers: List<String>,
+        val engine: String,
+    )
+
+    internal data class NativeMediaTranscodeOptions(
+        val inputContainer: String,
+        val sourceVideoCodec: String? = null,
+        val sourceAudioCodec: String? = null,
+        val videoCodec: String? = null,
+        val audioCodec: String? = null,
+        val videoBitrateBps: Long? = null,
+        val audioBitrateBps: Long? = null,
+        val qualityCrf: Int? = null,
+        val preset: String? = null,
+        val width: Int? = null,
+        val height: Int? = null,
+        val frameRateMilli: Int? = null,
+        val audioSampleRateHz: Int? = null,
+        val audioChannels: Int? = null,
+        val threads: Int? = null,
+        val includeVideo: Boolean,
+        val includeAudio: Boolean,
+    )
+
+    internal data class NativeMediaTranscodeOutcome(
+        val status: String,
+        val outputBytes: Long,
+        val packetsWritten: Long,
+        val framesDecoded: Long,
+    )
+
+    internal data class NativeMediaProcessingProgress(
+        val phase: Int,
+        val completedUnits: Long,
+        val totalUnits: Long,
+        val fraction: Double?,
+        val active: Boolean,
+    )
+
     private val loadFailure: Throwable? = runCatching {
         System.loadLibrary(LIBRARY_NAME)
     }.exceptionOrNull()
@@ -127,9 +182,38 @@ internal object NovaNativeCore {
         cookieHeader: String,
     ): String
 
+    private external fun nativeMediaCodecCapabilitiesJson(): String
+
+    private external fun nativeTranscodeMediaJson(
+        taskId: String,
+        appPrivateRoot: String,
+        sourceRelativePath: String,
+        destinationRelativePath: String,
+        optionsJson: String,
+    ): String
+
+    private external fun nativeMediaProcessingProgressJson(taskId: String): String
+
+    private external fun nativePauseMediaProcessing(taskId: String): Boolean
+
+    private external fun nativeResumeMediaProcessing(taskId: String): Boolean
+
+    private external fun nativeCancelMediaProcessing(taskId: String): Boolean
+
+    private external fun nativeForgetMediaProcessingProgress(taskId: String)
+
     private external fun nativeDownloadToAppPrivate(
         taskId: String,
         url: String,
+        appPrivateRoot: String,
+        relativeDestination: String,
+    ): Long
+
+    private external fun nativeDownloadMediaStreamToAppPrivate(
+        taskId: String,
+        webpageUrl: String,
+        streamId: String,
+        outputContainer: String,
         appPrivateRoot: String,
         relativeDestination: String,
     ): Long
@@ -147,6 +231,11 @@ internal object NovaNativeCore {
     private external fun nativeDiscardAppPrivateTransfer(
         appPrivateRoot: String,
         relativeDestination: String,
+    ): Boolean
+
+    private external fun nativeDiscardAppPrivateMediaStaging(
+        appPrivateRoot: String,
+        taskId: String,
     ): Boolean
 
     fun requireCompatible(): Int {
@@ -311,6 +400,129 @@ internal object NovaNativeCore {
         )
     }
 
+    fun mediaCodecCapabilities(): NativeMediaCodecCapabilities {
+        requireCompatible()
+        val root = org.json.JSONObject(nativeMediaCodecCapabilitiesJson())
+
+        fun strings(array: org.json.JSONArray?): List<String> = buildList {
+            if (array == null) return@buildList
+            for (index in 0 until array.length()) {
+                array.optString(index).takeIf(String::isNotBlank)?.let(::add)
+            }
+        }
+
+        fun track(key: String): NativeMediaCodecTrackCapabilities {
+            val value = root.getJSONObject(key)
+            val mapping = value.optJSONObject("encodersByContainer") ?: org.json.JSONObject()
+            val encodersByContainer = buildMap {
+                mapping.keys().forEach { extension ->
+                    put(extension, strings(mapping.optJSONArray(extension)))
+                }
+            }
+            return NativeMediaCodecTrackCapabilities(
+                decoders = strings(value.optJSONArray("decoders")),
+                encoders = strings(value.optJSONArray("encoders")),
+                inputContainers = strings(value.optJSONArray("inputContainers")),
+                outputContainers = strings(value.optJSONArray("outputContainers")),
+                encodersByContainer = encodersByContainer,
+            )
+        }
+
+        return NativeMediaCodecCapabilities(
+            audio = track("audio"),
+            video = track("video"),
+            subtitleContainers = strings(root.optJSONArray("subtitleContainers")),
+            engine = root.optString("engine", "nova-native-codecs"),
+        )
+    }
+
+    fun transcodeMedia(
+        taskId: String,
+        appPrivateRoot: String,
+        sourceRelativePath: String,
+        destinationRelativePath: String,
+        options: NativeMediaTranscodeOptions,
+    ): NativeMediaTranscodeOutcome {
+        requireCompatible()
+        require(taskId.isNotBlank()) { "taskId must not be blank" }
+        require(sourceRelativePath.isNotBlank() && destinationRelativePath.isNotBlank()) {
+            "media source and destination must be app-private relative paths"
+        }
+        val payload = org.json.JSONObject()
+            .put("inputContainer", options.inputContainer)
+            .put("sourceVideoCodec", options.sourceVideoCodec)
+            .put("sourceAudioCodec", options.sourceAudioCodec)
+            .put("videoCodec", options.videoCodec)
+            .put("audioCodec", options.audioCodec)
+            .put("videoBitrateBps", options.videoBitrateBps)
+            .put("audioBitrateBps", options.audioBitrateBps)
+            .put("qualityCrf", options.qualityCrf)
+            .put("preset", options.preset)
+            .put("width", options.width)
+            .put("height", options.height)
+            .put("frameRateMilli", options.frameRateMilli)
+            .put("audioSampleRateHz", options.audioSampleRateHz)
+            .put("audioChannels", options.audioChannels)
+            .put("threads", options.threads)
+            .put("includeVideo", options.includeVideo)
+            .put("includeAudio", options.includeAudio)
+            .toString()
+        val result = org.json.JSONObject(
+            nativeTranscodeMediaJson(
+                taskId,
+                appPrivateRoot,
+                sourceRelativePath,
+                destinationRelativePath,
+                payload,
+            ),
+        )
+        return NativeMediaTranscodeOutcome(
+            status = result.getString("status"),
+            outputBytes = result.optLong("outputBytes"),
+            packetsWritten = result.optLong("packetsWritten"),
+            framesDecoded = result.optLong("framesDecoded"),
+        )
+    }
+
+    fun mediaProcessingProgress(taskId: String): NativeMediaProcessingProgress? {
+        requireCompatible()
+        require(taskId.isNotBlank()) { "taskId must not be blank" }
+        val payload = org.json.JSONTokener(nativeMediaProcessingProgressJson(taskId)).nextValue()
+        if (payload == org.json.JSONObject.NULL) return null
+        val result = payload as? org.json.JSONObject ?: return null
+        return NativeMediaProcessingProgress(
+            phase = result.optInt("phase"),
+            completedUnits = result.optLong("completedUnits"),
+            totalUnits = result.optLong("totalUnits"),
+            fraction = if (result.isNull("fraction")) null else result.optDouble("fraction"),
+            active = result.optBoolean("active"),
+        )
+    }
+
+    fun pauseMediaProcessing(taskId: String): Boolean {
+        requireCompatible()
+        require(taskId.isNotBlank()) { "taskId must not be blank" }
+        return nativePauseMediaProcessing(taskId)
+    }
+
+    fun resumeMediaProcessing(taskId: String): Boolean {
+        requireCompatible()
+        require(taskId.isNotBlank()) { "taskId must not be blank" }
+        return nativeResumeMediaProcessing(taskId)
+    }
+
+    fun cancelMediaProcessing(taskId: String): Boolean {
+        requireCompatible()
+        require(taskId.isNotBlank()) { "taskId must not be blank" }
+        return nativeCancelMediaProcessing(taskId)
+    }
+
+    fun forgetMediaProcessingProgress(taskId: String) {
+        requireCompatible()
+        require(taskId.isNotBlank()) { "taskId must not be blank" }
+        nativeForgetMediaProcessingProgress(taskId)
+    }
+
     /**
      * Runs one direct transfer entirely through the shared Rust core.
      *
@@ -339,6 +551,40 @@ internal object NovaNativeCore {
             NATIVE_TRANSFER_CANCELLED -> NativeTransferOutcome(NativeTransferStatus.CANCELLED, 0)
             else -> {
                 check(result >= 0) { "NOVA native app-private transfer failed" }
+                NativeTransferOutcome(NativeTransferStatus.COMPLETED, result)
+            }
+        }
+    }
+
+    fun downloadMediaStreamToAppPrivate(
+        taskId: String,
+        webpageUrl: String,
+        streamId: String,
+        outputContainer: String,
+        appPrivateRoot: String,
+        relativeDestination: String,
+    ): NativeTransferOutcome {
+        requireCompatible()
+        require(taskId.isNotBlank()) { "taskId must not be blank" }
+        require(webpageUrl.isNotBlank() && streamId.isNotBlank()) {
+            "media page and selected stream are required"
+        }
+        require(relativeDestination.isNotBlank()) { "relativeDestination must not be blank" }
+
+        return when (
+            val result = nativeDownloadMediaStreamToAppPrivate(
+                taskId,
+                webpageUrl,
+                streamId,
+                outputContainer,
+                appPrivateRoot,
+                relativeDestination,
+            )
+        ) {
+            NATIVE_TRANSFER_PAUSED -> NativeTransferOutcome(NativeTransferStatus.PAUSED, 0)
+            NATIVE_TRANSFER_CANCELLED -> NativeTransferOutcome(NativeTransferStatus.CANCELLED, 0)
+            else -> {
+                check(result >= 0) { "NOVA native media transfer failed" }
                 NativeTransferOutcome(NativeTransferStatus.COMPLETED, result)
             }
         }
@@ -381,5 +627,13 @@ internal object NovaNativeCore {
         requireCompatible()
         require(relativeDestination.isNotBlank()) { "relativeDestination must not be blank" }
         return nativeDiscardAppPrivateTransfer(appPrivateRoot, relativeDestination)
+    }
+
+    fun discardAppPrivateMediaStaging(appPrivateRoot: String, taskId: String): Boolean {
+        requireCompatible()
+        require(appPrivateRoot.isNotBlank() && taskId.isNotBlank()) {
+            "app-private root and task id are required"
+        }
+        return nativeDiscardAppPrivateMediaStaging(appPrivateRoot, taskId)
     }
 }

@@ -7,6 +7,7 @@ Rectangle {
     id: root
 
     signal newDownloadRequested()
+    signal newTorrentRequested()
     signal resumeRequested()
     signal pauseRequested()
     signal redownloadRequested()
@@ -103,6 +104,13 @@ Rectangle {
             }
 
             onClicked: root.newDownloadRequested()
+        }
+
+        CompactAction {
+            glyph: "⇩"
+            label: root.t("torrent.addTitle")
+            enabled: root.engineConnected
+            onClicked: root.newTorrentRequested()
         }
 
         CompactAction {

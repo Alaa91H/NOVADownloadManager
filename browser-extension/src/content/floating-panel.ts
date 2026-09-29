@@ -243,7 +243,7 @@ function sendFormat(f: YtdlpFormat): void {
   // resolves the stable sender-tab page again and never accepts a transient
   // delivery URL, stale format object, cookie, or Authorization header here.
   void sendRuntimeMessageIfActive<{ accepted?: boolean }>({
-    type: 'OVERLAY_ADD_YTDLP_MEDIA',
+    type: 'OVERLAY_ADD_MEDIA',
     formatId: f.formatId,
   })
     .then((result) => {

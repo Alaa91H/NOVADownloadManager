@@ -667,7 +667,7 @@ Item {
                                 Repeater {
                                     model: [
                                         { label: root.t("settings.direct"), ready: Boolean(api.engineCapabilities.directReady) },
-                                        { label: root.t("settings.media"), ready: Boolean(api.engineCapabilities.mediaReady) },
+                                        { label: root.t("settings.media"), ready: Boolean(api.engineCapabilities.mediaExtractionReady) },
                                         { label: root.t("settings.postProcessing"), ready: Boolean(api.engineCapabilities.postProcessingReady) },
                                         { label: root.t("settings.allEngines"), ready: Boolean(api.engineCapabilities.allReady) }
                                     ]
@@ -703,7 +703,7 @@ Item {
                             }
 
                             Repeater {
-                                model: ["libcurlMulti", "ytdlp", "ffmpeg"]
+                                model: ["libcurlMulti", "media", "torrent"]
 
                                 delegate: RowLayout {
                                     required property string modelData
@@ -713,7 +713,9 @@ Item {
 
                                     Text {
                                         Layout.preferredWidth: 130
-                                        text: modelData
+                                        text: modelData === "libcurlMulti"
+                                            ? "libcurl multi"
+                                            : modelData === "media" ? "NOVA Media Engine" : "NOVA Torrent Engine"
                                         color: Theme.textPrimary
                                         font.pixelSize: Theme.fontSmall
                                         font.weight: Font.DemiBold

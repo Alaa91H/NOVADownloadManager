@@ -2,6 +2,8 @@
 #include "batch/BatchPatternExpander.h"
 
 #include <QDir>
+#include <QBuffer>
+#include <QFile>
 #include <QFileInfo>
 #include <QHash>
 #include <QJsonDocument>
@@ -19,13 +21,18 @@
 #include <QUrl>
 #include <QUrlQuery>
 #include <QtGlobal>
+#include <algorithm>
 
 namespace {
 
 QString responseErrorMessage(QNetworkReply *reply, const QByteArray &payload) {
     const QJsonDocument document = QJsonDocument::fromJson(payload);
     if (document.isObject()) {
-        const QString serverMessage = document.object().value(QStringLiteral("error")).toString();
+        const QJsonObject object = document.object();
+        QString serverMessage = object.value(QStringLiteral("error")).toString();
+        if (serverMessage.isEmpty()) {
+            serverMessage = object.value(QStringLiteral("message")).toString();
+        }
         if (!serverMessage.isEmpty()) {
             return serverMessage;
         }
@@ -635,14 +642,14 @@ bool NovaApiClient::mediaOptionSupported(const QString &key) const {
         return false;
     }
 
-    if (m_engineCapabilities.contains(QStringLiteral("mediaReady"))
-        && !m_engineCapabilities.value(QStringLiteral("mediaReady")).toBool()) {
+    if (m_engineCapabilities.contains(QStringLiteral("mediaExtractionReady"))
+        && !m_engineCapabilities.value(QStringLiteral("mediaExtractionReady")).toBool()) {
         return false;
     }
 
     const QVariantMap engines =
         m_engineCapabilities.value(QStringLiteral("engines")).toMap();
-    const QVariantMap mediaEngine = engines.value(QStringLiteral("ytdlp")).toMap();
+    const QVariantMap mediaEngine = engines.value(QStringLiteral("media")).toMap();
     if (!mediaEngine.contains(QStringLiteral("supportedMediaOptionKeys"))) {
         return true;
     }
@@ -1565,7 +1572,7 @@ void NovaApiClient::probeMedia(const QString &urlText) {
 
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("url"), url);
-    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/ytdlp/probe"), query));
+    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/media/probe"), query));
 
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
@@ -1595,49 +1602,30 @@ void NovaApiClient::probeMedia(const QString &urlText) {
         summary.insert(QStringLiteral("webpageUrl"), root.value(QStringLiteral("webpageUrl")).toString());
         m_mediaProbe = summary;
 
-        QMap<int, QVariantMap> bestByHeight;
-        const QJsonArray formats = root.value(QStringLiteral("formats")).toArray();
-        for (const QJsonValue &value : formats) {
+        QSet<QString> seenFormatIds;
+        const QJsonArray parsedFormats = root.value(QStringLiteral("formats")).toArray();
+        for (const QJsonValue &value : parsedFormats) {
             const QJsonObject format = value.toObject();
-            const int height = format.value(QStringLiteral("height")).toInt();
-            if (height <= 0) {
+            const QString formatId = format.value(QStringLiteral("formatId")).toString();
+            if (formatId.isEmpty() || seenFormatIds.contains(formatId)) {
                 continue;
             }
-
-            const QString vcodec = format.value(QStringLiteral("vcodec")).toString();
-            if (vcodec.isEmpty() || vcodec == QStringLiteral("none")) {
-                continue;
-            }
-
-            const qint64 fileSize = format.value(QStringLiteral("filesize")).toInteger(
-                format.value(QStringLiteral("filesize_approx")).toInteger()
-            );
+            seenFormatIds.insert(formatId);
 
             QVariantMap item;
-            item.insert(QStringLiteral("formatId"), format.value(QStringLiteral("format_id")).toString());
-            item.insert(QStringLiteral("height"), height);
+            item.insert(QStringLiteral("formatId"), formatId);
+            item.insert(QStringLiteral("height"), format.value(QStringLiteral("height")).toInt());
             item.insert(QStringLiteral("width"), format.value(QStringLiteral("width")).toInt());
             item.insert(QStringLiteral("ext"), format.value(QStringLiteral("ext")).toString());
-            item.insert(QStringLiteral("filesize"), fileSize);
-            item.insert(QStringLiteral("vcodec"), vcodec);
+            item.insert(QStringLiteral("filesize"), format.value(QStringLiteral("filesize")).toInteger());
+            item.insert(QStringLiteral("vcodec"), format.value(QStringLiteral("vcodec")).toString());
             item.insert(QStringLiteral("acodec"), format.value(QStringLiteral("acodec")).toString());
+            item.insert(QStringLiteral("hasVideo"), format.value(QStringLiteral("hasVideo")).toBool());
+            item.insert(QStringLiteral("hasAudio"), format.value(QStringLiteral("hasAudio")).toBool());
             item.insert(QStringLiteral("fps"), format.value(QStringLiteral("fps")).toDouble());
             item.insert(QStringLiteral("tbr"), format.value(QStringLiteral("tbr")).toDouble());
-            item.insert(QStringLiteral("formatNote"), format.value(QStringLiteral("format_note")).toString());
-
-            const auto existing = bestByHeight.constFind(height);
-            if (existing == bestByHeight.constEnd()
-                || item.value(QStringLiteral("filesize")).toLongLong()
-                    > existing.value().value(QStringLiteral("filesize")).toLongLong()) {
-                bestByHeight.insert(height, item);
-            }
-        }
-
-        m_mediaFormats.clear();
-        auto it = bestByHeight.constEnd();
-        while (it != bestByHeight.constBegin()) {
-            --it;
-            m_mediaFormats.append(it.value());
+            item.insert(QStringLiteral("formatNote"), format.value(QStringLiteral("formatNote")).toString());
+            m_mediaFormats.append(item);
         }
 
         emit mediaProbeChanged();
@@ -1658,7 +1646,7 @@ void NovaApiClient::probeMediaPlaylist(const QString &urlText) {
 
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("url"), url);
-    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/ytdlp/probe-playlist"), query));
+    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/media/probe-playlist"), query));
 
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
@@ -1682,27 +1670,6 @@ void NovaApiClient::probeMediaPlaylist(const QString &urlText) {
         m_mediaPlaylistTitle = root.value(QStringLiteral("title")).toString();
         m_mediaPlaylistEntries = root.value(QStringLiteral("entries")).toArray().toVariantList();
         emit mediaPlaylistChanged();
-    });
-}
-
-void NovaApiClient::refreshFfmpegStatus() {
-    auto *reply = m_network.get(makeRequest(QStringLiteral("/api/ytdlp/ffmpeg")));
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
-        const QByteArray payload = reply->readAll();
-        bool available = false;
-
-        if (reply->error() == QNetworkReply::NoError) {
-            const QJsonDocument document = QJsonDocument::fromJson(payload);
-            if (document.isObject()) {
-                available = document.object().value(QStringLiteral("available")).toBool();
-            }
-        }
-
-        if (m_ffmpegAvailable != available) {
-            m_ffmpegAvailable = available;
-            emit ffmpegChanged();
-        }
     });
 }
 
@@ -1730,8 +1697,8 @@ void NovaApiClient::createMediaDownload(
         name = QStringLiteral("media");
     }
 
-    if (m_engineCapabilities.contains(QStringLiteral("mediaReady"))
-        && !m_engineCapabilities.value(QStringLiteral("mediaReady")).toBool()) {
+    if (m_engineCapabilities.contains(QStringLiteral("mediaExtractionReady"))
+        && !m_engineCapabilities.value(QStringLiteral("mediaExtractionReady")).toBool()) {
         emit requestFailed(QStringLiteral("The NOVA media engine is not ready."));
         return;
     }
@@ -1758,15 +1725,9 @@ void NovaApiClient::createMediaDownload(
 
     const QString directory = saveDirectory.trimmed();
     if (!directory.isEmpty()) {
-        QString placeholder = name;
-        placeholder.replace(QRegularExpression(QStringLiteral(R"([\\/:*?"<>|])")), QStringLiteral("_"));
-        placeholder = placeholder.trimmed();
-        if (placeholder.isEmpty()) {
-            placeholder = QStringLiteral("media");
-        }
         body.insert(
             QStringLiteral("savePath"),
-            QDir(directory).filePath(placeholder + QStringLiteral(".media"))
+            QDir(directory).absolutePath() + QDir::separator()
         );
     }
 
@@ -2267,7 +2228,6 @@ void NovaApiClient::setLogLevel(const QString &levelText) {
 
 
 void NovaApiClient::refreshSettingsServices() {
-    refreshExternalTools();
     refreshTelegramConfig();
 }
 
@@ -2465,6 +2425,600 @@ void NovaApiClient::pingDnsProviders() {
             QStringLiteral("dns"),
             QStringLiteral("complete")
         );
+    });
+}
+
+void NovaApiClient::refreshCaptureReviews() {
+    if (!m_connected || m_captureReviewsRequestInFlight) {
+        return;
+    }
+
+    m_captureReviewsRequestInFlight = true;
+    auto *reply = m_network.get(makeRequest(QStringLiteral("/v1/capture-reviews")));
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        m_captureReviewsRequestInFlight = false;
+
+        if (reply->error() != QNetworkReply::NoError) {
+            emit captureReviewListFailed(responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()
+            || !document.object().value(QStringLiteral("reviews")).isArray()) {
+            emit captureReviewListFailed(
+                QStringLiteral("Unexpected browser capture review response.")
+            );
+            return;
+        }
+
+        m_captureReviews = document.object()
+            .value(QStringLiteral("reviews"))
+            .toArray()
+            .toVariantList();
+        emit captureReviewsChanged();
+    });
+}
+
+void NovaApiClient::consumeCaptureReview(
+    const QString &reviewId,
+    const QString &name,
+    const QString &savePath,
+    bool startImmediately,
+    int connections
+) {
+    const QString trimmedId = reviewId.trimmed();
+    if (!m_connected || trimmedId.isEmpty()) {
+        emit captureReviewActionFailed(
+            trimmedId,
+            QStringLiteral("NOVA is not connected to the daemon.")
+        );
+        return;
+    }
+
+    QJsonObject body;
+    const QString trimmedName = name.trimmed();
+    const QString trimmedPath = savePath.trimmed();
+    if (!trimmedName.isEmpty()) {
+        body.insert(QStringLiteral("name"), trimmedName);
+    }
+    if (!trimmedPath.isEmpty()) {
+        body.insert(QStringLiteral("savePath"), trimmedPath);
+    }
+    body.insert(QStringLiteral("startImmediately"), startImmediately);
+    body.insert(QStringLiteral("connections"), qBound(0, connections, 32));
+
+    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(trimmedId));
+    auto *reply = m_network.post(
+        makeRequest(QStringLiteral("/v1/capture-reviews/%1/consume").arg(encodedId)),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+    connect(reply, &QNetworkReply::finished, this, [this, reply, trimmedId]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit captureReviewActionFailed(
+                trimmedId,
+                responseErrorMessage(reply, payload)
+            );
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()
+            || !document.object().value(QStringLiteral("accepted")).toBool()) {
+            emit captureReviewActionFailed(
+                trimmedId,
+                document.isObject()
+                    ? document.object().value(QStringLiteral("message")).toString()
+                    : QStringLiteral("Unexpected capture review response.")
+            );
+            return;
+        }
+
+        const QJsonObject response = document.object();
+        const QString taskId = response.value(QStringLiteral("taskId")).toString(
+            response.value(QStringLiteral("task")).toObject()
+                .value(QStringLiteral("id")).toString()
+        );
+        emit captureReviewConsumed(trimmedId, taskId);
+        refreshCaptureReviews();
+        refreshDownloads();
+    });
+}
+
+void NovaApiClient::discardCaptureReview(const QString &reviewId) {
+    const QString trimmedId = reviewId.trimmed();
+    if (!m_connected || trimmedId.isEmpty()) {
+        emit captureReviewActionFailed(
+            trimmedId,
+            QStringLiteral("NOVA is not connected to the daemon.")
+        );
+        return;
+    }
+
+    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(trimmedId));
+    auto *reply = m_network.sendCustomRequest(
+        makeRequest(QStringLiteral("/v1/capture-reviews/%1").arg(encodedId)),
+        QByteArrayLiteral("DELETE")
+    );
+    connect(reply, &QNetworkReply::finished, this, [this, reply, trimmedId]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit captureReviewActionFailed(
+                trimmedId,
+                responseErrorMessage(reply, payload)
+            );
+            return;
+        }
+
+        m_captureReviews.erase(
+            std::remove_if(
+                m_captureReviews.begin(),
+                m_captureReviews.end(),
+                [&trimmedId](const QVariant &value) {
+                    return value.toMap().value(QStringLiteral("reviewId")).toString()
+                        == trimmedId;
+                }
+            ),
+            m_captureReviews.end()
+        );
+        emit captureReviewsChanged();
+        emit captureReviewDiscarded(trimmedId);
+    });
+}
+
+void NovaApiClient::sendTorrentAnalysis(
+    const QString &path,
+    const QByteArray &payload,
+    const QByteArray &contentType
+) {
+    if (!m_connected) {
+        emit torrentAnalysisFailed(QStringLiteral("NOVA is not connected to the daemon."));
+        return;
+    }
+    if (m_torrentAnalysisBusy) {
+        return;
+    }
+
+    m_torrentAnalysisBusy = true;
+    m_torrentAnalysis.clear();
+    emit torrentAnalysisChanged();
+
+    QNetworkRequest request = makeRequest(path);
+    request.setHeader(
+        QNetworkRequest::ContentTypeHeader,
+        QString::fromLatin1(contentType)
+    );
+    auto *reply = m_network.post(request, payload);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray responseBody = reply->readAll();
+        m_torrentAnalysisBusy = false;
+
+        if (reply->error() != QNetworkReply::NoError) {
+            emit torrentAnalysisChanged();
+            emit torrentAnalysisFailed(responseErrorMessage(reply, responseBody));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(responseBody);
+        if (!document.isObject()) {
+            emit torrentAnalysisChanged();
+            emit torrentAnalysisFailed(QStringLiteral("Unexpected torrent analysis response."));
+            return;
+        }
+        const QJsonObject response = document.object();
+        if (response.contains(QStringLiteral("ok"))
+            && !response.value(QStringLiteral("ok")).toBool()) {
+            emit torrentAnalysisChanged();
+            emit torrentAnalysisFailed(
+                response.value(QStringLiteral("message")).toString(
+                    QStringLiteral("Torrent analysis failed.")
+                )
+            );
+            return;
+        }
+        if (response.value(QStringLiteral("analysisId")).toString().isEmpty()
+            || !response.value(QStringLiteral("files")).isArray()) {
+            emit torrentAnalysisChanged();
+            emit torrentAnalysisFailed(QStringLiteral("Torrent analysis response is incomplete."));
+            return;
+        }
+
+        m_torrentAnalysis = response.toVariantMap();
+        emit torrentAnalysisChanged();
+    });
+}
+
+void NovaApiClient::clearTorrentAnalysis() {
+    if (m_torrentAnalysis.isEmpty()) {
+        return;
+    }
+    m_torrentAnalysis.clear();
+    emit torrentAnalysisChanged();
+}
+
+void NovaApiClient::clearTorrentDetails() {
+    ++m_torrentDetailsGeneration;
+    if (!m_torrentDetailsBusy && m_torrentDetailsTaskId.isEmpty()
+        && m_torrentDetails.isEmpty()) {
+        return;
+    }
+    m_torrentDetailsBusy = false;
+    m_torrentDetailsTaskId.clear();
+    m_torrentDetails.clear();
+    emit torrentDetailsChanged();
+}
+
+void NovaApiClient::refreshTorrentDetails(const QString &taskId) {
+    const QString id = taskId.trimmed();
+    if (id.isEmpty() || !m_connected) {
+        clearTorrentDetails();
+        return;
+    }
+    if (m_torrentDetailsBusy && m_torrentDetailsTaskId == id) {
+        return;
+    }
+
+    if (m_torrentDetailsTaskId != id) {
+        m_torrentDetails.clear();
+    }
+    m_torrentDetailsTaskId = id;
+    m_torrentDetailsBusy = true;
+    const quint64 generation = ++m_torrentDetailsGeneration;
+    emit torrentDetailsChanged();
+
+    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(id));
+    auto *reply = m_network.get(
+        makeRequest(QStringLiteral("/api/torrents/%1").arg(encodedId))
+    );
+    connect(reply, &QNetworkReply::finished, this, [this, reply, id, generation]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (generation != m_torrentDetailsGeneration
+            || id != m_torrentDetailsTaskId) {
+            return;
+        }
+
+        m_torrentDetailsBusy = false;
+        if (reply->error() != QNetworkReply::NoError) {
+            emit torrentDetailsChanged();
+            emit torrentDetailsFailed(id, responseErrorMessage(reply, payload));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()
+            || !document.object().value(QStringLiteral("task")).isObject()
+            || !document.object().value(QStringLiteral("files")).isArray()) {
+            emit torrentDetailsChanged();
+            emit torrentDetailsFailed(id, QStringLiteral("Unexpected torrent details response."));
+            return;
+        }
+
+        m_torrentDetails = document.object().toVariantMap();
+        m_torrentDetails.insert(QStringLiteral("taskId"), id);
+        emit torrentDetailsChanged();
+    });
+}
+
+void NovaApiClient::updateTorrentFilePriorities(
+    const QString &taskId,
+    const QVariantList &filePriorities
+) {
+    const QString id = taskId.trimmed();
+    if (id.isEmpty() || filePriorities.isEmpty()) {
+        emit torrentDetailsActionFailed(
+            id,
+            QStringLiteral("Choose at least one torrent file.")
+        );
+        return;
+    }
+
+    QJsonArray priorities;
+    for (const QVariant &priority : filePriorities) {
+        const QString value = priority.toString();
+        if (value != QStringLiteral("high")
+            && value != QStringLiteral("normal")
+            && value != QStringLiteral("skip")) {
+            emit torrentDetailsActionFailed(
+                id,
+                QStringLiteral("A torrent file priority is invalid.")
+            );
+            return;
+        }
+        priorities.append(value);
+    }
+
+    QJsonObject body;
+    body.insert(QStringLiteral("filePriorities"), priorities);
+    sendTorrentDetailsUpdate(
+        id,
+        QStringLiteral("files"),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+}
+
+void NovaApiClient::updateTorrentSeedingPolicy(
+    const QString &taskId,
+    const QVariantMap &policy
+) {
+    const QString id = taskId.trimmed();
+    if (id.isEmpty() || !policy.contains(QStringLiteral("enabled"))) {
+        emit torrentDetailsActionFailed(
+            id,
+            QStringLiteral("A valid torrent seeding policy is required.")
+        );
+        return;
+    }
+
+    sendTorrentDetailsUpdate(
+        id,
+        QStringLiteral("seeding"),
+        QJsonDocument(QJsonObject::fromVariantMap(policy))
+            .toJson(QJsonDocument::Compact)
+    );
+}
+
+void NovaApiClient::reauthorizeTorrentTask(
+    const QString &taskId,
+    const QString &magnetUri
+) {
+    const QString id = taskId.trimmed();
+    const QString magnet = magnetUri.trimmed();
+    if (!m_connected || id.isEmpty() || !magnet.startsWith(QStringLiteral("magnet:"), Qt::CaseInsensitive)) {
+        emit torrentDetailsActionFailed(
+            id,
+            QStringLiteral("Enter a tracker magnet link for this torrent.")
+        );
+        return;
+    }
+
+    QJsonObject body;
+    body.insert(QStringLiteral("magnetUri"), magnet);
+    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(id));
+    auto *reply = m_network.post(
+        makeRequest(QStringLiteral("/api/torrents/%1/reauthorize").arg(encodedId)),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+    connect(reply, &QNetworkReply::finished, this, [this, reply, id]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray payload = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit torrentDetailsActionFailed(id, responseErrorMessage(reply, payload));
+            return;
+        }
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()
+            || document.object().value(QStringLiteral("id")).toString() != id) {
+            emit torrentDetailsActionFailed(
+                id,
+                QStringLiteral("Unexpected torrent authorization response.")
+            );
+            return;
+        }
+        emit torrentDetailsActionCompleted(QStringLiteral("reauthorize"), id);
+        refreshDownloads();
+        if (m_torrentDetailsTaskId == id)
+            refreshTorrentDetails(id);
+    });
+}
+
+void NovaApiClient::sendTorrentDetailsUpdate(
+    const QString &taskId,
+    const QString &action,
+    const QByteArray &payload
+) {
+    if (!m_connected) {
+        emit torrentDetailsActionFailed(
+            taskId,
+            QStringLiteral("NOVA is not connected to the daemon.")
+        );
+        return;
+    }
+
+    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(taskId));
+    QNetworkRequest request = makeRequest(
+        QStringLiteral("/api/torrents/%1/%2").arg(encodedId, action)
+    );
+    request.setHeader(
+        QNetworkRequest::ContentTypeHeader,
+        QStringLiteral("application/json")
+    );
+    auto *payloadBuffer = new QBuffer(this);
+    payloadBuffer->setData(payload);
+    payloadBuffer->open(QIODevice::ReadOnly);
+    auto *reply = m_network.sendCustomRequest(
+        request,
+        QByteArrayLiteral("PATCH"),
+        payloadBuffer
+    );
+    connect(reply, &QNetworkReply::finished, this, [this, reply, payloadBuffer, taskId, action]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        payloadBuffer->deleteLater();
+        const QByteArray responseBody = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit torrentDetailsActionFailed(
+                taskId,
+                responseErrorMessage(reply, responseBody)
+            );
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(responseBody);
+        if (!document.isObject()
+            || !document.object().value(QStringLiteral("task")).isObject()
+            || !document.object().value(QStringLiteral("files")).isArray()) {
+            emit torrentDetailsActionFailed(
+                taskId,
+                QStringLiteral("Unexpected torrent update response.")
+            );
+            return;
+        }
+
+        if (m_torrentDetailsTaskId == taskId) {
+            m_torrentDetails = document.object().toVariantMap();
+            m_torrentDetails.insert(QStringLiteral("taskId"), taskId);
+            emit torrentDetailsChanged();
+        }
+        emit torrentDetailsActionCompleted(action, taskId);
+        refreshDownloads();
+    });
+}
+
+void NovaApiClient::analyzeTorrentMagnet(const QString &magnetUri) {
+    const QString uri = magnetUri.trimmed();
+    if (!uri.startsWith(QStringLiteral("magnet:"), Qt::CaseInsensitive)) {
+        emit torrentAnalysisFailed(QStringLiteral("Enter a valid magnet URI."));
+        return;
+    }
+    QJsonObject body;
+    body.insert(QStringLiteral("magnetUri"), uri);
+    sendTorrentAnalysis(
+        QStringLiteral("/api/torrents/analyze"),
+        QJsonDocument(body).toJson(QJsonDocument::Compact),
+        QByteArrayLiteral("application/json")
+    );
+}
+
+void NovaApiClient::analyzeTorrentUrl(const QString &url) {
+    const QString source = url.trimmed();
+    if (source.isEmpty()) {
+        emit torrentAnalysisFailed(QStringLiteral("Enter an HTTP(S) .torrent URL."));
+        return;
+    }
+    QJsonObject body;
+    body.insert(QStringLiteral("url"), source);
+    sendTorrentAnalysis(
+        QStringLiteral("/api/torrents/analyze-url"),
+        QJsonDocument(body).toJson(QJsonDocument::Compact),
+        QByteArrayLiteral("application/json")
+    );
+}
+
+void NovaApiClient::analyzeTorrentFile(const QString &path) {
+    QFile file(path.trimmed());
+    if (!file.open(QIODevice::ReadOnly)) {
+        emit torrentAnalysisFailed(QStringLiteral("NOVA could not read the selected .torrent file."));
+        return;
+    }
+    constexpr qint64 maxMetainfoBytes = 32LL * 1024LL * 1024LL;
+    if (file.size() <= 0 || file.size() > maxMetainfoBytes) {
+        emit torrentAnalysisFailed(QStringLiteral("The .torrent file must be between 1 byte and 32 MiB."));
+        return;
+    }
+    const QByteArray bytes = file.read(maxMetainfoBytes + 1);
+    if (file.error() != QFileDevice::NoError
+        || bytes.size() != file.size()
+        || bytes.size() > maxMetainfoBytes) {
+        emit torrentAnalysisFailed(QStringLiteral("NOVA could not read the complete .torrent file."));
+        return;
+    }
+    sendTorrentAnalysis(
+        QStringLiteral("/api/torrents/analyze-file"),
+        bytes,
+        QByteArrayLiteral("application/x-bittorrent")
+    );
+}
+
+void NovaApiClient::analyzeCaptureReviewTorrent(const QString &reviewId) {
+    const QString id = reviewId.trimmed();
+    if (id.isEmpty()) {
+        emit torrentAnalysisFailed(QStringLiteral("The browser torrent review is no longer available."));
+        return;
+    }
+    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(id));
+    sendTorrentAnalysis(
+        QStringLiteral("/v1/capture-reviews/%1/analyze-torrent").arg(encodedId),
+        QByteArrayLiteral("{}"),
+        QByteArrayLiteral("application/json")
+    );
+}
+
+void NovaApiClient::createTorrent(
+    const QString &analysisId,
+    const QString &savePath,
+    bool startImmediately,
+    const QVariantList &filePriorities,
+    int connections,
+    const QVariantMap &seeding,
+    bool allowDuplicate,
+    const QString &captureReviewId
+) {
+    const QString trimmedAnalysisId = analysisId.trimmed();
+    const QString trimmedPath = savePath.trimmed();
+    if (!m_connected || trimmedAnalysisId.isEmpty() || trimmedPath.isEmpty()) {
+        emit torrentTaskCreationFailed(
+            QStringLiteral("Choose a destination and analyze the torrent before adding it.")
+        );
+        return;
+    }
+
+    QJsonArray priorities;
+    for (const QVariant &priority : filePriorities) {
+        priorities.append(priority.toString());
+    }
+
+    QJsonObject body;
+    body.insert(QStringLiteral("analysisId"), trimmedAnalysisId);
+    body.insert(QStringLiteral("savePath"), trimmedPath);
+    body.insert(QStringLiteral("startImmediately"), startImmediately);
+    body.insert(QStringLiteral("filePriorities"), priorities);
+    body.insert(QStringLiteral("connections"), qBound(1, connections, 32));
+    body.insert(QStringLiteral("seeding"), QJsonObject::fromVariantMap(seeding));
+    body.insert(QStringLiteral("allowDuplicate"), allowDuplicate);
+
+    const QString id = captureReviewId.trimmed();
+    const QString route = id.isEmpty()
+        ? QStringLiteral("/api/torrents")
+        : QStringLiteral("/v1/capture-reviews/%1/consume-torrent")
+              .arg(QString::fromUtf8(QUrl::toPercentEncoding(id)));
+    auto *reply = m_network.post(
+        makeRequest(route),
+        QJsonDocument(body).toJson(QJsonDocument::Compact)
+    );
+    connect(reply, &QNetworkReply::finished, this, [this, reply, id]() {
+        const auto guard = qScopeGuard([reply]() { reply->deleteLater(); });
+        const QByteArray responseBody = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit torrentTaskCreationFailed(responseErrorMessage(reply, responseBody));
+            return;
+        }
+
+        const QJsonDocument document = QJsonDocument::fromJson(responseBody);
+        if (!document.isObject()) {
+            emit torrentTaskCreationFailed(QStringLiteral("Unexpected torrent task response."));
+            return;
+        }
+        const QJsonObject response = document.object();
+        if (!id.isEmpty() && !response.value(QStringLiteral("accepted")).toBool()) {
+            emit torrentTaskCreationFailed(
+                response.value(QStringLiteral("message")).toString(
+                    QStringLiteral("NOVA could not approve the torrent capture.")
+                )
+            );
+            return;
+        }
+        const QString taskId = response.value(QStringLiteral("id")).toString(
+            response.value(QStringLiteral("taskId")).toString(
+                response.value(QStringLiteral("task")).toObject()
+                    .value(QStringLiteral("id")).toString()
+            )
+        );
+        if (taskId.isEmpty()) {
+            emit torrentTaskCreationFailed(QStringLiteral("NOVA did not return the created torrent task."));
+            return;
+        }
+
+        emit torrentTaskCreated(taskId);
+        refreshDownloads();
+        if (!id.isEmpty()) {
+            refreshCaptureReviews();
+        }
     });
 }
 

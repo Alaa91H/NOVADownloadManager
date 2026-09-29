@@ -23,13 +23,16 @@ use nova_stream_core::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
+use nova_media_core::processing::MediaProcessingControl;
 
 use crate::daemon::browser_cookies::{load_browser_cookie_header, validate_browser_cookie_source};
 use crate::daemon::engine::extractor::{EngineStatus, Extractor, ValidateError};
 use crate::daemon::engine::priority_queue::{DownloadPriority, QueueEntry};
 use crate::daemon::postprocess::{
-    FfmpegPostProcessor, MediaMuxRequest, MediaPostProcessor, MediaSubtitleEmbedRequest,
-    MediaSubtitleInput, PostProcessError, MEDIA_SUBTITLE_EMBED_OPTION,
+    embed_subtitles_with_native_codecs, transcode_with_native_codecs,
+    validate_native_transcode_request, MediaSubtitleEmbedRequest, MediaSubtitleInput,
+    MediaTranscodeRequest, PostProcessError, MEDIA_SUBTITLE_EMBED_OPTION,
+    MEDIA_TRANSCODE_OPTION,
 };
 use crate::daemon::state::SharedState;
 use crate::daemon::types::{
@@ -56,8 +59,20 @@ pub const NATIVE_MEDIA_OPTION_KEYS: &[&str] = &[
     "writeInfoJson",
     "writeDescription",
     "remuxFormat",
-    "ffmpegEnabled",
     "outputTemplate",
+    "bitrate",
+    "videoCodec",
+    "audioCodec",
+    "videoBitrateBps",
+    "audioBitrateBps",
+    "transcodeCrf",
+    "transcodePreset",
+    "width",
+    "height",
+    "frameRateMilli",
+    "audioSampleRateHz",
+    "audioChannels",
+    "processingThreads",
     "cookies",
     "cookiesFromBrowser",
     "userAgent",
@@ -159,7 +174,10 @@ impl std::error::Error for NativeMediaTaskError {}
 struct ResolvedDirectMedia {
     url: String,
     title: String,
+    kind: nova_media_core::MediaTrackKind,
     container: Option<String>,
+    video_codec: Option<String>,
+    audio_codec: Option<String>,
     content_length: Option<u64>,
     context: HttpRequestContext,
     descriptor: MediaDescriptor,
@@ -178,6 +196,10 @@ struct ResolvedSeparateTracks {
     extraction: YouTubeExtraction,
     video_stream_id: String,
     audio_stream_id: String,
+    video_container: String,
+    audio_container: String,
+    video_codec: Option<String>,
+    audio_codec: Option<String>,
     output_container: String,
     expected_bytes: Option<u64>,
 }
@@ -194,12 +216,8 @@ fn native_mux_supports_container(container: &str) -> bool {
         && container.eq_ignore_ascii_case("mp4")
 }
 
-fn separate_tracks_need_external_postprocessor(resolved: &ResolvedNativeMedia) -> bool {
-    matches!(
-        resolved,
-        ResolvedNativeMedia::SeparateTracks(separate)
-            if !native_mux_supports_container(&separate.output_container)
-    )
+fn native_multitrack_enabled() -> bool {
+    true
 }
 
 #[derive(Debug)]
@@ -239,22 +257,92 @@ pub async fn create_native_media_task(
         .as_ref()
         .and_then(|options| options.embed_subtitles)
         .unwrap_or(false);
-    let needs_external_postprocessor =
-        separate_tracks_need_external_postprocessor(&resolved) || wants_subtitle_embedding;
-    if needs_external_postprocessor {
-        let postprocessor = FfmpegPostProcessor::new(state.ffmpeg_binary());
-        if !postprocessor.is_available() {
-            return Err(NativeMediaTaskError::UnsupportedFeature(
-                "the requested media operation requires the legacy host post-processor, but it is not available"
-                    .to_owned(),
-            ));
+    let source_container = match &resolved {
+        ResolvedNativeMedia::Direct(media) => media.container.as_deref(),
+        ResolvedNativeMedia::Manifest(media) => media.stream.container.as_deref(),
+        ResolvedNativeMedia::SeparateTracks(media) => Some(media.output_container.as_str()),
+    };
+    let wants_transcoding = media_transcoding_requested(
+        body.media_options.as_ref(),
+        source_container,
+    )?;
+    if wants_transcoding {
+        let (kind, duration_millis, input_container, source_video_codec, source_audio_codec) = match &resolved {
+            ResolvedNativeMedia::Direct(media) => (
+                media.kind,
+                media.descriptor.metadata.duration_millis,
+                media.container.as_deref(),
+                media.video_codec.as_deref(),
+                media.audio_codec.as_deref(),
+            ),
+            ResolvedNativeMedia::Manifest(media) => (
+                media.stream.kind,
+                media.descriptor.metadata.duration_millis,
+                media.stream.container.as_deref(),
+                media.stream.video_codec.as_deref(),
+                media.stream.audio_codec.as_deref(),
+            ),
+            ResolvedNativeMedia::SeparateTracks(media) => (
+                nova_media_core::MediaTrackKind::AudioVideo,
+                None,
+                Some(media.output_container.as_str()),
+                media.video_codec.as_deref(),
+                media.audio_codec.as_deref(),
+            ),
+        };
+        validate_requested_native_transcode(
+            body.media_options.as_ref(),
+            kind,
+            duration_millis,
+            input_container,
+            source_video_codec,
+            source_audio_codec,
+        )?;
+    }
+    if let ResolvedNativeMedia::SeparateTracks(separate) = &resolved {
+        if !native_mux_supports_container(&separate.output_container) {
+            let job = nova_media_core::processing::NativeMediaMuxJob {
+                video_source: PathBuf::from("native-video-input"),
+                audio_source: PathBuf::from("native-audio-input"),
+                destination: PathBuf::from(format!("native-media-output.{}", separate.output_container)),
+                video_container: separate.video_container.clone(),
+                audio_container: separate.audio_container.clone(),
+                video_codec: separate.video_codec.clone(),
+                audio_codec: separate.audio_codec.clone(),
+            };
+            nova_media_core::processing::validate_local_media_mux_job(&job)
+                .map_err(|error| NativeMediaTaskError::UnsupportedFeature(error.to_string()))?;
         }
     }
-    if wants_subtitle_embedding && !matches!(resolved, ResolvedNativeMedia::Direct(_)) {
-        return Err(NativeMediaTaskError::UnsupportedFeature(
-            "subtitle embedding is currently enabled for native direct-media tasks; manifest and separate-track embedding is still migrating"
-                .to_owned(),
-        ));
+    if wants_subtitle_embedding {
+        let mode = native_selection_preferences(body.media_options.as_ref())
+            .map_err(NativeMediaTaskError::InvalidRequest)?
+            .mode;
+        if mode == MediaSelectionMode::Audio {
+            return Err(NativeMediaTaskError::UnsupportedFeature(
+                "embedded subtitles require a video-capable media output".to_owned(),
+            ));
+        }
+        let extension = match &resolved {
+            ResolvedNativeMedia::Direct(media) => requested_output_extension(
+                body.media_options.as_ref(),
+                mode,
+                media.container.as_deref(),
+            ),
+            ResolvedNativeMedia::Manifest(media) => requested_output_extension(
+                body.media_options.as_ref(),
+                mode,
+                media.stream.container.as_deref(),
+            ),
+            ResolvedNativeMedia::SeparateTracks(media) => Ok(media.output_container.clone()),
+        }
+        .map_err(NativeMediaTaskError::InvalidRequest)?;
+        let job = nova_media_core::processing::NativeMediaSubtitleEmbedJob {
+            media_source: PathBuf::from(format!("native-media-input.{extension}")),
+            subtitles: vec![PathBuf::from("native-subtitle-input.srt")],
+        };
+        nova_media_core::processing::validate_local_media_subtitle_embed_job(&job)
+            .map_err(|error| NativeMediaTaskError::UnsupportedFeature(error.to_string()))?;
     }
 
     match resolved {
@@ -278,31 +366,30 @@ async fn create_native_direct_task(
     let descriptor = resolved.descriptor.clone();
     let chapters = resolved.chapters.clone();
     let container = resolved.container.clone();
+    let selected_kind = resolved.kind;
+    let mode = native_selection_preferences(body.media_options.as_ref())
+        .map_err(NativeMediaTaskError::InvalidRequest)?
+        .mode;
+    let output_extension = requested_output_extension(
+        body.media_options.as_ref(),
+        mode,
+        container.as_deref(),
+    )
+    .map_err(NativeMediaTaskError::InvalidRequest)?;
     let mut direct = body.clone();
     direct.url = Some(resolved.url);
     direct.media_options = None;
-    let base_name = direct
-        .name
-        .as_deref()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| {
-            let title = resolved.title.trim();
-            if title.is_empty() {
-                "nova-media".to_owned()
-            } else {
-                title.to_owned()
-            }
-        });
-    direct.name = Some(ensure_native_output_name(&base_name, container.as_deref()));
-    if direct
-        .file_type
-        .as_deref()
-        .map_or(true, |kind| kind.trim().is_empty())
-    {
-        direct.file_type = container;
-    }
+    let base_name = render_native_output_name(
+        body.media_options.as_ref(),
+        &descriptor.metadata.title,
+        descriptor.metadata.uploader.as_deref(),
+        &output_extension,
+        direct.name.as_deref(),
+    )
+    .map_err(NativeMediaTaskError::InvalidRequest)?;
+    direct.name = Some(ensure_native_output_name(&base_name, Some(&output_extension)));
+    set_media_save_path_extension(&mut direct.save_path, &output_extension);
+    direct.file_type = Some(output_extension.clone());
     if direct.size_bytes.unwrap_or(0) == 0 {
         direct.size_bytes = resolved.content_length;
     }
@@ -332,34 +419,32 @@ async fn create_native_direct_task(
 
     let source_url = direct.url.as_deref().unwrap_or_default();
     let (_, output_path) = crate::daemon::curl::destination_from_body(&direct, source_url);
+    let transcode_request = build_media_transcode_request(
+        body.media_options.as_ref(),
+        &output_path,
+        matches!(
+            selected_kind,
+            nova_media_core::MediaTrackKind::Video | nova_media_core::MediaTrackKind::AudioVideo
+        ),
+        matches!(
+            selected_kind,
+            nova_media_core::MediaTrackKind::Audio | nova_media_core::MediaTrackKind::AudioVideo
+        ),
+        descriptor.metadata.duration_millis,
+        container.as_deref(),
+        resolved.video_codec.as_deref(),
+        resolved.audio_codec.as_deref(),
+    )?;
     let sidecars = prepare_native_sidecars(body, &descriptor, &chapters, &output_path)?;
-    if body
-        .media_options
-        .as_ref()
-        .and_then(|options| options.embed_subtitles)
-        .unwrap_or(false)
-    {
-        if sidecars.subtitles.is_empty() {
-            return Err(NativeMediaTaskError::UnsupportedFeature(
-                "subtitle embedding requested but no embeddable native subtitle was produced"
-                    .to_owned(),
-            ));
-        }
-        let cleanup_sidecars = body.media_options.as_ref().is_some_and(|options| {
-            options.subtitles != Some(true) && options.auto_subtitles != Some(true)
-        });
-        let request = MediaSubtitleEmbedRequest {
-            source_path: output_path.clone(),
-            subtitles: sidecars.subtitles,
-            cleanup_sidecars,
-        };
+    if let Some(request) = transcode_request {
         let value = serde_json::to_value(request)
             .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
         direct
             .direct_options
             .get_or_insert_with(HashMap::new)
-            .insert(MEDIA_SUBTITLE_EMBED_OPTION.to_owned(), value);
+            .insert(MEDIA_TRANSCODE_OPTION.to_owned(), value);
     }
+    attach_native_subtitle_embed_plan(&mut direct, &sidecars, &output_path)?;
 
     log::info!(
         "NOVA Media Engine resolved media to native direct transport: {}",
@@ -385,34 +470,42 @@ fn create_native_manifest_task(
         }
     };
 
-    let extension = resolved
+    let source_extension = resolved
         .stream
         .container
         .as_deref()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(if protocol == "dash" { "mp4" } else { "ts" });
+    let mode = native_selection_preferences(body.media_options.as_ref())
+        .map_err(NativeMediaTaskError::InvalidRequest)?
+        .mode;
+    let extension = requested_output_extension(
+        body.media_options.as_ref(),
+        mode,
+        Some(source_extension),
+    )
+    .map_err(NativeMediaTaskError::InvalidRequest)?;
     let mut task_body = body.clone();
-    let base_name = task_body
-        .name
-        .as_deref()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| {
-            let title = resolved.descriptor.metadata.title.trim();
-            if title.is_empty() {
-                format!("nova-{protocol}-media")
-            } else {
-                title.to_owned()
-            }
-        });
-    task_body.name = Some(ensure_native_output_name(&base_name, Some(extension)));
+    let fallback_name = task_body.name.as_deref().or_else(|| {
+        let title = resolved.descriptor.metadata.title.trim();
+        (!title.is_empty()).then_some(title)
+    });
+    let base_name = render_native_output_name(
+        body.media_options.as_ref(),
+        &resolved.descriptor.metadata.title,
+        resolved.descriptor.metadata.uploader.as_deref(),
+        &extension,
+        fallback_name,
+    )
+    .map_err(NativeMediaTaskError::InvalidRequest)?;
+    task_body.name = Some(ensure_native_output_name(&base_name, Some(&extension)));
+    set_media_save_path_extension(&mut task_body.save_path, &extension);
     if task_body
         .file_type
         .as_deref()
         .map_or(true, |kind| kind.trim().is_empty())
     {
-        task_body.file_type = Some(extension.to_owned());
+        task_body.file_type = Some(extension.clone());
     }
 
     let source_url = body.url.as_deref().unwrap_or_default();
@@ -424,7 +517,8 @@ fn create_native_manifest_task(
         std::fs::create_dir_all(parent)
             .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
     }
-    prepare_native_sidecars(body, &resolved.descriptor, &resolved.chapters, &output_path)?;
+    let sidecars = prepare_native_sidecars(body, &resolved.descriptor, &resolved.chapters, &output_path)?;
+    attach_native_subtitle_embed_plan(&mut task_body, &sidecars, &output_path)?;
 
     let id = Uuid::new_v4().to_string();
     let connections = crate::daemon::curl::requested_connections(body.connections);
@@ -473,7 +567,7 @@ fn create_native_manifest_task(
     };
     let job = NativeMediaJob {
         task: task.clone(),
-        request: body.clone(),
+        request: task_body,
         protocol: protocol.to_owned(),
         cancel_token: Arc::new(AtomicBool::new(false)),
         run_generation: Arc::new(AtomicU64::new(0)),
@@ -535,24 +629,23 @@ fn create_native_separate_track_task(
         })?;
 
     let mut task_body = body.clone();
-    let base_name = task_body
-        .name
-        .as_deref()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| {
-            let title = resolved.extraction.descriptor.metadata.title.trim();
-            if title.is_empty() {
-                "nova-media".to_owned()
-            } else {
-                title.to_owned()
-            }
-        });
+    let fallback_name = task_body.name.as_deref().or_else(|| {
+        let title = resolved.extraction.descriptor.metadata.title.trim();
+        (!title.is_empty()).then_some(title)
+    });
+    let base_name = render_native_output_name(
+        body.media_options.as_ref(),
+        &resolved.extraction.descriptor.metadata.title,
+        resolved.extraction.descriptor.metadata.uploader.as_deref(),
+        &resolved.output_container,
+        fallback_name,
+    )
+    .map_err(NativeMediaTaskError::InvalidRequest)?;
     task_body.name = Some(ensure_native_output_name(
         &base_name,
         Some(&resolved.output_container),
     ));
+    set_media_save_path_extension(&mut task_body.save_path, &resolved.output_container);
     if task_body
         .file_type
         .as_deref()
@@ -570,12 +663,13 @@ fn create_native_separate_track_task(
         std::fs::create_dir_all(parent)
             .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
     }
-    prepare_native_sidecars(
+    let sidecars = prepare_native_sidecars(
         body,
         &resolved.extraction.descriptor,
         &resolved.extraction.chapters,
         &output_path,
     )?;
+    attach_native_subtitle_embed_plan(&mut task_body, &sidecars, &output_path)?;
 
     let id = Uuid::new_v4().to_string();
     let connections = crate::daemon::curl::requested_connections(body.connections);
@@ -656,7 +750,7 @@ fn create_native_separate_track_task(
 
     let job = NativeMediaJob {
         task: task.clone(),
-        request: body.clone(),
+        request: task_body,
         protocol: "separate-tracks".to_owned(),
         cancel_token: Arc::new(AtomicBool::new(false)),
         run_generation: Arc::new(AtomicU64::new(0)),
@@ -782,6 +876,15 @@ fn run_native_media_worker(
 ) {
     let still_current = || run_generation.load(Ordering::Acquire) == generation;
     let paused_or_stale = || cancel_token.load(Ordering::Acquire) || !still_current();
+    let processing_control = || {
+        if !still_current() {
+            MediaProcessingControl::Cancel
+        } else if cancel_token.load(Ordering::Acquire) {
+            MediaProcessingControl::Pause
+        } else {
+            MediaProcessingControl::Continue
+        }
+    };
 
     if paused_or_stale() {
         finish_native_cancelled(&state, &id, generation);
@@ -905,7 +1008,52 @@ fn run_native_media_worker(
                                 finish_native_cancelled(&state, &id, generation);
                                 return;
                             }
-                            if complete_native_task(&state, &id, generation, assembly.bytes) {
+                            let mode = native_selection_preferences(request.media_options.as_ref())
+                                .map(|preferences| preferences.mode)
+                                .unwrap_or(MediaSelectionMode::Video);
+                            let kind = resolved.stream.kind;
+                            let mut final_bytes = match transcode_native_output(
+                                &state,
+                                request.media_options.as_ref(),
+                                &output_path,
+                                matches!(kind, nova_media_core::MediaTrackKind::Video | nova_media_core::MediaTrackKind::AudioVideo)
+                                    && mode != MediaSelectionMode::Audio,
+                                matches!(kind, nova_media_core::MediaTrackKind::Audio | nova_media_core::MediaTrackKind::AudioVideo)
+                                    || mode == MediaSelectionMode::Audio,
+                                resolved.descriptor.metadata.duration_millis,
+                                resolved.stream.container.as_deref(),
+                                resolved.stream.video_codec.as_deref(),
+                                resolved.stream.audio_codec.as_deref(),
+                                &processing_control,
+                            ) {
+                                Ok(Some(bytes)) => bytes,
+                                Ok(None) => assembly.bytes,
+                                Err(PostProcessError::Cancelled) if paused_or_stale() => {
+                                    finish_native_cancelled(&state, &id, generation);
+                                    return;
+                                }
+                                Err(error) => {
+                                    fail_native_task(&state, &id, generation, error.to_string());
+                                    return;
+                                }
+                            };
+                            match embed_native_output_subtitles(
+                                request.direct_options.as_ref(),
+                                &output_path,
+                                &processing_control,
+                            ) {
+                                Ok(Some(bytes)) => final_bytes = bytes,
+                                Ok(None) => {}
+                                Err(PostProcessError::Cancelled) if paused_or_stale() => {
+                                    finish_native_cancelled(&state, &id, generation);
+                                    return;
+                                }
+                                Err(error) => {
+                                    fail_native_task(&state, &id, generation, error.to_string());
+                                    return;
+                                }
+                            }
+                            if complete_native_task(&state, &id, generation, final_bytes) {
                                 let _ = std::fs::remove_dir_all(&staging_dir);
                             }
                         }
@@ -929,6 +1077,8 @@ fn run_native_media_worker(
                 &staging_dir,
                 &output_path,
                 connections,
+                request.media_options.clone(),
+                request.direct_options.clone(),
             );
         }
         ResolvedNativeMedia::Direct(_) => {
@@ -944,6 +1094,55 @@ fn run_native_media_worker(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn transcode_native_output(
+    _state: &SharedState,
+    options: Option<&MediaDownloadOptions>,
+    media_path: &Path,
+    include_video: bool,
+    include_audio: bool,
+    duration_millis: Option<u64>,
+    source_container: Option<&str>,
+    source_video_codec: Option<&str>,
+    source_audio_codec: Option<&str>,
+    control: &(dyn Fn() -> MediaProcessingControl + Sync),
+) -> Result<Option<u64>, PostProcessError> {
+    let request = build_media_transcode_request(
+        options,
+        media_path,
+        include_video,
+        include_audio,
+        duration_millis,
+        source_container,
+        source_video_codec,
+        source_audio_codec,
+    )
+    .map_err(|error| PostProcessError::InvalidInput(error.to_string()))?;
+    let Some(request) = request else {
+        return Ok(None);
+    };
+    transcode_with_native_codecs(&request, control, &|_| {}).map(Some)
+}
+
+fn embed_native_output_subtitles(
+    direct_options: Option<&HashMap<String, Value>>,
+    output_path: &Path,
+    control: &(dyn Fn() -> MediaProcessingControl + Sync),
+) -> Result<Option<u64>, PostProcessError> {
+    let Some(value) = direct_options.and_then(|options| options.get(MEDIA_SUBTITLE_EMBED_OPTION))
+    else {
+        return Ok(None);
+    };
+    let request: MediaSubtitleEmbedRequest = serde_json::from_value(value.clone()).map_err(|error| {
+        PostProcessError::InvalidInput(format!("invalid native subtitle plan: {error}"))
+    })?;
+    if request.source_path.as_path() != output_path {
+        return Err(PostProcessError::InvalidInput(
+            "native subtitle plan does not match its media output path".to_owned(),
+        ));
+    }
+    embed_subtitles_with_native_codecs(&request, control, &|_| {}).map(Some)
+}
+
 fn run_native_separate_track_execution(
     state: &SharedState,
     id: &str,
@@ -954,21 +1153,10 @@ fn run_native_separate_track_execution(
     staging_dir: &Path,
     output_path: &Path,
     connections: u32,
+    media_options: Option<MediaDownloadOptions>,
+    direct_options: Option<HashMap<String, Value>>,
 ) {
     let use_native_mp4_mux = native_mux_supports_container(&resolved.output_container);
-    if !use_native_mp4_mux {
-        let postprocessor = FfmpegPostProcessor::new(state.ffmpeg_binary());
-        if !postprocessor.is_available() {
-            fail_native_task(
-                state,
-                id,
-                generation,
-                "The selected output container still requires the legacy host post-processor, and it is unavailable"
-                    .to_owned(),
-            );
-            return;
-        }
-    }
 
     let control = || {
         if run_generation.load(Ordering::Acquire) != generation {
@@ -980,6 +1168,11 @@ fn run_native_separate_track_execution(
         }
     };
     let should_cancel = || control() != TransferControl::Continue;
+    let processing_control = || match control() {
+        TransferControl::Continue => MediaProcessingControl::Continue,
+        TransferControl::Pause => MediaProcessingControl::Pause,
+        TransferControl::Cancel => MediaProcessingControl::Cancel,
+    };
 
     let plan = YouTubeDownloadPlan::SeparateTracks {
         video_stream_id: resolved.video_stream_id.clone(),
@@ -1069,7 +1262,7 @@ fn run_native_separate_track_execution(
         if use_native_mp4_mux {
             "muxing-audio-video-native"
         } else {
-            "muxing-audio-video-host"
+            "muxing-audio-video-native-codecs"
         },
     ) {
         handle_native_transition_error(state, id, generation, error, should_cancel());
@@ -1079,9 +1272,21 @@ fn run_native_separate_track_execution(
     if use_native_mp4_mux {
         match mux_mp4_tracks_controlled(&output.0, &output.1, output_path, should_cancel) {
             Ok(result) => {
-                if complete_native_task(state, id, generation, result.bytes) {
-                    let _ = std::fs::remove_dir_all(staging_dir);
-                }
+                complete_native_media_output(
+                    state,
+                    id,
+                    generation,
+                    result.bytes,
+                    media_options.as_ref(),
+                    output_path,
+                    resolved.extraction.descriptor.metadata.duration_millis,
+                    Some(&resolved.output_container),
+                    resolved.video_codec.as_deref(),
+                    resolved.audio_codec.as_deref(),
+                    direct_options.as_ref(),
+                    &processing_control,
+                    staging_dir,
+                );
             }
             Err(NativeMuxError::Cancelled) if should_cancel() => {
                 finish_native_cancelled(state, id, generation)
@@ -1091,22 +1296,96 @@ fn run_native_separate_track_execution(
         return;
     }
 
-    let postprocessor = FfmpegPostProcessor::new(state.ffmpeg_binary());
-    let request = MediaMuxRequest {
-        video_path: output.0,
-        audio_path: output.1,
-        destination: output_path.to_path_buf(),
+    {
+        let request = nova_media_core::processing::NativeMediaMuxJob {
+            video_source: output.0,
+            audio_source: output.1,
+            destination: output_path.to_path_buf(),
+            video_container: resolved.video_container.clone(),
+            audio_container: resolved.audio_container.clone(),
+            video_codec: resolved.video_codec.clone(),
+            audio_codec: resolved.audio_codec.clone(),
+        };
+        let progress_sink = |_update: &nova_media_core::processing::MediaProcessingProgress| {};
+        match nova_media_core::processing::mux_local_media_tracks(
+            &request,
+            &processing_control,
+            &progress_sink,
+        ) {
+            Ok(result) => complete_native_media_output(
+                state,
+                id,
+                generation,
+                result.output_bytes,
+                media_options.as_ref(),
+                output_path,
+                resolved.extraction.descriptor.metadata.duration_millis,
+                Some(&resolved.output_container),
+                resolved.video_codec.as_deref(),
+                resolved.audio_codec.as_deref(),
+                direct_options.as_ref(),
+                &processing_control,
+                staging_dir,
+            ),
+            Err(_error) if should_cancel() => finish_native_cancelled(state, id, generation),
+            Err(error) => fail_native_task(state, id, generation, error.to_string()),
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn complete_native_media_output(
+    state: &SharedState,
+    id: &str,
+    generation: u64,
+    assembled_bytes: u64,
+    options: Option<&MediaDownloadOptions>,
+    output_path: &Path,
+    duration_millis: Option<u64>,
+    source_container: Option<&str>,
+    source_video_codec: Option<&str>,
+    source_audio_codec: Option<&str>,
+    direct_options: Option<&HashMap<String, Value>>,
+    control: &(dyn Fn() -> MediaProcessingControl + Sync),
+    staging_dir: &Path,
+) {
+    let mut final_bytes = match transcode_native_output(
+        state,
+        options,
+        output_path,
+        true,
+        true,
+        duration_millis,
+        source_container,
+        source_video_codec,
+        source_audio_codec,
+        control,
+    ) {
+        Ok(Some(bytes)) => bytes,
+        Ok(None) => assembled_bytes,
+        Err(PostProcessError::Cancelled) if control() != MediaProcessingControl::Continue => {
+            finish_native_cancelled(state, id, generation);
+            return;
+        }
+        Err(error) => {
+            fail_native_task(state, id, generation, error.to_string());
+            return;
+        }
     };
-    match postprocessor.mux(&request, &should_cancel) {
-        Ok(bytes) => {
-            if complete_native_task(state, id, generation, bytes) {
-                let _ = std::fs::remove_dir_all(staging_dir);
-            }
+    match embed_native_output_subtitles(direct_options, output_path, control) {
+        Ok(Some(bytes)) => final_bytes = bytes,
+        Ok(None) => {}
+        Err(PostProcessError::Cancelled) if control() != MediaProcessingControl::Continue => {
+            finish_native_cancelled(state, id, generation);
+            return;
         }
-        Err(PostProcessError::Cancelled) if should_cancel() => {
-            finish_native_cancelled(state, id, generation)
+        Err(error) => {
+            fail_native_task(state, id, generation, error.to_string());
+            return;
         }
-        Err(error) => fail_native_task(state, id, generation, error.to_string()),
+    }
+    if complete_native_task(state, id, generation, final_bytes) {
+        let _ = std::fs::remove_dir_all(staging_dir);
     }
 }
 
@@ -2050,11 +2329,7 @@ fn native_selection_preferences(
                 "best" | "auto" => None,
                 "m4a" | "mp4" | "aac" => Some("mp4".to_owned()),
                 "webm" | "opus" | "ogg" => Some("webm".to_owned()),
-                "mp3" | "flac" | "wav" | "alac" => {
-                    return Err(format!(
-                        "Audio format '{format}' requires transcoding; native extraction only selects an existing audio representation"
-                    ));
-                }
+                "mp3" | "flac" | "wav" | "alac" => None,
                 other => {
                     return Err(format!(
                         "Native audio container preference '{other}' is not supported"
@@ -2333,8 +2608,8 @@ fn validate_native_options(options: &MediaDownloadOptions) -> Result<(), String>
     }
 
     if let Some(template) = options.output_template.as_deref().map(str::trim) {
-        if !template.is_empty() && template != "%(title)s.%(ext)s" {
-            return Err("Custom media output templates are not migrated yet".to_owned());
+        if !template.is_empty() {
+            validate_native_output_template(template)?;
         }
     }
 
@@ -2360,6 +2635,40 @@ fn validate_native_options(options: &MediaDownloadOptions) -> Result<(), String>
         }
     }
 
+    Ok(())
+}
+
+fn validate_native_output_template(template: &str) -> Result<(), String> {
+    if template.len() > 512
+        || template
+            .chars()
+            .any(|character| character.is_control() || matches!(character, '/' | '\\'))
+    {
+        return Err("Media output templates must be a short, single file name".to_owned());
+    }
+
+    let bytes = template.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] != b'%' {
+            index += 1;
+            continue;
+        }
+        if bytes.get(index + 1) != Some(&b'(') {
+            return Err("Media output templates may use only supported %(field)s tokens".to_owned());
+        }
+        let token_start = index + 2;
+        let token_end = bytes[token_start..]
+            .windows(2)
+            .position(|pair| pair == b")s")
+            .map(|offset| token_start + offset)
+            .ok_or_else(|| "Media output template contains an unfinished token".to_owned())?;
+        let token = &template[token_start..token_end];
+        if !matches!(token, "title" | "uploader" | "playlist_index" | "ext") {
+            return Err(format!("Media output template token '{token}' is not supported"));
+        }
+        index = token_end + 2;
+    }
     Ok(())
 }
 
@@ -2411,16 +2720,9 @@ fn resolve_native_media(
             }
         }
 
-        let host_postprocessing_enabled = body
-            .media_options
-            .as_ref()
-            .and_then(|options| options.ffmpeg_enabled)
-            .unwrap_or(false);
-        let native_multitrack_enabled =
-            nova_media_core::native_media_core_capabilities().native_mp4_multitrack_mux;
-        let multitrack_enabled = host_postprocessing_enabled || native_multitrack_enabled;
+        let native_multitrack_enabled = native_multitrack_enabled();
+        let multitrack_enabled = native_multitrack_enabled;
         let preferred_container = if native_multitrack_enabled
-            && !host_postprocessing_enabled
             && selection.preferred_container.is_none()
         {
             Some("mp4".to_owned())
@@ -2525,11 +2827,35 @@ fn resolve_native_media(
                     &default_container,
                     body.media_options.as_ref(),
                 )?;
+                let video_container = video
+                    .container
+                    .as_deref()
+                    .filter(|value| !value.trim().is_empty())
+                    .ok_or_else(|| {
+                        NativeMediaTaskError::UnsupportedFeature(
+                            "selected video track has no recognized input container".to_owned(),
+                        )
+                    })?
+                    .to_owned();
+                let audio_container = audio
+                    .container
+                    .as_deref()
+                    .filter(|value| !value.trim().is_empty())
+                    .ok_or_else(|| {
+                        NativeMediaTaskError::UnsupportedFeature(
+                            "selected audio track has no recognized input container".to_owned(),
+                        )
+                    })?
+                    .to_owned();
                 Ok(ResolvedNativeMedia::SeparateTracks(
                     ResolvedSeparateTracks {
                         extraction,
                         video_stream_id,
                         audio_stream_id,
+                        video_container,
+                        audio_container,
+                        video_codec: video.video_codec.clone(),
+                        audio_codec: audio.audio_codec.clone(),
                         output_container,
                         expected_bytes,
                     },
@@ -2581,20 +2907,9 @@ fn ensure_native_remux_policy(
     if matches!(requested.to_ascii_lowercase().as_str(), "auto" | "best") {
         return Ok(());
     }
-    let requested =
-        normalize_container_preference(requested).map_err(NativeMediaTaskError::InvalidRequest)?;
-    let actual = stream
-        .container
-        .as_deref()
-        .map(normalize_container_alias)
-        .unwrap_or_default();
-    if actual == requested {
-        Ok(())
-    } else {
-        Err(NativeMediaTaskError::UnsupportedFeature(format!(
-            "remuxFormat='{requested}' requires NOVA post-processing for this source container"
-        )))
-    }
+    normalize_output_extension(requested).map_err(NativeMediaTaskError::InvalidRequest)?;
+    let _ = stream;
+    Ok(())
 }
 
 fn requested_separate_track_container(
@@ -2611,21 +2926,350 @@ fn requested_separate_track_container(
     if matches!(requested.to_ascii_lowercase().as_str(), "auto" | "best") {
         return Ok(default_container.to_owned());
     }
-    let requested =
-        normalize_container_preference(requested).map_err(NativeMediaTaskError::InvalidRequest)?;
-    if requested == "mkv" || requested == default_container {
+    let requested = normalize_output_extension(requested)
+        .map_err(NativeMediaTaskError::InvalidRequest)?;
+    if matches!(requested.as_str(), "mp4" | "mkv" | "webm" | "mov" | "avi" | "flv") {
         Ok(requested)
     } else {
-        Err(NativeMediaTaskError::UnsupportedFeature(format!(
-            "separate-track copy-mux cannot produce '{requested}' from native '{default_container}' tracks without additional post-processing"
+        Err(NativeMediaTaskError::InvalidRequest(format!(
+            "'{requested}' is an audio container and cannot contain separate video/audio tracks"
         )))
+    }
+}
+
+fn normalize_output_extension(value: &str) -> Result<String, String> {
+    match value.trim().trim_start_matches('.').to_ascii_lowercase().as_str() {
+        "mp4" | "m4v" | "mpd" => Ok("mp4".to_owned()),
+        "m4a" => Ok("m4a".to_owned()),
+        "aac" => Ok("m4a".to_owned()),
+        "mkv" | "matroska" => Ok("mkv".to_owned()),
+        "mka" => Ok("mka".to_owned()),
+        "ts" | "mpegts" | "m3u8" => Ok("ts".to_owned()),
+        "webm" => Ok("webm".to_owned()),
+        "mov" => Ok("mov".to_owned()),
+        "avi" => Ok("avi".to_owned()),
+        "flv" => Ok("flv".to_owned()),
+        "mp3" => Ok("mp3".to_owned()),
+        "flac" => Ok("flac".to_owned()),
+        "ogg" => Ok("ogg".to_owned()),
+        "opus" => Ok("opus".to_owned()),
+        "wav" | "wave" => Ok("wav".to_owned()),
+        "alac" => Ok("m4a".to_owned()),
+        other => Err(format!("Output media format '{other}' is not supported")),
+    }
+}
+
+fn set_media_save_path_extension(save_path: &mut Option<String>, extension: &str) {
+    let Some(raw_path) = save_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+    if raw_path.ends_with('/') || raw_path.ends_with('\\') || Path::new(raw_path).is_dir() {
+        return;
+    }
+    let mut path = PathBuf::from(raw_path);
+    path.set_extension(extension.trim_start_matches('.'));
+    *save_path = Some(path.to_string_lossy().to_string());
+}
+
+fn requested_output_extension(
+    options: Option<&MediaDownloadOptions>,
+    mode: MediaSelectionMode,
+    source_container: Option<&str>,
+) -> Result<String, String> {
+    let requested = if mode == MediaSelectionMode::Audio {
+        options.and_then(|options| options.audio_format.as_deref())
+    } else {
+        options.and_then(|options| options.remux_format.as_deref())
+    }
+    .map(str::trim)
+    .filter(|value| !value.is_empty() && !matches!(value.to_ascii_lowercase().as_str(), "auto" | "best"));
+
+    match requested {
+        Some(format) => {
+            let extension = normalize_output_extension(format)?;
+            let allowed = if mode == MediaSelectionMode::Audio {
+                matches!(extension.as_str(), "mp4" | "m4a" | "mka" | "mp3" | "flac" | "ogg" | "opus" | "wav")
+            } else {
+                matches!(extension.as_str(), "mp4" | "mkv" | "webm" | "mov" | "avi" | "flv" | "ts")
+            };
+            if allowed {
+                Ok(extension)
+            } else {
+                Err(format!(
+                    "Output format '{format}' is not valid for {} media mode",
+                    if mode == MediaSelectionMode::Audio { "audio" } else { "video" }
+                ))
+            }
+        }
+        None => Ok(source_container
+            .map(normalize_output_extension)
+            .transpose()?
+            .unwrap_or_else(|| if mode == MediaSelectionMode::Audio { "m4a" } else { "mp4" }.to_owned())),
+    }
+}
+
+fn validate_requested_native_transcode(
+    options: Option<&MediaDownloadOptions>,
+    kind: nova_media_core::MediaTrackKind,
+    duration_millis: Option<u64>,
+    source_container: Option<&str>,
+    source_video_codec: Option<&str>,
+    source_audio_codec: Option<&str>,
+) -> Result<(), NativeMediaTaskError> {
+    let mode = native_selection_preferences(options)
+        .map_err(NativeMediaTaskError::InvalidRequest)?
+        .mode;
+    let include_video = mode != MediaSelectionMode::Audio
+        && matches!(
+            kind,
+            nova_media_core::MediaTrackKind::Video
+                | nova_media_core::MediaTrackKind::AudioVideo
+        );
+    let include_audio = matches!(
+        kind,
+        nova_media_core::MediaTrackKind::Audio
+            | nova_media_core::MediaTrackKind::AudioVideo
+    ) || mode == MediaSelectionMode::Audio;
+    let output_extension = requested_output_extension(options, mode, source_container)
+        .map_err(NativeMediaTaskError::InvalidRequest)?;
+    let validation_path = PathBuf::from("nova-media-validation").with_extension(&output_extension);
+    let request = build_media_transcode_request(
+        options,
+        &validation_path,
+        include_video,
+        include_audio,
+        duration_millis,
+        source_container,
+        source_video_codec,
+        source_audio_codec,
+    )?
+    .ok_or_else(|| {
+        NativeMediaTaskError::InvalidRequest(
+            "conversion settings did not produce a local transcode request".to_owned(),
+        )
+    })?;
+    validate_native_transcode_request(&request)
+        .map_err(|error| NativeMediaTaskError::UnsupportedFeature(error.to_string()))
+}
+
+fn media_transcoding_requested(
+    options: Option<&MediaDownloadOptions>,
+    source_container: Option<&str>,
+) -> Result<bool, NativeMediaTaskError> {
+    let Some(options) = options else {
+        return Ok(false);
+    };
+    let mode = match options.mode.as_deref().unwrap_or("video").trim().to_ascii_lowercase().as_str() {
+        "audio" => MediaSelectionMode::Audio,
+        _ => MediaSelectionMode::Video,
+    };
+    let output_extension = requested_output_extension(Some(options), mode, source_container)
+        .map_err(NativeMediaTaskError::InvalidRequest)?;
+    let source_extension = source_container
+        .map(normalize_output_extension)
+        .transpose()
+        .map_err(NativeMediaTaskError::InvalidRequest)?;
+    let output_format_is_explicit = if mode == MediaSelectionMode::Audio {
+        options.audio_format.as_deref().is_some_and(|value| {
+            !value.trim().is_empty() && !matches!(value.trim().to_ascii_lowercase().as_str(), "auto" | "best")
+        })
+    } else {
+        options.remux_format.as_deref().is_some_and(|value| {
+            !value.trim().is_empty() && !matches!(value.trim().to_ascii_lowercase().as_str(), "auto" | "best")
+        })
+    };
+    let audio_bitrate_requested = mode == MediaSelectionMode::Audio
+        && options.bitrate.as_deref().is_some_and(|value| {
+            !value.trim().is_empty() && !matches!(value.trim().to_ascii_lowercase().as_str(), "0" | "best" | "auto")
+        });
+    let explicit_encoder = [options.video_codec.as_deref(), options.audio_codec.as_deref()]
+        .into_iter()
+        .flatten()
+        .any(|value| !value.trim().is_empty() && !value.trim().eq_ignore_ascii_case("copy"));
+    let codec_settings = options.video_bitrate_bps.is_some()
+        || options.audio_bitrate_bps.is_some()
+        || options.transcode_crf.is_some()
+        || options.transcode_preset.is_some()
+        || options.width.is_some()
+        || options.height.is_some()
+        || options.frame_rate_milli.is_some()
+        || options.audio_sample_rate_hz.is_some()
+        || options.audio_channels.is_some();
+    let format_changed = (mode == MediaSelectionMode::Audio && output_format_is_explicit)
+        || (output_format_is_explicit
+            && source_extension.as_deref().map_or(true, |source| {
+                normalize_container_alias(source) != normalize_container_alias(&output_extension)
+            }));
+    Ok(explicit_encoder || codec_settings || audio_bitrate_requested || format_changed)
+}
+
+fn parse_media_bitrate(value: &str) -> Result<Option<u64>, String> {
+    let value = value.trim().to_ascii_lowercase();
+    if value.is_empty() || matches!(value.as_str(), "0" | "best" | "auto") {
+        return Ok(None);
+    }
+    let (digits, multiplier) = match value.as_bytes().last().copied() {
+        Some(b'k') => (&value[..value.len() - 1], 1_000_u64),
+        Some(b'm') => (&value[..value.len() - 1], 1_000_000_u64),
+        _ => (value.as_str(), 1_000_u64),
+    };
+    let kilobits = digits
+        .parse::<u64>()
+        .map_err(|_| "Audio bitrate must be 'best', '0', or a numeric K/M bitrate".to_owned())?;
+    let bitrate = kilobits
+        .checked_mul(multiplier)
+        .ok_or_else(|| "Audio bitrate is too large".to_owned())?;
+    if !(32_000..=512_000).contains(&bitrate) {
+        return Err("Audio bitrate must be between 32 and 512 kbit/s".to_owned());
+    }
+    Ok(Some(bitrate))
+}
+
+fn normalize_native_video_codec(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "h264" | "avc" | "libx264" => "h264".to_owned(),
+        "h265" | "hevc" | "libx265" => "hevc".to_owned(),
+        "vp8" | "libvpx" => "vp8".to_owned(),
+        "vp9" | "libvpx-vp9" => "vp9".to_owned(),
+        "av1" | "libsvtav1" => "av1".to_owned(),
+        "copy" => "copy".to_owned(),
+        other => other.to_owned(),
+    }
+}
+
+fn audio_codec_for_output(value: &str) -> Option<&'static str> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "m4a" | "mp4" | "aac" => Some("aac"),
+        "mp3" => Some("mp3"),
+        "opus" => Some("opus"),
+        "ogg" | "vorbis" => Some("vorbis"),
+        "flac" => Some("flac"),
+        "wav" | "wave" => Some("pcm_s16le"),
+        _ => None,
+    }
+}
+
+fn build_media_transcode_request(
+    options: Option<&MediaDownloadOptions>,
+    media_path: &Path,
+    include_video: bool,
+    include_audio: bool,
+    duration_millis: Option<u64>,
+    source_container: Option<&str>,
+    source_video_codec: Option<&str>,
+    source_audio_codec: Option<&str>,
+) -> Result<Option<MediaTranscodeRequest>, NativeMediaTaskError> {
+    let Some(options) = options else {
+        return Ok(None);
+    };
+    if !media_transcoding_requested(Some(options), source_container)? {
+        return Ok(None);
+    }
+    let mode = options.mode.as_deref().unwrap_or("video").trim().to_ascii_lowercase();
+    let requested_audio_bitrate = if mode == "audio" {
+        options
+            .bitrate
+            .as_deref()
+            .map(parse_media_bitrate)
+            .transpose()
+            .map_err(NativeMediaTaskError::InvalidRequest)?
+            .flatten()
+    } else {
+        None
+    };
+    let audio_bitrate_bps = include_audio
+        .then_some(options.audio_bitrate_bps.or(requested_audio_bitrate))
+        .flatten();
+    let selected_audio_codec = include_audio
+        .then(|| {
+            options
+                .audio_codec
+                .as_deref()
+                .filter(|codec| !codec.trim().is_empty())
+                .map(normalize_native_audio_codec)
+        })
+        .flatten()
+        .or_else(|| {
+            (mode == "audio")
+                .then(|| options.audio_format.as_deref().and_then(audio_codec_for_output))
+                .flatten()
+                .map(str::to_owned)
+        });
+    let audio_has_encoding_settings = include_audio
+        && (audio_bitrate_bps.is_some()
+            || options.audio_sample_rate_hz.is_some()
+            || options.audio_channels.is_some());
+    let audio_codec = selected_audio_codec.or_else(|| {
+        (audio_has_encoding_settings && include_audio).then(|| "aac".to_owned())
+    });
+    let selected_video_codec = include_video
+        .then(|| {
+            options
+                .video_codec
+                .as_deref()
+                .filter(|codec| !codec.trim().is_empty())
+                .map(normalize_native_video_codec)
+        })
+        .flatten();
+    let video_has_encoding_settings = include_video
+        && (options.video_bitrate_bps.is_some()
+            || options.transcode_crf.is_some()
+            || options.transcode_preset.is_some()
+            || options.width.is_some()
+            || options.height.is_some()
+            || options.frame_rate_milli.is_some());
+    let video_codec = selected_video_codec.or_else(|| {
+        (video_has_encoding_settings && include_video).then(|| "h264".to_owned())
+    });
+    let request = MediaTranscodeRequest {
+        media_path: media_path.to_path_buf(),
+        input_container: source_container.map(str::to_owned),
+        source_video_codec: source_video_codec.map(str::to_owned),
+        source_audio_codec: source_audio_codec.map(str::to_owned),
+        video_codec,
+        audio_codec,
+        video_bitrate_bps: include_video.then_some(options.video_bitrate_bps).flatten(),
+        audio_bitrate_bps,
+        quality_crf: include_video.then_some(options.transcode_crf).flatten(),
+        preset: include_video
+            .then(|| options.transcode_preset.as_deref())
+            .flatten()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned),
+        width: include_video.then_some(options.width).flatten(),
+        height: include_video.then_some(options.height).flatten(),
+        frame_rate_milli: include_video.then_some(options.frame_rate_milli).flatten(),
+        audio_sample_rate_hz: include_audio.then_some(options.audio_sample_rate_hz).flatten(),
+        audio_channels: include_audio.then_some(options.audio_channels).flatten(),
+        threads: options.processing_threads,
+        include_video,
+        include_audio,
+        duration_millis,
+    };
+    Ok(Some(request))
+}
+
+fn normalize_native_audio_codec(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "aac" => "aac".to_owned(),
+        "mp3" | "libmp3lame" => "mp3".to_owned(),
+        "opus" | "libopus" => "opus".to_owned(),
+        "vorbis" | "libvorbis" => "vorbis".to_owned(),
+        "flac" => "flac".to_owned(),
+        "wav" => "pcm_s16le".to_owned(),
+        "copy" => "copy".to_owned(),
+        other => other.to_owned(),
     }
 }
 
 fn normalize_container_alias(value: &str) -> String {
     match value.trim().to_ascii_lowercase().as_str() {
         "m4a" | "aac" => "mp4".to_owned(),
-        "opus" | "ogg" => "webm".to_owned(),
         "matroska" => "mkv".to_owned(),
         other => other.to_owned(),
     }
@@ -2645,21 +3289,19 @@ fn ensure_requested_audio_container(
     if matches!(requested.to_ascii_lowercase().as_str(), "best" | "auto") {
         return Ok(());
     }
-    let required = match requested.to_ascii_lowercase().as_str() {
-        "m4a" | "mp4" | "aac" => "mp4",
-        "webm" | "opus" | "ogg" => "webm",
-        _ => return Ok(()),
-    };
-    let actual = stream
-        .container
-        .as_deref()
-        .map(normalize_container_alias)
-        .unwrap_or_default();
-    if actual.eq_ignore_ascii_case(required) {
+    let extension = normalize_output_extension(requested)
+        .map_err(NativeMediaTaskError::InvalidRequest)?;
+    if matches!(
+        extension.as_str(),
+        "mp4" | "m4a" | "aac" | "mp3" | "flac" | "ogg" | "opus" | "wav"
+    ) {
+        // A different audio container is handled by the capability-gated
+        // post-processing step after the native stream transfer.
+        let _source_container = stream.container.as_deref();
         Ok(())
     } else {
-        Err(NativeMediaTaskError::UnsupportedFeature(format!(
-            "requested audio format '{requested}' is not available as a native source representation"
+        Err(NativeMediaTaskError::InvalidRequest(format!(
+            "'{requested}' is not a supported audio output format"
         )))
     }
 }
@@ -2670,6 +3312,41 @@ const NATIVE_THUMBNAIL_MAX_BYTES: usize = 24 * 1024 * 1024;
 #[derive(Default)]
 struct NativeSidecarArtifacts {
     subtitles: Vec<MediaSubtitleInput>,
+}
+
+fn attach_native_subtitle_embed_plan(
+    body: &mut CreateDownloadBody,
+    sidecars: &NativeSidecarArtifacts,
+    output_path: &Path,
+) -> Result<(), NativeMediaTaskError> {
+    if !body
+        .media_options
+        .as_ref()
+        .and_then(|options| options.embed_subtitles)
+        .unwrap_or(false)
+    {
+        return Ok(());
+    }
+    if sidecars.subtitles.is_empty() {
+        return Err(NativeMediaTaskError::UnsupportedFeature(
+            "subtitle embedding requested but no embeddable native subtitle was produced"
+                .to_owned(),
+        ));
+    }
+    let cleanup_sidecars = body.media_options.as_ref().is_some_and(|options| {
+        options.subtitles != Some(true) && options.auto_subtitles != Some(true)
+    });
+    let request = MediaSubtitleEmbedRequest {
+        source_path: output_path.to_path_buf(),
+        subtitles: sidecars.subtitles.clone(),
+        cleanup_sidecars,
+    };
+    let value = serde_json::to_value(request)
+        .map_err(|error| NativeMediaTaskError::Transfer(error.to_string()))?;
+    body.direct_options
+        .get_or_insert_with(HashMap::new)
+        .insert(MEDIA_SUBTITLE_EMBED_OPTION.to_owned(), value);
+    Ok(())
 }
 
 fn prepare_native_sidecars(
@@ -2995,7 +3672,10 @@ fn resolved_from_descriptor(
             Ok(ResolvedNativeMedia::Direct(ResolvedDirectMedia {
                 url: stream.url.clone(),
                 title: descriptor.metadata.title.clone(),
+                kind: stream.kind,
                 container: stream.container.clone(),
+                video_codec: stream.video_codec.clone(),
+                audio_codec: stream.audio_codec.clone(),
                 content_length: stream.content_length,
                 context,
                 descriptor: descriptor.clone(),
@@ -3327,6 +4007,41 @@ fn cookie_path_matches(target_path: &str, cookie_path: &str) -> bool {
             .is_some_and(|next| *next == b'/')
 }
 
+fn render_native_output_name(
+    options: Option<&MediaDownloadOptions>,
+    title: &str,
+    uploader: Option<&str>,
+    extension: &str,
+    fallback_name: Option<&str>,
+) -> Result<String, String> {
+    let fallback = fallback_name
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| (!title.trim().is_empty()).then_some(title.trim()))
+        .unwrap_or("nova-media");
+    let template = options
+        .and_then(|options| options.output_template.as_deref())
+        .map(str::trim)
+        .filter(|template| !template.is_empty());
+    let Some(template) = template else {
+        return Ok(fallback.to_owned());
+    };
+    validate_native_output_template(template)?;
+
+    let playlist_index = options
+        .and_then(|options| options.playlist_items.as_deref())
+        .and_then(|items| items.split(',').next())
+        .and_then(|item| item.trim().parse::<u64>().ok())
+        .map(|index| index.to_string())
+        .unwrap_or_else(|| "1".to_owned());
+    let rendered = template
+        .replace("%(title)s", if title.trim().is_empty() { fallback } else { title.trim() })
+        .replace("%(uploader)s", uploader.map(str::trim).filter(|value| !value.is_empty()).unwrap_or("unknown"))
+        .replace("%(playlist_index)s", &playlist_index)
+        .replace("%(ext)s", extension.trim_start_matches('.'));
+    Ok(crate::daemon::utils::sanitize_derived_file_name(&rendered))
+}
+
 fn ensure_native_output_name(name: &str, extension: Option<&str>) -> String {
     let name = name.trim();
     let mut output = if name.is_empty() {
@@ -3342,10 +4057,7 @@ fn ensure_native_output_name(name: &str, extension: Option<&str>) -> String {
         .extension()
         .and_then(|value| value.to_str())
         .map(str::to_ascii_lowercase);
-    if current_extension
-        .as_deref()
-        .is_some_and(|value| matches!(value, "m3u8" | "mpd"))
-    {
+    if current_extension.is_some() {
         let mut path = PathBuf::from(&output);
         path.set_extension(extension);
         return path.to_string_lossy().to_string();
@@ -3410,6 +4122,136 @@ mod tests {
                 ..Default::default()
             }),
         }
+    }
+
+    #[test]
+    fn native_output_template_renders_safe_metadata_fields() {
+        let options = MediaDownloadOptions {
+            output_template: Some("%(uploader)s - %(title)s - %(playlist_index)s.%(ext)s".to_owned()),
+            playlist_items: Some("2".to_owned()),
+            ..MediaDownloadOptions::default()
+        };
+
+        let name = render_native_output_name(
+            Some(&options),
+            "Demo Clip",
+            Some("NOVA Creator"),
+            "mp4",
+            Some("fallback"),
+        )
+        .expect("render template");
+        assert_eq!(name, "NOVA Creator - Demo Clip - 2.mp4");
+    }
+
+    #[test]
+    fn native_output_template_rejects_paths_and_unknown_tokens() {
+        assert!(validate_native_output_template("../%(title)s.%(ext)s").is_err());
+        assert!(validate_native_output_template("%(title)s/%(ext)s").is_err());
+        assert!(validate_native_output_template("%(unknown)s.%(ext)s").is_err());
+        assert!(validate_native_output_template("%(title)s.%(ext)s").is_ok());
+    }
+
+    #[test]
+    fn audio_conversion_request_selects_encoder_and_bitrate_for_target_format() {
+        let options = MediaDownloadOptions {
+            mode: Some("audio".to_owned()),
+            audio_format: Some("mp3".to_owned()),
+            bitrate: Some("192K".to_owned()),
+            ..MediaDownloadOptions::default()
+        };
+        let request = build_media_transcode_request(
+            Some(&options),
+            Path::new("output.mp3"),
+            false,
+            true,
+            Some(42_000),
+            Some("m4a"),
+            Some("mp4a.40.2"),
+            None,
+        )
+        .expect("build transcode plan")
+        .expect("MP3 conversion plan");
+
+        assert_eq!(request.video_codec, None);
+        assert_eq!(request.audio_codec.as_deref(), Some("mp3"));
+        assert_eq!(request.source_audio_codec.as_deref(), Some("mp4a.40.2"));
+        assert_eq!(request.audio_bitrate_bps, Some(192_000));
+        assert!(!request.include_video);
+        assert!(request.include_audio);
+    }
+
+    #[test]
+    fn video_transcode_options_are_forwarded_without_enabling_stream_copy_controls() {
+        let options = MediaDownloadOptions {
+            mode: Some("video".to_owned()),
+            remux_format: Some("mp4".to_owned()),
+            video_codec: Some("libx264".to_owned()),
+            audio_codec: Some("copy".to_owned()),
+            video_bitrate_bps: Some(4_000_000),
+            transcode_crf: Some(22),
+            height: Some(1080),
+            frame_rate_milli: Some(30_000),
+            ..MediaDownloadOptions::default()
+        };
+        let request = build_media_transcode_request(
+            Some(&options),
+            Path::new("output.mp4"),
+            true,
+            true,
+            Some(120_000),
+            Some("webm"),
+            Some("avc1"),
+            Some("opus"),
+        )
+        .expect("build transcode plan")
+        .expect("video conversion plan");
+
+        assert_eq!(request.video_codec.as_deref(), Some("h264"));
+        assert_eq!(request.video_bitrate_bps, Some(4_000_000));
+        assert_eq!(request.quality_crf, Some(22));
+        assert_eq!(request.height, Some(1080));
+        assert_eq!(request.frame_rate_milli, Some(30_000));
+        assert_eq!(request.audio_codec.as_deref(), Some("copy"));
+    }
+
+    #[test]
+    fn explicit_video_container_requires_conversion_when_source_container_is_unknown() {
+        let options = MediaDownloadOptions {
+            mode: Some("video".to_owned()),
+            remux_format: Some("mp4".to_owned()),
+            ..MediaDownloadOptions::default()
+        };
+
+        assert!(media_transcoding_requested(Some(&options), None)
+            .expect("valid output container policy"));
+    }
+
+    #[test]
+    fn transcode_plan_ignores_encoder_choices_for_absent_stream_types() {
+        let options = MediaDownloadOptions {
+            mode: Some("video".to_owned()),
+            remux_format: Some("mp4".to_owned()),
+            video_codec: Some("libx264".to_owned()),
+            audio_codec: Some("aac".to_owned()),
+            audio_bitrate_bps: Some(192_000),
+            ..MediaDownloadOptions::default()
+        };
+        let request = build_media_transcode_request(
+            Some(&options),
+            Path::new("output.mp4"),
+            true,
+            false,
+            Some(120_000),
+            Some("webm"),
+            Some("avc1"),
+            None,
+        )
+        .expect("build transcode plan")
+        .expect("container conversion plan");
+
+        assert_eq!(request.video_codec.as_deref(), Some("h264"));
+        assert_eq!(request.audio_codec, None);
+        assert_eq!(request.audio_bitrate_bps, None);
     }
 
     #[test]
@@ -3486,17 +4328,17 @@ mod tests {
     }
 
     #[test]
-    fn ffmpeg_toggle_is_a_supported_native_execution_option() {
-        let mut request = body("https://cdn.test/video.mp4");
-        request
-            .media_options
-            .as_mut()
-            .expect("media")
-            .ffmpeg_enabled = Some(true);
-        NativeMediaExtractor
-            .validate(&request)
-            .expect("ffmpeg toggle should be accepted by native task path");
-        assert!(NATIVE_MEDIA_OPTION_KEYS.contains(&"ffmpegEnabled"));
+    fn legacy_external_processor_settings_are_ignored_and_not_advertised() {
+        let legacy: MediaDownloadOptions = serde_json::from_value(serde_json::json!({
+            "mode": "video",
+            "ffmpegEnabled": true,
+            "ffmpegLocation": "ffmpeg.exe"
+        }))
+        .expect("older client media settings remain deserializable");
+        let serialized = serde_json::to_value(legacy).expect("serialize native media settings");
+        assert!(serialized.get("ffmpegEnabled").is_none());
+        assert!(serialized.get("ffmpegLocation").is_none());
+        assert!(!NATIVE_MEDIA_OPTION_KEYS.contains(&"ffmpegEnabled"));
     }
 
     #[test]
@@ -3561,15 +4403,23 @@ mod tests {
     }
 
     #[test]
-    fn native_audio_mode_rejects_transcoding_only_format() {
+    fn native_audio_mode_accepts_supported_transcoding_output_formats() {
         let mut request = body("https://cdn.test/audio");
         let media = request.media_options.as_mut().expect("media");
         media.mode = Some("audio".to_owned());
         media.audio_format = Some("mp3".to_owned());
-        let error = NativeMediaExtractor
+        NativeMediaExtractor
             .validate(&request)
-            .expect_err("mp3 requires transcoding");
-        assert!(error.0.contains("requires transcoding"));
+            .expect("native task delegates MP3 encoding to available post-processing");
+        assert_eq!(
+            requested_output_extension(
+                request.media_options.as_ref(),
+                MediaSelectionMode::Audio,
+                Some("m4a"),
+            )
+            .expect("MP3 output extension"),
+            "mp3"
+        );
     }
 
     #[test]
@@ -3591,7 +4441,7 @@ mod tests {
     }
 
     #[test]
-    fn native_remux_policy_accepts_same_container_and_rejects_conversion() {
+    fn native_remux_policy_accepts_conversion_for_postprocessing() {
         let stream = MediaStream {
             id: "v".to_owned(),
             kind: nova_media_core::MediaTrackKind::AudioVideo,
@@ -3616,10 +4466,8 @@ mod tests {
         ensure_native_remux_policy(&stream, Some(&options)).expect("same container");
 
         options.remux_format = Some("webm".to_owned());
-        assert!(matches!(
-            ensure_native_remux_policy(&stream, Some(&options)),
-            Err(NativeMediaTaskError::UnsupportedFeature(_))
-        ));
+        ensure_native_remux_policy(&stream, Some(&options))
+            .expect("native conversion performs runtime codec and muxer preflight");
     }
 
     #[test]
@@ -3650,7 +4498,7 @@ mod tests {
         );
         assert_eq!(
             ensure_native_output_name("custom.webm", Some("mp4")),
-            "custom.webm"
+            "custom.mp4"
         );
     }
 

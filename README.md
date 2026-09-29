@@ -6,7 +6,7 @@
 
 ### Native desktop control. Rust-powered transfers. Browser handoff.
 
-A modern, open-source download manager built around a **Qt 6 / QML / C++20 desktop UI**, a **Rust download runtime**, **libcurl multi**, optional **yt-dlp + FFmpeg** media workflows, and a **Manifest V3 browser companion**.
+A modern, open-source download manager built around a **Qt 6 / QML / C++20 desktop UI**, a **Rust download runtime**, **libcurl multi**, NOVA's in-process media and codec cores, and a **Manifest V3 browser companion**.
 
 [![NOVA Unified CI](https://github.com/Alaa91H/NOVADownloadManager/actions/workflows/nova-ci.yml/badge.svg)](https://github.com/Alaa91H/NOVADownloadManager/actions/workflows/nova-ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/Alaa91H/NOVADownloadManager?include_prereleases&sort=semver&label=release)](https://github.com/Alaa91H/NOVADownloadManager/releases/latest)
@@ -40,7 +40,7 @@ NOVA is designed as a **native desktop download manager with a separate, capabil
 | ⚡ | **Native transfer engine** | Direct downloads through linked `libcurl multi`, with runtime capability detection. |
 | 🧩 | **Multi-connection downloads** | Segmented byte-range transfers when the remote server supports Range requests. |
 | ⏯️ | **Pause & resume** | Checkpoint-aware resume paths that preserve owned partial download data when the server allows it. |
-| 🎬 | **Media workflows** | Optional `yt-dlp` analysis/download flows with FFmpeg post-processing where supported. |
+| 🎬 | **Native media workflows** | NOVA-owned extraction, playlist, HLS/DASH, mux, subtitle, and local conversion paths, with codec/container choices reported from the linked Rust registries. |
 | 🌐 | **Browser integration** | Manifest V3 companion for Chromium-family browsers and Firefox, paired with NOVA locally. |
 | 🗂️ | **Serious task management** | Queues, priorities, retries, categories, mirrors, checksums, bandwidth controls, rules, and schedules. |
 | 🔎 | **Focused desktop UX** | Search, filtering, sorting, configurable columns, task inspector, live metrics, and speed history. |
@@ -73,7 +73,7 @@ flowchart LR
     HOST -->|"Scoped local pairing"| CORE
 
     CORE --> CURL["libcurl multi<br/>Direct transfers"]
-    CORE --> MEDIA["yt-dlp + FFmpeg<br/>Media workflows"]
+    CORE --> MEDIA["NOVA Media Engine<br/>In-process Rust codecs"]
     CORE --> TASKS["Queues · Scheduler<br/>Rules · Persistence"]
     CORE --> GUARD["Capability & security<br/>validation"]
 ```
@@ -305,7 +305,7 @@ Useful starting points:
 
 NOVA Download Manager is released under the **[MIT License](LICENSE)**.
 
-Bundled or managed third-party components — including curl/libcurl, yt-dlp, and FFmpeg — remain subject to their respective licenses. See **[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)**.
+Bundled third-party components — including curl/libcurl and the vendored Rust media codec backend — remain subject to their respective licenses. See **[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)**.
 
 ---
 

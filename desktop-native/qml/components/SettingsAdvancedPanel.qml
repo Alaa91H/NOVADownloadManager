@@ -33,18 +33,6 @@ ScrollView {
         return String(settings.shortcutBindings[key] || "")
     }
 
-    function externalToolName(tool) {
-        return tool.name || tool.toolName || tool.toolId || tool.id || root.t("settings.unknownTool")
-    }
-
-    function externalToolId(tool) {
-        return String(tool.toolId || tool.id || "")
-    }
-
-    function externalToolStatus(tool) {
-        return String(tool.status || tool.installationStatus || root.t("settings.unknown"))
-    }
-
     function showNotice(message, error) {
         noticeText = message
         noticeError = error
@@ -63,8 +51,6 @@ ScrollView {
                 root.showNotice(root.t("settings.telegramTestOk"), false)
             else if (action === "telegram")
                 root.showNotice(root.t("settings.telegramSaved"), false)
-            else if (action === "external-tool")
-                root.showNotice(root.t("settings.externalToolUpdated") + " " + message, false)
         }
 
         function onRequestFailed(message) {
@@ -612,138 +598,6 @@ ScrollView {
                     }
                 }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    TextField {
-                        id: ffmpegPath
-                        Layout.fillWidth: true
-                        placeholderText: root.t("settings.ffmpegPath")
-                        Accessible.name: root.t("settings.ffmpegPath")
-                        text: String(root.advanced("ffmpegPath", ""))
-                        LayoutMirroring.enabled: false
-                        horizontalAlignment: Text.AlignLeft
-                        onEditingFinished: root.setAdvanced("ffmpegPath", text)
-                    }
-                    Button {
-                        text: root.t("common.browse")
-                        onClicked: {
-                            const path = desktop.chooseOpenFile(
-                                ffmpegPath.text,
-                                root.t("settings.executableFiles") + " (*)"
-                            )
-                            if (path.length > 0) {
-                                ffmpegPath.text = path
-                                root.setAdvanced("ffmpegPath", path)
-                                api.runExternalToolAction("ffmpeg", "set-path", path)
-                            }
-                        }
-                    }
-                    Switch {
-                        text: root.t("settings.ffmpegAutoMerge")
-                        checked: Boolean(root.advanced("ffmpegAutoMerge", true))
-                        onToggled: root.setAdvanced("ffmpegAutoMerge", checked)
-                    }
-                }
-            }
-        }
-
-        Rectangle {
-            Layout.fillWidth: true
-            implicitHeight: toolsColumn.implicitHeight + 28
-            radius: Theme.radiusMedium
-            color: Theme.surface
-            border.color: Theme.border
-
-            ColumnLayout {
-                id: toolsColumn
-                anchors.fill: parent
-                anchors.margins: 14
-                spacing: 9
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text {
-                        Layout.fillWidth: true
-                        text: root.t("settings.externalTools")
-                        color: Theme.textPrimary
-                        font.pixelSize: Theme.fontBody
-                        font.weight: Font.DemiBold
-                    }
-                    Button {
-                        text: root.t("action.refresh")
-                        enabled: api.connected
-                        onClicked: api.refreshExternalTools()
-                    }
-                }
-
-                Repeater {
-                    model: api.externalTools
-
-                    delegate: Rectangle {
-                        required property var modelData
-                        Layout.fillWidth: true
-                        implicitHeight: toolRow.implicitHeight + 14
-                        radius: Theme.radiusSmall
-                        color: Theme.surfaceRaised
-                        border.color: Theme.border
-
-                        RowLayout {
-                            id: toolRow
-                            anchors.fill: parent
-                            anchors.margins: 7
-                            spacing: 7
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                Text {
-                                    text: root.externalToolName(modelData)
-                                    color: Theme.textPrimary
-                                    font.pixelSize: Theme.fontSmall
-                                    font.weight: Font.DemiBold
-                                }
-                                Text {
-                                    text: root.externalToolStatus(modelData)
-                                        + (modelData.version ? " · " + modelData.version : "")
-                                    color: Theme.textMuted
-                                    font.pixelSize: Theme.fontTiny
-                                }
-                            }
-
-                            Button {
-                                text: root.t("settings.discover")
-                                onClicked: api.runExternalToolAction(root.externalToolId(modelData), "discover")
-                            }
-                            Button {
-                                text: root.t("settings.health")
-                                onClicked: api.runExternalToolAction(root.externalToolId(modelData), "health")
-                            }
-                            Button {
-                                text: root.t("settings.checkUpdates")
-                                onClicked: api.runExternalToolAction(root.externalToolId(modelData), "check-updates")
-                            }
-                            Button {
-                                text: root.t("settings.install")
-                                onClicked: api.runExternalToolAction(root.externalToolId(modelData), "install")
-                            }
-                            Button {
-                                text: root.t("settings.update")
-                                onClicked: api.runExternalToolAction(root.externalToolId(modelData), "update")
-                            }
-                            Button {
-                                text: root.t("settings.setPath")
-                                onClicked: {
-                                    const path = desktop.chooseOpenFile("", root.t("settings.executableFiles") + " (*)")
-                                    if (path.length > 0)
-                                        api.runExternalToolAction(root.externalToolId(modelData), "set-path", path)
-                                }
-                            }
-                            Button {
-                                text: root.t("settings.uninstall")
-                                onClicked: api.runExternalToolAction(root.externalToolId(modelData), "uninstall")
-                            }
-                        }
-                    }
-                }
             }
         }
 
@@ -983,9 +837,6 @@ ScrollView {
                                             : 0
                                     )
                                     api.setLogLevel(String(a.logLevel || "info"))
-                                    const ffmpeg = String(a.ffmpegPath || "").trim()
-                                    if (ffmpeg.length > 0)
-                                        api.runExternalToolAction("ffmpeg", "set-path", ffmpeg)
                                 }
                                 root.showNotice(
                                     ok ? root.t("settings.importSuccess") : root.t("settings.importFailed"),

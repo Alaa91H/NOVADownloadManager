@@ -39,7 +39,6 @@ import { formatBytes } from '../initialData';
 import { useEngineCapabilities } from '../capabilities/EngineCapabilityContext';
 import type { AppSettings } from '../types/desktop-ui.types';
 import { formatDuration, bestVideoFormat, resolutionLabel, type AdvancedTab } from '../components/media/mediaHelpers';
-import { EngineStatusBar } from '../components/media/EngineStatusBar';
 import { AdvancedTabs, type AdvancedState } from '../components/media/AdvancedTabs';
 import { QualityGrid, type QualityOption } from '../components/media/QualityGrid';
 import { AudioGrid, type AudioOption } from '../components/media/AudioGrid';
@@ -66,7 +65,6 @@ export const MediaDownloadPage: React.FC = () => {
   const [savePath, setSavePath] = useState<string>(settings.saveAndCategories.defaultFolder || '');
   const [quality, setQuality] = useState<string>(settings.extra.videoQuality || 'best');
   const [audioFormat, setAudioFormat] = useState<string>('m4a');
-  const [ffmpegEnabled, setFfmpegEnabled] = useState<boolean>(settings.extra.ffmpegAutoMerge || false);
   const [convertBitrate, setConvertBitrate] = useState<string>(
     ((settings.extra as Record<string, unknown>).convertBitrate as string) || '320k',
   );
@@ -123,7 +121,6 @@ export const MediaDownloadPage: React.FC = () => {
   } | null>(null);
   const [isProbing, setIsProbing] = useState(false);
   const [probeError, setProbeError] = useState('');
-  const [ffmpegProbe, setFfmpegProbe] = useState<boolean | null>(null);
 
   /* -- playlist state -- */
   const [playlistResult, setPlaylistResult] = useState<{ title: string; entries: MediaPlaylistEntry[] } | null>(null);
@@ -160,21 +157,6 @@ export const MediaDownloadPage: React.FC = () => {
       }
     };
   }, [settings.extra.preventClipboardHistory]);
-
-  /* -- FFmpeg availability check -- */
-  useEffect(() => {
-    if (engineCapabilities.postProcessingReady) return;
-    novaClient
-      .checkFfmpeg()
-      .then((r) => {
-        setFfmpegProbe(r.available);
-      })
-      .catch(() => {
-        setFfmpegProbe(false);
-      });
-  }, [engineCapabilities.postProcessingReady]);
-
-  const ffmpegAvailable: boolean | null = engineCapabilities.postProcessingReady ? true : ffmpegProbe;
 
   /* -- probe logic -- */
   const doProbe = useCallback(
@@ -252,7 +234,7 @@ export const MediaDownloadPage: React.FC = () => {
   const isProbingAny = isProbing || isProbingPlaylist;
   const mediaEngineReady = engineCapabilities.mediaExtractionReady;
 
-  const requiresFfmpeg = (() => {
+  const requiresNativeMux = (() => {
     if (!probeResult || saveMode === 'audio') return true;
     if (quality === 'best') return true;
     const height = parseInt(quality, 10);
@@ -270,7 +252,7 @@ export const MediaDownloadPage: React.FC = () => {
       label: 'Best Quality Available',
       size: '',
       sizeBytes: 0,
-      needsFfmpeg: true,
+      needsTranscode: true,
       codecInfo: '',
       height: 0,
       fps: 0,
@@ -288,7 +270,7 @@ export const MediaDownloadPage: React.FC = () => {
           label: resolutionLabel(h),
           size: '',
           sizeBytes: 0,
-          needsFfmpeg: true,
+          needsTranscode: true,
           codecInfo: '',
           height: h,
           fps: 0,
@@ -314,7 +296,7 @@ export const MediaDownloadPage: React.FC = () => {
         label: resolutionLabel(fmt.height),
         size: fileSize ? formatBytes(fileSize) : '',
         sizeBytes: fileSize,
-        needsFfmpeg: !hasAudio,
+        needsTranscode: !hasAudio,
         codecInfo: fmt.vcodec.split('.')[0] || '',
         height: fmt.height,
         fps: fmt.fps || 0,
@@ -332,7 +314,7 @@ export const MediaDownloadPage: React.FC = () => {
       {
         value: 'mp3',
         label: 'MP3',
-        needsFfmpeg: true,
+        needsTranscode: true,
         bitrate: '320kbps',
         sizeBytes: 0,
         ext: 'mp3',
@@ -341,7 +323,7 @@ export const MediaDownloadPage: React.FC = () => {
       {
         value: 'm4a',
         label: 'M4A',
-        needsFfmpeg: false,
+        needsTranscode: false,
         bitrate: '',
         sizeBytes: 0,
         ext: 'm4a',
@@ -350,7 +332,7 @@ export const MediaDownloadPage: React.FC = () => {
       {
         value: 'flac',
         label: 'FLAC',
-        needsFfmpeg: true,
+        needsTranscode: true,
         bitrate: '',
         sizeBytes: 0,
         ext: 'flac',
@@ -359,7 +341,7 @@ export const MediaDownloadPage: React.FC = () => {
       {
         value: 'wav',
         label: 'WAV',
-        needsFfmpeg: true,
+        needsTranscode: true,
         bitrate: '',
         sizeBytes: 0,
         ext: 'wav',
@@ -380,7 +362,7 @@ export const MediaDownloadPage: React.FC = () => {
           opts.push({
             value: key,
             label: f.ext.toUpperCase(),
-            needsFfmpeg: false,
+            needsTranscode: false,
             bitrate: abr,
             sizeBytes: f.filesize || f.filesizeApprox || 0,
             ext: key,
@@ -505,7 +487,7 @@ export const MediaDownloadPage: React.FC = () => {
 
       const mediaMuxReady =
         engineCapabilities.nativeMuxReady || engineCapabilities.postProcessingReady;
-      const effectiveQuality = requiresFfmpeg && !mediaMuxReady ? 'best' : quality;
+      const effectiveQuality = requiresNativeMux && !mediaMuxReady ? 'best' : quality;
 
       const {
         mediaProxy,
@@ -543,8 +525,6 @@ export const MediaDownloadPage: React.FC = () => {
         formatSelector: formatSelectorOverride.trim() || undefined,
         formatSort: formatSort.trim() || undefined,
         audioFormat,
-        ffmpegEnabled: ffmpegEnabled && engineCapabilities.postProcessingReady,
-        ffmpegLocation: settings.extra.ffmpegPath.trim() || undefined,
         bitrate: convertBitrate,
         outputTemplate,
         subtitles: downloadSubtitles,
@@ -644,7 +624,7 @@ export const MediaDownloadPage: React.FC = () => {
           status: 'downloading',
           savePath,
           queueId: 'main',
-          description: `Media ${saveMode} request: quality=${quality}, ffmpeg=${ffmpegEnabled ? 'enabled' : 'disabled'}, output=${outputTemplate}`,
+          description: `Media ${saveMode} request: quality=${quality}, native-codecs=${engineCapabilities.postProcessingReady ? 'available' : 'unavailable'}, output=${outputTemplate}`,
           connections: 0,
           resumable: true,
           mediaOptions,
@@ -705,30 +685,24 @@ export const MediaDownloadPage: React.FC = () => {
           </span>
           <span
             className={`flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full border ${
-              ffmpegAvailable
+              engineCapabilities.postProcessingReady
                 ? 'text-[var(--success)] bg-[var(--success-bg)] border-[var(--success-border)]'
                 : 'text-[var(--text-muted)] bg-[var(--bg-hover)] border-[var(--border-color)]'
             }`}
           >
             <Code className="w-2.5 h-2.5" />
-            FFmpeg
+            NOVA Codec Core
           </span>
         </div>
       </div>
 
       {/* --------------------- ENGINE WARNINGS --------------------- */}
-      {(!engineCapabilities.mediaExtractionReady || !engineCapabilities.postProcessingReady) && (
+      {!engineCapabilities.mediaExtractionReady && (
         <div className="shrink-0 px-4 pt-2.5 space-y-1.5">
           {!engineCapabilities.mediaExtractionReady && (
             <div className="flex items-center gap-2 rounded-lg border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2 text-[11px] text-[var(--text-primary)]">
               <AlertCircle className="w-3.5 h-3.5 shrink-0" />
               {t('media_engine_not_ready')}
-            </div>
-          )}
-          {engineCapabilities.mediaExtractionReady && !engineCapabilities.postProcessingReady && (
-            <div className="flex items-center gap-2 rounded-lg border border-[var(--warning)]/30 bg-[var(--warning-bg)] px-3 py-2 text-[11px] text-[var(--text-primary)]">
-              <Info className="w-3.5 h-3.5 shrink-0" />
-              {t('media_ffmpeg_not_ready')}
             </div>
           )}
         </div>
@@ -763,13 +737,6 @@ export const MediaDownloadPage: React.FC = () => {
                   id="page-path"
                 />
               </div>
-
-              <EngineStatusBar
-                engineCapabilities={engineCapabilities}
-                ffmpegAvailable={ffmpegAvailable}
-                ffmpegEnabled={ffmpegEnabled}
-                onFfmpegEnabledChange={setFfmpegEnabled}
-              />
 
               <div
                 className={`p-3 rounded-xl border ${openPanel === 'advanced' ? 'border-[var(--info-border)] bg-[var(--info-bg)]/6' : 'bg-[var(--bg-hover)]/20 border-[var(--border-color)]/30'}`}
@@ -908,10 +875,8 @@ export const MediaDownloadPage: React.FC = () => {
                           }}
                           selectedFormat={selectedFormat}
                           selectedFormatSize={selectedFormatSize}
-                          requiresFfmpeg={requiresFfmpeg}
-                          ffmpegAvailable={
-                            engineCapabilities.nativeMuxReady || ffmpegAvailable === true
-                          }
+                          requiresNativeMux={requiresNativeMux}
+                          nativeMuxAvailable={engineCapabilities.nativeMuxReady || engineCapabilities.postProcessingReady}
                           mediaReady={engineCapabilities.mediaExtractionReady}
                           onOpenEnginesSettings={() => {
                             openDialog('settings');
@@ -951,7 +916,7 @@ export const MediaDownloadPage: React.FC = () => {
                           options={dynamicAudioOptions}
                           audioFormat={audioFormat}
                           onAudioFormatChange={setAudioFormat}
-                          ffmpegEnabled={ffmpegEnabled}
+                          nativeCodecProcessingAvailable={engineCapabilities.postProcessingReady}
                           convertBitrate={convertBitrate}
                           onBitrateChange={setConvertBitrate}
                         />
@@ -1147,12 +1112,6 @@ export const MediaDownloadPage: React.FC = () => {
               {totalSize > 0 && (
                 <span className="text-[var(--info)] ml-1 font-semibold">• {formatBytes(totalSize)}</span>
               )}
-            </span>
-          )}
-          {requiresFfmpeg && !ffmpegAvailable && (
-            <span className="flex items-center gap-1 text-[10px] text-[var(--warning)]">
-              <Info className="w-3 h-3 shrink-0" />
-              {t('media_ffmpeg_missing')}
             </span>
           )}
         </div>

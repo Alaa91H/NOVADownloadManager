@@ -545,6 +545,7 @@ pub(crate) mod tests {
             native_media_jobs: Mutex::new(HashMap::new()),
             torrent_jobs: Mutex::new(HashMap::new()),
             torrent_analyses: Mutex::new(HashMap::new()),
+            torrent_task_creation_gate: tokio::sync::Mutex::new(()),
             curl_jobs: Mutex::new(HashMap::new()),
             task_snapshot: Mutex::new(HashMap::new()),
             capture_reviews: Mutex::new(std::collections::VecDeque::new()),

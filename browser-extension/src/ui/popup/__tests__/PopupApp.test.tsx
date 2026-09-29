@@ -82,7 +82,7 @@ function setupRuntime(options: { candidates?: ReturnType<typeof youtubeCandidate
             hasAudio: false,
           }],
         });
-      case 'ADD_YTDLP_MEDIA':
+      case 'ADD_MEDIA':
         return Promise.resolve({ ok: true, accepted, message: accepted ? undefined : 'NOVA rejected the selected format.' });
       default:
         return Promise.resolve({});
@@ -158,14 +158,15 @@ describe('PopupApp (video capture)', () => {
     await waitFor(() => expect(document.querySelector('.nova-analyze-panel .nova-quality-download')).toBeTruthy());
     fireEvent.click(document.querySelector('.nova-analyze-panel .nova-quality-download')!);
 
-    await waitFor(() => expect(callsOf('ADD_YTDLP_MEDIA')).toHaveLength(1));
-    expect(callsOf('ADD_YTDLP_MEDIA')[0]).toMatchObject({
-      type: 'ADD_YTDLP_MEDIA',
+    await waitFor(() => expect(callsOf('ADD_MEDIA')).toHaveLength(1));
+    expect(callsOf('ADD_MEDIA')[0]).toMatchObject({
+      type: 'ADD_MEDIA',
       url: watchUrl,
       pageUrl: watchUrl,
-      selectedFormat: { formatId: '137' },
-      drmProtected: false,
+      formatId: '137',
     });
+    expect(JSON.stringify(callsOf('ADD_MEDIA')[0])).not.toContain(transientCdnUrl);
+    expect(callsOf('ADD_MEDIA')[0]).not.toHaveProperty('selectedFormat');
     expect(callsOf('DOWNLOAD_DIRECT')).toHaveLength(0);
     await waitFor(() => expect(screen.getByText('Queued 1 item(s) for handoff.')).toBeTruthy());
   });
@@ -230,7 +231,7 @@ describe('PopupApp (video capture)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Resolve via NOVA' }));
 
     await waitFor(() => expect(screen.getByText('NOVA did not report any qualities.')).toBeTruthy());
-    expect(callsOf('ADD_YTDLP_MEDIA')).toHaveLength(0);
+    expect(callsOf('ADD_MEDIA')).toHaveLength(0);
   });
 
   it('does not report success when NOVA rejects the selected managed-media format', async () => {

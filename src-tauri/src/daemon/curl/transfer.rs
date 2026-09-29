@@ -22,9 +22,11 @@ use crate::daemon::direct::{FileWriter, RetryPolicy, SegmentPlanner, SegmentRang
 use crate::daemon::engine::config::global_config;
 use crate::daemon::engine::policy_engine::{DecisionCategory, DecisionContext};
 use crate::daemon::postprocess::{
-    FfmpegPostProcessor, MediaPostProcessor, MediaSubtitleEmbedRequest, PostProcessError,
-    MEDIA_SUBTITLE_EMBED_OPTION,
+    embed_subtitles_with_native_codecs, transcode_with_native_codecs,
+    MediaSubtitleEmbedRequest, MediaTranscodeRequest, PostProcessError,
+    MEDIA_SUBTITLE_EMBED_OPTION, MEDIA_TRANSCODE_OPTION,
 };
+use nova_media_core::processing::MediaProcessingControl;
 use crate::daemon::state::SharedState;
 use crate::daemon::types::{transition_task_state, CurlJob, Segment, TaskState};
 use crate::daemon::utils::{build_segments, now_str};
@@ -3039,6 +3041,18 @@ fn decode_media_subtitle_embed_plan(
     Ok(request)
 }
 
+fn decode_media_transcode_plan(
+    value: serde_json::Value,
+    output_path: &Path,
+) -> Result<MediaTranscodeRequest, String> {
+    let request: MediaTranscodeRequest = serde_json::from_value(value)
+        .map_err(|error| format!("Invalid native media transcode plan: {error}"))?;
+    if request.media_path != output_path {
+        return Err("Native media transcode plan does not target this task output".to_owned());
+    }
+    Ok(request)
+}
+
 pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, generation: u64) {
     // C-3 + lifecycle gate: verify generation and enter Verifying BEFORE any
     // terminal side effects. A worker can no longer jump directly from
@@ -3047,6 +3061,7 @@ pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, g
     let (
         output_path,
         expected_digest,
+        transcode_value,
         subtitle_embed_value,
         cancel_token,
         run_generation,
@@ -3072,6 +3087,7 @@ pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, g
                 .get("digestSha256")
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_owned),
+            job.direct_options.get(MEDIA_TRANSCODE_OPTION).cloned(),
             job.direct_options.get(MEDIA_SUBTITLE_EMBED_OPTION).cloned(),
             job.cancel_token.clone(),
             job.run_generation.clone(),
@@ -3126,6 +3142,49 @@ pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, g
     state.mark_dirty();
 
     let mut committed_size = final_size;
+    if let Some(value) = transcode_value {
+        let request = match decode_media_transcode_plan(value, &output_path) {
+            Ok(request) => request,
+            Err(error) => {
+                log::error!("Task {id}: invalid native media transcode plan: {error}");
+                mark_curl_task_failed(state, id, error, false, generation);
+                return;
+            }
+        };
+        let should_cancel = || {
+            run_generation.load(Ordering::Acquire) != generation
+                || cancel_token.load(Ordering::Acquire)
+        };
+        let processing_control = || {
+            if run_generation.load(Ordering::Acquire) != generation {
+                MediaProcessingControl::Cancel
+            } else if cancel_token.load(Ordering::Acquire) {
+                MediaProcessingControl::Pause
+            } else {
+                MediaProcessingControl::Continue
+            }
+        };
+        match transcode_with_native_codecs(&request, &processing_control, &|_| {}) {
+            Ok(bytes) => committed_size = bytes,
+            Err(PostProcessError::Cancelled) if should_cancel() => {
+                if run_generation.load(Ordering::Acquire) == generation {
+                    mark_curl_task_failed(
+                        state,
+                        id,
+                        "Media conversion was paused during finalization".to_owned(),
+                        true,
+                        generation,
+                    );
+                }
+                return;
+            }
+            Err(error) => {
+                mark_curl_task_failed(state, id, error.to_string(), false, generation);
+                return;
+            }
+        }
+    }
+
     if let Some(value) = subtitle_embed_value {
         let request = match decode_media_subtitle_embed_plan(value, &output_path) {
             Ok(request) => request,
@@ -3153,19 +3212,16 @@ pub fn mark_curl_task_finished(state: &SharedState, id: &str, final_size: u64, g
             return;
         }
 
-        let postprocessor = FfmpegPostProcessor::new(state.ffmpeg_binary());
-        if !postprocessor.is_available() {
-            mark_curl_task_failed(
-                state,
-                id,
-                "NOVA subtitle post-processor became unavailable during finalization".to_owned(),
-                false,
-                generation,
-            );
-            return;
-        }
-
-        match postprocessor.embed_subtitles(&request, &should_cancel) {
+        let processing_control = || {
+            if run_generation.load(Ordering::Acquire) != generation {
+                MediaProcessingControl::Cancel
+            } else if cancel_token.load(Ordering::Acquire) {
+                MediaProcessingControl::Pause
+            } else {
+                MediaProcessingControl::Continue
+            }
+        };
+        match embed_subtitles_with_native_codecs(&request, &processing_control, &|_| {}) {
             Ok(bytes) => {
                 if let Err(error) = validate_completed_output(&output_path, bytes) {
                     log::error!("Task {id}: embedded output failed completion validation: {error}");

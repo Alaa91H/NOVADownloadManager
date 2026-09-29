@@ -26,13 +26,13 @@ The implemented first step is an **incremental extraction**, not a port of the d
 | Desktop API / local daemon | `daemon/mod.rs`, `routes/*`, `static_files.rs` | **Desktop-only transport** | Axum loopback server, CORS/browser-origin logic, bearer-token middleware, SPA assets, port-file discovery, and SSE endpoints are not Android application architecture. |
 | Tauri shell | `src-tauri/src/lib.rs`, Tauri plugins | **Desktop-only** | Window, tray, updater, shell, single-instance, desktop dialog, and clipboard plugin setup belong to the desktop host. |
 | Browser extension | `browser-extension/*`, `native_host/*` | **Replace with Android share/intent adapter** | Native Messaging and loopback pairing do not map to Android; `ACTION_SEND`/deep links are the Android input surface. |
-| External tools / media | `external_tools/*`, `ytdlp.rs`, subprocess invocations | **Separate Android media adapter** | Desktop executable paths, `PATH` discovery, package installers, and subprocess assumptions cannot be reused as-is on Android. |
+| Media processing | `nova-media-core`, `nova-media-processing-core`; optional legacy tool manager | **Android task adapter** | Android needs typed task controls and lifecycle/storage integration; desktop media executable discovery is not part of the native media route. |
 | Telegram automation | `telegram.rs` | **Defer / evaluate separately** | It is daemon-oriented and network-lifecycle dependent; do not start it inside the initial Android download service. |
 | Credential store | `keyring` in `src-tauri/src/lib.rs` | **Android adapter** | Android must use platform-backed secure storage; no desktop keyring behavior may leak into mobile. |
 
 ## Existing composition problem
 
-The current `AppState` is a desktop daemon composition root. It owns live curl/media job maps, an Axum HTTP client, filesystem data/resource directories, ffmpeg/yt-dlp executable paths, a bearer token for the loopback API, external-tool installation, watchdog threads, scheduler state, and download policy. `start_daemon()` also binds `127.0.0.1`, writes a port file, restores state, starts persistence and automation, registers Axum routes, and handles process signals.
+The current `AppState` is a desktop daemon composition root. It owns live curl/media job maps, an Axum HTTP client, filesystem data/resource directories, an optional legacy external-tool manager, a bearer token for the loopback API, watchdog threads, scheduler state, and download policy. Media extraction, transfer, mux, subtitles, and conversion use NOVA's Rust cores; media task paths do not invoke external executables. `start_daemon()` also binds `127.0.0.1`, writes a port file, restores state, starts persistence and automation, registers Axum routes, and handles process signals.
 
 That structure is appropriate for the desktop app but must **not** be passed through JNI or UniFFI. Android must instead compose an Android host around an extracted core session. The Kotlin layer must never create or manipulate `AppState`, `Router`, Tauri types, or private engine internals.
 
@@ -131,7 +131,7 @@ Each request/result must have an explicit schema version. Progress emission must
 | Desktop notifications / tray | Tauri shell/tray | Android notification channels/actions | Android-only implementation |
 | Browser extension capture | Browser extension + native host + local daemon | Share intent / text URL extraction / verified deep link | Android-specific replacement |
 | Native host pairing | Desktop native host | Not applicable | Desktop-only |
-| yt-dlp/FFmpeg executables | External tools + subprocesses | Separate, capability-gated Android media backend | Deferred; no parity claim |
+| Android native media tasks | Shared extractor/codec crates | Typed media API plus lifecycle and storage integration | Resolver exists; end-to-end task support deferred |
 | Telegram bot | daemon automation | Defer until background/policy review | Deferred |
 | Desktop updater/window/shell | Tauri plugins | Play / Android update distribution, Activities | Desktop-only behavior |
 | Diagnostics/log export | daemon diagnostics/logging | Redacted Android diagnostics and share sheet | Requires adapter |
@@ -168,7 +168,7 @@ Sensitive headers, cookies, tokens, and credentials must never be serialized in 
 
 - The desktop Axum daemon is not an Android service design and will not be embedded unchanged.
 - The Android foundation builds a debug APK and its current JVM tests pass; an ARM64 `cdylib` link proof also passes. No emulator or physical Android device has been used, and no actual download, runtime native load, background operation, storage operation, or notification action has been tested.
-- yt-dlp and FFmpeg must not be treated as desktop executable paths on Android. Their legal, packaging, binary-size, execution, and policy constraints require a dedicated subsequent design.
+- Android media must use the shared Rust engine through typed task APIs; linking the crate without transfer, lifecycle, storage, and device acceptance does not establish feature parity.
 - Feature parity is a roadmap metric, not a current claim. The first releasable Android slice should support only capabilities that have a typed bridge, durable recovery, Android-compliant execution, and real-device validation.
 
 ## References
