@@ -567,16 +567,16 @@ pub fn build_dash_representation_plan(
             return Err(DashPlanError::MissingSegmentTiming);
         }
 
-        let total_millis = period_duration_millis
-            .ok_or(DashPlanError::MissingPresentationDuration)?;
+        let total_millis =
+            period_duration_millis.ok_or(DashPlanError::MissingPresentationDuration)?;
         let numerator = u128::from(total_millis) * u128::from(timescale);
         let denominator = u128::from(segment_duration) * 1000;
         let segment_count = numerator.saturating_add(denominator.saturating_sub(1)) / denominator;
         if segment_count > MAX_DASH_TRANSFER_UNITS as u128 {
             return Err(DashPlanError::TooManyTransferUnits);
         }
-        let segment_count = usize::try_from(segment_count)
-            .map_err(|_| DashPlanError::TooManyTransferUnits)?;
+        let segment_count =
+            usize::try_from(segment_count).map_err(|_| DashPlanError::TooManyTransferUnits)?;
         if units.len() > MAX_DASH_TRANSFER_UNITS
             || segment_count > MAX_DASH_TRANSFER_UNITS - units.len()
         {
@@ -584,8 +584,7 @@ pub fn build_dash_representation_plan(
         }
 
         for offset in 0..segment_count {
-            let offset =
-                u64::try_from(offset).map_err(|_| DashPlanError::TooManyTransferUnits)?;
+            let offset = u64::try_from(offset).map_err(|_| DashPlanError::TooManyTransferUnits)?;
             let number = start_number.saturating_add(offset);
             let rendered =
                 render_dash_template(media_template, representation, Some(number), None)?;
@@ -1107,13 +1106,7 @@ mod tests {
         .expect("DASH manifest");
 
         assert_eq!(
-            build_dash_representation_plan(
-                &manifest,
-                "https://cdn.test/manifest.mpd",
-                0,
-                0,
-                0,
-            ),
+            build_dash_representation_plan(&manifest, "https://cdn.test/manifest.mpd", 0, 0, 0,),
             Err(DashPlanError::TooManyTransferUnits)
         );
     }
@@ -1131,13 +1124,7 @@ mod tests {
         .expect("DASH manifest");
 
         assert_eq!(
-            build_dash_representation_plan(
-                &manifest,
-                "https://cdn.test/manifest.mpd",
-                0,
-                0,
-                0,
-            ),
+            build_dash_representation_plan(&manifest, "https://cdn.test/manifest.mpd", 0, 0, 0,),
             Err(DashPlanError::TooManyTransferUnits)
         );
     }
@@ -1206,14 +1193,9 @@ mod tests {
         )
         .expect("DASH manifest");
 
-        let plan = build_dash_representation_plan(
-            &manifest,
-            "https://cdn.test/manifest.mpd",
-            1,
-            0,
-            0,
-        )
-        .expect("period duration from next start");
+        let plan =
+            build_dash_representation_plan(&manifest, "https://cdn.test/manifest.mpd", 1, 0, 0)
+                .expect("period duration from next start");
 
         assert_eq!(plan.units.len(), 2);
         assert_eq!(plan.units[0].url, "https://cdn.test/audio-1.m4s");
