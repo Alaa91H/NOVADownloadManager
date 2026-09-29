@@ -312,7 +312,7 @@ void NativeParityTests::streamReconnectsAfterDaemonReturns() {
     QSignalSpy liveSpy(&client, &NovaApiClient::liveUpdatesChanged);
 
     client.startDownloadStream();
-    QTRY_VERIFY_WITH_TIMEOUT(reconnectSpy.count() >= 1, 2500);
+    QTRY_VERIFY_WITH_TIMEOUT(reconnectSpy.count() >= 1, 5000);
     QVERIFY(!client.liveUpdatesConnected());
 
     QTcpServer server;

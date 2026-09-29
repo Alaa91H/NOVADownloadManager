@@ -11,8 +11,8 @@ pub mod control_plane;
 pub use control_plane::{
     BatchMode, CapabilityStatus, CommandEnvelope, CommandScope, ControlCommand, ControlEvent,
     ControlPlaneCapability, ControlQuery, Principal, QueryEnvelope, QueryPage, StructuredError,
-    TaskQueryFilter, CONTROL_PLANE_CAPABILITIES, CONTROL_PLANE_CAPABILITY_REGISTRY_VERSION,
-    CONTROL_PLANE_CONTRACT_VERSION, CONTROL_EVENT_SCHEMA_VERSION, CONTROL_EVENT_TYPES,
+    TaskQueryFilter, CONTROL_EVENT_SCHEMA_VERSION, CONTROL_EVENT_TYPES, CONTROL_PLANE_CAPABILITIES,
+    CONTROL_PLANE_CAPABILITY_REGISTRY_VERSION, CONTROL_PLANE_CONTRACT_VERSION,
     MAX_COMMAND_BATCH_SIZE,
 };
 
