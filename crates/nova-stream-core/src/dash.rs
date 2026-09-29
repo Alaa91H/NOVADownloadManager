@@ -665,7 +665,7 @@ fn dash_period_duration_millis(manifest: &DashManifest, period_index: usize) -> 
         .and_then(parse_iso8601_duration_millis)
         .or_else(|| {
             (period_index + 1 == manifest.periods.len())
-                .then(|| manifest.media_presentation_duration.as_deref())
+                .then_some(manifest.media_presentation_duration.as_deref())
                 .flatten()
                 .and_then(parse_iso8601_duration_millis)
         })?;
