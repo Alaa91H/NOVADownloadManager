@@ -5762,8 +5762,8 @@ mod tests {
             true,
             Some(42_000),
             Some("m4a"),
-            Some("mp4a.40.2"),
             None,
+            Some("mp4a.40.2"),
         )
         .expect("build transcode plan")
         .expect("MP3 conversion plan");

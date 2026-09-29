@@ -623,6 +623,8 @@ pub(crate) mod tests {
             "g1".to_string(),
             sample_task("g1", "libcurl-multi", "downloading"),
         );
+        let queue = serde_json::json!({"id": "downloads", "name": "Downloads"});
+        state.queue_catalog.lock().unwrap().push(queue.clone());
         state
             .task_snapshot
             .lock()
@@ -664,7 +666,8 @@ pub(crate) mod tests {
         let loaded = load(&dir_str);
 
         assert_eq!(loaded.tasks.len(), 2);
-        assert_eq!(loaded.version, 3);
+        assert_eq!(loaded.version, 4);
+        assert_eq!(loaded.queue_catalog, vec![queue]);
         let checkpoint = loaded
             .recovery_checkpoints
             .get("c1")
