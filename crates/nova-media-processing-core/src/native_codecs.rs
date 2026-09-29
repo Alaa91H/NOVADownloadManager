@@ -75,11 +75,10 @@ pub fn native_media_codec_capabilities() -> NativeMediaCodecCapabilities {
                             || format.mux_caps.accepts_media(MediaType::Audio))
                 })
                 .filter(|format| {
-                    engine.codecs.iter().any(|codec| {
-                        codec.media_type == MediaType::Subtitle
-                            && codec.can_encode()
-                            && format_accepts_subtitle_codec(&engine, format.name, codec.id)
-                    })
+                    format
+                        .mux_caps
+                        .codecs_for(MediaType::Subtitle)
+                        .any(|codec| format_accepts_subtitle_codec(&engine, format.name, codec))
                 })
                 .flat_map(|format| {
                     format
@@ -871,18 +870,16 @@ fn subtitle_output_target(
                 "the bundled text-subtitle muxer does not support '.{extension}'"
             ))
         })?;
-    let codec = engine
-        .codecs
-        .iter()
-        .filter(|codec| codec.media_type == MediaType::Subtitle && codec.can_encode())
-        .filter(|codec| format_accepts_subtitle_codec(engine, format.name, codec.id))
-        .min_by_key(|codec| codec.name)
+    let codec = format
+        .mux_caps
+        .codecs_for(MediaType::Subtitle)
+        .find(|codec| format_accepts_subtitle_codec(engine, format.name, *codec))
         .ok_or_else(|| {
             MediaProcessingError::UnsupportedCodec(format!(
-                "subtitle container '.{extension}' has no registered native subtitle encoder"
+                "subtitle container '.{extension}' has no registered native text-subtitle codec"
             ))
         })?;
-    Ok((format.name.to_owned(), codec.id))
+    Ok((format.name.to_owned(), codec))
 }
 
 fn ensure_nonempty_local_file(path: &Path, label: &str) -> Result<u64, MediaProcessingError> {
@@ -1326,8 +1323,9 @@ mod tests {
         assert!(!capabilities.subtitle_containers.is_empty());
         for extension in &capabilities.subtitle_containers {
             let (format, codec) = subtitle_output_target(extension, &engine).unwrap();
-            assert!(engine.formats.by_name(&format).is_some());
-            assert!(engine.codecs.find_encoder(codec).is_ok());
+            let format = engine.formats.by_name(&format).expect("registered output format");
+            assert!(format.mux_caps.accepts(codec));
+            assert!(format_accepts_subtitle_codec(&engine, format.name, codec));
         }
         assert_eq!(input_format_name("flv").as_deref(), Some("flv"));
         assert_eq!(input_format_name("opus").as_deref(), Some("ogg"));
