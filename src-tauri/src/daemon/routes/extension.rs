@@ -2107,9 +2107,13 @@ mod tests {
     fn review_test_state() -> SharedState {
         let path =
             std::env::temp_dir().join(format!("nova-capture-review-{}", uuid::Uuid::new_v4()));
-        Arc::new(crate::daemon::persist::tests::test_state(
-            &path.display().to_string(),
-        ))
+        let mut state = crate::daemon::persist::tests::test_state(&path.display().to_string());
+        let mut extractors = crate::daemon::engine::extractor::ExtractorRegistry::new();
+        extractors.register(Arc::new(crate::daemon::curl::CurlExtractor));
+        extractors.register(Arc::new(crate::daemon::native_media::NativeMediaExtractor));
+        state.extractor_registry =
+            crate::daemon::engine::extractor::SharedExtractorRegistry::new(extractors);
+        Arc::new(state)
     }
 
     #[test]
